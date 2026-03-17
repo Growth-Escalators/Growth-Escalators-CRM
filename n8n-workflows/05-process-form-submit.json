@@ -1,0 +1,113 @@
+{
+  "name": "05 - Process Form Submit",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "node-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "f1", "name": "jobId", "value": "={{ $json.id }}", "type": "string" },
+            { "id": "f2", "name": "tenantId", "value": "={{ $json.tenant_id }}", "type": "string" },
+            { "id": "f3", "name": "name", "value": "={{ $json.payload.name ?? 'Unknown' }}", "type": "string" },
+            { "id": "f4", "name": "firstName", "value": "={{ ($json.payload.name ?? 'Unknown').split(' ')[0] }}", "type": "string" },
+            { "id": "f5", "name": "lastName", "value": "={{ ($json.payload.name ?? '').split(' ').slice(1).join(' ') }}", "type": "string" },
+            { "id": "f6", "name": "phone", "value": "={{ $json.payload.phone }}", "type": "string" },
+            { "id": "f7", "name": "email", "value": "={{ $json.payload.email }}", "type": "string" },
+            { "id": "f8", "name": "source", "value": "={{ $json.payload.source ?? 'tally_form' }}", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-extract",
+      "name": "Extract Form Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://web-production-311da.up.railway.app/contacts",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "tenantId", "value": "={{ $json.tenantId }}" },
+            { "name": "firstName", "value": "={{ $json.firstName }}" },
+            { "name": "lastName", "value": "={{ $json.lastName }}" },
+            { "name": "source", "value": "={{ $json.source }}" },
+            {
+              "name": "channels",
+              "value": "={{ JSON.stringify([$json.phone ? {channelType:'whatsapp',channelValue:$json.phone} : null, $json.email ? {channelType:'email',channelValue:$json.email} : null].filter(Boolean)) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-create-contact",
+      "name": "Find or Create Contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://web-production-311da.up.railway.app/sequences/enrol",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "tenantId", "value": "={{ $('Extract Form Fields').item.json.tenantId }}" },
+            { "name": "contactId", "value": "={{ $json.id }}" },
+            { "name": "sequenceName", "value": "D2C Lead Nurture" },
+            { "name": "startAfterMinutes", "value": "0" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-enrol",
+      "name": "Enrol in D2C Lead Nurture",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://web-production-311da.up.railway.app/jobs/{{ $('Extract Form Fields').item.json.jobId }}/complete",
+        "options": {}
+      },
+      "id": "node-complete",
+      "name": "Mark Job Complete",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [[{ "node": "Extract Form Fields", "type": "main", "index": 0 }]]
+    },
+    "Extract Form Fields": {
+      "main": [[{ "node": "Find or Create Contact", "type": "main", "index": 0 }]]
+    },
+    "Find or Create Contact": {
+      "main": [[{ "node": "Enrol in D2C Lead Nurture", "type": "main", "index": 0 }]]
+    },
+    "Enrol in D2C Lead Nurture": {
+      "main": [[{ "node": "Mark Job Complete", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "tags": ["queue", "forms"],
+  "triggerCount": 0,
+  "updatedAt": "2026-03-18T00:00:00.000Z",
+  "versionId": "1"
+}
