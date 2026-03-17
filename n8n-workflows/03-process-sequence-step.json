@@ -1,0 +1,215 @@
+{
+  "name": "03 - Process Sequence Step",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "node-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "b1", "name": "jobId", "value": "={{ $json.id }}", "type": "string" },
+            { "id": "b2", "name": "tenantId", "value": "={{ $json.tenant_id }}", "type": "string" },
+            { "id": "b3", "name": "contactId", "value": "={{ $json.payload.contactId }}", "type": "string" },
+            { "id": "b4", "name": "templateName", "value": "={{ $json.payload.templateName }}", "type": "string" },
+            { "id": "b5", "name": "channel", "value": "={{ $json.payload.channel ?? 'whatsapp' }}", "type": "string" },
+            { "id": "b6", "name": "stepIndex", "value": "={{ $json.payload.stepIndex ?? 0 }}", "type": "number" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-extract",
+      "name": "Extract Step Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://web-production-311da.up.railway.app/contacts/{{ $json.contactId }}",
+        "options": {}
+      },
+      "id": "node-get-contact",
+      "name": "Get Contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.contact?.doNotContact }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notEqual" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-check-dnc",
+      "name": "Not Do Not Contact?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "d1",
+              "leftValue": "={{ $('Extract Step Fields').item.json.channel }}",
+              "rightValue": "email",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-check-channel",
+      "name": "Email or WhatsApp?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://web-production-311da.up.railway.app/email/send",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "contactId", "value": "={{ $('Extract Step Fields').item.json.contactId }}" },
+            { "name": "templateName", "value": "={{ $('Extract Step Fields').item.json.templateName }}" },
+            { "name": "tenantId", "value": "={{ $('Extract Step Fields').item.json.tenantId }}" }
+          ]
+        },
+        "options": { "ignore4xx": true }
+      },
+      "id": "node-send-email",
+      "name": "Send Email via Brevo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 120]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v19.0/{{ $env.META_PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.META_ACCESS_TOKEN }}" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "messaging_product", "value": "whatsapp" },
+            {
+              "name": "to",
+              "value": "={{ $('Get Contact').item.json.contact?.contactChannels?.find(c => c.channelType === 'whatsapp')?.channelValue }}"
+            },
+            { "name": "type", "value": "template" },
+            {
+              "name": "template",
+              "value": "={{ JSON.stringify({name: $('Extract Step Fields').item.json.templateName, language:{code:'en'}, components:[]}) }}"
+            }
+          ]
+        },
+        "options": { "ignore4xx": true }
+      },
+      "id": "node-send-wa",
+      "name": "Send WhatsApp Template",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 280]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://web-production-311da.up.railway.app/messages",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "tenantId", "value": "={{ $('Extract Step Fields').item.json.tenantId }}" },
+            { "name": "contactId", "value": "={{ $('Extract Step Fields').item.json.contactId }}" },
+            { "name": "channel", "value": "={{ $('Extract Step Fields').item.json.channel }}" },
+            { "name": "direction", "value": "outbound" },
+            { "name": "templateName", "value": "={{ $('Extract Step Fields').item.json.templateName }}" },
+            { "name": "content", "value": "=Template: {{ $('Extract Step Fields').item.json.templateName }}" },
+            { "name": "status", "value": "sent" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-log-message",
+      "name": "Log Message Record",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 200]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://web-production-311da.up.railway.app/jobs/{{ $('Extract Step Fields').item.json.jobId }}/complete",
+        "options": {}
+      },
+      "id": "node-complete",
+      "name": "Mark Job Complete",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 200]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [[{ "node": "Extract Step Fields", "type": "main", "index": 0 }]]
+    },
+    "Extract Step Fields": {
+      "main": [[{ "node": "Get Contact", "type": "main", "index": 0 }]]
+    },
+    "Get Contact": {
+      "main": [[{ "node": "Not Do Not Contact?", "type": "main", "index": 0 }]]
+    },
+    "Not Do Not Contact?": {
+      "main": [
+        [{ "node": "Email or WhatsApp?", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Email or WhatsApp?": {
+      "main": [
+        [{ "node": "Send Email via Brevo", "type": "main", "index": 0 }],
+        [{ "node": "Send WhatsApp Template", "type": "main", "index": 0 }]
+      ]
+    },
+    "Send Email via Brevo": {
+      "main": [[{ "node": "Log Message Record", "type": "main", "index": 0 }]]
+    },
+    "Send WhatsApp Template": {
+      "main": [[{ "node": "Log Message Record", "type": "main", "index": 0 }]]
+    },
+    "Log Message Record": {
+      "main": [[{ "node": "Mark Job Complete", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "tags": ["queue", "sequence"],
+  "triggerCount": 0,
+  "updatedAt": "2026-03-18T00:00:00.000Z",
+  "versionId": "1"
+}
