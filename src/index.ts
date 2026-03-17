@@ -9,6 +9,7 @@ import sequencesRouter from './routes/sequences';
 import bookingsRouter from './routes/bookings';
 import jobsRouter from './routes/jobs';
 import messagesRouter from './routes/messages';
+import emailRouter from './routes/email';
 import { startStuckJobWorker } from './workers/stuckJobWorker';
 import { startSequenceWorker } from './workers/sequenceWorker';
 
@@ -37,6 +38,7 @@ app.use('/sequences', sequencesRouter);
 app.use('/bookings', bookingsRouter);
 app.use('/jobs', jobsRouter);
 app.use('/messages', messagesRouter);
+app.use('/email', emailRouter);
 
 // ---------------------------------------------------------------------------
 // 404 handler
