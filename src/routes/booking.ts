@@ -32,22 +32,6 @@ async function getTenantId(): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// GET /book/:slug  — main redirect (visitor-facing, never returns an error)
-// ---------------------------------------------------------------------------
-router.get('/:slug', async (req: Request, res: Response) => {
-  const slug = String(req.params['slug']);
-  try {
-    const tenantId = await getTenantId();
-    const member = await getNextMember(slug, tenantId, req.ip ?? undefined, {
-      userAgent: req.headers['user-agent'] ?? null,
-    });
-    res.redirect(302, member.calcomUrl);
-  } catch {
-    res.redirect(302, FALLBACK_URL);
-  }
-});
-
-// ---------------------------------------------------------------------------
 // POST /book/funnels  — create funnel + members in one call
 // ---------------------------------------------------------------------------
 router.post('/funnels', async (req: Request, res: Response) => {
@@ -229,6 +213,23 @@ router.post('/funnels/:slug/reset', async (req: Request, res: Response) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(msg.includes('not found') ? 404 : 500).json({ error: msg });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /book/:slug  — main redirect (visitor-facing, never returns an error)
+// IMPORTANT: Must be last — wildcard would shadow /funnels routes above.
+// ---------------------------------------------------------------------------
+router.get('/:slug', async (req: Request, res: Response) => {
+  const slug = String(req.params['slug']);
+  try {
+    const tenantId = await getTenantId();
+    const member = await getNextMember(slug, tenantId, req.ip ?? undefined, {
+      userAgent: req.headers['user-agent'] ?? null,
+    });
+    res.redirect(302, member.calcomUrl);
+  } catch {
+    res.redirect(302, FALLBACK_URL);
   }
 });
 
