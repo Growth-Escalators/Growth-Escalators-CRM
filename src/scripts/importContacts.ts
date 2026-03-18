@@ -4,6 +4,26 @@ import { eq } from 'drizzle-orm';
 import { db, tenants } from '../db/index';
 import { findOrCreateContact } from '../services/contactService';
 
+// Railway's Postgres proxy terminates connections after ~20 minutes.
+// When that happens pg emits an 'error' event on the active Client which,
+// if unhandled, crashes the process. Absorb it here — the current query
+// will reject (caught by the per-row try/catch), and pg will create a
+// fresh connection for the next row automatically.
+process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
+  if (
+    err.message === 'Connection terminated unexpectedly' ||
+    err.message?.includes('ETIMEDOUT') ||
+    err.code === 'ETIMEDOUT' ||
+    err.code === 'ECONNRESET'
+  ) {
+    console.warn('[db] connection dropped by proxy — will reconnect on next query');
+  } else {
+    // Re-throw anything we don't recognise
+    console.error('[fatal]', err);
+    process.exit(1);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // parseCsvLine — splits a CSV line on commas, handles "quoted,fields"
 // ---------------------------------------------------------------------------
@@ -95,26 +115,41 @@ async function main() {
       continue;
     }
 
-    try {
-      const result = await findOrCreateContact(tenantId, {
-        firstName,
-        lastName:  lastName  || undefined,
-        source:    source    || 'ghl_import',
-        metadata:  { importedFrom: 'ghl', originalTags: tags, originalStatus: status },
-        channels,
-      });
+    // Retry once on connection errors (proxy drop mid-query)
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const result = await findOrCreateContact(tenantId, {
+          firstName,
+          lastName:  lastName  || undefined,
+          source:    source    || 'ghl_import',
+          metadata:  { importedFrom: 'ghl', originalTags: tags, originalStatus: status },
+          channels,
+        });
 
-      if (result.created) {
-        created++;
-        console.log(`${rowNum} CREATED  ${firstName} ${lastName}`);
-      } else {
-        existed++;
-        console.log(`${rowNum} EXISTS   ${firstName} ${lastName}`);
+        if (result.created) {
+          created++;
+          console.log(`${rowNum} CREATED  ${firstName} ${lastName}`);
+        } else {
+          existed++;
+          console.log(`${rowNum} EXISTS   ${firstName} ${lastName}`);
+        }
+        break; // success — exit retry loop
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const isConnErr =
+          msg.includes('ETIMEDOUT') ||
+          msg.includes('Connection terminated') ||
+          msg.includes('ECONNRESET');
+
+        if (isConnErr && attempt === 1) {
+          console.warn(`${rowNum} RETRY    ${firstName} ${lastName} (connection reset)`);
+          await new Promise((r) => setTimeout(r, 1500));
+          continue;
+        }
+        failed++;
+        console.error(`${rowNum} FAILED   ${firstName} ${lastName}: ${msg}`);
+        break;
       }
-    } catch (err) {
-      failed++;
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`${rowNum} FAILED   ${firstName} ${lastName}: ${msg}`);
     }
   }
 
