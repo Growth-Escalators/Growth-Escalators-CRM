@@ -317,3 +317,63 @@ export const tasks = pgTable('tasks', {
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
+
+// ---------------------------------------------------------------------------
+// TABLE 15 — funnels  (round-robin booking rotation)
+// ---------------------------------------------------------------------------
+export const funnels = pgTable(
+  'funnels',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
+    isActive: boolean('is_active').default(true),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    tenantIdIdx: index('funnels_tenant_idx').on(t.tenantId),
+    tenantSlugIdx: uniqueIndex('funnels_tenant_slug_idx').on(t.tenantId, t.slug),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE 16 — funnel_members
+// ---------------------------------------------------------------------------
+export const funnelMembers = pgTable(
+  'funnel_members',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    funnelId: uuid('funnel_id').notNull().references(() => funnels.id),
+    memberName: text('member_name').notNull(),
+    calcomUrl: text('calcom_url').notNull(),
+    weight: integer('weight').default(50),
+    totalAssigned: integer('total_assigned').default(0),
+    lastAssignedAt: timestamp('last_assigned_at'),
+    isActive: boolean('is_active').default(true),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    funnelIdIdx: index('funnel_members_funnel_idx').on(t.funnelId),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE 17 — funnel_assignments  (audit log of every redirect)
+// ---------------------------------------------------------------------------
+export const funnelAssignments = pgTable(
+  'funnel_assignments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    funnelId: uuid('funnel_id').notNull().references(() => funnels.id),
+    funnelMemberId: uuid('funnel_member_id').notNull().references(() => funnelMembers.id),
+    assignedAt: timestamp('assigned_at').defaultNow(),
+    visitorIp: text('visitor_ip'),
+    metadata: jsonb('metadata').default({}),
+  },
+  (t) => ({
+    funnelIdIdx: index('funnel_assignments_funnel_idx').on(t.funnelId),
+  }),
+);
