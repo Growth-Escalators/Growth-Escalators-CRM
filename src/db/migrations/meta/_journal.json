@@ -8,6 +8,13 @@
       "when": 1773773861610,
       "tag": "0000_broken_star_brand",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1773832371698,
+      "tag": "0001_solid_echo",
+      "breakpoints": true
     }
   ]
 }

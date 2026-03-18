@@ -27,4 +27,7 @@ export {
   processedEvents,
   waTemplates,
   tasks,
+  funnels,
+  funnelMembers,
+  funnelAssignments,
 } from './schema';
