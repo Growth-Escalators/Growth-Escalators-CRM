@@ -18,9 +18,12 @@
   "type": "commonjs",
   "dependencies": {
     "@getbrevo/brevo": "^5.0.1",
+    "@types/morgan": "^1.9.10",
     "dotenv": "^17.3.1",
     "drizzle-orm": "^0.45.1",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.3.1",
+    "morgan": "^1.10.1",
     "pg": "^8.20.0"
   },
   "devDependencies": {

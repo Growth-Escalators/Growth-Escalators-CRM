@@ -20,8 +20,13 @@ router.post('/send', async (req, res) => {
     return;
   }
 
-  const result = await sendSequenceEmail(contactId, templateName, tenantId);
-  res.json(result);
+  try {
+    const result = await sendSequenceEmail(contactId, templateName, tenantId);
+    res.json(result);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(200).json({ success: false, reason: message });
+  }
 });
 
 // ---------------------------------------------------------------------------
