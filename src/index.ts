@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+import path from 'path';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
@@ -13,6 +14,7 @@ import jobsRouter from './routes/jobs';
 import messagesRouter from './routes/messages';
 import emailRouter from './routes/email';
 import bookingRouter from './routes/booking';
+import cashfreeRouter from './routes/cashfree';
 import healthRouter from './routes/healthRoute';
 import { startStuckJobWorker } from './workers/stuckJobWorker';
 import { startSequenceWorker } from './workers/sequenceWorker';
@@ -64,6 +66,26 @@ app.use('/jobs', jobsRouter);
 app.use('/messages', messagesRouter);
 app.use('/email', emailRouter);
 app.use('/book', bookingRouter);
+app.use('/api/cashfree', cashfreeRouter);
+
+// ---------------------------------------------------------------------------
+// Static frontend (SPA) — production only
+// ---------------------------------------------------------------------------
+if (process.env.NODE_ENV === 'production') {
+  const clientDist = path.join(__dirname, '../public/client');
+  app.use(express.static(clientDist));
+
+  const API_PREFIXES = [
+    '/api', '/webhooks', '/book', '/contacts', '/deals',
+    '/sequences', '/jobs', '/email', '/bookings', '/messages',
+    '/health', '/stats',
+  ];
+
+  app.get('*', (req: Request, res: Response, next: NextFunction) => {
+    if (API_PREFIXES.some((p) => req.path.startsWith(p))) return next();
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+}
 
 // ---------------------------------------------------------------------------
 // 404 handler

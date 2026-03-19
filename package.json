@@ -11,7 +11,11 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx src/db/seed.ts",
-    "db:import": "tsx src/scripts/importContacts.ts"
+    "db:import": "tsx src/scripts/importContacts.ts",
+    "client:install": "cd client && npm install",
+    "client:build": "cd client && npm run build",
+    "client:dev": "cd client && npm run dev",
+    "build:all": "npm run client:build && npm run build"
   },
   "keywords": [],
   "author": "",
