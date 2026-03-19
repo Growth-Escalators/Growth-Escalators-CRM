@@ -69,23 +69,22 @@ app.use('/book', bookingRouter);
 app.use('/api/cashfree', cashfreeRouter);
 
 // ---------------------------------------------------------------------------
-// Static frontend (SPA) — production only
+// Static frontend (SPA)
 // ---------------------------------------------------------------------------
-if (process.env.NODE_ENV === 'production') {
-  const clientDist = path.join(__dirname, '../public/client');
-  app.use(express.static(clientDist));
+const clientDist = path.join(__dirname, '..', 'public', 'client');
+console.log('Static files path:', clientDist);
+app.use(express.static(clientDist));
 
-  const API_PREFIXES = [
-    '/api', '/webhooks', '/book', '/contacts', '/deals',
-    '/sequences', '/jobs', '/email', '/bookings', '/messages',
-    '/health', '/stats',
-  ];
+const API_PREFIXES = [
+  '/api', '/webhooks', '/book', '/contacts', '/deals',
+  '/sequences', '/jobs', '/email', '/bookings', '/messages',
+  '/health', '/stats',
+];
 
-  app.get('/{*path}', (req: Request, res: Response, next: NextFunction) => {
-    if (API_PREFIXES.some((p) => req.path.startsWith(p))) return next();
-    res.sendFile(path.join(clientDist, 'index.html'));
-  });
-}
+app.get('/{*path}', (req: Request, res: Response, next: NextFunction) => {
+  if (API_PREFIXES.some((p) => req.path.startsWith(p))) return next();
+  res.sendFile(path.join(clientDist, 'index.html'));
+});
 
 // ---------------------------------------------------------------------------
 // 404 handler
