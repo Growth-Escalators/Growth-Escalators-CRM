@@ -85,10 +85,11 @@ console.log('Client dist:', clientDist);
 console.log('Admin dist:', adminDist);
 
 const CRM_HOSTS = ['crm.growthescalators.com'];
+const CONSULTING_HOSTS = ['consulting.growthescalators.com'];
 const API_PREFIXES = [
   '/api', '/auth', '/webhooks', '/book', '/contacts', '/deals',
   '/sequences', '/jobs', '/email', '/bookings', '/messages',
-  '/health', '/stats',
+  '/health', '/stats', '/consulting',
 ];
 
 // Admin SPA — two ways to access:
@@ -96,6 +97,30 @@ const API_PREFIXES = [
 //   2. any-host.railway.app/crm  (path-based, no custom domain needed)
 if (process.env.CRM_EXTRA_HOST) CRM_HOSTS.push(process.env.CRM_EXTRA_HOST);
 
+// ---------------------------------------------------------------------------
+// Consulting landing page — path-based (/consulting) + subdomain-based
+// ---------------------------------------------------------------------------
+const consultingDist = path.join(__dirname, '..', 'consulting');
+
+// Path-based: /consulting on any host
+app.use('/consulting', express.static(consultingDist));
+app.get('/consulting', (_req: Request, res: Response) => {
+  res.sendFile(path.join(consultingDist, 'index.html'));
+});
+
+// Subdomain-based: consulting.growthescalators.com at root
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (CONSULTING_HOSTS.includes(req.hostname)) {
+    express.static(consultingDist)(req, res, () => {
+      if (API_PREFIXES.some((p) => req.path.startsWith(p))) return next();
+      res.sendFile(path.join(consultingDist, 'index.html'));
+    });
+  } else {
+    next();
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Path-based: /crm and /crm/* on any host
 app.use('/crm', express.static(adminDist));
 app.get('/crm/{*path}', (_req: Request, res: Response) => {
