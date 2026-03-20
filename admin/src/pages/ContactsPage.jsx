@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import ContactSlideIn from '../components/ContactSlideIn.jsx';
+import BulkActionBar from '../components/BulkActionBar.jsx';
 import { apiFetch } from '../lib/api.js';
 
 const SEGMENT_COLORS = {
@@ -47,6 +48,7 @@ export default function ContactsPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(new Set());
 
   // Filters
   const [search, setSearch] = useState('');
@@ -175,6 +177,17 @@ export default function ContactsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 text-left border-b border-slate-200">
+                  <th className="px-4 py-3 w-10">
+                    <input
+                      type="checkbox"
+                      className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                      checked={contacts.length > 0 && contacts.every((c) => selectedIds.has(c.id))}
+                      onChange={(e) => {
+                        if (e.target.checked) setSelectedIds(new Set(contacts.map((c) => c.id)));
+                        else setSelectedIds(new Set());
+                      }}
+                    />
+                  </th>
                   <th className="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Name</th>
                   <th className="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">WhatsApp</th>
                   <th className="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Source</th>
@@ -186,20 +199,32 @@ export default function ContactsPage() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td>
+                    <td colSpan={7} className="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td>
                   </tr>
                 ) : contacts.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-slate-400 text-sm">No contacts found</td>
+                    <td colSpan={7} className="px-4 py-10 text-center text-slate-400 text-sm">No contacts found</td>
                   </tr>
                 ) : (
                   contacts.map((c) => (
                     <tr
                       key={c.id}
-                      onClick={() => setSelected(c)}
-                      className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors"
+                      className={`border-b border-slate-100 hover:bg-slate-50 transition-colors ${selectedIds.has(c.id) ? 'bg-sky-50' : ''}`}
                     >
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 w-10" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                          checked={selectedIds.has(c.id)}
+                          onChange={(e) => {
+                            const next = new Set(selectedIds);
+                            if (e.target.checked) next.add(c.id);
+                            else next.delete(c.id);
+                            setSelectedIds(next);
+                          }}
+                        />
+                      </td>
+                      <td className="px-4 py-3 cursor-pointer" onClick={() => setSelected(c)}>
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 uppercase shrink-0">
                             {c.firstName?.[0] ?? '?'}
@@ -210,15 +235,15 @@ export default function ContactsPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-slate-600">{c.phone ?? c.waPhone ?? '—'}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 text-slate-600 cursor-pointer" onClick={() => setSelected(c)}>{c.phone ?? c.waPhone ?? '—'}</td>
+                      <td className="px-4 py-3 cursor-pointer" onClick={() => setSelected(c)}>
                         {c.source ? (
                           <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${SOURCE_COLORS[c.source] ?? 'bg-slate-100 text-slate-600'}`}>
                             {c.source}
                           </span>
                         ) : '—'}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 cursor-pointer" onClick={() => setSelected(c)}>
                         <div className="flex flex-wrap gap-1">
                           {(c.tags ?? []).slice(0, 2).map((tag) => (
                             <span key={tag} className="text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 font-medium">
@@ -235,12 +260,12 @@ export default function ContactsPage() {
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 cursor-pointer" onClick={() => setSelected(c)}>
                         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[c.status] ?? 'bg-slate-100 text-slate-600'}`}>
                           {c.status ?? 'lead'}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-slate-400 text-xs">
+                      <td className="px-4 py-3 text-slate-400 text-xs cursor-pointer" onClick={() => setSelected(c)}>
                         {c.createdAt ? new Date(c.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '—'}
                       </td>
                     </tr>
@@ -282,6 +307,14 @@ export default function ContactsPage() {
           contact={selected}
           onClose={() => setSelected(null)}
           onUpdated={() => { load(); setSelected(null); }}
+        />
+      )}
+
+      {selectedIds.size > 0 && (
+        <BulkActionBar
+          selectedIds={selectedIds}
+          onClear={() => setSelectedIds(new Set())}
+          onDone={() => { load(); setSelectedIds(new Set()); }}
         />
       )}
     </div>

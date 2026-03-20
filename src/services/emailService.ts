@@ -189,3 +189,18 @@ export async function sendSequenceEmail(
 
   return result;
 }
+
+// ---------------------------------------------------------------------------
+// sendManualEmail
+// Sends a one-off email (no template lookup) via Brevo transactional API.
+// Used by POST /email/manual from the CRM admin panel.
+// ---------------------------------------------------------------------------
+export async function sendManualEmail(
+  toEmail: string,
+  toName: string,
+  subject: string,
+  body: string,
+): Promise<{ success: boolean; mock?: boolean; messageId?: string }> {
+  const html = body.replace(/\n/g, '<br>');
+  return sendTransactionalEmail(toEmail, toName, subject, html, body);
+}

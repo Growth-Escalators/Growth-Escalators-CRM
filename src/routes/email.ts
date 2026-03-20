@@ -1,5 +1,7 @@
 import { Router } from 'express';
-import { sendSequenceEmail, addContactToBrevo } from '../services/emailService';
+import { eq, or } from 'drizzle-orm';
+import { db, contacts, contactChannels, messages } from '../db/index';
+import { sendSequenceEmail, addContactToBrevo, sendManualEmail } from '../services/emailService';
 
 const router = Router();
 
@@ -55,6 +57,59 @@ router.post('/contact', async (req, res) => {
     listName ?? 'Default',
     attributes ?? {},
   );
+
+  res.json(result);
+});
+
+// ---------------------------------------------------------------------------
+// POST /email/manual
+// Body: { contactId, subject, body }
+// Sends a one-off email to a contact via Brevo and logs it.
+// ---------------------------------------------------------------------------
+router.post('/manual', async (req, res) => {
+  const tenantId = req.user!.tenantId;
+  const { contactId, subject, body } = req.body as {
+    contactId?: string;
+    subject?: string;
+    body?: string;
+  };
+
+  if (!contactId || !subject || !body) {
+    res.status(400).json({ error: 'contactId, subject, and body are required' });
+    return;
+  }
+
+  // Look up contact name + email channel
+  const [contactRow] = await db.select().from(contacts).where(eq(contacts.id, contactId)).limit(1);
+  if (!contactRow) {
+    res.status(404).json({ error: 'contact not found' });
+    return;
+  }
+
+  const emailChannel = await db
+    .select()
+    .from(contactChannels)
+    .where(eq(contactChannels.contactId, contactId))
+    .then((rows) => rows.find((r) => r.channelType === 'email'));
+
+  if (!emailChannel) {
+    res.status(400).json({ error: 'No email address found for contact' });
+    return;
+  }
+
+  const toName = [contactRow.firstName, contactRow.lastName].filter(Boolean).join(' ');
+  const result = await sendManualEmail(emailChannel.channelValue, toName, subject, body);
+
+  // Log to messages table
+  await db.insert(messages).values({
+    tenantId,
+    contactId,
+    channel: 'email',
+    direction: 'outbound',
+    content: subject,
+    status: result.success ? 'sent' : 'failed',
+    externalId: result.messageId,
+  });
 
   res.json(result);
 });

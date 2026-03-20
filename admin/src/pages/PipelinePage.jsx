@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import Sidebar from '../components/Sidebar.jsx';
 import ContactSlideIn from '../components/ContactSlideIn.jsx';
@@ -50,9 +50,12 @@ function daysAgo(dateStr) {
   return Math.floor((Date.now() - new Date(dateStr)) / 86400000);
 }
 
-function DealCard({ deal, contact, index, onClick }) {
+function DealCard({ deal, contact, index, onClick, onArchive, onUnarchive }) {
   const days = daysAgo(deal.updatedAt || deal.createdAt);
   const segment = contact?.metadata?.segment;
+  const isArchived = deal.metadata?.archived === true;
+  const [menuOpen, setMenuOpen] = useState(false);
+
   return (
     <Draggable draggableId={deal.id} index={index}>
       {(provided, snapshot) => (
@@ -60,16 +63,28 @@ function DealCard({ deal, contact, index, onClick }) {
           ref={provided.innerRef}
           {...provided.draggableProps}
           {...provided.dragHandleProps}
-          onClick={onClick}
-          className={`bg-white rounded-xl border border-slate-200 p-3 cursor-pointer shadow-sm hover:shadow-md transition-all ${snapshot.isDragging ? 'shadow-xl rotate-1 scale-105' : ''}`}
+          className={`rounded-xl border border-slate-200 p-3 shadow-sm hover:shadow-md transition-all relative ${snapshot.isDragging ? 'shadow-xl rotate-1 scale-105' : ''} ${isArchived ? 'bg-slate-100 opacity-60' : 'bg-white'}`}
         >
           <div className="flex items-start justify-between gap-2 mb-2">
-            <p className="font-semibold text-slate-900 text-sm leading-tight line-clamp-1">
+            <p
+              onClick={onClick}
+              className="font-semibold text-slate-900 text-sm leading-tight line-clamp-1 cursor-pointer flex-1"
+            >
               {contact?.firstName ?? '?'} {contact?.lastName ?? ''}
             </p>
-            <span className={`text-xs px-1.5 py-0.5 rounded font-medium shrink-0 ${days > 3 ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>
-              {days}d
-            </span>
+            <div className="flex items-center gap-1 shrink-0">
+              <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${days > 3 ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>
+                {days}d
+              </span>
+              <button
+                onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
+                className="text-slate-400 hover:text-slate-600 p-0.5 rounded"
+              >
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+                </svg>
+              </button>
+            </div>
           </div>
           <div className="flex flex-wrap gap-1">
             {segment && (
@@ -82,7 +97,34 @@ function DealCard({ deal, contact, index, onClick }) {
                 ₹{Number(deal.value).toLocaleString('en-IN')}
               </span>
             )}
+            {isArchived && (
+              <span className="text-xs px-1.5 py-0.5 rounded-full bg-slate-300 text-slate-600 font-medium">Archived</span>
+            )}
           </div>
+
+          {/* Overflow menu */}
+          {menuOpen && (
+            <div
+              className="absolute top-8 right-2 z-10 bg-white border border-slate-200 rounded-lg shadow-lg py-1 min-w-[140px]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {isArchived ? (
+                <button
+                  onClick={() => { onUnarchive(); setMenuOpen(false); }}
+                  className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                >
+                  Unarchive
+                </button>
+              ) : (
+                <button
+                  onClick={() => { onArchive(); setMenuOpen(false); }}
+                  className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+                >
+                  Archive (hide)
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
     </Draggable>
@@ -92,6 +134,7 @@ function DealCard({ deal, contact, index, onClick }) {
 export default function PipelinePage() {
   const [activePipeline, setActivePipeline] = useState('ecom');
   const [segmentFilter, setSegmentFilter] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
   const [dealsByStage, setDealsByStage] = useState({});
   const [contactsMap, setContactsMap] = useState({});
   const [loading, setLoading] = useState(true);
@@ -101,7 +144,8 @@ export default function PipelinePage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const data = await apiFetch(`/deals?serviceType=${pipeline.serviceType}&limit=500`);
+    const url = `/deals?serviceType=${pipeline.serviceType}&limit=500${showArchived ? '&includeArchived=true' : ''}`;
+    const data = await apiFetch(url);
     if (!data) return;
 
     const deals = data.deals ?? [];
@@ -123,7 +167,7 @@ export default function PipelinePage() {
     }));
     setContactsMap(map);
     setLoading(false);
-  }, [activePipeline, pipeline.serviceType]);
+  }, [activePipeline, pipeline.serviceType, showArchived]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -138,6 +182,16 @@ export default function PipelinePage() {
   });
 
   const totalDeals = Object.values(filteredDealsByStage).flat().length;
+
+  async function archiveDeal(dealId, archived) {
+    const deal = Object.values(dealsByStage).flat().find((d) => d.id === dealId);
+    if (!deal) return;
+    await apiFetch(`/deals/${dealId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ metadata: { ...(deal.metadata ?? {}), archived } }),
+    });
+    load();
+  }
 
   async function onDragEnd(result) {
     const { destination, source, draggableId } = result;
@@ -199,6 +253,16 @@ export default function PipelinePage() {
                 <option value="agency_owner">Agency Owner</option>
                 <option value="freelancer">Freelancer</option>
               </select>
+              {/* Show archived toggle */}
+              <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={showArchived}
+                  onChange={(e) => setShowArchived(e.target.checked)}
+                  className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                />
+                Show archived
+              </label>
             </div>
           </div>
         </div>
@@ -230,6 +294,8 @@ export default function PipelinePage() {
                               contact={contactsMap[deal.contactId]}
                               index={index}
                               onClick={() => { const c = contactsMap[deal.contactId]; if (c) setSelectedContact(c); }}
+                              onArchive={() => archiveDeal(deal.id, true)}
+                              onUnarchive={() => archiveDeal(deal.id, false)}
                             />
                           ))}
                           {provided.placeholder}
