@@ -10,12 +10,13 @@ const router = Router();
 // ---------------------------------------------------------------------------
 router.get('/', async (req, res) => {
   const tenantId = req.user!.tenantId;
-  const { status, source, search, dateFrom, limit = '50', offset = '0' } = req.query as Record<string, string>;
+  const { status, source, search, dateFrom, segment, limit = '50', offset = '0' } = req.query as Record<string, string>;
 
   const conditions: ReturnType<typeof eq>[] = [eq(contacts.tenantId, tenantId)];
   if (status) conditions.push(eq(contacts.status, status));
   if (source) conditions.push(eq(contacts.source, source));
   if (dateFrom) conditions.push(gte(contacts.createdAt, new Date(dateFrom)));
+  if (segment) conditions.push(sql`${contacts.metadata}->>'segment' = ${segment}` as any);
   if (search) {
     conditions.push(
       or(

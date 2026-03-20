@@ -3,6 +3,18 @@ import Sidebar from '../components/Sidebar.jsx';
 import ContactSlideIn from '../components/ContactSlideIn.jsx';
 import { apiFetch } from '../lib/api.js';
 
+const SEGMENT_COLORS = {
+  ecom_brand:   'bg-orange-100 text-orange-700',
+  agency_owner: 'bg-blue-100 text-blue-700',
+  freelancer:   'bg-purple-100 text-purple-700',
+};
+
+const SEGMENT_LABELS = {
+  ecom_brand:   'Ecom Brand',
+  agency_owner: 'Agency',
+  freelancer:   'Freelancer',
+};
+
 const SOURCE_COLORS = {
   facebook: 'bg-blue-100 text-blue-700',
   instagram: 'bg-pink-100 text-pink-700',
@@ -40,6 +52,7 @@ export default function ContactsPage() {
   const [search, setSearch] = useState('');
   const [source, setSource] = useState('');
   const [status, setStatus] = useState('');
+  const [segment, setSegment] = useState('');
   const [page, setPage] = useState(1);
   const LIMIT = 50;
 
@@ -56,6 +69,7 @@ export default function ContactsPage() {
     if (search) params.set('search', search);
     if (source) params.set('source', source);
     if (status) params.set('status', status);
+    if (segment) params.set('segment', segment);
 
     const data = await apiFetch(`/contacts?${params}`);
     if (data) {
@@ -63,7 +77,7 @@ export default function ContactsPage() {
       setTotal(data.total ?? 0);
     }
     setLoading(false);
-  }, [search, source, status, page]);
+  }, [search, source, status, segment, page]);
 
   useEffect(() => {
     load();
@@ -135,6 +149,16 @@ export default function ContactsPage() {
             <option value="client">Client</option>
             <option value="lost">Lost</option>
           </select>
+          <select
+            value={segment}
+            onChange={(e) => { setSegment(e.target.value); setPage(1); }}
+            className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 bg-white"
+          >
+            <option value="">All segments</option>
+            <option value="ecom_brand">Ecom Brand</option>
+            <option value="agency_owner">Agency Owner</option>
+            <option value="freelancer">Freelancer</option>
+          </select>
         </div>
 
         {/* Table */}
@@ -195,6 +219,11 @@ export default function ContactsPage() {
                           ))}
                           {(c.tags?.length ?? 0) > 2 && (
                             <span className="text-xs text-slate-400">+{c.tags.length - 2}</span>
+                          )}
+                          {c.metadata?.segment && (
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${SEGMENT_COLORS[c.metadata.segment] ?? 'bg-slate-100 text-slate-600'}`}>
+                              {SEGMENT_LABELS[c.metadata.segment] ?? c.metadata.segment}
+                            </span>
                           )}
                         </div>
                       </td>

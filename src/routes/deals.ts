@@ -10,11 +10,12 @@ const router = Router();
 // ---------------------------------------------------------------------------
 router.get('/', async (req, res) => {
   const tenantId = req.user!.tenantId;
-  const { stage, contactId, limit = '500' } = req.query as Record<string, string>;
+  const { stage, contactId, serviceType, limit = '500' } = req.query as Record<string, string>;
 
   const conditions: ReturnType<typeof eq>[] = [eq(deals.tenantId, tenantId)];
   if (stage) conditions.push(eq(deals.stage, stage));
   if (contactId) conditions.push(eq(deals.contactId, contactId));
+  if (serviceType) conditions.push(eq(deals.serviceType, serviceType));
 
   const rows = await db
     .select()

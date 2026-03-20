@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { eq } from 'drizzle-orm';
-import { db, tenants } from '../db/index';
+import { db, tenants, deals, contacts, processedEvents } from '../db/index';
 import { findOrCreateContact } from '../services/contactService';
 
 const router = Router();
@@ -94,6 +94,139 @@ router.post('/create-order', async (req: Request, res: Response) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[cashfree] create-order error:', msg);
+    res.status(500).json({ error: msg });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/cashfree/webhook
+// Handles Cashfree PAYMENT_SUCCESS_WEBHOOK events
+// ---------------------------------------------------------------------------
+router.post('/webhook', async (req: Request, res: Response) => {
+  const body = req.body as {
+    data?: {
+      order?: { order_id?: string; order_amount?: number };
+      payment?: { payment_status?: string; cf_payment_id?: string };
+      customer_details?: {
+        customer_id?: string;
+        customer_name?: string;
+        customer_email?: string;
+        customer_phone?: string;
+      };
+    };
+    event_type?: string;
+  };
+
+  // 1. Ignore non-payment-success events
+  if (
+    body.event_type !== 'PAYMENT_SUCCESS_WEBHOOK' ||
+    body.data?.payment?.payment_status !== 'SUCCESS'
+  ) {
+    res.json({ ok: true });
+    return;
+  }
+
+  const cfPaymentId = body.data?.payment?.cf_payment_id ?? '';
+  const orderAmount = body.data?.order?.order_amount ?? 0;
+  const customerDetails = body.data?.customer_details ?? {};
+  const phone = customerDetails.customer_id ?? '';
+  const email = customerDetails.customer_email ?? '';
+  const name = customerDetails.customer_name ?? '';
+
+  try {
+    // 2. Idempotency check
+    const existing = await db
+      .select()
+      .from(processedEvents)
+      .where(eq(processedEvents.eventId, cfPaymentId))
+      .limit(1);
+
+    if (existing.length > 0) {
+      res.json({ ok: true });
+      return;
+    }
+
+    // 3 & 4. Determine stage from amount
+    const amount = Math.round(orderAmount);
+    let stage: string;
+    if (Math.abs(amount - 9) <= 5) {
+      stage = 'paid_9';
+    } else if (Math.abs(amount - 208) <= 5) {
+      stage = 'paid_208';
+    } else if (Math.abs(amount - 508) <= 5) {
+      stage = 'paid_508';
+    } else if (Math.abs(amount - 707) <= 5) {
+      stage = 'paid_707';
+    } else {
+      stage = 'paid_9';
+    }
+
+    // 5. Look up tenant
+    const [tenant] = await db
+      .select()
+      .from(tenants)
+      .where(eq(tenants.slug, 'growth-escalators'))
+      .limit(1);
+
+    if (!tenant) {
+      console.error('[cashfree webhook] tenant not found');
+      res.json({ ok: true });
+      return;
+    }
+
+    // 5. Find or create contact
+    const channels: { channelType: 'email' | 'whatsapp'; channelValue: string; isPrimary?: boolean }[] = [];
+    if (phone) channels.push({ channelType: 'whatsapp', channelValue: phone });
+    if (email) channels.push({ channelType: 'email', channelValue: email, isPrimary: true });
+
+    const parts = name.trim().split(' ');
+    const firstName = parts[0] ?? name;
+    const lastName = parts.slice(1).join(' ') || undefined;
+
+    const { contact } = await findOrCreateContact(tenant.id, {
+      firstName,
+      lastName,
+      source: 'checkout',
+      channels,
+    });
+
+    // 6. Create deal
+    await db.insert(deals).values({
+      tenantId: tenant.id,
+      contactId: contact.id,
+      title: 'Ecom Purchase',
+      stage,
+      serviceType: 'ecom',
+      value: String(orderAmount),
+    });
+
+    // 7. Update contact status and metadata
+    const existingContact = await db
+      .select()
+      .from(contacts)
+      .where(eq(contacts.id, contact.id))
+      .limit(1);
+
+    const existingMeta = (existingContact[0]?.metadata ?? {}) as Record<string, unknown>;
+    await db
+      .update(contacts)
+      .set({
+        status: 'prospect',
+        metadata: { ...existingMeta, paymentStatus: 'paid', paidAmount: orderAmount },
+        updatedAt: new Date(),
+      })
+      .where(eq(contacts.id, contact.id));
+
+    // 8. Mark event as processed
+    await db.insert(processedEvents).values({
+      eventId: cfPaymentId,
+      source: 'cashfree',
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[cashfree webhook] error:', msg);
     res.status(500).json({ error: msg });
   }
 });
