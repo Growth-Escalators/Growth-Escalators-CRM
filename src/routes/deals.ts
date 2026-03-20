@@ -5,36 +5,35 @@ import { db, deals } from '../db/index';
 const router = Router();
 
 // ---------------------------------------------------------------------------
-// GET /deals?tenantId=&stage=&contactId=
+// GET /deals?stage=&contactId=&limit=500
+// tenantId is taken from JWT (req.user.tenantId)
 // ---------------------------------------------------------------------------
 router.get('/', async (req, res) => {
-  const { tenantId, stage, contactId } = req.query as Record<string, string>;
+  const tenantId = req.user!.tenantId;
+  const { stage, contactId, limit = '500' } = req.query as Record<string, string>;
 
-  if (!tenantId) {
-    res.status(400).json({ error: 'tenantId is required' });
-    return;
-  }
-
-  const conditions = [eq(deals.tenantId, tenantId)];
+  const conditions: ReturnType<typeof eq>[] = [eq(deals.tenantId, tenantId)];
   if (stage) conditions.push(eq(deals.stage, stage));
   if (contactId) conditions.push(eq(deals.contactId, contactId));
 
   const rows = await db
     .select()
     .from(deals)
-    .where(and(...conditions));
+    .where(and(...conditions))
+    .limit(Math.min(parseInt(limit, 10), 1000));
 
-  res.json(rows);
+  res.json({ deals: rows });
 });
 
 // ---------------------------------------------------------------------------
 // POST /deals
 // ---------------------------------------------------------------------------
 router.post('/', async (req, res) => {
-  const { tenantId, contactId, title, stage, value, serviceType, metadata } = req.body;
+  const tenantId = req.user!.tenantId;
+  const { contactId, title, stage, value, serviceType, metadata } = req.body;
 
-  if (!tenantId || !contactId || !title) {
-    res.status(400).json({ error: 'tenantId, contactId, and title are required' });
+  if (!contactId || !title) {
+    res.status(400).json({ error: 'contactId and title are required' });
     return;
   }
 

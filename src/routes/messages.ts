@@ -65,7 +65,7 @@ router.get('/', async (req, res) => {
     .orderBy(desc(messages.sentAt))
     .limit(limit);
 
-  res.json(rows);
+  res.json({ messages: rows });
 });
 
 export default router;

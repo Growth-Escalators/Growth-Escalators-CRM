@@ -360,7 +360,19 @@ export const funnelMembers = pgTable(
 );
 
 // ---------------------------------------------------------------------------
-// TABLE 17 — funnel_assignments  (audit log of every redirect)
+// TABLE 17 — users  (CRM admin panel login)
+// ---------------------------------------------------------------------------
+export const users = pgTable('users', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  name: text('name').notNull(),
+  email: text('email').notNull().unique(),
+  passwordHash: text('password_hash').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ---------------------------------------------------------------------------
+// TABLE 18 — funnel_assignments  (audit log of every redirect)
 // ---------------------------------------------------------------------------
 export const funnelAssignments = pgTable(
   'funnel_assignments',

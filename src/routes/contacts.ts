@@ -1,35 +1,40 @@
 import { Router } from 'express';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, desc, ilike, or, gte, sql } from 'drizzle-orm';
 import { db, contacts, contactChannels } from '../db/index';
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const isUUID = (v: string) => UUID_RE.test(v);
 
 const router = Router();
 
 // ---------------------------------------------------------------------------
-// GET /contacts?tenantId=&status=&source=&limit=50&offset=0
+// GET /contacts?status=&source=&search=&sort=newest&limit=50&offset=0&dateFrom=
+// tenantId is taken from JWT (req.user.tenantId); query param is ignored for security
 // ---------------------------------------------------------------------------
 router.get('/', async (req, res) => {
-  const { tenantId, status, source, limit = '50', offset = '0' } = req.query as Record<string, string>;
+  const tenantId = req.user!.tenantId;
+  const { status, source, search, dateFrom, limit = '50', offset = '0' } = req.query as Record<string, string>;
 
-  if (!tenantId || !isUUID(tenantId)) {
-    res.status(400).json({ error: 'tenantId must be a valid UUID' });
-    return;
-  }
-
-  const conditions = [eq(contacts.tenantId, tenantId)];
+  const conditions: ReturnType<typeof eq>[] = [eq(contacts.tenantId, tenantId)];
   if (status) conditions.push(eq(contacts.status, status));
   if (source) conditions.push(eq(contacts.source, source));
+  if (dateFrom) conditions.push(gte(contacts.createdAt, new Date(dateFrom)));
+  if (search) {
+    conditions.push(
+      or(
+        ilike(contacts.firstName, `%${search}%`),
+        ilike(contacts.lastName, `%${search}%`),
+      ) as ReturnType<typeof eq>,
+    );
+  }
 
-  const rows = await db
-    .select()
-    .from(contacts)
-    .where(and(...conditions))
-    .limit(parseInt(limit, 10))
-    .offset(parseInt(offset, 10));
+  const where = and(...conditions);
+  const lim = Math.min(parseInt(limit, 10), 200);
+  const off = parseInt(offset, 10);
 
-  res.json(rows);
+  const [rows, countResult] = await Promise.all([
+    db.select().from(contacts).where(where).orderBy(desc(contacts.createdAt)).limit(lim).offset(off),
+    db.select({ count: sql<number>`count(*)::int` }).from(contacts).where(where),
+  ]);
+
+  res.json({ contacts: rows, total: countResult[0]?.count ?? 0 });
 });
 
 // ---------------------------------------------------------------------------
@@ -49,17 +54,27 @@ router.get('/:id', async (req, res) => {
     .from(contactChannels)
     .where(eq(contactChannels.contactId, id));
 
-  res.json({ ...contactRows[0], channels });
+  res.json({ contact: contactRows[0], channels });
+});
+
+// ---------------------------------------------------------------------------
+// GET /contacts/:id/channels
+// ---------------------------------------------------------------------------
+router.get('/:id/channels', async (req, res) => {
+  const { id } = req.params;
+  const channels = await db.select().from(contactChannels).where(eq(contactChannels.contactId, id));
+  res.json({ channels });
 });
 
 // ---------------------------------------------------------------------------
 // POST /contacts
 // ---------------------------------------------------------------------------
 router.post('/', async (req, res) => {
-  const { tenantId, firstName, lastName, source, sourceDetail, metadata, tags } = req.body;
+  const tenantId = req.user!.tenantId;
+  const { firstName, lastName, source, sourceDetail, metadata, tags } = req.body;
 
-  if (!tenantId || !firstName) {
-    res.status(400).json({ error: 'tenantId and firstName are required' });
+  if (!firstName) {
+    res.status(400).json({ error: 'firstName is required' });
     return;
   }
 
@@ -118,10 +133,11 @@ router.patch('/:id', async (req, res) => {
 // ---------------------------------------------------------------------------
 router.post('/:id/channels', async (req, res) => {
   const { id } = req.params;
-  const { channelType, channelValue, isPrimary, tenantId } = req.body;
+  const tenantId = req.user!.tenantId;
+  const { channelType, channelValue, isPrimary } = req.body;
 
-  if (!channelType || !channelValue || !tenantId) {
-    res.status(400).json({ error: 'tenantId, channelType, and channelValue are required' });
+  if (!channelType || !channelValue) {
+    res.status(400).json({ error: 'channelType and channelValue are required' });
     return;
   }
 
@@ -133,7 +149,6 @@ router.post('/:id/channels', async (req, res) => {
 
     res.status(201).json(inserted[0]);
   } catch (err: unknown) {
-    // Unique constraint violation — channel already exists for this contact
     const message = err instanceof Error ? err.message : String(err);
     if (message.includes('unique') || message.includes('duplicate')) {
       res.status(409).json({ error: 'channel already exists for this contact' });

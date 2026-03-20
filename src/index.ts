@@ -15,7 +15,9 @@ import messagesRouter from './routes/messages';
 import emailRouter from './routes/email';
 import bookingRouter from './routes/booking';
 import cashfreeRouter from './routes/cashfree';
+import authRouter from './routes/auth';
 import healthRouter from './routes/healthRoute';
+import { requireAuth } from './middleware/auth';
 import { startStuckJobWorker } from './workers/stuckJobWorker';
 import { startSequenceWorker } from './workers/sequenceWorker';
 
@@ -54,32 +56,55 @@ app.use('/webhooks', webhookLimiter);
 app.use(generalLimiter);
 
 // ---------------------------------------------------------------------------
-// Routes
+// Public routes (no auth required)
 // ---------------------------------------------------------------------------
 app.use('/', healthRouter);
+app.use('/auth', authRouter);
 app.use('/webhooks', webhooksRouter);
-app.use('/contacts', contactsRouter);
-app.use('/deals', dealsRouter);
-app.use('/sequences', sequencesRouter);
-app.use('/bookings', bookingsRouter);
-app.use('/jobs', jobsRouter);
-app.use('/messages', messagesRouter);
-app.use('/email', emailRouter);
 app.use('/book', bookingRouter);
 app.use('/api/cashfree', cashfreeRouter);
 
 // ---------------------------------------------------------------------------
-// Static frontend (SPA)
+// Protected CRM routes (require JWT)
+// ---------------------------------------------------------------------------
+app.use('/contacts', requireAuth, contactsRouter);
+app.use('/deals', requireAuth, dealsRouter);
+app.use('/sequences', requireAuth, sequencesRouter);
+app.use('/bookings', requireAuth, bookingsRouter);
+app.use('/jobs', requireAuth, jobsRouter);
+app.use('/messages', requireAuth, messagesRouter);
+app.use('/email', requireAuth, emailRouter);
+
+// ---------------------------------------------------------------------------
+// Static frontend — hostname-based routing
 // ---------------------------------------------------------------------------
 const clientDist = path.join(__dirname, '..', 'public', 'client');
-console.log('Static files path:', clientDist);
-app.use(express.static(clientDist));
+const adminDist  = path.join(__dirname, '..', 'public', 'admin');
 
+console.log('Client dist:', clientDist);
+console.log('Admin dist:', adminDist);
+
+const CRM_HOSTS = ['crm.growthescalators.com'];
 const API_PREFIXES = [
-  '/api', '/webhooks', '/book', '/contacts', '/deals',
+  '/api', '/auth', '/webhooks', '/book', '/contacts', '/deals',
   '/sequences', '/jobs', '/email', '/bookings', '/messages',
   '/health', '/stats',
 ];
+
+// Admin SPA (crm.growthescalators.com)
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (CRM_HOSTS.includes(req.hostname)) {
+    express.static(adminDist)(req, res, () => {
+      if (API_PREFIXES.some((p) => req.path.startsWith(p))) return next();
+      res.sendFile(path.join(adminDist, 'index.html'));
+    });
+  } else {
+    next();
+  }
+});
+
+// D2C client SPA (ecom.growthescalators.com + Railway domain)
+app.use(express.static(clientDist));
 
 app.get('/{*path}', (req: Request, res: Response, next: NextFunction) => {
   if (API_PREFIXES.some((p) => req.path.startsWith(p))) return next();

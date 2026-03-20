@@ -15,7 +15,10 @@
     "client:install": "cd client && npm install",
     "client:build": "cd client && npm run build",
     "client:dev": "cd client && npm run dev",
-    "build:all": "npm run client:build && npm run build"
+    "admin:install": "cd admin && npm install",
+    "admin:build": "cd admin && npm run build",
+    "admin:dev": "cd admin && npm run dev",
+    "build:all": "npm run client:build && npm run admin:build && npm run build"
   },
   "keywords": [],
   "author": "",
@@ -29,11 +32,13 @@
     "drizzle-orm": "^0.45.1",
     "express": "^5.2.1",
     "express-rate-limit": "^8.3.1",
+    "jsonwebtoken": "^9.0.3",
     "morgan": "^1.10.1",
     "pg": "^8.20.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^25.5.0",
     "@types/pg": "^8.18.0",
     "drizzle-kit": "^0.31.10",
