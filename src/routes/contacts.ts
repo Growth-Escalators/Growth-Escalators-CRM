@@ -182,4 +182,54 @@ router.post('/:id/channels', async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// POST /contacts/bulk-tag
+// Body: { contactIds: string[], tags: string[], mode?: 'add' | 'replace' }
+// ---------------------------------------------------------------------------
+router.post('/bulk-tag', async (req, res) => {
+  const tenantId = req.user!.tenantId;
+  const { contactIds, tags, mode = 'add' } = req.body as {
+    contactIds?: string[];
+    tags?: string[];
+    mode?: 'add' | 'replace';
+  };
+
+  if (!Array.isArray(contactIds) || contactIds.length === 0) {
+    res.status(400).json({ error: 'contactIds array is required' });
+    return;
+  }
+  if (!Array.isArray(tags)) {
+    res.status(400).json({ error: 'tags array is required' });
+    return;
+  }
+
+  if (mode === 'replace') {
+    await db
+      .update(contacts)
+      .set({ tags, updatedAt: new Date() })
+      .where(
+        and(
+          eq(contacts.tenantId, tenantId),
+          sql`${contacts.id} = ANY(ARRAY[${sql.join(contactIds.map((id) => sql`${id}::uuid`), sql`, `)}])`,
+        ),
+      );
+  } else {
+    // 'add' mode: union existing tags with new tags per contact
+    await db
+      .update(contacts)
+      .set({
+        tags: sql`array(SELECT DISTINCT unnest(COALESCE(${contacts.tags}, '{}') || ${tags}::text[]))`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(contacts.tenantId, tenantId),
+          sql`${contacts.id} = ANY(ARRAY[${sql.join(contactIds.map((id) => sql`${id}::uuid`), sql`, `)}])`,
+        ),
+      );
+  }
+
+  res.json({ updated: contactIds.length });
+});
+
 export default router;

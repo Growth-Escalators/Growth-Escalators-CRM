@@ -53,6 +53,21 @@ export default function Sidebar() {
           </svg>
           Pipeline
         </NavLink>
+        <NavLink
+          to="/automations"
+          className={({ isActive }) =>
+            `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+              isActive
+                ? 'bg-sky-600 text-white'
+                : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+            }`
+          }
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+          Automations
+        </NavLink>
       </nav>
 
       {/* User + logout */}

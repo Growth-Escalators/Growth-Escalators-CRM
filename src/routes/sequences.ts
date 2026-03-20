@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { eq } from 'drizzle-orm';
-import { db, sequences } from '../db/index';
+import { eq, sql } from 'drizzle-orm';
+import { db, sequences, sequenceEnrolments } from '../db/index';
 import {
   enrolContact,
   cancelEnrolment,
@@ -29,18 +29,49 @@ router.post('/', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /sequences?tenantId= — list sequences for a tenant
+// GET /sequences — list sequences for the authenticated tenant
 // ---------------------------------------------------------------------------
 router.get('/', async (req, res) => {
-  const { tenantId } = req.query as Record<string, string>;
-
-  if (!tenantId) {
-    res.status(400).json({ error: 'tenantId is required' });
-    return;
-  }
-
+  const tenantId = req.user!.tenantId;
   const rows = await db.select().from(sequences).where(eq(sequences.tenantId, tenantId));
   res.json(rows);
+});
+
+// ---------------------------------------------------------------------------
+// GET /sequences/stats — sequences with active/completed/cancelled enrolment counts
+// ---------------------------------------------------------------------------
+router.get('/stats', async (req, res) => {
+  const tenantId = req.user!.tenantId;
+
+  const seqs = await db.select().from(sequences).where(eq(sequences.tenantId, tenantId));
+
+  const counts = await db
+    .select({
+      sequenceId: sequenceEnrolments.sequenceId,
+      status: sequenceEnrolments.status,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(sequenceEnrolments)
+    .where(eq(sequenceEnrolments.tenantId, tenantId))
+    .groupBy(sequenceEnrolments.sequenceId, sequenceEnrolments.status);
+
+  const countMap: Record<string, { active: number; completed: number; cancelled: number }> = {};
+  for (const row of counts) {
+    if (!countMap[row.sequenceId]) countMap[row.sequenceId] = { active: 0, completed: 0, cancelled: 0 };
+    if (row.status === 'active') countMap[row.sequenceId].active = row.count;
+    else if (row.status === 'completed') countMap[row.sequenceId].completed = row.count;
+    else if (row.status === 'cancelled') countMap[row.sequenceId].cancelled = row.count;
+  }
+
+  const stats = seqs.map((s) => ({
+    ...s,
+    stepCount: Array.isArray(s.steps) ? s.steps.length : 0,
+    active: countMap[s.id]?.active ?? 0,
+    completed: countMap[s.id]?.completed ?? 0,
+    cancelled: countMap[s.id]?.cancelled ?? 0,
+  }));
+
+  res.json(stats);
 });
 
 // ---------------------------------------------------------------------------

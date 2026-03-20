@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import LoginPage from './pages/LoginPage.jsx';
 import ContactsPage from './pages/ContactsPage.jsx';
 import PipelinePage from './pages/PipelinePage.jsx';
+import AutomationsPage from './pages/AutomationsPage.jsx';
 
 function PrivateRoute({ children }) {
   const token = localStorage.getItem('ge_crm_token');
@@ -27,6 +28,14 @@ export default function App() {
           element={
             <PrivateRoute>
               <PipelinePage />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/automations"
+          element={
+            <PrivateRoute>
+              <AutomationsPage />
             </PrivateRoute>
           }
         />
