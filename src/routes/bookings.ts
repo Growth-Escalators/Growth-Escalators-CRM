@@ -1,40 +1,41 @@
 import { Router } from 'express';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, gte, sql } from 'drizzle-orm';
 import { db, bookings, contacts, deals } from '../db/index';
 
 const router = Router();
 
 // ---------------------------------------------------------------------------
-// GET /bookings?tenantId=&tier=&limit=20
+// GET /bookings?tier=&dateFrom=&limit=20
+// tenantId from JWT
 // ---------------------------------------------------------------------------
 router.get('/', async (req, res) => {
-  const { tenantId, tier } = req.query as Record<string, string>;
-  const limit = Math.min(parseInt((req.query.limit as string) || '20', 10), 100);
+  const tenantId = req.user!.tenantId;
+  const { tier, dateFrom } = req.query as Record<string, string>;
+  const limit = Math.min(parseInt((req.query.limit as string) || '20', 10), 200);
 
-  if (!tenantId) {
-    res.status(400).json({ error: 'tenantId is required' });
-    return;
-  }
-
-  const conditions = [eq(bookings.tenantId, tenantId)];
+  const conditions: ReturnType<typeof eq>[] = [eq(bookings.tenantId, tenantId)];
   if (tier) conditions.push(eq(bookings.qualificationTier, tier));
+  if (dateFrom) conditions.push(gte(bookings.scheduledAt, new Date(dateFrom)));
 
-  const rows = await db
-    .select({
-      booking: bookings,
-      contactFirstName: contacts.firstName,
-      contactLastName: contacts.lastName,
-      dealStage: deals.stage,
-      dealTitle: deals.title,
-    })
-    .from(bookings)
-    .leftJoin(contacts, eq(bookings.contactId, contacts.id))
-    .leftJoin(deals, eq(bookings.dealId, deals.id))
-    .where(and(...conditions))
-    .orderBy(desc(bookings.scheduledAt))
-    .limit(limit);
+  const [rows, countResult] = await Promise.all([
+    db
+      .select({
+        booking: bookings,
+        contactFirstName: contacts.firstName,
+        contactLastName: contacts.lastName,
+        dealStage: deals.stage,
+        dealTitle: deals.title,
+      })
+      .from(bookings)
+      .leftJoin(contacts, eq(bookings.contactId, contacts.id))
+      .leftJoin(deals, eq(bookings.dealId, deals.id))
+      .where(and(...conditions))
+      .orderBy(desc(bookings.scheduledAt))
+      .limit(limit),
+    db.select({ count: sql<number>`count(*)::int` }).from(bookings).where(and(...conditions)),
+  ]);
 
-  res.json(rows);
+  res.json({ bookings: rows, total: countResult[0]?.count ?? 0 });
 });
 
 // ---------------------------------------------------------------------------

@@ -96,19 +96,45 @@ export async function processBooking(payload: Record<string, unknown>) {
   await updateContactScore(contact.id, score.totalScore);
 
   // -------------------------------------------------------------------------
-  // 8. Insert deal
+  // 8. Insert or update deal
+  // If contact already has an Ecom deal (from a purchase), advance it to
+  // appointment_booked. Otherwise create a new Direct pipeline deal.
   // -------------------------------------------------------------------------
   const contactName = [firstName, lastName].filter(Boolean).join(' ');
-  const [deal] = await db
-    .insert(deals)
-    .values({
-      tenantId,
-      contactId: contact.id,
-      title: buildDealTitle(qualificationAnswers, contactName),
-      stage: tier === 'hot' ? 'qualified' : 'lead',
-      metadata: { qualificationBreakdown: score.breakdown },
-    })
-    .returning();
+
+  const existingEcomDeals = await db
+    .select()
+    .from(deals)
+    .where(eq(deals.contactId, contact.id))
+    .limit(10);
+
+  const ecomDeal = existingEcomDeals.find((d) => d.serviceType === 'ecom');
+
+  let deal: typeof deals.$inferSelect;
+
+  if (ecomDeal) {
+    // Advance existing Ecom deal to appointment_booked
+    const [updated] = await db
+      .update(deals)
+      .set({ stage: 'appointment_booked', updatedAt: new Date() })
+      .where(eq(deals.id, ecomDeal.id))
+      .returning();
+    deal = updated;
+  } else {
+    // New contact — create Direct pipeline deal
+    const [inserted] = await db
+      .insert(deals)
+      .values({
+        tenantId,
+        contactId: contact.id,
+        title: buildDealTitle(qualificationAnswers, contactName),
+        stage: 'booked',
+        serviceType: 'direct',
+        metadata: { qualificationBreakdown: score.breakdown },
+      })
+      .returning();
+    deal = inserted;
+  }
 
   // -------------------------------------------------------------------------
   // 9. Insert booking

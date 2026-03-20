@@ -35,7 +35,30 @@ router.get('/', async (req, res) => {
     db.select({ count: sql<number>`count(*)::int` }).from(contacts).where(where),
   ]);
 
-  res.json({ contacts: rows, total: countResult[0]?.count ?? 0 });
+  // Attach primary WhatsApp/phone number to each contact row
+  const contactIds = rows.map((r) => r.id);
+  const phoneMap: Record<string, string> = {};
+  if (contactIds.length > 0) {
+    const channelRows = await db
+      .select({ contactId: contactChannels.contactId, channelValue: contactChannels.channelValue })
+      .from(contactChannels)
+      .where(
+        and(
+          sql`${contactChannels.contactId} = ANY(ARRAY[${sql.join(contactIds.map((id) => sql`${id}::uuid`), sql`, `)}])`,
+          or(
+            eq(contactChannels.channelType, 'whatsapp'),
+            eq(contactChannels.channelType, 'phone'),
+          ),
+        ),
+      );
+    for (const ch of channelRows) {
+      if (!phoneMap[ch.contactId]) phoneMap[ch.contactId] = ch.channelValue;
+    }
+  }
+
+  const enriched = rows.map((r) => ({ ...r, phone: phoneMap[r.id] ?? null }));
+
+  res.json({ contacts: enriched, total: countResult[0]?.count ?? 0 });
 });
 
 // ---------------------------------------------------------------------------

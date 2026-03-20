@@ -57,7 +57,7 @@ export default function ContactsPage() {
   const LIMIT = 50;
 
   // Stats
-  const [stats, setStats] = useState({ total: 0, todayNew: 0 });
+  const [stats, setStats] = useState({ total: 0, todayNew: 0, checkoutLeads: 0, calBookings: 0 });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -83,14 +83,22 @@ export default function ContactsPage() {
     load();
   }, [load]);
 
-  // Stats: total and today new
+  // Stats
   useEffect(() => {
-    apiFetch('/contacts?limit=1&sort=newest').then((d) => {
-      if (d) setStats((s) => ({ ...s, total: d.total ?? 0 }));
-    });
     const today = new Date().toISOString().split('T')[0];
-    apiFetch(`/contacts?limit=1&dateFrom=${today}`).then((d) => {
-      if (d) setStats((s) => ({ ...s, todayNew: d.total ?? 0 }));
+    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
+    Promise.all([
+      apiFetch('/contacts?limit=1'),
+      apiFetch(`/contacts?limit=1&dateFrom=${today}`),
+      apiFetch('/contacts?limit=1&source=checkout'),
+      apiFetch(`/bookings?limit=1&dateFrom=${monthStart}`),
+    ]).then(([all, todayData, checkout, bookingsData]) => {
+      setStats({
+        total: all?.total ?? 0,
+        todayNew: todayData?.total ?? 0,
+        checkoutLeads: checkout?.total ?? 0,
+        calBookings: bookingsData?.total ?? bookingsData?.bookings?.length ?? 0,
+      });
     });
   }, []);
 
@@ -111,8 +119,8 @@ export default function ContactsPage() {
         <div className="px-8 py-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
           <StatCard label="Total Contacts" value={stats.total.toLocaleString()} />
           <StatCard label="Added Today" value={stats.todayNew} />
-          <StatCard label="Checkout Leads" value="—" sub="from ecom.growthescalators.com" />
-          <StatCard label="Cal Bookings" value="—" sub="confirmed this month" />
+          <StatCard label="Checkout Leads" value={stats.checkoutLeads.toLocaleString()} sub="from ecom store" />
+          <StatCard label="Cal Bookings" value={stats.calBookings.toLocaleString()} sub="this month" />
         </div>
 
         {/* Filters */}
