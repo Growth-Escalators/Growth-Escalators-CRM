@@ -91,10 +91,18 @@ const API_PREFIXES = [
   '/health', '/stats',
 ];
 
-// Admin SPA (crm.growthescalators.com, or any extra host set via CRM_EXTRA_HOST env var)
-// To share without a custom domain: set CRM_EXTRA_HOST=your-app.up.railway.app in Railway vars
+// Admin SPA — two ways to access:
+//   1. crm.growthescalators.com  (custom domain, root path)
+//   2. any-host.railway.app/crm  (path-based, no custom domain needed)
 if (process.env.CRM_EXTRA_HOST) CRM_HOSTS.push(process.env.CRM_EXTRA_HOST);
 
+// Path-based: /crm and /crm/* on any host
+app.use('/crm', express.static(adminDist));
+app.get('/crm/{*path}', (_req: Request, res: Response) => {
+  res.sendFile(path.join(adminDist, 'index.html'));
+});
+
+// Hostname-based: crm.growthescalators.com at root
 app.use((req: Request, res: Response, next: NextFunction) => {
   if (CRM_HOSTS.includes(req.hostname)) {
     express.static(adminDist)(req, res, () => {
