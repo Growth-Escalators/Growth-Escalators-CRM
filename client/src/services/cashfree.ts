@@ -33,13 +33,7 @@ export async function initiateCashfreePayment(params: PaymentParams): Promise<vo
   });
 
   // 3. Build return URL — Cashfree will redirect here after payment
-  const returnUrl =
-    `${window.location.origin}/thank-you` +
-    `?segment=${encodeURIComponent(params.segment)}` +
-    `&bump1=${params.bump1}` +
-    `&bump2=${params.bump2}` +
-    `&email=${encodeURIComponent(params.email)}` +
-    `&order_id=${encodeURIComponent(order_id)}`;
+  const returnUrl = 'https://consulting.growthescalators.com';
 
   // 4. Launch Cashfree hosted checkout — redirects on success
   cashfree.checkout({
