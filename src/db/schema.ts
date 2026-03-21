@@ -41,6 +41,7 @@ export const contacts = pgTable(
     source: text('source'),
     sourceDetail: text('source_detail'),
     assignedTo: text('assigned_to'),
+    businessType: text('business_type'),
     tags: text('tags').array().default([]),
     notes: text('notes'),
     metadata: jsonb('metadata').default({}),
@@ -124,6 +125,7 @@ export const deals = pgTable(
     serviceType: text('service_type'),
     assignedTo: text('assigned_to'),
     lostReason: text('lost_reason'),
+    wonNotes: text('won_notes'),
     notes: text('notes'),
     expectedCloseDate: date('expected_close_date'),
     closedAt: timestamp('closed_at'),
@@ -419,3 +421,16 @@ export const funnelAssignments = pgTable(
     funnelIdIdx: index('funnel_assignments_funnel_idx').on(t.funnelId),
   }),
 );
+
+// ---------------------------------------------------------------------------
+// TABLE 19 — contact_notes
+// ---------------------------------------------------------------------------
+export const contactNotes = pgTable('contact_notes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull(),
+  contactId: uuid('contact_id').notNull(),
+  content: text('content').notNull(),
+  createdBy: text('created_by').notNull().default('jatin'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});

@@ -143,7 +143,7 @@ function DealCard({ deal, index, onClick, onArchive, onUnarchive }) {
               </span>
             )}
             {deal.score > 0 && (
-              <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">
+              <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${deal.score >= 70 ? 'bg-green-100 text-green-700' : deal.score >= 40 ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-600'}`}>
                 {deal.score}pt
               </span>
             )}

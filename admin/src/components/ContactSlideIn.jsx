@@ -1,492 +1,561 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { apiFetch } from '../lib/api.js';
 
-const SOURCE_COLORS = {
-  facebook: 'bg-blue-100 text-blue-700',
-  instagram: 'bg-pink-100 text-pink-700',
-  whatsapp: 'bg-green-100 text-green-700',
-  organic: 'bg-emerald-100 text-emerald-700',
-  referral: 'bg-purple-100 text-purple-700',
-  email: 'bg-yellow-100 text-yellow-700',
-};
-
-// Stages per pipeline type
-const ECOM_STAGES = [
-  { id: 'paid_9', label: '₹9' },
-  { id: 'paid_208', label: '₹208' },
-  { id: 'paid_508', label: '₹508' },
-  { id: 'paid_707', label: '₹707' },
-  { id: 'appointment_booked', label: 'Appt Booked' },
-  { id: 'no_show', label: 'No Show' },
-  { id: 'call_done', label: 'Call Done' },
-  { id: 'final_followup', label: 'Final Follow-up' },
-  { id: 'won', label: 'Client Won' },
+const BUSINESS_TYPES = [
+  { value: 'd2c_brand', label: 'D2C Brand', color: 'bg-green-100 text-green-700' },
+  { value: 'agency_owner', label: 'Agency Owner', color: 'bg-blue-100 text-blue-700' },
+  { value: 'freelancer', label: 'Freelancer', color: 'bg-purple-100 text-purple-700' },
+  { value: 'ecom_brand', label: 'Ecom Brand', color: 'bg-orange-100 text-orange-700' },
+  { value: 'healthcare', label: 'Healthcare', color: 'bg-teal-100 text-teal-700' },
 ];
 
-const DIRECT_STAGES = [
-  { id: 'appointment', label: 'Appointment' },
-  { id: 'booked', label: 'Booked' },
-  { id: 'no_show', label: 'No Show' },
-  { id: 'follow_up', label: 'Follow-up' },
-  { id: 'won', label: 'Client' },
+const ASSIGNED_OPTIONS = [
+  { value: 'jatin', label: 'Jatin', color: '#F97316' },
+  { value: 'saksham', label: 'Saksham', color: '#3B82F6' },
 ];
 
-function stagesForDeal(deal) {
-  return deal?.serviceType === 'ecom' ? ECOM_STAGES : DIRECT_STAGES;
+function relativeTime(dateStr) {
+  if (!dateStr) return '';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d ago`;
+  return new Date(dateStr).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-export default function ContactSlideIn({ contact, onClose, onUpdated }) {
+function formatDateTime(dateStr) {
+  if (!dateStr) return '';
+  return new Date(dateStr).toLocaleString('en-IN', {
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function stringToColor(str = '') {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  const colors = ['#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#EF4444', '#6366F1', '#14B8A6'];
+  return colors[Math.abs(hash) % colors.length];
+}
+
+// ---- Conversation item renderers ----
+function ConversationItem({ item }) {
+  const type = item.item_type;
+
+  if (type === 'message') {
+    const isWA = item.channel === 'whatsapp';
+    const isOut = item.direction === 'outbound';
+    if (isWA && isOut) {
+      return (
+        <div className="flex justify-end mb-3">
+          <div className="max-w-[75%]">
+            <div className="rounded-2xl rounded-tr-sm px-4 py-2.5" style={{ background: '#075E54' }}>
+              <p className="text-white text-sm whitespace-pre-wrap">{item.content}</p>
+            </div>
+            {item.templateName && <p className="text-xs text-slate-400 mt-0.5 text-right">{item.templateName}</p>}
+            <p className="text-xs text-slate-400 mt-0.5 text-right">{relativeTime(item.created_at)}</p>
+          </div>
+        </div>
+      );
+    }
+    if (isWA && !isOut) {
+      return (
+        <div className="flex justify-start mb-3">
+          <div className="max-w-[75%]">
+            <div className="rounded-2xl rounded-tl-sm px-4 py-2.5 bg-white border border-slate-200">
+              <p className="text-slate-900 text-sm whitespace-pre-wrap">{item.content}</p>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">{relativeTime(item.created_at)}</p>
+          </div>
+        </div>
+      );
+    }
+    // email
+    return (
+      <div className="mb-3 border-l-4 border-blue-400 bg-blue-50 rounded-r-xl px-4 py-3">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Email sent</span>
+          <span className="text-xs text-slate-400">{relativeTime(item.created_at)}</span>
+        </div>
+        {item.templateName && <p className="text-xs text-slate-500 mb-1">{item.templateName}</p>}
+        {item.content && <p className="text-sm text-slate-700 whitespace-pre-wrap">{item.content}</p>}
+      </div>
+    );
+  }
+
+  if (type === 'booking') {
+    const tierColor = item.tier === 'hot' ? 'bg-green-100 text-green-700' : item.tier === 'warm' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500';
+    return (
+      <div className="mb-3 border-l-4 border-orange-400 bg-orange-50 rounded-r-xl px-4 py-3">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-sm font-semibold text-orange-800">📅 Strategy Call Booked</span>
+          <span className="text-xs text-slate-400">{relativeTime(item.created_at)}</span>
+        </div>
+        {item.scheduledAt && <p className="text-xs text-slate-600 mb-1">{formatDateTime(item.scheduledAt)}</p>}
+        {(item.tier || item.score) && (
+          <div className="flex items-center gap-2">
+            {item.tier && <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${tierColor}`}>{item.tier}</span>}
+            {item.score && <span className="text-xs text-slate-500">Score: {item.score}/100</span>}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (type === 'event') {
+    let label = item.eventType ?? 'Event';
+    const d = typeof item.data === 'string' ? JSON.parse(item.data || '{}') : (item.data ?? {});
+    if (item.eventType === 'deal_stage_changed') label = `Deal moved to ${d.newStage ?? d.stage ?? '?'}`;
+    else if (item.eventType === 'sequence_enrolled') label = `Enrolled in ${d.sequenceName ?? '?'}`;
+    else if (item.eventType === 'purchase_completed') label = `Purchased ₹${d.amount ?? '?'}`;
+    return (
+      <div className="mb-2 flex flex-col items-center">
+        <span className="text-xs text-slate-400 bg-slate-100 rounded-full px-3 py-1">{label}</span>
+        <span className="text-[10px] text-slate-300 mt-0.5">{relativeTime(item.created_at)}</span>
+      </div>
+    );
+  }
+
+  if (type === 'note') {
+    return (
+      <div className="mb-3 border-l-4 border-yellow-400 bg-yellow-50 rounded-r-xl px-4 py-3">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-sm font-semibold text-yellow-800">✏️ Note by {item.createdBy ?? 'team'}</span>
+          <span className="text-xs text-slate-400">{relativeTime(item.created_at)}</span>
+        </div>
+        <p className="text-sm text-slate-700 whitespace-pre-wrap">{item.content}</p>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+export default function ContactSlideIn({ contact: initialContact, onClose, onUpdated }) {
+  const [contact, setContact] = useState(initialContact);
+  const [activeTab, setActiveTab] = useState('conversation');
   const [channels, setChannels] = useState([]);
   const [deals, setDeals] = useState([]);
-  const [messages, setMessages] = useState([]);
-  const [enrolments, setEnrolments] = useState([]);
-  const [notes, setNotes] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [conversation, setConversation] = useState([]);
+  const [notes, setNotes] = useState([]);
+  const [convLoading, setConvLoading] = useState(false);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [noteInput, setNoteInput] = useState('');
+  const [addingNote, setAddingNote] = useState(false);
+  const [editNoteId, setEditNoteId] = useState(null);
+  const [editNoteContent, setEditNoteContent] = useState('');
+  const slideRef = useRef(null);
+  const convBottomRef = useRef(null);
 
-  // Tags editing
-  const [tags, setTags] = useState([]);
-  const [tagInput, setTagInput] = useState('');
-  const [savingTags, setSavingTags] = useState(false);
+  const id = contact?.id;
 
-  // Send message modal
-  const [sendModal, setSendModal] = useState(false);
-  const [sendTab, setSendTab] = useState('whatsapp');
-  const [waTemplate, setWaTemplate] = useState('');
-  const [waVars, setWaVars] = useState('');
-  const [emailSubject, setEmailSubject] = useState('');
-  const [emailBody, setEmailBody] = useState('');
-  const [sending, setSending] = useState(false);
-  const [sendResult, setSendResult] = useState(null);
+  // Fetch full contact + channels + deals on open
+  useEffect(() => {
+    if (!id) return;
+    apiFetch(`/contacts/${id}`).then((d) => {
+      if (d?.contact) setContact(d.contact);
+      if (d?.channels) setChannels(d.channels);
+    });
+    apiFetch(`/deals?contactId=${id}&limit=20`).then((d) => {
+      if (d?.deals) setDeals(d.deals);
+    });
+  }, [id]);
+
+  // Load conversation when tab is active
+  const loadConversation = useCallback(async () => {
+    if (!id) return;
+    setConvLoading(true);
+    const d = await apiFetch(`/contacts/${id}/conversation`);
+    if (d?.items) setConversation(d.items);
+    setConvLoading(false);
+  }, [id]);
 
   useEffect(() => {
-    if (!contact) return;
-    setNotes(contact.metadata?.notes ?? '');
-    setTags(contact.tags ?? []);
-    setSendResult(null);
+    if (activeTab === 'conversation') loadConversation();
+  }, [activeTab, loadConversation]);
 
-    apiFetch(`/contacts/${contact.id}`).then((d) => setChannels(d?.channels ?? []));
-    apiFetch(`/deals?contactId=${contact.id}`).then((d) => setDeals(d?.deals ?? []));
-    apiFetch(`/messages?contactId=${contact.id}&limit=5`).then((d) => setMessages(d?.messages ?? []));
-    apiFetch(`/sequences/enrolments?contactId=${contact.id}`).then((d) => setEnrolments(Array.isArray(d) ? d : []));
-  }, [contact?.id]);
+  // Load notes when tab active
+  const loadNotes = useCallback(async () => {
+    if (!id) return;
+    setNotesLoading(true);
+    const d = await apiFetch(`/contacts/${id}/notes`);
+    if (d?.notes) setNotes(d.notes);
+    setNotesLoading(false);
+  }, [id]);
 
-  if (!contact) return null;
+  useEffect(() => {
+    if (activeTab === 'notes') loadNotes();
+  }, [activeTab, loadNotes]);
 
-  const phone = channels.find((c) => c.channelType === 'whatsapp' || c.channelType === 'phone');
-  const email = channels.find((c) => c.channelType === 'email');
-  const activeDeal = deals[0];
-  const stages = stagesForDeal(activeDeal);
-
-  async function saveNotes() {
-    setSaving(true);
-    await apiFetch(`/contacts/${contact.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ metadata: { ...contact.metadata, notes } }),
-    });
-    setSaving(false);
-    onUpdated?.();
-  }
-
-  async function moveStage(stage) {
-    if (!activeDeal) return;
-    await apiFetch(`/deals/${activeDeal.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ stage }),
-    });
-    onUpdated?.();
-  }
-
-  async function markDNC() {
-    await apiFetch(`/contacts/${contact.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ doNotContact: !contact.doNotContact }),
-    });
-    onUpdated?.();
-  }
-
-  // Tag helpers
-  function addTag() {
-    const t = tagInput.trim();
-    if (!t || tags.includes(t)) { setTagInput(''); return; }
-    setTags([...tags, t]);
-    setTagInput('');
-  }
-
-  function removeTag(tag) {
-    setTags(tags.filter((t) => t !== tag));
-  }
-
-  async function saveTags() {
-    setSavingTags(true);
-    await apiFetch(`/contacts/${contact.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ tags }),
-    });
-    setSavingTags(false);
-    onUpdated?.();
-  }
-
-  async function cancelEnrolment(enrolmentId) {
-    await apiFetch(`/sequences/enrolments/${enrolmentId}`, { method: 'DELETE' });
-    setEnrolments(enrolments.filter((e) => e.id !== enrolmentId));
-  }
-
-  async function sendMessage() {
-    setSending(true);
-    setSendResult(null);
-    let result;
-    if (sendTab === 'whatsapp') {
-      let variables = {};
-      try { variables = waVars ? JSON.parse(waVars) : {}; } catch { variables = {}; }
-      result = await apiFetch('/messages/send/whatsapp', {
-        method: 'POST',
-        body: JSON.stringify({ contactId: contact.id, templateName: waTemplate, variables }),
-      });
-    } else {
-      result = await apiFetch('/email/manual', {
-        method: 'POST',
-        body: JSON.stringify({ contactId: contact.id, subject: emailSubject, body: emailBody }),
-      });
+  // Close on outside click
+  useEffect(() => {
+    function handler(e) {
+      if (slideRef.current && !slideRef.current.contains(e.target)) onClose();
     }
-    setSending(false);
-    setSendResult(result?.success ? 'sent' : (result?.error ?? 'error'));
-    if (result?.success) {
-      // Reload messages
-      apiFetch(`/messages?contactId=${contact.id}&limit=5`).then((d) => setMessages(d?.messages ?? []));
-    }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  // Close on Escape
+  useEffect(() => {
+    function handler(e) { if (e.key === 'Escape') onClose(); }
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  async function patchContact(updates) {
+    const updated = await apiFetch(`/contacts/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
+    if (updated) { setContact(updated); onUpdated?.(); }
   }
+
+  async function addNote() {
+    if (!noteInput.trim()) return;
+    setAddingNote(true);
+    await apiFetch(`/contacts/${id}/notes`, {
+      method: 'POST',
+      body: JSON.stringify({ content: noteInput.trim(), createdBy: 'jatin' }),
+    });
+    setNoteInput('');
+    setAddingNote(false);
+    if (activeTab === 'conversation') loadConversation();
+    else loadNotes();
+  }
+
+  async function saveEditNote() {
+    if (!editNoteContent.trim() || !editNoteId) return;
+    await apiFetch(`/contacts/${id}/notes/${editNoteId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ content: editNoteContent.trim() }),
+    });
+    setEditNoteId(null);
+    setEditNoteContent('');
+    loadNotes();
+  }
+
+  async function deleteNote(noteId) {
+    await apiFetch(`/contacts/${id}/notes/${noteId}`, { method: 'DELETE' });
+    loadNotes();
+  }
+
+  const phone = channels.find((c) => c.channelType === 'whatsapp' || c.channelType === 'phone')?.channelValue;
+  const email = channels.find((c) => c.channelType === 'email')?.channelValue;
+  const btType = BUSINESS_TYPES.find((b) => b.value === contact?.businessType);
+  const fullName = `${contact?.firstName ?? ''} ${contact?.lastName ?? ''}`.trim();
+  const initials = ((contact?.firstName?.[0] ?? '') + (contact?.lastName?.[0] ?? '')).toUpperCase() || '?';
+
+  const TABS = [
+    { id: 'conversation', label: 'Conversation' },
+    { id: 'details', label: 'Details' },
+    { id: 'notes', label: 'Notes' },
+    { id: 'deals', label: `Deals${deals.length > 0 ? ` (${deals.length})` : ''}` },
+  ];
 
   return (
-    <>
-      {/* Overlay */}
-      <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose} />
-
-      {/* Panel */}
-      <div className="fixed top-0 right-0 h-full w-[440px] bg-white shadow-2xl z-50 flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-40 flex justify-end">
+      <div className="flex-1 bg-black/30" onClick={onClose} />
+      <div
+        ref={slideRef}
+        className="w-full max-w-xl bg-white shadow-2xl flex flex-col h-full"
+      >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b">
-          <div>
-            <h2 className="text-lg font-bold text-slate-900">
-              {contact.firstName} {contact.lastName ?? ''}
-            </h2>
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
-              {contact.source && (
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${SOURCE_COLORS[contact.source] ?? 'bg-slate-100 text-slate-600'}`}>
-                  {contact.source}
-                </span>
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100 shrink-0">
+          <div
+            className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-base shrink-0"
+            style={{ background: stringToColor(id ?? '') }}
+          >
+            {initials}
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="font-bold text-slate-900 text-base truncate">{fullName || 'Unknown'}</h2>
+            <div className="flex items-center gap-2 flex-wrap">
+              {contact?.companyName && (
+                <span className="text-xs text-slate-400 truncate">{contact.companyName}</span>
               )}
-              {contact.doNotContact && (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">DNC</span>
+              {btType && (
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${btType.color}`}>{btType.label}</span>
               )}
             </div>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 p-1">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            {phone && (
+              <a href={`https://wa.me/${phone.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer"
+                className="p-2 text-slate-400 hover:text-green-600 rounded-lg hover:bg-slate-100">
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
+                  <path d="M12 0C5.373 0 0 5.373 0 12c0 2.123.554 4.122 1.528 5.857L0 24l6.293-1.508A11.954 11.954 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.886 0-3.655-.5-5.189-1.375l-.371-.219-3.837.919.938-3.726-.241-.385A9.955 9.955 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/>
+                </svg>
+              </a>
+            )}
+            <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
-          {/* Contact details */}
-          <section>
-            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Contact</h3>
-            <div className="space-y-2">
-              {phone && (
-                <div className="flex items-center justify-between">
-                  <a
-                    href={`https://wa.me/${phone.channelValue.replace(/\D/g, '')}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center gap-2 text-sm text-green-600 hover:underline"
-                  >
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-                    </svg>
-                    {phone.channelValue}
-                  </a>
-                  <button
-                    onClick={() => { setSendModal(true); setSendTab('whatsapp'); setSendResult(null); }}
-                    className="text-xs bg-green-50 hover:bg-green-100 text-green-700 px-2 py-1 rounded-lg transition-colors"
-                  >
-                    Send WA
-                  </button>
-                </div>
-              )}
-              {email && (
-                <div className="flex items-center justify-between">
-                  <p className="flex items-center gap-2 text-sm text-slate-600">
-                    <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                    </svg>
-                    {email.channelValue}
-                  </p>
-                  <button
-                    onClick={() => { setSendModal(true); setSendTab('email'); setSendResult(null); }}
-                    className="text-xs bg-sky-50 hover:bg-sky-100 text-sky-700 px-2 py-1 rounded-lg transition-colors"
-                  >
-                    Send Email
-                  </button>
-                </div>
-              )}
-              <p className="text-sm text-slate-500">Status: <span className="font-medium text-slate-700">{contact.status}</span></p>
-              {contact.assignedTo && (
-                <p className="text-sm text-slate-500">Assigned: <span className="font-medium text-slate-700">{contact.assignedTo}</span></p>
-              )}
-            </div>
-          </section>
+        {/* Tabs */}
+        <div className="flex border-b border-slate-100 shrink-0">
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex-1 py-2.5 text-xs font-medium transition-colors ${activeTab === tab.id ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
 
-          {/* Tags (editable) */}
-          <section>
-            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Tags</h3>
-            <div className="flex flex-wrap gap-1 mb-2">
-              {tags.map((tag) => (
-                <span key={tag} className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 font-medium">
-                  {tag}
-                  <button onClick={() => removeTag(tag)} className="hover:text-violet-900 leading-none">×</button>
-                </span>
-              ))}
-              {tags.length === 0 && <span className="text-xs text-slate-400">No tags</span>}
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="Add tag…"
-                value={tagInput}
-                onChange={(e) => setTagInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && addTag()}
-                className="flex-1 border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
-              />
-              <button
-                onClick={addTag}
-                className="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg transition-colors"
-              >
-                Add
-              </button>
-              <button
-                onClick={saveTags}
-                disabled={savingTags}
-                className="text-sm bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 rounded-lg disabled:opacity-50 transition-colors"
-              >
-                {savingTags ? 'Saving…' : 'Save'}
-              </button>
-            </div>
-          </section>
+        {/* Tab content */}
+        <div className="flex-1 overflow-hidden flex flex-col">
 
-          {/* Pipeline stage */}
-          {activeDeal && (
-            <section>
-              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                Pipeline — {activeDeal.serviceType === 'ecom' ? 'Ecom Buyers' : 'Direct / Booking'}
-              </h3>
-              <p className="text-sm text-slate-600 mb-2">
-                Current stage: <span className="font-semibold text-slate-900">
-                  {stages.find((s) => s.id === activeDeal.stage)?.label ?? activeDeal.stage}
-                </span>
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {stages.map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => moveStage(s.id)}
-                    className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-colors ${
-                      activeDeal.stage === s.id
-                        ? 'bg-sky-600 text-white border-sky-600'
-                        : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    {s.label}
-                  </button>
-                ))}
+          {/* CONVERSATION TAB */}
+          {activeTab === 'conversation' && (
+            <div className="flex flex-col flex-1 overflow-hidden">
+              <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1">
+                {convLoading ? (
+                  <div className="flex justify-center py-8 text-slate-400 text-sm">Loading conversation…</div>
+                ) : conversation.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-slate-300">
+                    <svg className="w-10 h-10 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                    </svg>
+                    <p className="text-sm">No conversation yet</p>
+                  </div>
+                ) : (
+                  conversation.map((item, i) => <ConversationItem key={i} item={item} />)
+                )}
+                <div ref={convBottomRef} />
               </div>
-            </section>
+              {/* Add note input */}
+              <div className="px-4 py-3 border-t border-slate-100 bg-white shrink-0">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={noteInput}
+                    onChange={(e) => setNoteInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && addNote()}
+                    placeholder="Add a note…"
+                    className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    onClick={addNote}
+                    disabled={addingNote || !noteInput.trim()}
+                    className="px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
 
-          {/* Active Sequences */}
-          <section>
-            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Active Sequences</h3>
-            {enrolments.length === 0 ? (
-              <p className="text-xs text-slate-400">Not enrolled in any sequences</p>
-            ) : (
+          {/* DETAILS TAB */}
+          {activeTab === 'details' && (
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+              {/* Contact info */}
+              <div className="space-y-3">
+                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Contact Info</h3>
+                {phone && (
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-slate-400 w-20 shrink-0">Phone</span>
+                    <a href={`tel:${phone}`} className="text-sm text-blue-600 hover:underline">{phone}</a>
+                  </div>
+                )}
+                {email && (
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-slate-400 w-20 shrink-0">Email</span>
+                    <a href={`mailto:${email}`} className="text-sm text-blue-600 hover:underline">{email}</a>
+                  </div>
+                )}
+                {contact?.companyName && (
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-slate-400 w-20 shrink-0">Company</span>
+                    <span className="text-sm text-slate-700">{contact.companyName}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-slate-400 w-20 shrink-0">Source</span>
+                  <span className="text-sm text-slate-700 capitalize">{contact?.source ?? '—'}</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-slate-400 w-20 shrink-0">Score</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${(contact?.score ?? 0) >= 70 ? 'bg-green-100 text-green-700' : (contact?.score ?? 0) >= 40 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>
+                    {contact?.score ?? 0}/100
+                  </span>
+                </div>
+              </div>
+
+              {/* Business Type */}
               <div className="space-y-2">
-                {enrolments.map((e) => (
-                  <div key={e.id} className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2">
-                    <div>
-                      <p className="text-sm font-medium text-slate-800">{e.sequenceName ?? e.sequenceId}</p>
-                      <p className="text-xs text-slate-400">
-                        Step {e.currentStep + 1} · Next:{' '}
-                        {e.nextStepAt ? new Date(e.nextStepAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
-                      </p>
-                    </div>
+                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Business Type</h3>
+                <select
+                  value={contact?.businessType ?? ''}
+                  onChange={(e) => patchContact({ businessType: e.target.value || null })}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Unknown</option>
+                  {BUSINESS_TYPES.map((b) => (
+                    <option key={b.value} value={b.value}>{b.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Assigned To */}
+              <div className="space-y-2">
+                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Assigned To</h3>
+                <div className="flex gap-2">
+                  {ASSIGNED_OPTIONS.map((a) => (
                     <button
-                      onClick={() => cancelEnrolment(e.id)}
-                      className="text-xs text-red-500 hover:text-red-700 border border-red-200 hover:border-red-300 px-2 py-1 rounded-lg transition-colors"
+                      key={a.value}
+                      onClick={() => patchContact({ assignedTo: contact?.assignedTo === a.value ? null : a.value })}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${contact?.assignedTo === a.value ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
                     >
-                      Cancel
+                      <span className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ background: a.color }}>
+                        {a.label[0]}
+                      </span>
+                      {a.label}
                     </button>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            )}
-          </section>
 
-          {/* Recent messages */}
-          {messages.length > 0 && (
-            <section>
-              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Recent Messages</h3>
-              <div className="space-y-2">
-                {messages.map((m) => (
-                  <div key={m.id} className="text-sm bg-slate-50 rounded-lg px-3 py-2">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className={`text-xs font-medium ${m.direction === 'inbound' ? 'text-green-600' : 'text-sky-600'}`}>
-                        {m.direction === 'inbound' ? '← Received' : '→ Sent'} · {m.channel}
-                      </span>
-                      <span className="text-xs text-slate-400">
-                        {new Date(m.sentAt).toLocaleDateString()}
-                      </span>
-                    </div>
-                    <p className="text-slate-700 line-clamp-2">{m.content}</p>
+              {/* Tags */}
+              {contact?.tags?.length > 0 && (
+                <div className="space-y-2">
+                  <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Tags</h3>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(contact.tags ?? []).map((tag) => (
+                      <span key={tag} className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{tag}</span>
+                    ))}
                   </div>
-                ))}
+                </div>
+              )}
+
+              {/* Notes (contact-level) */}
+              {contact?.notes && (
+                <div className="space-y-2">
+                  <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Contact Notes</h3>
+                  <p className="text-sm text-slate-700 whitespace-pre-wrap">{contact.notes}</p>
+                </div>
+              )}
+
+              {/* Timestamps */}
+              <div className="space-y-1 pt-2 border-t border-slate-100">
+                <p className="text-xs text-slate-400">Created: {contact?.createdAt ? new Date(contact.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</p>
+                {contact?.lastActivityAt && (
+                  <p className="text-xs text-slate-400">Last activity: {new Date(contact.lastActivityAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                )}
               </div>
-            </section>
+            </div>
           )}
 
-          {/* Notes */}
-          <section>
-            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Notes</h3>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={4}
-              placeholder="Add notes about this contact..."
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 resize-none"
-            />
-            <button
-              onClick={saveNotes}
-              disabled={saving}
-              className="mt-2 text-sm bg-slate-800 hover:bg-slate-700 text-white px-4 py-1.5 rounded-lg disabled:opacity-50 transition-colors"
-            >
-              {saving ? 'Saving…' : 'Save notes'}
-            </button>
-          </section>
+          {/* NOTES TAB */}
+          {activeTab === 'notes' && (
+            <div className="flex-1 overflow-y-auto flex flex-col">
+              {/* Add note form */}
+              <div className="px-5 py-4 border-b border-slate-100">
+                <textarea
+                  value={noteInput}
+                  onChange={(e) => setNoteInput(e.target.value)}
+                  rows={3}
+                  placeholder="Write a note…"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                />
+                <div className="flex justify-end mt-2">
+                  <button
+                    onClick={addNote}
+                    disabled={addingNote || !noteInput.trim()}
+                    className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    Add Note
+                  </button>
+                </div>
+              </div>
+              {/* Notes list */}
+              <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3">
+                {notesLoading ? (
+                  <p className="text-sm text-slate-400 text-center py-4">Loading…</p>
+                ) : notes.length === 0 ? (
+                  <p className="text-sm text-slate-300 text-center py-8">No notes yet</p>
+                ) : (
+                  notes.map((note) => (
+                    <div key={note.id} className="border border-slate-200 rounded-xl p-4 bg-white">
+                      {editNoteId === note.id ? (
+                        <>
+                          <textarea
+                            value={editNoteContent}
+                            onChange={(e) => setEditNoteContent(e.target.value)}
+                            rows={3}
+                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none mb-2"
+                          />
+                          <div className="flex gap-2 justify-end">
+                            <button onClick={() => { setEditNoteId(null); setEditNoteContent(''); }} className="px-3 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+                            <button onClick={saveEditNote} className="px-3 py-1.5 text-xs text-white bg-blue-600 rounded-lg hover:bg-blue-700">Save</button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-sm text-slate-700 whitespace-pre-wrap mb-2">{note.content}</p>
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-slate-400">{note.createdBy} · {relativeTime(note.createdAt)}</span>
+                            <div className="flex gap-1">
+                              <button onClick={() => { setEditNoteId(note.id); setEditNoteContent(note.content); }} className="text-xs text-slate-400 hover:text-blue-600 px-2 py-1">Edit</button>
+                              <button onClick={() => deleteNote(note.id)} className="text-xs text-slate-400 hover:text-red-600 px-2 py-1">Delete</button>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
 
-          {/* Actions */}
-          <section>
-            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Actions</h3>
-            <button
-              onClick={markDNC}
-              className={`text-sm px-3 py-1.5 rounded-lg border font-medium transition-colors ${
-                contact.doNotContact
-                  ? 'border-green-300 text-green-700 hover:bg-green-50'
-                  : 'border-red-200 text-red-600 hover:bg-red-50'
-              }`}
-            >
-              {contact.doNotContact ? '✓ Remove DNC flag' : 'Mark Do-Not-Contact'}
-            </button>
-          </section>
+          {/* DEALS TAB */}
+          {activeTab === 'deals' && (
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+              {deals.length === 0 ? (
+                <p className="text-sm text-slate-300 text-center py-8">No deals yet</p>
+              ) : (
+                deals.map((deal) => (
+                  <div key={deal.id} className="border border-slate-200 rounded-xl p-4 bg-white">
+                    <div className="flex items-start justify-between mb-1">
+                      <span className="text-sm font-semibold text-slate-900">{deal.title}</span>
+                      {deal.dealValue > 0 && (
+                        <span className="text-sm font-semibold text-green-600">₹{Number(deal.dealValue).toLocaleString('en-IN')}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${deal.stage?.toLowerCase().includes('won') ? 'bg-emerald-100 text-emerald-700' : deal.stage?.toLowerCase().includes('lost') ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-700'}`}>
+                        {deal.stage ?? 'Unknown'}
+                      </span>
+                      {deal.pipelineName && (
+                        <span className="text-xs text-slate-400">{deal.pipelineName}</span>
+                      )}
+                      {deal.assignedTo && (
+                        <span className="text-xs text-slate-400">→ {deal.assignedTo}</span>
+                      )}
+                    </div>
+                    {deal.lostReason && (
+                      <p className="text-xs text-red-400 mt-1">Lost: {deal.lostReason}</p>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
       </div>
-
-      {/* Send Message Modal */}
-      {sendModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setSendModal(false)} />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-[480px] max-w-full mx-4 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-bold text-slate-900">Send Message</h3>
-              <button onClick={() => setSendModal(false)} className="text-slate-400 hover:text-slate-700">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            {/* Tabs */}
-            <div className="flex bg-slate-100 rounded-lg p-1 mb-4">
-              {['whatsapp', 'email'].map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => { setSendTab(tab); setSendResult(null); }}
-                  className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors ${sendTab === tab ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}
-                >
-                  {tab === 'whatsapp' ? 'WhatsApp' : 'Email'}
-                </button>
-              ))}
-            </div>
-
-            {sendTab === 'whatsapp' ? (
-              <div className="space-y-3">
-                <div>
-                  <label className="text-xs font-medium text-slate-600 block mb-1">Template Name</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. welcome_d2c"
-                    value={waTemplate}
-                    onChange={(e) => setWaTemplate(e.target.value)}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-slate-600 block mb-1">Variables (JSON, optional)</label>
-                  <textarea
-                    placeholder='{"1": "John", "2": "Growth Escalators"}'
-                    value={waVars}
-                    onChange={(e) => setWaVars(e.target.value)}
-                    rows={3}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono resize-none"
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div>
-                  <label className="text-xs font-medium text-slate-600 block mb-1">Subject</label>
-                  <input
-                    type="text"
-                    placeholder="Email subject"
-                    value={emailSubject}
-                    onChange={(e) => setEmailSubject(e.target.value)}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-slate-600 block mb-1">Body</label>
-                  <textarea
-                    placeholder="Email body..."
-                    value={emailBody}
-                    onChange={(e) => setEmailBody(e.target.value)}
-                    rows={5}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 resize-none"
-                  />
-                </div>
-              </div>
-            )}
-
-            {sendResult && (
-              <p className={`mt-3 text-sm font-medium ${sendResult === 'sent' ? 'text-green-600' : 'text-red-600'}`}>
-                {sendResult === 'sent' ? '✓ Message sent successfully' : `Error: ${sendResult}`}
-              </p>
-            )}
-
-            <div className="flex justify-end gap-2 mt-4">
-              <button
-                onClick={() => setSendModal(false)}
-                className="text-sm px-4 py-2 border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={sendMessage}
-                disabled={sending || (sendTab === 'whatsapp' ? !waTemplate : !emailSubject || !emailBody)}
-                className="text-sm px-4 py-2 bg-slate-900 hover:bg-slate-700 text-white rounded-lg disabled:opacity-50 transition-colors"
-              >
-                {sending ? 'Sending…' : 'Send'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
+    </div>
   );
 }
