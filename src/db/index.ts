@@ -16,6 +16,7 @@ export {
   tenants,
   contacts,
   contactChannels,
+  pipelines,
   deals,
   clients,
   events,

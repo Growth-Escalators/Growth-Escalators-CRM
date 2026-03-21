@@ -35,17 +35,20 @@ export const contacts = pgTable(
     tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
     firstName: text('first_name').notNull(),
     lastName: text('last_name'),
+    companyName: text('company_name'),
     score: integer('score').default(0),
     status: text('status').default('lead'),
     source: text('source'),
     sourceDetail: text('source_detail'),
     assignedTo: text('assigned_to'),
     tags: text('tags').array().default([]),
+    notes: text('notes'),
     metadata: jsonb('metadata').default({}),
     optedInWa: boolean('opted_in_wa').default(false),
     optedInEmail: boolean('opted_in_email').default(false),
     doNotContact: boolean('do_not_contact').default(false),
     lastContactedAt: timestamp('last_contacted_at'),
+    lastActivityAt: timestamp('last_activity_at'),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
   },
@@ -83,6 +86,28 @@ export const contactChannels = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// TABLE 4A — pipelines
+// ---------------------------------------------------------------------------
+export const pipelines = pgTable(
+  'pipelines',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
+    stages: jsonb('stages').notNull().default([]),
+    color: text('color').default('#F97316'),
+    isActive: boolean('is_active').default(true),
+    sortOrder: integer('sort_order').default(0),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    tenantIdIdx: index('pipelines_tenant_id_idx').on(t.tenantId),
+    tenantSlugIdx: uniqueIndex('pipelines_tenant_slug_idx').on(t.tenantId, t.slug),
+  }),
+);
+
+// ---------------------------------------------------------------------------
 // TABLE 4 — deals
 // ---------------------------------------------------------------------------
 export const deals = pgTable(
@@ -91,11 +116,15 @@ export const deals = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
     contactId: uuid('contact_id').notNull().references(() => contacts.id),
+    pipelineId: uuid('pipeline_id').references(() => pipelines.id),
     title: text('title').notNull(),
     stage: text('stage').default('lead'),
     value: numeric('value', { precision: 12, scale: 2 }),
+    dealValue: integer('deal_value'),
     serviceType: text('service_type'),
+    assignedTo: text('assigned_to'),
     lostReason: text('lost_reason'),
+    notes: text('notes'),
     expectedCloseDate: date('expected_close_date'),
     closedAt: timestamp('closed_at'),
     metadata: jsonb('metadata').default({}),
@@ -105,6 +134,7 @@ export const deals = pgTable(
   (t) => ({
     tenantIdIdx: index('deals_tenant_id_idx').on(t.tenantId),
     contactIdIdx: index('deals_contact_id_idx').on(t.contactId),
+    pipelineIdIdx: index('deals_pipeline_id_idx').on(t.pipelineId),
   }),
 );
 

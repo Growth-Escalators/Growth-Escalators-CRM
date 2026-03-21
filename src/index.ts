@@ -3,6 +3,8 @@ dotenv.config();
 
 import path from 'path';
 import express, { type Request, type Response, type NextFunction } from 'express';
+import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import { db } from './db/index';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import webhooksRouter from './routes/webhooks';
@@ -17,6 +19,7 @@ import bookingRouter from './routes/booking';
 import cashfreeRouter from './routes/cashfree';
 import authRouter from './routes/auth';
 import healthRouter from './routes/healthRoute';
+import pipelinesRouter from './routes/pipelines';
 import { requireAuth } from './middleware/auth';
 import { startStuckJobWorker } from './workers/stuckJobWorker';
 import { startSequenceWorker } from './workers/sequenceWorker';
@@ -74,6 +77,7 @@ app.use('/bookings', requireAuth, bookingsRouter);
 app.use('/jobs', requireAuth, jobsRouter);
 app.use('/messages', requireAuth, messagesRouter);
 app.use('/email', requireAuth, emailRouter);
+app.use('/api/pipelines', requireAuth, pipelinesRouter);
 
 // ---------------------------------------------------------------------------
 // Static frontend — hostname-based routing
@@ -167,12 +171,26 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 // ---------------------------------------------------------------------------
-// Start server
+// Start server (run pending DB migrations first)
 // ---------------------------------------------------------------------------
 const PORT = process.env.PORT ?? 3000;
 
-app.listen(PORT, () => {
-  console.log(`Growth Escalators backend running on port ${PORT}`);
-  startStuckJobWorker();
-  startSequenceWorker();
-});
+const migrationsFolder = path.join(__dirname, '..', 'src', 'db', 'migrations');
+
+async function startServer() {
+  try {
+    console.log('[migrate] running pending migrations…');
+    await migrate(db, { migrationsFolder });
+    console.log('[migrate] all migrations applied');
+  } catch (err) {
+    console.error('[migrate] migration failed — starting anyway:', err);
+  }
+
+  app.listen(PORT, () => {
+    console.log(`Growth Escalators backend running on port ${PORT}`);
+    startStuckJobWorker();
+    startSequenceWorker();
+  });
+}
+
+startServer();
