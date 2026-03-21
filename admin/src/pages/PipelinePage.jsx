@@ -172,6 +172,7 @@ function DealCard({ deal, index, onClick, onArchive, onUnarchive }) {
 function WonLostModal({ stageName, contactName, onConfirm, onCancel }) {
   const isWon = isWonStage(stageName);
   const [lostReason, setLostReason] = useState('');
+  const [wonNotes, setWonNotes] = useState('');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
@@ -189,11 +190,26 @@ function WonLostModal({ stageName, contactName, onConfirm, onCancel }) {
             )}
           </div>
           <h2 className="text-lg font-bold text-slate-900">
-            Mark as {stageName}?
+            {isWon ? '🎉 Deal Won!' : `Mark as ${stageName}?`}
           </h2>
           <p className="text-sm text-slate-500 mt-1">
             {contactName} will be moved to <span className="font-medium text-slate-700">{stageName}</span>.
           </p>
+
+          {isWon && (
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                Notes <span className="text-slate-400 font-normal">(optional)</span>
+              </label>
+              <textarea
+                value={wonNotes}
+                onChange={(e) => setWonNotes(e.target.value)}
+                rows={3}
+                placeholder="Add any notes about this win…"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none"
+              />
+            </div>
+          )}
 
           {!isWon && (
             <div className="mt-4">
@@ -225,7 +241,7 @@ function WonLostModal({ stageName, contactName, onConfirm, onCancel }) {
             Cancel
           </button>
           <button
-            onClick={() => onConfirm(lostReason || null)}
+            onClick={() => onConfirm(lostReason || null, wonNotes || null)}
             className={`px-5 py-2 text-sm font-semibold text-white rounded-lg transition-colors ${isWon ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'}`}
           >
             {isWon ? 'Mark Won' : 'Mark Lost'}
@@ -336,7 +352,7 @@ export default function PipelinePage() {
     });
   }
 
-  async function confirmWonLost(lostReason) {
+  async function confirmWonLost(lostReason, wonNotes) {
     if (!wonLostModal) return;
     const { deal, fromStage, toStage, destIndex } = wonLostModal;
     setWonLostModal(null);
@@ -348,6 +364,7 @@ export default function PipelinePage() {
       body: JSON.stringify({
         stage: toStage,
         ...(lostReason ? { lostReason } : {}),
+        ...(wonNotes ? { wonNotes } : {}),
       }),
     });
   }
