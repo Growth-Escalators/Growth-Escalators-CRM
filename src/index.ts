@@ -20,6 +20,7 @@ import cashfreeRouter from './routes/cashfree';
 import authRouter from './routes/auth';
 import healthRouter from './routes/healthRoute';
 import pipelinesRouter from './routes/pipelines';
+import automationHubRouter from './routes/automationHub';
 import { requireAuth } from './middleware/auth';
 import { startStuckJobWorker } from './workers/stuckJobWorker';
 import { startSequenceWorker } from './workers/sequenceWorker';
@@ -78,6 +79,7 @@ app.use('/jobs', requireAuth, jobsRouter);
 app.use('/messages', requireAuth, messagesRouter);
 app.use('/email', requireAuth, emailRouter);
 app.use('/api/pipelines', requireAuth, pipelinesRouter);
+app.use('/api/automations', requireAuth, automationHubRouter);
 
 // ---------------------------------------------------------------------------
 // Static frontend — hostname-based routing
@@ -94,6 +96,7 @@ const API_PREFIXES = [
   '/api', '/auth', '/webhooks', '/book', '/contacts', '/deals',
   '/sequences', '/jobs', '/email', '/bookings', '/messages',
   '/health', '/stats', '/consulting',
+  '/api/automations',
 ];
 
 // Admin SPA — two ways to access:
