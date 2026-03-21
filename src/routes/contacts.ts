@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { eq, and, desc, ilike, or, gte, sql } from 'drizzle-orm';
-import { db, contacts, contactChannels, sequences, sequenceEnrolments } from '../db/index';
+import { db, contacts, contactChannels, sequences, sequenceEnrolments, contactNotes } from '../db/index';
 
 const router = Router();
 
@@ -16,6 +16,7 @@ router.get('/', async (req, res) => {
     dateFrom,
     segment,
     assignedTo,
+    businessType,
     tags,
     limit = '50',
     offset = '0',
@@ -25,6 +26,7 @@ router.get('/', async (req, res) => {
   if (status) conditions.push(eq(contacts.status, status));
   if (source) conditions.push(eq(contacts.source, source));
   if (assignedTo) conditions.push(eq(contacts.assignedTo, assignedTo));
+  if (businessType) conditions.push(eq(contacts.businessType, businessType));
   if (dateFrom) conditions.push(gte(contacts.createdAt, new Date(dateFrom)));
   if (segment) conditions.push(sql`${contacts.metadata}->>'segment' = ${segment}` as any);
   if (tags) {
@@ -92,6 +94,102 @@ router.get('/', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /contacts/:id/conversation — unified timeline
+// ---------------------------------------------------------------------------
+router.get('/:id/conversation', async (req, res) => {
+  const { id } = req.params;
+
+  const [msgs, evts, bkgs, nts] = await Promise.all([
+    db.execute(sql`
+      SELECT id::text, 'message' as item_type, channel, direction, content,
+             template_name as "templateName", created_at, status, NULL as "scheduledAt",
+             NULL as tier, NULL as score, NULL as "bookingUid",
+             NULL as "eventType", NULL as data,
+             NULL as "createdBy", NULL as "updatedAt"
+      FROM messages WHERE contact_id = ${id}::uuid
+    `),
+    db.execute(sql`
+      SELECT id::text, 'event' as item_type, NULL as channel, NULL as direction,
+             NULL as content, NULL as "templateName", created_at, NULL as status,
+             NULL as "scheduledAt", NULL as tier, NULL as score, NULL as "bookingUid",
+             type as "eventType", data, NULL as "createdBy", NULL as "updatedAt"
+      FROM events WHERE contact_id = ${id}::uuid
+    `),
+    db.execute(sql`
+      SELECT id::text, 'booking' as item_type, NULL as channel, NULL as direction,
+             NULL as content, NULL as "templateName", created_at, NULL as status,
+             scheduled_at as "scheduledAt", qualification_tier as tier,
+             qualification_score as score, cal_booking_uid as "bookingUid",
+             NULL as "eventType", NULL as data, NULL as "createdBy", NULL as "updatedAt"
+      FROM bookings WHERE contact_id = ${id}::uuid
+    `),
+    db.execute(sql`
+      SELECT id::text, 'note' as item_type, NULL as channel, NULL as direction,
+             content, NULL as "templateName", created_at, NULL as status,
+             NULL as "scheduledAt", NULL as tier, NULL as score, NULL as "bookingUid",
+             NULL as "eventType", NULL as data,
+             created_by as "createdBy", updated_at as "updatedAt"
+      FROM contact_notes WHERE contact_id = ${id}::uuid
+    `),
+  ]);
+
+  const all = [
+    ...(msgs.rows as any[]),
+    ...(evts.rows as any[]),
+    ...(bkgs.rows as any[]),
+    ...(nts.rows as any[]),
+  ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+   .slice(0, 100);
+
+  res.json({ items: all });
+});
+
+// ---------------------------------------------------------------------------
+// GET /contacts/:id/notes
+// ---------------------------------------------------------------------------
+router.get('/:id/notes', async (req, res) => {
+  const { id } = req.params;
+  const notes = await db.select().from(contactNotes)
+    .where(eq(contactNotes.contactId, id))
+    .orderBy(desc(contactNotes.createdAt));
+  res.json({ notes });
+});
+
+// ---------------------------------------------------------------------------
+// POST /contacts/:id/notes
+// ---------------------------------------------------------------------------
+router.post('/:id/notes', async (req, res) => {
+  const { id } = req.params;
+  const tenantId = req.user!.tenantId;
+  const { content, createdBy = 'jatin' } = req.body;
+  if (!content) { res.status(400).json({ error: 'content is required' }); return; }
+  const [note] = await db.insert(contactNotes).values({ tenantId, contactId: id, content, createdBy }).returning();
+  await db.update(contacts).set({ lastActivityAt: new Date(), updatedAt: new Date() }).where(eq(contacts.id, id));
+  res.status(201).json(note);
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /contacts/:id/notes/:noteId
+// ---------------------------------------------------------------------------
+router.patch('/:id/notes/:noteId', async (req, res) => {
+  const { noteId } = req.params;
+  const { content } = req.body;
+  if (!content) { res.status(400).json({ error: 'content is required' }); return; }
+  const [updated] = await db.update(contactNotes).set({ content, updatedAt: new Date() }).where(eq(contactNotes.id, noteId)).returning();
+  if (!updated) { res.status(404).json({ error: 'note not found' }); return; }
+  res.json(updated);
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /contacts/:id/notes/:noteId
+// ---------------------------------------------------------------------------
+router.delete('/:id/notes/:noteId', async (req, res) => {
+  const { id, noteId } = req.params;
+  await db.delete(contactNotes).where(and(eq(contactNotes.id, noteId), eq(contactNotes.contactId, id)));
+  res.json({ deleted: true });
+});
+
+// ---------------------------------------------------------------------------
 // GET /contacts/:id — single contact with all channels
 // ---------------------------------------------------------------------------
 router.get('/:id', async (req, res) => {
@@ -145,6 +243,7 @@ router.patch('/:id', async (req, res) => {
     status,
     score,
     assignedTo,
+    businessType,
     companyName,
     tags,
     notes,
@@ -160,6 +259,7 @@ router.patch('/:id', async (req, res) => {
   if (status !== undefined) updates.status = status;
   if (score !== undefined) updates.score = score;
   if (assignedTo !== undefined) updates.assignedTo = assignedTo;
+  if (businessType !== undefined) updates.businessType = businessType;
   if (companyName !== undefined) updates.companyName = companyName;
   if (tags !== undefined) updates.tags = tags;
   if (notes !== undefined) updates.notes = notes;

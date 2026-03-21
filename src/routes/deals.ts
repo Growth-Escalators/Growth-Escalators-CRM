@@ -46,7 +46,7 @@ router.get('/', async (req, res) => {
 // ---------------------------------------------------------------------------
 router.post('/', async (req, res) => {
   const tenantId = req.user!.tenantId;
-  const { contactId, title, stage, value, dealValue, serviceType, pipelineId, assignedTo, notes, metadata } = req.body;
+  const { contactId, title, stage, value, dealValue, serviceType, pipelineId, assignedTo, notes, lostReason, wonNotes, metadata } = req.body;
 
   if (!contactId || !title) {
     res.status(400).json({ error: 'contactId and title are required' });
@@ -55,7 +55,7 @@ router.post('/', async (req, res) => {
 
   const inserted = await db
     .insert(deals)
-    .values({ tenantId, contactId, title, stage, value, dealValue, serviceType, pipelineId, assignedTo, notes, metadata })
+    .values({ tenantId, contactId, title, stage, value, dealValue, serviceType, pipelineId, assignedTo, notes, lostReason, wonNotes, metadata })
     .returning();
 
   // Update contact's lastActivityAt
@@ -72,7 +72,7 @@ router.post('/', async (req, res) => {
 // ---------------------------------------------------------------------------
 router.patch('/:id', async (req, res) => {
   const { id } = req.params;
-  const { stage, value, dealValue, lostReason, closedAt, metadata, assignedTo, pipelineId, notes } = req.body;
+  const { stage, value, dealValue, lostReason, wonNotes, closedAt, metadata, assignedTo, pipelineId, notes } = req.body;
 
   // Get current deal to check stage change
   const existing = await db.select().from(deals).where(eq(deals.id, id)).limit(1);
@@ -86,6 +86,7 @@ router.patch('/:id', async (req, res) => {
   if (value !== undefined) updates.value = value;
   if (dealValue !== undefined) updates.dealValue = dealValue;
   if (lostReason !== undefined) updates.lostReason = lostReason;
+  if (wonNotes !== undefined) updates.wonNotes = wonNotes;
   if (metadata !== undefined) updates.metadata = metadata;
   if (assignedTo !== undefined) updates.assignedTo = assignedTo;
   if (pipelineId !== undefined) updates.pipelineId = pipelineId;
