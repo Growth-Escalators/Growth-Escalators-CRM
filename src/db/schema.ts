@@ -8,6 +8,7 @@ import {
   jsonb,
   numeric,
   date,
+  real,
   index,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
@@ -434,3 +435,34 @@ export const contactNotes = pgTable('contact_notes', {
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
+
+// ---------------------------------------------------------------------------
+// TABLE 20 — email_templates
+// ---------------------------------------------------------------------------
+export const emailTemplates = pgTable(
+  'email_templates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    name: text('name').notNull(),
+    displayName: text('display_name'),
+    type: text('type').default('sequence'),
+    subject: text('subject').notNull(),
+    fromName: text('from_name').default('Jatin from Growth Escalators'),
+    bodyHtml: text('body_html'),
+    bodyText: text('body_text'),
+    variables: jsonb('variables').default([]),
+    brevoTemplateId: integer('brevo_template_id'),
+    brevoSynced: boolean('brevo_synced').default(false),
+    brevoSyncedAt: timestamp('brevo_synced_at'),
+    isActive: boolean('is_active').default(true),
+    openRate: real('open_rate'),
+    sentCount: integer('sent_count').default(0),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (t) => ({
+    tenantIdIdx: index('email_templates_tenant_idx').on(t.tenantId),
+    tenantNameIdx: uniqueIndex('email_templates_tenant_name_idx').on(t.tenantId, t.name),
+  }),
+);

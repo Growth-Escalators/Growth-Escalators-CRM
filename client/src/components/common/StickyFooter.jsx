@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Timer, ArrowRight, ShieldCheck } from 'lucide-react';
 
 const DURATION = 15 * 60; // 15 minutes in seconds

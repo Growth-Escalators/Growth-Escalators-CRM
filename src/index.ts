@@ -22,6 +22,7 @@ import healthRouter from './routes/healthRoute';
 import pipelinesRouter from './routes/pipelines';
 import automationHubRouter from './routes/automationHub';
 import systemHealthRouter from './routes/systemHealth';
+import emailTemplatesRouter from './routes/emailTemplates';
 import { requireAuth } from './middleware/auth';
 import { startStuckJobWorker } from './workers/stuckJobWorker';
 import { startSequenceWorker } from './workers/sequenceWorker';
@@ -82,6 +83,7 @@ app.use('/email', requireAuth, emailRouter);
 app.use('/api/pipelines', requireAuth, pipelinesRouter);
 app.use('/api/automations', requireAuth, automationHubRouter);
 app.use('/api/system', systemHealthRouter);
+app.use('/api/email-templates', requireAuth, emailTemplatesRouter);
 
 // ---------------------------------------------------------------------------
 // Static frontend — hostname-based routing

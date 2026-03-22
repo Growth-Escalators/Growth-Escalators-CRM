@@ -32,4 +32,5 @@ export {
   funnelMembers,
   funnelAssignments,
   contactNotes,
+  emailTemplates,
 } from './schema';

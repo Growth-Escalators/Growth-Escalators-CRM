@@ -22,6 +22,13 @@
       "when": 1774112450974,
       "tag": "0002_blushing_tusk",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1774149925597,
+      "tag": "0003_bizarre_sinister_six",
+      "breakpoints": true
     }
   ]
 }

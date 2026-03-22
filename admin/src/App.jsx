@@ -6,6 +6,7 @@ import PipelinePage from './pages/PipelinePage.jsx';
 import AutomationsPage from './pages/AutomationsPage.jsx';
 import PipelineManagerPage from './pages/PipelineManagerPage.jsx';
 import SystemHealthPage from './pages/SystemHealthPage.jsx';
+import EmailTemplatesPage from './pages/EmailTemplatesPage.jsx';
 
 function PrivateRoute({ children }) {
   const token = localStorage.getItem('ge_crm_token');
@@ -54,6 +55,14 @@ export default function App() {
           element={
             <PrivateRoute>
               <SystemHealthPage />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/emails"
+          element={
+            <PrivateRoute>
+              <EmailTemplatesPage />
             </PrivateRoute>
           }
         />

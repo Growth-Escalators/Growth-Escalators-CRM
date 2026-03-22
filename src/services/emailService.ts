@@ -1,6 +1,6 @@
 import { BrevoClient } from '@getbrevo/brevo';
-import { eq } from 'drizzle-orm';
-import { db, contacts, contactChannels, messages } from '../db/index';
+import { eq, and, sql } from 'drizzle-orm';
+import { db, contacts, contactChannels, messages, emailTemplates } from '../db/index';
 
 // ---------------------------------------------------------------------------
 // Email templates — inline content used when BREVO_API_KEY is configured
@@ -160,19 +160,54 @@ export async function sendSequenceEmail(
     return { success: false, reason: 'no email channel' };
   }
 
-  const template = EMAIL_TEMPLATES[templateName];
-  if (!template) {
-    console.warn(`[emailService] Unknown template: ${templateName}`);
-    return { success: false, reason: `unknown template: ${templateName}` };
+  // Look up template from DB first, fall back to hardcoded map
+  const bookingUrl =
+    process.env.BOOKING_URL ||
+    'https://web-production-311da.up.railway.app/book/d2c-strategy';
+
+  const dbTemplateRows = await db
+    .select()
+    .from(emailTemplates)
+    .where(and(eq(emailTemplates.tenantId, tenantId), eq(emailTemplates.name, templateName)))
+    .limit(1);
+
+  let subject: string;
+  let htmlContent: string;
+  let textContent: string;
+
+  const emailValue = emailChannel.channelValue;
+  function substituteVars(str: string): string {
+    return str
+      .replace(/\{\{firstName\}\}/g, contact.firstName ?? '')
+      .replace(/\{\{email\}\}/g, emailValue)
+      .replace(/\{\{bookingUrl\}\}/g, bookingUrl);
+  }
+
+  if (dbTemplateRows.length > 0) {
+    const dbTpl = dbTemplateRows[0];
+    subject = substituteVars(dbTpl.subject);
+    const rawHtml = dbTpl.bodyHtml || (dbTpl.bodyText ?? '').replace(/\n/g, '<br>');
+    htmlContent = substituteVars(rawHtml);
+    textContent = substituteVars(dbTpl.bodyText ?? '');
+  } else {
+    // Fall back to hardcoded templates
+    const template = EMAIL_TEMPLATES[templateName];
+    if (!template) {
+      console.warn(`[emailService] Unknown template: ${templateName}`);
+      return { success: false, reason: `unknown template: ${templateName}` };
+    }
+    subject = template.subject;
+    htmlContent = template.html;
+    textContent = template.text;
   }
 
   const toName = [contact.firstName, contact.lastName].filter(Boolean).join(' ');
   const result = await sendTransactionalEmail(
     emailChannel.channelValue,
     toName,
-    template.subject,
-    template.html,
-    template.text,
+    subject,
+    htmlContent,
+    textContent,
   );
 
   // Log message record
@@ -182,10 +217,18 @@ export async function sendSequenceEmail(
     channel: 'email',
     direction: 'outbound',
     templateName,
-    content: template.subject,
+    content: subject,
     status: result.success ? 'sent' : 'failed',
     externalId: result.messageId,
   });
+
+  // Increment sentCount on DB template if it exists
+  if (dbTemplateRows.length > 0) {
+    await db
+      .update(emailTemplates)
+      .set({ sentCount: sql`${emailTemplates.sentCount} + 1`, updatedAt: new Date() })
+      .where(eq(emailTemplates.id, dbTemplateRows[0].id));
+  }
 
   return result;
 }
