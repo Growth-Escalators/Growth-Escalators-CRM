@@ -30,7 +30,7 @@ export async function syncTemplateToBrevo(
     (template.bodyText ?? '').replace(/\n/g, '<br>');
 
   const payload = {
-    name: template.name,
+    templateName: template.displayName || template.name,
     subject: template.subject,
     htmlContent,
     sender: { name: template.fromName ?? 'Jatin from Growth Escalators', email: SENDER_EMAIL },
