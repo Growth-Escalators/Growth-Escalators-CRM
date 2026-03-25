@@ -37,4 +37,10 @@ export {
   funnelAssignments,
   contactNotes,
   emailTemplates,
+  userPermissions,
+  billingClients,
+  invoices,
+  invoiceLineItems,
+  payments,
+  invoiceSeries,
 } from './schema';

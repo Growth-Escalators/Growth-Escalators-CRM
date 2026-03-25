@@ -1,9 +1,19 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { logout, getUser } from '../lib/api.js';
+import { logout, getUser, apiFetch } from '../lib/api.js';
 
 export default function Sidebar() {
   const user = getUser();
+  const [perms, setPerms] = useState(null);
+
+  useEffect(() => {
+    apiFetch('/api/permissions/me')
+      .then(d => setPerms(d?.permissions ?? null))
+      .catch(() => setPerms(null));
+  }, []);
+
+  const canBilling = perms?.isOwner || perms?.billingView;
+  const canPermissions = perms?.isOwner;
 
   return (
     <aside className="w-56 min-h-screen bg-slate-900 text-slate-300 flex flex-col">
@@ -99,6 +109,23 @@ export default function Sidebar() {
           </svg>
           Email Templates
         </NavLink>
+        {canBilling && (
+          <NavLink
+            to="/billing"
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                isActive
+                  ? 'bg-sky-600 text-white'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+              }`
+            }
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
+            </svg>
+            Billing
+          </NavLink>
+        )}
         <NavLink
           to="/health"
           className={({ isActive }) =>
@@ -114,6 +141,23 @@ export default function Sidebar() {
           </svg>
           System Health
         </NavLink>
+        {canPermissions && (
+          <NavLink
+            to="/settings/permissions"
+            className={({ isActive }) =>
+              `flex items-center gap-2 pl-9 pr-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                isActive
+                  ? 'bg-slate-700 text-orange-400'
+                  : 'text-slate-500 hover:bg-slate-800 hover:text-slate-300'
+              }`
+            }
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            Permissions
+          </NavLink>
+        )}
       </nav>
 
       {/* User + logout */}

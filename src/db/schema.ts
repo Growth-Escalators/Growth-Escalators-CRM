@@ -466,3 +466,167 @@ export const emailTemplates = pgTable(
     tenantNameIdx: uniqueIndex('email_templates_tenant_name_idx').on(t.tenantId, t.name),
   }),
 );
+
+// ---------------------------------------------------------------------------
+// TABLE 21 — user_permissions
+// ---------------------------------------------------------------------------
+export const userPermissions = pgTable('user_permissions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  // Contacts module
+  contactsView: boolean('contacts_view').default(false),
+  contactsCreate: boolean('contacts_create').default(false),
+  contactsEdit: boolean('contacts_edit').default(false),
+  contactsDelete: boolean('contacts_delete').default(false),
+  contactsExport: boolean('contacts_export').default(false),
+  contactsBulk: boolean('contacts_bulk').default(false),
+  // Pipeline module
+  pipelineView: boolean('pipeline_view').default(false),
+  pipelineCreate: boolean('pipeline_create').default(false),
+  pipelineEdit: boolean('pipeline_edit').default(false),
+  pipelineDelete: boolean('pipeline_delete').default(false),
+  pipelineManage: boolean('pipeline_manage').default(false),
+  // Billing module
+  billingView: boolean('billing_view').default(false),
+  billingCreate: boolean('billing_create').default(false),
+  billingEdit: boolean('billing_edit').default(false),
+  billingMarkPaid: boolean('billing_mark_paid').default(false),
+  billingViewMrr: boolean('billing_view_mrr').default(false),
+  billingDownload: boolean('billing_download').default(false),
+  billingManageClients: boolean('billing_manage_clients').default(false),
+  // Automations module
+  automationsView: boolean('automations_view').default(false),
+  automationsTrigger: boolean('automations_trigger').default(false),
+  // Reports module
+  reportsView: boolean('reports_view').default(false),
+  reportsMetaAds: boolean('reports_meta_ads').default(false),
+  // Settings module
+  settingsUsers: boolean('settings_users').default(false),
+  settingsPipelines: boolean('settings_pipelines').default(false),
+  settingsTemplates: boolean('settings_templates').default(false),
+  settingsBilling: boolean('settings_billing').default(false),
+  // System
+  isOwner: boolean('is_owner').default(false),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// TABLE 22 — billing_clients
+// ---------------------------------------------------------------------------
+export const billingClients = pgTable('billing_clients', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  name: text('name').notNull(),
+  contactPerson: text('contact_person'),
+  email: text('email'),
+  phone: text('phone'),
+  addressLine1: text('address_line1'),
+  addressLine2: text('address_line2'),
+  city: text('city'),
+  state: text('state'),
+  stateCode: text('state_code'),
+  pincode: text('pincode'),
+  country: text('country').default('India'),
+  isGst: boolean('is_gst').default(false),
+  gstin: text('gstin'),
+  taxType: text('tax_type'), // 'igst' | 'cgst_sgst' | null
+  retainerAmount: integer('retainer_amount'), // in paise
+  serviceDescription: text('service_description'),
+  sacCode: text('sac_code').default('9983'),
+  invoiceDayOfMonth: integer('invoice_day_of_month').default(1),
+  currency: text('currency').default('INR'),
+  isActive: boolean('is_active').default(true),
+  notes: text('notes'),
+  crmContactId: uuid('crm_contact_id'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// TABLE 23 — invoices
+// ---------------------------------------------------------------------------
+export const invoices = pgTable('invoices', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  clientId: uuid('client_id').notNull().references(() => billingClients.id),
+  invoiceNumber: text('invoice_number').notNull().unique(),
+  invoiceType: text('invoice_type').notNull(), // 'gst' | 'non_gst'
+  status: text('status').default('draft'), // draft | sent | paid | partially_paid | overdue | cancelled
+  invoiceDate: timestamp('invoice_date').notNull(),
+  dueDate: timestamp('due_date').notNull(),
+  sentAt: timestamp('sent_at'),
+  paidAt: timestamp('paid_at'),
+  subtotal: integer('subtotal').notNull(), // in paise
+  cgstRate: real('cgst_rate').default(0),
+  cgstAmount: integer('cgst_amount').default(0),
+  sgstRate: real('sgst_rate').default(0),
+  sgstAmount: integer('sgst_amount').default(0),
+  igstRate: real('igst_rate').default(0),
+  igstAmount: integer('igst_amount').default(0),
+  totalAmount: integer('total_amount').notNull(), // in paise
+  amountPaid: integer('amount_paid').default(0),
+  amountDue: integer('amount_due').notNull(),
+  amountInWords: text('amount_in_words'),
+  clientGstin: text('client_gstin'),
+  clientState: text('client_state'),
+  clientStateCode: text('client_state_code'),
+  companyGstin: text('company_gstin'),
+  taxType: text('tax_type'), // 'igst' | 'cgst_sgst' | null
+  serviceDescription: text('service_description'),
+  sacCode: text('sac_code').default('9983'),
+  notes: text('notes'),
+  paymentNote: text('payment_note'),
+  isRecurring: boolean('is_recurring').default(false),
+  recurringSourceId: uuid('recurring_source_id'),
+  financialYear: text('financial_year'),
+  seriesNumber: integer('series_number'),
+  createdBy: text('created_by').default('jatin'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// TABLE 24 — invoice_line_items
+// ---------------------------------------------------------------------------
+export const invoiceLineItems = pgTable('invoice_line_items', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  invoiceId: uuid('invoice_id').notNull().references(() => invoices.id),
+  description: text('description').notNull(),
+  sacCode: text('sac_code').default('9983'),
+  quantity: real('quantity').default(1),
+  unit: text('unit').default('Month'),
+  rate: integer('rate').notNull(), // in paise
+  amount: integer('amount').notNull(), // in paise
+  sortOrder: integer('sort_order').default(0),
+});
+
+// ---------------------------------------------------------------------------
+// TABLE 25 — payments
+// ---------------------------------------------------------------------------
+export const payments = pgTable('payments', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  invoiceId: uuid('invoice_id').notNull().references(() => invoices.id),
+  clientId: uuid('client_id').notNull().references(() => billingClients.id),
+  amount: integer('amount').notNull(), // in paise
+  paymentDate: timestamp('payment_date').notNull(),
+  paymentMode: text('payment_mode'), // 'bank_transfer' | 'upi' | 'cheque' | 'cash' | 'other'
+  reference: text('reference'),
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// TABLE 26 — invoice_series
+// ---------------------------------------------------------------------------
+export const invoiceSeries = pgTable('invoice_series', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  seriesType: text('series_type').notNull(), // 'gst' | 'non_gst'
+  financialYear: text('financial_year').notNull(),
+  lastNumber: integer('last_number').default(0),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});

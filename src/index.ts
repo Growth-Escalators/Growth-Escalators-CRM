@@ -5,6 +5,7 @@ import path from 'path';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { db } from './db/index';
+import { sql } from 'drizzle-orm';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import webhooksRouter from './routes/webhooks';
@@ -26,8 +27,11 @@ import emailTemplatesRouter from './routes/emailTemplates';
 import capiRouter from './routes/capi';
 import clickupRouter from './routes/clickup';
 import blockersRouter from './routes/blockers';
+import billingRouter from './routes/billing';
+import permissionsRouter from './routes/permissions';
 import cron from 'node-cron';
 import { checkAndAlertBlockers } from './services/blockerAlertService';
+import { generateMonthlyDraftInvoices } from './services/recurringInvoiceService';
 import { requireAuth } from './middleware/auth';
 import { startStuckJobWorker } from './workers/stuckJobWorker';
 import { startSequenceWorker } from './workers/sequenceWorker';
@@ -92,6 +96,8 @@ app.use('/api/email-templates', requireAuth, emailTemplatesRouter);
 app.use('/api/capi', requireAuth, capiRouter);
 app.use('/api/clickup', requireAuth, clickupRouter);
 app.use('/api/blockers', requireAuth, blockersRouter);
+app.use('/api/billing', requireAuth, billingRouter);
+app.use('/api/permissions', requireAuth, permissionsRouter);
 
 // ---------------------------------------------------------------------------
 // Static frontend — hostname-based routing
@@ -219,6 +225,61 @@ async function startServer() {
     }, { timezone: 'UTC' });
 
     console.log('[cron] blocker alert scheduled — every 6 hours (04:30/10:30/16:30/22:30 IST)');
+
+    // Generate monthly draft invoices on the 1st of every month at 9 AM IST (3:30 AM UTC)
+    cron.schedule('30 3 1 * *', async () => {
+      console.log('[cron] generating monthly draft invoices…');
+      try {
+        const tenantResult = await db.execute(sql`SELECT id FROM tenants WHERE slug = 'growth-escalators' LIMIT 1`);
+        const tenantId = (tenantResult.rows[0] as { id: string } | undefined)?.id;
+        if (!tenantId) return;
+
+        const result = await generateMonthlyDraftInvoices(tenantId);
+        console.log(`[cron] monthly invoices: generated=${result.generated}, errors=${result.errors.length}`);
+
+        if (result.generated > 0) {
+          const { sendSlackDM, SLACK_MEMBERS } = await import('./services/slackService');
+          await sendSlackDM(SLACK_MEMBERS.jatin,
+            `🧾 *Monthly invoices ready* — ${result.generated} draft invoice(s) generated for this month.\nGo to /crm/billing to review and send.`);
+        }
+      } catch (e) {
+        console.error('[cron] monthly invoice generation failed:', e);
+      }
+    }, { timezone: 'UTC' });
+    console.log('[cron] monthly invoice drafts scheduled — 1st of month at 9 AM IST');
+
+    // Overdue invoice detection — daily at 10 AM IST (4:30 AM UTC)
+    cron.schedule('30 4 * * *', async () => {
+      console.log('[cron] checking overdue invoices…');
+      try {
+        const overdueResult = await db.execute(sql`
+          SELECT i.id, i.invoice_number, i.total_amount, i.due_date,
+                 bc.name as client_name
+          FROM invoices i
+          JOIN billing_clients bc ON bc.id = i.client_id
+          WHERE i.status = 'sent'
+            AND i.due_date < now()
+            AND i.tenant_id = (SELECT id FROM tenants WHERE slug = 'growth-escalators')
+        `);
+
+        for (const inv of overdueResult.rows as Array<Record<string, unknown>>) {
+          await db.execute(sql`UPDATE invoices SET status = 'overdue', updated_at = now() WHERE id = ${inv.id}`);
+          try {
+            const { sendSlackDM, SLACK_MEMBERS } = await import('./services/slackService');
+            const amount = ((inv.total_amount as number) / 100).toLocaleString('en-IN');
+            const dueDate = new Date(inv.due_date as string).toLocaleDateString('en-IN');
+            await sendSlackDM(SLACK_MEMBERS.jatin,
+              `⚠️ *Payment overdue*\n\n*Client:* ${inv.client_name}\n*Invoice:* ${inv.invoice_number}\n*Amount:* ₹${amount}\n*Was due:* ${dueDate}\n\nGo to /crm/billing to send a reminder.`);
+          } catch { /* slack error non-critical */ }
+        }
+        if ((overdueResult.rows as unknown[]).length > 0) {
+          console.log(`[cron] marked ${(overdueResult.rows as unknown[]).length} invoice(s) as overdue`);
+        }
+      } catch (e) {
+        console.error('[cron] overdue check failed:', e);
+      }
+    }, { timezone: 'UTC' });
+    console.log('[cron] overdue invoice check scheduled — daily at 10 AM IST');
   });
 }
 

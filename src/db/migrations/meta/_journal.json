@@ -36,6 +36,20 @@
       "when": 1774412500000,
       "tag": "0005_update_wa_template_names",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1774463832381,
+      "tag": "0005_certain_mephisto",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1774500000000,
+      "tag": "0006_billing_seed",
+      "breakpoints": true
     }
   ]
 }

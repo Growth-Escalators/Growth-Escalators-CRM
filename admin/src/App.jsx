@@ -7,6 +7,8 @@ import AutomationsPage from './pages/AutomationsPage.jsx';
 import PipelineManagerPage from './pages/PipelineManagerPage.jsx';
 import SystemHealthPage from './pages/SystemHealthPage.jsx';
 import EmailTemplatesPage from './pages/EmailTemplatesPage.jsx';
+import BillingPage from './pages/BillingPage.jsx';
+import PermissionsPage from './pages/PermissionsPage.jsx';
 
 function PrivateRoute({ children }) {
   const token = localStorage.getItem('ge_crm_token');
@@ -63,6 +65,22 @@ export default function App() {
           element={
             <PrivateRoute>
               <EmailTemplatesPage />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/billing"
+          element={
+            <PrivateRoute>
+              <BillingPage />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/settings/permissions"
+          element={
+            <PrivateRoute>
+              <PermissionsPage />
             </PrivateRoute>
           }
         />
