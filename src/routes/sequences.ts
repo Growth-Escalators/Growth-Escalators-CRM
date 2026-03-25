@@ -129,4 +129,41 @@ router.get('/enrolments', async (req, res) => {
   res.json(enrolments);
 });
 
+// ---------------------------------------------------------------------------
+// PATCH /sequences/:id — update a sequence (name, steps, isActive)
+// ---------------------------------------------------------------------------
+router.patch('/:id', async (req, res) => {
+  const tenantId = req.user!.tenantId;
+  const { id } = req.params;
+  const { name, steps, isActive } = req.body as {
+    name?: string;
+    steps?: unknown[];
+    isActive?: boolean;
+  };
+
+  const existing = await db
+    .select()
+    .from(sequences)
+    .where(eq(sequences.id, id))
+    .limit(1);
+
+  if (existing.length === 0 || existing[0].tenantId !== tenantId) {
+    res.status(404).json({ error: 'sequence not found' });
+    return;
+  }
+
+  const updates: Partial<typeof sequences.$inferInsert> = {};
+  if (name !== undefined) updates.name = name;
+  if (steps !== undefined) updates.steps = steps;
+  if (isActive !== undefined) updates.isActive = isActive;
+
+  const [updated] = await db
+    .update(sequences)
+    .set(updates)
+    .where(eq(sequences.id, id))
+    .returning();
+
+  res.json(updated);
+});
+
 export default router;
