@@ -183,6 +183,7 @@ function cardMatchesFilter(tools, filter) {
 export default function AutomationsPage() {
   const [hubStats, setHubStats] = useState(null);
   const [pipelineAutomations, setPipelineAutomations] = useState([]);
+  const [blockerCount, setBlockerCount] = useState(null);
   const [loading, setLoading] = useState(true);
   const [secondsAgo, setSecondsAgo] = useState(0);
   const [activeFilter, setActiveFilter] = useState('All');
@@ -190,12 +191,14 @@ export default function AutomationsPage() {
   const intervalRef = useRef(null);
 
   const fetchData = useCallback(async () => {
-    const [stats, automations] = await Promise.all([
+    const [stats, automations, blockers] = await Promise.all([
       apiFetch('/api/automations/hub-stats'),
       apiFetch('/api/automations').catch(() => ({ automations: [] })),
+      apiFetch('/api/blockers').catch(() => null),
     ]);
     if (stats) setHubStats(stats);
     if (automations?.automations) setPipelineAutomations(automations.automations);
+    if (blockers !== null) setBlockerCount(blockers?.totalCount ?? 0);
     setSecondsAgo(0);
     setLoading(false);
   }, []);
@@ -530,18 +533,37 @@ export default function AutomationsPage() {
           </div>
 
           {/* SECTION 2 — Summary stat cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
             {[
-              { label: 'Total automations', value: summary?.totalAutomations ?? 11, color: 'text-slate-900', bg: 'bg-white' },
-              { label: 'Live', value: summary?.liveCount ?? 0, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-              { label: 'Paused / pending', value: summary?.pausedCount ?? 0, color: 'text-amber-600', bg: 'bg-amber-50' },
-              { label: 'Fired today', value: summary?.firedToday ?? 0, color: 'text-blue-600', bg: 'bg-blue-50' },
-            ].map((card) => (
-              <div key={card.label} className={`${card.bg} border border-slate-200 rounded-2xl p-5 shadow-sm`}>
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">{card.label}</p>
-                <p className={`text-3xl font-bold ${card.color}`}>{card.value}</p>
-              </div>
-            ))}
+              { label: 'Total automations', value: summary?.totalAutomations ?? 11, color: 'text-slate-900', bg: 'bg-white', href: null },
+              { label: 'Live', value: summary?.liveCount ?? 0, color: 'text-emerald-600', bg: 'bg-emerald-50', href: null },
+              { label: 'Paused / pending', value: summary?.pausedCount ?? 0, color: 'text-amber-600', bg: 'bg-amber-50', href: null },
+              { label: 'Fired today', value: summary?.firedToday ?? 0, color: 'text-blue-600', bg: 'bg-blue-50', href: null },
+              {
+                label: 'Active blockers',
+                value: blockerCount ?? '—',
+                color: blockerCount > 0 ? 'text-red-600' : 'text-emerald-600',
+                bg: blockerCount > 0 ? 'bg-red-50' : 'bg-emerald-50',
+                href: '/crm/health',
+              },
+            ].map((card) => {
+              const inner = (
+                <>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">{card.label}</p>
+                  <p className={`text-3xl font-bold ${card.color}`}>{card.value}</p>
+                  {card.href && <p className="text-xs text-slate-400 mt-1">View →</p>}
+                </>
+              );
+              return card.href ? (
+                <Link key={card.label} to={card.href} className={`${card.bg} border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow block`}>
+                  {inner}
+                </Link>
+              ) : (
+                <div key={card.label} className={`${card.bg} border border-slate-200 rounded-2xl p-5 shadow-sm`}>
+                  {inner}
+                </div>
+              );
+            })}
           </div>
 
           {/* SECTION 3 — Filter pills */}
