@@ -59,9 +59,9 @@ async function seed() {
       tenantId: geTenantId,
       isActive: true,
       steps: [
-        { stepIndex: 0, delayDays: 0, templateName: 'welcome_d2c', channel: 'whatsapp', condition: null },
-        { stepIndex: 1, delayDays: 3, templateName: 'followup_day3', channel: 'whatsapp', condition: 'not_converted' },
-        { stepIndex: 2, delayDays: 4, templateName: 'nudge_day7', channel: 'whatsapp', condition: 'not_converted' },
+        { stepIndex: 0, delayDays: 0, templateName: 'ge_welcome_d2c', channel: 'whatsapp', condition: null },
+        { stepIndex: 1, delayDays: 3, templateName: 'ge_followup_d3', channel: 'whatsapp', condition: 'not_converted' },
+        { stepIndex: 2, delayDays: 4, templateName: 'ge_nudge_d7', channel: 'whatsapp', condition: 'not_converted' },
       ],
     },
     {
@@ -70,9 +70,9 @@ async function seed() {
       tenantId: geTenantId,
       isActive: true,
       steps: [
-        { stepIndex: 0, delayDays: 0, templateName: 'welcome_healthcare', channel: 'whatsapp', condition: null },
-        { stepIndex: 1, delayDays: 3, templateName: 'followup_day3', channel: 'whatsapp', condition: 'not_converted' },
-        { stepIndex: 2, delayDays: 4, templateName: 'appointment_reminder', channel: 'whatsapp', condition: 'not_converted' },
+        { stepIndex: 0, delayDays: 0, templateName: 'ge_welcome_d2c', channel: 'whatsapp', condition: null },
+        { stepIndex: 1, delayDays: 3, templateName: 'ge_followup_d3', channel: 'whatsapp', condition: 'not_converted' },
+        { stepIndex: 2, delayDays: 4, templateName: 'ge_appt_reminder', channel: 'whatsapp', condition: 'not_converted' },
       ],
     },
   ];

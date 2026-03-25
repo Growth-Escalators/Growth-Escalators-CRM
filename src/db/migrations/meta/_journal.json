@@ -29,6 +29,13 @@
       "when": 1774149925597,
       "tag": "0003_bizarre_sinister_six",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1774412500000,
+      "tag": "0005_update_wa_template_names",
+      "breakpoints": true
     }
   ]
 }
