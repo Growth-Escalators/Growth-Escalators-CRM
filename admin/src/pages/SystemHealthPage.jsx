@@ -95,6 +95,10 @@ export default function SystemHealthPage() {
   const [data, setData] = useState(null);
   const [capiData, setCapiData] = useState(null);
   const [clickupData, setClickupData] = useState(null);
+  const [blockerData, setBlockerData] = useState(null);
+  const [blockerChecking, setBlockerChecking] = useState(false);
+  const [dismissedBlockers, setDismissedBlockers] = useState(new Set());
+  const [alertHistoryOpen, setAlertHistoryOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [secondsAgo, setSecondsAgo] = useState(0);
   const [activityFilter, setActivityFilter] = useState('All');
@@ -103,10 +107,11 @@ export default function SystemHealthPage() {
   const refreshRef = useRef(null);
 
   const fetchData = useCallback(async () => {
-    const [result, capiResult, clickupResult] = await Promise.all([
+    const [result, capiResult, clickupResult, blockerResult] = await Promise.all([
       apiFetch('/api/system/health'),
       apiFetch('/api/capi/status').catch(() => null),
       apiFetch('/api/clickup/workspace').catch(() => null),
+      apiFetch('/api/blockers').catch(() => null),
     ]);
     if (result?.checkedAt) {
       setData(result);
@@ -114,8 +119,22 @@ export default function SystemHealthPage() {
     }
     setCapiData(capiResult);
     setClickupData(clickupResult);
+    setBlockerData(blockerResult);
     setLoading(false);
   }, []);
+
+  async function triggerBlockerCheck() {
+    setBlockerChecking(true);
+    await apiFetch('/api/blockers/check', { method: 'POST' }).catch(() => null);
+    const fresh = await apiFetch('/api/blockers').catch(() => null);
+    if (fresh) setBlockerData(fresh);
+    setBlockerChecking(false);
+  }
+
+  async function dismissBlocker(taskId) {
+    await apiFetch(`/api/blockers/dismiss/${taskId}`, { method: 'POST' }).catch(() => null);
+    setDismissedBlockers(s => new Set([...s, taskId]));
+  }
 
   useEffect(() => {
     fetchData();
@@ -310,6 +329,132 @@ export default function SystemHealthPage() {
               footer={clickupData?.teamName ? `Team: ${clickupData.teamName}` : 'Run /api/clickup/setup to configure'}
             />
           </div>
+
+          {/* SECTION 3b — Blockers panel */}
+          {(() => {
+            const visibleBlockers = (blockerData?.blockers || []).filter(b => !dismissedBlockers.has(b.taskId));
+            const count = visibleBlockers.length;
+            const critical = visibleBlockers.filter(b => b.daysOverdue >= 5).length;
+            return (
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+                <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-sm font-bold text-slate-900">Active blockers</h2>
+                    {count > 0 ? (
+                      <span className="text-xs px-2.5 py-1 rounded-full font-bold bg-red-100 text-red-600">
+                        {count} blocker{count !== 1 ? 's' : ''}
+                        {critical > 0 && ` · ${critical} critical`}
+                      </span>
+                    ) : (
+                      <span className="text-xs px-2.5 py-1 rounded-full font-semibold bg-emerald-100 text-emerald-700">All clear</span>
+                    )}
+                  </div>
+                  <button
+                    onClick={triggerBlockerCheck}
+                    disabled={blockerChecking}
+                    className="text-xs px-3 py-1.5 rounded-lg font-medium bg-orange-50 text-orange-600 hover:bg-orange-100 disabled:opacity-50 transition-colors"
+                  >
+                    {blockerChecking ? 'Checking…' : 'Check now'}
+                  </button>
+                </div>
+
+                {count === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-8 text-slate-300">
+                    <svg className="w-10 h-10 mb-2 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    <p className="text-sm text-slate-400">No overdue tasks — everything is on track</p>
+                    {blockerData && <p className="text-xs text-slate-300 mt-1">Last checked just now</p>}
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-xs text-slate-400 font-semibold uppercase tracking-wide border-b border-slate-100">
+                          <th className="text-left py-2 pr-4">Task</th>
+                          <th className="text-left py-2 pr-4">Assigned to</th>
+                          <th className="text-left py-2 pr-4">Overdue</th>
+                          <th className="text-left py-2 pr-4">Priority</th>
+                          <th className="text-right py-2"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visibleBlockers.map((b) => (
+                          <tr key={b.taskId} className="border-b border-slate-50 hover:bg-slate-50">
+                            <td className="py-3 pr-4 max-w-[240px]">
+                              <a
+                                href={b.taskUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-semibold text-slate-900 hover:text-blue-600 truncate block"
+                                title={b.taskName}
+                              >
+                                {b.taskName}
+                              </a>
+                            </td>
+                            <td className="py-3 pr-4 text-slate-600 whitespace-nowrap">{b.assigneeName}</td>
+                            <td className="py-3 pr-4 whitespace-nowrap">
+                              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                                b.daysOverdue >= 5
+                                  ? 'bg-red-100 text-red-600'
+                                  : 'bg-amber-100 text-amber-700'
+                              }`}>
+                                {b.daysOverdue}d overdue
+                              </span>
+                            </td>
+                            <td className="py-3 pr-4">
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                                b.priority === 'urgent' ? 'bg-red-100 text-red-600'
+                                : b.priority === 'high' ? 'bg-orange-100 text-orange-700'
+                                : 'bg-slate-100 text-slate-500'
+                              }`}>
+                                {b.priority || 'normal'}
+                              </span>
+                            </td>
+                            <td className="py-3 text-right">
+                              <button
+                                onClick={() => dismissBlocker(b.taskId)}
+                                className="text-xs text-slate-400 hover:text-slate-600 px-2 py-1 rounded hover:bg-slate-100"
+                              >
+                                Dismiss
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {blockerData?.alertHistory?.length > 0 && (
+                  <div className="mt-4 border-t border-slate-100 pt-3">
+                    <button
+                      onClick={() => setAlertHistoryOpen(v => !v)}
+                      className="text-xs text-slate-400 hover:text-slate-600 font-medium flex items-center gap-1"
+                    >
+                      Alert history (last 7 days) — {blockerData.alertHistory.length} entries
+                      <svg className={`w-3 h-3 transition-transform ${alertHistoryOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/>
+                      </svg>
+                    </button>
+                    {alertHistoryOpen && (
+                      <div className="mt-2 space-y-1">
+                        {blockerData.alertHistory.map((h, i) => (
+                          <div key={i} className="text-xs text-slate-400 flex items-center gap-2 py-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                            <span className="font-medium text-slate-600">{h.assigneeName}</span>
+                            <span className="truncate">{h.taskName}</span>
+                            <span className="shrink-0 text-red-400">{h.daysOverdue}d overdue</span>
+                            <span className="shrink-0">{h.alertedAt ? relTime(h.alertedAt) : ''}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* SECTION 4 — Activity feed */}
           <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">

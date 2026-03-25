@@ -25,6 +25,9 @@ import systemHealthRouter from './routes/systemHealth';
 import emailTemplatesRouter from './routes/emailTemplates';
 import capiRouter from './routes/capi';
 import clickupRouter from './routes/clickup';
+import blockersRouter from './routes/blockers';
+import cron from 'node-cron';
+import { checkAndAlertBlockers } from './services/blockerAlertService';
 import { requireAuth } from './middleware/auth';
 import { startStuckJobWorker } from './workers/stuckJobWorker';
 import { startSequenceWorker } from './workers/sequenceWorker';
@@ -88,6 +91,7 @@ app.use('/api/system', systemHealthRouter);
 app.use('/api/email-templates', requireAuth, emailTemplatesRouter);
 app.use('/api/capi', requireAuth, capiRouter);
 app.use('/api/clickup', requireAuth, clickupRouter);
+app.use('/api/blockers', requireAuth, blockersRouter);
 
 // ---------------------------------------------------------------------------
 // Static frontend — hostname-based routing
@@ -201,6 +205,20 @@ async function startServer() {
     console.log(`Growth Escalators backend running on port ${PORT}`);
     startStuckJobWorker();
     startSequenceWorker();
+
+    // Blocker alert cron — every 6 hours
+    // 4:30 AM / 10:30 AM / 4:30 PM / 10:30 PM IST = 23:00 / 05:00 / 11:00 / 17:00 UTC
+    cron.schedule('0 23,5,11,17 * * *', async () => {
+      console.log('[cron] running blocker alert check…');
+      try {
+        const result = await checkAndAlertBlockers();
+        console.log('[cron] blocker check result:', result);
+      } catch (e) {
+        console.error('[cron] blocker check failed:', e);
+      }
+    }, { timezone: 'UTC' });
+
+    console.log('[cron] blocker alert scheduled — every 6 hours (04:30/10:30/16:30/22:30 IST)');
   });
 }
 
