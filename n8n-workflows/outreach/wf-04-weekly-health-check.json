@@ -1,0 +1,949 @@
+{
+  "id": "1BaN9E0VHroQryg8",
+  "name": "WF-04 \u2014 Weekly Health Check",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 3 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "d1b2c3d4-0001-0001-0001-000000000001",
+      "name": "Schedule: Monday 9AM IST (3:30 UTC)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.saleshandy.com/api/v1/sequences/{{ $env.SALESHANDY_SEQUENCE_ID }}/analytics",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Auth-Token",
+              "value": "={{ $env.SALESHANDY_API_KEY }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "since",
+              "value": "={{ new Date(Date.now() - 7 * 86400000).toISOString() }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "d1b2c3d4-0002-0002-0002-000000000002",
+      "name": "Saleshandy: 7-Day Stats",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        200
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://mxtoolbox.com/api/v1/lookup/blacklist/adscalelab.co",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $env.MXTOOLBOX_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "d1b2c3d4-0003-0003-0003-000000000003",
+      "name": "MXToolbox: adscalelab.co",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        340
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://mxtoolbox.com/api/v1/lookup/blacklist/partnerpeak.co",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $env.MXTOOLBOX_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "d1b2c3d4-0004-0004-0004-000000000004",
+      "name": "MXToolbox: partnerpeak.co",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        480
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://mxtoolbox.com/api/v1/lookup/blacklist/partners-ge.co",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $env.MXTOOLBOX_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "d1b2c3d4-0005-0005-0005-000000000005",
+      "name": "MXToolbox: partners-ge.co",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        620
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "d1b2c3d4-0006-0006-0006-000000000006",
+      "name": "Read Active Sheet",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        460,
+        760
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, status, date_added::text AS date_added FROM outreach_leads ORDER BY created_at ASC",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "tEi1y3q2RyS0OOgV",
+          "name": "GE Outreach Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "numberInputs": 5
+      },
+      "id": "d1b2c3d4-0007-0007-0007-000000000007",
+      "name": "Merge All Data",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        700,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse all gathered data\nconst inputs = $input.all();\n\n// Each input comes from a different branch \u2014 get by position\n// We need to pull from named nodes instead\nlet shResponse = {};\ntry { shResponse = $('Saleshandy: 7-Day Stats').first().json || {}; } catch(e) { shResponse = {}; }\nlet mxAdscale = {};\ntry { mxAdscale = $('MXToolbox: adscalelab.co').first().json || {}; } catch(e) { mxAdscale = {}; }\nlet mxPartnerpeak = {};\ntry { mxPartnerpeak = $('MXToolbox: partnerpeak.co').first().json || {}; } catch(e) { mxPartnerpeak = {}; }\nlet mxPartnersGe = {};\ntry { mxPartnersGe = $('MXToolbox: partners-ge.co').first().json || {}; } catch(e) { mxPartnersGe = {}; }\nlet sheetRows = [];\ntry { sheetRows = $('Read Active Sheet').all().map(r => r.json); } catch(e) { sheetRows = []; }\n\n// Parse Saleshandy 7-day stats\nlet sent = 0, opened = 0, replied = 0, bounced = 0;\nlet openRate = 0, replyRate = 0, bounceRate = 0;\nlet saleshandyAvailable = true;\n\ntry {\n  const data = shResponse.data || shResponse.analytics || shResponse;\n  sent = data.sent || data.emailsSent || 0;\n  opened = data.opened || data.emailsOpened || 0;\n  replied = data.replied || data.emailsReplied || 0;\n  bounced = data.bounced || data.emailsBounced || 0;\n  \n  if (sent > 0) {\n    openRate = (opened / sent) * 100;\n    replyRate = (replied / sent) * 100;\n    bounceRate = (bounced / sent) * 100;\n  }\n  \n  if (!shResponse.data && !shResponse.analytics && sent === 0) {\n    saleshandyAvailable = false;\n  }\n} catch (e) {\n  saleshandyAvailable = false;\n}\n\n// Parse blacklist status\nconst checkBlacklist = (response, domain) => {\n  try {\n    if (!response || response.error || response.Failed) {\n      return { domain, status: 'CHECK_FAILED', isBlacklisted: false };\n    }\n    // MXToolbox returns Failed array if blacklisted\n    const failed = response.Failed || [];\n    const isBlacklisted = Array.isArray(failed) && failed.length > 0;\n    return { domain, status: isBlacklisted ? 'BLACKLISTED' : 'CLEAN', isBlacklisted };\n  } catch (e) {\n    return { domain, status: 'CHECK_FAILED', isBlacklisted: false };\n  }\n};\n\nconst domains = [\n  checkBlacklist(mxAdscale, 'adscalelab.co'),\n  checkBlacklist(mxPartnerpeak, 'partnerpeak.co'),\n  checkBlacklist(mxPartnersGe, 'partners-ge.co')\n];\n\nconst mxtoolboxAvailable = !domains.every(d => d.status === 'CHECK_FAILED');\nconst anyBlacklisted = domains.some(d => d.isBlacklisted);\n\n// Parse sheet: leads added in past 7 days\nconst sevenDaysAgo = new Date(Date.now() - 7 * 86400000);\nconst leadsThisWeek = sheetRows.filter(r => {\n  const dateAdded = new Date(r.date_added || '');\n  return dateAdded >= sevenDaysAgo;\n}).length;\n\nconst totalActive = sheetRows.filter(r => r.status === 'Active').length;\n\n// Evaluate thresholds\nconst issues = [];\nlet overallHealth = 'HEALTHY';\n\n// Bounce rate\nif (bounceRate > 5) {\n  issues.push('CRITICAL: Bounce rate >5% \u2014 PAUSE ALL SENDING');\n  overallHealth = 'CRITICAL';\n} else if (bounceRate > 3) {\n  issues.push('WARNING: Bounce rate >3%');\n  if (overallHealth === 'HEALTHY') overallHealth = 'WARNING';\n}\n\n// Open rate\nif (openRate < 10 && saleshandyAvailable && sent > 0) {\n  issues.push('CRITICAL: Open rate <10%');\n  overallHealth = 'CRITICAL';\n} else if (openRate < 15 && saleshandyAvailable && sent > 0) {\n  issues.push('WARNING: Open rate <15%');\n  if (overallHealth === 'HEALTHY') overallHealth = 'WARNING';\n}\n\n// Reply rate\nif (replyRate < 1 && saleshandyAvailable && sent > 0) {\n  issues.push('WARNING: Reply rate <1%');\n  if (overallHealth === 'HEALTHY') overallHealth = 'WARNING';\n}\n\n// Domain blacklist\nif (anyBlacklisted) {\n  const blacklistedDomains = domains.filter(d => d.isBlacklisted).map(d => d.domain).join(', ');\n  issues.push(`CRITICAL: Domain(s) blacklisted: ${blacklistedDomains}`);\n  overallHealth = 'CRITICAL';\n}\n\n// Leads per week\nif (leadsThisWeek < 5) {\n  issues.push('CRITICAL: Fewer than 5 leads added this week');\n  overallHealth = 'CRITICAL';\n} else if (leadsThisWeek < 10) {\n  issues.push('WARNING: Fewer than 10 leads added this week');\n  if (overallHealth === 'HEALTHY') overallHealth = 'WARNING';\n}\n\nconst bounceStatus = bounceRate > 5 ? 'CRITICAL' : bounceRate > 3 ? 'WARNING' : 'OK';\nconst openStatus = openRate < 10 ? 'CRITICAL' : openRate < 15 ? 'WARNING' : 'OK';\nconst leadsStatus = leadsThisWeek < 5 ? 'CRITICAL' : leadsThisWeek < 10 ? 'WARNING' : 'OK';\n\n// Format domain health lines\nconst domainLines = domains.map(d => `\u2502 ${d.domain}: [${d.status}]`).join('\\n');\n\n// Build report\nlet campaignSection = '';\nif (!saleshandyAvailable) {\n  campaignSection = '\u2502 Saleshandy API unavailable';\n} else {\n  campaignSection = [\n    `\u2502 Sent: ${sent} | Opened: ${opened} (${openRate.toFixed(1)}%) | Replied: ${replied} (${replyRate.toFixed(1)}%)`,\n    `\u2502 Bounced: ${bounced} (${bounceRate.toFixed(1)}%) | [${bounceStatus}]`\n  ].join('\\n');\n}\n\nlet blacklistSection = '';\nif (!mxtoolboxAvailable) {\n  blacklistSection = '\u2502 Blacklist check unavailable';\n} else {\n  blacklistSection = domainLines;\n}\n\nconst actionNeeded = issues.length === 0 ? 'None' : issues.join('\\n\u2502   ');\n\nconst report = [\n  '\u250c\u2500 GE Outreach Weekly Health Check \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500',\n  `\u2502 Status: [${overallHealth}]`,\n  '\u2502',\n  '\u2502 7-Day Metrics',\n  campaignSection,\n  '\u2502',\n  '\u2502 Domain Health',\n  blacklistSection,\n  '\u2502',\n  '\u2502 Pipeline',\n  `\u2502 Leads added this week: ${leadsThisWeek} [${leadsStatus}]`,\n  `\u2502 Total active prospects: ${totalActive}`,\n  '\u2502',\n  `\u2502 Action needed: ${actionNeeded}`,\n  '\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500'\n].join('\\n');\n\nreturn [{\n  json: {\n    report,\n    overallHealth,\n    isCritical: overallHealth === 'CRITICAL'\n  }\n}];"
+      },
+      "id": "d1b2c3d4-0008-0008-0008-000000000008",
+      "name": "Evaluate Health & Build Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        920,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SLACK_OUTREACH_WEBHOOK }}",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "string",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "body": "=JSON.stringify({\"text\": \"```\" + $json.report + \"```\"})"
+      },
+      "id": "d1b2c3d4-0009-0009-0009-000000000009",
+      "name": "Slack: Post Health Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1140,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "cond-critical-001",
+              "leftValue": "={{ $json.isCritical }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d1b2c3d4-0010-0010-0010-000000000010",
+      "name": "Is Critical?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://slack.com/api/chat.postMessage",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SLACK_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "string",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "body": "=JSON.stringify({\"text\": \"```\" + $json.report + \"```\"})"
+      },
+      "id": "d1b2c3d4-0011-0011-0011-000000000011",
+      "name": "Slack DM: Critical Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1580,
+        380
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule: Monday 9AM IST (3:30 UTC)": {
+      "main": [
+        [
+          {
+            "node": "Saleshandy: 7-Day Stats",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "MXToolbox: adscalelab.co",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "MXToolbox: partnerpeak.co",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "MXToolbox: partners-ge.co",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read Active Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Saleshandy: 7-Day Stats": {
+      "main": [
+        [
+          {
+            "node": "Merge All Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MXToolbox: adscalelab.co": {
+      "main": [
+        [
+          {
+            "node": "Merge All Data",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "MXToolbox: partnerpeak.co": {
+      "main": [
+        [
+          {
+            "node": "Merge All Data",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "MXToolbox: partners-ge.co": {
+      "main": [
+        [
+          {
+            "node": "Merge All Data",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Read Active Sheet": {
+      "main": [
+        [
+          {
+            "node": "Merge All Data",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "Merge All Data": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Health & Build Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Health & Build Report": {
+      "main": [
+        [
+          {
+            "node": "Slack: Post Health Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: Post Health Report": {
+      "main": [
+        [
+          {
+            "node": "Is Critical?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Critical?": {
+      "main": [
+        [
+          {
+            "node": "Slack DM: Critical Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": {
+    "node:Schedule: Monday 9AM IST (3:30 UTC)": {
+      "recurrenceRules": []
+    }
+  },
+  "meta": null,
+  "pinData": {},
+  "activeVersionId": "7e2fb1e0-b427-4d21-b989-fdb68cf02373",
+  "versionCounter": 50,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-03-23T15:55:59.630Z",
+      "createdAt": "2026-03-23T15:55:59.630Z",
+      "role": "workflow:owner",
+      "workflowId": "1BaN9E0VHroQryg8",
+      "projectId": "p6CktwzYe014OMO4",
+      "project": {
+        "updatedAt": "2026-03-18T02:32:32.132Z",
+        "createdAt": "2026-03-18T02:28:16.439Z",
+        "id": "p6CktwzYe014OMO4",
+        "name": "Jatin Agrawal <jatin@growthescalators.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "885eaafd-e163-477f-b37c-5d5ea216f1c4"
+      }
+    }
+  ],
+  "tags": [],
+  "parentFolder": null,
+  "activeVersion": {
+    "updatedAt": "2026-03-25T19:51:19.619Z",
+    "createdAt": "2026-03-25T19:51:19.619Z",
+    "versionId": "7e2fb1e0-b427-4d21-b989-fdb68cf02373",
+    "workflowId": "1BaN9E0VHroQryg8",
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "cronExpression",
+                "expression": "30 3 * * 1"
+              }
+            ]
+          }
+        },
+        "id": "d1b2c3d4-0001-0001-0001-000000000001",
+        "name": "Schedule: Monday 9AM IST (3:30 UTC)",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          240,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "url": "=https://api.saleshandy.com/api/v1/sequences/{{ $env.SALESHANDY_SEQUENCE_ID }}/analytics",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Auth-Token",
+                "value": "={{ $env.SALESHANDY_API_KEY }}"
+              }
+            ]
+          },
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "since",
+                "value": "={{ new Date(Date.now() - 7 * 86400000).toISOString() }}"
+              }
+            ]
+          },
+          "options": {
+            "response": {
+              "response": {
+                "neverError": true
+              }
+            },
+            "timeout": 15000
+          }
+        },
+        "id": "d1b2c3d4-0002-0002-0002-000000000002",
+        "name": "Saleshandy: 7-Day Stats",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          460,
+          200
+        ],
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "url": "https://mxtoolbox.com/api/v1/lookup/blacklist/adscalelab.co",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "={{ $env.MXTOOLBOX_API_KEY }}"
+              }
+            ]
+          },
+          "options": {
+            "response": {
+              "response": {
+                "neverError": true
+              }
+            },
+            "timeout": 15000
+          }
+        },
+        "id": "d1b2c3d4-0003-0003-0003-000000000003",
+        "name": "MXToolbox: adscalelab.co",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          460,
+          340
+        ],
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "url": "https://mxtoolbox.com/api/v1/lookup/blacklist/partnerpeak.co",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "={{ $env.MXTOOLBOX_API_KEY }}"
+              }
+            ]
+          },
+          "options": {
+            "response": {
+              "response": {
+                "neverError": true
+              }
+            },
+            "timeout": 15000
+          }
+        },
+        "id": "d1b2c3d4-0004-0004-0004-000000000004",
+        "name": "MXToolbox: partnerpeak.co",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          460,
+          480
+        ],
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "url": "https://mxtoolbox.com/api/v1/lookup/blacklist/partners-ge.co",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "={{ $env.MXTOOLBOX_API_KEY }}"
+              }
+            ]
+          },
+          "options": {
+            "response": {
+              "response": {
+                "neverError": true
+              }
+            },
+            "timeout": 15000
+          }
+        },
+        "id": "d1b2c3d4-0005-0005-0005-000000000005",
+        "name": "MXToolbox: partners-ge.co",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          460,
+          620
+        ],
+        "onError": "continueErrorOutput"
+      },
+      {
+        "id": "d1b2c3d4-0006-0006-0006-000000000006",
+        "name": "Read Active Sheet",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          460,
+          760
+        ],
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT id, status, date_added::text AS date_added FROM outreach_leads ORDER BY created_at ASC",
+          "options": {}
+        },
+        "credentials": {
+          "postgres": {
+            "id": "tEi1y3q2RyS0OOgV",
+            "name": "GE Outreach Postgres"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "numberInputs": 5
+        },
+        "id": "d1b2c3d4-0007-0007-0007-000000000007",
+        "name": "Merge All Data",
+        "type": "n8n-nodes-base.merge",
+        "typeVersion": 3,
+        "position": [
+          700,
+          460
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Parse all gathered data\nconst inputs = $input.all();\n\n// Each input comes from a different branch \u2014 get by position\n// We need to pull from named nodes instead\nlet shResponse = {};\ntry { shResponse = $('Saleshandy: 7-Day Stats').first().json || {}; } catch(e) { shResponse = {}; }\nlet mxAdscale = {};\ntry { mxAdscale = $('MXToolbox: adscalelab.co').first().json || {}; } catch(e) { mxAdscale = {}; }\nlet mxPartnerpeak = {};\ntry { mxPartnerpeak = $('MXToolbox: partnerpeak.co').first().json || {}; } catch(e) { mxPartnerpeak = {}; }\nlet mxPartnersGe = {};\ntry { mxPartnersGe = $('MXToolbox: partners-ge.co').first().json || {}; } catch(e) { mxPartnersGe = {}; }\nlet sheetRows = [];\ntry { sheetRows = $('Read Active Sheet').all().map(r => r.json); } catch(e) { sheetRows = []; }\n\n// Parse Saleshandy 7-day stats\nlet sent = 0, opened = 0, replied = 0, bounced = 0;\nlet openRate = 0, replyRate = 0, bounceRate = 0;\nlet saleshandyAvailable = true;\n\ntry {\n  const data = shResponse.data || shResponse.analytics || shResponse;\n  sent = data.sent || data.emailsSent || 0;\n  opened = data.opened || data.emailsOpened || 0;\n  replied = data.replied || data.emailsReplied || 0;\n  bounced = data.bounced || data.emailsBounced || 0;\n  \n  if (sent > 0) {\n    openRate = (opened / sent) * 100;\n    replyRate = (replied / sent) * 100;\n    bounceRate = (bounced / sent) * 100;\n  }\n  \n  if (!shResponse.data && !shResponse.analytics && sent === 0) {\n    saleshandyAvailable = false;\n  }\n} catch (e) {\n  saleshandyAvailable = false;\n}\n\n// Parse blacklist status\nconst checkBlacklist = (response, domain) => {\n  try {\n    if (!response || response.error || response.Failed) {\n      return { domain, status: 'CHECK_FAILED', isBlacklisted: false };\n    }\n    // MXToolbox returns Failed array if blacklisted\n    const failed = response.Failed || [];\n    const isBlacklisted = Array.isArray(failed) && failed.length > 0;\n    return { domain, status: isBlacklisted ? 'BLACKLISTED' : 'CLEAN', isBlacklisted };\n  } catch (e) {\n    return { domain, status: 'CHECK_FAILED', isBlacklisted: false };\n  }\n};\n\nconst domains = [\n  checkBlacklist(mxAdscale, 'adscalelab.co'),\n  checkBlacklist(mxPartnerpeak, 'partnerpeak.co'),\n  checkBlacklist(mxPartnersGe, 'partners-ge.co')\n];\n\nconst mxtoolboxAvailable = !domains.every(d => d.status === 'CHECK_FAILED');\nconst anyBlacklisted = domains.some(d => d.isBlacklisted);\n\n// Parse sheet: leads added in past 7 days\nconst sevenDaysAgo = new Date(Date.now() - 7 * 86400000);\nconst leadsThisWeek = sheetRows.filter(r => {\n  const dateAdded = new Date(r.date_added || '');\n  return dateAdded >= sevenDaysAgo;\n}).length;\n\nconst totalActive = sheetRows.filter(r => r.status === 'Active').length;\n\n// Evaluate thresholds\nconst issues = [];\nlet overallHealth = 'HEALTHY';\n\n// Bounce rate\nif (bounceRate > 5) {\n  issues.push('CRITICAL: Bounce rate >5% \u2014 PAUSE ALL SENDING');\n  overallHealth = 'CRITICAL';\n} else if (bounceRate > 3) {\n  issues.push('WARNING: Bounce rate >3%');\n  if (overallHealth === 'HEALTHY') overallHealth = 'WARNING';\n}\n\n// Open rate\nif (openRate < 10 && saleshandyAvailable && sent > 0) {\n  issues.push('CRITICAL: Open rate <10%');\n  overallHealth = 'CRITICAL';\n} else if (openRate < 15 && saleshandyAvailable && sent > 0) {\n  issues.push('WARNING: Open rate <15%');\n  if (overallHealth === 'HEALTHY') overallHealth = 'WARNING';\n}\n\n// Reply rate\nif (replyRate < 1 && saleshandyAvailable && sent > 0) {\n  issues.push('WARNING: Reply rate <1%');\n  if (overallHealth === 'HEALTHY') overallHealth = 'WARNING';\n}\n\n// Domain blacklist\nif (anyBlacklisted) {\n  const blacklistedDomains = domains.filter(d => d.isBlacklisted).map(d => d.domain).join(', ');\n  issues.push(`CRITICAL: Domain(s) blacklisted: ${blacklistedDomains}`);\n  overallHealth = 'CRITICAL';\n}\n\n// Leads per week\nif (leadsThisWeek < 5) {\n  issues.push('CRITICAL: Fewer than 5 leads added this week');\n  overallHealth = 'CRITICAL';\n} else if (leadsThisWeek < 10) {\n  issues.push('WARNING: Fewer than 10 leads added this week');\n  if (overallHealth === 'HEALTHY') overallHealth = 'WARNING';\n}\n\nconst bounceStatus = bounceRate > 5 ? 'CRITICAL' : bounceRate > 3 ? 'WARNING' : 'OK';\nconst openStatus = openRate < 10 ? 'CRITICAL' : openRate < 15 ? 'WARNING' : 'OK';\nconst leadsStatus = leadsThisWeek < 5 ? 'CRITICAL' : leadsThisWeek < 10 ? 'WARNING' : 'OK';\n\n// Format domain health lines\nconst domainLines = domains.map(d => `\u2502 ${d.domain}: [${d.status}]`).join('\\n');\n\n// Build report\nlet campaignSection = '';\nif (!saleshandyAvailable) {\n  campaignSection = '\u2502 Saleshandy API unavailable';\n} else {\n  campaignSection = [\n    `\u2502 Sent: ${sent} | Opened: ${opened} (${openRate.toFixed(1)}%) | Replied: ${replied} (${replyRate.toFixed(1)}%)`,\n    `\u2502 Bounced: ${bounced} (${bounceRate.toFixed(1)}%) | [${bounceStatus}]`\n  ].join('\\n');\n}\n\nlet blacklistSection = '';\nif (!mxtoolboxAvailable) {\n  blacklistSection = '\u2502 Blacklist check unavailable';\n} else {\n  blacklistSection = domainLines;\n}\n\nconst actionNeeded = issues.length === 0 ? 'None' : issues.join('\\n\u2502   ');\n\nconst report = [\n  '\u250c\u2500 GE Outreach Weekly Health Check \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500',\n  `\u2502 Status: [${overallHealth}]`,\n  '\u2502',\n  '\u2502 7-Day Metrics',\n  campaignSection,\n  '\u2502',\n  '\u2502 Domain Health',\n  blacklistSection,\n  '\u2502',\n  '\u2502 Pipeline',\n  `\u2502 Leads added this week: ${leadsThisWeek} [${leadsStatus}]`,\n  `\u2502 Total active prospects: ${totalActive}`,\n  '\u2502',\n  `\u2502 Action needed: ${actionNeeded}`,\n  '\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500'\n].join('\\n');\n\nreturn [{\n  json: {\n    report,\n    overallHealth,\n    isCritical: overallHealth === 'CRITICAL'\n  }\n}];"
+        },
+        "id": "d1b2c3d4-0008-0008-0008-000000000008",
+        "name": "Evaluate Health & Build Report",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          920,
+          460
+        ]
+      },
+      {
+        "parameters": {
+          "url": "={{ $env.SLACK_OUTREACH_WEBHOOK }}",
+          "method": "POST",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "string",
+          "options": {
+            "response": {
+              "response": {
+                "neverError": true
+              }
+            }
+          },
+          "body": "=JSON.stringify({\"text\": \"```\" + $json.report + \"```\"})"
+        },
+        "id": "d1b2c3d4-0009-0009-0009-000000000009",
+        "name": "Slack: Post Health Report",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1140,
+          460
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true
+            },
+            "conditions": [
+              {
+                "id": "cond-critical-001",
+                "leftValue": "={{ $json.isCritical }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "d1b2c3d4-0010-0010-0010-000000000010",
+        "name": "Is Critical?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          1360,
+          460
+        ]
+      },
+      {
+        "parameters": {
+          "url": "https://slack.com/api/chat.postMessage",
+          "method": "POST",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{ $env.SLACK_BOT_TOKEN }}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "string",
+          "options": {
+            "response": {
+              "response": {
+                "neverError": true
+              }
+            }
+          },
+          "body": "=JSON.stringify({\"text\": \"```\" + $json.report + \"```\"})"
+        },
+        "id": "d1b2c3d4-0011-0011-0011-000000000011",
+        "name": "Slack DM: Critical Alert",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1580,
+          380
+        ]
+      }
+    ],
+    "connections": {
+      "Schedule: Monday 9AM IST (3:30 UTC)": {
+        "main": [
+          [
+            {
+              "node": "Saleshandy: 7-Day Stats",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "MXToolbox: adscalelab.co",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "MXToolbox: partnerpeak.co",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "MXToolbox: partners-ge.co",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Read Active Sheet",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Saleshandy: 7-Day Stats": {
+        "main": [
+          [
+            {
+              "node": "Merge All Data",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "MXToolbox: adscalelab.co": {
+        "main": [
+          [
+            {
+              "node": "Merge All Data",
+              "type": "main",
+              "index": 1
+            }
+          ]
+        ]
+      },
+      "MXToolbox: partnerpeak.co": {
+        "main": [
+          [
+            {
+              "node": "Merge All Data",
+              "type": "main",
+              "index": 2
+            }
+          ]
+        ]
+      },
+      "MXToolbox: partners-ge.co": {
+        "main": [
+          [
+            {
+              "node": "Merge All Data",
+              "type": "main",
+              "index": 3
+            }
+          ]
+        ]
+      },
+      "Read Active Sheet": {
+        "main": [
+          [
+            {
+              "node": "Merge All Data",
+              "type": "main",
+              "index": 4
+            }
+          ]
+        ]
+      },
+      "Merge All Data": {
+        "main": [
+          [
+            {
+              "node": "Evaluate Health & Build Report",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Evaluate Health & Build Report": {
+        "main": [
+          [
+            {
+              "node": "Slack: Post Health Report",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Slack: Post Health Report": {
+        "main": [
+          [
+            {
+              "node": "Is Critical?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Is Critical?": {
+        "main": [
+          [
+            {
+              "node": "Slack DM: Critical Alert",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          []
+        ]
+      }
+    },
+    "authors": "Jatin Agrawal",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-03-25T19:51:20.772Z",
+        "id": 109,
+        "workflowId": "1BaN9E0VHroQryg8",
+        "versionId": "7e2fb1e0-b427-4d21-b989-fdb68cf02373",
+        "event": "activated",
+        "userId": "885eaafd-e163-477f-b37c-5d5ea216f1c4"
+      }
+    ]
+  },
+  "scopes": [
+    "workflow:create",
+    "workflow:delete",
+    "workflow:execute",
+    "workflow:execute-chat",
+    "workflow:list",
+    "workflow:move",
+    "workflow:publish",
+    "workflow:read",
+    "workflow:share",
+    "workflow:unpublish",
+    "workflow:unshare",
+    "workflow:update",
+    "workflow:updateRedactionSetting"
+  ],
+  "checksum": "1d1b04e74100f1ba7ccbd2f45da5db5ad8eb18d876f1f1c9a442a6891a17c4e5"
+}
