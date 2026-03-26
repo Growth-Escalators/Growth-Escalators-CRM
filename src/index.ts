@@ -43,6 +43,8 @@ import cron from 'node-cron';
 import { checkAndAlertBlockers } from './services/blockerAlertService';
 import { generateMonthlyDraftInvoices } from './services/recurringInvoiceService';
 import { runSodDigest, runEodSummary } from './services/sodEodService';
+import { checkSpendAlerts } from './services/spendAlertService';
+import analyticsRouter from './routes/analytics';
 import { requireAuth } from './middleware/auth';
 import { startStuckJobWorker } from './workers/stuckJobWorker';
 import { startSequenceWorker } from './workers/sequenceWorker';
@@ -118,6 +120,7 @@ app.use('/api/outreach/discover', requireAuth, discoverRouter);
 app.use('/api/marketing', requireAuth, marketingRouter);
 app.use('/api/search', requireAuth, searchRouter);
 app.use('/api/audit', requireAuth, auditRouter);
+app.use('/api/analytics', requireAuth, analyticsRouter);
 
 // ---------------------------------------------------------------------------
 // Static frontend — hostname-based routing
@@ -295,6 +298,17 @@ async function startServer() {
       }
     }, { timezone: 'UTC' });
     console.log('[cron] EOD summary scheduled — 7:00 PM IST Mon-Sat');
+
+    // Spend alert check — every hour
+    cron.schedule('0 * * * *', async () => {
+      console.log('[cron] checking ad account balances…');
+      try {
+        await checkSpendAlerts();
+      } catch (e) {
+        console.error('[cron] spend alert check failed:', e);
+      }
+    }, { timezone: 'UTC' });
+    console.log('[cron] spend alert check scheduled — hourly');
 
     // Generate monthly draft invoices on the 1st of every month at 9 AM IST (3:30 AM UTC)
     cron.schedule('30 3 1 * *', async () => {

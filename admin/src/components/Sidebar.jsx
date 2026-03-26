@@ -120,6 +120,11 @@ export default function Sidebar() {
             <MapPin className="w-4 h-4" /> Lead Discovery
           </NavLink>
         )}
+        {canReports && (
+          <NavLink to="/analytics" className={navClass}>
+            <TrendingUp className="w-4 h-4" /> Analytics
+          </NavLink>
+        )}
 
         {/* Marketing */}
         {(canAds || canSocial || canMarketing) && (
