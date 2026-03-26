@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { logout, getUser, apiFetch } from '../lib/api.js';
 import {
   Users, BarChart2, Zap, Mail, Receipt, Activity, Lock,
-  TrendingUp, FileText, Share2, MessageSquare, Settings, Layout
+  TrendingUp, FileText, Share2, MessageSquare, Settings, Layout, MapPin
 } from 'lucide-react';
 
 export default function Sidebar() {
@@ -73,6 +73,11 @@ export default function Sidebar() {
         <NavLink to="/pipelines/settings" className={subNavClass}>
           <Settings className="w-3.5 h-3.5" />
           Pipeline Settings
+        </NavLink>
+
+        <NavLink to="/discover" className={navClass}>
+          <MapPin className="w-4 h-4" />
+          Lead Discovery
         </NavLink>
 
         <NavLink to="/automations" className={navClass}>

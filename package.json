@@ -32,6 +32,7 @@
     "@types/pdfkit": "^0.17.5",
     "dotenv": "^17.3.1",
     "drizzle-orm": "^0.45.1",
+    "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "express-rate-limit": "^8.3.1",
     "jsonwebtoken": "^9.0.3",

@@ -13,6 +13,7 @@ import AdsPage from './pages/AdsPage.jsx';
 import ReportsPage from './pages/ReportsPage.jsx';
 import SocialPage from './pages/SocialPage.jsx';
 import InboxPage from './pages/InboxPage.jsx';
+import LeadDiscoveryPage from './pages/LeadDiscoveryPage.jsx';
 
 function PrivateRoute({ children }) {
   const token = localStorage.getItem('ge_crm_token');
@@ -117,6 +118,14 @@ export default function App() {
           element={
             <PrivateRoute>
               <InboxPage />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/discover"
+          element={
+            <PrivateRoute>
+              <LeadDiscoveryPage />
             </PrivateRoute>
           }
         />

@@ -57,6 +57,13 @@
       "when": 1774600000000,
       "tag": "0007_ads_social_inbox",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1774495107869,
+      "tag": "0008_great_romulus",
+      "breakpoints": true
     }
   ]
 }

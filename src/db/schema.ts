@@ -666,3 +666,77 @@ export const socialPosts = pgTable('social_posts', {
   errorMessage: text('error_message'),
   createdAt: timestamp('created_at').defaultNow(),
 });
+
+// ---------------------------------------------------------------------------
+// TABLE 29 — discovery_searches
+// ---------------------------------------------------------------------------
+export const discoverySearches = pgTable(
+  'discovery_searches',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    query: text('query').notNull(),
+    location: text('location').notNull(),
+    country: text('country').notNull().default('UK'),
+    radiusMeters: integer('radius_meters').default(10000),
+    maxResults: integer('max_results').default(20),
+    totalFound: integer('total_found').default(0),
+    qualifiedCount: integer('qualified_count').default(0),
+    importedCount: integer('imported_count').default(0),
+    apiCallsUsed: integer('api_calls_used').default(0),
+    costUsd: numeric('cost_usd', { precision: 8, scale: 4 }).default('0'),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    tenantIdIdx: index('discovery_searches_tenant_idx').on(t.tenantId),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE 30 — discovery_results
+// ---------------------------------------------------------------------------
+export const discoveryResults = pgTable(
+  'discovery_results',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    searchId: uuid('search_id').notNull().references(() => discoverySearches.id),
+    placeId: text('place_id').notNull(),
+    companyName: text('company_name').notNull(),
+    websiteUrl: text('website_url'),
+    phoneNumber: text('phone_number'),
+    address: text('address'),
+    rating: numeric('rating', { precision: 3, scale: 1 }),
+    reviewCount: integer('review_count').default(0),
+    fitScore: integer('fit_score').default(0),
+    // Qualified | Review | Disqualified | Already in pipeline
+    qualificationStatus: text('qualification_status').default('Review'),
+    disqualificationReason: text('disqualification_reason'),
+    imported: boolean('imported').default(false),
+    importedContactId: uuid('imported_contact_id'),
+    metadata: jsonb('metadata').default({}),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    searchIdIdx: index('discovery_results_search_idx').on(t.searchId),
+    tenantIdIdx: index('discovery_results_tenant_idx').on(t.tenantId),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE 31 — discovery_api_usage  (monthly cost tracking)
+// ---------------------------------------------------------------------------
+export const discoveryApiUsage = pgTable(
+  'discovery_api_usage',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    monthYear: text('month_year').notNull(), // e.g. "2026-03"
+    apiCalls: integer('api_calls').default(0),
+    costUsd: numeric('cost_usd', { precision: 8, scale: 4 }).default('0'),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (t) => ({
+    uniqueMonth: uniqueIndex('discovery_usage_tenant_month_idx').on(t.tenantId, t.monthYear),
+  }),
+);

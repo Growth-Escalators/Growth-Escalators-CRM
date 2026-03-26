@@ -35,6 +35,7 @@ import adsRouter from './routes/ads';
 import reportsRouter from './routes/reports';
 import socialRouter from './routes/social';
 import inboxRouter, { setSocketIO } from './routes/inbox';
+import discoverRouter from './routes/discover';
 import cron from 'node-cron';
 import { checkAndAlertBlockers } from './services/blockerAlertService';
 import { generateMonthlyDraftInvoices } from './services/recurringInvoiceService';
@@ -109,6 +110,7 @@ app.use('/api/ads', requireAuth, adsRouter);
 app.use('/api/reports', requireAuth, reportsRouter);
 app.use('/api/social', requireAuth, socialRouter);
 app.use('/api/inbox', requireAuth, inboxRouter);
+app.use('/api/outreach/discover', requireAuth, discoverRouter);
 
 // ---------------------------------------------------------------------------
 // Static frontend — hostname-based routing
