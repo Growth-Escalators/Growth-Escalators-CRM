@@ -1,0 +1,545 @@
+{
+  "name": "WF-05 \u2014 Lead Lifecycle Manager",
+  "nodes": [
+    {
+      "id": "3f4d7546-fc2d-4f58-b955-6d7be0470df1",
+      "name": "Schedule: 10AM IST",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 4 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cc932126-2480-4bb4-bbc4-ce41809b9683",
+      "name": "PG: Find Re-engage Leads",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        460,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, company, email, first_name, notes FROM outreach_leads WHERE reply_category = 'NOT_NOW' AND status = 'Replied' AND updated_at < NOW() - INTERVAL '90 days'",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "tEi1y3q2RyS0OOgV",
+          "name": "GE Outreach Postgres"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "a775b66b-62e7-4fba-93cb-046b573dd81d",
+      "name": "Code: Build Re-engage",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst leads = $input.all().map(r => r.json);\nconst count = leads.length;\n\nif (count === 0) {\n  return [{ json: { reengageCount: 0, reengageCompanies: [], reengageSql: \"SELECT 1 AS noop\" } }];\n}\n\nconst companies = leads.map(l => l.company || 'Unknown');\nconst ids = leads.map(l => \"'\" + String(l.id).replace(/'/g, \"''\") + \"'\").join(',');\nconst sql = \"UPDATE outreach_leads SET status = 'New', reply_category = NULL, \" +\n  \"notes = CONCAT(COALESCE(notes, ''), ' | Re-engaged on ', CURRENT_DATE, ' (90-day cycle)'), \" +\n  \"updated_at = NOW() WHERE id IN (\" + ids + \") RETURNING id, company\";\n\nreturn [{ json: { reengageCount: count, reengageCompanies: companies, reengageSql: sql } }];\n"
+      }
+    },
+    {
+      "id": "31a76e32-c18f-4798-909a-9852c32a477e",
+      "name": "PG: Execute Re-engage",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.reengageSql }}",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "tEi1y3q2RyS0OOgV",
+          "name": "GE Outreach Postgres"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "d0604e5c-338d-4b6d-b47f-ea1ed69a1ebc",
+      "name": "IF: Re-engaged Any?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "faa3c75b-ccbf-4d9c-aba5-a9ca81895e08",
+              "leftValue": "={{ $('Code: Build Re-engage').first().json.reengageCount }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "80c7e871-6909-404c-9fc1-4af73600e86c",
+      "name": "Slack: Re-engage Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1340,
+        160
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "url": "={{ $env.SLACK_OUTREACH_WEBHOOK }}",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "string",
+        "body": "=JSON.stringify({\"text\": \"\u267b\ufe0f [RE-ENGAGE] \" + $(\"Code: Build Re-engage\").first().json.reengageCount + \" leads re-activated after 90 days: \" + $(\"Code: Build Re-engage\").first().json.reengageCompanies.join(\", \") + \". WF-01 will re-enrich them within 5 minutes.\"})",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "e2b5fbde-2509-4dca-9a1c-ab40c730e0df",
+      "name": "PG: Find Archive Leads",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1560,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, company, email, notes FROM outreach_leads WHERE status = 'Closed' AND updated_at < NOW() - INTERVAL '30 days'",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "tEi1y3q2RyS0OOgV",
+          "name": "GE Outreach Postgres"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "6347c757-1d47-478d-a234-c8e32e2572f9",
+      "name": "Code: Build Archive",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst leads = $input.all().map(r => r.json);\nconst count = leads.length;\n\nif (count === 0) {\n  return [{ json: { archiveCount: 0, archiveCompanies: [], archiveSql: \"SELECT 1 AS noop\" } }];\n}\n\nconst companies = leads.map(l => l.company || 'Unknown');\nconst ids = leads.map(l => \"'\" + String(l.id).replace(/'/g, \"''\") + \"'\").join(',');\nconst sql = \"UPDATE outreach_leads SET status = 'Archived', \" +\n  \"notes = CONCAT(COALESCE(notes, ''), ' | Auto-archived on ', CURRENT_DATE), \" +\n  \"updated_at = NOW() WHERE id IN (\" + ids + \") RETURNING id, company\";\n\nreturn [{ json: { archiveCount: count, archiveCompanies: companies, archiveSql: sql } }];\n"
+      }
+    },
+    {
+      "id": "6fec9698-717a-427b-92ca-7d94bdbb2e86",
+      "name": "PG: Execute Archive",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2000,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.archiveSql }}",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "tEi1y3q2RyS0OOgV",
+          "name": "GE Outreach Postgres"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "dd4cefc9-3b03-4f98-890c-86b8416bb23c",
+      "name": "IF: Archived Any?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2220,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "5aacd686-e935-4646-9ee5-cdf1f4e1f685",
+              "leftValue": "={{ $('Code: Build Archive').first().json.archiveCount }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "8e3657e3-3c76-4100-99bb-56df62ac7958",
+      "name": "Slack: Archive Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2440,
+        160
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "url": "={{ $env.SLACK_OUTREACH_WEBHOOK }}",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "string",
+        "body": "=JSON.stringify({\"text\": \"\ud83d\udce6 [ARCHIVED] \" + $(\"Code: Build Archive\").first().json.archiveCount + \" leads auto-archived after 30 days of inactivity.\"})",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "4f0adbf7-2526-44a3-b018-3d03cdf09c73",
+      "name": "PG: Pipeline Health",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2660,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT status, COUNT(*)::int AS cnt FROM outreach_leads GROUP BY status ORDER BY cnt DESC",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "tEi1y3q2RyS0OOgV",
+          "name": "GE Outreach Postgres"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "80d8c90a-afa4-4255-9e84-d47fceb06c63",
+      "name": "Code: Format Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst healthRows = $input.all().map(r => r.json);\nconst reData = $('Code: Build Re-engage').first().json;\nconst arData = $('Code: Build Archive').first().json;\n\n// Build status map\nconst sc = {};\nhealthRows.forEach(r => { sc[r.status] = r.cnt || 0; });\n\nconst activeCount = (sc['Active'] || 0) + (sc['Enriching'] || 0);\nconst newCount = sc['New'] || 0;\nconst repliedCount = sc['Replied'] || 0;\n\nconst summary = [\n  '\u250c\u2500 Lead Lifecycle Manager \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500',\n  '\u2502 Re-engaged: ' + reData.reengageCount + ' leads (90-day NOT_NOW cycle)',\n  '\u2502 Archived: ' + arData.archiveCount + ' leads (30-day closed cleanup)',\n  '\u2502 Pipeline health: ' + activeCount + ' active | ' + newCount + ' new | ' + repliedCount + ' replied',\n  '\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500'\n].join('\\n');\n\nreturn [{ json: { summary } }];\n"
+      }
+    },
+    {
+      "id": "e606e970-1843-4e0b-8c04-285b9a9b3ac0",
+      "name": "Slack: Post Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3100,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "url": "={{ $env.SLACK_OUTREACH_WEBHOOK }}",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "string",
+        "body": "=JSON.stringify({\"text\": \"```\" + $json.summary + \"```\"})",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "fb91fd3e-09a5-42a3-b158-b55d01364abf",
+      "name": "Note: Part A",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        440,
+        120
+      ],
+      "parameters": {
+        "content": "**Part A \u2014 Re-engage**\\n90-day NOT_NOW leads reset to New for WF-01 re-enrichment",
+        "width": 420,
+        "height": 80
+      }
+    },
+    {
+      "id": "5e2f11ff-7e85-448b-a7b0-e170534587e5",
+      "name": "Note: Part B",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1540,
+        120
+      ],
+      "parameters": {
+        "content": "**Part B \u2014 Auto-archive**\\n30-day Closed leads moved to Archived",
+        "width": 420,
+        "height": 80
+      }
+    },
+    {
+      "id": "03207306-529b-4e0d-93a9-0c71efdc7534",
+      "name": "Note: Part C",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2640,
+        120
+      ],
+      "parameters": {
+        "content": "**Part C \u2014 Summary**\\nCombined lifecycle report posted to Slack",
+        "width": 480,
+        "height": 80
+      }
+    }
+  ],
+  "connections": {
+    "Schedule: 10AM IST": {
+      "main": [
+        [
+          {
+            "node": "PG: Find Re-engage Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG: Find Re-engage Leads": {
+      "main": [
+        [
+          {
+            "node": "Code: Build Re-engage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Build Re-engage": {
+      "main": [
+        [
+          {
+            "node": "PG: Execute Re-engage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG: Execute Re-engage": {
+      "main": [
+        [
+          {
+            "node": "IF: Re-engaged Any?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Re-engaged Any?": {
+      "main": [
+        [
+          {
+            "node": "Slack: Re-engage Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PG: Find Archive Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: Re-engage Alert": {
+      "main": [
+        [
+          {
+            "node": "PG: Find Archive Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG: Find Archive Leads": {
+      "main": [
+        [
+          {
+            "node": "Code: Build Archive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Build Archive": {
+      "main": [
+        [
+          {
+            "node": "PG: Execute Archive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG: Execute Archive": {
+      "main": [
+        [
+          {
+            "node": "IF: Archived Any?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Archived Any?": {
+      "main": [
+        [
+          {
+            "node": "Slack: Archive Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PG: Pipeline Health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: Archive Alert": {
+      "main": [
+        [
+          {
+            "node": "PG: Pipeline Health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG: Pipeline Health": {
+      "main": [
+        [
+          {
+            "node": "Code: Format Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Format Summary": {
+      "main": [
+        [
+          {
+            "node": "Slack: Post Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}
