@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq, and, desc, ilike, or, gte, sql } from 'drizzle-orm';
 import { db, contacts, contactChannels, sequences, sequenceEnrolments, contactNotes } from '../db/index';
+import { createInitialOutreachTask } from '../services/clickupService';
 
 const router = Router();
 
@@ -256,7 +257,15 @@ router.post('/', async (req, res) => {
     .values({ tenantId, firstName, lastName, companyName, source, sourceDetail, assignedTo, metadata, tags })
     .returning();
 
-  res.status(201).json(inserted[0]);
+  // Fire ClickUp outreach task (fire-and-forget)
+  const contact = inserted[0];
+  createInitialOutreachTask({
+    contactName: [contact.firstName, contact.lastName].filter(Boolean).join(' '),
+    contactId: contact.id,
+    source: contact.source || undefined,
+  }).catch(e => console.error('[contacts] ClickUp outreach task error:', e));
+
+  res.status(201).json(contact);
 });
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,6 @@
 import https from 'https';
+import { sendSlackMessage } from './slackService';
+import { CLICKUP_IDS, SLACK_CHANNELS } from '../utils/clickupSlack';
 
 const CLICKUP_TOKEN = process.env.CLICKUP_API_TOKEN;
 const CLICKUP_LIST_ID = process.env.CLICKUP_LIST_ID;
@@ -37,11 +39,8 @@ async function clickupRequest(method: string, path: string, body?: unknown): Pro
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
-        try {
-          resolve(JSON.parse(data));
-        } catch {
-          resolve(null);
-        }
+        try { resolve(JSON.parse(data)); }
+        catch { resolve(null); }
       });
     });
 
@@ -92,7 +91,6 @@ export async function createTask(task: ClickUpTask): Promise<{ id: string; url: 
 export async function getTasksForContact(contactId: string): Promise<unknown[]> {
   const listId = CLICKUP_LIST_ID;
   if (!listId || listId === 'placeholder_will_update') return [];
-
   const result = await clickupRequest('GET', `/list/${listId}/task?tags[]=${contactId}&include_closed=true`) as { tasks?: unknown[] } | null;
   return result?.tasks || [];
 }
@@ -102,20 +100,28 @@ export async function updateTaskStatus(taskId: string, status: string): Promise<
   return !!(result?.id);
 }
 
+// Check for duplicate tasks by name
+async function taskExists(name: string): Promise<boolean> {
+  const listId = CLICKUP_LIST_ID;
+  if (!listId) return false;
+  const result = await clickupRequest('GET', `/list/${listId}/task?include_closed=false`) as { tasks?: Array<{ name: string }> } | null;
+  return (result?.tasks || []).some(t => t.name === name);
+}
+
 function daysFromNow(days: number): number {
   return Date.now() + days * 24 * 60 * 60 * 1000;
 }
 
-function getAssigneeId(person: 'jatin' | 'saksham'): number[] {
-  const id = person === 'jatin'
-    ? process.env.CLICKUP_JATIN_ID
-    : process.env.CLICKUP_SAKSHAM_ID;
-
-  if (!id || id === 'placeholder_will_update') return [];
-  const parsed = parseInt(id, 10);
-  return isNaN(parsed) ? [] : [parsed];
+function endOfToday(): number {
+  const d = new Date();
+  d.setHours(23, 59, 59, 999);
+  return d.getTime();
 }
 
+// -----------------------------------------------------------------------
+// Deal Won → Onboarding task
+// Assigned to: Sanskriti + Jatin | Due: 3 days | Priority: HIGH
+// -----------------------------------------------------------------------
 export async function createOnboardingTask(params: {
   contactName: string;
   contactId: string;
@@ -124,19 +130,94 @@ export async function createOnboardingTask(params: {
   contactPhone?: string;
   pipelineName?: string;
 }): Promise<{ id: string; url: string } | null> {
-  const valueStr = params.dealValue ? ` — ₹${params.dealValue.toLocaleString('en-IN')}/mo` : '';
+  const taskName = `Client Onboarding Setup — ${params.contactName}`;
+  if (await taskExists(taskName)) { console.log('[ClickUp] duplicate skipped:', taskName); return null; }
 
-  return createTask({
-    name: `Onboard ${params.contactName}${valueStr}`,
-    description: `New client onboarding task auto-created from CRM.\n\nClient: ${params.contactName}\nEmail: ${params.contactEmail || 'N/A'}\nPhone: ${params.contactPhone || 'N/A'}\nDeal value: ${params.dealValue ? '₹' + params.dealValue.toLocaleString('en-IN') + '/month' : 'Not set'}\nPipeline: ${params.pipelineName || 'D2C Prospects'}\nContact ID: ${params.contactId}\n\nCRM link: https://web-production-311da.up.railway.app/crm (search for ${params.contactName})`,
-    assignees: getAssigneeId('jatin'),
+  const dealValueStr = params.dealValue ? `₹${params.dealValue.toLocaleString('en-IN')}/mo` : 'Not set';
+
+  const result = await createTask({
+    name: taskName,
+    description: `New client won. Set up onboarding process, welcome sequence, and initial campaign structure.\n\nClient: ${params.contactName}\nDeal value: ${dealValueStr}\nEmail: ${params.contactEmail || 'N/A'}\nPhone: ${params.contactPhone || 'N/A'}\nPipeline: ${params.pipelineName || 'D2C Prospects'}\nContact ID: ${params.contactId}`,
+    assignees: [CLICKUP_IDS.sanskriti, CLICKUP_IDS.jatin],
     tags: [params.contactId, 'new-client', 'onboarding'],
-    priority: 1,
+    priority: 2, // HIGH
     dueDate: daysFromNow(3),
     status: 'to do',
   });
+
+  // Post to #sales-bd
+  sendSlackMessage(SLACK_CHANNELS.salesBd,
+    `🎉 *Deal Won!* ${params.contactName} — Onboarding task created and assigned to Sanskriti + Jatin`
+  ).catch(() => {});
+
+  return result;
 }
 
+// -----------------------------------------------------------------------
+// Proposal Sent → Follow-up task
+// Assigned to: Sakcham | Due: 2 days | Priority: HIGH
+// -----------------------------------------------------------------------
+export async function createFollowUpTask(params: {
+  contactName: string;
+  contactId: string;
+  dealValue?: number;
+  proposalDate?: string;
+  assignedTo?: 'jatin' | 'saksham';
+}): Promise<{ id: string; url: string } | null> {
+  const taskName = `Follow Up on Proposal — ${params.contactName}`;
+  if (await taskExists(taskName)) { console.log('[ClickUp] duplicate skipped:', taskName); return null; }
+
+  const result = await createTask({
+    name: taskName,
+    description: `Proposal sent to ${params.contactName}. Follow up within 48 hours. Check in on questions, handle objections, push for decision.\n\nProposal date: ${params.proposalDate || new Date().toLocaleDateString('en-IN')}\nDeal value: ${params.dealValue ? '₹' + params.dealValue.toLocaleString('en-IN') + '/month' : 'Not set'}\nContact ID: ${params.contactId}`,
+    assignees: [CLICKUP_IDS.sakcham],
+    tags: [params.contactId, 'proposal', 'follow-up'],
+    priority: 2, // HIGH
+    dueDate: daysFromNow(2),
+    status: 'to do',
+  });
+
+  sendSlackMessage(SLACK_CHANNELS.salesBd,
+    `📤 *Proposal sent* to ${params.contactName} — Follow-up task created for Sakcham`
+  ).catch(() => {});
+
+  return result;
+}
+
+// -----------------------------------------------------------------------
+// Deal Lost → Loss Analysis task
+// Assigned to: Jatin | Due: 7 days | Priority: NORMAL
+// -----------------------------------------------------------------------
+export async function createLostDealAnalysisTask(params: {
+  contactName: string;
+  contactId: string;
+  lostReason: string;
+  dealValue?: number;
+}): Promise<{ id: string; url: string } | null> {
+  const taskName = `Loss Analysis — ${params.contactName}`;
+  if (await taskExists(taskName)) { console.log('[ClickUp] duplicate skipped:', taskName); return null; }
+
+  const result = await createTask({
+    name: taskName,
+    description: `Analyse why ${params.contactName} was lost. Lost reason: ${params.lostReason}. Document learnings and update pitch/process accordingly.\n\nDeal value: ${params.dealValue ? '₹' + params.dealValue.toLocaleString('en-IN') + '/month' : 'Not set'}\nContact ID: ${params.contactId}`,
+    assignees: [CLICKUP_IDS.jatin],
+    tags: [params.contactId, 'lost-deal', 'analysis'],
+    priority: 3, // NORMAL
+    dueDate: daysFromNow(7),
+    status: 'to do',
+  });
+
+  sendSlackMessage(SLACK_CHANNELS.salesBd,
+    `📉 *Deal Lost* — ${params.contactName}. Reason: ${params.lostReason}. Analysis task created for Jatin.`
+  ).catch(() => {});
+
+  return result;
+}
+
+// -----------------------------------------------------------------------
+// Hot lead books call (score ≥ 70) → Call prep for Jatin
+// Assigned to: Jatin | Due: end of today | Priority: URGENT
+// -----------------------------------------------------------------------
 export async function createCallPrepTask(params: {
   contactName: string;
   contactId: string;
@@ -145,54 +226,67 @@ export async function createCallPrepTask(params: {
   adSpend?: string;
   isDecisionMaker?: boolean;
   scheduledAt?: string;
+  phone?: string;
+  revenue?: string;
   assignedTo?: 'jatin' | 'saksham';
 }): Promise<{ id: string; url: string } | null> {
-  const dueTime = params.scheduledAt
-    ? new Date(params.scheduledAt).getTime() - 60 * 60 * 1000
-    : daysFromNow(1);
+  const isHot = params.tier === 'hot' || params.score >= 70;
+  const prefix = isHot ? 'Call Prep — HOT LEAD: ' : 'Call Prep — ';
+  const taskName = `${prefix}${params.contactName}`;
+  if (await taskExists(taskName)) { console.log('[ClickUp] duplicate skipped:', taskName); return null; }
 
-  return createTask({
-    name: `Call prep — ${params.contactName} — ${params.score}/100 ${params.tier}`,
-    description: `Strategy call booked. Auto-created from CRM.\n\nLead: ${params.contactName}\nScore: ${params.score}/100 (${params.tier.toUpperCase()})\nAd spend: ${params.adSpend || 'Not specified'}\nDecision maker: ${params.isDecisionMaker ? 'Yes' : 'No/Unknown'}\nCall time: ${params.scheduledAt || 'Check calendar'}\nContact ID: ${params.contactId}\n\nCRM link: https://web-production-311da.up.railway.app/crm (search for ${params.contactName})`,
-    assignees: getAssigneeId(params.assignedTo || 'jatin'),
+  const callTime = params.scheduledAt || 'Check calendar';
+  const assignee = isHot ? CLICKUP_IDS.jatin : CLICKUP_IDS.sakcham;
+
+  const result = await createTask({
+    name: taskName,
+    description: isHot
+      ? `Hot lead booked! Score: ${params.score}/100.\n\nName: ${params.contactName}\nPhone: ${params.phone || 'N/A'}\nAd spend: ${params.adSpend || 'N/A'}\nRevenue: ${params.revenue || 'N/A'}\nCall time: ${callTime}\n\nPrepare tailored pitch.\nContact ID: ${params.contactId}`
+      : `Warm lead booked. Score: ${params.score}/100.\n\nName: ${params.contactName}\nPhone: ${params.phone || 'N/A'}\nCall time: ${callTime}\n\nReview their profile and prepare standard pitch.\nContact ID: ${params.contactId}`,
+    assignees: [assignee],
     tags: [params.contactId, 'strategy-call', params.tier + '-lead'],
-    priority: params.tier === 'hot' ? 1 : 2,
-    dueDate: dueTime,
+    priority: isHot ? 1 : 2, // URGENT for hot, HIGH for warm
+    dueDate: endOfToday(),
     status: 'to do',
   });
+
+  const assigneeName = isHot ? 'Jatin' : 'Sakcham';
+  const emoji = isHot ? '🔥' : '📞';
+  const label = isHot ? 'HOT LEAD' : 'Warm lead';
+  sendSlackMessage(SLACK_CHANNELS.salesBd,
+    `${emoji} *${label} booked* — ${params.contactName} scored ${params.score}/100. Call prep task created for ${assigneeName}. Call at ${callTime}`
+  ).catch(() => {});
+
+  return result;
 }
 
-export async function createFollowUpTask(params: {
+// -----------------------------------------------------------------------
+// New contact created → Initial outreach task
+// Assigned to: Sakcham | Due: 1 day | Priority: NORMAL
+// -----------------------------------------------------------------------
+export async function createInitialOutreachTask(params: {
   contactName: string;
   contactId: string;
-  dealValue?: number;
-  proposalDate?: string;
-  assignedTo?: 'jatin' | 'saksham';
+  source?: string;
+  phone?: string;
+  email?: string;
 }): Promise<{ id: string; url: string } | null> {
-  return createTask({
-    name: `Follow up on proposal — ${params.contactName}`,
-    description: `Proposal sent. Follow up required.\n\nClient: ${params.contactName}\nProposal date: ${params.proposalDate || new Date().toLocaleDateString('en-IN')}\nDeal value: ${params.dealValue ? '₹' + params.dealValue.toLocaleString('en-IN') + '/month' : 'Not set'}\nContact ID: ${params.contactId}\n\nCRM link: https://web-production-311da.up.railway.app/crm (search for ${params.contactName})`,
-    assignees: getAssigneeId(params.assignedTo || 'saksham'),
-    tags: [params.contactId, 'proposal', 'follow-up'],
-    priority: 2,
-    dueDate: daysFromNow(2),
-    status: 'to do',
-  });
-}
+  const taskName = `Initial Outreach — ${params.contactName}`;
+  if (await taskExists(taskName)) { console.log('[ClickUp] duplicate skipped:', taskName); return null; }
 
-export async function createLostDealAnalysisTask(params: {
-  contactName: string;
-  contactId: string;
-  lostReason: string;
-  dealValue?: number;
-}): Promise<{ id: string; url: string } | null> {
-  return createTask({
-    name: `Lost deal analysis — ${params.contactName} — ${params.lostReason}`,
-    description: `Deal lost. Analysis task auto-created.\n\nClient: ${params.contactName}\nLost reason: ${params.lostReason}\nDeal value: ${params.dealValue ? '₹' + params.dealValue.toLocaleString('en-IN') + '/month' : 'Not set'}\nContact ID: ${params.contactId}\n\nReview this lead. Could they be re-engaged in 90 days?`,
-    assignees: getAssigneeId('jatin'),
-    tags: [params.contactId, 'lost-deal', 'analysis'],
-    priority: 4,
-    dueDate: daysFromNow(7),
+  const result = await createTask({
+    name: taskName,
+    description: `New contact added: ${params.contactName}\nSource: ${params.source || 'Direct'}\nPhone: ${params.phone || 'N/A'}\nEmail: ${params.email || 'N/A'}\n\nMake initial contact and qualify.\nContact ID: ${params.contactId}`,
+    assignees: [CLICKUP_IDS.sakcham],
+    tags: [params.contactId, 'outreach', 'new-contact'],
+    priority: 3, // NORMAL
+    dueDate: daysFromNow(1),
     status: 'to do',
   });
+
+  sendSlackMessage(SLACK_CHANNELS.salesBd,
+    `👤 *New contact:* ${params.contactName} from ${params.source || 'Direct'}. Outreach task created for Sakcham.`
+  ).catch(() => {});
+
+  return result;
 }
