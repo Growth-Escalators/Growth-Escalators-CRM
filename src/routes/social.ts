@@ -2,14 +2,30 @@ import { Router, type Request, type Response } from 'express';
 import { db, socialAccounts, socialPosts, userPermissions } from '../db/index';
 import { eq, and, lte, gte, sql } from 'drizzle-orm';
 import crypto from 'crypto';
+import multer from 'multer';
+import { uploadToR2 } from '../utils/r2';
 
 const router = Router();
 
 const META_API_BASE = 'https://graph.facebook.com/v19.0';
 
-// AES-256-CBC encryption using JWT_SECRET as key material
+// Multer config for file upload (memory storage, 50MB limit)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/quicktime'];
+    cb(null, allowed.includes(file.mimetype));
+  },
+});
+
+// AES-256-CBC encryption using SOCIAL_ENCRYPTION_KEY or JWT_SECRET
+function getEncKey(): string {
+  return process.env.SOCIAL_ENCRYPTION_KEY || process.env.JWT_SECRET || 'fallback';
+}
+
 function encrypt(text: string): string {
-  const key = crypto.scryptSync(process.env.JWT_SECRET || 'fallback', 'salt', 32);
+  const key = crypto.scryptSync(getEncKey(), 'salt', 32);
   const iv = crypto.randomBytes(16);
   const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
   const encrypted = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
@@ -19,7 +35,7 @@ function encrypt(text: string): string {
 function decrypt(encoded: string): string {
   try {
     const [ivHex, encHex] = encoded.split(':');
-    const key = crypto.scryptSync(process.env.JWT_SECRET || 'fallback', 'salt', 32);
+    const key = crypto.scryptSync(getEncKey(), 'salt', 32);
     const iv = Buffer.from(ivHex, 'hex');
     const encrypted = Buffer.from(encHex, 'hex');
     const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
@@ -302,6 +318,25 @@ router.delete('/posts/:id', async (req: Request, res: Response) => {
     res.json({ success: true });
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/social/upload — upload media to R2
+// ---------------------------------------------------------------------------
+router.post('/upload', upload.single('file'), async (req: Request, res: Response) => {
+  const file = req.file;
+  if (!file) { res.status(400).json({ error: 'file required (images or videos only)' }); return; }
+
+  try {
+    const url = await uploadToR2(file.buffer, file.originalname, file.mimetype);
+    res.json({ url, filename: file.originalname, mimeType: file.mimetype, size: file.size });
+  } catch (e: unknown) {
+    if (e instanceof Error && e.message.includes('R2 not configured')) {
+      res.status(503).json({ error: 'Media storage not configured. Set R2 env vars in Railway.' });
+    } else {
+      res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+    }
   }
 });
 

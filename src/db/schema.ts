@@ -403,6 +403,8 @@ export const users = pgTable('users', {
   name: text('name').notNull(),
   email: text('email').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
+  role: text('role').default('staff'), // admin | manager_ops | manager_ads | sales | staff
+  tokenVersion: integer('token_version').default(1),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -738,5 +740,68 @@ export const discoveryApiUsage = pgTable(
   },
   (t) => ({
     uniqueMonth: uniqueIndex('discovery_usage_tenant_month_idx').on(t.tenantId, t.monthYear),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE 32 — marketing_accounts
+// ---------------------------------------------------------------------------
+export const marketingAccounts = pgTable('marketing_accounts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  accountId: text('account_id').notNull(),
+  accountName: text('account_name').notNull(),
+  clientName: text('client_name'),
+  isActive: boolean('is_active').default(true),
+  removalRequestedAt: timestamp('removal_requested_at'),
+  removalRequestedBy: uuid('removal_requested_by'),
+  removalApprovedAt: timestamp('removal_approved_at'),
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// TABLE 33 — ads_insights_cache
+// ---------------------------------------------------------------------------
+export const adsInsightsCache = pgTable(
+  'ads_insights_cache',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    accountId: text('account_id').notNull(),
+    dateRange: text('date_range').notNull(),
+    level: text('level').notNull(),
+    data: jsonb('data').default({}),
+    fetchedAt: timestamp('fetched_at').defaultNow(),
+    expiresAt: timestamp('expires_at').notNull(),
+  },
+  (t) => ({
+    cacheIdx: index('ads_cache_account_range_level_idx').on(t.accountId, t.dateRange, t.level),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE 34 — audit_events
+// ---------------------------------------------------------------------------
+export const auditEvents = pgTable(
+  'audit_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    userId: uuid('user_id').references(() => users.id),
+    action: text('action').notNull(),
+    resourceType: text('resource_type'),
+    resourceId: text('resource_id'),
+    metadata: jsonb('metadata').default({}),
+    ipAddress: text('ip_address'),
+    userAgent: text('user_agent'),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    tenantIdx: index('audit_events_tenant_idx').on(t.tenantId),
+    userIdx: index('audit_events_user_idx').on(t.userId),
+    actionIdx: index('audit_events_action_idx').on(t.action),
+    createdAtIdx: index('audit_events_created_at_idx').on(t.createdAt),
   }),
 );

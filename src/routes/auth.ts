@@ -5,11 +5,12 @@ import { db } from '../db/index';
 import { users } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { requireAuth } from '../middleware/auth';
+import { logAuditEvent } from '../utils/audit';
 
 const router = Router();
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret';
-const JWT_EXPIRES = '30d';
+const JWT_EXPIRES = '8h';
 
 // POST /auth/login
 router.post('/login', async (req: Request, res: Response) => {
@@ -34,13 +35,19 @@ router.post('/login', async (req: Request, res: Response) => {
       return;
     }
 
+    const role = user.role || 'staff';
+    const tokenVersion = user.tokenVersion || 1;
+
     const token = jwt.sign(
-      { id: user.id, email: user.email, tenantId: user.tenantId },
+      { id: user.id, email: user.email, tenantId: user.tenantId, role, tokenVersion },
       JWT_SECRET,
       { expiresIn: JWT_EXPIRES }
     );
 
-    res.json({ token, user: { id: user.id, name: user.name, email: user.email } });
+    // Audit log
+    await logAuditEvent(user.id, user.tenantId, 'LOGIN', 'user', user.id, { email: user.email }, req);
+
+    res.json({ token, user: { id: user.id, name: user.name, email: user.email, role } });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[auth] login error:', msg);

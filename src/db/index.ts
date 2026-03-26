@@ -18,6 +18,7 @@ export const db = drizzle(pool, { schema });
 // Re-export all tables for convenient imports throughout the app
 export {
   tenants,
+  users,
   contacts,
   contactChannels,
   pipelines,
@@ -45,4 +46,10 @@ export {
   invoiceSeries,
   socialAccounts,
   socialPosts,
+  discoverySearches,
+  discoveryResults,
+  discoveryApiUsage,
+  marketingAccounts,
+  adsInsightsCache,
+  auditEvents,
 } from './schema';

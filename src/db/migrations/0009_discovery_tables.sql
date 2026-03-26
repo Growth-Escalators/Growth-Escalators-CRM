@@ -1,4 +1,4 @@
--- Discovery tables — using IF NOT EXISTS to be idempotent
+-- Discovery module tables (safe re-run with IF NOT EXISTS)
 CREATE TABLE IF NOT EXISTS "discovery_searches" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"tenant_id" uuid NOT NULL,
@@ -45,27 +45,27 @@ CREATE TABLE IF NOT EXISTS "discovery_api_usage" (
 );
 --> statement-breakpoint
 DO $$ BEGIN
-  ALTER TABLE "discovery_searches" ADD CONSTRAINT "discovery_searches_tenant_id_tenants_id_fk"
-    FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE no action ON UPDATE no action;
-EXCEPTION WHEN duplicate_object THEN null;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'discovery_searches_tenant_id_tenants_id_fk') THEN
+    ALTER TABLE "discovery_searches" ADD CONSTRAINT "discovery_searches_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE no action ON UPDATE no action;
+  END IF;
 END $$;
 --> statement-breakpoint
 DO $$ BEGIN
-  ALTER TABLE "discovery_results" ADD CONSTRAINT "discovery_results_tenant_id_tenants_id_fk"
-    FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE no action ON UPDATE no action;
-EXCEPTION WHEN duplicate_object THEN null;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'discovery_results_tenant_id_tenants_id_fk') THEN
+    ALTER TABLE "discovery_results" ADD CONSTRAINT "discovery_results_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE no action ON UPDATE no action;
+  END IF;
 END $$;
 --> statement-breakpoint
 DO $$ BEGIN
-  ALTER TABLE "discovery_results" ADD CONSTRAINT "discovery_results_search_id_discovery_searches_id_fk"
-    FOREIGN KEY ("search_id") REFERENCES "public"."discovery_searches"("id") ON DELETE no action ON UPDATE no action;
-EXCEPTION WHEN duplicate_object THEN null;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'discovery_results_search_id_discovery_searches_id_fk') THEN
+    ALTER TABLE "discovery_results" ADD CONSTRAINT "discovery_results_search_id_discovery_searches_id_fk" FOREIGN KEY ("search_id") REFERENCES "public"."discovery_searches"("id") ON DELETE no action ON UPDATE no action;
+  END IF;
 END $$;
 --> statement-breakpoint
 DO $$ BEGIN
-  ALTER TABLE "discovery_api_usage" ADD CONSTRAINT "discovery_api_usage_tenant_id_tenants_id_fk"
-    FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE no action ON UPDATE no action;
-EXCEPTION WHEN duplicate_object THEN null;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'discovery_api_usage_tenant_id_tenants_id_fk') THEN
+    ALTER TABLE "discovery_api_usage" ADD CONSTRAINT "discovery_api_usage_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE no action ON UPDATE no action;
+  END IF;
 END $$;
 --> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "discovery_usage_tenant_month_idx" ON "discovery_api_usage" USING btree ("tenant_id","month_year");
