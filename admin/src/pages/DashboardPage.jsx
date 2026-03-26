@@ -5,7 +5,7 @@ import GlobalSearch from '../components/GlobalSearch.jsx';
 import MetricCard from '../components/MetricCard.jsx';
 import { SkeletonCard } from '../components/SkeletonLoader.jsx';
 import { apiFetch, getUser } from '../lib/api.js';
-import { Users, TrendingUp, MessageSquare, Receipt, DollarSign, BarChart2, Calendar } from 'lucide-react';
+import { Users, TrendingUp, MessageSquare, Receipt, DollarSign, BarChart2, Kanban, FileText, Share2 } from 'lucide-react';
 
 export default function DashboardPage() {
   const [stats, setStats] = useState(null);
@@ -109,12 +109,16 @@ export default function DashboardPage() {
           </div>
 
           {/* Quick links */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {[
-              { icon: Users, label: 'View Contacts', path: '/contacts', color: 'bg-sky-50 text-sky-600' },
-              { icon: BarChart2, label: 'Meta Ads', path: '/ads', color: 'bg-green-50 text-green-600' },
-              { icon: MessageSquare, label: 'Inbox', path: '/inbox', color: 'bg-purple-50 text-purple-600' },
-            ].map(link => (
+              { icon: Users, label: 'Contacts', path: '/contacts', color: 'bg-sky-50 text-sky-600', roles: ['admin','manager_ops','sales'] },
+              { icon: Kanban, label: 'Pipeline', path: '/pipeline', color: 'bg-indigo-50 text-indigo-600', roles: ['admin','manager_ops','sales'] },
+              { icon: MessageSquare, label: 'Inbox', path: '/inbox', color: 'bg-purple-50 text-purple-600', roles: ['admin','manager_ops','sales'] },
+              { icon: TrendingUp, label: 'Analytics', path: '/analytics', color: 'bg-emerald-50 text-emerald-600', roles: ['admin','manager_ops','sales'] },
+              { icon: BarChart2, label: 'Meta Ads', path: '/ads', color: 'bg-green-50 text-green-600', roles: ['admin','manager_ads'] },
+              { icon: Share2, label: 'Social', path: '/social', color: 'bg-pink-50 text-pink-600', roles: ['admin','manager_ops','staff'] },
+              { icon: FileText, label: 'Reports', path: '/reports', color: 'bg-amber-50 text-amber-600', roles: ['admin','manager_ops','manager_ads'] },
+            ].filter(link => link.roles.includes(user?.role || 'staff')).map(link => (
               <a key={link.path} href={`/crm${link.path}`}
                 className="bg-white rounded-xl border border-slate-200 p-5 flex items-center gap-4 hover:border-sky-200 hover:shadow-sm transition-all">
                 <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${link.color}`}>
