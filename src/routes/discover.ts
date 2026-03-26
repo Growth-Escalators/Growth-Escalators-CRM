@@ -320,19 +320,20 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    // Batch insert results
+    // Batch insert results, get back rows with IDs
+    let savedResults: (typeof discoveryResults.$inferSelect)[] = [];
     if (resultRows.length > 0) {
-      await db.insert(discoveryResults).values(resultRows);
+      savedResults = await db.insert(discoveryResults).values(resultRows).returning();
     }
 
     // Count qualified
-    const qualifiedCount = resultRows.filter((r) => r.qualificationStatus === 'Qualified').length;
+    const qualifiedCount = savedResults.filter((r) => r.qualificationStatus === 'Qualified').length;
 
     // Update search record with final stats
     await db
       .update(discoverySearches)
       .set({
-        totalFound: resultRows.length,
+        totalFound: savedResults.length,
         qualifiedCount,
         apiCallsUsed: totalApiCalls,
         costUsd: String(totalCost),
@@ -344,9 +345,13 @@ router.post('/', async (req: Request, res: Response) => {
 
     return res.json({
       searchId: search.id,
-      totalFound: resultRows.length,
+      totalFound: savedResults.length,
       qualifiedCount,
-      results: resultRows,
+      reviewCount: savedResults.filter((r) => r.qualificationStatus === 'Review').length,
+      disqualifiedCount: savedResults.filter((r) => r.qualificationStatus === 'Disqualified').length,
+      apiCallsUsed: totalApiCalls,
+      costUsd: totalCost,
+      results: savedResults,
     });
   } catch (err) {
     console.error('[discover] search error:', err);
