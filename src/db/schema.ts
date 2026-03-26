@@ -757,6 +757,7 @@ export const marketingAccounts = pgTable('marketing_accounts', {
   removalRequestedBy: uuid('removal_requested_by'),
   removalApprovedAt: timestamp('removal_approved_at'),
   notes: text('notes'),
+  lastAlertSentAt: timestamp('last_alert_sent_at'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
@@ -805,3 +806,14 @@ export const auditEvents = pgTable(
     createdAtIdx: index('audit_events_created_at_idx').on(t.createdAt),
   }),
 );
+
+// ---------------------------------------------------------------------------
+// TABLE 35 — password_reset_tokens
+// ---------------------------------------------------------------------------
+export const passwordResetTokens = pgTable('password_reset_tokens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id),
+  token: text('token').notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+});

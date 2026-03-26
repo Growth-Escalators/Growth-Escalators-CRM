@@ -52,4 +52,5 @@ export {
   marketingAccounts,
   adsInsightsCache,
   auditEvents,
+  passwordResetTokens,
 } from './schema';
