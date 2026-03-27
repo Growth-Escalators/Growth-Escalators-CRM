@@ -42,7 +42,7 @@ import auditRouter from './routes/audit';
 import cron from 'node-cron';
 import { checkAndAlertBlockers } from './services/blockerAlertService';
 import { generateMonthlyDraftInvoices } from './services/recurringInvoiceService';
-import { runSodDigest, runEodSummary } from './services/sodEodService';
+import { sendSODDigest, sendEODSummary } from './services/sodEodService';
 import { checkSpendAlerts } from './services/spendAlertService';
 import analyticsRouter from './routes/analytics';
 import { requireAuth } from './middleware/auth';
@@ -277,25 +277,17 @@ async function startServer() {
 
     // SOD Digest — 10 AM IST (04:30 UTC), Mon-Sat
     cron.schedule('30 4 * * 1-6', async () => {
-      console.log('[cron] running SOD digest…');
-      try {
-        await runSodDigest();
-        console.log('[cron] SOD digest complete');
-      } catch (e) {
-        console.error('[cron] SOD digest failed:', e);
-      }
+      console.log('[CRON] Running SOD digest...');
+      try { await sendSODDigest(); console.log('[CRON] SOD digest sent'); }
+      catch (e) { console.error('[CRON] SOD digest failed:', e); }
     }, { timezone: 'UTC' });
     console.log('[cron] SOD digest scheduled — 10:00 AM IST Mon-Sat');
 
     // EOD Summary — 7 PM IST (13:30 UTC), Mon-Sat
     cron.schedule('30 13 * * 1-6', async () => {
-      console.log('[cron] running EOD summary…');
-      try {
-        await runEodSummary();
-        console.log('[cron] EOD summary complete');
-      } catch (e) {
-        console.error('[cron] EOD summary failed:', e);
-      }
+      console.log('[CRON] Running EOD summary...');
+      try { await sendEODSummary(); console.log('[CRON] EOD summary sent'); }
+      catch (e) { console.error('[CRON] EOD summary failed:', e); }
     }, { timezone: 'UTC' });
     console.log('[cron] EOD summary scheduled — 7:00 PM IST Mon-Sat');
 

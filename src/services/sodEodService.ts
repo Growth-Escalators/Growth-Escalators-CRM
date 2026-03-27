@@ -1,312 +1,215 @@
-import https from 'https';
-import {
-  TEAM_MEMBERS, SLACK_IDS,
-  formatTaskList, delay,
-} from '../utils/clickupSlack';
-import { sendSlackDM, sendSlackMessage } from './slackService';
+import { fetchTasksForMember, fetchCompletedTodayForMember, type Task } from '../utils/clickupTasks';
+import { sendSlackMessage } from './slackService';
 
-const CLICKUP_TOKEN = process.env.CLICKUP_API_TOKEN;
-const CLICKUP_LIST_ID = process.env.CLICKUP_LIST_ID;
+const SOD_EOD_CHANNEL = 'C08EMRX2HHN';
 
-interface ClickUpTask {
-  id: string;
-  name: string;
-  status: { status: string; type: string };
-  due_date: string | null;
-  date_updated: string;
-  [key: string]: unknown;
+const TEAM = [
+  { name: 'Jatin',     clickupId: '88911769',  slackId: 'U073Y677JBB', isAdmin: true },
+  { name: 'Vishal',    clickupId: '100972806', slackId: 'U0ALC9Z09RA', isAdmin: false },
+  { name: 'Sanskriti', clickupId: '100860514', slackId: 'U09TXBW2XPX', isAdmin: false },
+  { name: 'Sakcham',   clickupId: '242618940', slackId: 'U09TY8RGN30', isAdmin: false },
+  { name: 'Nimisha',   clickupId: '100972807', slackId: 'U0ALMKD2XFB', isAdmin: false },
+  { name: 'Keshav',    clickupId: '4800274',   slackId: 'U073Y6S4K4H', isAdmin: false },
+];
+
+function delay(ms: number): Promise<void> {
+  return new Promise(r => setTimeout(r, ms));
 }
 
-function fetchTasks(assigneeId: string, statuses: string[], includeClosedOpt = false, dateUpdatedGt?: number): Promise<ClickUpTask[]> {
-  if (!CLICKUP_TOKEN || !CLICKUP_LIST_ID) return Promise.resolve([]);
-
-  return new Promise(resolve => {
-    const params = new URLSearchParams();
-    params.set('assignees[]', assigneeId);
-    statuses.forEach(s => params.append('statuses[]', s));
-    params.set('include_closed', String(includeClosedOpt));
-    if (dateUpdatedGt) params.set('date_updated_gt', String(dateUpdatedGt));
-
-    const path = `/api/v2/list/${CLICKUP_LIST_ID}/task?${params.toString()}`;
-
-    https.get({
-      hostname: 'api.clickup.com',
-      path,
-      headers: { Authorization: CLICKUP_TOKEN! },
-    }, res => {
-      let data = '';
-      res.on('data', c => { data += c; });
-      res.on('end', () => {
-        try {
-          const parsed = JSON.parse(data) as { tasks?: ClickUpTask[] };
-          resolve(parsed.tasks || []);
-        } catch { resolve([]); }
-      });
-    }).on('error', () => resolve([]));
-  });
+function formatOverdueList(tasks: Task[]): string {
+  return tasks.map(t => {
+    const ago = t.daysOverdue === 1 ? '1 day ago' : `${t.daysOverdue} days ago`;
+    return `• ${t.name}${t.listName ? ` — ${t.listName}` : ''} _(due ${ago})_`;
+  }).join('\n');
 }
 
-function todayStart(): number {
-  // Use IST (UTC+5:30) for "today" calculations
-  const now = new Date();
-  const istOffset = 5.5 * 60 * 60 * 1000;
-  const istNow = new Date(now.getTime() + istOffset);
-  istNow.setUTCHours(0, 0, 0, 0);
-  return istNow.getTime() - istOffset;
+function formatTodayList(tasks: Task[]): string {
+  return tasks.map(t => `• ${t.name}${t.listName ? ` — ${t.listName}` : ''}`).join('\n');
 }
 
-function todayEnd(): number {
-  const now = new Date();
-  const istOffset = 5.5 * 60 * 60 * 1000;
-  const istNow = new Date(now.getTime() + istOffset);
-  istNow.setUTCHours(23, 59, 59, 999);
-  return istNow.getTime() - istOffset;
+function formatUpcomingList(tasks: Task[]): string {
+  return tasks.map(t => `• ${t.name}${t.listName ? ` — ${t.listName}` : ''} _(due ${t.dueDateFormatted})_`).join('\n');
 }
 
-function threeDaysFromNow(): number {
-  return Date.now() + 3 * 24 * 60 * 60 * 1000;
+function formatCompletedList(tasks: Task[]): string {
+  return tasks.map(t => `✓ ${t.name}`).join('\n');
 }
 
-function categorizeTasks(tasks: ClickUpTask[]): {
-  overdue: ClickUpTask[];
-  today: ClickUpTask[];
-  upcoming: ClickUpTask[];
-  open: ClickUpTask[];
-} {
-  const todayS = todayStart();
-  const todayE = todayEnd();
-  const threeDays = threeDaysFromNow();
-
-  const overdue: ClickUpTask[] = [];
-  const today: ClickUpTask[] = [];
-  const upcoming: ClickUpTask[] = [];
-  const open: ClickUpTask[] = [];
-
-  for (const t of tasks) {
-    const statusType = t.status?.type?.toLowerCase();
-    if (statusType === 'closed' || statusType === 'done') continue;
-
-    if (!t.due_date) {
-      open.push(t);
-      continue;
-    }
-
-    const dueMs = Number(t.due_date);
-    if (dueMs < todayS) {
-      overdue.push(t);
-    } else if (dueMs >= todayS && dueMs <= todayE) {
-      today.push(t);
-    } else if (dueMs > todayE && dueMs <= threeDays) {
-      upcoming.push(t);
-    } else {
-      open.push(t);
-    }
-  }
-
-  return { overdue, today, upcoming, open };
+function formatOpenList(tasks: Task[]): string {
+  return tasks.map(t => {
+    if (t.daysOverdue > 0) return `• ${t.name} — _${t.daysOverdue} day${t.daysOverdue === 1 ? '' : 's'} overdue_ ⚠️`;
+    return `• ${t.name}`;
+  }).join('\n');
 }
 
 // -----------------------------------------------------------------------
-// SOD Digest — sends personal DM to each team member
+// SOD Digest
 // -----------------------------------------------------------------------
-export async function runSodDigest(): Promise<{ sent: number; errors: string[] }> {
+export async function sendSODDigest(): Promise<{ sent: number; errors: string[] }> {
   console.log('[SOD] starting digest…');
   const errors: string[] = [];
 
-  if (!CLICKUP_TOKEN || !CLICKUP_LIST_ID) {
-    console.log('[SOD] ClickUp not configured — skipping');
-    return { sent: 0, errors: ['ClickUp not configured'] };
-  }
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
 
-  const dateStr = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
-
-  const memberData: Array<{
-    member: typeof TEAM_MEMBERS[0];
-    overdue: ClickUpTask[];
-    today: ClickUpTask[];
-    upcoming: ClickUpTask[];
-    total: number;
-  }> = [];
-
-  for (const member of TEAM_MEMBERS) {
-    try {
-      const tasks = await fetchTasks(member.clickupId, ['open', 'in progress', 'to do', 'in review']);
-      const cats = categorizeTasks(tasks);
-      memberData.push({
-        member,
-        overdue: cats.overdue,
-        today: cats.today,
-        upcoming: cats.upcoming,
-        total: cats.overdue.length + cats.today.length + cats.upcoming.length + cats.open.length,
-      });
-    } catch (e) {
-      console.error(`[SOD] fetch failed for ${member.name}:`, e);
-      errors.push(`fetch failed for ${member.name}`);
-      memberData.push({ member, overdue: [], today: [], upcoming: [], total: 0 });
-    }
-    await delay(300);
-  }
-
-  // Post order: Jatin first, then others
-  const jatinData = memberData.find(m => m.member.clickupId === '88911769');
-  const otherMembers = memberData.filter(m => m.member.clickupId !== '88911769');
-  const orderedMembers = jatinData ? [jatinData, ...otherMembers] : otherMembers;
+  // Fetch tasks for all members in parallel
+  const memberResults = await Promise.all(
+    TEAM.map(async (m) => {
+      try {
+        const data = await fetchTasksForMember(m.clickupId);
+        return { member: m, ...data, error: null };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`[SOD] fetch failed for ${m.name}:`, msg);
+        return { member: m, overdue: [] as Task[], dueToday: [] as Task[], upcoming: [] as Task[], all: [] as Task[], error: msg };
+      }
+    })
+  );
 
   let sent = 0;
+  const jatinResult = memberResults.find(r => r.member.isAdmin);
+  const othersResults = memberResults.filter(r => !r.member.isAdmin);
 
-  for (const md of orderedMembers) {
-    const { member, overdue, today, upcoming, total } = md;
-
+  // Send Jatin's message first with team overview
+  if (jatinResult) {
     try {
-      let msg = '';
+      const totalOverdue = memberResults.reduce((s, r) => s + r.overdue.length, 0);
+      let msg = `📊 *Team Overview — ${dateStr}*\n\nOverdue across team: *${totalOverdue}*\n`;
 
-      // Jatin gets team overview at top
-      if (member.clickupId === '88911769') {
-        const totalOverdue = memberData.reduce((sum, m) => sum + m.overdue.length, 0);
-        msg += `📊 *Team Overview — ${dateStr}*\n`;
-        msg += `Overdue across team: *${totalOverdue}*\n\n`;
-        for (const om of otherMembers) {
-          msg += `${om.member.name}: ${om.overdue.length} overdue\n`;
-        }
-        msg += `\n---\n\n`;
+      for (const or of othersResults) {
+        if (or.overdue.length > 0) msg += `• <@${or.member.slackId}>: ${or.overdue.length} overdue\n`;
       }
 
-      if (total === 0) {
-        msg += `📋 Good morning ${member.name} — your task list is clear today! 🎉\nAdd tasks in ClickUp if needed.`;
-      } else {
-        msg += `📋 Good morning ${member.name} — here's your day:\n`;
+      msg += `\n━━━━━━━━━━━━━━━━━━━━━━\n📋 *Your tasks, Jatin:*\n`;
+      msg += buildPersonalSOD(jatinResult);
 
-        if (overdue.length > 0) {
-          msg += `🔴 *Overdue (${overdue.length}):*\n`;
-          msg += formatTaskList(overdue, 'overdue') + '\n';
-        }
-        if (today.length > 0) {
-          msg += `🟡 *Due Today (${today.length}):*\n`;
-          msg += formatTaskList(today, 'today') + '\n';
-        }
-        if (upcoming.length > 0) {
-          msg += `🟢 *Upcoming (${upcoming.length}):*\n`;
-          msg += formatTaskList(upcoming, 'upcoming') + '\n';
-        }
-
-        msg += `\n${total} tasks total · Have a great day!`;
-      }
-
-      // Send as personal DM
-      const ok = await sendSlackDM(member.slackId, msg);
-      if (ok) {
-        sent++;
-        console.log(`[SOD] DM sent to ${member.name}`);
-      } else {
-        errors.push(`DM failed for ${member.name} (${member.slackId})`);
-        console.error(`[SOD] DM failed for ${member.name}`);
-      }
-    } catch (e) {
-      errors.push(`error for ${member.name}: ${e instanceof Error ? e.message : String(e)}`);
-      console.error(`[SOD] error for ${member.name}:`, e);
-    }
-
+      const ok = await sendSlackMessage(SOD_EOD_CHANNEL, msg);
+      if (ok) { sent++; console.log('[SOD] sent to channel for Jatin'); }
+      else { errors.push('channel post failed for Jatin'); }
+    } catch (e) { errors.push(`Jatin error: ${e}`); }
     await delay(2000);
   }
 
-  console.log(`[SOD] digest complete — sent: ${sent}/${memberData.length}, errors: ${errors.length}`);
+  // Send each other member's message
+  for (const mr of othersResults) {
+    try {
+      const total = mr.overdue.length + mr.dueToday.length + mr.upcoming.length;
+
+      let msg: string;
+      if (total === 0 && mr.all.length === 0) {
+        msg = `📋 Good morning <@${mr.member.slackId}>! 🎉\nYour task list is clear today. Add tasks in ClickUp if needed.`;
+      } else {
+        msg = `📋 Good morning <@${mr.member.slackId}> — here's your day:\n\n`;
+        msg += buildPersonalSOD(mr);
+      }
+
+      const ok = await sendSlackMessage(SOD_EOD_CHANNEL, msg);
+      if (ok) { sent++; console.log(`[SOD] sent for ${mr.member.name}`); }
+      else { errors.push(`channel post failed for ${mr.member.name}`); }
+    } catch (e) { errors.push(`${mr.member.name}: ${e}`); }
+    await delay(2000);
+  }
+
+  console.log(`[SOD] complete — sent: ${sent}/${TEAM.length}, errors: ${errors.length}`);
   return { sent, errors };
 }
 
+function buildPersonalSOD(r: { overdue: Task[]; dueToday: Task[]; upcoming: Task[]; all: Task[] }): string {
+  const total = r.overdue.length + r.dueToday.length + r.upcoming.length;
+  let msg = '';
+
+  if (r.overdue.length > 0) {
+    msg += `🔴 *Overdue (${r.overdue.length}):*\n${formatOverdueList(r.overdue)}\n\n`;
+  }
+  if (r.dueToday.length > 0) {
+    msg += `🟡 *Due Today (${r.dueToday.length}):*\n${formatTodayList(r.dueToday)}\n\n`;
+  }
+  if (r.upcoming.length > 0) {
+    msg += `🟢 *Upcoming (${r.upcoming.length}):*\n${formatUpcomingList(r.upcoming)}\n\n`;
+  }
+
+  if (total > 0) msg += `_${total} tasks total · Have a great day! 💪_`;
+  else if (r.all.length > 0) msg += `_${r.all.length} tasks with no due date. Set due dates in ClickUp!_`;
+
+  return msg;
+}
+
 // -----------------------------------------------------------------------
-// EOD Summary — sends personal DM to each team member
+// EOD Summary
 // -----------------------------------------------------------------------
-export async function runEodSummary(): Promise<{ sent: number; errors: string[] }> {
+export async function sendEODSummary(): Promise<{ sent: number; errors: string[] }> {
   console.log('[EOD] starting summary…');
   const errors: string[] = [];
 
-  if (!CLICKUP_TOKEN || !CLICKUP_LIST_ID) {
-    console.log('[EOD] ClickUp not configured — skipping');
-    return { sent: 0, errors: ['ClickUp not configured'] };
-  }
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
 
-  const todayStartMs = todayStart();
-
-  const memberData: Array<{
-    member: typeof TEAM_MEMBERS[0];
-    completed: ClickUpTask[];
-    openTasks: ClickUpTask[];
-  }> = [];
-
-  for (const member of TEAM_MEMBERS) {
-    try {
-      const [completedTasks, openTasks] = await Promise.all([
-        fetchTasks(member.clickupId, ['complete', 'closed'], true, todayStartMs),
-        fetchTasks(member.clickupId, ['open', 'in progress', 'to do', 'in review']),
-      ]);
-      memberData.push({ member, completed: completedTasks, openTasks });
-    } catch (e) {
-      console.error(`[EOD] fetch failed for ${member.name}:`, e);
-      errors.push(`fetch failed for ${member.name}`);
-      memberData.push({ member, completed: [], openTasks: [] });
-    }
-    await delay(300);
-  }
-
-  const jatinData = memberData.find(m => m.member.clickupId === '88911769');
-  const otherMembers = memberData.filter(m => m.member.clickupId !== '88911769');
-  const orderedMembers = jatinData ? [jatinData, ...otherMembers] : otherMembers;
+  const memberResults = await Promise.all(
+    TEAM.map(async (m) => {
+      try {
+        const [completed, taskData] = await Promise.all([
+          fetchCompletedTodayForMember(m.clickupId),
+          fetchTasksForMember(m.clickupId),
+        ]);
+        return { member: m, completed, openTasks: taskData.all, overdue: taskData.overdue, error: null };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`[EOD] fetch failed for ${m.name}:`, msg);
+        return { member: m, completed: [] as Task[], openTasks: [] as Task[], overdue: [] as Task[], error: msg };
+      }
+    })
+  );
 
   let sent = 0;
+  const jatinResult = memberResults.find(r => r.member.isAdmin);
+  const othersResults = memberResults.filter(r => !r.member.isAdmin);
 
-  for (const md of orderedMembers) {
-    const { member, completed, openTasks } = md;
-
+  // Jatin's team EOD overview
+  if (jatinResult) {
     try {
-      let msg = '';
+      const totalCompleted = memberResults.reduce((s, r) => s + r.completed.length, 0);
+      const totalOpen = memberResults.reduce((s, r) => s + r.openTasks.length, 0);
 
-      // Jatin gets team summary
-      if (member.clickupId === '88911769') {
-        const totalCompleted = memberData.reduce((s, m) => s + m.completed.length, 0);
-        const totalOpen = memberData.reduce((s, m) => s + m.openTasks.length, 0);
-        msg += `📊 *EOD Team Summary*\n`;
-        msg += `Completed today: *${totalCompleted}* · Open: *${totalOpen}*\n\n`;
-        for (const om of otherMembers) {
-          msg += `${om.member.name}: ${om.completed.length} done, ${om.openTasks.length} open\n`;
-        }
-        msg += `\n---\n\n`;
+      let msg = `📊 *Team EOD — ${dateStr}*\n\nCompleted today across team: *${totalCompleted}*\n`;
+      for (const or of othersResults) {
+        msg += `• <@${or.member.slackId}>: ${or.completed.length} done, ${or.openTasks.length} open\n`;
       }
 
-      if (completed.length === 0) {
-        msg += `📝 EOD — ${member.name}\n`;
-        msg += `No tasks marked complete today.\n`;
-        msg += `Open tasks: ${openTasks.length}\n`;
-        msg += `Remember to update ClickUp as you complete work!`;
-      } else {
-        msg += `✅ *EOD Summary — ${member.name}*\n`;
-        msg += `*Completed today (${completed.length}):*\n`;
-        msg += formatTaskList(completed, 'completed') + '\n';
+      msg += `\n━━━━━━━━━━━━━━━━━━━━━━\n`;
+      msg += buildPersonalEOD(jatinResult);
 
-        if (openTasks.length > 0) {
-          msg += `*Still open (${openTasks.length}):*\n`;
-          msg += formatTaskList(openTasks, 'open') + '\n';
-        }
-
-        msg += `\n${completed.length} done · ${openTasks.length} carry forward · Great work today!`;
-      }
-
-      // Send as personal DM
-      const ok = await sendSlackDM(member.slackId, msg);
-      if (ok) {
-        sent++;
-        console.log(`[EOD] DM sent to ${member.name}`);
-      } else {
-        errors.push(`DM failed for ${member.name} (${member.slackId})`);
-        console.error(`[EOD] DM failed for ${member.name}`);
-      }
-    } catch (e) {
-      errors.push(`error for ${member.name}: ${e instanceof Error ? e.message : String(e)}`);
-      console.error(`[EOD] error for ${member.name}:`, e);
-    }
-
+      const ok = await sendSlackMessage(SOD_EOD_CHANNEL, msg);
+      if (ok) { sent++; } else { errors.push('channel post failed for Jatin'); }
+    } catch (e) { errors.push(`Jatin: ${e}`); }
     await delay(2000);
   }
 
-  console.log(`[EOD] summary complete — sent: ${sent}/${memberData.length}, errors: ${errors.length}`);
+  for (const mr of othersResults) {
+    try {
+      const msg = buildPersonalEOD(mr);
+      const ok = await sendSlackMessage(SOD_EOD_CHANNEL, msg);
+      if (ok) { sent++; console.log(`[EOD] sent for ${mr.member.name}`); }
+      else { errors.push(`channel post failed for ${mr.member.name}`); }
+    } catch (e) { errors.push(`${mr.member.name}: ${e}`); }
+    await delay(2000);
+  }
+
+  console.log(`[EOD] complete — sent: ${sent}/${TEAM.length}, errors: ${errors.length}`);
   return { sent, errors };
+}
+
+function buildPersonalEOD(r: { member: typeof TEAM[0]; completed: Task[]; openTasks: Task[]; overdue: Task[] }): string {
+  if (r.completed.length === 0) {
+    return `📝 *EOD — <@${r.member.slackId}>*\nNo tasks completed today.\nOpen: ${r.openTasks.length} tasks\n_Remember to update ClickUp as you finish work!_`;
+  }
+
+  let msg = `✅ *EOD Summary — <@${r.member.slackId}>*\n\n`;
+  msg += `*Completed today (${r.completed.length}):*\n${formatCompletedList(r.completed)}\n\n`;
+
+  if (r.openTasks.length > 0) {
+    msg += `*Still open (${r.openTasks.length}):*\n${formatOpenList(r.openTasks)}\n\n`;
+  }
+
+  msg += `_${r.completed.length} done · ${r.openTasks.length} carry forward_`;
+  return msg;
 }

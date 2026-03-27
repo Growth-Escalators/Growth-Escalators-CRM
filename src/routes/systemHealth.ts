@@ -272,8 +272,8 @@ router.get('/health', requireAuth, async (req, res) => {
 router.post('/test-sod', requireAuth, async (req, res) => {
   if (req.user?.role !== 'admin') { res.status(403).json({ error: 'admin only' }); return; }
   try {
-    const { runSodDigest } = await import('../services/sodEodService');
-    const result = await runSodDigest();
+    const { sendSODDigest } = await import('../services/sodEodService');
+    const result = await sendSODDigest();
     res.json({ trigger: 'SOD', ...result });
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
@@ -283,8 +283,8 @@ router.post('/test-sod', requireAuth, async (req, res) => {
 router.post('/test-eod', requireAuth, async (req, res) => {
   if (req.user?.role !== 'admin') { res.status(403).json({ error: 'admin only' }); return; }
   try {
-    const { runEodSummary } = await import('../services/sodEodService');
-    const result = await runEodSummary();
+    const { sendEODSummary } = await import('../services/sodEodService');
+    const result = await sendEODSummary();
     res.json({ trigger: 'EOD', ...result });
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
