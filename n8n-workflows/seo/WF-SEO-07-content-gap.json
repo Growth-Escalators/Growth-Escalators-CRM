@@ -1,0 +1,212 @@
+{
+  "name": "WF-SEO-07: Content Gap Analysis",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 5 */14 * 3"
+            }
+          ]
+        }
+      },
+      "id": "seo07-cron",
+      "name": "Schedule: Every Other Wednesday 5:30AM UTC",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT DISTINCT ON (project_name, keyword)\n  project_name,\n  keyword,\n  current_position,\n  search_volume,\n  url_ranking\nFROM keyword_rankings\nWHERE current_position BETWEEN 5 AND 20\n  AND recorded_date >= CURRENT_DATE - INTERVAL '7 days'\nORDER BY project_name, keyword, recorded_date DESC\nLIMIT 20;",
+        "options": {}
+      },
+      "id": "seo07-get-opportunities",
+      "name": "Get Opportunity Keywords",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [450, 300],
+      "credentials": {
+        "postgres": {
+          "id": "N7nIyQgdtKFT9Ye8",
+          "name": "Growth Escalators Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://api.valueserp.com/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "api_key", "value": "={{ $vars.VALUESREP_API_KEY || 'placeholder' }}" },
+            { "name": "q", "value": "={{ $json.keyword }}" },
+            { "name": "location", "value": "United States" },
+            { "name": "num", "value": "5" },
+            { "name": "output", "value": "json" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "seo07-get-top5",
+      "name": "Get Top 5 SERP URLs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const serpData = $input.item.json;\nconst kwData = $('Get Opportunity Keywords').item.json;\n\nconst topUrls = (serpData.organic_results || []).slice(0, 5).map(r => r.link).filter(Boolean);\n\nreturn [{ json: {\n  projectName: kwData.project_name,\n  keyword: kwData.keyword,\n  ourPosition: kwData.current_position,\n  ourUrl: kwData.url_ranking,\n  searchVolume: kwData.search_volume,\n  topUrls\n}}];"
+      },
+      "id": "seo07-extract-urls",
+      "name": "Extract Competitor URLs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.item.json;\n\n// Build the analysis prompt\nconst urlList = data.topUrls.map((url, i) => `Page ${i+1}: ${url}`).join('\\n');\nconst ourUrl = data.ourUrl || 'Not ranked yet';\n\nconst prompt = `Analyse these web pages for the keyword \"${data.keyword}\".\n\nCompetitor pages to analyse:\n${urlList}\n\nOur page: ${ourUrl}\n\nProvide a JSON analysis with these exact fields:\n{\n  \"topics_missing\": [\"topic1\", \"topic2\"], // topics competitors cover that we don't\n  \"questions_missing\": [\"question1\", \"question2\"], // FAQs competitors answer that we don't\n  \"entities_missing\": [\"entity1\", \"entity2\"], // brands, places, concepts mentioned by competitors\n  \"word_count_gap\": 500, // estimated words we need to add\n  \"priority_recommendation\": \"one sentence action\"\n}\n\nReturn ONLY valid JSON, no other text.`;\n\nreturn [{ json: { ...data, claudePrompt: prompt } }];"
+      },
+      "id": "seo07-build-prompt",
+      "name": "Build Claude Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key", "value": "={{ $vars.CLAUDE_API_KEY }}" },
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "claude-sonnet-4-6"
+            },
+            {
+              "name": "max_tokens",
+              "value": "2048"
+            },
+            {
+              "name": "messages",
+              "value": "=[{\"role\":\"user\",\"content\":{{ $json.claudePrompt | toJsonString }}}]"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "seo07-claude",
+      "name": "Claude Content Gap Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const claudeData = $input.item.json;\nconst inputData = $('Build Claude Prompt').item.json;\n\nlet analysis = {};\ntry {\n  const rawText = claudeData.content?.[0]?.text || '{}';\n  const jsonMatch = rawText.match(/\\{[\\s\\S]*\\}/);\n  analysis = jsonMatch ? JSON.parse(jsonMatch[0]) : {};\n} catch(e) {\n  analysis = { topics_missing: [], questions_missing: [], entities_missing: [], word_count_gap: 0 };\n}\n\n// Priority score: (avg_competitor_pos - our_pos) × (search_volume / 100)\nconst avgCompPos = 3; // average of top 5\nconst priorityScore = Math.round((avgCompPos - (inputData.ourPosition || 15)) * ((inputData.searchVolume || 100) / 100) * -1);\n\nreturn [{ json: {\n  projectName: inputData.projectName,\n  keyword: inputData.keyword,\n  ourUrl: inputData.ourUrl,\n  ourPosition: inputData.ourPosition,\n  competitorUrls: inputData.topUrls,\n  topicsMissing: analysis.topics_missing || [],\n  questionsMissing: analysis.questions_missing || [],\n  entitiesMissing: analysis.entities_missing || [],\n  wordCountGap: analysis.word_count_gap || 0,\n  priorityScore: Math.max(0, priorityScore)\n}}];"
+      },
+      "id": "seo07-parse-analysis",
+      "name": "Parse Gap Analysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO content_gap_analysis (\n  project_name, target_keyword, our_url, our_position,\n  competitor_urls, topics_missing, questions_missing, entities_missing,\n  word_count_gap, priority_score, status\n) VALUES (\n  '{{ $json.projectName }}',\n  '{{ $json.keyword }}',\n  {{ $json.ourUrl ? \"'\" + $json.ourUrl + \"'\" : 'NULL' }},\n  {{ $json.ourPosition || 'NULL' }},\n  '{{ JSON.stringify($json.competitorUrls) }}'::jsonb,\n  '{{ JSON.stringify($json.topicsMissing) }}'::jsonb,\n  '{{ JSON.stringify($json.questionsMissing) }}'::jsonb,\n  '{{ JSON.stringify($json.entitiesMissing) }}'::jsonb,\n  {{ $json.wordCountGap }},\n  {{ $json.priorityScore }},\n  'pending'\n) ON CONFLICT DO NOTHING;",
+        "options": {}
+      },
+      "id": "seo07-store",
+      "name": "Store Gap Analysis",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1650, 300],
+      "credentials": {
+        "postgres": {
+          "id": "N7nIyQgdtKFT9Ye8",
+          "name": "Growth Escalators Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Post top 5 opportunities to Slack\nconst allItems = $input.all();\nconst gaps = allItems.map(i => i.json).sort((a, b) => b.priorityScore - a.priorityScore).slice(0, 5);\n\nlet msg = `*🔍 Content Gap Opportunities — ${new Date().toDateString()}*\\n\\n`;\n\ngaps.forEach((gap, i) => {\n  msg += `*${i+1}. ${gap.projectName} — \"${gap.keyword}\"* (Priority: ${gap.priorityScore})\\n`;\n  msg += `   Current pos: #${gap.ourPosition || 'Not ranked'} | Words to add: ~${gap.wordCountGap}\\n`;\n  if (gap.topicsMissing?.length > 0) {\n    msg += `   Missing topics: ${gap.topicsMissing.slice(0, 3).join(', ')}\\n`;\n  }\n  msg += '\\n';\n});\n\nmsg += '_Run WF-SEO-04 to create optimised content for any of these._';\n\nreturn [{ json: { summaryText: msg } }];"
+      },
+      "id": "seo07-top5",
+      "name": "Top 5 Opportunities",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1850, 300]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C08EMRX2HHN",
+          "mode": "id"
+        },
+        "text": "={{ $json.summaryText }}",
+        "otherOptions": {}
+      },
+      "id": "seo07-slack",
+      "name": "Post Opportunities to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [2050, 300],
+      "credentials": {
+        "slackApi": {
+          "id": "VaNm8cr89lLAGlpJ",
+          "name": "Slack Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule: Every Other Wednesday 5:30AM UTC": {
+      "main": [[{ "node": "Get Opportunity Keywords", "type": "main", "index": 0 }]]
+    },
+    "Get Opportunity Keywords": {
+      "main": [[{ "node": "Get Top 5 SERP URLs", "type": "main", "index": 0 }]]
+    },
+    "Get Top 5 SERP URLs": {
+      "main": [[{ "node": "Extract Competitor URLs", "type": "main", "index": 0 }]]
+    },
+    "Extract Competitor URLs": {
+      "main": [[{ "node": "Build Claude Prompt", "type": "main", "index": 0 }]]
+    },
+    "Build Claude Prompt": {
+      "main": [[{ "node": "Claude Content Gap Analysis", "type": "main", "index": 0 }]]
+    },
+    "Claude Content Gap Analysis": {
+      "main": [[{ "node": "Parse Gap Analysis", "type": "main", "index": 0 }]]
+    },
+    "Parse Gap Analysis": {
+      "main": [[{ "node": "Store Gap Analysis", "type": "main", "index": 0 }]]
+    },
+    "Store Gap Analysis": {
+      "main": [[{ "node": "Top 5 Opportunities", "type": "main", "index": 0 }]]
+    },
+    "Top 5 Opportunities": {
+      "main": [[{ "node": "Post Opportunities to Slack", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [{ "name": "SEO" }]
+}

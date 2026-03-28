@@ -1,0 +1,168 @@
+{
+  "name": "WF-SEO-06: Rank Tracker",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 3 * * 2"
+            }
+          ]
+        }
+      },
+      "id": "seo06-cron",
+      "name": "Schedule: Tuesday 3:30AM UTC",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT DISTINCT ON (project_name, keyword) project_name, keyword, current_position, search_volume\nFROM keyword_rankings\nORDER BY project_name, keyword, recorded_date DESC;",
+        "options": {}
+      },
+      "id": "seo06-get-keywords",
+      "name": "Get Tracked Keywords",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [450, 300],
+      "credentials": {
+        "postgres": {
+          "id": "N7nIyQgdtKFT9Ye8",
+          "name": "Growth Escalators Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// If no keywords tracked yet, seed default keywords for all clients\nconst items = $input.all();\nif (items.length === 0 || !items[0].json.keyword) {\n  const defaultKeywords = [\n    // Aarohaom\n    { project_name: 'aarohaom', keyword: 'ayurvedic treatment', search_volume: 2400 },\n    { project_name: 'aarohaom', keyword: 'ayurveda wellness', search_volume: 1200 },\n    { project_name: 'aarohaom', keyword: 'natural healing ayurveda', search_volume: 880 },\n    { project_name: 'aarohaom', keyword: 'panchakarma treatment', search_volume: 1600 },\n    // Black Panda\n    { project_name: 'blackpanda', keyword: 'India market entry', search_volume: 390 },\n    { project_name: 'blackpanda', keyword: 'fractional GCC India', search_volume: 170 },\n    { project_name: 'blackpanda', keyword: 'India expansion consulting', search_volume: 260 },\n    // Aged Dentistry\n    { project_name: 'ageddentistry', keyword: 'dentist near me', search_volume: 60500 },\n    { project_name: 'ageddentistry', keyword: 'dental implants', search_volume: 33100 },\n    { project_name: 'ageddentistry', keyword: 'teeth whitening', search_volume: 27100 },\n    { project_name: 'ageddentistry', keyword: 'emergency dentist', search_volume: 22200 },\n  ];\n  return defaultKeywords.map(k => ({ json: k }));\n}\nreturn items;"
+      },
+      "id": "seo06-seed-defaults",
+      "name": "Handle Empty / Use Defaults",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.valueserp.com/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "api_key", "value": "={{ $vars.VALUESREP_API_KEY || 'placeholder' }}" },
+            { "name": "q", "value": "={{ $json.keyword }}" },
+            { "name": "location", "value": "United States" },
+            { "name": "gl", "value": "us" },
+            { "name": "hl", "value": "en" },
+            { "name": "num", "value": "100" },
+            { "name": "output", "value": "json" }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false
+            }
+          }
+        }
+      },
+      "id": "seo06-serp",
+      "name": "ValueSERP API Call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const serpData = $input.item.json;\nconst keyword = $('Handle Empty / Use Defaults').item.json.keyword;\nconst projectName = $('Handle Empty / Use Defaults').item.json.project_name;\nconst previousPosition = $('Handle Empty / Use Defaults').item.json.current_position || null;\nconst searchVolume = $('Handle Empty / Use Defaults').item.json.search_volume || 0;\n\n// Client domain mappings\nconst domainMap = {\n  aarohaom: 'aarohaom.com',\n  blackpanda: 'blackpandaenterprises.com',\n  ageddentistry: 'ageddentistry.org'\n};\n\nconst targetDomain = domainMap[projectName] || '';\nconst organicResults = serpData.organic_results || [];\n\nlet currentPosition = null;\nlet urlRanking = null;\nlet featuredSnippet = false;\n\n// Check featured snippet\nif (serpData.answer_box?.domain === targetDomain) {\n  featuredSnippet = true;\n  currentPosition = 0;\n  urlRanking = serpData.answer_box?.link;\n}\n\n// Find domain in organic results\nfor (let i = 0; i < organicResults.length; i++) {\n  const result = organicResults[i];\n  if (result.domain === targetDomain || (result.link && result.link.includes(targetDomain))) {\n    currentPosition = i + 1;\n    urlRanking = result.link;\n    break;\n  }\n}\n\nconst positionChange = (previousPosition !== null && currentPosition !== null)\n  ? previousPosition - currentPosition  // positive = improved\n  : 0;\n\nreturn [{ json: {\n  projectName,\n  keyword,\n  currentPosition,\n  previousPosition,\n  positionChange,\n  searchVolume,\n  urlRanking,\n  featuredSnippet,\n  needsRedAlert: positionChange <= -3,\n  needsGreenAlert: positionChange >= 3,\n  recordedDate: new Date().toISOString().split('T')[0]\n}}];"
+      },
+      "id": "seo06-extract-position",
+      "name": "Extract Position",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO keyword_rankings (project_name, keyword, current_position, previous_position, position_change, search_volume, url_ranking, featured_snippet, recorded_date)\nVALUES (\n  '{{ $json.projectName }}',\n  {{ $json.keyword | raw }},\n  {{ $json.currentPosition !== null ? $json.currentPosition : 'NULL' }},\n  {{ $json.previousPosition !== null ? $json.previousPosition : 'NULL' }},\n  {{ $json.positionChange }},\n  {{ $json.searchVolume }},\n  {{ $json.urlRanking ? \"'\" + $json.urlRanking + \"'\" : 'NULL' }},\n  {{ $json.featuredSnippet }},\n  '{{ $json.recordedDate }}'\n);",
+        "options": {}
+      },
+      "id": "seo06-store",
+      "name": "Store Ranking",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1250, 300],
+      "credentials": {
+        "postgres": {
+          "id": "N7nIyQgdtKFT9Ye8",
+          "name": "Growth Escalators Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate all ranking results into a summary\nconst allItems = $input.all();\nconst rankings = allItems.map(i => i.json).filter(r => r.projectName);\n\nconst improved = rankings.filter(r => r.positionChange >= 3);\nconst dropped = rankings.filter(r => r.positionChange <= -3);\n\nlet msg = `*📊 Weekly Rank Tracker — ${new Date().toDateString()}*\\n\\n`;\n\nconst byProject = {};\nrankings.forEach(r => {\n  if (!byProject[r.projectName]) byProject[r.projectName] = [];\n  byProject[r.projectName].push(r);\n});\n\nObject.entries(byProject).forEach(([project, kws]) => {\n  msg += `*${project.toUpperCase()}*\\n`;\n  kws.forEach(kw => {\n    if (!kw.keyword) return;\n    const pos = kw.currentPosition || 'Not ranked';\n    const change = kw.positionChange > 0 ? `+${kw.positionChange} 📈` \n                 : kw.positionChange < 0 ? `${kw.positionChange} 📉` : '→';\n    msg += `  • _${kw.keyword}_ — #${pos} (${change})\\n`;\n  });\n  msg += '\\n';\n});\n\nif (improved.length > 0) {\n  msg += `\\n🟢 ${improved.length} keyword(s) improved 3+ positions this week`;\n}\nif (dropped.length > 0) {\n  msg += `\\n🔴 ${dropped.length} keyword(s) dropped 3+ positions — needs attention`;\n}\n\nreturn [{ json: { summaryText: msg } }];"
+      },
+      "id": "seo06-summary",
+      "name": "Build Weekly Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C08EMRX2HHN",
+          "mode": "id"
+        },
+        "text": "={{ $json.summaryText }}",
+        "otherOptions": {}
+      },
+      "id": "seo06-slack",
+      "name": "Post Ranking Summary to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1650, 300],
+      "credentials": {
+        "slackApi": {
+          "id": "VaNm8cr89lLAGlpJ",
+          "name": "Slack Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule: Tuesday 3:30AM UTC": {
+      "main": [[{ "node": "Get Tracked Keywords", "type": "main", "index": 0 }]]
+    },
+    "Get Tracked Keywords": {
+      "main": [[{ "node": "Handle Empty / Use Defaults", "type": "main", "index": 0 }]]
+    },
+    "Handle Empty / Use Defaults": {
+      "main": [[{ "node": "ValueSERP API Call", "type": "main", "index": 0 }]]
+    },
+    "ValueSERP API Call": {
+      "main": [[{ "node": "Extract Position", "type": "main", "index": 0 }]]
+    },
+    "Extract Position": {
+      "main": [[{ "node": "Store Ranking", "type": "main", "index": 0 }]]
+    },
+    "Store Ranking": {
+      "main": [[{ "node": "Build Weekly Summary", "type": "main", "index": 0 }]]
+    },
+    "Build Weekly Summary": {
+      "main": [[{ "node": "Post Ranking Summary to Slack", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [{ "name": "SEO" }]
+}

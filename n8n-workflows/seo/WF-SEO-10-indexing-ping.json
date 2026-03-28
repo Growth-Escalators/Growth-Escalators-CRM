@@ -1,0 +1,105 @@
+{
+  "name": "WF-SEO-10: Google Indexing Ping",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "seo-indexing-ping",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "seo10-webhook",
+      "name": "Webhook: Ping Indexing",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "webhookId": "seo-indexing-ping"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.item.json.body || $input.item.json;\nconst { pageUrl, projectName } = body;\n\nif (!pageUrl) throw new Error('Missing pageUrl');\n\nreturn [{ json: { pageUrl, projectName: projectName || 'unknown' } }];"
+      },
+      "id": "seo10-validate",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://indexing.googleapis.com/v3/urlNotifications:publish",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\"url\": \"{{ $json.pageUrl }}\", \"type\": \"URL_UPDATED\"}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleApi",
+        "options": {}
+      },
+      "id": "seo10-indexing-api",
+      "name": "Google Indexing API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [650, 300],
+      "credentials": {
+        "googleApi": {
+          "id": "YxrNZeLdvBfNxEsZ",
+          "name": "Google SEO OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE client_pages\nSET indexed = false, last_updated = NOW()\nWHERE project_name = '{{ $('Validate Input').item.json.projectName }}'\n  AND page_url = '{{ $('Validate Input').item.json.pageUrl }}';\n\nINSERT INTO seo_alerts_log (project_name, alert_type, message, created_at)\nSELECT \n  '{{ $('Validate Input').item.json.projectName }}',\n  'indexing_ping',\n  'Google Indexing API pinged for: {{ $('Validate Input').item.json.pageUrl }}',\n  NOW()\nWHERE EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'seo_alerts_log');",
+        "options": {}
+      },
+      "id": "seo10-log",
+      "name": "Log Indexing Request",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [850, 300],
+      "credentials": {
+        "postgres": {
+          "id": "N7nIyQgdtKFT9Ye8",
+          "name": "Growth Escalators Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"success\": true, \"message\": \"Indexing ping sent for {{ $('Validate Input').item.json.pageUrl }}\", \"notificationTimestamp\": \"{{ $('Google Indexing API').item.json.urlNotificationMetadata?.latestUpdate?.notifyTime || new Date().toISOString() }}\"}"
+      },
+      "id": "seo10-respond",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1050, 300]
+    }
+  ],
+  "connections": {
+    "Webhook: Ping Indexing": {
+      "main": [[{ "node": "Validate Input", "type": "main", "index": 0 }]]
+    },
+    "Validate Input": {
+      "main": [[{ "node": "Google Indexing API", "type": "main", "index": 0 }]]
+    },
+    "Google Indexing API": {
+      "main": [[{ "node": "Log Indexing Request", "type": "main", "index": 0 }]]
+    },
+    "Log Indexing Request": {
+      "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [{ "name": "SEO" }]
+}

@@ -99,6 +99,13 @@
       "when": 1774727989945,
       "tag": "0013_lively_blue_shield",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1774800000001,
+      "tag": "0014_brevo_email_templates_seed",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,142 @@
+{
+  "name": "WF-SEO-08: Backlink Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 3 * * 5"
+            }
+          ]
+        }
+      },
+      "id": "seo08-cron",
+      "name": "Schedule: Friday 3:30AM UTC",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const clients = [\n  { project: 'aarohaom', domain: 'aarohaom.com' },\n  { project: 'blackpanda', domain: 'blackpandaenterprises.com' },\n  { project: 'ageddentistry', domain: 'ageddentistry.org' }\n];\nreturn clients.map(c => ({ json: c }));"
+      },
+      "id": "seo08-clients",
+      "name": "Define Client Domains",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.dataforseo.com/v3/backlinks/summary/live",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Basic {{ Buffer.from(($vars.DATAFORSEO_LOGIN || '') + ':' + ($vars.DATAFORSEO_PASSWORD || '')).toString('base64') }}"
+            },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "=[{\"target\": \"{{ $json.domain }}\", \"include_subdomains\": true, \"backlinks_status_type\": \"live\"}]",
+        "options": {}
+      },
+      "id": "seo08-dataforseo",
+      "name": "DataForSEO Backlinks API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const apiData = $input.item.json;\nconst clientData = $('Define Client Domains').item.json;\n\nconst taskResult = apiData.tasks?.[0]?.result?.[0] || {};\n\nconst totalBacklinks = taskResult.backlinks || 0;\nconst referringDomains = taskResult.referring_domains || 0;\nconst domainRank = taskResult.rank || 0;\n\n// Store individual backlinks for tracking\nconst newLinks = taskResult.items || [];\n\nreturn [{ json: {\n  project: clientData.project,\n  domain: clientData.domain,\n  totalBacklinks,\n  referringDomains,\n  domainRank,\n  newLinks: newLinks.slice(0, 20), // Top 20 to store\n  checkedAt: new Date().toISOString()\n}}];"
+      },
+      "id": "seo08-parse",
+      "name": "Parse Backlink Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH inserted AS (\n  INSERT INTO backlink_data (project_name, source_url, target_url, domain_authority, anchor_text, link_type, first_seen, last_seen, status)\n  SELECT \n    '{{ $json.project }}',\n    link->>'url_from',\n    link->>'url_to', \n    COALESCE((link->>'domain_from_rank')::numeric, 0),\n    link->>'anchor',\n    link->>'dofollow' = 'true' AND 'dofollow' OR 'nofollow',\n    CURRENT_DATE,\n    CURRENT_DATE,\n    'active'\n  FROM jsonb_array_elements('{{ JSON.stringify($json.newLinks) }}'::jsonb) AS link\n  ON CONFLICT DO NOTHING\n  RETURNING *\n)\nSELECT COUNT(*) as new_backlinks FROM inserted;",
+        "options": {}
+      },
+      "id": "seo08-store",
+      "name": "Store Backlinks",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1050, 300],
+      "credentials": {
+        "postgres": {
+          "id": "N7nIyQgdtKFT9Ye8",
+          "name": "Growth Escalators Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate into weekly backlink summary\nconst allItems = $input.all();\nconst data = allItems.map(i => i.json);\n\nlet msg = `*🔗 Weekly Backlink Report — ${new Date().toDateString()}*\\n\\n`;\n\ndata.forEach(d => {\n  msg += `*${d.project}*: ${d.totalBacklinks} total backlinks | ${d.referringDomains} referring domains\\n`;\n  msg += `  Domain Rank: ${d.domainRank}\\n`;\n});\n\nmsg += `\\n_New backlinks stored in database. Check \\`backlink_data\\` table for details._`;\n\nreturn [{ json: { summaryText: msg } }];"
+      },
+      "id": "seo08-summary",
+      "name": "Build Backlink Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C08EMRX2HHN",
+          "mode": "id"
+        },
+        "text": "={{ $json.summaryText }}",
+        "otherOptions": {}
+      },
+      "id": "seo08-slack",
+      "name": "Post Backlink Summary",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1450, 300],
+      "credentials": {
+        "slackApi": {
+          "id": "VaNm8cr89lLAGlpJ",
+          "name": "Slack Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule: Friday 3:30AM UTC": {
+      "main": [[{ "node": "Define Client Domains", "type": "main", "index": 0 }]]
+    },
+    "Define Client Domains": {
+      "main": [[{ "node": "DataForSEO Backlinks API", "type": "main", "index": 0 }]]
+    },
+    "DataForSEO Backlinks API": {
+      "main": [[{ "node": "Parse Backlink Data", "type": "main", "index": 0 }]]
+    },
+    "Parse Backlink Data": {
+      "main": [[{ "node": "Store Backlinks", "type": "main", "index": 0 }]]
+    },
+    "Store Backlinks": {
+      "main": [[{ "node": "Build Backlink Summary", "type": "main", "index": 0 }]]
+    },
+    "Build Backlink Summary": {
+      "main": [[{ "node": "Post Backlink Summary", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [{ "name": "SEO" }]
+}

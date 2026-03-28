@@ -271,4 +271,22 @@ router.post('/:id/send-test', async (req, res) => {
   res.json({ sent: true, messageId: data.messageId });
 });
 
+// ---------------------------------------------------------------------------
+// POST /api/email-templates/sync-all — sync all templates to Brevo (admin)
+// ---------------------------------------------------------------------------
+router.post('/sync-all', async (req, res) => {
+  if (req.user?.role !== 'admin') { res.status(403).json({ error: 'admin only' }); return; }
+  const tenantId = req.user!.tenantId;
+
+  const templates = await db.select().from(emailTemplates)
+    .where(and(eq(emailTemplates.tenantId, tenantId), eq(emailTemplates.isActive, true)));
+
+  const results = [];
+  for (const tpl of templates) {
+    const result = await syncTemplateToBrevo(tpl);
+    results.push({ name: tpl.name, brevoId: tpl.brevoTemplateId, ...result });
+  }
+  res.json({ synced: results.filter(r => r.synced).length, total: templates.length, results });
+});
+
 export default router;
