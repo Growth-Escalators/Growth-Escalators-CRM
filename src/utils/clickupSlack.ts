@@ -9,27 +9,24 @@ export interface TeamMember {
 
 export const TEAM_MEMBERS: TeamMember[] = [
   { name: 'Jatin', clickupId: '88911769', slackId: 'U073Y677JBB', email: 'jatin@growthescalators.com' },
-  { name: 'Vishal', clickupId: '100972806', slackId: 'U0ALC9Z09RA', email: 'vishal.malakar@growthescalators.com' },
-  { name: 'Sanskriti', clickupId: '100860514', slackId: 'U09TXBW2XPX', email: 'gupta13sanskriti@gmail.com' },
   { name: 'Sakcham', clickupId: '242618940', slackId: 'U09TY8RGN30', email: 'sakcham@growthescalators.com' },
+  { name: 'Vishal', clickupId: '100972806', slackId: 'U0ALC9Z09RA', email: 'vishal.malakar@growthescalators.com' },
   { name: 'Nimisha', clickupId: '100972807', slackId: 'U0ALMKD2XFB', email: 'nimisha.daiya@growthescalators.com' },
   { name: 'Keshav', clickupId: '4800274', slackId: 'U073Y6S4K4H', email: 'keshav.growthescalators@gmail.com' },
 ];
 
 export const CLICKUP_IDS = {
   jatin: 88911769,
-  vishal: 100972806,
-  sanskriti: 100860514,
   sakcham: 242618940,
+  vishal: 100972806,
   nimisha: 100972807,
   keshav: 4800274,
 };
 
 export const SLACK_IDS = {
   jatin: 'U073Y677JBB',
-  vishal: 'U0ALC9Z09RA',
-  sanskriti: 'U09TXBW2XPX',
   sakcham: 'U09TY8RGN30',
+  vishal: 'U0ALC9Z09RA',
   nimisha: 'U0ALMKD2XFB',
   keshav: 'U073Y6S4K4H',
 };
@@ -37,6 +34,7 @@ export const SLACK_IDS = {
 export const SLACK_CHANNELS = {
   sodEod: 'C08EMRX2HHN',
   general: 'C07489V0RB2',
+  salesBd: 'C0AMPEF302G',
   performanceMarketing: 'performance-marketing',
 };
 
@@ -63,25 +61,20 @@ interface ClickUpTaskItem {
 
 export function formatTaskList(tasks: ClickUpTaskItem[], category: 'overdue' | 'today' | 'upcoming' | 'completed' | 'open'): string {
   if (tasks.length === 0) return '';
-
   return tasks.map(t => {
     const name = t.name || 'Untitled';
     if (category === 'overdue' && t.due_date) {
-      const days = Math.floor((Date.now() - Number(t.due_date)) / (1000 * 60 * 60 * 24));
+      const days = Math.floor((Date.now() - Number(t.due_date)) / 86400000);
       return `• ${name} — due ${days === 1 ? 'yesterday' : `${days} days ago`}`;
     }
     if (category === 'upcoming' && t.due_date) {
-      const days = Math.ceil((Number(t.due_date) - Date.now()) / (1000 * 60 * 60 * 24));
-      if (days <= 1) return `• ${name} — tomorrow`;
-      return `• ${name} — in ${days} days`;
+      const days = Math.ceil((Number(t.due_date) - Date.now()) / 86400000);
+      return days <= 1 ? `• ${name} — tomorrow` : `• ${name} — in ${days} days`;
     }
     if (category === 'completed') return `✓ ${name}`;
-    if (category === 'open' && t.due_date) {
-      const dueMs = Number(t.due_date);
-      if (dueMs < Date.now()) {
-        const days = Math.floor((Date.now() - dueMs) / (1000 * 60 * 60 * 24));
-        return `• ${name} — ${days} day${days === 1 ? '' : 's'} overdue ⚠️`;
-      }
+    if (category === 'open' && t.due_date && Number(t.due_date) < Date.now()) {
+      const days = Math.floor((Date.now() - Number(t.due_date)) / 86400000);
+      return `• ${name} — ${days} day${days === 1 ? '' : 's'} overdue ⚠️`;
     }
     return `• ${name}`;
   }).join('\n');

@@ -222,7 +222,6 @@ export async function processBooking(payload: Record<string, unknown>) {
       score: score.totalScore,
       tier,
       scheduledAt: scheduledAt.toISOString(),
-      assignedTo: score.totalScore >= 70 ? 'jatin' : 'saksham',
     }).catch((e: Error) => console.error('[booking] ClickUp call prep error:', e.message));
   }
 

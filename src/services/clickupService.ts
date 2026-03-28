@@ -1,8 +1,17 @@
 import https from 'https';
-import { CLICKUP_IDS } from '../utils/clickupSlack';
+import { sendSlackMessage } from './slackService';
 
 const CLICKUP_TOKEN = process.env.CLICKUP_API_TOKEN;
 const CLICKUP_LIST_ID = process.env.CLICKUP_LIST_ID;
+const SALES_BD_CHANNEL = 'C0AMPEF302G';
+
+const CLICKUP_IDS = {
+  jatin: 88911769,
+  sakcham: 242618940,
+  vishal: 100972806,
+  nimisha: 100972807,
+  keshav: 4800274,
+};
 
 interface ClickUpTask {
   name: string;
@@ -12,14 +21,10 @@ interface ClickUpTask {
   status?: string;
   priority?: number;
   dueDate?: number;
-  customFields?: Array<{ id: string; value: unknown }>;
 }
 
 async function clickupRequest(method: string, path: string, body?: unknown): Promise<unknown> {
-  if (!CLICKUP_TOKEN) {
-    console.error('[ClickUp] CLICKUP_API_TOKEN not set');
-    return null;
-  }
+  if (!CLICKUP_TOKEN) { console.error('[ClickUp] token not set'); return null; }
 
   return new Promise((resolve) => {
     const bodyStr = body ? JSON.stringify(body) : '';
@@ -37,17 +42,9 @@ async function clickupRequest(method: string, path: string, body?: unknown): Pro
     const req = https.request(options, (res) => {
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        try { resolve(JSON.parse(data)); }
-        catch { resolve(null); }
-      });
+      res.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve(null); } });
     });
-
-    req.on('error', (e) => {
-      console.error('[ClickUp] request error:', e.message);
-      resolve(null);
-    });
-
+    req.on('error', (e) => { console.error('[ClickUp] request error:', e.message); resolve(null); });
     if (bodyStr) req.write(bodyStr);
     req.end();
   });
@@ -59,38 +56,27 @@ export async function getWorkspaceInfo(): Promise<unknown> {
 
 export async function createTask(task: ClickUpTask): Promise<{ id: string; url: string } | null> {
   const listId = CLICKUP_LIST_ID;
-  if (!listId || listId === 'placeholder_will_update') {
-    console.log('[ClickUp] list ID not configured yet — task skipped:', task.name);
-    return null;
-  }
+  if (!listId) { console.log('[ClickUp] list ID not set — skipped:', task.name); return null; }
 
-  const payload: Record<string, unknown> = {
-    name: task.name,
-    priority: task.priority || 2,
-    notify_all: false,
-  };
-
+  const payload: Record<string, unknown> = { name: task.name, priority: task.priority || 2, notify_all: false };
   if (task.description) payload.description = task.description;
-  if (task.assignees && task.assignees.length > 0) payload.assignees = task.assignees;
-  if (task.tags && task.tags.length > 0) payload.tags = task.tags;
+  if (task.assignees?.length) payload.assignees = task.assignees;
+  if (task.tags?.length) payload.tags = task.tags;
   if (task.status) payload.status = task.status;
   if (task.dueDate) payload.due_date = task.dueDate;
 
   const result = await clickupRequest('POST', `/list/${listId}/task`, payload) as { id?: string; url?: string } | null;
-
-  if (result && result.id) {
+  if (result?.id) {
     console.log(`[ClickUp] task created: ${task.name} — ID: ${result.id}`);
     return { id: result.id, url: result.url ?? '' };
   }
-
   console.error('[ClickUp] task creation failed:', result);
   return null;
 }
 
 export async function getTasksForContact(contactId: string): Promise<unknown[]> {
-  const listId = CLICKUP_LIST_ID;
-  if (!listId || listId === 'placeholder_will_update') return [];
-  const result = await clickupRequest('GET', `/list/${listId}/task?tags[]=${contactId}&include_closed=true`) as { tasks?: unknown[] } | null;
+  if (!CLICKUP_LIST_ID) return [];
+  const result = await clickupRequest('GET', `/list/${CLICKUP_LIST_ID}/task?tags[]=${contactId}&include_closed=true`) as { tasks?: unknown[] } | null;
   return result?.tasks || [];
 }
 
@@ -99,169 +85,139 @@ export async function updateTaskStatus(taskId: string, status: string): Promise<
   return !!(result?.id);
 }
 
-// Check for duplicate tasks by name
 async function taskExists(name: string): Promise<boolean> {
-  const listId = CLICKUP_LIST_ID;
-  if (!listId) return false;
-  const result = await clickupRequest('GET', `/list/${listId}/task?include_closed=false`) as { tasks?: Array<{ name: string }> } | null;
+  if (!CLICKUP_LIST_ID) return false;
+  const result = await clickupRequest('GET', `/list/${CLICKUP_LIST_ID}/task?include_closed=false`) as { tasks?: Array<{ name: string }> } | null;
   return (result?.tasks || []).some(t => t.name === name);
 }
 
-function daysFromNow(days: number): number {
-  return Date.now() + days * 24 * 60 * 60 * 1000;
-}
+function daysFromNow(d: number): number { return Date.now() + d * 86400000; }
+function endOfToday(): number { const d = new Date(); d.setHours(23, 59, 59, 999); return d.getTime(); }
 
-function endOfToday(): number {
-  const d = new Date();
-  d.setHours(23, 59, 59, 999);
-  return d.getTime();
-}
-
-// -----------------------------------------------------------------------
-// Deal Won → Onboarding task
-// Assigned to: Sanskriti + Jatin | Due: 3 days | Priority: HIGH
-// -----------------------------------------------------------------------
+// Deal Won → Jatin + Sakcham
 export async function createOnboardingTask(params: {
-  contactName: string;
-  contactId: string;
-  dealValue?: number;
-  contactEmail?: string;
-  contactPhone?: string;
-  pipelineName?: string;
+  contactName: string; contactId: string; dealValue?: number;
+  contactEmail?: string; contactPhone?: string; pipelineName?: string;
 }): Promise<{ id: string; url: string } | null> {
   const taskName = `Client Onboarding Setup — ${params.contactName}`;
-  if (await taskExists(taskName)) { console.log('[ClickUp] duplicate skipped:', taskName); return null; }
-
-  const dealValueStr = params.dealValue ? `₹${params.dealValue.toLocaleString('en-IN')}/mo` : 'Not set';
+  if (await taskExists(taskName)) return null;
 
   const result = await createTask({
     name: taskName,
-    description: `New client won. Set up onboarding process, welcome sequence, and initial campaign structure.\n\nClient: ${params.contactName}\nDeal value: ${dealValueStr}\nEmail: ${params.contactEmail || 'N/A'}\nPhone: ${params.contactPhone || 'N/A'}\nPipeline: ${params.pipelineName || 'D2C Prospects'}\nContact ID: ${params.contactId}`,
-    assignees: [CLICKUP_IDS.sanskriti, CLICKUP_IDS.jatin],
+    description: `New client won. Set up onboarding.\n\nClient: ${params.contactName}\nDeal value: ${params.dealValue ? '₹' + params.dealValue.toLocaleString('en-IN') + '/mo' : 'N/A'}\nContact ID: ${params.contactId}`,
+    assignees: [CLICKUP_IDS.jatin, CLICKUP_IDS.sakcham],
     tags: [params.contactId, 'new-client', 'onboarding'],
-    priority: 2, // HIGH
+    priority: 2,
     dueDate: daysFromNow(3),
     status: 'to do',
   });
 
+  sendSlackMessage(SALES_BD_CHANNEL,
+    `🎉 *Deal Won!* ${params.contactName} — Onboarding task created for <@U073Y677JBB> + <@U09TY8RGN30>`
+  ).catch(() => {});
+
   return result;
 }
 
-// -----------------------------------------------------------------------
-// Proposal Sent → Follow-up task
-// Assigned to: Sakcham | Due: 2 days | Priority: HIGH
-// -----------------------------------------------------------------------
+// Proposal Sent → Sakcham
 export async function createFollowUpTask(params: {
-  contactName: string;
-  contactId: string;
-  dealValue?: number;
-  proposalDate?: string;
-  assignedTo?: 'jatin' | 'saksham';
+  contactName: string; contactId: string; dealValue?: number; proposalDate?: string;
 }): Promise<{ id: string; url: string } | null> {
   const taskName = `Follow Up on Proposal — ${params.contactName}`;
-  if (await taskExists(taskName)) { console.log('[ClickUp] duplicate skipped:', taskName); return null; }
+  if (await taskExists(taskName)) return null;
 
   const result = await createTask({
     name: taskName,
-    description: `Proposal sent to ${params.contactName}. Follow up within 48 hours. Check in on questions, handle objections, push for decision.\n\nProposal date: ${params.proposalDate || new Date().toLocaleDateString('en-IN')}\nDeal value: ${params.dealValue ? '₹' + params.dealValue.toLocaleString('en-IN') + '/month' : 'Not set'}\nContact ID: ${params.contactId}`,
+    description: `Proposal sent to ${params.contactName}. Follow up within 48 hours.\n\nContact ID: ${params.contactId}`,
     assignees: [CLICKUP_IDS.sakcham],
     tags: [params.contactId, 'proposal', 'follow-up'],
-    priority: 2, // HIGH
+    priority: 2,
     dueDate: daysFromNow(2),
     status: 'to do',
   });
 
+  sendSlackMessage(SALES_BD_CHANNEL,
+    `📤 *Proposal sent* to ${params.contactName} — Follow-up task created for <@U09TY8RGN30>`
+  ).catch(() => {});
+
   return result;
 }
 
-// -----------------------------------------------------------------------
-// Deal Lost → Loss Analysis task
-// Assigned to: Jatin | Due: 7 days | Priority: NORMAL
-// -----------------------------------------------------------------------
+// Deal Lost → Jatin
 export async function createLostDealAnalysisTask(params: {
-  contactName: string;
-  contactId: string;
-  lostReason: string;
-  dealValue?: number;
+  contactName: string; contactId: string; lostReason: string; dealValue?: number;
 }): Promise<{ id: string; url: string } | null> {
   const taskName = `Loss Analysis — ${params.contactName}`;
-  if (await taskExists(taskName)) { console.log('[ClickUp] duplicate skipped:', taskName); return null; }
+  if (await taskExists(taskName)) return null;
 
   const result = await createTask({
     name: taskName,
-    description: `Analyse why ${params.contactName} was lost. Lost reason: ${params.lostReason}. Document learnings and update pitch/process accordingly.\n\nDeal value: ${params.dealValue ? '₹' + params.dealValue.toLocaleString('en-IN') + '/month' : 'Not set'}\nContact ID: ${params.contactId}`,
+    description: `Lost: ${params.contactName}. Reason: ${params.lostReason}\nContact ID: ${params.contactId}`,
     assignees: [CLICKUP_IDS.jatin],
     tags: [params.contactId, 'lost-deal', 'analysis'],
-    priority: 3, // NORMAL
+    priority: 3,
     dueDate: daysFromNow(7),
     status: 'to do',
   });
 
+  sendSlackMessage(SALES_BD_CHANNEL,
+    `📉 *Deal Lost* — ${params.contactName}. Reason: ${params.lostReason}. Analysis task for <@U073Y677JBB>`
+  ).catch(() => {});
+
   return result;
 }
 
-// -----------------------------------------------------------------------
-// Hot lead books call (score ≥ 70) → Call prep for Jatin
-// Assigned to: Jatin | Due: end of today | Priority: URGENT
-// -----------------------------------------------------------------------
+// Hot lead → Jatin + Sakcham, Warm → Sakcham
 export async function createCallPrepTask(params: {
-  contactName: string;
-  contactId: string;
-  score: number;
-  tier: string;
-  adSpend?: string;
-  isDecisionMaker?: boolean;
-  scheduledAt?: string;
-  phone?: string;
-  revenue?: string;
-  assignedTo?: 'jatin' | 'saksham';
+  contactName: string; contactId: string; score: number; tier: string;
+  adSpend?: string; isDecisionMaker?: boolean; scheduledAt?: string;
+  phone?: string; revenue?: string;
 }): Promise<{ id: string; url: string } | null> {
   const isHot = params.tier === 'hot' || params.score >= 70;
-  const prefix = isHot ? 'Call Prep — HOT LEAD: ' : 'Call Prep — ';
-  const taskName = `${prefix}${params.contactName}`;
-  if (await taskExists(taskName)) { console.log('[ClickUp] duplicate skipped:', taskName); return null; }
+  const taskName = `${isHot ? 'Call Prep — HOT LEAD: ' : 'Call Prep — '}${params.contactName}`;
+  if (await taskExists(taskName)) return null;
 
   const callTime = params.scheduledAt || 'Check calendar';
-  const assignee = isHot ? CLICKUP_IDS.jatin : CLICKUP_IDS.sakcham;
+  const assignees = isHot ? [CLICKUP_IDS.jatin, CLICKUP_IDS.sakcham] : [CLICKUP_IDS.sakcham];
 
   const result = await createTask({
     name: taskName,
-    description: isHot
-      ? `Hot lead booked! Score: ${params.score}/100.\n\nName: ${params.contactName}\nPhone: ${params.phone || 'N/A'}\nAd spend: ${params.adSpend || 'N/A'}\nRevenue: ${params.revenue || 'N/A'}\nCall time: ${callTime}\n\nPrepare tailored pitch.\nContact ID: ${params.contactId}`
-      : `Warm lead booked. Score: ${params.score}/100.\n\nName: ${params.contactName}\nPhone: ${params.phone || 'N/A'}\nCall time: ${callTime}\n\nReview their profile and prepare standard pitch.\nContact ID: ${params.contactId}`,
-    assignees: [assignee],
+    description: `${isHot ? 'Hot' : 'Warm'} lead. Score: ${params.score}/100.\nName: ${params.contactName}\nPhone: ${params.phone || 'N/A'}\nCall: ${callTime}\nContact ID: ${params.contactId}`,
+    assignees,
     tags: [params.contactId, 'strategy-call', params.tier + '-lead'],
-    priority: isHot ? 1 : 2, // URGENT for hot, HIGH for warm
+    priority: isHot ? 1 : 2,
     dueDate: endOfToday(),
     status: 'to do',
   });
 
+  // Post to #sales-bd
+  if (isHot) {
+    sendSlackMessage(SALES_BD_CHANNEL,
+      `🔥 *Hot Lead Alert!*\n\n*Name:* ${params.contactName}\n*Score:* ${params.score}/100\n*Phone:* ${params.phone || 'N/A'}\n*Ad Spend:* ${params.adSpend || 'N/A'}\n*Revenue:* ${params.revenue || 'N/A'}\n*Call Time:* ${callTime}\n\n<@U073Y677JBB> <@U09TY8RGN30> — prep for this call!`
+    ).catch(() => {});
+  } else {
+    sendSlackMessage(SALES_BD_CHANNEL,
+      `📞 *Warm Lead Booked*\n\n*Name:* ${params.contactName}\n*Score:* ${params.score}/100\n*Phone:* ${params.phone || 'N/A'}\n*Call Time:* ${callTime}\n\n<@U09TY8RGN30> — please prep for this call.`
+    ).catch(() => {});
+  }
+
   return result;
 }
 
-// -----------------------------------------------------------------------
-// New contact created → Initial outreach task
-// Assigned to: Sakcham | Due: 1 day | Priority: NORMAL
-// -----------------------------------------------------------------------
+// New contact → Sakcham
 export async function createInitialOutreachTask(params: {
-  contactName: string;
-  contactId: string;
-  source?: string;
-  phone?: string;
-  email?: string;
+  contactName: string; contactId: string; source?: string; phone?: string; email?: string;
 }): Promise<{ id: string; url: string } | null> {
   const taskName = `Initial Outreach — ${params.contactName}`;
-  if (await taskExists(taskName)) { console.log('[ClickUp] duplicate skipped:', taskName); return null; }
+  if (await taskExists(taskName)) return null;
 
-  const result = await createTask({
+  return createTask({
     name: taskName,
-    description: `New contact added: ${params.contactName}\nSource: ${params.source || 'Direct'}\nPhone: ${params.phone || 'N/A'}\nEmail: ${params.email || 'N/A'}\n\nMake initial contact and qualify.\nContact ID: ${params.contactId}`,
+    description: `New contact: ${params.contactName}\nSource: ${params.source || 'Direct'}\nPhone: ${params.phone || 'N/A'}\nEmail: ${params.email || 'N/A'}\nContact ID: ${params.contactId}`,
     assignees: [CLICKUP_IDS.sakcham],
     tags: [params.contactId, 'outreach', 'new-contact'],
-    priority: 3, // NORMAL
+    priority: 3,
     dueDate: daysFromNow(1),
     status: 'to do',
   });
-
-  return result;
 }

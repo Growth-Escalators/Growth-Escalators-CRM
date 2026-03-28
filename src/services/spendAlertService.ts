@@ -1,11 +1,12 @@
 import { db, marketingAccounts } from '../db/index';
 import { eq, sql } from 'drizzle-orm';
 import { sendSlackDM } from './slackService';
-import { SLACK_IDS } from '../utils/clickupSlack';
 import { logAuditEvent } from '../utils/audit';
 
 const META_API_BASE = 'https://graph.facebook.com/v19.0';
 const ALERT_COOLDOWN_HOURS = 6;
+const JATIN_SLACK = 'U073Y677JBB';
+const VISHAL_SLACK = 'U0ALC9Z09RA';
 
 async function getTenantId(): Promise<string | null> {
   try {
@@ -32,47 +33,56 @@ export async function checkSpendAlerts(): Promise<{ checked: number; alerted: nu
     try {
       // Check cooldown
       if (acct.lastAlertSentAt) {
-        const hoursSinceAlert = (Date.now() - new Date(acct.lastAlertSentAt).getTime()) / (1000 * 60 * 60);
-        if (hoursSinceAlert < ALERT_COOLDOWN_HOURS) continue;
+        const hoursSince = (Date.now() - new Date(acct.lastAlertSentAt).getTime()) / (1000 * 60 * 60);
+        if (hoursSince < ALERT_COOLDOWN_HOURS) continue;
       }
 
-      // Fetch account balance + daily_budget from Meta
-      const url = `${META_API_BASE}/${acct.accountId}?fields=balance,daily_budget,name,currency&access_token=${token}`;
-      const res = await fetch(url);
-      const data = await res.json() as Record<string, unknown>;
-
-      if (data.error) {
-        console.error(`[spend-alert] Meta API error for ${acct.accountName}:`, (data.error as Record<string,string>).message);
+      // Fetch account data
+      const acctRes = await fetch(`${META_API_BASE}/${acct.accountId}?fields=balance,daily_budget,name,currency,amount_spent&access_token=${token}`);
+      const acctData = await acctRes.json() as Record<string, unknown>;
+      if (acctData.error) {
+        console.error(`[spend-alert] Meta error for ${acct.accountName}:`, (acctData.error as Record<string,string>).message);
         continue;
       }
 
-      // Meta returns balance and daily_budget in account currency cents
-      const balance = Number(data.balance || 0) / 100;
-      const dailyBudget = Number(data.daily_budget || 0) / 100;
+      // Fetch today's spend from insights
+      let todaySpend = 0;
+      try {
+        const insRes = await fetch(`${META_API_BASE}/${acct.accountId}/insights?date_preset=today&fields=spend&access_token=${token}`);
+        const insData = await insRes.json() as { data?: Array<{ spend?: string }> };
+        todaySpend = parseFloat(insData.data?.[0]?.spend || '0');
+      } catch { /* insights may fail, use fallback */ }
 
-      // Alert when balance < daily_budget
-      if (dailyBudget <= 0 || balance >= dailyBudget) continue;
+      const balance = Number(acctData.balance || 0) / 100;
+      const dailyBudget = Number(acctData.daily_budget || 0) / 100;
 
-      const msg = `⚠️ *Low Balance Alert — ${acct.accountName}*\n\n` +
+      // Smart threshold: will balance run out within 24 hours?
+      const runoutHours = todaySpend > 0 ? (balance / todaySpend) * 24 : null;
+      const shouldAlert = runoutHours !== null ? runoutHours < 24 : (dailyBudget > 0 && balance < dailyBudget);
+
+      if (!shouldAlert) continue;
+
+      let msg = `⚠️ *Low Balance Alert — ${acct.accountName}*\n\n` +
         `Current balance: ₹${balance.toLocaleString('en-IN', { maximumFractionDigits: 0 })}\n` +
         `Daily budget: ₹${dailyBudget.toLocaleString('en-IN', { maximumFractionDigits: 0 })}\n` +
-        `Balance is below daily budget — campaigns may pause soon.\n` +
-        `Top up at: business.facebook.com/ads/manager`;
+        `Today's spend so far: ₹${todaySpend.toLocaleString('en-IN', { maximumFractionDigits: 0 })}\n`;
+      if (runoutHours !== null) {
+        msg += `Estimated runout: *${runoutHours.toFixed(1)} hours*\n`;
+      }
+      msg += `\nCampaigns may pause soon. Top up at:\nbusiness.facebook.com/ads/manager`;
 
-      // DM Vishal + Jatin
-      await sendSlackDM(SLACK_IDS.vishal, msg);
-      await sendSlackDM(SLACK_IDS.jatin, msg);
+      // DM both Jatin and Vishal
+      await sendSlackDM(JATIN_SLACK, msg);
+      await sendSlackDM(VISHAL_SLACK, msg);
 
-      // Update last alert time
       await db.update(marketingAccounts)
         .set({ lastAlertSentAt: new Date() })
         .where(eq(marketingAccounts.id, acct.id));
 
-      // Log to audit
       const tenantId = await getTenantId();
       if (tenantId) {
         await logAuditEvent(null, tenantId, 'SPEND_ALERT', 'ad_account', acct.id, {
-          accountName: acct.accountName, balance, dailyBudget,
+          accountName: acct.accountName, balance, dailyBudget, todaySpend, runoutHours,
         });
       }
 
