@@ -4,22 +4,19 @@ const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
 
 // Member ID mapping — ClickUp ID to Slack ID
 export const MEMBER_MAP: Record<string, { slackId: string; name: string; role: string }> = {
-  '88911769':  { slackId: 'U073Y677JBB', name: 'Jatin',     role: 'founder' },
-  '242618940': { slackId: 'U09TY8RGN30', name: 'Saksham',   role: 'sales' },
-  '4800274':   { slackId: 'U073Y6S4K4H', name: 'Keshav',    role: 'ops' },
-  '100972807': { slackId: 'U0ALMKD2XFB', name: 'Nimisha',   role: 'ops' },
-  '100860514': { slackId: 'U09TXBW2XPX', name: 'Sanskriti', role: 'ops' },
-  '100972806': { slackId: 'U0ALC9Z09RA', name: 'Vishal',    role: 'ops' },
+  '88911769':  { slackId: 'U073Y677JBB', name: 'Jatin',   role: 'founder' },
+  '242618940': { slackId: 'U09TY8RGN30', name: 'Sakcham', role: 'sales' },
+  '4800274':   { slackId: 'U073Y6S4K4H', name: 'Keshav',  role: 'ops' },
+  '100972807': { slackId: 'U0ALMKD2XFB', name: 'Nimisha', role: 'ops' },
+  '100972806': { slackId: 'U0ALC9Z09RA', name: 'Vishal',  role: 'ops' },
 };
 
-// Slack user ID to name mapping
 export const SLACK_MEMBERS = {
-  jatin:     'U073Y677JBB',
-  keshav:    'U073Y6S4K4H',
-  nimisha:   'U0ALMKD2XFB',
-  saksham:   'U09TY8RGN30',
-  sanskriti: 'U09TXBW2XPX',
-  vishal:    'U0ALC9Z09RA',
+  jatin:   'U073Y677JBB',
+  sakcham: 'U09TY8RGN30',
+  keshav:  'U073Y6S4K4H',
+  nimisha: 'U0ALMKD2XFB',
+  vishal:  'U0ALC9Z09RA',
 };
 
 // Channel mapping

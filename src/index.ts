@@ -262,18 +262,16 @@ async function startServer() {
     startSequenceWorker();
     startSocialPostWorker();
 
-    // Blocker alert cron — every 6 hours
-    cron.schedule('0 23,5,11,17 * * *', async () => {
-      console.log('[cron] running blocker alert check…');
-      try {
-        const result = await checkAndAlertBlockers();
-        console.log('[cron] blocker check result:', result);
-      } catch (e) {
-        console.error('[cron] blocker check failed:', e);
-      }
+    // Blocker alerts — 10:15 AM IST (04:45 UTC) + 5:00 PM IST (11:30 UTC), Mon-Sat
+    cron.schedule('45 4 * * 1-6', async () => {
+      console.log('[CRON] Running blocker alerts (morning)...');
+      try { await checkAndAlertBlockers(); } catch (e) { console.error('[CRON] Blocker alerts failed:', e); }
     }, { timezone: 'UTC' });
-
-    console.log('[cron] blocker alert scheduled — every 6 hours (04:30/10:30/16:30/22:30 IST)');
+    cron.schedule('30 11 * * 1-6', async () => {
+      console.log('[CRON] Running blocker alerts (evening)...');
+      try { await checkAndAlertBlockers(); } catch (e) { console.error('[CRON] Blocker alerts failed:', e); }
+    }, { timezone: 'UTC' });
+    console.log('[cron] blocker alerts scheduled — 10:15 AM + 5:00 PM IST Mon-Sat');
 
     // SOD Digest — 10 AM IST (04:30 UTC), Mon-Sat
     cron.schedule('30 4 * * 1-6', async () => {
@@ -314,9 +312,10 @@ async function startServer() {
         console.log(`[cron] monthly invoices: generated=${result.generated}, errors=${result.errors.length}`);
 
         if (result.generated > 0) {
-          const { sendSlackDM, SLACK_MEMBERS } = await import('./services/slackService');
-          await sendSlackDM(SLACK_MEMBERS.jatin,
-            `🧾 *Monthly invoices ready* — ${result.generated} draft invoice(s) generated for this month.\nGo to /crm/billing to review and send.`);
+          const { sendSlackMessage } = await import('./services/slackService');
+          const month = new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+          await sendSlackMessage('C0AMPEF302G',
+            `🧾 *Invoice Drafts Ready — ${month}*\n\nDrafts generated for all active billing clients.\nReview and approve at: /crm/billing\n\n<@U073Y677JBB> <@U09TY8RGN30> — please review before sending to clients.`);
         }
       } catch (e) {
         console.error('[cron] monthly invoice generation failed:', e);
@@ -341,11 +340,12 @@ async function startServer() {
         for (const inv of overdueResult.rows as Array<Record<string, unknown>>) {
           await db.execute(sql`UPDATE invoices SET status = 'overdue', updated_at = now() WHERE id = ${inv.id}`);
           try {
-            const { sendSlackDM, SLACK_MEMBERS } = await import('./services/slackService');
+            const { sendSlackMessage } = await import('./services/slackService');
             const amount = ((inv.total_amount as number) / 100).toLocaleString('en-IN');
             const dueDate = new Date(inv.due_date as string).toLocaleDateString('en-IN');
-            await sendSlackDM(SLACK_MEMBERS.jatin,
-              `⚠️ *Payment overdue*\n\n*Client:* ${inv.client_name}\n*Invoice:* ${inv.invoice_number}\n*Amount:* ₹${amount}\n*Was due:* ${dueDate}\n\nGo to /crm/billing to send a reminder.`);
+            const daysOverdue = Math.floor((Date.now() - new Date(inv.due_date as string).getTime()) / 86400000);
+            await sendSlackMessage('C0AMPEF302G',
+              `⚠️ *Overdue Invoice Alert*\n\n*Client:* ${inv.client_name}\n*Invoice:* ${inv.invoice_number}\n*Amount:* ₹${amount}\n*Due Date:* ${dueDate}\n*Overdue by:* ${daysOverdue} days\n\n<@U073Y677JBB> <@U09TY8RGN30> — please follow up with the client.`);
           } catch { /* slack error non-critical */ }
         }
         if ((overdueResult.rows as unknown[]).length > 0) {

@@ -14,9 +14,8 @@ interface UserSeed {
 
 const USERS_TO_CREATE: UserSeed[] = [
   { name: 'Jatin Agrawal', email: 'jatin@growthescalators.com', role: 'admin' },
-  { name: 'Sanskriti Gupta', email: 'gupta13sanskriti@gmail.com', role: 'manager_ops' },
+  { name: 'Sakcham', email: 'sakcham@growthescalators.com', role: 'sales' },
   { name: 'Vishal Malakar', email: 'vishal.malakar@growthescalators.com', role: 'manager_ads' },
-  { name: 'Saksham', email: 'saksham@growthescalators.com', role: 'sales' },
   { name: 'Nimisha Daiya', email: 'nimisha.daiya@growthescalators.com', role: 'staff' },
   { name: 'Keshav Vaishnav', email: 'keshav.growthescalators@gmail.com', role: 'staff' },
 ];

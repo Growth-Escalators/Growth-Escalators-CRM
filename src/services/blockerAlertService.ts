@@ -1,21 +1,32 @@
 import { db, events } from '../db/index';
 import { and, gte, sql } from 'drizzle-orm';
-import { sendSlackMessage } from './slackService';
+import { sendSlackMessage, sendSlackDM } from './slackService';
 import { fetchTasksForMember, type Task } from '../utils/clickupTasks';
 
 const GENERAL_CHANNEL = 'C07489V0RB2';
 const BLOCKER_THRESHOLD_DAYS = 2;
-const ALERT_COOLDOWN_HOURS = 24;
+const CRITICAL_THRESHOLD_DAYS = 5;
 const JATIN_SLACK = 'U073Y677JBB';
 
 const TEAM = [
-  { name: 'Jatin',     clickupId: '88911769',  slackId: 'U073Y677JBB' },
-  { name: 'Vishal',    clickupId: '100972806', slackId: 'U0ALC9Z09RA' },
-  { name: 'Sanskriti', clickupId: '100860514', slackId: 'U09TXBW2XPX' },
-  { name: 'Sakcham',   clickupId: '242618940', slackId: 'U09TY8RGN30' },
-  { name: 'Nimisha',   clickupId: '100972807', slackId: 'U0ALMKD2XFB' },
-  { name: 'Keshav',    clickupId: '4800274',   slackId: 'U073Y6S4K4H' },
+  { name: 'Jatin',   clickupId: '88911769',  slackId: 'U073Y677JBB' },
+  { name: 'Sakcham', clickupId: '242618940', slackId: 'U09TY8RGN30' },
+  { name: 'Vishal',  clickupId: '100972806', slackId: 'U0ALC9Z09RA' },
+  { name: 'Nimisha', clickupId: '100972807', slackId: 'U0ALMKD2XFB' },
+  { name: 'Keshav',  clickupId: '4800274',   slackId: 'U073Y6S4K4H' },
 ];
+
+// In-memory daily dedup: taskId+date → true
+const alertedToday = new Map<string, boolean>();
+let lastResetDate = '';
+
+function resetIfNewDay() {
+  const today = new Date().toISOString().split('T')[0];
+  if (today !== lastResetDate) {
+    alertedToday.clear();
+    lastResetDate = today;
+  }
+}
 
 let cachedTenantId: string | null = null;
 async function getTenantId(): Promise<string | null> {
@@ -25,20 +36,6 @@ async function getTenantId(): Promise<string | null> {
     cachedTenantId = (result.rows[0] as { id: string } | undefined)?.id ?? null;
     return cachedTenantId;
   } catch { return null; }
-}
-
-async function wasRecentlyAlerted(taskId: string): Promise<boolean> {
-  const cooldownTime = new Date(Date.now() - ALERT_COOLDOWN_HOURS * 60 * 60 * 1000);
-  try {
-    const recent = await db.select().from(events)
-      .where(and(
-        sql`${events.eventType} = 'blocker_alert_sent'`,
-        gte(events.createdAt, cooldownTime),
-        sql`${events.payload}->>'taskId' = ${taskId}`,
-      ))
-      .limit(1);
-    return recent.length > 0;
-  } catch { return false; }
 }
 
 async function logAlertSent(taskId: string, taskName: string, assigneeName: string, daysOverdue: number) {
@@ -56,9 +53,9 @@ async function logAlertSent(taskId: string, taskName: string, assigneeName: stri
 }
 
 export async function checkAndAlertBlockers(): Promise<{ checked: number; alerted: number; skipped: number }> {
-  console.log('[blockers] starting team-level check…');
+  console.log('[blockers] starting check…');
+  resetIfNewDay();
 
-  // Fetch overdue tasks for all members using team-level API
   const allOverdue: Array<{ task: Task; member: typeof TEAM[0] }> = [];
 
   for (const member of TEAM) {
@@ -80,8 +77,8 @@ export async function checkAndAlertBlockers(): Promise<{ checked: number; alerte
   let skipped = 0;
 
   for (const { task, member } of allOverdue) {
-    const already = await wasRecentlyAlerted(task.id);
-    if (already) { skipped++; continue; }
+    const dedupKey = `${task.id}_${lastResetDate}`;
+    if (alertedToday.has(dedupKey)) { skipped++; continue; }
 
     let tagLine = `<@${JATIN_SLACK}>`;
     if (member.slackId !== JATIN_SLACK) {
@@ -89,12 +86,24 @@ export async function checkAndAlertBlockers(): Promise<{ checked: number; alerte
     }
 
     const msg = `⚠️ *Blocker Alert* — ${tagLine}\n\n` +
-      `Task overdue by *${task.daysOverdue} day${task.daysOverdue === 1 ? '' : 's'}*:\n` +
+      `Task overdue by *${task.daysOverdue} day${task.daysOverdue === 1 ? '' : 's'}:*\n` +
       `*"${task.name}"*\n` +
       `List: ${task.listName || 'Unknown'} · Due: ${task.dueDateFormatted}\n\n` +
-      `Please update the task status or flag if you are blocked.`;
+      `Please update task status or flag if blocked.`;
 
     await sendSlackMessage(GENERAL_CHANNEL, msg);
+
+    // Critical: 5+ days overdue → also DM Jatin directly
+    if (task.daysOverdue >= CRITICAL_THRESHOLD_DAYS) {
+      const dmMsg = `🚨 *Critical Blocker — Needs Your Attention*\n\n` +
+        `<@${member.slackId}>'s task is overdue by *${task.daysOverdue} days:*\n` +
+        `*"${task.name}"*\n` +
+        `List: ${task.listName || 'Unknown'} · Due: ${task.dueDateFormatted}\n\n` +
+        `This has been overdue for ${task.daysOverdue} days and needs immediate action.`;
+      await sendSlackDM(JATIN_SLACK, dmMsg);
+    }
+
+    alertedToday.set(dedupKey, true);
     await logAlertSent(task.id, task.name, member.name, task.daysOverdue);
     alerted++;
 
