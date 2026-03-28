@@ -42,7 +42,7 @@
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
-            { "name": "api_key", "value": "={{ $vars.VALUESREP_API_KEY || 'placeholder' }}" },
+            { "name": "api_key", "value": "={{ $env.VALUESREP_API_KEY || 'placeholder' }}" },
             { "name": "q", "value": "={{ $json.keyword }}" },
             { "name": "location", "value": "United States" },
             { "name": "num", "value": "5" },
@@ -83,7 +83,7 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "x-api-key", "value": "={{ $vars.CLAUDE_API_KEY }}" },
+            { "name": "x-api-key", "value": "={{ $env.CLAUDE_API_KEY }}" },
             { "name": "anthropic-version", "value": "2023-06-01" },
             { "name": "content-type", "value": "application/json" }
           ]

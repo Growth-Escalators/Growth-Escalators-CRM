@@ -27,18 +27,19 @@
     },
     {
       "parameters": {
+        "method": "POST",
         "url": "https://indexing.googleapis.com/v3/urlNotifications:publish",
-        "sendHeaders": true,
-        "headerParameters": {
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "keypair",
+        "bodyParameters": {
           "parameters": [
-            { "name": "Content-Type", "value": "application/json" }
+            { "name": "url", "value": "={{ $json.pageUrl }}" },
+            { "name": "type", "value": "URL_UPDATED" }
           ]
         },
-        "sendBody": true,
-        "bodyContentType": "json",
-        "jsonBody": "={\"url\": \"{{ $json.pageUrl }}\", \"type\": \"URL_UPDATED\"}",
         "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "googleApi",
+        "nodeCredentialType": "googleOAuth2Api",
         "options": {}
       },
       "id": "seo10-indexing-api",
@@ -47,7 +48,7 @@
       "typeVersion": 4.1,
       "position": [650, 300],
       "credentials": {
-        "googleApi": {
+        "googleOAuth2Api": {
           "id": "YxrNZeLdvBfNxEsZ",
           "name": "Google SEO OAuth"
         }

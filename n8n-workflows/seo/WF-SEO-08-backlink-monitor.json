@@ -36,7 +36,7 @@
           "parameters": [
             {
               "name": "Authorization",
-              "value": "=Basic {{ Buffer.from(($vars.DATAFORSEO_LOGIN || '') + ':' + ($vars.DATAFORSEO_PASSWORD || '')).toString('base64') }}"
+              "value": "=Basic {{ Buffer.from(($env.DATAFORSEO_LOGIN || '') + ':' + ($env.DATAFORSEO_PASSWORD || '')).toString('base64') }}"
             },
             { "name": "Content-Type", "value": "application/json" }
           ]
