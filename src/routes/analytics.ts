@@ -95,7 +95,7 @@ router.get('/trends', requirePermission('REPORTS_VIEW'), async (req: Request, re
         COUNT(*) AS count
       FROM contacts
       WHERE tenant_id = ${tenantId}
-        AND created_at >= NOW() - (${days} || ' days')::interval
+        AND created_at >= NOW() - make_interval(days => ${days})
       GROUP BY DATE(created_at)
       ORDER BY day ASC
     `);

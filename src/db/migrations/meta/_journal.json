@@ -92,6 +92,13 @@
       "when": 1775000000000,
       "tag": "0012_password_reset_spend_alerts",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1774727989945,
+      "tag": "0013_lively_blue_shield",
+      "breakpoints": true
     }
   ]
 }
