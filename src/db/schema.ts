@@ -817,3 +817,184 @@ export const passwordResetTokens = pgTable('password_reset_tokens', {
   expiresAt: timestamp('expires_at').notNull(),
   createdAt: timestamp('created_at').defaultNow(),
 });
+
+// ===========================================================================
+// SEO AUTOMATION TABLES (Phase 2 upgrade)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// TABLE 36 — client_knowledge_base
+// ---------------------------------------------------------------------------
+export const clientKnowledgeBase = pgTable('client_knowledge_base', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectName: text('project_name').notNull(),
+  brandSummary: text('brand_summary'),
+  idealCustomer: text('ideal_customer'),
+  uniqueValueProposition: text('unique_value_proposition'),
+  keyDifferentiators: jsonb('key_differentiators').default([]),
+  proofPoints: jsonb('proof_points').default([]),
+  brandVoice: text('brand_voice'),
+  wordsAlwaysUse: jsonb('words_always_use').default([]),
+  wordsNeverUse: jsonb('words_never_use').default([]),
+  credentials: jsonb('credentials').default([]),
+  topServices: jsonb('top_services').default([]),
+  competitorDomains: jsonb('competitor_domains').default([]),
+  targetKeywordsPriority: jsonb('target_keywords_priority').default([]),
+  contentExamples: text('content_examples'),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// TABLE 37 — client_pages
+// ---------------------------------------------------------------------------
+export const clientPages = pgTable('client_pages', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectName: text('project_name').notNull(),
+  pageUrl: text('page_url').notNull(),
+  pageTitle: text('page_title'),
+  targetKeyword: text('target_keyword'),
+  wordCount: integer('word_count').default(0),
+  internalLinksIn: jsonb('internal_links_in').default([]),
+  internalLinksOut: jsonb('internal_links_out').default([]),
+  publishedDate: timestamp('published_date'),
+  lastUpdated: timestamp('last_updated'),
+  wpPostId: integer('wp_post_id'),
+  indexed: boolean('indexed').default(false),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// TABLE 38 — keyword_rankings
+// ---------------------------------------------------------------------------
+export const keywordRankings = pgTable(
+  'keyword_rankings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectName: text('project_name').notNull(),
+    keyword: text('keyword').notNull(),
+    currentPosition: numeric('current_position'),
+    previousPosition: numeric('previous_position'),
+    positionChange: numeric('position_change'),
+    searchVolume: integer('search_volume').default(0),
+    urlRanking: text('url_ranking'),
+    featuredSnippet: boolean('featured_snippet').default(false),
+    recordedDate: date('recorded_date').notNull(),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    projectKeywordIdx: index('keyword_rankings_project_keyword_idx').on(t.projectName, t.keyword),
+    recordedDateIdx: index('keyword_rankings_recorded_date_idx').on(t.recordedDate),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE 39 — backlink_data
+// ---------------------------------------------------------------------------
+export const backlinkData = pgTable(
+  'backlink_data',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectName: text('project_name').notNull(),
+    sourceUrl: text('source_url'),
+    targetUrl: text('target_url'),
+    domainAuthority: numeric('domain_authority').default('0'),
+    anchorText: text('anchor_text'),
+    linkType: text('link_type'),
+    firstSeen: date('first_seen'),
+    lastSeen: date('last_seen'),
+    status: text('status').default('active'),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    projectIdx: index('backlink_data_project_idx').on(t.projectName),
+    statusIdx: index('backlink_data_status_idx').on(t.status),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE 40 — content_gap_analysis
+// ---------------------------------------------------------------------------
+export const contentGapAnalysis = pgTable(
+  'content_gap_analysis',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectName: text('project_name').notNull(),
+    targetKeyword: text('target_keyword').notNull(),
+    ourUrl: text('our_url'),
+    ourPosition: numeric('our_position'),
+    competitorUrls: jsonb('competitor_urls').default([]),
+    topicsMissing: jsonb('topics_missing').default([]),
+    questionsMissing: jsonb('questions_missing').default([]),
+    entitiesMissing: jsonb('entities_missing').default([]),
+    wordCountGap: integer('word_count_gap').default(0),
+    priorityScore: numeric('priority_score').default('0'),
+    status: text('status').default('pending'),
+    analysedAt: timestamp('analysed_at').defaultNow(),
+  },
+  (t) => ({
+    projectKeywordIdx: index('content_gap_project_keyword_idx').on(t.projectName, t.targetKeyword),
+    priorityScoreIdx: index('content_gap_priority_score_idx').on(t.priorityScore),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE 41 — seo_opportunities
+// ---------------------------------------------------------------------------
+export const seoOpportunities = pgTable(
+  'seo_opportunities',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectName: text('project_name').notNull(),
+    opportunityType: text('opportunity_type'),
+    description: text('description'),
+    estimatedImpact: text('estimated_impact'),
+    effortLevel: text('effort_level'),
+    status: text('status').default('open'),
+    identifiedAt: timestamp('identified_at').defaultNow(),
+  },
+  (t) => ({
+    projectStatusIdx: index('seo_opportunities_project_status_idx').on(t.projectName, t.status),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE 42 — site_health_metrics
+// ---------------------------------------------------------------------------
+export const siteHealthMetrics = pgTable(
+  'site_health_metrics',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectName: text('project_name').notNull(),
+    pagespeedMobile: numeric('pagespeed_mobile'),
+    pagespeedDesktop: numeric('pagespeed_desktop'),
+    lcp: numeric('lcp'),
+    fid: numeric('fid'),
+    cls: numeric('cls'),
+    brokenLinksCount: integer('broken_links_count').default(0),
+    indexedPagesCount: integer('indexed_pages_count').default(0),
+    crawlErrorsCount: integer('crawl_errors_count').default(0),
+    checkedAt: timestamp('checked_at').defaultNow(),
+  },
+  (t) => ({
+    projectCheckedAtIdx: index('site_health_project_checked_at_idx').on(t.projectName, t.checkedAt),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE 43 — brand_mentions
+// ---------------------------------------------------------------------------
+export const brandMentions = pgTable(
+  'brand_mentions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectName: text('project_name').notNull(),
+    mentionUrl: text('mention_url'),
+    mentionText: text('mention_text'),
+    hasLink: boolean('has_link').default(false),
+    domainAuthority: numeric('domain_authority').default('0'),
+    discoveredAt: timestamp('discovered_at').defaultNow(),
+  },
+  (t) => ({
+    projectIdx: index('brand_mentions_project_idx').on(t.projectName),
+  }),
+);
