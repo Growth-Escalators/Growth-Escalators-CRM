@@ -6,8 +6,25 @@ import { Share2, Globe, Camera, Plus, Trash2, AlertCircle, Image, Film, Search, 
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
 function PlatformIcon({ platform, size = 'w-4 h-4' }) {
-  if (platform === 'facebook') return <Globe className={`${size} text-blue-600`} />;
-  if (platform === 'instagram') return <Camera className={`${size} text-pink-500`} />;
+  if (platform === 'facebook') return (
+    <svg className={size} viewBox="0 0 24 24" fill="#1877F2">
+      <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+    </svg>
+  );
+  if (platform === 'instagram') return (
+    <svg className={size} viewBox="0 0 24 24">
+      <defs>
+        <radialGradient id="ig-grad" cx="30%" cy="107%" r="150%">
+          <stop offset="0%" stopColor="#fdf497"/>
+          <stop offset="5%" stopColor="#fdf497"/>
+          <stop offset="45%" stopColor="#fd5949"/>
+          <stop offset="60%" stopColor="#d6249f"/>
+          <stop offset="90%" stopColor="#285AEB"/>
+        </radialGradient>
+      </defs>
+      <path fill="url(#ig-grad)" d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/>
+    </svg>
+  );
   return <Share2 className={`${size} text-slate-400`} />;
 }
 
@@ -142,23 +159,29 @@ function ComposeTab({ accounts, onPost }) {
         <div className="bg-white rounded-xl border border-slate-200 p-4">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Post To</p>
           {activeAccounts.length === 0 && (
-            <p className="text-sm text-slate-400">No connected accounts. Add one in the Accounts tab.</p>
+            <p className="text-sm text-slate-400">Connect your pages first in the Accounts tab.</p>
           )}
           <div className="flex flex-wrap gap-2">
-            {activeAccounts.map(acct => (
-              <button
-                key={acct.id}
-                onClick={() => toggleAccount(acct.id)}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm transition-colors ${
-                  selectedIds.includes(acct.id)
-                    ? 'bg-sky-600 border-sky-600 text-white'
-                    : 'border-slate-200 text-slate-600 hover:border-sky-300'
-                }`}
-              >
-                <PlatformIcon platform={acct.platform} size="w-3.5 h-3.5" />
-                {acct.accountName}
-              </button>
-            ))}
+            {activeAccounts.map(acct => {
+              const selected = selectedIds.includes(acct.id);
+              const isFB = acct.platform === 'facebook';
+              return (
+                <button
+                  key={acct.id}
+                  onClick={() => toggleAccount(acct.id)}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm transition-colors ${
+                    selected
+                      ? isFB
+                        ? 'bg-[#1877F2] border-[#1877F2] text-white'
+                        : 'border-pink-500 bg-gradient-to-r from-purple-500 via-pink-500 to-orange-400 text-white'
+                      : 'border-slate-200 text-slate-600 hover:border-slate-400'
+                  }`}
+                >
+                  <PlatformIcon platform={acct.platform} size="w-3.5 h-3.5" />
+                  {acct.accountName}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -498,33 +521,53 @@ function AccountsTab({ accounts, onDelete, onAdd }) {
         </form>
       )}
 
-      {/* Connected accounts list */}
-      <div className="space-y-3">
-        {accounts.map(acct => (
-          <div key={acct.id} className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-4">
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
-              acct.platform === 'facebook' ? 'bg-blue-100' : 'bg-gradient-to-br from-purple-400 via-pink-400 to-orange-400'
-            }`}>
-              {acct.platform === 'facebook'
-                ? <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current text-blue-600"><path d="M22 12c0-5.523-4.477-10-10-10S2 6.477 2 12c0 4.991 3.657 9.128 8.438 9.878v-6.987h-2.54V12h2.54V9.797c0-2.506 1.492-3.89 3.777-3.89 1.094 0 2.238.195 2.238.195v2.46h-1.26c-1.243 0-1.63.771-1.63 1.562V12h2.773l-.443 2.89h-2.33v6.988C18.343 21.128 22 16.991 22 12z"/></svg>
-                : <Camera className="w-5 h-5 text-white" />
-              }
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-medium text-slate-800 truncate">{acct.accountName}</p>
-              <p className="text-xs text-slate-400 capitalize">{acct.platform} · Connected {acct.createdAt ? new Date(acct.createdAt).toLocaleDateString('en-IN') : ''}</p>
-            </div>
-            <span className={`text-xs px-2 py-1 rounded-full font-medium flex-shrink-0 ${acct.isActive ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-              {acct.isActive ? 'Active' : 'Inactive'}
-            </span>
-            <button
-              onClick={() => { if (confirm(`Disconnect ${acct.accountName}?`)) onDelete(acct.id); }}
-              className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
+      {/* Count summary */}
+      {accounts.length > 0 && (() => {
+        const fbAccts = accounts.filter(a => a.platform === 'facebook');
+        const igAccts = accounts.filter(a => a.platform === 'instagram');
+        return (
+          <p className="text-sm text-slate-500">
+            <span className="font-medium text-slate-700">{accounts.length} accounts connected</span>
+            {' '}({fbAccts.length} Facebook{igAccts.length > 0 ? `, ${igAccts.length} Instagram` : ''})
+          </p>
+        );
+      })()}
+
+      {/* Connected accounts list — FB pages first, then Instagram */}
+      <div className="space-y-2">
+        {[...accounts].sort((a, b) => {
+          if (a.platform === b.platform) return (a.accountName || '').localeCompare(b.accountName || '');
+          return a.platform === 'facebook' ? -1 : 1;
+        }).map(acct => {
+          const isFB = acct.platform === 'facebook';
+          const isIG = acct.platform === 'instagram';
+          return (
+            <div
+              key={acct.id}
+              className={`bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-4 ${isIG ? 'ml-6 border-l-4 border-l-pink-200' : ''}`}
             >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          </div>
-        ))}
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                isFB ? 'bg-[#e7f0fd]' : 'bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400'
+              }`}>
+                <PlatformIcon platform={acct.platform} size={isFB ? 'w-6 h-6' : 'w-5 h-5'} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-slate-800 truncate">{acct.accountName}</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {isFB ? 'Facebook Page' : 'Instagram Business'}
+                  {' · Connected '}
+                  {acct.createdAt ? new Date(acct.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+                </p>
+              </div>
+              <button
+                onClick={() => { if (confirm(`Disconnect ${acct.accountName}?`)) onDelete(acct.id); }}
+                className="px-3 py-1.5 text-xs text-slate-500 border border-slate-200 rounded-lg hover:border-red-300 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+              >
+                Disconnect
+              </button>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -562,7 +605,9 @@ export default function SocialPage() {
     const params = new URLSearchParams(window.location.search);
     if (params.get('connected') === 'true') {
       const pages = params.get('pages') || '0';
-      setToast({ type: 'success', msg: `${pages} page(s) connected successfully! Your Facebook pages and Instagram accounts are now linked.` });
+      const instagram = params.get('instagram') || '0';
+      const igPart = parseInt(instagram) > 0 ? ` and ${instagram} Instagram account(s)` : '';
+      setToast({ type: 'success', msg: `${pages} Facebook page(s)${igPart} connected successfully!` });
       setTab('accounts');
       setRefreshKey(k => k + 1);
       window.history.replaceState({}, '', '/crm/social');

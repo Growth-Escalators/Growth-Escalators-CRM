@@ -484,12 +484,54 @@ oauthRouter.get('/facebook/callback', async (req: Request, res: Response) => {
     const llData = await llRes.json() as { access_token?: string };
     const longLivedToken = llData.access_token || tokenData.access_token;
 
-    // Fetch pages
-    const pagesRes = await fetch(`https://graph.facebook.com/v19.0/me/accounts?access_token=${longLivedToken}`);
-    const pagesData = await pagesRes.json() as { data?: Array<{ id: string; name: string; access_token: string }> };
-    const pages = pagesData.data || [];
+    type PageData = {
+      id: string;
+      name: string;
+      access_token?: string;
+      picture?: { data?: { url?: string } };
+    };
 
-    // Get tenant ID from first user with this ID
+    // SOURCE 1 — Pages the user personally administers
+    const pagesRes = await fetch(`${META_API_BASE}/me/accounts?fields=id,name,access_token,picture&access_token=${longLivedToken}`);
+    const pagesData = await pagesRes.json() as { data?: PageData[] };
+    const personalPages: PageData[] = pagesData.data || [];
+    logger.info(`[social oauth] personal pages: ${personalPages.length}`);
+
+    // SOURCE 2 — Business Manager: owned + client pages
+    const bmPages: PageData[] = [];
+    try {
+      const bizRes = await fetch(`${META_API_BASE}/me/businesses?fields=id,name&access_token=${longLivedToken}`);
+      const bizData = await bizRes.json() as { data?: Array<{ id: string; name: string }> };
+      const businesses = bizData.data || [];
+      logger.info(`[social oauth] businesses: ${businesses.length}`);
+
+      for (const biz of businesses) {
+        try {
+          const ownedRes = await fetch(`${META_API_BASE}/${biz.id}/owned_pages?fields=id,name,access_token,picture&access_token=${longLivedToken}`);
+          const ownedData = await ownedRes.json() as { data?: PageData[] };
+          bmPages.push(...(ownedData.data || []));
+        } catch { /* owned_pages may fail if no permission */ }
+
+        try {
+          const clientRes = await fetch(`${META_API_BASE}/${biz.id}/client_pages?fields=id,name,access_token,picture&access_token=${longLivedToken}`);
+          const clientData = await clientRes.json() as { data?: PageData[] };
+          bmPages.push(...(clientData.data || []));
+        } catch { /* client_pages may fail if no permission */ }
+      }
+    } catch (e) {
+      logger.info(`[social oauth] BM fetch skipped: ${e}`);
+    }
+    logger.info(`[social oauth] BM pages: ${bmPages.length}`);
+
+    // Deduplicate — personal pages take precedence (they always have a page token)
+    const pageMap = new Map<string, PageData>();
+    for (const p of [...personalPages, ...bmPages]) {
+      if (!pageMap.has(p.id)) pageMap.set(p.id, p);
+    }
+    const allPages = Array.from(pageMap.values());
+    logger.info(`[social oauth] total unique pages: ${allPages.length}`);
+
+    // Get tenant ID
     let tenantId: string | null = null;
     if (userId) {
       const userResult = await db.execute(sql`SELECT tenant_id FROM users WHERE id = ${userId} LIMIT 1`);
@@ -501,10 +543,14 @@ oauthRouter.get('/facebook/callback', async (req: Request, res: Response) => {
     }
     if (!tenantId) { res.redirect('/crm/social?error=no_tenant'); return; }
 
-    let pagesConnected = 0;
+    let fbCount = 0;
+    let igCount = 0;
 
-    for (const page of pages) {
-      const encToken = encrypt(page.access_token);
+    for (const page of allPages) {
+      // Use page's own token when available; fall back to user long-lived token for BM pages
+      const pageToken = page.access_token || longLivedToken;
+      const encToken = encrypt(pageToken);
+      const thumbnail = page.picture?.data?.url || null;
 
       // Upsert Facebook page
       const existing = await db.select().from(socialAccounts)
@@ -513,7 +559,7 @@ oauthRouter.get('/facebook/callback', async (req: Request, res: Response) => {
 
       if (existing.length > 0) {
         await db.update(socialAccounts)
-          .set({ accessToken: encToken, accountName: page.name, isActive: true })
+          .set({ accessToken: encToken, accountName: page.name, isActive: true, thumbnailUrl: thumbnail })
           .where(eq(socialAccounts.id, existing[0].id));
       } else {
         await db.insert(socialAccounts).values({
@@ -522,43 +568,53 @@ oauthRouter.get('/facebook/callback', async (req: Request, res: Response) => {
           accountId: page.id,
           accountName: page.name,
           accessToken: encToken,
+          thumbnailUrl: thumbnail,
           isActive: true,
         });
       }
-      pagesConnected++;
+      fbCount++;
 
-      // Check for linked Instagram account
-      const igRes = await fetch(`https://graph.facebook.com/v19.0/${page.id}?fields=instagram_business_account&access_token=${page.access_token}`);
-      const igData = await igRes.json() as { instagram_business_account?: { id: string } };
-      const igId = igData.instagram_business_account?.id;
+      // Fetch linked Instagram Business Account via nested field expansion
+      try {
+        const igPageRes = await fetch(
+          `${META_API_BASE}/${page.id}?fields=instagram_business_account%7Bid%2Cname%2Cusername%2Cprofile_picture_url%7D&access_token=${pageToken}`
+        );
+        const igPageData = await igPageRes.json() as {
+          instagram_business_account?: { id: string; name?: string; username?: string; profile_picture_url?: string };
+        };
+        const ig = igPageData.instagram_business_account;
 
-      if (igId) {
-        const igInfoRes = await fetch(`https://graph.facebook.com/v19.0/${igId}?fields=username,profile_picture_url&access_token=${page.access_token}`);
-        const igInfo = await igInfoRes.json() as Record<string, string>;
+        if (ig?.id) {
+          const igName = ig.name || ig.username || `IG:${ig.id}`;
+          const igEncToken = encrypt(pageToken);
 
-        const existingIg = await db.select().from(socialAccounts)
-          .where(and(eq(socialAccounts.accountId, igId), eq(socialAccounts.platform, 'instagram')))
-          .limit(1);
+          const existingIg = await db.select().from(socialAccounts)
+            .where(and(eq(socialAccounts.accountId, ig.id), eq(socialAccounts.platform, 'instagram')))
+            .limit(1);
 
-        if (existingIg.length > 0) {
-          await db.update(socialAccounts)
-            .set({ accessToken: encToken, accountName: igInfo.username || `IG:${igId}`, isActive: true, thumbnailUrl: igInfo.profile_picture_url || null })
-            .where(eq(socialAccounts.id, existingIg[0].id));
-        } else {
-          await db.insert(socialAccounts).values({
-            tenantId,
-            platform: 'instagram',
-            accountId: igId,
-            accountName: igInfo.username || `IG:${igId}`,
-            accessToken: encToken,
-            thumbnailUrl: igInfo.profile_picture_url || null,
-            isActive: true,
-          });
+          if (existingIg.length > 0) {
+            await db.update(socialAccounts)
+              .set({ accessToken: igEncToken, accountName: igName, isActive: true, thumbnailUrl: ig.profile_picture_url || null })
+              .where(eq(socialAccounts.id, existingIg[0].id));
+          } else {
+            await db.insert(socialAccounts).values({
+              tenantId,
+              platform: 'instagram',
+              accountId: ig.id,
+              accountName: igName,
+              accessToken: igEncToken,
+              thumbnailUrl: ig.profile_picture_url || null,
+              isActive: true,
+            });
+          }
+          igCount++;
         }
+      } catch (e) {
+        logger.info(`[social oauth] IG fetch failed for page ${page.name}: ${e}`);
       }
     }
 
-    res.redirect(`/crm/social?connected=true&pages=${pagesConnected}`);
+    res.redirect(`/crm/social?connected=true&pages=${fbCount}&instagram=${igCount}`);
   } catch (e) {
     logger.error('[social oauth] callback error:', e);
     res.redirect('/crm/social?error=callback_failed');
