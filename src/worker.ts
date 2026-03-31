@@ -11,7 +11,8 @@ import { checkAndAlertBlockers } from './services/blockerAlertService';
 import { generateMonthlyDraftInvoices } from './services/recurringInvoiceService';
 import { sendSODDigest, sendEODSummary } from './services/sodEodService';
 import { checkSpendAlerts } from './services/spendAlertService';
-import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, DEFAULT_TENANT_SLUG } from './config/constants';
+import { checkWorkflowHealth } from './services/seoWorkflowHealthService';
+import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_PERF_MARKETING_CHANNEL, DEFAULT_TENANT_SLUG } from './config/constants';
 
 console.log('[worker] Worker process started');
 
@@ -117,6 +118,52 @@ cron.schedule('30 4 * * *', async () => {
   }
 }, { timezone: 'UTC' });
 console.log('[cron] overdue invoice check scheduled — daily at 10 AM IST');
+
+// SEO workflow health check — daily 9 AM IST (3:30 UTC)
+cron.schedule('30 3 * * *', async () => {
+  console.log('[cron] checking SEO workflow health…');
+  try {
+    const { sendSlackMessage } = await import('./services/slackService');
+    const { workflows } = await checkWorkflowHealth();
+
+    const broken = workflows.filter(w => w.critical && w.status === 'error');
+    const warned = workflows.filter(w => w.critical && w.status === 'warning');
+
+    if (broken.length === 0 && warned.length === 0) {
+      console.log('[cron] SEO workflow health: all critical workflows OK');
+      return;
+    }
+
+    // DM Jatin for each broken critical workflow
+    for (const wf of broken) {
+      const lastRunStr = wf.lastRun
+        ? new Date(wf.lastRun).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+        : 'Never';
+      await sendSlackMessage(`@${SLACK_JATIN}`,
+        `🔴 *SEO Workflow Alert — ${wf.name}*\nStatus: Overdue / Not running\nLast run: ${lastRunStr}\nExpected schedule: ${wf.schedule}\n\nTrigger manually: click Run Now in CRM → SEO → Workflows\nOr check n8n: https://primary-production-6c6f5.up.railway.app`
+      );
+    }
+
+    // Also post summary to #performance-marketing if any critical issues
+    const allIssues = [...broken, ...warned];
+    const lines = allIssues.map(wf => {
+      const icon = wf.status === 'error' ? '🔴' : '🟡';
+      const lastRunStr = wf.lastRun
+        ? new Date(wf.lastRun).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+        : 'Never';
+      return `${icon} *${wf.name}* — Last run: ${lastRunStr}`;
+    }).join('\n');
+
+    await sendSlackMessage(SLACK_PERF_MARKETING_CHANNEL,
+      `🔴 *SEO Workflow Issue Detected*\n\n${lines}\n\nFix: Go to /crm/seo → Workflows → Run Now`
+    );
+
+    console.log(`[cron] SEO health alerts sent — ${broken.length} broken, ${warned.length} warning`);
+  } catch (e) {
+    console.error('[cron] SEO workflow health check failed:', e);
+  }
+}, { timezone: 'UTC' });
+console.log('[cron] SEO workflow health check scheduled — daily 9 AM IST');
 
 // ---------------------------------------------------------------------------
 // Graceful shutdown

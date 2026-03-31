@@ -40,6 +40,7 @@ import marketingRouter from './routes/marketing';
 import searchRouter from './routes/search';
 import auditRouter from './routes/audit';
 import seoRouter from './routes/seo';
+import seoWorkflowsRouter from './routes/seoWorkflows';
 // Workers and cron jobs now run via src/worker.ts (see railway.json)
 import analyticsRouter from './routes/analytics';
 import { requireAuth } from './middleware/auth';
@@ -135,6 +136,7 @@ app.use('/api/search', requireAuth, searchRouter);
 app.use('/api/audit', requireAuth, auditRouter);
 app.use('/api/analytics', requireAuth, analyticsRouter);
 app.use('/api/seo', requireAuth, seoRouter);
+app.use('/api/seo-workflows', requireAuth, seoWorkflowsRouter);
 
 // ---------------------------------------------------------------------------
 // Static frontend — hostname-based routing
