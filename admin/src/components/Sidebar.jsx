@@ -52,6 +52,7 @@ export default function Sidebar() {
   const canAutomations = ['admin', 'manager_ops', 'sales'].includes(role);
   const canDiscovery = ['admin', 'manager_ops', 'sales'].includes(role);
   const canMarketing = ['admin', 'manager_ads'].includes(role);
+  const canSEO = ['admin', 'manager_ops', 'manager_ads'].includes(role);
 
   const navClass = ({ isActive }) =>
     `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${
@@ -127,7 +128,7 @@ export default function Sidebar() {
         )}
 
         {/* Marketing */}
-        {(canAds || canSocial || canMarketing) && (
+        {(canAds || canSocial || canMarketing || canSEO) && (
           <>
             <SectionLabel>Marketing</SectionLabel>
             {canAds && (
@@ -143,6 +144,11 @@ export default function Sidebar() {
             {canMarketing && (
               <NavLink to="/marketing" className={navClass}>
                 <TrendingUp className="w-4 h-4" /> Ad Accounts
+              </NavLink>
+            )}
+            {canSEO && (
+              <NavLink to="/seo" className={navClass}>
+                <BarChart2 className="w-4 h-4" /> SEO
               </NavLink>
             )}
           </>
