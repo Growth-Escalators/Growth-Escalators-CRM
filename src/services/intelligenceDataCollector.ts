@@ -3,6 +3,155 @@ import logger from '../utils/logger';
 import { DEFAULT_TENANT_SLUG } from '../config/constants';
 
 // ---------------------------------------------------------------------------
+// SEO Workflow Health types + collector (exported so worker can call directly)
+// ---------------------------------------------------------------------------
+
+export interface SEOWorkflowCheck {
+  id: string;
+  name: string;
+  schedule: string;
+  critical: boolean;
+  lastRun: string | null;
+  daysSince: number;
+  total: number | null;
+  keywordsTracked?: number | null;
+  healthy: boolean;
+  status: 'healthy' | 'overdue' | 'error';
+  error: string | null;
+}
+
+export interface SEOWorkflowHealth {
+  n8nAlive: boolean;
+  workflows: SEOWorkflowCheck[];
+  brokenCritical: SEOWorkflowCheck[];
+  allHealthy: boolean;
+  healthyCount: number;
+  totalCount: number;
+}
+
+const N8N_BASE = 'https://primary-production-6c6f5.up.railway.app';
+
+export async function collectSEOWorkflowHealth(): Promise<SEOWorkflowHealth> {
+  const now = new Date();
+
+  // Step 1: Check n8n is alive
+  let n8nAlive = false;
+  try {
+    const res = await fetch(`${N8N_BASE}/healthz`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    n8nAlive = res.ok;
+  } catch {
+    n8nAlive = false;
+  }
+
+  // Step 2: Per-workflow checks via output table freshness
+  type CheckFn = () => Promise<{ lastRun: string | null; daysSince: number; total: number | null; keywordsTracked?: number | null; healthy: boolean }>;
+
+  const workflowDefs: Array<{ id: string; name: string; schedule: string; critical: boolean; check: CheckFn }> = [
+    {
+      id: 'WF-SEO-01', name: 'GSC + GA4 Data Pull', schedule: 'Monday 8AM IST', critical: true,
+      check: async () => {
+        const r = await pool.query(`SELECT MAX(week_start) AS last_run, COUNT(*) AS total FROM seo_weekly_metrics`);
+        const lastRun = (r.rows[0] as { last_run: string | null }).last_run;
+        const daysSince = lastRun ? Math.floor((now.getTime() - new Date(lastRun).getTime()) / 86400000) : 999;
+        return { lastRun, daysSince, total: Number((r.rows[0] as { total: string }).total), healthy: daysSince <= 8 };
+      },
+    },
+    {
+      id: 'WF-SEO-02', name: 'Alert Triggers', schedule: 'Daily 9AM IST', critical: true,
+      check: async () => {
+        const r = await pool.query(`SELECT MAX(created_at) AS last_run, COUNT(*) AS total FROM seo_alerts_log WHERE created_at > NOW() - INTERVAL '7 days'`);
+        const lastRun = (r.rows[0] as { last_run: string | null }).last_run;
+        const daysSince = lastRun ? Math.floor((now.getTime() - new Date(lastRun).getTime()) / 86400000) : 999;
+        return { lastRun, daysSince, total: Number((r.rows[0] as { total: string }).total), healthy: daysSince <= 2 };
+      },
+    },
+    {
+      id: 'WF-SEO-05', name: 'PageSpeed Monitor', schedule: 'Sunday 7AM IST', critical: false,
+      check: async () => {
+        const r = await pool.query(`SELECT MAX(checked_at) AS last_run, COUNT(*) AS total FROM site_health_metrics`);
+        const lastRun = (r.rows[0] as { last_run: string | null }).last_run;
+        const daysSince = lastRun ? Math.floor((now.getTime() - new Date(lastRun).getTime()) / 86400000) : 999;
+        return { lastRun, daysSince, total: Number((r.rows[0] as { total: string }).total), healthy: daysSince <= 8 };
+      },
+    },
+    {
+      id: 'WF-SEO-06', name: 'Rank Tracking', schedule: 'Tuesday 9AM IST', critical: true,
+      check: async () => {
+        const r = await pool.query(`SELECT MAX(checked_at) AS last_run, COUNT(*) AS total, COUNT(DISTINCT keyword) AS keywords_tracked FROM keyword_rankings`);
+        const lastRun = (r.rows[0] as { last_run: string | null }).last_run;
+        const daysSince = lastRun ? Math.floor((now.getTime() - new Date(lastRun).getTime()) / 86400000) : 999;
+        return { lastRun, daysSince, total: Number((r.rows[0] as { total: string }).total), keywordsTracked: Number((r.rows[0] as { keywords_tracked: string }).keywords_tracked), healthy: daysSince <= 8 };
+      },
+    },
+    {
+      id: 'WF-SEO-08', name: 'Backlink Monitor', schedule: 'Friday 9AM IST', critical: false,
+      check: async () => {
+        const r = await pool.query(`SELECT MAX(checked_at) AS last_run, COUNT(*) AS total FROM backlink_data`);
+        const lastRun = (r.rows[0] as { last_run: string | null }).last_run;
+        const daysSince = lastRun ? Math.floor((now.getTime() - new Date(lastRun).getTime()) / 86400000) : 999;
+        return { lastRun, daysSince, total: Number((r.rows[0] as { total: string }).total), healthy: daysSince <= 8 };
+      },
+    },
+    {
+      id: 'WF-SEO-11', name: 'Content Decay Detection', schedule: 'First Monday 9AM IST', critical: false,
+      check: async () => {
+        const r = await pool.query(`SELECT MAX(created_at) AS last_run, COUNT(*) AS total FROM seo_opportunities`);
+        const lastRun = (r.rows[0] as { last_run: string | null }).last_run;
+        const daysSince = lastRun ? Math.floor((now.getTime() - new Date(lastRun).getTime()) / 86400000) : 999;
+        return { lastRun, daysSince, total: Number((r.rows[0] as { total: string }).total), healthy: daysSince <= 35 };
+      },
+    },
+    {
+      id: 'WF-SEO-12', name: 'Weekly Opportunity Digest', schedule: 'Friday 5PM IST', critical: false,
+      check: async () => {
+        const r = await pool.query(`SELECT MAX(created_at) AS last_run FROM seo_workflow_logs WHERE workflow_id = 'M4rbRZL5jh0jJHku'`).catch(() => ({ rows: [{ last_run: null }] }));
+        const lastRun = (r.rows[0] as { last_run: string | null }).last_run;
+        const daysSince = lastRun ? Math.floor((now.getTime() - new Date(lastRun).getTime()) / 86400000) : 999;
+        return { lastRun, daysSince, total: null, healthy: daysSince <= 8 };
+      },
+    },
+  ];
+
+  const results: SEOWorkflowCheck[] = await Promise.all(
+    workflowDefs.map(async wf => {
+      try {
+        const res = await wf.check();
+        return {
+          id:       wf.id,
+          name:     wf.name,
+          schedule: wf.schedule,
+          critical: wf.critical,
+          ...res,
+          status: res.healthy ? ('healthy' as const) : ('overdue' as const),
+          error:  null,
+        };
+      } catch (e) {
+        return {
+          id:       wf.id,
+          name:     wf.name,
+          schedule: wf.schedule,
+          critical: wf.critical,
+          lastRun:  null,
+          daysSince: 999,
+          total:    null,
+          healthy:  false,
+          status:   'error' as const,
+          error:    e instanceof Error ? e.message : String(e),
+        };
+      }
+    }),
+  );
+
+  const brokenCritical = results.filter(r => r.critical && !r.healthy);
+  const allHealthy     = results.every(r => r.healthy);
+  const healthyCount   = results.filter(r => r.healthy).length;
+
+  return { n8nAlive, workflows: results, brokenCritical, allHealthy, healthyCount, totalCount: results.length };
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -78,6 +227,7 @@ export interface AgencyDailyData {
   whatsapp: WhatsappData;
   funnel: FunnelData;
   billing: BillingData;
+  seoWorkflows: SEOWorkflowHealth;
   yesterdayScore: number | null;
   errors: string[];
 }
@@ -457,6 +607,20 @@ export async function collectDailyData(): Promise<AgencyDailyData> {
 
   client.release();
 
+  // -------------------------------------------------------------------------
+  // 8. SEO WORKFLOW HEALTH (uses pool directly, no client conn needed)
+  // -------------------------------------------------------------------------
+  let seoWorkflows: SEOWorkflowHealth = {
+    n8nAlive: false, workflows: [], brokenCritical: [],
+    allHealthy: false, healthyCount: 0, totalCount: 0,
+  };
+  try {
+    seoWorkflows = await collectSEOWorkflowHealth();
+  } catch (e) {
+    logger.error('[intel-collector] seo workflow health check failed:', e);
+    errors.push('seo_workflow_health_failed');
+  }
+
   return {
     collectedAt: new Date().toISOString(),
     tenantId,
@@ -467,6 +631,7 @@ export async function collectDailyData(): Promise<AgencyDailyData> {
     whatsapp,
     funnel,
     billing,
+    seoWorkflows,
     yesterdayScore,
     errors,
   };

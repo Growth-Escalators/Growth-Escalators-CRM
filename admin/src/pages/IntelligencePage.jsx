@@ -4,7 +4,7 @@ import { apiFetch } from '../lib/api.js';
 import {
   Brain, Sparkles, RefreshCw, TrendingUp, AlertTriangle,
   CheckCircle, ChevronDown, ChevronRight, Eye, EyeOff,
-  Zap, Target, Users, BarChart2, Search, Activity
+  Zap, Target, Users, BarChart2, Search, Activity, Cpu, ExternalLink
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -177,6 +177,72 @@ function ScoreTrendChart({ scores }) {
 }
 
 // ---------------------------------------------------------------------------
+// SEO Workflow Health panel (shown before wins/problems when workflows broken)
+// ---------------------------------------------------------------------------
+function SEOWorkflowHealthSection({ wfData }) {
+  if (!wfData) return null;
+
+  const allHealthy = wfData.allHealthy;
+  const n8nOnline  = wfData.n8nAlive;
+  const total      = wfData.totalCount || 0;
+  const healthy    = wfData.healthyCount || 0;
+  const pct        = total > 0 ? Math.round((healthy / total) * 100) : 0;
+  const workflows  = wfData.workflows || [];
+
+  const barColor = allHealthy ? 'bg-emerald-500' : (pct >= 70 ? 'bg-yellow-400' : 'bg-red-500');
+
+  return (
+    <div className={`rounded-xl border p-4 ${allHealthy ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200'}`}>
+      <div className="flex items-center gap-3 mb-3">
+        <Cpu className={`w-4 h-4 flex-shrink-0 ${allHealthy ? 'text-emerald-500' : 'text-orange-500'}`} />
+        <p className="text-sm font-semibold text-slate-800">SEO Workflow Health</p>
+        <span className={`ml-auto text-xs font-semibold px-2 py-0.5 rounded-full ${n8nOnline ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+          n8n {n8nOnline ? '🟢 Online' : '🔴 Offline'}
+        </span>
+        <a href="/crm/seo" className="flex items-center gap-1 text-xs text-sky-600 hover:underline">
+          Fix <ExternalLink className="w-3 h-3" />
+        </a>
+      </div>
+
+      {/* Progress bar */}
+      <div className="mb-3">
+        <div className="flex justify-between text-xs text-slate-500 mb-1">
+          <span>{healthy}/{total} workflows healthy</span>
+          <span>{pct}%</span>
+        </div>
+        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+          <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+
+      {/* Workflow list */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+        {workflows.map(wf => {
+          const dot    = wf.healthy ? '🟢' : (wf.critical ? '🔴' : '🟡');
+          const daysText = !wf.healthy
+            ? (wf.daysSince === 999 ? 'never run' : `${wf.daysSince}d overdue`)
+            : (wf.lastRun ? `ran ${Math.floor((Date.now() - new Date(wf.lastRun).getTime()) / 86400000)}d ago` : 'ok');
+          return (
+            <div key={wf.id} className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs ${wf.healthy ? 'bg-slate-50' : wf.critical ? 'bg-red-50 border border-red-100' : 'bg-yellow-50 border border-yellow-100'}`}>
+              <span>{dot}</span>
+              <span className={`font-medium flex-1 truncate ${wf.critical && !wf.healthy ? 'text-red-700' : 'text-slate-700'}`}>{wf.name}</span>
+              <span className="text-slate-400 flex-shrink-0">{daysText}</span>
+              {wf.critical && !wf.healthy && (
+                <span className="flex-shrink-0 px-1 py-0.5 bg-red-100 text-red-600 text-[9px] font-bold rounded uppercase">!</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {allHealthy && (
+        <p className="text-xs text-emerald-600 mt-2 text-center">All SEO data pipelines running ✓</p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Today's report
 // ---------------------------------------------------------------------------
 function TodayReport({ report, onGenerate, generating }) {
@@ -204,6 +270,8 @@ function TodayReport({ report, onGenerate, generating }) {
   const anomalies   = parseJson(report.anomalies)   ?? [];
   const predictions = parseJson(report.predictions) ?? [];
   const overall     = report.overall_score ?? 0;
+  const rawData     = parseJson(report.raw_data);
+  const wfData      = rawData?.seoWorkflows ?? null;
 
   return (
     <div className="space-y-5">
@@ -234,6 +302,9 @@ function TodayReport({ report, onGenerate, generating }) {
           </div>
         </div>
       )}
+
+      {/* SEO Workflow Health — shown prominently before wins/problems */}
+      <SEOWorkflowHealthSection wfData={wfData} />
 
       {/* 3-column: wins / problems / actions */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

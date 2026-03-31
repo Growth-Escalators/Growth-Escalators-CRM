@@ -100,6 +100,9 @@ Agency context:
 - White label: Meta Ads for UK/AU/CA agencies at $900/month
 - Team: Jatin (founder), Sakcham (sales), Vishal (ads), Nimisha (design), Keshav (video)
 - Target: ₹50L-10Cr annual revenue D2C brands
+- SEO data is collected via 12 n8n workflows running at https://primary-production-6c6f5.up.railway.app
+
+When SEO workflows are broken or overdue, flag this as HIGH priority since it means client data is not being collected. Always mention specific workflow names and how many days overdue they are. A workflow being overdue means client SEO performance is invisible to the team.
 
 Analyze today's agency data and respond ONLY with valid JSON in this exact format:
 {
@@ -254,6 +257,18 @@ SEO: ${JSON.stringify({
 COMMUNICATION: ${JSON.stringify(data.whatsapp, null, 2)}
 
 BILLING: ${JSON.stringify(billingSummary, null, 2)}
+
+SEO WORKFLOW HEALTH:
+n8n Status: ${data.seoWorkflows.n8nAlive ? 'Online' : 'OFFLINE ⚠️'}
+Workflows healthy: ${data.seoWorkflows.healthyCount}/${data.seoWorkflows.totalCount}
+${data.seoWorkflows.brokenCritical.length > 0
+  ? 'BROKEN CRITICAL WORKFLOWS: ' + data.seoWorkflows.brokenCritical.map(w => `${w.name} — last ran ${w.daysSince === 999 ? 'NEVER' : w.daysSince + ' days ago'}`).join(', ')
+  : 'All critical workflows healthy'}
+
+Individual workflow status:
+${data.seoWorkflows.workflows.map(w =>
+  `${w.name}: ${w.status} (last run: ${w.lastRun ? new Date(w.lastRun).toDateString() : 'never'}, records: ${w.total ?? 0}${w.keywordsTracked != null ? ', keywords: ' + w.keywordsTracked : ''})`
+).join('\n')}
 
 DATA ERRORS (sources unavailable): ${data.errors.join(', ') || 'none'}
 

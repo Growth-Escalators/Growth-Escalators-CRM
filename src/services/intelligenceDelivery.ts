@@ -23,7 +23,7 @@ function priorityEmoji(priority: string): string {
   return '•';
 }
 
-export async function deliverDailyIntelligence(analysis: Analysis, _data: AgencyDailyData): Promise<void> {
+export async function deliverDailyIntelligence(analysis: Analysis, data: AgencyDailyData): Promise<void> {
   const date = new Date().toLocaleDateString('en-IN', {
     weekday: 'long', day: 'numeric', month: 'long',
   });
@@ -45,6 +45,21 @@ export async function deliverDailyIntelligence(analysis: Analysis, _data: Agency
     ? '\n🔍 *Anomalies Detected:*\n' + analysis.anomalies.map(a => `• ${a}`).join('\n')
     : '';
 
+  // SEO Workflow health section
+  const wfData = data.seoWorkflows;
+  let wfLines: string;
+  if (wfData.allHealthy) {
+    wfLines = '\n\n⚙️ *SEO Workflows:* 🟢 All systems running';
+  } else {
+    const n8nStatus = wfData.n8nAlive ? '🟢 Online' : '🔴 OFFLINE';
+    const wfStatusLines = wfData.workflows.map(wf => {
+      const dot = wf.healthy ? '🟢' : (wf.critical ? '🔴' : '🟡');
+      const extra = !wf.healthy ? ` — ${wf.daysSince === 999 ? 'never run' : `${wf.daysSince}d overdue`}` : '';
+      return `${dot} ${wf.name}${extra}`;
+    }).join('\n');
+    wfLines = `\n\n⚙️ *SEO Workflow Status:*\nn8n: ${n8nStatus}\n${wfStatusLines}`;
+  }
+
   const message = `🧠 *GE Intelligence Report — ${date}*
 Overall Score: *${analysis.scores.overall}/100* ${emoji}
 
@@ -57,7 +72,7 @@ ${problemLines}
 
 🎯 *Priority Actions:*
 ${actionLines}
-${anomalyLines}
+${anomalyLines}${wfLines}
 
 📊 *Scores:* Ads ${analysis.scores.ads}/100 | SEO ${analysis.scores.seo}/100 | Sales ${analysis.scores.sales}/100 | Ops ${analysis.scores.ops}/100
 
