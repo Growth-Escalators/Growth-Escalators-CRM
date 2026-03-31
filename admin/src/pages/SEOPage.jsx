@@ -4,7 +4,8 @@ import { apiFetch } from '../lib/api.js';
 import {
   TrendingUp, TrendingDown, BarChart2, Globe, Search, Zap, AlertCircle,
   ChevronDown, RefreshCw, ExternalLink, ArrowUp, ArrowDown, Minus,
-  Activity, Shield, FileText, Target
+  Activity, Shield, FileText, Target, Clock, CheckCircle, XCircle,
+  ChevronRight, Database, Play
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -510,60 +511,244 @@ function OverviewCards({ clients, onSelect }) {
 }
 
 // ---------------------------------------------------------------------------
-// Workflows panel
+// Workflows panel (rich version with health status + logs)
 // ---------------------------------------------------------------------------
+const STATUS_DOT = {
+  healthy: 'bg-green-400',
+  warning: 'bg-yellow-400',
+  error:   'bg-red-500',
+  manual:  'bg-slate-300',
+};
+const STATUS_LABEL = {
+  healthy: 'text-green-600',
+  warning: 'text-yellow-600',
+  error:   'text-red-500',
+  manual:  'text-slate-400',
+};
+
 function WorkflowsPanel() {
   const [workflows, setWorkflows] = useState([]);
+  const [summary, setSummary] = useState(null);
   const [triggering, setTriggering] = useState({});
-  const [lastRun, setLastRun] = useState({});
+  const [triggerToast, setTriggerToast] = useState(null);  // { id, ok }
+  const [expandedLogs, setExpandedLogs] = useState({});   // id → log entries[]
+  const [loadingLogs, setLoadingLogs] = useState({});
+  const [runningAll, setRunningAll] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  function fetchStatus() {
+    apiFetch('/api/seo-workflows/status')
+      .then(d => { setWorkflows(d?.workflows ?? []); setSummary(d?.summary ?? null); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }
 
   useEffect(() => {
-    apiFetch('/api/seo/workflows')
-      .then(d => setWorkflows(d?.workflows ?? []))
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  async function triggerWorkflow(webhookPath, wfId) {
+    setTriggering(prev => ({ ...prev, [wfId]: true }));
+    setTriggerToast(null);
+    try {
+      const r = await apiFetch(`/api/seo-workflows/trigger/${webhookPath}`, { method: 'POST' });
+      setTriggerToast({ id: wfId, ok: r?.triggered ?? true });
+      setTimeout(fetchStatus, 3000);
+    } catch {
+      setTriggerToast({ id: wfId, ok: false });
+    }
+    setTriggering(prev => ({ ...prev, [wfId]: false }));
+    setTimeout(() => setTriggerToast(null), 4000);
+  }
+
+  async function viewLogs(wfId) {
+    if (expandedLogs[wfId]) {
+      setExpandedLogs(prev => { const n = { ...prev }; delete n[wfId]; return n; });
+      return;
+    }
+    setLoadingLogs(prev => ({ ...prev, [wfId]: true }));
+    try {
+      const r = await apiFetch(`/api/seo-workflows/logs?workflowId=${wfId}`);
+      setExpandedLogs(prev => ({ ...prev, [wfId]: (r?.logs ?? []).slice(0, 5) }));
+    } catch {
+      setExpandedLogs(prev => ({ ...prev, [wfId]: [] }));
+    }
+    setLoadingLogs(prev => ({ ...prev, [wfId]: false }));
+  }
+
+  async function runAll() {
+    setRunningAll(true);
+    const critical = workflows.filter(w => w.critical);
+    for (let i = 0; i < critical.length; i++) {
+      const wf = critical[i];
+      await triggerWorkflow(wf.webhookPath, wf.id);
+      if (i < critical.length - 1) await new Promise(r => setTimeout(r, 10_000));
+    }
+    setRunningAll(false);
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Header + summary */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+          <Zap className="w-4 h-4 text-sky-500" />
+          <p className="text-sm font-semibold text-slate-800">n8n Workflows</p>
+          <button onClick={fetchStatus} className="ml-auto text-slate-400 hover:text-slate-600 p-0.5">
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Summary strip */}
+        {summary && (
+          <div className="px-4 py-2 border-b border-slate-50 flex gap-4 text-xs">
+            <span className="text-green-600 font-medium">✓ {summary.healthy} healthy</span>
+            {summary.warning > 0 && <span className="text-yellow-600 font-medium">⚠ {summary.warning} warning</span>}
+            {summary.error   > 0 && <span className="text-red-500 font-medium">✗ {summary.error} error</span>}
+          </div>
+        )}
+
+        {/* Run All critical */}
+        <div className="px-4 py-2 border-b border-slate-50">
+          <button
+            onClick={runAll}
+            disabled={runningAll || workflows.length === 0}
+            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-sky-600 text-white rounded-lg text-xs font-medium hover:bg-sky-700 disabled:opacity-50 transition-colors"
+          >
+            <Play className="w-3.5 h-3.5" />
+            {runningAll ? 'Running critical workflows…' : 'Run All Critical'}
+          </button>
+        </div>
+
+        {/* Workflow cards */}
+        {loading ? (
+          <div className="px-4 py-6 text-center text-sm text-slate-400">Loading…</div>
+        ) : (
+          <div className="divide-y divide-slate-50">
+            {workflows.map(wf => (
+              <div key={wf.id} className="px-3 py-2.5">
+                {/* Row 1: name + badges + status dot */}
+                <div className="flex items-start gap-2">
+                  <span className={`mt-1.5 flex-shrink-0 w-2 h-2 rounded-full ${STATUS_DOT[wf.status] ?? 'bg-slate-300'}`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="text-xs font-semibold text-slate-700 leading-snug">{wf.name}</p>
+                      {wf.critical && (
+                        <span className="flex-shrink-0 px-1 py-0.5 bg-red-100 text-red-600 text-[10px] font-semibold rounded">CRITICAL</span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-0.5">{wf.schedule}</p>
+                    <p className={`text-[10px] mt-0.5 ${STATUS_LABEL[wf.status] ?? 'text-slate-400'}`}>{wf.statusMessage}</p>
+                    {wf.dataCount > 0 && (
+                      <p className="text-[10px] text-slate-400">{wf.dataCount.toLocaleString('en-IN')} records</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Toast for this wf */}
+                {triggerToast?.id === wf.id && (
+                  <p className={`text-[10px] mt-1 ml-4 font-medium ${triggerToast.ok ? 'text-green-600' : 'text-red-500'}`}>
+                    {triggerToast.ok ? '✓ Triggered successfully' : '✗ Trigger failed'}
+                  </p>
+                )}
+
+                {/* Row 2: buttons */}
+                <div className="flex gap-1.5 mt-2 ml-4">
+                  <button
+                    onClick={() => triggerWorkflow(wf.webhookPath, wf.id)}
+                    disabled={triggering[wf.id]}
+                    className="flex items-center gap-1 px-2 py-1 text-[10px] bg-sky-50 border border-sky-200 text-sky-700 rounded hover:bg-sky-100 disabled:opacity-40 transition-colors"
+                  >
+                    {triggering[wf.id]
+                      ? <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                      : <Play className="w-2.5 h-2.5" />}
+                    {triggering[wf.id] ? 'Running…' : 'Run Now'}
+                  </button>
+                  <button
+                    onClick={() => viewLogs(wf.id)}
+                    disabled={loadingLogs[wf.id]}
+                    className="flex items-center gap-1 px-2 py-1 text-[10px] border border-slate-200 text-slate-500 rounded hover:border-slate-300 hover:text-slate-700 transition-colors"
+                  >
+                    <Clock className="w-2.5 h-2.5" />
+                    {expandedLogs[wf.id] ? 'Hide' : 'Logs'}
+                  </button>
+                </div>
+
+                {/* Inline logs */}
+                {expandedLogs[wf.id] && (
+                  <div className="mt-2 ml-4 space-y-1">
+                    {expandedLogs[wf.id].length === 0 ? (
+                      <p className="text-[10px] text-slate-400">No logs yet</p>
+                    ) : (
+                      expandedLogs[wf.id].map((log, i) => (
+                        <div key={i} className="flex items-center gap-1.5">
+                          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${log.status === 'triggered' || log.status === 'success' ? 'bg-green-400' : 'bg-red-400'}`} />
+                          <span className="text-[10px] text-slate-500">{log.status}</span>
+                          <span className="text-[10px] text-slate-400 ml-auto">
+                            {log.created_at ? new Date(log.created_at).toLocaleDateString('en-IN') : ''}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Data health panel
+// ---------------------------------------------------------------------------
+function DataHealthPanel() {
+  const [health, setHealth] = useState(null);
+
+  useEffect(() => {
+    apiFetch('/api/seo-workflows/data-health')
+      .then(d => setHealth(d))
       .catch(() => {});
   }, []);
 
-  async function trigger(id, name) {
-    setTriggering(prev => ({ ...prev, [id]: true }));
-    try {
-      await apiFetch(`/api/seo/trigger/${id}`, { method: 'POST' });
-      setLastRun(prev => ({ ...prev, [id]: new Date() }));
-    } catch {}
-    setTriggering(prev => ({ ...prev, [id]: false }));
-  }
+  if (!health) return null;
+
+  const rows = [
+    { label: 'Weekly Metrics',  count: health.seo_weekly_metrics?.count,   last: health.seo_weekly_metrics?.lastEntry,  extra: health.seo_weekly_metrics?.clients != null ? `${health.seo_weekly_metrics.clients} clients` : null },
+    { label: 'Keywords',        count: health.keyword_rankings?.count,      last: health.keyword_rankings?.lastEntry,    extra: health.keyword_rankings?.keywords != null ? `${health.keyword_rankings.keywords} unique` : null },
+    { label: 'Site Health',     count: health.site_health_metrics?.count,   last: health.site_health_metrics?.lastEntry  },
+    { label: 'Alerts',          count: health.seo_alerts_log?.count,        last: health.seo_alerts_log?.lastEntry       },
+    { label: 'Opportunities',   count: health.seo_opportunities?.count,     last: null, extra: health.seo_opportunities ? `${health.seo_opportunities.open} open` : null },
+    { label: 'Backlinks',       count: health.backlink_data?.count,         last: health.backlink_data?.lastEntry        },
+    { label: 'Content Gaps',    count: health.content_gap_analysis?.count,  last: health.content_gap_analysis?.lastEntry },
+  ];
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
       <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
-        <Zap className="w-4 h-4 text-sky-500" />
-        <p className="text-sm font-semibold text-slate-800">n8n Workflows</p>
-        <span className="ml-auto text-xs text-slate-400">{workflows.length} active</span>
+        <Database className="w-4 h-4 text-emerald-500" />
+        <p className="text-sm font-semibold text-slate-800">Data Health</p>
       </div>
       <div className="divide-y divide-slate-50">
-        {workflows.map(w => (
-          <div key={w.id} className="px-4 py-2.5 flex items-center gap-3">
+        {rows.map(row => (
+          <div key={row.label} className="px-4 py-2 flex items-center gap-2">
+            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${(row.count ?? 0) > 0 ? 'bg-green-400' : 'bg-slate-300'}`} />
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-slate-700 truncate">{w.name}</p>
-              <p className="text-xs text-slate-400">{w.schedule}</p>
-              {lastRun[w.id] && (
-                <p className="text-xs text-green-600">
-                  Triggered {lastRun[w.id].toLocaleTimeString('en-IN')}
-                </p>
+              <p className="text-xs text-slate-700">{row.label}</p>
+              {row.extra && <p className="text-[10px] text-slate-400">{row.extra}</p>}
+            </div>
+            <div className="text-right flex-shrink-0">
+              <p className="text-xs font-semibold text-slate-700">{(row.count ?? 0).toLocaleString('en-IN')}</p>
+              {row.last && (
+                <p className="text-[10px] text-slate-400">{new Date(row.last).toLocaleDateString('en-IN')}</p>
               )}
             </div>
-            <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-green-400" title="Active" />
-            <button
-              onClick={() => trigger(w.id, w.name)}
-              disabled={triggering[w.id]}
-              className="flex-shrink-0 px-2 py-1 text-xs border border-slate-200 rounded text-slate-600 hover:border-sky-300 hover:text-sky-600 transition-colors disabled:opacity-40"
-            >
-              {triggering[w.id] ? '…' : 'Run'}
-            </button>
           </div>
         ))}
-        {workflows.length === 0 && (
-          <p className="px-4 py-6 text-sm text-slate-400 text-center">Loading workflows…</p>
-        )}
       </div>
     </div>
   );
@@ -747,9 +932,10 @@ export default function SEOPage() {
               )}
             </div>
 
-            {/* Right panel: Workflows */}
-            <div className="w-64 flex-shrink-0 space-y-4">
+            {/* Right panel: Workflows + Data Health */}
+            <div className="w-80 flex-shrink-0 space-y-4">
               <WorkflowsPanel />
+              <DataHealthPanel />
             </div>
 
           </div>
