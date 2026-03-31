@@ -12,6 +12,9 @@ import { generateMonthlyDraftInvoices } from './services/recurringInvoiceService
 import { sendSODDigest, sendEODSummary } from './services/sodEodService';
 import { checkSpendAlerts } from './services/spendAlertService';
 import { checkWorkflowHealth } from './services/seoWorkflowHealthService';
+import { collectDailyData } from './services/intelligenceDataCollector';
+import { analyzeWithClaude } from './services/intelligenceAnalyzer';
+import { deliverDailyIntelligence } from './services/intelligenceDelivery';
 import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_PERF_MARKETING_CHANNEL, DEFAULT_TENANT_SLUG } from './config/constants';
 
 console.log('[worker] Worker process started');
@@ -118,6 +121,26 @@ cron.schedule('30 4 * * *', async () => {
   }
 }, { timezone: 'UTC' });
 console.log('[cron] overdue invoice check scheduled — daily at 10 AM IST');
+
+// Daily AI Intelligence Report — 8:30 AM IST (3:00 UTC)
+cron.schedule('0 3 * * *', async () => {
+  console.log('[CRON] Running daily intelligence report...');
+  try {
+    const data = await collectDailyData();
+    const analysis = await analyzeWithClaude(data);
+    await deliverDailyIntelligence(analysis, data);
+    console.log('[CRON] Intelligence report delivered. Score:', analysis.scores.overall);
+  } catch (e) {
+    console.error('[CRON] Intelligence report failed:', e);
+    const msg = e instanceof Error ? e.message : String(e);
+    try {
+      const { sendSlackMessage } = await import('./services/slackService');
+      await sendSlackMessage(`@${SLACK_JATIN}`,
+        `⚠️ *Daily Intelligence Report Failed*\nError: ${msg}\nCheck worker logs for details.`);
+    } catch { /* ignore */ }
+  }
+}, { timezone: 'UTC' });
+console.log('[cron] AI intelligence report scheduled — daily 8:30 AM IST');
 
 // SEO workflow health check — daily 9 AM IST (3:30 UTC)
 cron.schedule('30 3 * * *', async () => {

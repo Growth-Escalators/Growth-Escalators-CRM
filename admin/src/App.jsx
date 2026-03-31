@@ -19,6 +19,7 @@ import AuditPage from './pages/AuditPage.jsx';
 import DashboardPage from './pages/DashboardPage.jsx';
 import AnalyticsPage from './pages/AnalyticsPage.jsx';
 import SEOPage from './pages/SEOPage.jsx';
+import IntelligencePage from './pages/IntelligencePage.jsx';
 
 function PrivateRoute({ children }) {
   const token = localStorage.getItem('ge_crm_token');
@@ -48,6 +49,7 @@ export default function App() {
         <Route path="/marketing" element={<PrivateRoute><MarketingPage /></PrivateRoute>} />
         <Route path="/analytics" element={<PrivateRoute><AnalyticsPage /></PrivateRoute>} />
         <Route path="/seo" element={<PrivateRoute><SEOPage /></PrivateRoute>} />
+        <Route path="/intelligence" element={<PrivateRoute><IntelligencePage /></PrivateRoute>} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>

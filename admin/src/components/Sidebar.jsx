@@ -4,7 +4,7 @@ import { logout, getUser, apiFetch } from '../lib/api.js';
 import {
   Users, BarChart2, Zap, Mail, Receipt, Activity, Lock, Home,
   TrendingUp, FileText, Share2, MessageSquare, Settings, Layout, MapPin,
-  Shield, ClipboardList, CreditCard, Kanban
+  Shield, ClipboardList, CreditCard, Kanban, Brain
 } from 'lucide-react';
 
 const ROLE_BADGE_COLORS = {
@@ -91,6 +91,11 @@ export default function Sidebar() {
         <NavLink to="/dashboard" className={navClass}>
           <Home className="w-4 h-4" /> Dashboard
         </NavLink>
+        {isAdmin && (
+          <NavLink to="/intelligence" className={navClass}>
+            <Brain className="w-4 h-4" /> AI Intelligence
+          </NavLink>
+        )}
         {canCRM && (
           <>
             <NavLink to="/contacts" className={navClass}>
