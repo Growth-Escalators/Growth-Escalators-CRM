@@ -156,6 +156,11 @@ export default function Sidebar() {
                 <BarChart2 className="w-4 h-4" /> SEO
               </NavLink>
             )}
+            {isAdmin && (
+              <NavLink to="/growth-os" className={navClass}>
+                <Zap className="w-4 h-4" /> Growth OS
+              </NavLink>
+            )}
           </>
         )}
 

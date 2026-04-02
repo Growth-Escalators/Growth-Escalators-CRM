@@ -191,6 +191,127 @@ cron.schedule('45 3 * * *', async () => {
 console.log('[cron] SEO workflow health check scheduled — daily 9:15 AM IST');
 
 // ---------------------------------------------------------------------------
+// Growth OS — Brand Health Score — Daily 8:00 AM IST (2:30 UTC)
+// ---------------------------------------------------------------------------
+cron.schedule('30 2 * * *', async () => {
+  console.log('[CRON] Running Growth OS health scores...');
+  try {
+    const { getActiveGrowthOSClients } = await import('./services/growthOSSetup');
+    const { calculateBrandHealth, sendHealthScoreWhatsApp } = await import('./services/brandHealthService');
+    const clients = await getActiveGrowthOSClients();
+    for (const client of clients) {
+      const score = await calculateBrandHealth(client);
+      if (client.founder_whatsapp) await sendHealthScoreWhatsApp(score, client.founder_whatsapp);
+      await new Promise(r => setTimeout(r, 3000));
+    }
+    console.log('[CRON] Growth OS health scores done');
+  } catch (e) {
+    console.error('[CRON] Growth OS health scores failed:', e);
+  }
+}, { timezone: 'UTC' });
+console.log('[cron] Growth OS health scores scheduled — daily 8:00 AM IST');
+
+// Growth OS — Money on Table — Every Monday 8:30 AM IST (3:00 UTC)
+cron.schedule('0 3 * * 1', async () => {
+  console.log('[CRON] Running money on table...');
+  try {
+    const { getActiveGrowthOSClients } = await import('./services/growthOSSetup');
+    const { calculateMoneyOnTable } = await import('./services/opportunityService');
+    const clients = await getActiveGrowthOSClients();
+    for (const client of clients) {
+      await calculateMoneyOnTable(client);
+      await new Promise(r => setTimeout(r, 3000));
+    }
+    console.log('[CRON] Money on table done');
+  } catch (e) {
+    console.error('[CRON] Money on table failed:', e);
+  }
+}, { timezone: 'UTC' });
+console.log('[cron] Money on table scheduled — Mondays 8:30 AM IST');
+
+// Growth OS — Creative Intelligence — Every 6 hours
+cron.schedule('0 */6 * * *', async () => {
+  console.log('[CRON] Running creative intelligence...');
+  try {
+    const { getActiveGrowthOSClients } = await import('./services/growthOSSetup');
+    const { trackCreativePerformance } = await import('./services/creativeIntelligenceService');
+    const clients = await getActiveGrowthOSClients();
+    for (const client of clients) {
+      await trackCreativePerformance(client.ad_account_id);
+      await new Promise(r => setTimeout(r, 5000));
+    }
+    console.log('[CRON] Creative intelligence done');
+  } catch (e) {
+    console.error('[CRON] Creative intelligence failed:', e);
+  }
+}, { timezone: 'UTC' });
+console.log('[cron] Creative intelligence scheduled — every 6 hours');
+
+// Growth OS — Competitor Pulse — Every Friday 9:00 AM IST (3:30 UTC)
+cron.schedule('30 3 * * 5', async () => {
+  console.log('[CRON] Running competitor pulse...');
+  try {
+    const { getActiveGrowthOSClients } = await import('./services/growthOSSetup');
+    const { runCompetitorPulse } = await import('./services/competitorService');
+    const clients = await getActiveGrowthOSClients();
+    for (const client of clients) {
+      await runCompetitorPulse(client);
+      await new Promise(r => setTimeout(r, 5000));
+    }
+    console.log('[CRON] Competitor pulse done');
+  } catch (e) {
+    console.error('[CRON] Competitor pulse failed:', e);
+  }
+}, { timezone: 'UTC' });
+console.log('[cron] Competitor pulse scheduled — Fridays 9:00 AM IST');
+
+// Growth OS — Co-Pilot: poll unprocessed inbound messages from Growth OS founders — every 2 minutes
+cron.schedule('*/2 * * * *', async () => {
+  try {
+    const { pool: dbPool } = await import('./db/index');
+    const { isCopilotMessage, handleCopilotMessage } = await import('./services/copilotService');
+
+    // Find messages from Growth OS founder phones in last 5 minutes not yet replied to
+    const founderPhones = await dbPool.query(
+      `SELECT DISTINCT replace(founder_whatsapp, '+', '') AS phone FROM growth_os_clients WHERE is_active = true AND founder_whatsapp IS NOT NULL`
+    ).catch(() => ({ rows: [] }));
+
+    if ((founderPhones.rows as unknown[]).length === 0) return;
+
+    const phones = (founderPhones.rows as Array<{ phone: string }>).map(r => r.phone);
+
+    // Check each phone for recent unhandled inbound messages
+    for (const phone of phones) {
+      const msgs = await dbPool.query(
+        `SELECT m.id, m.content, cc.channel_value AS phone
+         FROM messages m
+         JOIN contact_channels cc ON cc.contact_id = m.contact_id AND cc.channel_type = 'whatsapp'
+         WHERE m.direction = 'inbound'
+           AND m.channel = 'whatsapp'
+           AND replace(cc.channel_value, '+', '') = $1
+           AND m.created_at >= NOW() - INTERVAL '3 minutes'
+           AND NOT EXISTS (
+             SELECT 1 FROM copilot_conversations cp
+             WHERE cp.wa_phone = $1
+               AND cp.created_at >= m.created_at
+           )
+         ORDER BY m.created_at ASC LIMIT 5`,
+        [phone]
+      ).catch(() => ({ rows: [] }));
+
+      for (const msg of msgs.rows as Array<{ id: string; content: string; phone: string }>) {
+        if (isCopilotMessage(msg.content)) {
+          await handleCopilotMessage(phone, msg.content).catch(e =>
+            console.error('[CRON] Co-pilot message handling failed:', e)
+          );
+        }
+      }
+    }
+  } catch { /* non-critical */ }
+}, { timezone: 'UTC' });
+console.log('[cron] Co-pilot message poller scheduled — every 2 minutes');
+
+// ---------------------------------------------------------------------------
 // Graceful shutdown
 // ---------------------------------------------------------------------------
 const shutdown = async (signal: string) => {
