@@ -116,7 +116,7 @@ export async function analyzeWithClaude(data: AgencyDailyData): Promise<Analysis
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
-      max_tokens: 4000,
+      max_tokens: 8000,
       system: `You are a strict but supportive operations coach for Growth Escalators, a D2C performance marketing agency in Jaipur, India.
 
 Your job is NOT to summarize what happened.
@@ -214,16 +214,28 @@ Respond ONLY with valid JSON in this exact format:
   const tokensUsed = (rawResponse.usage?.input_tokens ?? 0) + (rawResponse.usage?.output_tokens ?? 0);
 
   let jsonText = textContent.trim();
+
+  // Strip markdown code fences if present
   if (jsonText.startsWith('```')) {
     jsonText = jsonText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+  }
+
+  // Extract the outermost JSON object — handles any leading/trailing text or truncation
+  const firstBrace = jsonText.indexOf('{');
+  const lastBrace  = jsonText.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    jsonText = jsonText.slice(firstBrace, lastBrace + 1);
   }
 
   let parsed: Omit<Analysis, 'tokensUsed'>;
   try {
     parsed = JSON.parse(jsonText);
   } catch (e) {
-    logger.error('[intelligence] Failed to parse Claude response:', jsonText.slice(0, 500));
-    throw new Error('Failed to parse Claude JSON response');
+    logger.error('[intelligence] Failed to parse Claude response:', jsonText.slice(0, 800));
+    logger.error('[intelligence] Response length was:', textContent.length, 'chars');
+    // Fall back to rule-based analysis rather than crashing
+    logger.warn('[intelligence] Falling back to rule-based analysis after JSON parse failure');
+    return { ...buildFallbackAnalysis(data), tokensUsed };
   }
 
   const analysis: Analysis = {
