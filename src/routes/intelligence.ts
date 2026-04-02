@@ -107,8 +107,8 @@ router.post('/generate', async (req: Request, res: Response) => {
     res.json({
       ok: true,
       score: analysis.scores.overall,
-      summary: analysis.summary,
-      one_thing: analysis.one_thing,
+      summary: analysis.coaching_summary,
+      focus_today: analysis.focus_today,
       dataErrors: data.errors,
       tokensUsed: analysis.tokensUsed,
     });

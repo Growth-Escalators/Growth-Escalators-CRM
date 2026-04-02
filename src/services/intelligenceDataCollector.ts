@@ -217,6 +217,13 @@ export interface BillingData {
   pendingAmount: number;  // paise
 }
 
+export interface SystemError {
+  source: string;
+  pattern: string;
+  count: number;
+  detail?: string;
+}
+
 export interface AgencyDailyData {
   collectedAt: string;
   tenantId: string;
@@ -228,8 +235,87 @@ export interface AgencyDailyData {
   funnel: FunnelData;
   billing: BillingData;
   seoWorkflows: SEOWorkflowHealth;
+  systemErrors: SystemError[];
   yesterdayScore: number | null;
   errors: string[];
+}
+
+// ---------------------------------------------------------------------------
+// System error collector
+// ---------------------------------------------------------------------------
+
+export async function collectSystemErrors(): Promise<SystemError[]> {
+  const detected: SystemError[] = [];
+
+  // Failed jobs
+  await pool.query(`
+    SELECT job_type, error_message, COUNT(*) AS cnt
+    FROM jobs
+    WHERE status = 'failed' AND created_at > NOW() - INTERVAL '24 hours'
+    GROUP BY job_type, error_message
+    ORDER BY cnt DESC LIMIT 5
+  `).then(r => {
+    for (const row of r.rows as Array<{ job_type: string; error_message: string; cnt: string }>) {
+      if (Number(row.cnt) > 0) {
+        detected.push({
+          source: 'job_queue',
+          pattern: `${row.job_type} jobs failing`,
+          count: Number(row.cnt),
+          detail: row.error_message,
+        });
+      }
+    }
+  }).catch(() => {});
+
+  // Sequence enrolment errors
+  await pool.query(`
+    SELECT COUNT(*) AS cnt FROM sequence_enrolments
+    WHERE status = 'error' AND updated_at > NOW() - INTERVAL '24 hours'
+  `).then(r => {
+    const cnt = Number((r.rows[0] as { cnt: string }).cnt ?? 0);
+    if (cnt > 0) detected.push({ source: 'sequences', pattern: 'Email sequence enrolment errors', count: cnt });
+  }).catch(() => {});
+
+  // ClickUp task creation failures (from audit_events)
+  await pool.query(`
+    SELECT
+      details->>'error' AS error_msg,
+      details->>'taskType' AS task_type,
+      COUNT(*) AS cnt
+    FROM audit_events
+    WHERE action = 'clickup_task_create_failed'
+      AND created_at > NOW() - INTERVAL '48 hours'
+    GROUP BY details->>'error', details->>'taskType'
+    ORDER BY cnt DESC
+  `).then(r => {
+    for (const row of r.rows as Array<{ error_msg: string; task_type: string; cnt: string }>) {
+      const cnt = Number(row.cnt);
+      if (cnt > 0) {
+        detected.push({
+          source: 'clickup',
+          pattern: `ClickUp ${row.task_type ?? 'task'} creation failed`,
+          count: cnt,
+          detail: row.error_msg,
+        });
+      }
+    }
+  }).catch(() => {});
+
+  // Generic audit errors
+  await pool.query(`
+    SELECT action, COUNT(*) AS cnt
+    FROM audit_events
+    WHERE action LIKE '%error%' OR action LIKE '%failed%'
+      AND created_at > NOW() - INTERVAL '24 hours'
+    GROUP BY action ORDER BY cnt DESC LIMIT 3
+  `).then(r => {
+    for (const row of r.rows as Array<{ action: string; cnt: string }>) {
+      const cnt = Number(row.cnt);
+      if (cnt > 2) detected.push({ source: 'audit', pattern: row.action, count: cnt });
+    }
+  }).catch(() => {});
+
+  return detected;
 }
 
 // ---------------------------------------------------------------------------
@@ -621,6 +707,16 @@ export async function collectDailyData(): Promise<AgencyDailyData> {
     errors.push('seo_workflow_health_failed');
   }
 
+  // -------------------------------------------------------------------------
+  // 9. SYSTEM ERRORS
+  // -------------------------------------------------------------------------
+  let systemErrors: SystemError[] = [];
+  try {
+    systemErrors = await collectSystemErrors();
+  } catch (e) {
+    logger.error('[intel-collector] system error check failed:', e);
+  }
+
   return {
     collectedAt: new Date().toISOString(),
     tenantId,
@@ -632,6 +728,7 @@ export async function collectDailyData(): Promise<AgencyDailyData> {
     funnel,
     billing,
     seoWorkflows,
+    systemErrors,
     yesterdayScore,
     errors,
   };
