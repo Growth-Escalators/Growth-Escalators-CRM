@@ -87,8 +87,12 @@ router.get('/actions', async (_req: Request, res: Response) => {
   }
 });
 
+// In-memory flag so we don't double-generate
+let _generating = false;
+
 // ---------------------------------------------------------------------------
-// POST /api/intelligence/generate — manual on-demand generation (admin only)
+// POST /api/intelligence/generate — non-blocking, admin only
+// Returns immediately. Frontend polls GET /today until report appears.
 // ---------------------------------------------------------------------------
 router.post('/generate', async (req: Request, res: Response) => {
   const user = (req as Request & { user?: { role: string } }).user;
@@ -97,29 +101,32 @@ router.post('/generate', async (req: Request, res: Response) => {
     return;
   }
 
-  // Delete today's existing report so we can regenerate
+  if (_generating) {
+    res.json({ status: 'already_generating', message: 'Generation already in progress — poll GET /api/intelligence/today' });
+    return;
+  }
+
+  // Delete today's existing report so polling knows to wait for the new one
   await pool.query(`DELETE FROM ai_intelligence_reports WHERE report_date = CURRENT_DATE`).catch(() => {});
 
-  try {
-    logger.info('[intelligence] Manual generation triggered');
-    const data = await collectDailyData();
-    const analysis = await analyzeWithClaude(data);
+  // Respond immediately — don't make the browser wait
+  res.json({ status: 'generating', message: 'Report generation started. Poll GET /api/intelligence/today every 5s.' });
 
-    const k = process.env.CLAUDE_API_KEY ?? '';
-    res.json({
-      ok: true,
-      score: analysis.scores.overall,
-      summary: analysis.coaching_summary,
-      focus_today: analysis.focus_today,
-      dataErrors: data.errors,
-      tokensUsed: analysis.tokensUsed,
-      aiEnabled: k.length > 10 && k.startsWith('sk-ant-'),
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    logger.error('[intelligence] generation failed:', e);
-    res.status(500).json({ error: 'Report generation failed', details: msg });
-  }
+  // Background generation — fire and forget
+  _generating = true;
+  setImmediate(async () => {
+    try {
+      logger.info('[intelligence] Background generation started');
+      const data = await collectDailyData();
+      const analysis = await analyzeWithClaude(data);
+      await deliverDailyIntelligence(analysis, data);
+      logger.info(`[intelligence] Background generation complete. Score: ${analysis.scores.overall}`);
+    } catch (e) {
+      logger.error('[intelligence] Background generation failed:', e);
+    } finally {
+      _generating = false;
+    }
+  });
 });
 
 export default router;

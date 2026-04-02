@@ -511,22 +511,24 @@ export async function collectDailyData(): Promise<AgencyDailyData> {
     for (const member of TEAM_MEMBERS) {
       try {
         type CuRes = { tasks?: unknown[] };
+        const cuHeaders = { Authorization: clickupToken };
+        const cuTimeout = { signal: AbortSignal.timeout(8000) };
         const [todayTasksRes, overdueRes, dueTodayRes, weekRes] = await Promise.all([
           // Completed today
           fetch(`https://api.clickup.com/api/v2/team/${clickupTeamId}/task?assignees[]=${member.clickupId}&statuses[]=complete&date_closed_gt=${todayStart.getTime()}&include_closed=true`, {
-            headers: { Authorization: clickupToken },
+            headers: cuHeaders, ...cuTimeout,
           }).then(r => r.json() as Promise<CuRes>).catch(() => ({ tasks: [] as unknown[] })),
           // Overdue
           fetch(`https://api.clickup.com/api/v2/team/${clickupTeamId}/task?assignees[]=${member.clickupId}&due_date_lt=${Date.now()}&statuses[]=to+do&statuses[]=in+progress`, {
-            headers: { Authorization: clickupToken },
+            headers: cuHeaders, ...cuTimeout,
           }).then(r => r.json() as Promise<CuRes>).catch(() => ({ tasks: [] as unknown[] })),
           // Due today
           fetch(`https://api.clickup.com/api/v2/team/${clickupTeamId}/task?assignees[]=${member.clickupId}&due_date_gt=${todayStart.getTime()}&due_date_lt=${todayStart.getTime() + 86400000}`, {
-            headers: { Authorization: clickupToken },
+            headers: cuHeaders, ...cuTimeout,
           }).then(r => r.json() as Promise<CuRes>).catch(() => ({ tasks: [] as unknown[] })),
           // This week completed
           fetch(`https://api.clickup.com/api/v2/team/${clickupTeamId}/task?assignees[]=${member.clickupId}&statuses[]=complete&date_closed_gt=${weekStart.getTime()}&include_closed=true`, {
-            headers: { Authorization: clickupToken },
+            headers: cuHeaders, ...cuTimeout,
           }).then(r => r.json() as Promise<CuRes>).catch(() => ({ tasks: [] as unknown[] })),
         ]);
 
