@@ -11,7 +11,8 @@ const router = Router();
 ensureIntelligenceTable().catch(e => logger.error('[intelligence] table bootstrap failed:', e));
 
 // API key reminder
-if (!process.env.CLAUDE_API_KEY) {
+const _apiKey = process.env.CLAUDE_API_KEY;
+if (!_apiKey || _apiKey.length <= 10 || !_apiKey.startsWith('sk-ant-')) {
   console.warn('[intelligence] ACTION NEEDED: railway variables set CLAUDE_API_KEY=\'your-key\' --service web');
   console.warn('[intelligence] Get your key at: console.anthropic.com → API Keys');
 }
@@ -104,6 +105,7 @@ router.post('/generate', async (req: Request, res: Response) => {
     const data = await collectDailyData();
     const analysis = await analyzeWithClaude(data);
 
+    const k = process.env.CLAUDE_API_KEY ?? '';
     res.json({
       ok: true,
       score: analysis.scores.overall,
@@ -111,6 +113,7 @@ router.post('/generate', async (req: Request, res: Response) => {
       focus_today: analysis.focus_today,
       dataErrors: data.errors,
       tokensUsed: analysis.tokensUsed,
+      aiEnabled: k.length > 10 && k.startsWith('sk-ant-'),
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

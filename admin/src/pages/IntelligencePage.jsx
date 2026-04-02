@@ -466,7 +466,7 @@ export default function IntelligencePage() {
     try {
       const r = await apiFetch('/api/intelligence/generate', { method: 'POST' });
       if (r?.ok) {
-        setGenerateResult({ ok: true, score: r.score, focus: r.focus_today });
+        setGenerateResult({ ok: true, score: r.score, focus: r.focus_today, aiEnabled: r.aiEnabled, tokensUsed: r.tokensUsed });
         await load();
       } else {
         setGenerateResult({ ok: false, error: r?.error ?? 'Unknown error' });
@@ -549,9 +549,12 @@ export default function IntelligencePage() {
           {/* Generation result */}
           {generateResult && (
             <div className={`rounded-xl border p-4 text-sm ${generateResult.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
-              {generateResult.ok
-                ? `✓ Report generated. Score: ${generateResult.score}/100 — Focus: ${generateResult.focus}`
-                : `✗ Generation failed: ${generateResult.error}`}
+              {generateResult.ok ? (
+                <span>
+                  ✓ Report generated. Score: {generateResult.score}/100 — {generateResult.aiEnabled ? `AI coaching active (${generateResult.tokensUsed ?? 0} tokens)` : '⚠ Fallback mode — CLAUDE_API_KEY not detected by server'}
+                  <br/><span className="font-medium">Focus: {generateResult.focus}</span>
+                </span>
+              ) : `✗ Generation failed: ${generateResult.error}`}
             </div>
           )}
 

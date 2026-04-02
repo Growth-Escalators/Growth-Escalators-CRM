@@ -99,8 +99,9 @@ export async function ensureIntelligenceTable(): Promise<void> {
 
 export async function analyzeWithClaude(data: AgencyDailyData): Promise<Analysis> {
   const apiKey = process.env.CLAUDE_API_KEY;
-  if (!apiKey) {
-    logger.warn('[intelligence] CLAUDE_API_KEY not set — using fallback analysis');
+  const hasApiKey = apiKey && apiKey.length > 10 && apiKey.startsWith('sk-ant-');
+  if (!hasApiKey) {
+    logger.warn('[intelligence] CLAUDE_API_KEY not set or invalid — using fallback analysis');
     return buildFallbackAnalysis(data);
   }
 
@@ -110,11 +111,11 @@ export async function analyzeWithClaude(data: AgencyDailyData): Promise<Analysis
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': apiKey,
+      'x-api-key': apiKey!,
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-5',
+      model: 'claude-sonnet-4-6',
       max_tokens: 4000,
       system: `You are a strict but supportive operations coach for Growth Escalators, a D2C performance marketing agency in Jaipur, India.
 
