@@ -342,6 +342,7 @@ function extractInsightMetric(data: unknown, field: string): number {
 export async function collectDailyData(): Promise<AgencyDailyData> {
   const errors: string[] = [];
   const client = await pool.connect();
+  logger.info('[intel-collector] Starting data collection...');
 
   // Resolve tenant ID
   let tenantId = '';
@@ -351,6 +352,7 @@ export async function collectDailyData(): Promise<AgencyDailyData> {
       [DEFAULT_TENANT_SLUG],
     );
     tenantId = (tenantRes.rows[0] as { id: string } | undefined)?.id ?? '';
+    logger.info(`[intel-collector] Tenant resolved: ${tenantId}`);
   } catch (e) {
     logger.error('[intel-collector] tenant lookup failed:', e);
     errors.push('tenant_lookup_failed');
@@ -359,6 +361,7 @@ export async function collectDailyData(): Promise<AgencyDailyData> {
   // -------------------------------------------------------------------------
   // 1. META ADS
   // -------------------------------------------------------------------------
+  logger.info('[intel-collector] Collecting ads data...');
   const adsData: AdsAccountData[] = [];
   try {
     const accountsRes = await client.query(
@@ -439,6 +442,7 @@ export async function collectDailyData(): Promise<AgencyDailyData> {
 
   // -------------------------------------------------------------------------
   // 2. CRM PIPELINE
+  logger.info('[intel-collector] Collecting pipeline data...');
   // -------------------------------------------------------------------------
   let pipeline: PipelineData = {
     stageBreakdown: {}, newContactsToday: 0, dealsMovedForward: 0,
@@ -461,7 +465,7 @@ export async function collectDailyData(): Promise<AgencyDailyData> {
         SELECT COUNT(*) AS cnt FROM deals
         WHERE tenant_id = $1
           AND stage NOT IN ('won', 'lost')
-          AND (updated_at < NOW() - INTERVAL '5 days' OR last_activity_at IS NOT NULL AND last_activity_at < NOW() - INTERVAL '5 days')
+          AND updated_at < NOW() - INTERVAL '5 days'
       `, [tenantId]),
       client.query(`
         SELECT COUNT(*) AS cnt FROM deals
@@ -491,6 +495,7 @@ export async function collectDailyData(): Promise<AgencyDailyData> {
 
   // -------------------------------------------------------------------------
   // 3. TEAM OPERATIONS (ClickUp)
+  logger.info('[intel-collector] Collecting team data (ClickUp)...');
   // -------------------------------------------------------------------------
   const teamData: TeamMemberData[] = [];
   const TEAM_MEMBERS = [
@@ -552,6 +557,7 @@ export async function collectDailyData(): Promise<AgencyDailyData> {
 
   // -------------------------------------------------------------------------
   // 4. SEO DATA
+  logger.info('[intel-collector] Collecting SEO data...');
   // -------------------------------------------------------------------------
   let seoData: SeoData = {
     keywordsImproved: 0, keywordsDropped: 0, topGains: [], topLosses: [],
@@ -560,11 +566,11 @@ export async function collectDailyData(): Promise<AgencyDailyData> {
   try {
     const [kwRes, alertRes, healthRes, sessRes] = await Promise.all([
       client.query(`
-        SELECT keyword, position, previous_position,
-               (previous_position - position) AS improvement
+        SELECT keyword, current_position AS position, previous_position,
+               (previous_position - current_position) AS improvement
         FROM keyword_rankings
-        WHERE checked_at >= NOW() - INTERVAL '2 days'
-          AND previous_position IS NOT NULL AND position IS NOT NULL
+        WHERE recorded_date >= CURRENT_DATE - INTERVAL '2 days'
+          AND previous_position IS NOT NULL AND current_position IS NOT NULL
         ORDER BY improvement DESC
       `),
       client.query(`
@@ -573,7 +579,8 @@ export async function collectDailyData(): Promise<AgencyDailyData> {
         ORDER BY created_at DESC LIMIT 5
       `),
       client.query(`
-        SELECT mobile_performance_score, desktop_performance_score
+        SELECT pagespeed_mobile AS mobile_performance_score,
+               pagespeed_desktop AS desktop_performance_score
         FROM site_health_metrics ORDER BY checked_at DESC LIMIT 1
       `),
       client.query(`
@@ -605,6 +612,7 @@ export async function collectDailyData(): Promise<AgencyDailyData> {
 
   // -------------------------------------------------------------------------
   // 5. WHATSAPP / MESSAGES
+  logger.info('[intel-collector] Collecting WhatsApp/messages data...');
   // -------------------------------------------------------------------------
   let whatsapp: WhatsappData = { sentToday: 0, receivedToday: 0, newConversations: 0, unreadCount: 0 };
   try {
@@ -635,6 +643,7 @@ export async function collectDailyData(): Promise<AgencyDailyData> {
 
   // -------------------------------------------------------------------------
   // 6. SLO FUNNEL / PAYMENTS
+  logger.info('[intel-collector] Collecting payments/funnel data...');
   // -------------------------------------------------------------------------
   let funnel: FunnelData = { paymentsToday: 0, revenueToday: 0 };
   try {
@@ -652,6 +661,7 @@ export async function collectDailyData(): Promise<AgencyDailyData> {
 
   // -------------------------------------------------------------------------
   // 7. BILLING
+  logger.info('[intel-collector] Collecting billing data...');
   // -------------------------------------------------------------------------
   let billing: BillingData = { overdueCount: 0, overdueAmount: 0, mrr: 0, pendingCount: 0, pendingAmount: 0 };
   try {
@@ -697,6 +707,7 @@ export async function collectDailyData(): Promise<AgencyDailyData> {
 
   // -------------------------------------------------------------------------
   // 8. SEO WORKFLOW HEALTH (uses pool directly, no client conn needed)
+  logger.info('[intel-collector] Collecting SEO workflow health...');
   // -------------------------------------------------------------------------
   let seoWorkflows: SEOWorkflowHealth = {
     n8nAlive: false, workflows: [], brokenCritical: [],
@@ -711,6 +722,7 @@ export async function collectDailyData(): Promise<AgencyDailyData> {
 
   // -------------------------------------------------------------------------
   // 9. SYSTEM ERRORS
+  logger.info('[intel-collector] Collecting system errors...');
   // -------------------------------------------------------------------------
   let systemErrors: SystemError[] = [];
   try {
@@ -718,6 +730,8 @@ export async function collectDailyData(): Promise<AgencyDailyData> {
   } catch (e) {
     logger.error('[intel-collector] system error check failed:', e);
   }
+
+  logger.info(`[intel-collector] All data collected. Errors: [${errors.join(', ') || 'none'}]`);
 
   return {
     collectedAt: new Date().toISOString(),
