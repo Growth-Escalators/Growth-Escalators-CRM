@@ -465,16 +465,41 @@ export default function IntelligencePage() {
     setGenerateResult(null);
     try {
       const r = await apiFetch('/api/intelligence/generate', { method: 'POST' });
-      if (r?.ok) {
-        setGenerateResult({ ok: true, score: r.score, focus: r.focus_today, aiEnabled: r.aiEnabled, tokensUsed: r.tokensUsed });
+      if (r?.status === 'generating' || r?.status === 'already_generating') {
+        // Non-blocking — poll until report appears (max 90s)
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const deadline = Date.now() + 90_000;
+        const poll = async () => {
+          if (Date.now() > deadline) {
+            setGenerateResult({ ok: false, error: 'Timed out after 90s. Check server logs.' });
+            setGenerating(false);
+            return;
+          }
+          const t = await apiFetch('/api/intelligence/today').catch(() => null);
+          const rpt = t?.report;
+          if (rpt && rpt.report_date && rpt.report_date.slice(0, 10) === todayStr) {
+            // Report is ready
+            await load();
+            setGenerateResult({ ok: true, score: rpt.overall_score, aiEnabled: rpt.tokens_used > 0 });
+            setGenerating(false);
+          } else {
+            setTimeout(poll, 5000);
+          }
+        };
+        setTimeout(poll, 5000);
+      } else if (r?.ok) {
+        // Legacy sync response (shouldn't happen but handle gracefully)
+        setGenerateResult({ ok: true, score: r.score, aiEnabled: r.aiEnabled });
         await load();
+        setGenerating(false);
       } else {
         setGenerateResult({ ok: false, error: r?.error ?? 'Unknown error' });
+        setGenerating(false);
       }
     } catch (e) {
       setGenerateResult({ ok: false, error: String(e) });
+      setGenerating(false);
     }
-    setGenerating(false);
   }
 
   // Parse today's report data
@@ -524,7 +549,7 @@ export default function IntelligencePage() {
               <button onClick={generateReport} disabled={generating}
                 className="flex items-center gap-2 px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors">
                 {generating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                {generating ? 'Generating…' : 'Generate Now'}
+                {generating ? 'Generating… (polling for result)' : 'Generate Now'}
               </button>
             </div>
           </div>
@@ -551,8 +576,7 @@ export default function IntelligencePage() {
             <div className={`rounded-xl border p-4 text-sm ${generateResult.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
               {generateResult.ok ? (
                 <span>
-                  ✓ Report generated. Score: {generateResult.score}/100 — {generateResult.aiEnabled ? `AI coaching active (${generateResult.tokensUsed ?? 0} tokens)` : '⚠ Fallback mode — CLAUDE_API_KEY not detected by server'}
-                  <br/><span className="font-medium">Focus: {generateResult.focus}</span>
+                  ✓ Report generated. Score: {generateResult.score}/100 — {generateResult.aiEnabled ? 'AI coaching active' : '⚠ Fallback mode — CLAUDE_API_KEY not detected by server'}
                 </span>
               ) : `✗ Generation failed: ${generateResult.error}`}
             </div>
@@ -573,7 +597,7 @@ export default function IntelligencePage() {
                   <button onClick={generateReport} disabled={generating}
                     className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors">
                     {generating ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                    {generating ? 'Generating…' : 'Generate Today\'s Report'}
+                    {generating ? 'Generating… (polling for result)' : 'Generate Today\'s Report'}
                   </button>
                 </div>
               ) : (
