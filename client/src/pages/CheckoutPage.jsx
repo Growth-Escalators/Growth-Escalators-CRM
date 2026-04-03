@@ -54,13 +54,36 @@ export default function CheckoutPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [tickerIdx, setTickerIdx] = useState(0);
+  const [tickerData, setTickerData] = useState(null); // { name, city, minutesAgo }
 
-  // Ticker — rotate every 4 seconds
+  // Ticker — fetch from API every 30s, rotate display every 4s
   useEffect(() => {
-    const id = setInterval(() => {
+    const fetchTicker = async () => {
+      try {
+        const res = await fetch('/api/funnel/recent-purchase');
+        const data = await res.json();
+        if (data.name && data.city && data.minutes_ago) {
+          setTickerData({
+            name: data.name,
+            city: data.city,
+            minutesAgo: Math.max(1, Math.round(data.minutes_ago)),
+          });
+        }
+      } catch {
+        // Keep current display on error
+      }
+    };
+
+    fetchTicker(); // Fetch immediately on mount
+    const fetchId = setInterval(fetchTicker, 30000); // Re-fetch every 30s
+    const rotateId = setInterval(() => {
       setTickerIdx((i) => (i + 1) % TICKER_NAMES.length);
     }, 4000);
-    return () => clearInterval(id);
+
+    return () => {
+      clearInterval(fetchId);
+      clearInterval(rotateId);
+    };
   }, []);
 
   // Progress step: 0-based
@@ -172,13 +195,15 @@ export default function CheckoutPage() {
       {/* -------------------------------------------------------------------- */}
       <div style={{ backgroundColor: '#F97316' }} className="py-2 px-4 text-center text-white text-sm font-medium">
         🎉{' '}
-        <span
-          key={tickerIdx}
-          className="inline-block transition-opacity duration-500"
-        >
-          {TICKER_NAMES[tickerIdx]}
+        <span key={tickerData ? `api-${tickerData.name}` : tickerIdx} className="inline-block transition-opacity duration-500">
+          {tickerData
+            ? `${tickerData.name} from ${tickerData.city}`
+            : TICKER_NAMES[tickerIdx]}
         </span>{' '}
         just grabbed this pack
+        {tickerData && (
+          <span className="opacity-75"> · {tickerData.minutesAgo} min ago</span>
+        )}
       </div>
 
       {/* -------------------------------------------------------------------- */}

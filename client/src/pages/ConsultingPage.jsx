@@ -93,6 +93,34 @@ export default function ConsultingPage() {
         </div>
       </div>
 
+      {/* D2C VSL — only shown to D2C segment buyers */}
+      {segment === 'd2c' && (
+        <section style={{ background: '#0a0f1e', padding: '32px 20px', textAlign: 'center' }}>
+          <p style={{
+            color: 'rgba(255,255,255,0.5)', fontSize: '12px', marginBottom: '16px',
+            fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase',
+          }}>
+            Watch this before your next Meta Ads campaign ↓
+          </p>
+          <div style={{
+            position: 'relative', paddingBottom: '56.25%', height: 0, overflow: 'hidden',
+            borderRadius: '12px', border: '2px solid #F47B20',
+            maxWidth: '560px', margin: '0 auto',
+          }}>
+            <iframe
+              src="https://www.youtube.com/embed/lk8RYlChTnI?rel=0&modestbranding=1"
+              title="Growth Escalators D2C Growth Strategy"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+              style={{
+                position: 'absolute', top: 0, left: 0,
+                width: '100%', height: '100%', border: 'none', borderRadius: '10px',
+              }}
+            />
+          </div>
+        </section>
+      )}
+
       {/* SECTION 2 — What Happens Next */}
       <div className="py-16 px-4 bg-white">
         <div className="max-w-2xl mx-auto">

@@ -79,6 +79,35 @@ export default function WhitelabelPage() {
         </div>
       </div>
 
+      {/* VSL Section */}
+      <section style={{ background: '#0a0f1e', padding: '40px 20px', textAlign: 'center' }}>
+        <p style={{
+          color: 'rgba(255,255,255,0.5)', fontSize: '13px', marginBottom: '8px',
+          fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase',
+        }}>
+          Watch this before you scroll
+        </p>
+        <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: '11px', marginBottom: '20px' }}>
+          Most agency owners who watch this book a call within 24 hours
+        </p>
+        <div style={{
+          position: 'relative', paddingBottom: '56.25%', height: 0, overflow: 'hidden',
+          borderRadius: '12px', border: '2px solid #F47B20',
+          maxWidth: '560px', margin: '0 auto', boxShadow: '0 0 40px rgba(244,123,32,0.15)',
+        }}>
+          <iframe
+            src="https://www.youtube.com/embed/hTlmBJkjS_I?rel=0&modestbranding=1"
+            title="Growth Escalators White Label Partnership"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+            style={{
+              position: 'absolute', top: 0, left: 0,
+              width: '100%', height: '100%', border: 'none', borderRadius: '10px',
+            }}
+          />
+        </div>
+      </section>
+
       {/* FEATURES */}
       <div className="py-16 px-4" style={{ backgroundColor: '#f8f9ff' }}>
         <div className="max-w-2xl mx-auto">
