@@ -173,6 +173,11 @@ export default function Sidebar() {
                 <Mail className="w-4 h-4" /> Email Templates
               </NavLink>
             )}
+            {canSequences && (
+              <NavLink to="/whatsapp-templates" className={navClass}>
+                <MessageSquare className="w-4 h-4" /> WA Templates
+              </NavLink>
+            )}
             {canAutomations && (
               <NavLink to="/automations" className={navClass}>
                 <Zap className="w-4 h-4" /> Automations

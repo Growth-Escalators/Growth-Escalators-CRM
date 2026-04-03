@@ -21,6 +21,7 @@ import AnalyticsPage from './pages/AnalyticsPage.jsx';
 import SEOPage from './pages/SEOPage.jsx';
 import IntelligencePage from './pages/IntelligencePage.jsx';
 import GrowthOSPage from './pages/GrowthOSPage.jsx';
+import WhatsAppTemplatesPage from './pages/WhatsAppTemplatesPage.jsx';
 
 function PrivateRoute({ children }) {
   const token = localStorage.getItem('ge_crm_token');
@@ -52,6 +53,7 @@ export default function App() {
         <Route path="/seo" element={<PrivateRoute><SEOPage /></PrivateRoute>} />
         <Route path="/intelligence" element={<PrivateRoute><IntelligencePage /></PrivateRoute>} />
         <Route path="/growth-os" element={<PrivateRoute><GrowthOSPage /></PrivateRoute>} />
+        <Route path="/whatsapp-templates" element={<PrivateRoute><WhatsAppTemplatesPage /></PrivateRoute>} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
