@@ -21,7 +21,8 @@
     "test": "vitest --run",
     "test:watch": "vitest",
     "test:coverage": "vitest --run --coverage",
-    "build:all": "npm run client:build && npm run admin:build && npm run build"
+    "build:all": "npm run client:build && npm run admin:build && npm run build",
+    "seo:doctor": "npx tsx scripts/seo-doctor.ts"
   },
   "keywords": [],
   "author": "",
