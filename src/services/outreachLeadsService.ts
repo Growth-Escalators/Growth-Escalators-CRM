@@ -6,31 +6,40 @@ import logger from '../utils/logger';
 // Called at server startup. Safe to call multiple times.
 // ---------------------------------------------------------------------------
 export async function ensureOutreachLeadsTable(): Promise<void> {
+  // Create table if it doesn't exist (minimal schema — matches pre-existing prod table)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS outreach_leads (
       id              SERIAL PRIMARY KEY,
       company         VARCHAR(300) NOT NULL,
       first_name      VARCHAR(200),
       email           VARCHAR(300),
-      phone           VARCHAR(100),
-      website_url     TEXT,
-      address         TEXT,
-      country         VARCHAR(100),
-      fit_score       INTEGER DEFAULT 0,
       icebreaker      TEXT,
       status          VARCHAR(50)  NOT NULL DEFAULT 'New',
       reply_category  VARCHAR(50),
       notes           TEXT,
-      source          VARCHAR(100) DEFAULT 'google_places',
-      source_detail   TEXT,
       date_added      DATE         NOT NULL DEFAULT CURRENT_DATE,
       created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
       updated_at      TIMESTAMP    NOT NULL DEFAULT NOW()
     )
   `);
+
+  // Add discovery-enrichment columns if they don't exist yet (idempotent migrations)
+  const alterStmts = [
+    `ALTER TABLE outreach_leads ADD COLUMN IF NOT EXISTS phone        VARCHAR(100)`,
+    `ALTER TABLE outreach_leads ADD COLUMN IF NOT EXISTS website_url  TEXT`,
+    `ALTER TABLE outreach_leads ADD COLUMN IF NOT EXISTS address      TEXT`,
+    `ALTER TABLE outreach_leads ADD COLUMN IF NOT EXISTS country      VARCHAR(100)`,
+    `ALTER TABLE outreach_leads ADD COLUMN IF NOT EXISTS fit_score    INTEGER DEFAULT 0`,
+    `ALTER TABLE outreach_leads ADD COLUMN IF NOT EXISTS source       VARCHAR(100) DEFAULT 'google_places'`,
+    `ALTER TABLE outreach_leads ADD COLUMN IF NOT EXISTS source_detail TEXT`,
+  ];
+  for (const stmt of alterStmts) {
+    await pool.query(stmt);
+  }
+
   await pool.query(`
-    CREATE INDEX IF NOT EXISTS outreach_leads_status_idx    ON outreach_leads(status);
-    CREATE INDEX IF NOT EXISTS outreach_leads_email_idx     ON outreach_leads(email);
+    CREATE INDEX IF NOT EXISTS outreach_leads_status_idx     ON outreach_leads(status);
+    CREATE INDEX IF NOT EXISTS outreach_leads_email_idx      ON outreach_leads(email);
     CREATE INDEX IF NOT EXISTS outreach_leads_created_at_idx ON outreach_leads(created_at);
   `);
   logger.info('[outreach-leads] outreach_leads table ready');
