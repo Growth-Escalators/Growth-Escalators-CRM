@@ -1,4 +1,5 @@
 import logger from '../utils/logger';
+import https from 'https';
 import { fetchTasksForMember, fetchCompletedTodayForMember, type Task } from '../utils/clickupTasks';
 import { sendSlackMessage, sendSlackDM } from './slackService';
 import { pool } from '../db/index';
@@ -6,6 +7,7 @@ import {
   SLACK_SOD_EOD_CHANNEL,
   SLACK_JATIN, SLACK_SAKCHAM, SLACK_VISHAL, SLACK_NIMISHA, SLACK_KESHAV,
   CLICKUP_JATIN, CLICKUP_SAKCHAM, CLICKUP_VISHAL, CLICKUP_NIMISHA, CLICKUP_KESHAV,
+  CLICKUP_TEAM_ID,
 } from '../config/constants';
 
 const SOD_EOD_CHANNEL = SLACK_SOD_EOD_CHANNEL;
@@ -18,10 +20,30 @@ const TEAM = [
   { name: 'Keshav',  clickupId: String(CLICKUP_KESHAV),   slackId: SLACK_KESHAV,   showTeamOverview: false },
 ];
 
+// Extended task type with assignee name for team-level EOD
+interface TeamTask extends Task {
+  assigneeName: string;
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
 }
 
+// IST helpers (local — not exported from clickupTasks)
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+function istTodayStartMs(): number {
+  const now = new Date();
+  const istNow = new Date(now.getTime() + IST_OFFSET_MS);
+  const y = istNow.getUTCFullYear();
+  const m = istNow.getUTCMonth();
+  const d = istNow.getUTCDate();
+  return new Date(Date.UTC(y, m, d)).getTime() - IST_OFFSET_MS;
+}
+function istTomorrowStartMs(): number { return istTodayStartMs() + 24 * 60 * 60 * 1000; }
+function istTomorrowEndMs():   number { return istTodayStartMs() + 48 * 60 * 60 * 1000 - 1; }
+
+// Format helpers (SOD — unchanged)
 function fmtOverdue(tasks: Task[]): string {
   return tasks.map(t => {
     const ago = t.daysOverdue === 1 ? '1 day ago' : `${t.daysOverdue} days ago`;
@@ -58,7 +80,7 @@ type MemberResult = {
 };
 
 // -----------------------------------------------------------------------
-// SOD Digest
+// SOD Digest (unchanged)
 // -----------------------------------------------------------------------
 export async function sendSODDigest(): Promise<{ sent: number; errors: string[] }> {
   console.log('[SOD] starting digest…');
@@ -80,12 +102,10 @@ export async function sendSODDigest(): Promise<{ sent: number; errors: string[] 
 
   let sent = 0;
 
-  // Send in order: Jatin, Sakcham, Vishal, Nimisha, Keshav
   for (const mr of results) {
     try {
       let msg = '';
 
-      // Team overview for Jatin and Sakcham
       if (mr.member.showTeamOverview) {
         const totalOverdue = results.reduce((s, r) => s + r.overdue.length, 0);
         const othersForOverview = results.filter(r => r.member.clickupId !== mr.member.clickupId);
@@ -97,7 +117,6 @@ export async function sendSODDigest(): Promise<{ sent: number; errors: string[] 
         msg += `\n━━━━━━━━━━━━━━━━━━\n📋 *Your tasks, ${mr.member.name}:*\n`;
         msg += buildTaskSection(mr);
       } else {
-        // Regular members — no overview
         const total = mr.overdue.length + mr.dueToday.length + mr.upcoming.length;
         if (total === 0 && mr.all.length === 0) {
           msg = `📋 Good morning <@${mr.member.slackId}>! 🎉\nYour task list is clear today. Add tasks in ClickUp if needed.`;
@@ -130,200 +149,295 @@ function buildTaskSection(r: MemberResult): string {
 }
 
 // -----------------------------------------------------------------------
-// EOD Summary
+// EOD — Team-level data helpers
 // -----------------------------------------------------------------------
-type EODResult = { member: typeof TEAM[0]; completed: Task[]; openTasks: Task[]; overdue: Task[] };
 
-export async function sendEODSummary(): Promise<{ sent: number; errors: string[] }> {
-  console.log('[EOD] starting summary…');
-  const errors: string[] = [];
-  const dateStr = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
-
-  const results: EODResult[] = await Promise.all(
-    TEAM.map(async (m) => {
-      try {
-        const [completed, taskData] = await Promise.all([
-          fetchCompletedTodayForMember(m.clickupId),
-          fetchTasksForMember(m.clickupId),
-        ]);
-        return { member: m, completed, openTasks: taskData.all, overdue: taskData.overdue };
-      } catch (e) {
-        logger.error(`[EOD] fetch failed for ${m.name}:`, e);
-        errors.push(`fetch: ${m.name}`);
-        return { member: m, completed: [] as Task[], openTasks: [] as Task[], overdue: [] as Task[] };
-      }
-    })
-  );
-
-  let sent = 0;
-
-  for (const mr of results) {
+/** All tasks completed today across all team members */
+export async function fetchCompletedToday(): Promise<TeamTask[]> {
+  const results: TeamTask[] = [];
+  for (const member of TEAM) {
     try {
-      let msg = '';
+      const tasks = await fetchCompletedTodayForMember(member.clickupId);
+      for (const t of tasks) results.push({ ...t, assigneeName: member.name });
+    } catch (e) {
+      logger.error(`[EOD] fetchCompletedToday failed for ${member.name}:`, e);
+    }
+  }
+  return results;
+}
 
-      if (mr.member.showTeamOverview) {
-        const totalCompleted = results.reduce((s, r) => s + r.completed.length, 0);
-        const othersForOverview = results.filter(r => r.member.clickupId !== mr.member.clickupId);
+/** All overdue open tasks, sorted worst-first */
+export async function fetchOverdueTasks(): Promise<TeamTask[]> {
+  const results: TeamTask[] = [];
+  for (const member of TEAM) {
+    try {
+      const data = await fetchTasksForMember(member.clickupId);
+      for (const t of data.overdue) results.push({ ...t, assigneeName: member.name });
+    } catch (e) {
+      logger.error(`[EOD] fetchOverdueTasks failed for ${member.name}:`, e);
+    }
+  }
+  results.sort((a, b) => b.daysOverdue - a.daysOverdue);
+  return results;
+}
 
-        msg += `📊 *Team EOD — ${dateStr}*\n\nCompleted today across team: *${totalCompleted}*\n`;
-        for (const o of othersForOverview) {
-          msg += `• <@${o.member.slackId}>: ${o.completed.length} done, ${o.openTasks.length} open\n`;
+/** Tasks currently in progress */
+export async function fetchInProgressToday(): Promise<TeamTask[]> {
+  const results: TeamTask[] = [];
+  for (const member of TEAM) {
+    try {
+      const data = await fetchTasksForMember(member.clickupId);
+      const inProgress = data.all.filter(t => {
+        const s = t.status.toLowerCase().replace(/[\s_-]/g, '');
+        return s === 'inprogress' || s === 'active' || s.includes('progress');
+      });
+      for (const t of inProgress) results.push({ ...t, assigneeName: member.name });
+    } catch (e) {
+      logger.error(`[EOD] fetchInProgressToday failed for ${member.name}:`, e);
+    }
+  }
+  return results;
+}
+
+/** Tasks due tomorrow that are not yet started */
+export async function fetchAtRiskTomorrow(): Promise<TeamTask[]> {
+  const results: TeamTask[] = [];
+  const tStart = istTomorrowStartMs();
+  const tEnd   = istTomorrowEndMs();
+
+  for (const member of TEAM) {
+    try {
+      const data = await fetchTasksForMember(member.clickupId);
+      const atRisk = data.all.filter(t => {
+        if (!t.dueDate) return false;
+        if (t.dueDate < tStart || t.dueDate > tEnd) return false;
+        const s = t.status.toLowerCase().replace(/[\s_-]/g, '');
+        return !s.includes('progress') && !s.includes('review') && !s.includes('done') && !s.includes('complete');
+      });
+      for (const t of atRisk) results.push({ ...t, assigneeName: member.name });
+    } catch (e) {
+      logger.error(`[EOD] fetchAtRiskTomorrow failed for ${member.name}:`, e);
+    }
+  }
+  return results;
+}
+
+/** 14-day completed task history for pattern analysis */
+async function fetchMemberHistory14Days(member: typeof TEAM[0]): Promise<{ name: string; data: string }> {
+  const CLICKUP_TOKEN = process.env.CLICKUP_API_TOKEN;
+  if (!CLICKUP_TOKEN) return { name: member.name, data: 'No data available' };
+
+  const fourteenDaysAgo = Date.now() - 14 * 24 * 60 * 60 * 1000;
+
+  return new Promise<{ name: string; data: string }>(resolve => {
+    const params = new URLSearchParams({
+      'assignees[]': member.clickupId,
+      include_closed: 'true',
+      'statuses[]': 'complete',
+      date_updated_gt: String(fourteenDaysAgo),
+      subtasks: 'true',
+      page: '0',
+    });
+    const path = `/api/v2/team/${CLICKUP_TEAM_ID}/task?${params.toString()}`;
+
+    https.get({ hostname: 'api.clickup.com', path, headers: { Authorization: CLICKUP_TOKEN } }, res => {
+      let raw = '';
+      res.on('data', c => { raw += c; });
+      res.on('end', () => {
+        try {
+          type H = { name: string; due_date: string | null; date_done: string | null };
+          const parsed = JSON.parse(raw) as { tasks?: H[] };
+          const tasks = parsed.tasks || [];
+          const onTime = tasks.filter(t => t.due_date && t.date_done && Number(t.date_done) <= Number(t.due_date)).length;
+          const late   = tasks.filter(t => t.due_date && t.date_done && Number(t.date_done) >  Number(t.due_date)).length;
+          const topNames = tasks.slice(0, 8).map(t => t.name).join(', ');
+          resolve({
+            name: member.name,
+            data: `${tasks.length} tasks completed. ${onTime} on time, ${late} late. Examples: ${topNames || 'none'}`,
+          });
+        } catch {
+          resolve({ name: member.name, data: 'History unavailable' });
         }
-        msg += `\n━━━━━━━━━━━━━━━━━━\n`;
-      }
+      });
+    }).on('error', () => resolve({ name: member.name, data: 'History unavailable' }));
+  });
+}
 
-      msg += buildEODSection(mr);
+/** Generate pattern insights via Claude API (Jatin-only) */
+export async function generatePatternInsights(histories: Array<{ name: string; data: string }>): Promise<string> {
+  const apiKey = process.env.CLAUDE_API_KEY;
+  if (!apiKey || !apiKey.startsWith('sk-ant-')) {
+    return histories.map(h => `• *${h.name}:* ${h.data}`).join('\n');
+  }
+  try {
+    const memberDetails = histories.map(h => `${h.name}: ${h.data}`).join('\n');
+    const prompt = `You are analyzing task patterns for a D2C performance marketing team (Growth Escalators, India). Based on 14-day history, give a 1-2 sentence insight per person about their work pattern + one specific actionable suggestion. Be direct, not generic.\n\nTeam data:\n${memberDetails}\n\nFormat — one bullet per person:\n• *Name:* [insight + one specific suggestion]`;
 
-      const ok = await sendSlackMessage(SOD_EOD_CHANNEL, msg);
-      if (ok) { sent++; console.log(`[EOD] sent for ${mr.member.name}`); }
-      else { errors.push(`post: ${mr.member.name}`); }
-    } catch (e) { errors.push(`${mr.member.name}: ${e}`); }
-    await delay(2000);
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 800,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    type CR = { content?: Array<{ text: string }> };
+    const json = await resp.json() as CR;
+    return json.content?.[0]?.text?.trim() || histories.map(h => `• *${h.name}:* ${h.data}`).join('\n');
+  } catch (e) {
+    logger.error('[EOD] generatePatternInsights failed:', e);
+    return histories.map(h => `• *${h.name}:* ${h.data}`).join('\n');
+  }
+}
+
+/** Team score = (completed / (completed + overdue)) * 100 */
+export function calculateDailyScore(completed: number, overdue: number): { score: number; emoji: string; label: string } {
+  const total = completed + overdue;
+  if (total === 0) return { score: 100, emoji: '🟢', label: 'Great day' };
+  const score = Math.round((completed / total) * 100);
+  if (score >= 80) return { score, emoji: '🟢', label: 'Great day' };
+  if (score >= 60) return { score, emoji: '🟡', label: 'Good' };
+  return { score, emoji: '🔴', label: 'Needs focus' };
+}
+
+function nextSodLabel(): string {
+  const istNow = new Date(Date.now() + IST_OFFSET_MS);
+  const day = istNow.getUTCDay();
+  const names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  if (day >= 5) return 'Monday'; // Fri/Sat/Sun → Monday
+  if (day === 0) return 'Monday';
+  return names[day + 1];
+}
+
+// -----------------------------------------------------------------------
+// Enhanced EOD Summary
+// -----------------------------------------------------------------------
+export async function sendEODSummary(): Promise<{ sent: number; errors: string[] }> {
+  console.log('[EOD] starting enhanced summary…');
+  const errors: string[] = [];
+
+  const istNow = new Date(Date.now() + IST_OFFSET_MS);
+  const dateStr = istNow.toLocaleDateString('en-IN', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+  });
+
+  let completed: TeamTask[] = [];
+  let overdue:   TeamTask[] = [];
+  let inProgress: TeamTask[] = [];
+  let atRisk:    TeamTask[] = [];
+
+  try {
+    [completed, overdue, inProgress, atRisk] = await Promise.all([
+      fetchCompletedToday(),
+      fetchOverdueTasks(),
+      fetchInProgressToday(),
+      fetchAtRiskTomorrow(),
+    ]);
+  } catch (e) {
+    logger.error('[EOD] parallel fetch failed:', e);
+    errors.push('data-fetch');
   }
 
-  // --- Patterns + Improvements (one final message for Jatin & Sakcham) ---
-  try {
-    const patternsMsg = buildPatternsAndImprovements(results, dateStr);
-    if (patternsMsg) {
-      await delay(2000);
-      const ok = await sendSlackMessage(SOD_EOD_CHANNEL, patternsMsg);
-      if (ok) { sent++; console.log('[EOD] sent patterns + improvements'); }
-      else { errors.push('post: patterns'); }
-    }
-  } catch (e) { errors.push(`patterns: ${e}`); }
+  const { score, emoji, label } = calculateDailyScore(completed.length, overdue.length);
 
-  console.log(`[EOD] complete — sent: ${sent}/${TEAM.length}, errors: ${errors.length}`);
+  // Channel message: A + B + C + E + F
+  let channelMsg = `📊 *Growth Escalators — End of Day Report*\n_${dateStr} | 7:00 PM IST_\n\n`;
+
+  // A — Completed Today
+  if (completed.length > 0) {
+    channelMsg += `✅ *Completed Today (${completed.length})*\n`;
+    for (const t of completed.slice(0, 15)) channelMsg += `  • ${t.name} — ${t.assigneeName}\n`;
+    if (completed.length > 15) channelMsg += `  _...and ${completed.length - 15} more_\n`;
+  } else {
+    channelMsg += `✅ *Completed Today (0)*\n  _No tasks marked complete today_\n`;
+  }
+  channelMsg += '\n';
+
+  // B — Overdue Tasks
+  if (overdue.length > 0) {
+    channelMsg += `🔴 *Overdue Tasks (${overdue.length})*\n`;
+    for (const t of overdue.slice(0, 10)) {
+      const days = t.daysOverdue === 1 ? '1 day overdue' : `${t.daysOverdue} days overdue`;
+      channelMsg += `  • ${t.name} — ${t.assigneeName} _(${days})_\n`;
+    }
+    if (overdue.length > 10) channelMsg += `  _...and ${overdue.length - 10} more_\n`;
+    channelMsg += '\n';
+  }
+
+  // C — In Progress
+  if (inProgress.length > 0) {
+    channelMsg += `🔄 *In Progress (${inProgress.length})*\n`;
+    for (const t of inProgress.slice(0, 10)) channelMsg += `  • ${t.name} — ${t.assigneeName}\n`;
+    channelMsg += '\n';
+  }
+
+  // E — At Risk Tomorrow
+  if (atRisk.length > 0) {
+    channelMsg += `⚠️ *At Risk Tomorrow (${atRisk.length})*\n`;
+    for (const t of atRisk) channelMsg += `  • ${t.name} — ${t.assigneeName} _(due tomorrow, not started)_\n`;
+    channelMsg += '\n';
+  }
+
+  // F — Daily Score
+  channelMsg += `📊 *Team Score Today: ${score}/100*\n_${emoji} ${label}_\n\n`;
+  channelMsg += `━━━━━━━━━━━━━━━━━━━━━\n_Next SOD: ${nextSodLabel()} 10AM IST_`;
+
+  let sent = 0;
+  const channelOk = await sendSlackMessage(SOD_EOD_CHANNEL, channelMsg).catch(e => {
+    errors.push(`channel-send: ${e}`); return false;
+  });
+  if (channelOk) { sent++; console.log('[EOD] channel message sent to #sod-eod'); }
+  else { errors.push('channel-send-failed'); }
+
+  // Jatin DM: channel content + D (pattern insights) + action items
+  await delay(2000);
+  let jatinMsg = channelMsg + '\n\n';
+
+  // D — Pattern Insights (Jatin-only — never in channel, never shown to Sakcham)
+  try {
+    const histories = await Promise.all(TEAM.map(m => fetchMemberHistory14Days(m)));
+    const insights = await generatePatternInsights(histories);
+    jatinMsg += `━━━━━━━━━━━━━━━━━━━━━\n🧠 *Pattern Insights (Last 14 Days)*\n${insights}\n\n`;
+  } catch (e) {
+    logger.error('[EOD] pattern insights error:', e);
+    errors.push('pattern-insights');
+  }
+
+  // Action items for Jatin
+  const actionItems: string[] = [];
+  const criticalOverdue = overdue.filter(t => t.daysOverdue >= 3);
+  if (criticalOverdue.length > 0) {
+    const names = [...new Set(criticalOverdue.slice(0, 3).map(t => t.assigneeName))].join(', ');
+    actionItems.push(`Follow up on ${criticalOverdue.length} task(s) overdue 3+ days (${names})`);
+  }
+  if (atRisk.length > 0) actionItems.push(`Check in on ${atRisk.length} at-risk task(s) due tomorrow`);
+  if (score < 60) actionItems.push('Score below 60 — review blockers and reset priorities in tomorrow\'s SOD');
+  if (completed.length === 0) actionItems.push('No tasks marked complete — remind team to update ClickUp status');
+
+  if (actionItems.length > 0) {
+    jatinMsg += `💡 *Jatin\'s Action Items:*\n${actionItems.map(a => `  • ${a}`).join('\n')}`;
+  }
+
+  const dmOk = await sendSlackDM(SLACK_JATIN, jatinMsg).catch(e => {
+    errors.push(`dm-jatin: ${e}`); return false;
+  });
+  if (dmOk) { sent++; console.log('[EOD] Jatin DM sent with pattern insights'); }
+  else { errors.push('dm-jatin-failed'); }
+
+  console.log(`[EOD] complete — sent: ${sent}, errors: ${errors.length}`);
   return { sent, errors };
 }
 
-function buildPatternsAndImprovements(results: EODResult[], dateStr: string): string | null {
-  const totalCompleted = results.reduce((s, r) => s + r.completed.length, 0);
-  const totalOverdue = results.reduce((s, r) => s + r.overdue.length, 0);
-  if (totalCompleted === 0 && totalOverdue === 0) return null;
-
-  let msg = `🔍 *Team Patterns & Improvements — ${dateStr}*\n\n`;
-
-  // --- Patterns ---
-  msg += `*📌 Patterns:*\n`;
-  let patternCount = 0;
-
-  // Pattern 1: Who has the most overdue tasks
-  const overdueByMember = results
-    .filter(r => r.overdue.length > 0)
-    .sort((a, b) => b.overdue.length - a.overdue.length);
-  if (overdueByMember.length > 0) {
-    const top = overdueByMember[0];
-    msg += `• <@${top.member.slackId}> has the most overdue tasks (${top.overdue.length})`;
-    const worst = top.overdue.reduce((a, b) => a.daysOverdue > b.daysOverdue ? a : b);
-    if (worst.daysOverdue >= 3) {
-      msg += ` — oldest: _"${worst.name}"_ (${worst.daysOverdue}d)`;
-    }
-    msg += `\n`;
-    patternCount++;
-  }
-
-  // Pattern 2: Which list/category keeps slipping
-  const listSlipCount: Record<string, number> = {};
-  for (const r of results) {
-    for (const t of r.overdue) {
-      const key = t.listName || 'Unassigned list';
-      listSlipCount[key] = (listSlipCount[key] || 0) + 1;
-    }
-  }
-  const slippingLists = Object.entries(listSlipCount)
-    .sort(([, a], [, b]) => b - a)
-    .filter(([, count]) => count >= 2);
-  if (slippingLists.length > 0) {
-    const [listName, count] = slippingLists[0];
-    msg += `• *${listName}* has ${count} overdue tasks across the team — recurring bottleneck\n`;
-    patternCount++;
-  }
-
-  // Pattern 3: Members with 0 completions
-  const zeroDone = results.filter(r => r.completed.length === 0 && r.openTasks.length > 0);
-  if (zeroDone.length > 0) {
-    const names = zeroDone.map(r => `<@${r.member.slackId}>`).join(', ');
-    msg += `• ${names} had open tasks but completed none today\n`;
-    patternCount++;
-  }
-
-  // Pattern 4: Tasks completed that were overdue
-  const lateCompletions = results.reduce((s, r) => s + r.completed.filter(t => t.daysOverdue > 0).length, 0);
-  if (lateCompletions > 0 && totalCompleted > 0) {
-    const pct = Math.round((lateCompletions / totalCompleted) * 100);
-    msg += `• ${lateCompletions} of ${totalCompleted} completed tasks (${pct}%) were overdue at completion\n`;
-    patternCount++;
-  }
-
-  if (patternCount === 0) {
-    msg += `• No concerning patterns today ✅\n`;
-  }
-
-  // --- Improvements ---
-  msg += `\n*💡 Team Improvements:*\n`;
-  const suggestions: string[] = [];
-
-  if (lateCompletions > 0 && totalCompleted > 0 && lateCompletions / totalCompleted > 0.4) {
-    suggestions.push(`Over 40% of today's completions were overdue — consider breaking large tasks into smaller sub-tasks with tighter due dates`);
-  }
-
-  if (zeroDone.length > 0) {
-    suggestions.push(`${zeroDone.map(r => r.member.name).join(' & ')} had zero completions — check if they're blocked or need task reassignment`);
-  }
-
-  if (slippingLists.length > 0) {
-    suggestions.push(`"${slippingLists[0][0]}" keeps slipping — assign a single owner to triage and unblock that list`);
-  }
-
-  if (overdueByMember.length > 0) {
-    const top = overdueByMember[0];
-    if (top.overdue.length >= 3) {
-      suggestions.push(`${top.member.name} is carrying ${top.overdue.length} overdue tasks — do a quick 5-min standup to prioritize or delegate`);
-    }
-  }
-
-  const totalOpen = results.reduce((s, r) => s + r.openTasks.length, 0);
-  if (totalCompleted > 0 && totalOpen > totalCompleted * 3) {
-    suggestions.push(`Team has ${totalOpen} open tasks vs ${totalCompleted} completed today — review backlog for tasks that can be closed or deprioritized`);
-  }
-
-  // Pick top 3 most relevant
-  const picked = suggestions.slice(0, 3);
-  if (picked.length === 0) {
-    picked.push('Solid day — keep the momentum going tomorrow');
-  }
-  for (const s of picked) {
-    msg += `• ${s}\n`;
-  }
-
-  return msg;
-}
-
-function buildEODSection(r: EODResult): string {
-  if (r.completed.length === 0) {
-    return `📝 *EOD — <@${r.member.slackId}>*\nNo tasks completed today.\nOpen: ${r.openTasks.length} tasks\n_Remember to update ClickUp as you finish work!_`;
-  }
-  let msg = `✅ *EOD Summary — <@${r.member.slackId}>*\n\n`;
-  msg += `*Completed today (${r.completed.length}):*\n${fmtCompleted(r.completed)}\n\n`;
-  if (r.openTasks.length > 0) msg += `*Still open (${r.openTasks.length}):*\n${fmtOpen(r.openTasks)}\n\n`;
-  const overdueCompleted = r.completed.filter(t => t.daysOverdue > 0).length;
-  if (overdueCompleted > 0) {
-    msg += `_${r.completed.length} done (${overdueCompleted} were overdue) · ${r.openTasks.length} carry forward_`;
-  } else {
-    msg += `_${r.completed.length} done · ${r.openTasks.length} carry forward_`;
-  }
-  return msg;
-}
+// Alias for test scripts
+export { sendEODSummary as generateEodSummary };
 
 // -----------------------------------------------------------------------
-// Sakcham's Priority SOD — sent as a DM at 10 AM Mon-Sat
-// Shows: agency owners needing follow-up + D2C hot leads (bump2 purchased)
-// Does NOT show: scoring internals, automation details, freelancer pipeline
+// Sakcham's Priority SOD (unchanged)
 // -----------------------------------------------------------------------
 export async function sendSakhamSOD(): Promise<void> {
   const dateStr = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
 
-  // Priority 1: Agency owners stuck in Paid ₹9 for >24h with no appointment booked
   let agencyRows: Array<{ name: string; phone: string | null; email: string | null; placed_at: Date; hours_waiting: number }> = [];
   try {
     const agencyResult = await pool.query(`
@@ -350,7 +464,6 @@ export async function sendSakhamSOD(): Promise<void> {
     logger.error('[SakhamSOD] agency query failed:', e);
   }
 
-  // Priority 2: D2C contacts with audit call (bump2) in last 48h, no appointment booked
   let d2cAuditRows: Array<{ name: string; phone: string | null; email: string | null; created_at: Date; hours_ago: number }> = [];
   try {
     const d2cResult = await pool.query(`
@@ -375,7 +488,6 @@ export async function sendSakhamSOD(): Promise<void> {
     logger.error('[SakhamSOD] d2c audit query failed:', e);
   }
 
-  // Build message
   let msg = `📋 *Your Priority SOD — ${dateStr}*\n\n`;
 
   if (agencyRows.length === 0 && d2cAuditRows.length === 0) {
