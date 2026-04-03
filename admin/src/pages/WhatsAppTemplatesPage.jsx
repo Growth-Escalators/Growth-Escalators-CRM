@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import { apiFetch } from '../lib/api.js';
 
@@ -29,18 +29,140 @@ function detectVars(text) {
   return [...new Set(matches.map(m => m[1]))];
 }
 
+// ── Create Template Modal ────────────────────────────────────────────────────
+function CreateTemplateModal({ onClose, onCreated }) {
+  const [form, setForm] = useState({ templateName: '', category: 'utility', body: '' });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const vars = detectVars(form.body);
+
+  async function handleSave() {
+    if (!form.templateName.trim()) { setError('Template name is required'); return; }
+    if (!form.body.trim()) { setError('Message body is required'); return; }
+    if (!/^[a-z0-9_]+$/.test(form.templateName)) {
+      setError('Name must be lowercase letters, numbers, and underscores only');
+      return;
+    }
+    setSaving(true); setError('');
+    try {
+      await apiFetch('/api/whatsapp/templates', {
+        method: 'POST',
+        body: JSON.stringify(form),
+      });
+      onCreated();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-5 border-b">
+          <h2 className="text-lg font-semibold text-slate-900">Create Template</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        <div className="p-5 space-y-4">
+          {error && <div className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{error}</div>}
+
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">Template Name *</label>
+            <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500"
+              placeholder="e.g. welcome_new_client"
+              value={form.templateName}
+              onChange={e => setForm(f => ({ ...f, templateName: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') }))} />
+            <p className="text-xs text-slate-400 mt-1">Lowercase, numbers, underscores only</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">Category *</label>
+            <div className="flex rounded-lg border border-slate-300 overflow-hidden">
+              {['utility', 'marketing'].map(c => (
+                <button key={c} onClick={() => setForm(f => ({ ...f, category: c }))}
+                  className={`flex-1 py-2 text-sm font-medium transition-colors ${
+                    form.category === c ? 'bg-sky-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
+                  }`}>
+                  {c.charAt(0).toUpperCase() + c.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-medium text-slate-700">Message Body *</label>
+              <span className={`text-xs ${form.body.length > 1024 ? 'text-red-500 font-medium' : 'text-slate-400'}`}>
+                {form.body.length} / 1024
+              </span>
+            </div>
+            <textarea rows={6}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
+              placeholder="Hi {{firstName}}, welcome to..."
+              value={form.body}
+              onChange={e => setForm(f => ({ ...f, body: e.target.value }))} />
+            <p className="text-xs text-slate-400 mt-1">
+              Use {'{{variableName}}'} for dynamic content
+            </p>
+          </div>
+
+          {vars.length > 0 && (
+            <div className="bg-amber-50 rounded-lg p-3 border border-amber-100">
+              <p className="text-xs font-medium text-amber-800 mb-1">
+                {vars.length} variable{vars.length !== 1 ? 's' : ''} detected:
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {vars.map(v => (
+                  <span key={v} className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded text-xs font-mono">
+                    {`{{${v}}}`}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Preview */}
+          {form.body.trim() && (
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Preview</label>
+              <div className="bg-slate-50 rounded-lg p-3 text-sm text-slate-700 whitespace-pre-wrap border border-slate-100 leading-relaxed">
+                {highlightVars(form.body)}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-3 p-5 border-t">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50">Cancel</button>
+          <button onClick={handleSave} disabled={saving || form.body.length > 1024}
+            className="px-4 py-2 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50">
+            {saving ? 'Creating...' : 'Create Template'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main Page ────────────────────────────────────────────────────────────────
 export default function WhatsAppTemplatesPage() {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(null);
   const [filterCategory, setFilterCategory] = useState('');
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
+    setLoading(true);
     apiFetch('/api/whatsapp/templates')
       .then(d => setTemplates(d?.templates || []))
       .catch(e => console.error(e))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   function handleCopy(body, id) {
     navigator.clipboard.writeText(body).then(() => {
@@ -65,6 +187,10 @@ export default function WhatsAppTemplatesPage() {
             <h1 className="text-2xl font-bold text-slate-900">WhatsApp Templates</h1>
             <p className="text-slate-500 mt-1 text-sm">Pre-approved message templates for WhatsApp Business API</p>
           </div>
+          <button onClick={() => setShowCreateModal(true)}
+            className="px-4 py-2 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 flex items-center gap-1.5">
+            + Create Template
+          </button>
         </div>
 
         {/* Stats */}
@@ -160,6 +286,13 @@ export default function WhatsAppTemplatesPage() {
           </div>
         )}
       </main>
+
+      {showCreateModal && (
+        <CreateTemplateModal
+          onClose={() => setShowCreateModal(false)}
+          onCreated={() => { setShowCreateModal(false); fetchData(); }}
+        />
+      )}
     </div>
   );
 }
