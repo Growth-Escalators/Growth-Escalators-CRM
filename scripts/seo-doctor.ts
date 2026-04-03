@@ -254,17 +254,43 @@ let allWorkflowData: Array<{ id: string; name: string; active: boolean }> = [];
 
 async function check2_n8nConnectivity(): Promise<void> {
   log('\n══════ CHECK 2 — n8n API Connectivity ══════');
-  try {
-    const r = await n8nGet('/api/v1/workflows?limit=50');
-    if (r.status === 200) {
-      const d = JSON.parse(r.body);
-      allWorkflowData = (d?.data ?? []).map((w: Record<string, unknown>) => ({
+
+  // Helper to parse workflow list from either public API or session REST response
+  function parseWorkflows(body: string, dataKey: 'data' | 'data'): Array<{ id: string; name: string; active: boolean }> {
+    try {
+      const d = JSON.parse(body);
+      const list = d?.data ?? [];
+      return list.map((w: Record<string, unknown>) => ({
         id: w.id as string,
         name: w.name as string,
         active: w.active as boolean,
       }));
+    } catch { return []; }
+  }
+
+  try {
+    // Primary: public API key
+    const r = await n8nGet('/api/v1/workflows?limit=100');
+    if (r.status === 200) {
+      allWorkflowData = parseWorkflows(r.body, 'data');
       n8nReachable = true;
-      addCheck('n8n-API', 'pass', `HTTP 200 — ${allWorkflowData.length} workflows found`);
+      addCheck('n8n-API', 'pass', `HTTP 200 (API key) — ${allWorkflowData.length} workflows found`);
+      return;
+    }
+
+    // Fallback: session cookie via /rest/workflows (works even when public API key has scope issues)
+    if (n8nCookies) {
+      log(`  ⚠️  Public API key returned ${r.status} — falling back to session auth`);
+      const r2 = await httpReq(`${N8N_URL}/rest/workflows?limit=100`, {
+        headers: { 'Cookie': n8nCookies, 'Content-Type': 'application/json' },
+      });
+      if (r2.status === 200) {
+        allWorkflowData = parseWorkflows(r2.body, 'data');
+        n8nReachable = true;
+        addCheck('n8n-API', 'pass', `HTTP 200 (session fallback) — ${allWorkflowData.length} workflows found`);
+        return;
+      }
+      addCheck('n8n-API', 'fail', `API key: ${r.status}, session fallback: ${r2.status} — ${r2.body.substring(0, 80)}`);
     } else {
       addCheck('n8n-API', 'fail', `HTTP ${r.status}: ${r.body.substring(0, 100)}`);
     }
