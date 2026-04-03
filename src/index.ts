@@ -47,6 +47,7 @@ import { ensureGrowthOSTables } from './services/growthOSSetup';
 import imapRepliesRouter from './routes/imapReplies';
 import { ensureProcessedRepliesTable } from './services/imapService';
 import funnelRouter, { ensureFunnelWaitlistTable } from './routes/funnel';
+import { ensurePipelineContactsTable, ensureOutreachPipelines } from './services/pipelineService';
 // Workers and cron jobs now run via src/worker.ts (see railway.json)
 import analyticsRouter from './routes/analytics';
 import { requireAuth } from './middleware/auth';
@@ -279,6 +280,10 @@ async function startServer() {
   ensureProcessedRepliesTable().catch(e => console.error('[startup] IMAP processed_replies table bootstrap failed:', e));
   // Bootstrap funnel waitlist table
   ensureFunnelWaitlistTable().catch(e => console.error('[startup] Funnel waitlist table bootstrap failed:', e));
+  // Bootstrap pipeline_contacts tracking table
+  ensurePipelineContactsTable().catch(e => console.error('[startup] Pipeline contacts table bootstrap failed:', e));
+  // Bootstrap Agency Owners and Freelancer pipelines
+  ensureOutreachPipelines().catch(e => console.error('[startup] Outreach pipelines bootstrap failed:', e));
 
   httpServer.listen(PORT, () => {
     console.log(`Growth Escalators backend running on port ${PORT}`);

@@ -1,6 +1,7 @@
 import logger from '../utils/logger';
 import { fetchTasksForMember, fetchCompletedTodayForMember, type Task } from '../utils/clickupTasks';
-import { sendSlackMessage } from './slackService';
+import { sendSlackMessage, sendSlackDM } from './slackService';
+import { pool } from '../db/index';
 import {
   SLACK_SOD_EOD_CHANNEL,
   SLACK_JATIN, SLACK_SAKCHAM, SLACK_VISHAL, SLACK_NIMISHA, SLACK_KESHAV,
@@ -187,4 +188,95 @@ function buildEODSection(r: { member: typeof TEAM[0]; completed: Task[]; openTas
   if (r.openTasks.length > 0) msg += `*Still open (${r.openTasks.length}):*\n${fmtOpen(r.openTasks)}\n\n`;
   msg += `_${r.completed.length} done · ${r.openTasks.length} carry forward_`;
   return msg;
+}
+
+// -----------------------------------------------------------------------
+// Sakcham's Priority SOD — sent as a DM at 10 AM Mon-Sat
+// Shows: agency owners needing follow-up + D2C hot leads (bump2 purchased)
+// Does NOT show: scoring internals, automation details, freelancer pipeline
+// -----------------------------------------------------------------------
+export async function sendSakhamSOD(): Promise<void> {
+  const dateStr = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
+
+  // Priority 1: Agency owners stuck in Paid ₹9 for >24h with no appointment booked
+  let agencyRows: Array<{ name: string; phone: string | null; email: string | null; placed_at: Date; hours_waiting: number }> = [];
+  try {
+    const agencyResult = await pool.query(`
+      SELECT
+        c.first_name || COALESCE(' ' || c.last_name, '') AS name,
+        (SELECT channel_value FROM contact_channels
+         WHERE contact_id = c.id AND channel_type = 'whatsapp' LIMIT 1) AS phone,
+        (SELECT channel_value FROM contact_channels
+         WHERE contact_id = c.id AND channel_type = 'email' AND is_primary = true LIMIT 1) AS email,
+        pc.placed_at,
+        EXTRACT(EPOCH FROM (NOW() - pc.placed_at)) / 3600 AS hours_waiting
+      FROM contacts c
+      JOIN pipeline_contacts pc ON pc.contact_id = c.id
+      JOIN pipelines p ON p.id = pc.pipeline_id
+      WHERE p.name = 'Agency Owners'
+        AND pc.stage_name = 'Paid ₹9'
+        AND pc.placed_at < NOW() - INTERVAL '24 hours'
+        AND NOT ('appt_booked' = ANY(c.tags))
+      ORDER BY pc.placed_at ASC
+      LIMIT 10
+    `);
+    agencyRows = agencyResult.rows as typeof agencyRows;
+  } catch (e) {
+    logger.error('[SakhamSOD] agency query failed:', e);
+  }
+
+  // Priority 2: D2C contacts with audit call (bump2) in last 48h, no appointment booked
+  let d2cAuditRows: Array<{ name: string; phone: string | null; email: string | null; created_at: Date; hours_ago: number }> = [];
+  try {
+    const d2cResult = await pool.query(`
+      SELECT
+        c.first_name || COALESCE(' ' || c.last_name, '') AS name,
+        (SELECT channel_value FROM contact_channels
+         WHERE contact_id = c.id AND channel_type = 'whatsapp' LIMIT 1) AS phone,
+        (SELECT channel_value FROM contact_channels
+         WHERE contact_id = c.id AND channel_type = 'email' AND is_primary = true LIMIT 1) AS email,
+        c.created_at,
+        EXTRACT(EPOCH FROM (NOW() - c.created_at)) / 3600 AS hours_ago
+      FROM contacts c
+      WHERE 'bump2' = ANY(c.tags)
+        AND (c.metadata->>'segment' = 'd2c' OR c.metadata->>'segment' = 'ecom_brand' OR 'ecom_brand' = ANY(c.tags))
+        AND c.created_at > NOW() - INTERVAL '48 hours'
+        AND NOT ('appt_booked' = ANY(c.tags))
+      ORDER BY c.created_at DESC
+      LIMIT 10
+    `);
+    d2cAuditRows = d2cResult.rows as typeof d2cAuditRows;
+  } catch (e) {
+    logger.error('[SakhamSOD] d2c audit query failed:', e);
+  }
+
+  // Build message
+  let msg = `📋 *Your Priority SOD — ${dateStr}*\n\n`;
+
+  if (agencyRows.length === 0 && d2cAuditRows.length === 0) {
+    msg += `✅ No priority follow-ups today. All clear!\n`;
+  }
+
+  if (agencyRows.length > 0) {
+    msg += `🏢 *Agency Owners — need follow-up (stuck in Paid ₹9 > 24h)*\n`;
+    for (const r of agencyRows) {
+      const hrs = Math.round(r.hours_waiting);
+      msg += `  • ${r.name} | ${r.phone ?? 'no phone'} | ${r.email ?? 'no email'} | waiting ${hrs}h\n`;
+    }
+    msg += `\n_Action: Call to book discovery / whitelist call_\n\n`;
+  }
+
+  if (d2cAuditRows.length > 0) {
+    msg += `🎯 *D2C Hot Leads — bought audit call, no booking yet*\n`;
+    for (const r of d2cAuditRows) {
+      const hrs = Math.round(r.hours_ago);
+      msg += `  • ${r.name} | ${r.phone ?? 'no phone'} | ${r.email ?? 'no email'} | bought ${hrs}h ago\n`;
+    }
+    msg += `\n_Action: Confirm audit call booking link was sent_\n`;
+  }
+
+  msg += `\n_Sent automatically at 10 AM · Reply DONE to mark follow-ups complete_`;
+
+  await sendSlackDM(SLACK_SAKCHAM, msg);
+  logger.info(`[SakhamSOD] sent — agency: ${agencyRows.length}, d2c_audit: ${d2cAuditRows.length}`);
 }

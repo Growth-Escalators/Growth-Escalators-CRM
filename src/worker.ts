@@ -9,7 +9,8 @@ import { startSequenceWorker } from './workers/sequenceWorker';
 import { startSocialPostWorker } from './workers/socialPostWorker';
 import { checkAndAlertBlockers } from './services/blockerAlertService';
 import { generateMonthlyDraftInvoices } from './services/recurringInvoiceService';
-import { sendSODDigest, sendEODSummary } from './services/sodEodService';
+import { sendSODDigest, sendEODSummary, sendSakhamSOD } from './services/sodEodService';
+import { placePipelineContact } from './services/pipelineService';
 import { checkSpendAlerts } from './services/spendAlertService';
 import { collectDailyData } from './services/intelligenceDataCollector';
 import { analyzeWithClaude } from './services/intelligenceAnalyzer';
@@ -45,6 +46,9 @@ cron.schedule('30 4 * * 1-6', async () => {
   console.log('[CRON] Running SOD digest...');
   try { await sendSODDigest(); console.log('[CRON] SOD digest sent'); }
   catch (e) { console.error('[CRON] SOD digest failed:', e); }
+  // Sakcham's priority SOD — fires alongside the main digest, sends as DM
+  try { await sendSakhamSOD(); console.log('[CRON] Sakcham SOD sent'); }
+  catch (e) { console.error('[CRON] Sakcham SOD failed:', e); }
 }, { timezone: 'UTC' });
 console.log('[cron] SOD digest scheduled — 10:00 AM IST Mon-Sat');
 
@@ -310,6 +314,51 @@ cron.schedule('*/2 * * * *', async () => {
   } catch { /* non-critical */ }
 }, { timezone: 'UTC' });
 console.log('[cron] Co-pilot message poller scheduled — every 2 minutes');
+
+// ---------------------------------------------------------------------------
+// Pipeline placement job — every 5 minutes
+// Picks up slo_purchase events whose contacts haven't been placed in a pipeline yet.
+// Hooks into the payment flow without touching cashfree.ts or webhooks.ts.
+// ---------------------------------------------------------------------------
+cron.schedule('*/5 * * * *', async () => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT e.id, e.contact_id, e.payload, e.tenant_id
+      FROM events e
+      WHERE e.event_type = 'slo_purchase'
+        AND e.contact_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM pipeline_contacts pc
+          WHERE pc.contact_id = e.contact_id
+        )
+      ORDER BY e.created_at ASC
+      LIMIT 20
+    `);
+
+    if (rows.length === 0) return;
+
+    console.log(`[CRON] Pipeline placement: processing ${rows.length} unplaced contact(s)`);
+    for (const row of rows as Array<{ id: string; contact_id: string; payload: Record<string, unknown>; tenant_id: string }>) {
+      const { contact_id, payload, tenant_id } = row;
+      const segment = (payload.segment as string) || 'd2c';
+      const amount  = typeof payload.amount === 'number' ? payload.amount : 9;
+      const bump1   = Boolean(payload.bump1);
+      const bump2   = Boolean(payload.bump2);
+      try {
+        await placePipelineContact({ contactId: contact_id, segment, amount, bump1, bump2, tenantId: tenant_id });
+      } catch (e) {
+        console.error('[CRON] Pipeline placement failed for contact', contact_id, ':', e);
+      }
+    }
+  } catch (e) {
+    // pipeline_contacts table may not exist yet on first deploy — non-fatal
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!msg.includes('pipeline_contacts')) {
+      console.error('[CRON] Pipeline placement job failed:', e);
+    }
+  }
+}, { timezone: 'UTC' });
+console.log('[cron] Pipeline placement job scheduled — every 5 minutes');
 
 // ---------------------------------------------------------------------------
 // Graceful shutdown

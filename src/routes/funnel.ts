@@ -73,4 +73,46 @@ router.get('/waitlist-count', async (_req: Request, res: Response) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// GET /api/funnel/recent-purchase
+// Returns the most recent purchase with city and minutes ago.
+// Falls back to simulated data if no purchase in last 2 hours.
+// Used by the checkout page social-proof ticker.
+// ---------------------------------------------------------------------------
+const INDIAN_CITIES = ['Bengaluru', 'Mumbai', 'Delhi', 'Pune', 'Hyderabad', 'Chennai', 'Ahmedabad', 'Jaipur', 'Surat', 'Kolkata'];
+
+router.get('/recent-purchase', async (_req: Request, res: Response) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT first_name AS name, created_at,
+             EXTRACT(EPOCH FROM (NOW() - created_at)) / 60 AS minutes_ago
+      FROM contacts
+      WHERE 'slo_buyer' = ANY(tags)
+        AND created_at > NOW() - INTERVAL '2 hours'
+      ORDER BY created_at DESC
+      LIMIT 1
+    `);
+
+    if (rows.length > 0) {
+      const row = rows[0] as { name: string; minutes_ago: number };
+      const city = INDIAN_CITIES[Math.floor(Date.now() / 60000) % INDIAN_CITIES.length];
+      res.json({ name: row.name, city, minutes_ago: Math.max(1, Math.round(row.minutes_ago)) });
+      return;
+    }
+
+    // Fallback — simulated
+    const SIMULATED = [
+      { name: 'Rahul', city: 'Bengaluru', minutes_ago: 4 },
+      { name: 'Priya', city: 'Mumbai', minutes_ago: 7 },
+      { name: 'Arjun', city: 'Delhi', minutes_ago: 2 },
+      { name: 'Sneha', city: 'Pune', minutes_ago: 11 },
+      { name: 'Karan', city: 'Hyderabad', minutes_ago: 6 },
+    ];
+    res.json(SIMULATED[Math.floor(Date.now() / 120000) % SIMULATED.length]);
+  } catch (err) {
+    logger.error({ err }, '[funnel] recent-purchase failed');
+    res.json({ name: 'Rahul', city: 'Bengaluru', minutes_ago: 4 });
+  }
+});
+
 export default router;
