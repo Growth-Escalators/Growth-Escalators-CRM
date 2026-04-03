@@ -265,7 +265,7 @@ router.post('/posts', async (req: Request, res: Response) => {
         content,
         mediaUrls: mediaUrls || [],
         scheduledAt: schedTime,
-        status: isImmediate ? 'scheduled' : 'scheduled',
+        status: isImmediate ? 'publishing' : 'scheduled',
       }).returning();
 
       if (isImmediate) {

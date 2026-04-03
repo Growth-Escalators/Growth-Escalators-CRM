@@ -1,13 +1,25 @@
 import { Router, type Request, type Response } from 'express';
+import { pool } from '../db/index';
 
 const router = Router();
 
 const META_API_BASE = 'https://graph.facebook.com/v19.0';
 
-const AD_ACCOUNTS = [
+const FALLBACK_AD_ACCOUNTS = [
   { id: 'act_323237510625803', name: 'GE Agency' },
   { id: 'act_689363376592426', name: 'Paraiso' },
 ];
+
+async function getAdAccounts(): Promise<Array<{ id: string; name: string }>> {
+  try {
+    const result = await pool.query(
+      `SELECT 'act_' || account_id AS id, COALESCE(client_name, account_name) AS name
+       FROM marketing_accounts WHERE is_active = true ORDER BY account_name`
+    );
+    if (result.rows.length > 0) return result.rows as Array<{ id: string; name: string }>;
+  } catch { /* fall through to fallback */ }
+  return FALLBACK_AD_ACCOUNTS;
+}
 
 function getToken(): string | null {
   return process.env.META_ADS_TOKEN || process.env.META_ACCESS_TOKEN || null;
@@ -102,8 +114,9 @@ router.get('/accounts', async (_req: Request, res: Response) => {
   }
 
   try {
+    const adAccounts = await getAdAccounts();
     const results = await Promise.all(
-      AD_ACCOUNTS.map(async (acct) => {
+      adAccounts.map(async (acct) => {
         const url = `${META_API_BASE}/${acct.id}?fields=name,currency,account_status,spend_cap&access_token=${token}`;
         const r = await fetch(url);
         const data = await r.json() as Record<string, unknown>;

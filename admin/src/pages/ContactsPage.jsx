@@ -469,6 +469,7 @@ export default function ContactsPage() {
   const [contacts, setContacts] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [selectedContact, setSelectedContact] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
 
@@ -510,10 +511,15 @@ export default function ContactsPage() {
     // Apply smart list filters
     Object.entries(smartList.filters).forEach(([k, v]) => params.set(k, v));
 
-    const data = await apiFetch(`/contacts?${params}`);
-    if (data) {
-      setContacts(data.contacts ?? []);
-      setTotal(data.total ?? 0);
+    try {
+      const data = await apiFetch(`/contacts?${params}`);
+      if (data) {
+        setContacts(data.contacts ?? []);
+        setTotal(data.total ?? 0);
+      }
+      setLoadError(false);
+    } catch {
+      setLoadError(true);
     }
     setLoading(false);
   }, [search, filterSource, filterAssignedTo, filterDateFrom, page, limit, activeList]);
@@ -701,7 +707,12 @@ export default function ContactsPage() {
                 </tr>
               </thead>
               <tbody>
-                {loading ? (
+                {loadError ? (
+                  <tr><td colSpan={7} className="px-4 py-12 text-center">
+                    <p className="text-red-600 text-sm mb-2">Could not load contacts.</p>
+                    <button onClick={load} className="text-sm text-sky-600 hover:underline">Retry</button>
+                  </td></tr>
+                ) : loading ? (
                   <tr><td colSpan={7} className="px-4 py-12 text-center">
                     <div className="inline-block w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
                     <p className="text-slate-400 text-sm mt-2">Loading contacts…</p>

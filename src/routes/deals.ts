@@ -42,7 +42,9 @@ router.get('/', async (req, res) => {
       pipelineColor: r.pipelineColor ?? null,
     }));
 
-    res.json({ deals: enriched });
+    const [countResult] = await db.select({ count: sql<number>`count(*)::int` }).from(deals).where(and(...conditions));
+    const total = countResult?.count ?? enriched.length;
+    res.json({ deals: enriched, total });
   } catch (err) {
     logger.error('[deals] GET / error:', err);
     res.status(500).json({ error: 'internal server error' });

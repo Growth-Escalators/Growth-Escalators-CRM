@@ -152,27 +152,7 @@ router.post('/meta-wa', validateMetaWebhook, async (req, res) => {
     }
   }
 
-  // Handle status updates (delivered, read)
-  if (value?.statuses) {
-    for (const statusUpdate of value.statuses as Array<Record<string,string>>) {
-      try {
-        const waId = statusUpdate.id;
-        const newStatus = statusUpdate.status;
-        if (!waId || !newStatus) continue;
-
-        // Update message status
-        const updateResult = await db.execute(sql`
-          UPDATE messages SET status = ${newStatus}
-          WHERE external_id = ${waId}
-          RETURNING contact_id
-        `);
-        const contactId = (updateResult.rows[0] as Record<string,string> | undefined)?.contact_id;
-        if (contactId) {
-          emitStatusUpdate(contactId, waId, newStatus);
-        }
-      } catch { /* status update non-critical */ }
-    }
-  }
+  // Status updates already handled in early return block (lines 57-74)
 
   res.status(200).json({ status: 'queued', count: queued });
 });

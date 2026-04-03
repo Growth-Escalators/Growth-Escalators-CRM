@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+import http from 'http';
 import cron from 'node-cron';
 import { db, pool } from './db/index';
 import { sql } from 'drizzle-orm';
@@ -386,6 +387,77 @@ cron.schedule('*/5 * * * *', () => safeCron('Pipeline Placement', async () => {
     }
 }), { timezone: 'UTC' });
 console.log('[cron] Pipeline placement job scheduled — every 5 minutes');
+
+// ---------------------------------------------------------------------------
+// Worker health check HTTP server (for Railway health monitoring)
+// ---------------------------------------------------------------------------
+const WORKER_PORT = parseInt(process.env.WORKER_PORT ?? '3001', 10);
+const healthServer = http.createServer((_req, res) => {
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ status: 'ok', uptime: Math.round(process.uptime()), ts: Date.now() }));
+});
+healthServer.listen(WORKER_PORT, () => {
+  console.log(`[worker] Health check server listening on port ${WORKER_PORT}`);
+});
+
+// ---------------------------------------------------------------------------
+// Meta token expiration monitoring — Every Monday 9:30 AM IST (4:00 UTC)
+// ---------------------------------------------------------------------------
+cron.schedule('0 4 * * 1', () => safeCron('Meta Token Check', async () => {
+  const tokens: Array<{ name: string; token: string }> = [];
+  if (process.env.META_ADS_TOKEN) tokens.push({ name: 'META_ADS_TOKEN', token: process.env.META_ADS_TOKEN });
+  if (process.env.META_ACCESS_TOKEN && process.env.META_ACCESS_TOKEN !== process.env.META_ADS_TOKEN) {
+    tokens.push({ name: 'META_ACCESS_TOKEN', token: process.env.META_ACCESS_TOKEN });
+  }
+
+  if (tokens.length === 0) {
+    console.log('[CRON] Meta Token Check: no tokens configured');
+    return;
+  }
+
+  const { sendSlackDM } = await import('./services/slackService');
+  const issues: string[] = [];
+
+  for (const { name, token } of tokens) {
+    try {
+      const res = await fetch(`https://graph.facebook.com/v19.0/me?access_token=${token}`, { signal: AbortSignal.timeout(10000) });
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        issues.push(`${name}: HTTP ${res.status} — token may be expired or invalid\n   ${body.slice(0, 100)}`);
+      } else {
+        // Check token debug info for expiry
+        try {
+          const debugRes = await fetch(`https://graph.facebook.com/v19.0/debug_token?input_token=${token}&access_token=${token}`, { signal: AbortSignal.timeout(10000) });
+          if (debugRes.ok) {
+            const debugData = await debugRes.json() as { data?: { expires_at?: number; is_valid?: boolean } };
+            const expiresAt = debugData.data?.expires_at;
+            if (expiresAt && expiresAt > 0) {
+              const daysUntilExpiry = Math.floor((expiresAt * 1000 - Date.now()) / 86400000);
+              if (daysUntilExpiry <= 14) {
+                issues.push(`${name}: expires in ${daysUntilExpiry} days — renew soon`);
+              } else {
+                console.log(`[CRON] ${name}: valid, expires in ${daysUntilExpiry} days`);
+              }
+            }
+          }
+        } catch { /* debug endpoint non-critical */ }
+      }
+    } catch (e) {
+      issues.push(`${name}: fetch failed — ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  if (issues.length > 0) {
+    await sendSlackDM(SLACK_JATIN,
+      `⚠️ *Meta Token Health Check*\n\n${issues.map(i => `• ${i}`).join('\n')}\n\n` +
+      `Renew at: developers.facebook.com → Tools → Access Token Tool`
+    );
+    console.log(`[CRON] Meta Token Check: ${issues.length} issue(s) found`);
+  } else {
+    console.log('[CRON] Meta Token Check: all tokens healthy');
+  }
+}), { timezone: 'UTC' });
+console.log('[cron] Meta token check scheduled — Mondays 9:30 AM IST');
 
 // ---------------------------------------------------------------------------
 // Graceful shutdown

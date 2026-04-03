@@ -10,6 +10,7 @@ import { Users, TrendingUp, MessageSquare, Receipt, DollarSign, BarChart2, Kanba
 export default function DashboardPage() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const user = getUser();
 
@@ -26,7 +27,9 @@ export default function DashboardPage() {
           deals: dealData?.total ?? 0,
           billing: billingData,
         });
-      } catch {}
+      } catch {
+        setError(true);
+      }
       setLoading(false);
     }
     loadStats();
@@ -70,6 +73,11 @@ export default function DashboardPage() {
           </div>
 
           {/* Metric cards */}
+          {error && (
+            <div className="mb-6 bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
+              Could not load dashboard data. Please refresh the page.
+            </div>
+          )}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
             {loading ? (
               <>
@@ -94,7 +102,7 @@ export default function DashboardPage() {
                 />
                 <MetricCard
                   title="Monthly MRR"
-                  value={stats?.billing?.mrr != null ? `₹${(stats.billing.mrr / 100).toLocaleString('en-IN')}` : '—'}
+                  value={stats?.billing?.totalMrr != null ? `₹${(stats.billing.totalMrr / 100).toLocaleString('en-IN')}` : '—'}
                   icon={DollarSign}
                   color="text-sky-600"
                 />
