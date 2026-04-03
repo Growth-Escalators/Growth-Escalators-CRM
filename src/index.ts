@@ -52,6 +52,7 @@ import outreachLeadsRouter from './routes/outreachLeads';
 import { ensureOutreachLeadsTable } from './services/outreachLeadsService';
 // Workers and cron jobs now run via src/worker.ts (see railway.json)
 import analyticsRouter from './routes/analytics';
+import whatsappTemplatesRouter from './routes/whatsappTemplates';
 import { requireAuth } from './middleware/auth';
 
 const app = express();
@@ -148,6 +149,7 @@ app.use('/api/seo', requireAuth, seoRouter);
 app.use('/api/seo-workflows', requireAuth, seoWorkflowsRouter);
 app.use('/api/intelligence', requireAuth, intelligenceRouter);
 app.use('/api/growth-os', requireAuth, growthOSRouter);
+app.use('/api/whatsapp', requireAuth, whatsappTemplatesRouter);
 app.use('/api/outreach/imap', imapRepliesRouter);
 app.use('/api/outreach/leads', outreachLeadsRouter);
 app.use('/api/funnel', funnelRouter);
