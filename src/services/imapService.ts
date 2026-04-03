@@ -35,6 +35,11 @@ const INBOXES: InboxConfig[] = [
   { user: 'hello@partners-ge.co', envVar: 'PURELYMAIL_PASS_HELLO_PARTNERSGE' },
 ];
 
+// Per-mailbox hard timeout — overridden by IMAP_TIMEOUT_MS env var.
+// Keeps total wall-clock time well under Railway's 60s proxy limit when
+// running all 6 inboxes in parallel.
+const IMAP_TIMEOUT_MS = parseInt(process.env.IMAP_TIMEOUT_MS ?? '8000', 10);
+
 const SKIP_SENDER_PATTERNS = [
   '@purelymail.com', '@trulyinbox.com', 'noreply@', 'no-reply@',
   'mailer-daemon@', 'postmaster@', '@amazonses.com', '@sendgrid.net',
@@ -93,9 +98,9 @@ async function fetchFromInbox(inbox: InboxConfig): Promise<RawEmail[]> {
     secure: true,
     auth: { user: inbox.user, pass: password },
     logger: false,
-    connectionTimeout: 15000,
-    greetingTimeout: 10000,
-    socketTimeout: 30000,
+    connectionTimeout: IMAP_TIMEOUT_MS,
+    greetingTimeout: Math.floor(IMAP_TIMEOUT_MS * 0.75),
+    socketTimeout: IMAP_TIMEOUT_MS,
   });
 
   const emails: RawEmail[] = [];
@@ -163,15 +168,47 @@ async function fetchFromInbox(inbox: InboxConfig): Promise<RawEmail[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Main export: fetch all prospect replies across 6 inboxes
+// Per-inbox timeout wrapper — resolves to [] if the inbox takes too long
+// ---------------------------------------------------------------------------
+function fetchFromInboxWithTimeout(inbox: InboxConfig): Promise<RawEmail[]> {
+  return new Promise<RawEmail[]>((resolve) => {
+    const timer = setTimeout(() => {
+      logger.warn({ inbox: inbox.user, timeoutMs: IMAP_TIMEOUT_MS }, '[imap] inbox timed out — skipping');
+      resolve([]);
+    }, IMAP_TIMEOUT_MS + 1000); // +1s grace over the IMAP socket timeout
+
+    fetchFromInbox(inbox)
+      .then((emails) => { clearTimeout(timer); resolve(emails); })
+      .catch((err) => {
+        clearTimeout(timer);
+        logger.error({ inbox: inbox.user, err }, '[imap] inbox fetch error — skipping');
+        resolve([]);
+      });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Main export: fetch all prospect replies across 6 inboxes IN PARALLEL
 // ---------------------------------------------------------------------------
 export async function fetchProspectReplies(): Promise<ProspectReply[]> {
-  // 1. Collect raw unseen emails across all inboxes
+  // 1. Collect raw unseen emails across ALL 6 inboxes concurrently.
+  //    Promise.allSettled ensures one failed/slow inbox never blocks the others.
+  //    Total wall-clock time ≈ slowest single inbox (≤ IMAP_TIMEOUT_MS + 1s)
+  //    instead of sum of all 6 — keeps us safely under Railway's 60s proxy limit.
+  const results = await Promise.allSettled(
+    INBOXES.map((inbox) => fetchFromInboxWithTimeout(inbox)),
+  );
+
   const allEmails: RawEmail[] = [];
-  for (const inbox of INBOXES) {
-    const emails = await fetchFromInbox(inbox);
-    allEmails.push(...emails);
-    logger.info({ inbox: inbox.user, count: emails.length }, '[imap] fetched');
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    const inbox = INBOXES[i];
+    if (r.status === 'fulfilled') {
+      allEmails.push(...r.value);
+      logger.info({ inbox: inbox.user, count: r.value.length }, '[imap] fetched');
+    } else {
+      logger.error({ inbox: inbox.user, reason: r.reason }, '[imap] inbox rejected');
+    }
   }
 
   if (allEmails.length === 0) return [];
