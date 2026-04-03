@@ -113,9 +113,19 @@ export async function ensureGrowthOSTables(): Promise<void> {
     await pool.query(`
       INSERT INTO growth_os_clients (client_name, ad_account_id, founder_whatsapp, founder_name, monthly_ad_spend, target_roas, industry, competitors)
       VALUES
-        ('Paraiso', 'act_689363376592426', '917733888883', 'Jatin', 150000, 2.5, 'fashion', '["Libas","Jaipur Kurti","W for Woman"]'),
+        ('Paraiso', 'act_689363376592426', '917733888883', 'Jatin', 150000, 3.0, 'D2C Fashion / Lifestyle', '["Style Jaipur","Fab India"]'),
         ('GE Agency', 'act_323237510625803', '917733888883', 'Jatin', 50000, 3.0, 'marketing', '[]')
       ON CONFLICT (client_name) DO NOTHING;
+    `);
+
+    // Ensure Paraiso has latest config (ON CONFLICT above skips existing rows)
+    await pool.query(`
+      UPDATE growth_os_clients
+      SET target_roas = 3.0,
+          industry = 'D2C Fashion / Lifestyle',
+          competitors = '["Style Jaipur","Fab India"]'::jsonb
+      WHERE client_name = 'Paraiso'
+        AND (target_roas != 3.0 OR industry != 'D2C Fashion / Lifestyle');
     `);
 
     logger.info('[growth-os] Tables bootstrapped successfully');

@@ -13,7 +13,7 @@ const N8N_URL = 'https://primary-production-6c6f5.up.railway.app';
 const N8N_API_KEY = process.env.N8N_API_KEY || '';
 const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY || '';
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN || '';
-const VALUESREP_API_KEY = process.env.VALUESREP_API_KEY || '';
+const VALUESREP_API_KEY = process.env.VALUESREP_API_KEY || process.env.VALUESERP_API_KEY || '';
 const DATAFORSEO_LOGIN = process.env.DATAFORSEO_LOGIN || '';
 const DATAFORSEO_PASSWORD = process.env.DATAFORSEO_PASSWORD || '';
 

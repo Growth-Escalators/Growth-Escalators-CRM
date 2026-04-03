@@ -223,7 +223,7 @@ async function check1_envVars(): Promise<void> {
   // Cache useful values
   claudeApiKey    = primaryEnvVars['CLAUDE_API_KEY'] ?? process.env.CLAUDE_API_KEY ?? '';
   slackToken      = primaryEnvVars['SLACK_BOT_TOKEN'] ?? process.env.SLACK_BOT_TOKEN ?? '';
-  valueSerpKey    = primaryEnvVars['VALUESERP_API_KEY'] ?? process.env.VALUESERP_API_KEY ?? '';
+  valueSerpKey    = primaryEnvVars['VALUESERP_API_KEY'] ?? primaryEnvVars['VALUESREP_API_KEY'] ?? process.env.VALUESERP_API_KEY ?? process.env.VALUESREP_API_KEY ?? '';
   dataForSeoLogin = primaryEnvVars['DATAFORSEO_LOGIN'] ?? process.env.DATAFORSEO_LOGIN ?? '';
   dataForSeoPass  = primaryEnvVars['DATAFORSEO_PASSWORD'] ?? process.env.DATAFORSEO_PASSWORD ?? '';
 
