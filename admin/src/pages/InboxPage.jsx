@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
+import ContactSlideIn from '../components/ContactSlideIn.jsx';
 import { apiFetch } from '../lib/api.js';
-import { MessageSquare, Send, Search, Check, CheckCheck, Image, FileText, Phone, User, ArrowLeft } from 'lucide-react';
+import { MessageSquare, Send, Search, Check, CheckCheck, Image, FileText, Phone, User, ArrowLeft, Pencil } from 'lucide-react';
 import { io } from 'socket.io-client';
 
 function timeAgo(isoDate) {
@@ -86,6 +87,8 @@ export default function InboxPage() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [loading, setLoading] = useState(true);
   const [msgLoading, setMsgLoading] = useState(false);
+  const [editContactId, setEditContactId] = useState(null);
+  const [toast, setToast] = useState('');
   const messagesEndRef = useRef(null);
   const socketRef = useRef(null);
 
@@ -176,6 +179,13 @@ export default function InboxPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Toast auto-dismiss
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(''), 3000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
   async function sendMessage() {
     if (!newMsg.trim() || !selectedConv || sending) return;
     setSending(true);
@@ -186,6 +196,7 @@ export default function InboxPage() {
       });
       setMessages(prev => [...prev, data.message]);
       setNewMsg('');
+      setToast('Message sent successfully');
     } catch (e) {
       console.error('Send failed:', e);
     } finally {
@@ -201,6 +212,7 @@ export default function InboxPage() {
         body: JSON.stringify({ templateName: template.templateName, languageCode: template.language || 'en' }),
       });
       setMessages(prev => [...prev, data.message]);
+      setToast('Template sent successfully');
     } catch (e) {
       console.error('Template send failed:', e);
     }
@@ -303,7 +315,16 @@ export default function InboxPage() {
                 {(selectedConv.contactName || '?')[0].toUpperCase()}
               </div>
               <div className="flex-1">
-                <p className="font-semibold text-slate-900">{selectedConv.contactName || 'Unknown'}</p>
+                <div className="flex items-center gap-1.5">
+                  <p className="font-semibold text-slate-900">{selectedConv.contactName || 'Unknown'}</p>
+                  <button
+                    onClick={() => setEditContactId(selectedConv.contactId)}
+                    className="p-1 text-slate-400 hover:text-sky-600 rounded hover:bg-slate-100 transition-colors"
+                    title="Edit contact"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                </div>
                 <p className="text-xs text-slate-400 flex items-center gap-1">
                   <Phone className="w-3 h-3" />
                   {selectedConv.contactPhone || '—'}
@@ -365,6 +386,20 @@ export default function InboxPage() {
           </>
         )}
       </div>
+
+      {toast && (
+        <div className="pointer-events-auto fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-sm font-medium px-5 py-3 rounded-2xl shadow-2xl">
+          {toast}
+        </div>
+      )}
+
+      {editContactId && (
+        <ContactSlideIn
+          contact={{ id: editContactId, firstName: selectedConv?.contactName?.split(' ')[0] ?? '', lastName: selectedConv?.contactName?.split(' ').slice(1).join(' ') || null }}
+          onClose={() => setEditContactId(null)}
+          onUpdated={() => setEditContactId(null)}
+        />
+      )}
     </div>
   );
 }

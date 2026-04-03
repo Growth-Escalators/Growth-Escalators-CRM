@@ -80,10 +80,16 @@ cron.schedule('30 3 1 * *', () => safeCron('Monthly Invoice Drafts', async () =>
   console.log(`[cron] monthly invoices: generated=${result.generated}, errors=${result.errors.length}`);
 
   if (result.generated > 0) {
-    const { sendSlackMessage } = await import('./services/slackService');
+    const { sendSlackMessage, sendSlackDM } = await import('./services/slackService');
     const month = new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
     await sendSlackMessage(SLACK_SALES_BD_CHANNEL,
       `🧾 *Invoice Drafts Ready — ${month}*\n\nDrafts generated for all active billing clients.\nReview and approve at: /crm/billing\n\n<@${SLACK_JATIN}> <@${SLACK_SAKCHAM}> — please review before sending to clients.`);
+    // DM Jatin with details
+    await sendSlackDM(SLACK_JATIN,
+      `🧾 *${result.generated} Invoice Drafts Generated — ${month}*\n\n` +
+      `${result.errors.length > 0 ? `⚠️ ${result.errors.length} error(s): ${result.errors.join(', ')}\n\n` : ''}` +
+      `Review and send: https://web-production-311da.up.railway.app/crm/billing`
+    ).catch(() => {});
   }
 }), { timezone: 'UTC' });
 console.log('[cron] monthly invoice drafts scheduled — 1st of month at 9 AM IST');

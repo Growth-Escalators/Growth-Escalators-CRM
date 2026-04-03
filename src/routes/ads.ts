@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { pool } from '../db/index';
+import { fetchWithRetry } from '../utils/fetchWithRetry';
 
 const router = Router();
 
@@ -118,7 +119,7 @@ router.get('/accounts', async (_req: Request, res: Response) => {
     const results = await Promise.all(
       adAccounts.map(async (acct) => {
         const url = `${META_API_BASE}/${acct.id}?fields=name,currency,account_status,spend_cap&access_token=${token}`;
-        const r = await fetch(url);
+        const r = await fetchWithRetry(url);
         const data = await r.json() as Record<string, unknown>;
         return {
           id: acct.id,
@@ -148,7 +149,7 @@ router.get('/campaigns', async (req: Request, res: Response) => {
 
   try {
     const url = `${META_API_BASE}/${accountId}/campaigns?fields=id,name,status,effective_status,objective&limit=100&access_token=${token}`;
-    const r = await fetch(url);
+    const r = await fetchWithRetry(url);
     const data = await r.json() as Record<string, unknown>;
     if ((data as Record<string,unknown>).error) {
       res.json({ campaigns: [], error: ((data as Record<string,Record<string,string>>).error).message });
@@ -189,7 +190,7 @@ router.get('/insights', async (req: Request, res: Response) => {
     });
 
     const url = `${META_API_BASE}/${accountId}/insights?${params.toString()}`;
-    const r = await fetch(url);
+    const r = await fetchWithRetry(url);
     const data = await r.json() as Record<string, unknown>;
 
     if ((data as Record<string,unknown>).error) {
@@ -234,7 +235,7 @@ router.get('/adsets', async (req: Request, res: Response) => {
     if (campaignId) params.set('filtering', JSON.stringify([{ field: 'campaign.id', operator: 'EQUAL', value: campaignId }]));
 
     const url = `${META_API_BASE}/${accountId}/insights?${params.toString()}`;
-    const r = await fetch(url);
+    const r = await fetchWithRetry(url);
     const data = await r.json() as Record<string, unknown>;
 
     if ((data as Record<string,unknown>).error) {
@@ -279,7 +280,7 @@ router.get('/ads', async (req: Request, res: Response) => {
     if (adsetId) params.set('filtering', JSON.stringify([{ field: 'adset.id', operator: 'EQUAL', value: adsetId }]));
 
     const url = `${META_API_BASE}/${accountId}/insights?${params.toString()}`;
-    const r = await fetch(url);
+    const r = await fetchWithRetry(url);
     const data = await r.json() as Record<string, unknown>;
 
     if ((data as Record<string,unknown>).error) {

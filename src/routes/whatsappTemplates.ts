@@ -8,76 +8,61 @@ import logger from '../utils/logger';
 const router = Router();
 
 // ---------------------------------------------------------------------------
-// Template body content — stored here because wa_templates table has no body column.
-// Maps template_name → { body, description }
+// Default template bodies — used to seed the body column on first run
 // ---------------------------------------------------------------------------
-const TEMPLATE_BODIES: Record<string, { body: string; description: string }> = {
+const DEFAULT_BODIES: Record<string, { body: string; description: string }> = {
   welcome_d2c: {
     description: 'Welcome message for new D2C leads',
-    body:
-      'Hi {{firstName}}, thanks for reaching out to Growth Escalators! ' +
-      'I am Jatin, and I help D2C brands scale profitably on Meta. ' +
-      'I will be in touch shortly. Meanwhile, reply with your biggest Meta ads challenge right now.',
+    body: 'Hi {{firstName}}, thanks for reaching out to Growth Escalators! I am Jatin, and I help D2C brands scale profitably on Meta. I will be in touch shortly. Meanwhile, reply with your biggest Meta ads challenge right now.',
   },
   followup_day3: {
     description: 'Day 3 follow-up for leads who haven\'t booked a call',
-    body:
-      'Hi {{firstName}}, following up from Growth Escalators. ' +
-      'Have you had a chance to think about scaling your Meta ads? ' +
-      'Reply 1 if you would like to book a free strategy call.',
+    body: 'Hi {{firstName}}, following up from Growth Escalators. Have you had a chance to think about scaling your Meta ads? Reply 1 if you would like to book a free strategy call.',
   },
   nudge_day7: {
     description: 'Day 7 urgency nudge for unbooked leads',
-    body:
-      'Hi {{firstName}}, last follow up from Jatin at Growth Escalators. ' +
-      'I have a few open slots this week for strategy calls — completely free, no pitch, just a clear plan for your Meta ads. ' +
-      'Want one? Reply YES.',
+    body: 'Hi {{firstName}}, last follow up from Jatin at Growth Escalators. I have a few open slots this week for strategy calls — completely free, no pitch, just a clear plan for your Meta ads. Want one? Reply YES.',
   },
   appointment_confirm: {
     description: 'Appointment booking confirmation',
-    body:
-      'Hi {{firstName}}, your strategy call with Growth Escalators is confirmed for {{appointmentDate}} at {{appointmentTime}}. ' +
-      'Join link: {{meetingLink}}. Reply if you need to reschedule.',
+    body: 'Hi {{firstName}}, your strategy call with Growth Escalators is confirmed for {{appointmentDate}} at {{appointmentTime}}. Join link: {{meetingLink}}. Reply if you need to reschedule.',
   },
   appointment_reminder: {
     description: 'Appointment reminder sent 1 hour before',
-    body:
-      'Hi {{firstName}}, reminder: your Growth Escalators strategy call starts in 1 hour at {{appointmentTime}}. ' +
-      'Join here: {{meetingLink}}. Looking forward to it!',
+    body: 'Hi {{firstName}}, reminder: your Growth Escalators strategy call starts in 1 hour at {{appointmentTime}}. Join here: {{meetingLink}}. Looking forward to it!',
   },
   hot_lead_alert: {
     description: 'Internal alert to sales team for high-intent leads',
-    body:
-      'NEW LEAD — {{firstName}} {{lastName}} just booked a strategy call. ' +
-      'Score: {{leadScore}}/100. Scheduled: {{appointmentDate}}. ' +
-      'Check CRM: https://web-production-311da.up.railway.app/crm',
+    body: 'NEW LEAD — {{firstName}} {{lastName}} just booked a strategy call. Score: {{leadScore}}/100. Scheduled: {{appointmentDate}}. Check CRM: https://web-production-311da.up.railway.app/crm',
   },
 };
 
 // ---------------------------------------------------------------------------
-// Ensure seed templates exist for the tenant
+// Ensure body + description columns exist and seed templates
 // ---------------------------------------------------------------------------
-async function seedTemplates(tenantId: string): Promise<void> {
-  const templateSeeds = [
-    { templateName: 'welcome_d2c',          category: 'utility',   variableCount: 1, status: 'approved' },
-    { templateName: 'followup_day3',        category: 'marketing', variableCount: 1, status: 'approved' },
-    { templateName: 'nudge_day7',           category: 'marketing', variableCount: 1, status: 'approved' },
-    { templateName: 'appointment_confirm',  category: 'utility',   variableCount: 4, status: 'approved' },
-    { templateName: 'appointment_reminder', category: 'utility',   variableCount: 3, status: 'approved' },
-    { templateName: 'hot_lead_alert',       category: 'utility',   variableCount: 4, status: 'approved' },
-  ];
+async function ensureColumnsAndSeed(tenantId: string): Promise<void> {
+  // Add body and description columns if missing
+  try {
+    await pool.query(`ALTER TABLE wa_templates ADD COLUMN IF NOT EXISTS body TEXT`);
+    await pool.query(`ALTER TABLE wa_templates ADD COLUMN IF NOT EXISTS description TEXT`);
+  } catch { /* columns may already exist */ }
 
-  for (const seed of templateSeeds) {
+  // Seed default templates
+  for (const [name, data] of Object.entries(DEFAULT_BODIES)) {
+    const vars = [...data.body.matchAll(/\{\{(\w+)\}\}/g)];
+    const variableCount = new Set(vars.map(m => m[1])).size;
+    const category = ['followup_day3', 'nudge_day7'].includes(name) ? 'marketing' : 'utility';
+
     try {
       await pool.query(
-        `INSERT INTO wa_templates (tenant_id, template_name, category, variable_count, status, language, approved_at)
-         VALUES ($1, $2, $3, $4, $5, 'en', NOW())
-         ON CONFLICT ON CONSTRAINT wa_templates_tenant_name_idx DO NOTHING`,
-        [tenantId, seed.templateName, seed.category, seed.variableCount, seed.status],
+        `INSERT INTO wa_templates (tenant_id, template_name, category, variable_count, status, language, approved_at, body, description)
+         VALUES ($1, $2, $3, $4, 'approved', 'en', NOW(), $5, $6)
+         ON CONFLICT ON CONSTRAINT wa_templates_tenant_name_idx DO UPDATE SET
+           body = COALESCE(wa_templates.body, EXCLUDED.body),
+           description = COALESCE(wa_templates.description, EXCLUDED.description)`,
+        [tenantId, name, category, variableCount, data.body, data.description],
       );
-    } catch {
-      // ignore — constraint may differ
-    }
+    } catch { /* ignore */ }
   }
 }
 
@@ -87,18 +72,16 @@ async function seedTemplates(tenantId: string): Promise<void> {
 router.get('/templates', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   try {
-    await seedTemplates(tenantId);
+    await ensureColumnsAndSeed(tenantId);
 
-    const rows = await db.select().from(waTemplates)
-      .where(eq(waTemplates.tenantId, tenantId));
+    const result = await pool.query(
+      `SELECT id, tenant_id, template_name, category, language, variable_count, status,
+              submitted_at, approved_at, created_at, body, description
+       FROM wa_templates WHERE tenant_id = $1 ORDER BY created_at`,
+      [tenantId],
+    );
 
-    const enriched = rows.map(r => ({
-      ...r,
-      body: TEMPLATE_BODIES[r.templateName]?.body ?? null,
-      description: TEMPLATE_BODIES[r.templateName]?.description ?? null,
-    }));
-
-    res.json({ templates: enriched });
+    res.json({ templates: result.rows });
   } catch (e: unknown) {
     logger.error('[wa-templates] fetch failed:', e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
@@ -118,35 +101,17 @@ router.post('/templates', async (req: Request, res: Response) => {
       return;
     }
 
-    // Count variables in body
     const vars = body ? [...body.matchAll(/\{\{(\w+)\}\}/g)] : [];
     const variableCount = new Set(vars.map((m: RegExpMatchArray) => m[1])).size;
 
-    const [row] = await db.insert(waTemplates).values({
-      tenantId,
-      templateName,
-      category,
-      language: 'en',
-      variableCount,
-      status: 'pending',
-      submittedAt: new Date(),
-    }).returning();
+    const result = await pool.query(
+      `INSERT INTO wa_templates (tenant_id, template_name, category, language, variable_count, status, submitted_at, body, description)
+       VALUES ($1, $2, $3, 'en', $4, 'pending', NOW(), $5, $6)
+       RETURNING *`,
+      [tenantId, templateName, category, variableCount, body ?? null, `Custom template — ${category}`],
+    );
 
-    // Store body in memory map so it shows immediately
-    if (body) {
-      TEMPLATE_BODIES[templateName] = {
-        body,
-        description: `Custom template — ${category}`,
-      };
-    }
-
-    res.status(201).json({
-      template: {
-        ...row,
-        body: body ?? null,
-        description: TEMPLATE_BODIES[templateName]?.description ?? null,
-      },
-    });
+    res.status(201).json({ template: result.rows[0] });
   } catch (e: unknown) {
     logger.error('[wa-templates] create failed:', e);
     const msg = e instanceof Error ? e.message : String(e);

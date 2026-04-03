@@ -251,6 +251,30 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
     setBusy(false);
   }
 
+  function handleImportCSV() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.csv';
+    input.onchange = async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      setBusy(true);
+      try {
+        const csvText = await file.text();
+        const data = await apiFetch('/contacts/import', {
+          method: 'POST',
+          body: JSON.stringify({ csv: csvText }),
+        });
+        setToast(`Imported ${data.imported} contact${data.imported !== 1 ? 's' : ''}${data.errors?.length ? ` (${data.errors.length} errors)` : ''}`);
+        load();
+      } catch (err) {
+        setToast(`Import failed: ${err.message}`);
+      }
+      setBusy(false);
+    };
+    input.click();
+  }
+
   async function handleBulkTag() {
     const tags = tagInput.split(',').map((t) => t.trim()).filter(Boolean);
     if (!tags.length) return;
@@ -392,6 +416,12 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
           <div className="w-px h-4 bg-slate-600 hidden sm:block" />
 
           {/* Action buttons */}
+          <button onClick={handleImportCSV} disabled={busy} className={`${btnBase} bg-slate-700 hover:bg-slate-600 text-white`}>
+            <span className="flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l4 4m0 0l4-4m-4 4V4"/></svg>
+              Import
+            </span>
+          </button>
           <button onClick={handleExport} disabled={busy} className={`${btnBase} bg-slate-700 hover:bg-slate-600 text-white`}>
             <span className="flex items-center gap-1.5">
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>

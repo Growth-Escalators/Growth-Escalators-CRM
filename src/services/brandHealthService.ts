@@ -1,5 +1,6 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
+import { fetchWithRetry } from '../utils/fetchWithRetry';
 import { type GrowthOSClient, sendWhatsAppMessage } from './growthOSSetup';
 
 // ---------------------------------------------------------------------------
@@ -114,7 +115,7 @@ async function calcAdsScore(client: GrowthOSClient): Promise<{ score: number; de
     if (!token) return { score: 50, detail: { note: 'META_ADS_TOKEN not set' } };
 
     const url = `https://graph.facebook.com/v19.0/${client.ad_account_id}/campaigns?fields=name,status,insights.date_preset(last_7d){spend,actions,impressions,clicks,ctr,cpc}&access_token=${token}&limit=20`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    const res = await fetchWithRetry(url);
     if (!res.ok) return { score: 50, detail: { error: `Meta API ${res.status}` } };
 
     const data = await res.json() as { data?: Array<Record<string, unknown>> };

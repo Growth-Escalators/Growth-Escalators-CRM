@@ -577,6 +577,87 @@ router.post('/export', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /contacts/import — import contacts from CSV text
+// Expects JSON body: { csv: "Name,Email,Phone,Company\nJohn,john@x.com,..." }
+// ---------------------------------------------------------------------------
+router.post('/import', async (req, res) => {
+  try {
+    const tenantId = req.user!.tenantId;
+    const { csv } = req.body as { csv?: string };
+    if (!csv || typeof csv !== 'string') {
+      res.status(400).json({ error: 'csv field is required' });
+      return;
+    }
+
+    const lines = csv.split('\n').map(l => l.trim()).filter(Boolean);
+    if (lines.length < 2) {
+      res.status(400).json({ error: 'CSV must have a header row and at least one data row' });
+      return;
+    }
+
+    // Parse header
+    const header = lines[0].toLowerCase().split(',').map(h => h.replace(/"/g, '').trim());
+    const nameIdx = header.findIndex(h => h === 'name' || h === 'first name' || h === 'firstname');
+    const emailIdx = header.findIndex(h => h === 'email');
+    const phoneIdx = header.findIndex(h => h === 'phone' || h === 'whatsapp');
+    const companyIdx = header.findIndex(h => h === 'company' || h === 'company name');
+
+    let imported = 0;
+    const errors: string[] = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      try {
+        // Simple CSV parse (handles quoted fields)
+        const fields = lines[i].match(/("([^"]|"")*"|[^,]*)/g)?.map(f => f.replace(/^"|"$/g, '').replace(/""/g, '"').trim()) ?? [];
+
+        const fullName = (nameIdx >= 0 ? fields[nameIdx] : '') || '';
+        const nameParts = fullName.split(/\s+/);
+        const firstName = nameParts[0] || 'Unknown';
+        const lastName = nameParts.slice(1).join(' ') || null;
+        const email = emailIdx >= 0 ? fields[emailIdx] : null;
+        const phone = phoneIdx >= 0 ? fields[phoneIdx] : null;
+        const company = companyIdx >= 0 ? fields[companyIdx] : null;
+
+        if (!firstName && !email && !phone) continue;
+
+        const [contact] = await db.insert(contacts).values({
+          tenantId,
+          firstName,
+          lastName,
+          companyName: company,
+          source: 'csv_import',
+          status: 'lead',
+          tags: ['csv-import'],
+        }).returning();
+
+        if (email) {
+          await db.insert(contactChannels).values({
+            tenantId, contactId: contact.id, channelType: 'email', channelValue: email, isPrimary: true,
+          }).catch(() => {});
+        }
+        if (phone) {
+          const cleanPhone = phone.replace(/[^\d+]/g, '');
+          if (cleanPhone) {
+            await db.insert(contactChannels).values({
+              tenantId, contactId: contact.id, channelType: 'whatsapp', channelValue: cleanPhone, isPrimary: true,
+            }).catch(() => {});
+          }
+        }
+
+        imported++;
+      } catch (e) {
+        errors.push(`Row ${i + 1}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+
+    res.json({ imported, errors: errors.slice(0, 10), totalRows: lines.length - 1 });
+  } catch (e: unknown) {
+    logger.error('[contacts] POST /import error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /contacts/bulk-sequence — enrol contacts in a sequence by name
 // Body: { contactIds: string[], sequenceName: string }
 // ---------------------------------------------------------------------------

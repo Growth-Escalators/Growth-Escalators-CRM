@@ -574,12 +574,19 @@ export default function PipelinePage() {
           </div>
         ) : (
           <DragDropContext onDragEnd={onDragEnd}>
-            <div className="flex gap-3 px-4 py-4 overflow-x-auto flex-1">
+            {totalDeals === 0 && (
+              <div className="text-center py-16">
+                <p className="text-slate-400 text-lg mb-3">No deals yet</p>
+                <p className="text-slate-400 text-sm mb-4">Add your first deal to get started</p>
+                <button onClick={() => setAddDealModal({ pipelineId: activePipelineId, stageName: kanbanStages[0]?.stageName ?? '' })} className="px-4 py-2 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700">+ Add Deal</button>
+              </div>
+            )}
+            <div className="flex gap-3 px-4 py-4 overflow-x-auto snap-x snap-mandatory md:overflow-x-visible flex-1">
               {kanbanStages.map((stageData, stageIndex) => {
                 const { color, light } = getStageStyle(stageData.stageName, stageIndex);
                 const stageDeals = stageData.deals ?? [];
                 return (
-                  <div key={stageData.stageName} className={`flex flex-col rounded-xl border ${light} min-w-[220px] w-[220px] shrink-0`}>
+                  <div key={stageData.stageName} className={`snap-center min-w-[85vw] md:min-w-[220px] flex flex-col rounded-xl border ${light} w-[220px] shrink-0`}>
                     {/* Column header */}
                     <div
                       className="rounded-t-xl px-3 py-2.5"

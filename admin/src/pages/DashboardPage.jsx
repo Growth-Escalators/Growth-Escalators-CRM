@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import TopBar from '../components/TopBar.jsx';
 import GlobalSearch from '../components/GlobalSearch.jsx';
@@ -12,28 +12,41 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(Date.now());
+  const [secondsAgo, setSecondsAgo] = useState(0);
   const user = getUser();
 
-  useEffect(() => {
-    async function loadStats() {
-      try {
-        const [contactData, dealData, billingData] = await Promise.all([
-          apiFetch('/contacts?limit=1').catch(() => null),
-          apiFetch('/deals?limit=1').catch(() => null),
-          apiFetch('/api/billing/stats').catch(() => null),
-        ]);
-        setStats({
-          contacts: contactData?.total ?? 0,
-          deals: dealData?.total ?? 0,
-          billing: billingData,
-        });
-      } catch {
-        setError(true);
-      }
-      setLoading(false);
+  const loadStats = useCallback(async () => {
+    try {
+      const [contactData, dealData, billingData] = await Promise.all([
+        apiFetch('/contacts?limit=1').catch(() => null),
+        apiFetch('/deals?limit=1').catch(() => null),
+        apiFetch('/api/billing/stats').catch(() => null),
+      ]);
+      setStats({
+        contacts: contactData?.total ?? 0,
+        deals: dealData?.total ?? 0,
+        billing: billingData,
+      });
+      setLastUpdated(Date.now());
+      setSecondsAgo(0);
+    } catch {
+      setError(true);
     }
-    loadStats();
+    setLoading(false);
   }, []);
+
+  useEffect(() => {
+    loadStats();
+  }, [loadStats]);
+
+  useEffect(() => {
+    const refreshInterval = setInterval(() => { loadStats(); }, 60000);
+    const tickInterval = setInterval(() => {
+      setSecondsAgo(Math.floor((Date.now() - lastUpdated) / 1000));
+    }, 10000);
+    return () => { clearInterval(refreshInterval); clearInterval(tickInterval); };
+  }, [loadStats, lastUpdated]);
 
   useEffect(() => {
     const handler = (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setSearchOpen(true); } };
@@ -116,12 +129,18 @@ export default function DashboardPage() {
             )}
           </div>
 
+          {!loading && (
+            <p className="text-xs text-slate-400 mb-4">
+              Last updated {secondsAgo < 10 ? 'just now' : `${secondsAgo} seconds ago`}
+            </p>
+          )}
+
           {/* Quick links */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {[
-              { icon: Users, label: 'Contacts', path: '/contacts', color: 'bg-sky-50 text-sky-600', roles: ['admin','manager_ops','sales'] },
-              { icon: Kanban, label: 'Pipeline', path: '/pipeline', color: 'bg-indigo-50 text-indigo-600', roles: ['admin','manager_ops','sales'] },
-              { icon: MessageSquare, label: 'Inbox', path: '/inbox', color: 'bg-purple-50 text-purple-600', roles: ['admin','manager_ops','sales'] },
+              { icon: Users, label: 'Contacts', path: '/contacts', color: 'bg-sky-50 text-sky-600', roles: ['admin','manager_ops','sales','staff'] },
+              { icon: Kanban, label: 'Pipeline', path: '/pipeline', color: 'bg-indigo-50 text-indigo-600', roles: ['admin','manager_ops','sales','staff'] },
+              { icon: MessageSquare, label: 'Inbox', path: '/inbox', color: 'bg-purple-50 text-purple-600', roles: ['admin','manager_ops','sales','staff'] },
               { icon: TrendingUp, label: 'Analytics', path: '/analytics', color: 'bg-emerald-50 text-emerald-600', roles: ['admin','manager_ops','sales'] },
               { icon: BarChart2, label: 'Meta Ads', path: '/ads', color: 'bg-green-50 text-green-600', roles: ['admin','manager_ads'] },
               { icon: Share2, label: 'Social', path: '/social', color: 'bg-pink-50 text-pink-600', roles: ['admin','manager_ops','staff'] },
