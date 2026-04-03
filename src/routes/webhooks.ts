@@ -258,41 +258,6 @@ router.post('/chatwoot', async (req, res) => {
   res.status(200).json({ status: 'queued', jobId: job.id });
 });
 
-// ---------------------------------------------------------------------------
-// GET /webhooks/test-queue — Debug route: inspect current queue state
-// ---------------------------------------------------------------------------
-router.get('/test-queue', async (_req, res) => {
-  const [pendingResult] = await db
-    .select({ count: count() })
-    .from(jobs)
-    .where(eq(jobs.status, 'pending'));
-
-  const [eventsResult] = await db.select({ count: count() }).from(processedEvents);
-
-  const recentJobs = await db
-    .select({
-      id: jobs.id,
-      jobType: jobs.jobType,
-      status: jobs.status,
-      idempotencyKey: jobs.idempotencyKey,
-      createdAt: jobs.createdAt,
-    })
-    .from(jobs)
-    .orderBy(desc(jobs.createdAt))
-    .limit(5);
-
-  const recentEvents = await db
-    .select()
-    .from(processedEvents)
-    .orderBy(desc(processedEvents.processedAt))
-    .limit(5);
-
-  res.json({
-    pendingJobs: Number(pendingResult.count),
-    totalProcessedEvents: Number(eventsResult.count),
-    recentJobs,
-    recentEvents,
-  });
-});
+// test-queue debug endpoint removed — exposed internal queue state without auth
 
 export default router;

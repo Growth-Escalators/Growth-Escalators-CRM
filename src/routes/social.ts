@@ -23,7 +23,9 @@ const upload = multer({
 
 // AES-256-CBC encryption using SOCIAL_ENCRYPTION_KEY or JWT_SECRET
 function getEncKey(): string {
-  return process.env.SOCIAL_ENCRYPTION_KEY || process.env.JWT_SECRET || 'fallback';
+  const key = process.env.SOCIAL_ENCRYPTION_KEY || process.env.JWT_SECRET;
+  if (!key) throw new Error('SOCIAL_ENCRYPTION_KEY or JWT_SECRET must be set');
+  return key;
 }
 
 function encrypt(text: string): string {

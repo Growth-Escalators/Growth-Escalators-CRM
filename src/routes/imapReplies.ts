@@ -11,9 +11,9 @@ const router = Router();
 function checkInternalSecret(req: Request, res: Response): boolean {
   const secret = process.env.OUTREACH_INTERNAL_SECRET;
   if (!secret) {
-    // If not configured, log a warning but allow (dev-friendly)
-    logger.warn('[imap-replies] OUTREACH_INTERNAL_SECRET not set — request allowed without auth');
-    return true;
+    logger.error('[imap-replies] OUTREACH_INTERNAL_SECRET not set — blocking request');
+    res.status(401).json({ error: 'internal secret not configured' });
+    return false;
   }
   const provided = req.headers['x-internal-secret'];
   if (provided !== secret) {

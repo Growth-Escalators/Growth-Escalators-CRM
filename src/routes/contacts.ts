@@ -10,6 +10,7 @@ const router = Router();
 // GET /contacts — list contacts with filters + enriched phone/email
 // ---------------------------------------------------------------------------
 router.get('/', async (req, res) => {
+  try {
   const tenantId = req.user!.tenantId;
   const {
     status,
@@ -93,6 +94,10 @@ router.get('/', async (req, res) => {
 
   res.setHeader('X-Total-Count', String(total));
   res.json({ contacts: enriched, total });
+  } catch (e: unknown) {
+    logger.error('[contacts] GET / error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -175,17 +180,23 @@ router.get('/:id/conversation', async (req, res) => {
 // GET /contacts/:id/notes
 // ---------------------------------------------------------------------------
 router.get('/:id/notes', async (req, res) => {
+  try {
   const { id } = req.params;
   const notes = await db.select().from(contactNotes)
     .where(eq(contactNotes.contactId, id))
     .orderBy(desc(contactNotes.createdAt));
   res.json({ notes });
+  } catch (e: unknown) {
+    logger.error('[contacts] GET /:id/notes error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 // ---------------------------------------------------------------------------
 // POST /contacts/:id/notes
 // ---------------------------------------------------------------------------
 router.post('/:id/notes', async (req, res) => {
+  try {
   const { id } = req.params;
   const tenantId = req.user!.tenantId;
   const { content, createdBy = 'jatin' } = req.body;
@@ -193,33 +204,48 @@ router.post('/:id/notes', async (req, res) => {
   const [note] = await db.insert(contactNotes).values({ tenantId, contactId: id, content, createdBy }).returning();
   await db.update(contacts).set({ lastActivityAt: new Date(), updatedAt: new Date() }).where(eq(contacts.id, id));
   res.status(201).json(note);
+  } catch (e: unknown) {
+    logger.error('[contacts] POST /:id/notes error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 // ---------------------------------------------------------------------------
 // PATCH /contacts/:id/notes/:noteId
 // ---------------------------------------------------------------------------
 router.patch('/:id/notes/:noteId', async (req, res) => {
+  try {
   const { noteId } = req.params;
   const { content } = req.body;
   if (!content) { res.status(400).json({ error: 'content is required' }); return; }
   const [updated] = await db.update(contactNotes).set({ content, updatedAt: new Date() }).where(eq(contactNotes.id, noteId)).returning();
   if (!updated) { res.status(404).json({ error: 'note not found' }); return; }
   res.json(updated);
+  } catch (e: unknown) {
+    logger.error('[contacts] PATCH /:id/notes/:noteId error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 // ---------------------------------------------------------------------------
 // DELETE /contacts/:id/notes/:noteId
 // ---------------------------------------------------------------------------
 router.delete('/:id/notes/:noteId', async (req, res) => {
+  try {
   const { id, noteId } = req.params;
   await db.delete(contactNotes).where(and(eq(contactNotes.id, noteId), eq(contactNotes.contactId, id)));
   res.json({ deleted: true });
+  } catch (e: unknown) {
+    logger.error('[contacts] DELETE /:id/notes/:noteId error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 // ---------------------------------------------------------------------------
 // GET /contacts/:id — single contact with all channels
 // ---------------------------------------------------------------------------
 router.get('/:id', async (req, res) => {
+  try {
   const { id } = req.params;
 
   const contactRows = await db.select().from(contacts).where(eq(contacts.id, id)).limit(1);
@@ -230,21 +256,31 @@ router.get('/:id', async (req, res) => {
 
   const channels = await db.select().from(contactChannels).where(eq(contactChannels.contactId, id));
   res.json({ contact: contactRows[0], channels });
+  } catch (e: unknown) {
+    logger.error('[contacts] GET /:id error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 // ---------------------------------------------------------------------------
 // GET /contacts/:id/channels
 // ---------------------------------------------------------------------------
 router.get('/:id/channels', async (req, res) => {
+  try {
   const { id } = req.params;
   const channels = await db.select().from(contactChannels).where(eq(contactChannels.contactId, id));
   res.json({ channels });
+  } catch (e: unknown) {
+    logger.error('[contacts] GET /:id/channels error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 // ---------------------------------------------------------------------------
 // POST /contacts — create contact
 // ---------------------------------------------------------------------------
 router.post('/', async (req, res) => {
+  try {
   const tenantId = req.user!.tenantId;
   const { firstName, lastName, companyName, source, sourceDetail, assignedTo, metadata, tags } = req.body;
 
@@ -267,12 +303,17 @@ router.post('/', async (req, res) => {
   }).catch(e => logger.error('[contacts] ClickUp outreach task error:', e));
 
   res.status(201).json(contact);
+  } catch (e: unknown) {
+    logger.error('[contacts] POST / error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 // ---------------------------------------------------------------------------
 // PATCH /contacts/:id — update contact
 // ---------------------------------------------------------------------------
 router.patch('/:id', async (req, res) => {
+  try {
   const { id } = req.params;
   const {
     status,
@@ -313,6 +354,10 @@ router.patch('/:id', async (req, res) => {
   }
 
   res.json(updated[0]);
+  } catch (e: unknown) {
+    logger.error('[contacts] PATCH /:id error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -349,6 +394,7 @@ router.post('/:id/channels', async (req, res) => {
 // Body: { contactIds: string[], tags: string[], mode?: 'add' | 'replace' | 'remove' }
 // ---------------------------------------------------------------------------
 router.post('/bulk-tag', async (req, res) => {
+  try {
   const tenantId = req.user!.tenantId;
   const { contactIds, tags, mode = 'add' } = req.body as {
     contactIds?: string[];
@@ -389,6 +435,10 @@ router.post('/bulk-tag', async (req, res) => {
   }
 
   res.json({ updated: contactIds.length });
+  } catch (e: unknown) {
+    logger.error('[contacts] POST /bulk-tag error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -396,6 +446,7 @@ router.post('/bulk-tag', async (req, res) => {
 // Body: { contactIds: string[], assignedTo: string }
 // ---------------------------------------------------------------------------
 router.post('/bulk-assign', async (req, res) => {
+  try {
   const tenantId = req.user!.tenantId;
   const { contactIds, assignedTo } = req.body as { contactIds?: string[]; assignedTo?: string };
 
@@ -419,6 +470,10 @@ router.post('/bulk-assign', async (req, res) => {
     ));
 
   res.json({ updated: contactIds.length });
+  } catch (e: unknown) {
+    logger.error('[contacts] POST /bulk-assign error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -426,6 +481,7 @@ router.post('/bulk-assign', async (req, res) => {
 // Body: { contactIds: string[] }
 // ---------------------------------------------------------------------------
 router.post('/bulk-delete', async (req, res) => {
+  try {
   const tenantId = req.user!.tenantId;
   const { contactIds } = req.body as { contactIds?: string[] };
 
@@ -445,6 +501,10 @@ router.post('/bulk-delete', async (req, res) => {
     ));
 
   res.json({ deleted: contactIds.length });
+  } catch (e: unknown) {
+    logger.error('[contacts] POST /bulk-delete error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -452,6 +512,7 @@ router.post('/bulk-delete', async (req, res) => {
 // Body: { contactIds?: string[] } — if empty, exports all contacts for tenant
 // ---------------------------------------------------------------------------
 router.post('/export', async (req, res) => {
+  try {
   const tenantId = req.user!.tenantId;
   const { contactIds } = req.body as { contactIds?: string[] };
 
@@ -509,6 +570,10 @@ router.post('/export', async (req, res) => {
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', 'attachment; filename="contacts.csv"');
   res.send(csv);
+  } catch (e: unknown) {
+    logger.error('[contacts] POST /export error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -516,6 +581,7 @@ router.post('/export', async (req, res) => {
 // Body: { contactIds: string[], sequenceName: string }
 // ---------------------------------------------------------------------------
 router.post('/bulk-sequence', async (req, res) => {
+  try {
   const tenantId = req.user!.tenantId;
   const { contactIds, sequenceName } = req.body as { contactIds?: string[]; sequenceName?: string };
 
@@ -574,6 +640,10 @@ router.post('/bulk-sequence', async (req, res) => {
   );
 
   res.json({ enrolled: toEnrol.length, skipped: contactIds.length - toEnrol.length });
+  } catch (e: unknown) {
+    logger.error('[contacts] POST /bulk-sequence error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 export default router;

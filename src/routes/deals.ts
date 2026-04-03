@@ -53,6 +53,7 @@ router.get('/', async (req, res) => {
 // POST /deals — create a deal
 // ---------------------------------------------------------------------------
 router.post('/', async (req, res) => {
+  try {
   const tenantId = req.user!.tenantId;
   const { contactId, title, stage, value, dealValue, serviceType, pipelineId, assignedTo, notes, lostReason, wonNotes, metadata } = req.body;
 
@@ -71,6 +72,10 @@ router.post('/', async (req, res) => {
     .where(eq(contacts.id, contactId));
 
   res.status(201).json(inserted[0]);
+  } catch (e: unknown) {
+    logger.error('[deals] POST / error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -79,6 +84,7 @@ router.post('/', async (req, res) => {
 // Updates contact lastActivityAt on stage change
 // ---------------------------------------------------------------------------
 router.patch('/:id', async (req, res) => {
+  try {
   const { id } = req.params;
   const { stage, value, dealValue, lostReason, wonNotes, closedAt, metadata, assignedTo, pipelineId, notes } = req.body;
 
@@ -139,6 +145,10 @@ router.patch('/:id', async (req, res) => {
   }
 
   res.json(updated[0]);
+  } catch (e: unknown) {
+    logger.error('[deals] PATCH /:id error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -146,6 +156,7 @@ router.patch('/:id', async (req, res) => {
 // Skips contacts already in the same pipeline
 // ---------------------------------------------------------------------------
 router.post('/bulk-create', async (req, res) => {
+  try {
   const tenantId = req.user!.tenantId;
   const { contactIds, stage, serviceType, pipelineId, assignedTo, dealValue, notes, title = 'Manual Pipeline Entry' } = req.body as {
     contactIds?: string[];
@@ -196,6 +207,10 @@ router.post('/bulk-create', async (req, res) => {
     .where(sql`${contacts.id} = ANY(ARRAY[${sql.join(toCreate.map((id) => sql`${id}::uuid`), sql`, `)}])`);
 
   res.status(201).json({ created, skipped: contactIds.length - toCreate.length });
+  } catch (e: unknown) {
+    logger.error('[deals] POST /bulk-create error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -203,6 +218,7 @@ router.post('/bulk-create', async (req, res) => {
 // Body: { dealIds: string[], updates: { stage?, assignedTo?, pipelineId? } }
 // ---------------------------------------------------------------------------
 router.post('/bulk-update', async (req, res) => {
+  try {
   const tenantId = req.user!.tenantId;
   const { dealIds, updates: upd } = req.body as {
     dealIds?: string[];
@@ -231,6 +247,10 @@ router.post('/bulk-update', async (req, res) => {
   );
 
   res.json({ updated: dealIds.length });
+  } catch (e: unknown) {
+    logger.error('[deals] POST /bulk-update error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -238,6 +258,7 @@ router.post('/bulk-update', async (req, res) => {
 // If contact already has a deal in this pipeline, update it; else create new
 // ---------------------------------------------------------------------------
 router.post('/add-or-update', async (req, res) => {
+  try {
   const tenantId = req.user!.tenantId;
   const { contactId, pipelineId, stage, assignedTo, dealValue, notes, title = 'Opportunity' } = req.body;
 
@@ -279,6 +300,10 @@ router.post('/add-or-update', async (req, res) => {
     .where(eq(contacts.id, contactId));
 
   res.json(result);
+  } catch (e: unknown) {
+    logger.error('[deals] POST /add-or-update error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 export default router;

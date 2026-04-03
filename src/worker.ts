@@ -27,205 +27,170 @@ startSequenceWorker();
 startSocialPostWorker();
 
 // ---------------------------------------------------------------------------
+// safeCron — wraps cron handlers with error catch + Slack DM alert to Jatin
+// ---------------------------------------------------------------------------
+async function safeCron(name: string, fn: () => Promise<unknown>): Promise<void> {
+  try {
+    await fn();
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(`[CRON FAIL] ${name}:`, error);
+    try {
+      const { sendSlackDM } = await import('./services/slackService');
+      const ts = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+      await sendSlackDM(SLACK_JATIN,
+        `🚨 *CRON FAILED: ${name}*\n\nError: ${msg.slice(0, 300)}\nTime: ${ts}\n\nCheck worker logs for details.`
+      );
+    } catch { /* Slack send failed — already logged to console */ }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Cron jobs
 // ---------------------------------------------------------------------------
 
 // Blocker alerts — 10:15 AM IST (04:45 UTC) + 5:00 PM IST (11:30 UTC), Mon-Sat
-cron.schedule('45 4 * * 1-6', async () => {
-  console.log('[CRON] Running blocker alerts (morning)...');
-  try { await checkAndAlertBlockers(); } catch (e) { console.error('[CRON] Blocker alerts failed:', e); }
-}, { timezone: 'UTC' });
-cron.schedule('30 11 * * 1-6', async () => {
-  console.log('[CRON] Running blocker alerts (evening)...');
-  try { await checkAndAlertBlockers(); } catch (e) { console.error('[CRON] Blocker alerts failed:', e); }
-}, { timezone: 'UTC' });
+cron.schedule('45 4 * * 1-6', () => safeCron('Blocker Alerts (morning)', checkAndAlertBlockers), { timezone: 'UTC' });
+cron.schedule('30 11 * * 1-6', () => safeCron('Blocker Alerts (evening)', checkAndAlertBlockers), { timezone: 'UTC' });
 console.log('[cron] blocker alerts scheduled — 10:15 AM + 5:00 PM IST Mon-Sat');
 
 // SOD Digest — 10 AM IST (04:30 UTC), Mon-Sat
 cron.schedule('30 4 * * 1-6', async () => {
-  console.log('[CRON] Running SOD digest...');
-  try { await sendSODDigest(); console.log('[CRON] SOD digest sent'); }
-  catch (e) { console.error('[CRON] SOD digest failed:', e); }
-  // Sakcham's priority SOD — fires alongside the main digest, sends as DM
-  try { await sendSakhamSOD(); console.log('[CRON] Sakcham SOD sent'); }
-  catch (e) { console.error('[CRON] Sakcham SOD failed:', e); }
+  await safeCron('SOD Digest', sendSODDigest);
+  await safeCron('Sakcham Priority SOD', sendSakhamSOD);
 }, { timezone: 'UTC' });
 console.log('[cron] SOD digest scheduled — 10:00 AM IST Mon-Sat');
 
 // EOD Summary — 7 PM IST (13:30 UTC), Mon-Sat
-cron.schedule('30 13 * * 1-6', async () => {
-  console.log('[CRON] Running EOD summary...');
-  try { await sendEODSummary(); console.log('[CRON] EOD summary sent'); }
-  catch (e) { console.error('[CRON] EOD summary failed:', e); }
-}, { timezone: 'UTC' });
+cron.schedule('30 13 * * 1-6', () => safeCron('EOD Summary', sendEODSummary), { timezone: 'UTC' });
 console.log('[cron] EOD summary scheduled — 7:00 PM IST Mon-Sat');
 
 // Spend alert check — every hour
-cron.schedule('0 * * * *', async () => {
-  console.log('[cron] checking ad account balances…');
-  try { await checkSpendAlerts(); }
-  catch (e) { console.error('[cron] spend alert check failed:', e); }
-}, { timezone: 'UTC' });
+cron.schedule('0 * * * *', () => safeCron('Spend Alert Check', checkSpendAlerts), { timezone: 'UTC' });
 console.log('[cron] spend alert check scheduled — hourly');
 
 // Generate monthly draft invoices on the 1st of every month at 9 AM IST (3:30 AM UTC)
-cron.schedule('30 3 1 * *', async () => {
-  console.log('[cron] generating monthly draft invoices…');
-  try {
-    const tenantResult = await db.execute(sql`SELECT id FROM tenants WHERE slug = '${DEFAULT_TENANT_SLUG}' LIMIT 1`);
-    const tenantId = (tenantResult.rows[0] as { id: string } | undefined)?.id;
-    if (!tenantId) return;
+cron.schedule('30 3 1 * *', () => safeCron('Monthly Invoice Drafts', async () => {
+  const tenantResult = await db.execute(sql`SELECT id FROM tenants WHERE slug = ${DEFAULT_TENANT_SLUG} LIMIT 1`);
+  const tenantId = (tenantResult.rows[0] as { id: string } | undefined)?.id;
+  if (!tenantId) return;
 
-    const result = await generateMonthlyDraftInvoices(tenantId);
-    console.log(`[cron] monthly invoices: generated=${result.generated}, errors=${result.errors.length}`);
+  const result = await generateMonthlyDraftInvoices(tenantId);
+  console.log(`[cron] monthly invoices: generated=${result.generated}, errors=${result.errors.length}`);
 
-    if (result.generated > 0) {
-      const { sendSlackMessage } = await import('./services/slackService');
-      const month = new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
-      await sendSlackMessage(SLACK_SALES_BD_CHANNEL,
-        `🧾 *Invoice Drafts Ready — ${month}*\n\nDrafts generated for all active billing clients.\nReview and approve at: /crm/billing\n\n<@${SLACK_JATIN}> <@${SLACK_SAKCHAM}> — please review before sending to clients.`);
-    }
-  } catch (e) {
-    console.error('[cron] monthly invoice generation failed:', e);
+  if (result.generated > 0) {
+    const { sendSlackMessage } = await import('./services/slackService');
+    const month = new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+    await sendSlackMessage(SLACK_SALES_BD_CHANNEL,
+      `🧾 *Invoice Drafts Ready — ${month}*\n\nDrafts generated for all active billing clients.\nReview and approve at: /crm/billing\n\n<@${SLACK_JATIN}> <@${SLACK_SAKCHAM}> — please review before sending to clients.`);
   }
-}, { timezone: 'UTC' });
+}), { timezone: 'UTC' });
 console.log('[cron] monthly invoice drafts scheduled — 1st of month at 9 AM IST');
 
 // Overdue invoice detection — daily at 10 AM IST (4:30 AM UTC)
-cron.schedule('30 4 * * *', async () => {
-  console.log('[cron] checking overdue invoices…');
-  try {
-    const overdueResult = await db.execute(sql`
-      SELECT i.id, i.invoice_number, i.total_amount, i.due_date,
-             bc.name as client_name
-      FROM invoices i
-      JOIN billing_clients bc ON bc.id = i.client_id
-      WHERE i.status = 'sent'
-        AND i.due_date < now()
-        AND i.tenant_id = (SELECT id FROM tenants WHERE slug = '${DEFAULT_TENANT_SLUG}')
-    `);
+cron.schedule('30 4 * * *', () => safeCron('Overdue Invoice Check', async () => {
+  const overdueResult = await db.execute(sql`
+    SELECT i.id, i.invoice_number, i.total_amount, i.due_date,
+           bc.name as client_name
+    FROM invoices i
+    JOIN billing_clients bc ON bc.id = i.client_id
+    WHERE i.status = 'sent'
+      AND i.due_date < now()
+      AND i.tenant_id = (SELECT id FROM tenants WHERE slug = ${DEFAULT_TENANT_SLUG})
+  `);
 
-    for (const inv of overdueResult.rows as Array<Record<string, unknown>>) {
-      await db.execute(sql`UPDATE invoices SET status = 'overdue', updated_at = now() WHERE id = ${inv.id}`);
-      try {
-        const { sendSlackMessage } = await import('./services/slackService');
-        const amount = ((inv.total_amount as number) / 100).toLocaleString('en-IN');
-        const dueDate = new Date(inv.due_date as string).toLocaleDateString('en-IN');
-        const daysOverdue = Math.floor((Date.now() - new Date(inv.due_date as string).getTime()) / 86400000);
-        await sendSlackMessage(SLACK_SALES_BD_CHANNEL,
-          `⚠️ *Overdue Invoice Alert*\n\n*Client:* ${inv.client_name}\n*Invoice:* ${inv.invoice_number}\n*Amount:* ₹${amount}\n*Due Date:* ${dueDate}\n*Overdue by:* ${daysOverdue} days\n\n<@${SLACK_JATIN}> <@${SLACK_SAKCHAM}> — please follow up with the client.`);
-      } catch { /* slack error non-critical */ }
-    }
-    if ((overdueResult.rows as unknown[]).length > 0) {
-      console.log(`[cron] marked ${(overdueResult.rows as unknown[]).length} invoice(s) as overdue`);
-    }
-  } catch (e) {
-    console.error('[cron] overdue check failed:', e);
+  for (const inv of overdueResult.rows as Array<Record<string, unknown>>) {
+    await db.execute(sql`UPDATE invoices SET status = 'overdue', updated_at = now() WHERE id = ${inv.id}`);
+    try {
+      const { sendSlackMessage } = await import('./services/slackService');
+      const amount = ((inv.total_amount as number) / 100).toLocaleString('en-IN');
+      const dueDate = new Date(inv.due_date as string).toLocaleDateString('en-IN');
+      const daysOverdue = Math.floor((Date.now() - new Date(inv.due_date as string).getTime()) / 86400000);
+      await sendSlackMessage(SLACK_SALES_BD_CHANNEL,
+        `⚠️ *Overdue Invoice Alert*\n\n*Client:* ${inv.client_name}\n*Invoice:* ${inv.invoice_number}\n*Amount:* ₹${amount}\n*Due Date:* ${dueDate}\n*Overdue by:* ${daysOverdue} days\n\n<@${SLACK_JATIN}> <@${SLACK_SAKCHAM}> — please follow up with the client.`);
+    } catch { /* slack error non-critical */ }
   }
-}, { timezone: 'UTC' });
+  if ((overdueResult.rows as unknown[]).length > 0) {
+    console.log(`[cron] marked ${(overdueResult.rows as unknown[]).length} invoice(s) as overdue`);
+  }
+}), { timezone: 'UTC' });
 console.log('[cron] overdue invoice check scheduled — daily at 10 AM IST');
 
 // Daily AI Intelligence Report — 8:30 AM IST (3:00 UTC)
-cron.schedule('0 3 * * *', async () => {
-  console.log('[CRON] Running daily intelligence report...');
-  try {
-    const data = await collectDailyData();
-    const analysis = await analyzeWithClaude(data);
-    await deliverDailyIntelligence(analysis, data);
-    console.log('[CRON] Intelligence report delivered. Score:', analysis.scores.overall);
-  } catch (e) {
-    console.error('[CRON] Intelligence report failed:', e);
-    const msg = e instanceof Error ? e.message : String(e);
-    try {
-      const { sendSlackMessage } = await import('./services/slackService');
-      await sendSlackMessage(`@${SLACK_JATIN}`,
-        `⚠️ *Daily Intelligence Report Failed*\nError: ${msg}\nCheck worker logs for details.`);
-    } catch { /* ignore */ }
-  }
-}, { timezone: 'UTC' });
+cron.schedule('0 3 * * *', () => safeCron('Daily Intelligence Report', async () => {
+  const data = await collectDailyData();
+  const analysis = await analyzeWithClaude(data);
+  await deliverDailyIntelligence(analysis, data);
+  console.log('[CRON] Intelligence report delivered. Score:', analysis.scores.overall);
+}), { timezone: 'UTC' });
 console.log('[cron] AI intelligence report scheduled — daily 8:30 AM IST');
 
 // SEO Workflow health check — daily 9:15 AM IST (3:45 UTC)
-cron.schedule('45 3 * * *', async () => {
-  console.log('[CRON] Checking SEO workflow health...');
-  try {
-    const { sendSlackMessage } = await import('./services/slackService');
-    const health = await (await import('./services/intelligenceDataCollector')).collectSEOWorkflowHealth();
+cron.schedule('45 3 * * *', () => safeCron('SEO Workflow Health', async () => {
+  const { sendSlackMessage } = await import('./services/slackService');
+  const health = await (await import('./services/intelligenceDataCollector')).collectSEOWorkflowHealth();
 
-    // If n8n is down — alert SEO channel + DM Jatin
-    if (!health.n8nAlive) {
-      const downMsg = '🚨 *CRITICAL: n8n is DOWN*\n' +
-        'All 12 SEO workflows are not running.\n' +
-        'Check: https://primary-production-6c6f5.up.railway.app\n' +
-        'Railway dashboard → GE-Backend-Server → Primary service';
-      await sendSlackMessage(SLACK_SEO_CHANNEL, downMsg);
-      await sendSlackMessage(SLACK_JATIN, downMsg);
-    }
-
-    // If any critical workflow broken — alert SEO channel + DM Jatin
-    if (health.brokenCritical.length > 0) {
-      const msg = health.brokenCritical.map(wf =>
-        `• ${wf.name} — last ran ${wf.daysSince === 999 ? 'NEVER' : `${wf.daysSince} days ago`}`
-      ).join('\n');
-      const alertMsg = `⚠️ *SEO Workflow Alert*\n\n${health.brokenCritical.length} critical workflow(s) overdue:\n${msg}\n\n` +
-        `Fix: /crm/seo → Workflows → Run Now\n` +
-        `Or check n8n directly: https://primary-production-6c6f5.up.railway.app`;
-      await sendSlackMessage(SLACK_SEO_CHANNEL, alertMsg);
-      await sendSlackMessage(SLACK_JATIN, alertMsg);
-    }
-
-    // Post summary to #seo channel if any issues
-    if (!health.allHealthy) {
-      const overdueLines = health.workflows
-        .filter(w => !w.healthy)
-        .map(w => `${w.critical ? '🔴' : '🟡'} ${w.name} — ${w.daysSince === 999 ? 'never run' : `${w.daysSince}d overdue`}`)
-        .join('\n');
-      await sendSlackMessage(SLACK_SEO_CHANNEL,
-        `⚙️ *SEO Workflow Health Check*\n` +
-        `Healthy: ${health.healthyCount}/${health.totalCount}\n` +
-        `n8n: ${health.n8nAlive ? '🟢 Online' : '🔴 Offline'}\n\n${overdueLines}`
-      );
-    }
-
-    console.log(`[CRON] SEO health: ${health.healthyCount}/${health.totalCount} healthy`);
-  } catch (e) {
-    console.error('[CRON] SEO health check failed:', e);
+  if (!health.n8nAlive) {
+    const downMsg = '🚨 *CRITICAL: n8n is DOWN*\n' +
+      'All 12 SEO workflows are not running.\n' +
+      'Check: https://primary-production-6c6f5.up.railway.app\n' +
+      'Railway dashboard → GE-Backend-Server → Primary service';
+    await sendSlackMessage(SLACK_SEO_CHANNEL, downMsg);
+    await sendSlackMessage(SLACK_JATIN, downMsg);
   }
-}, { timezone: 'UTC' });
+
+  if (health.brokenCritical.length > 0) {
+    const msg = health.brokenCritical.map(wf =>
+      `• ${wf.name} — last ran ${wf.daysSince === 999 ? 'NEVER' : `${wf.daysSince} days ago`}`
+    ).join('\n');
+    const alertMsg = `⚠️ *SEO Workflow Alert*\n\n${health.brokenCritical.length} critical workflow(s) overdue:\n${msg}\n\n` +
+      `Fix: /crm/seo → Workflows → Run Now\n` +
+      `Or check n8n directly: https://primary-production-6c6f5.up.railway.app`;
+    await sendSlackMessage(SLACK_SEO_CHANNEL, alertMsg);
+    await sendSlackMessage(SLACK_JATIN, alertMsg);
+  }
+
+  if (!health.allHealthy) {
+    const overdueLines = health.workflows
+      .filter(w => !w.healthy)
+      .map(w => `${w.critical ? '🔴' : '🟡'} ${w.name} — ${w.daysSince === 999 ? 'never run' : `${w.daysSince}d overdue`}`)
+      .join('\n');
+    await sendSlackMessage(SLACK_SEO_CHANNEL,
+      `⚙️ *SEO Workflow Health Check*\n` +
+      `Healthy: ${health.healthyCount}/${health.totalCount}\n` +
+      `n8n: ${health.n8nAlive ? '🟢 Online' : '🔴 Offline'}\n\n${overdueLines}`
+    );
+  }
+
+  console.log(`[CRON] SEO health: ${health.healthyCount}/${health.totalCount} healthy`);
+}), { timezone: 'UTC' });
 console.log('[cron] SEO workflow health check scheduled — daily 9:15 AM IST');
 
 // ---------------------------------------------------------------------------
 // Growth OS — Brand Health Score — Daily 8:00 AM IST (2:30 UTC)
 // ---------------------------------------------------------------------------
-cron.schedule('30 2 * * *', async () => {
-  console.log('[CRON] Running Growth OS health scores...');
-  try {
-    const { getActiveGrowthOSClients } = await import('./services/growthOSSetup');
-    const { calculateBrandHealth, sendHealthScoreWhatsApp } = await import('./services/brandHealthService');
-    const clients = await getActiveGrowthOSClients();
-    for (const client of clients) {
-      const score = await calculateBrandHealth(client);
-      if (client.founder_whatsapp) await sendHealthScoreWhatsApp(score, client.founder_whatsapp);
-      await new Promise(r => setTimeout(r, 3000));
-    }
-    console.log('[CRON] Growth OS health scores done');
-  } catch (e) {
-    console.error('[CRON] Growth OS health scores failed:', e);
+cron.schedule('30 2 * * *', () => safeCron('Growth OS Health Scores', async () => {
+  const { getActiveGrowthOSClients } = await import('./services/growthOSSetup');
+  const { calculateBrandHealth, sendHealthScoreWhatsApp } = await import('./services/brandHealthService');
+  const clients = await getActiveGrowthOSClients();
+  for (const client of clients) {
+    const score = await calculateBrandHealth(client);
+    if (client.founder_whatsapp) await sendHealthScoreWhatsApp(score, client.founder_whatsapp);
+    await new Promise(r => setTimeout(r, 3000));
   }
-}, { timezone: 'UTC' });
+  console.log('[CRON] Growth OS health scores done');
+}), { timezone: 'UTC' });
 console.log('[cron] Growth OS health scores scheduled — daily 8:00 AM IST');
 
 // ---------------------------------------------------------------------------
 // Growth OS — Daily ROAS Report to #performance-marketing — 8:15 AM IST (2:45 UTC)
 // ---------------------------------------------------------------------------
-cron.schedule('45 2 * * *', async () => {
-  console.log('[CRON] Running daily ROAS report...');
-  try {
-    const { sendSlackMessage } = await import('./services/slackService');
-    const { getActiveGrowthOSClients } = await import('./services/growthOSSetup');
-    const clients = await getActiveGrowthOSClients();
+cron.schedule('45 2 * * *', () => safeCron('Daily ROAS Report', async () => {
+  const { sendSlackMessage } = await import('./services/slackService');
+  const { getActiveGrowthOSClients } = await import('./services/growthOSSetup');
+  const clients = await getActiveGrowthOSClients();
 
-    if (clients.length === 0) { console.log('[CRON] ROAS report: no active clients'); return; }
+  if (clients.length === 0) { console.log('[CRON] ROAS report: no active clients'); return; }
 
     const dateStr = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
     let msg = `📊 *Daily ROAS Report — ${dateStr}*\n\n`;
@@ -297,71 +262,52 @@ cron.schedule('45 2 * * *', async () => {
 
     msg += `_Scores refresh daily at 8 AM · Full dashboard: crm.growthescalators.com/crm/growth-os_`;
 
-    await sendSlackMessage(SLACK_PERF_MARKETING_CHANNEL, msg);
-    console.log('[CRON] Daily ROAS report sent to #performance-marketing');
-  } catch (e) {
-    console.error('[CRON] Daily ROAS report failed:', e);
-  }
-}, { timezone: 'UTC' });
+  await sendSlackMessage(SLACK_PERF_MARKETING_CHANNEL, msg);
+  console.log('[CRON] Daily ROAS report sent to #performance-marketing');
+}), { timezone: 'UTC' });
 console.log('[cron] Daily ROAS report scheduled — 8:15 AM IST');
 
 // Growth OS — Money on Table — Every Monday 8:30 AM IST (3:00 UTC)
-cron.schedule('0 3 * * 1', async () => {
-  console.log('[CRON] Running money on table...');
-  try {
-    const { getActiveGrowthOSClients } = await import('./services/growthOSSetup');
-    const { calculateMoneyOnTable } = await import('./services/opportunityService');
-    const clients = await getActiveGrowthOSClients();
-    for (const client of clients) {
-      await calculateMoneyOnTable(client);
-      await new Promise(r => setTimeout(r, 3000));
-    }
-    console.log('[CRON] Money on table done');
-  } catch (e) {
-    console.error('[CRON] Money on table failed:', e);
+cron.schedule('0 3 * * 1', () => safeCron('Money on Table', async () => {
+  const { getActiveGrowthOSClients } = await import('./services/growthOSSetup');
+  const { calculateMoneyOnTable } = await import('./services/opportunityService');
+  const clients = await getActiveGrowthOSClients();
+  for (const client of clients) {
+    await calculateMoneyOnTable(client);
+    await new Promise(r => setTimeout(r, 3000));
   }
-}, { timezone: 'UTC' });
+  console.log('[CRON] Money on table done');
+}), { timezone: 'UTC' });
 console.log('[cron] Money on table scheduled — Mondays 8:30 AM IST');
 
 // Growth OS — Creative Intelligence — Every 6 hours
-cron.schedule('0 */6 * * *', async () => {
-  console.log('[CRON] Running creative intelligence...');
-  try {
-    const { getActiveGrowthOSClients } = await import('./services/growthOSSetup');
-    const { trackCreativePerformance } = await import('./services/creativeIntelligenceService');
-    const clients = await getActiveGrowthOSClients();
-    for (const client of clients) {
-      await trackCreativePerformance(client.ad_account_id);
-      await new Promise(r => setTimeout(r, 5000));
-    }
-    console.log('[CRON] Creative intelligence done');
-  } catch (e) {
-    console.error('[CRON] Creative intelligence failed:', e);
+cron.schedule('0 */6 * * *', () => safeCron('Creative Intelligence', async () => {
+  const { getActiveGrowthOSClients } = await import('./services/growthOSSetup');
+  const { trackCreativePerformance } = await import('./services/creativeIntelligenceService');
+  const clients = await getActiveGrowthOSClients();
+  for (const client of clients) {
+    await trackCreativePerformance(client.ad_account_id);
+    await new Promise(r => setTimeout(r, 5000));
   }
-}, { timezone: 'UTC' });
+  console.log('[CRON] Creative intelligence done');
+}), { timezone: 'UTC' });
 console.log('[cron] Creative intelligence scheduled — every 6 hours');
 
 // Growth OS — Competitor Pulse — Every Friday 9:00 AM IST (3:30 UTC)
-cron.schedule('30 3 * * 5', async () => {
-  console.log('[CRON] Running competitor pulse...');
-  try {
-    const { getActiveGrowthOSClients } = await import('./services/growthOSSetup');
-    const { runCompetitorPulse } = await import('./services/competitorService');
-    const clients = await getActiveGrowthOSClients();
-    for (const client of clients) {
-      await runCompetitorPulse(client);
-      await new Promise(r => setTimeout(r, 5000));
-    }
-    console.log('[CRON] Competitor pulse done');
-  } catch (e) {
-    console.error('[CRON] Competitor pulse failed:', e);
+cron.schedule('30 3 * * 5', () => safeCron('Competitor Pulse', async () => {
+  const { getActiveGrowthOSClients } = await import('./services/growthOSSetup');
+  const { runCompetitorPulse } = await import('./services/competitorService');
+  const clients = await getActiveGrowthOSClients();
+  for (const client of clients) {
+    await runCompetitorPulse(client);
+    await new Promise(r => setTimeout(r, 5000));
   }
-}, { timezone: 'UTC' });
+  console.log('[CRON] Competitor pulse done');
+}), { timezone: 'UTC' });
 console.log('[cron] Competitor pulse scheduled — Fridays 9:00 AM IST');
 
 // Growth OS — Co-Pilot: poll unprocessed inbound messages from Growth OS founders — every 2 minutes
-cron.schedule('*/2 * * * *', async () => {
-  try {
+cron.schedule('*/2 * * * *', () => safeCron('Co-Pilot Poller', async () => {
     const { pool: dbPool } = await import('./db/index');
     const { isCopilotMessage, handleCopilotMessage } = await import('./services/copilotService');
 
@@ -401,8 +347,7 @@ cron.schedule('*/2 * * * *', async () => {
         }
       }
     }
-  } catch { /* non-critical */ }
-}, { timezone: 'UTC' });
+}), { timezone: 'UTC' });
 console.log('[cron] Co-pilot message poller scheduled — every 2 minutes');
 
 // ---------------------------------------------------------------------------
@@ -410,9 +355,8 @@ console.log('[cron] Co-pilot message poller scheduled — every 2 minutes');
 // Picks up slo_purchase events whose contacts haven't been placed in a pipeline yet.
 // Hooks into the payment flow without touching cashfree.ts or webhooks.ts.
 // ---------------------------------------------------------------------------
-cron.schedule('*/5 * * * *', async () => {
-  try {
-    const { rows } = await pool.query(`
+cron.schedule('*/5 * * * *', () => safeCron('Pipeline Placement', async () => {
+  const { rows } = await pool.query(`
       SELECT e.id, e.contact_id, e.payload, e.tenant_id
       FROM events e
       WHERE e.event_type = 'slo_purchase'
@@ -440,14 +384,7 @@ cron.schedule('*/5 * * * *', async () => {
         console.error('[CRON] Pipeline placement failed for contact', contact_id, ':', e);
       }
     }
-  } catch (e) {
-    // pipeline_contacts table may not exist yet on first deploy — non-fatal
-    const msg = e instanceof Error ? e.message : String(e);
-    if (!msg.includes('pipeline_contacts')) {
-      console.error('[CRON] Pipeline placement job failed:', e);
-    }
-  }
-}, { timezone: 'UTC' });
+}), { timezone: 'UTC' });
 console.log('[cron] Pipeline placement job scheduled — every 5 minutes');
 
 // ---------------------------------------------------------------------------

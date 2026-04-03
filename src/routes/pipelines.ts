@@ -1,3 +1,4 @@
+import logger from '../utils/logger';
 import { Router } from 'express';
 import { eq, and, asc } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
@@ -9,6 +10,7 @@ const router = Router();
 // GET /api/pipelines — list all active pipelines for tenant
 // ---------------------------------------------------------------------------
 router.get('/', async (req, res) => {
+  try {
   const tenantId = req.user!.tenantId;
 
   const rows = await db
@@ -39,6 +41,10 @@ router.get('/', async (req, res) => {
 
   const enriched = rows.map((p) => ({ ...p, dealCount: countMap[p.id] ?? 0 }));
   res.json(enriched);
+  } catch (e: unknown) {
+    logger.error('[pipelines] GET / error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -79,6 +85,7 @@ router.post('/', async (req, res) => {
 // POST /api/pipelines/reorder — bulk update sortOrder
 // ---------------------------------------------------------------------------
 router.post('/reorder', async (req, res) => {
+  try {
   const tenantId = req.user!.tenantId;
   const { pipelineIds } = req.body as { pipelineIds?: string[] };
   if (!Array.isArray(pipelineIds) || pipelineIds.length === 0) {
@@ -93,12 +100,17 @@ router.post('/reorder', async (req, res) => {
     )
   );
   res.json({ updated: pipelineIds.length });
+  } catch (e: unknown) {
+    logger.error('[pipelines] POST /reorder error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 // ---------------------------------------------------------------------------
 // POST /api/pipelines/duplicate/:id
 // ---------------------------------------------------------------------------
 router.post('/duplicate/:id', async (req, res) => {
+  try {
   const { id } = req.params;
   const tenantId = req.user!.tenantId;
   const existing = await db.select().from(pipelines)
@@ -119,12 +131,17 @@ router.post('/duplicate/:id', async (req, res) => {
     sortOrder: (orig.sortOrder ?? 0) + 1,
   }).returning();
   res.status(201).json(inserted[0]);
+  } catch (e: unknown) {
+    logger.error('[pipelines] POST /duplicate/:id error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 // ---------------------------------------------------------------------------
 // DELETE /api/pipelines/:id
 // ---------------------------------------------------------------------------
 router.delete('/:id', async (req, res) => {
+  try {
   const { id } = req.params;
   const tenantId = req.user!.tenantId;
   const countResult = await db
@@ -138,12 +155,17 @@ router.delete('/:id', async (req, res) => {
   }
   await db.delete(pipelines).where(and(eq(pipelines.id, id), eq(pipelines.tenantId, tenantId)));
   res.json({ deleted: true });
+  } catch (e: unknown) {
+    logger.error('[pipelines] DELETE /:id error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 // ---------------------------------------------------------------------------
 // PATCH /api/pipelines/:id — update pipeline
 // ---------------------------------------------------------------------------
 router.patch('/:id', async (req, res) => {
+  try {
   const { id } = req.params;
   const tenantId = req.user!.tenantId;
   const { name, stages, color, isActive, sortOrder } = req.body;
@@ -167,6 +189,10 @@ router.patch('/:id', async (req, res) => {
   }
 
   res.json(updated[0]);
+  } catch (e: unknown) {
+    logger.error('[pipelines] PATCH /:id error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -174,6 +200,7 @@ router.patch('/:id', async (req, res) => {
 // Each stage returns: stageName, deals array with enriched contact info
 // ---------------------------------------------------------------------------
 router.get('/:id/deals', async (req, res) => {
+  try {
   const { id } = req.params;
   const tenantId = req.user!.tenantId;
   const { includeArchived } = req.query as Record<string, string>;
@@ -276,6 +303,10 @@ router.get('/:id/deals', async (req, res) => {
   }
 
   res.json({ pipeline, stages });
+  } catch (e: unknown) {
+    logger.error('[pipelines] GET /:id/deals error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 export default router;
