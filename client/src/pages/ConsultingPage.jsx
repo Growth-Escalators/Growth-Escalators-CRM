@@ -1,14 +1,28 @@
 import { useState, useEffect, useRef } from 'react';
 
+const SEGMENT_HEADLINE = {
+  d2c: "You're all set! Your D2C funnel framework is on its way 🎉",
+  agency: "You're all set! Your D2C funnel breakdown is on its way 🎉",
+  freelancer: "You're all set! Your D2C funnel breakdown is on its way 🎉",
+};
+
+const SEGMENT_DESC = {
+  d2c: "Your D2C Funnel Breakdown Pack is on its way to your WhatsApp and email",
+  agency: "Study these funnels to understand what top D2C brands are running — and replicate it for your clients",
+  freelancer: "Study these funnels to build your expertise and pitch performance marketing services with confidence",
+};
+
 export default function ConsultingPage() {
   const params = new URLSearchParams(window.location.search);
-  const name = params.get('name') || '';
-  const email = params.get('email') || '';
+  const name    = params.get('name') || '';
+  const email   = params.get('email') || '';
+  const segment = params.get('segment') || 'd2c';
   const orderId = params.get('order_id') || '';
+  // Support both old (bumps=1,2) and new (bump1=1&bump2=1) param formats
   const bumpsStr = params.get('bumps') || '';
   const bumps = bumpsStr.split(',').filter(Boolean);
-  const hasBump1 = bumps.includes('1');
-  const hasBump2 = bumps.includes('2');
+  const hasBump1 = bumps.includes('1') || params.get('bump1') === '1';
+  const hasBump2 = bumps.includes('2') || params.get('bump2') === '1';
 
   const [upsellDone, setUpsellDone] = useState(false);
   const [upsellLoading, setUpsellLoading] = useState(false);
@@ -53,10 +67,10 @@ export default function ConsultingPage() {
       <div style={{ backgroundColor: '#1B2E5E' }} className="text-white py-16 px-4">
         <div className="max-w-2xl mx-auto text-center">
           <h1 className="text-3xl md:text-4xl font-bold mb-3">
-            You're all set{name ? `, ${name}` : ''}! 🎉
+            {name ? `${name}, ` : ''}{SEGMENT_HEADLINE[segment] ?? SEGMENT_HEADLINE['d2c']}
           </h1>
           <p className="text-lg text-gray-300 mb-8">
-            Your D2C Funnel Breakdown Pack is on its way to your WhatsApp and email
+            {SEGMENT_DESC[segment] ?? SEGMENT_DESC['d2c']}
           </p>
           <div className="inline-block text-left bg-white/10 rounded-xl p-6 space-y-3">
             <div className="flex items-center gap-3">
