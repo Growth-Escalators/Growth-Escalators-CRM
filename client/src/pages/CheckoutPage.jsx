@@ -125,6 +125,7 @@ export default function CheckoutPage() {
     sessionStorage.setItem('ge_bump2', bump2 ? '1' : '0');
     sessionStorage.setItem('ge_name', form.name.trim());
     sessionStorage.setItem('ge_email', form.email.trim());
+    sessionStorage.setItem('ge_purchased', 'true');
 
     setLoading(true);
     try {

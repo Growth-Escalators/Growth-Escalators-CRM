@@ -12,6 +12,8 @@ export default function ThankYouPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
+    // Return URL is handled entirely in code via sessionStorage segment.
+    // No return URL configuration needed in Cashfree dashboard.
     const segment = sessionStorage.getItem('ge_segment') || 'd2c';
     const bump1   = sessionStorage.getItem('ge_bump1') === '1';
     const bump2   = sessionStorage.getItem('ge_bump2') === '1';

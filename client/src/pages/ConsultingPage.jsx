@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import PurchaseToast from '../components/PurchaseToast';
 
 const SEGMENT_HEADLINE = {
   d2c: "You're all set! Your D2C funnel framework is on its way 🎉",
@@ -27,6 +28,16 @@ export default function ConsultingPage() {
   const [upsellDone, setUpsellDone] = useState(false);
   const [upsellLoading, setUpsellLoading] = useState(false);
   const callRef = useRef(null);
+  const [showToast, setShowToast] = useState(false);
+
+  // Show post-purchase toast if user arrived via the purchase funnel
+  useEffect(() => {
+    const justPurchased = sessionStorage.getItem('ge_purchased') === 'true';
+    if (justPurchased) {
+      sessionStorage.removeItem('ge_purchased'); // Clear immediately — only shows once
+      setShowToast(true);
+    }
+  }, []);
 
   // Auto-scroll to booking section after 5 seconds
   useEffect(() => {
@@ -197,6 +208,12 @@ export default function ConsultingPage() {
         <p className="text-gray-600 font-medium">Growth Escalators — India's D2C Performance Marketing Agency</p>
         <p className="text-gray-400 text-sm mt-1">jatin@growthescalators.com</p>
       </div>
+
+      <PurchaseToast
+        show={showToast}
+        onClose={() => setShowToast(false)}
+        autoDismissMs={5000}
+      />
     </div>
   );
 }
