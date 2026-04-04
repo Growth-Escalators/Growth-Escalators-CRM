@@ -282,4 +282,70 @@ router.get('/stats', async (req: Request, res: Response) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// GET /api/outreach/leads/digest-stats — full digest data for daily Slack post
+// Used by n8n WF-03 and CRM admin UI. Requires internal secret.
+// ---------------------------------------------------------------------------
+router.get('/digest-stats', async (req: Request, res: Response) => {
+  if (!checkInternalSecret(req, res)) return;
+
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+
+    // Status breakdown
+    const statusResult = await pool.query(
+      `SELECT status, COUNT(*)::int AS count FROM outreach_leads GROUP BY status ORDER BY count DESC`,
+    );
+    const statusCounts: Record<string, number> = {};
+    for (const row of statusResult.rows as Array<{ status: string; count: number }>) {
+      statusCounts[row.status] = row.count;
+    }
+
+    // Total active
+    const totalActive = statusCounts['Active'] ?? 0;
+
+    // Leads added today
+    const todayResult = await pool.query(
+      `SELECT COUNT(*)::int AS count FROM outreach_leads WHERE created_at::date = $1`,
+      [today],
+    );
+    const leadsToday = (todayResult.rows[0] as { count: number }).count;
+
+    // By owner
+    const ownerResult = await pool.query(
+      `SELECT LOWER(assigned_to) AS owner, COUNT(*)::int AS count
+       FROM outreach_leads WHERE status IN ('New','Enriching','Active')
+       GROUP BY LOWER(assigned_to)`,
+    );
+    const byOwner: Record<string, number> = {};
+    for (const row of ownerResult.rows as Array<{ owner: string; count: number }>) {
+      byOwner[row.owner || 'unassigned'] = row.count;
+    }
+
+    // Replies today
+    const repliesResult = await pool.query(
+      `SELECT COUNT(*)::int AS count FROM outreach_leads
+       WHERE status = 'Replied' AND updated_at::date = $1`,
+      [today],
+    );
+    const repliesToday = (repliesResult.rows[0] as { count: number }).count;
+
+    // Total leads
+    const total = Object.values(statusCounts).reduce((a, b) => a + b, 0);
+
+    res.json({
+      date: today,
+      total,
+      totalActive,
+      leadsToday,
+      repliesToday,
+      statusCounts,
+      byOwner,
+    });
+  } catch (err) {
+    logger.error({ err }, '[outreach-leads] digest-stats error');
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 export default router;

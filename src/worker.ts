@@ -16,7 +16,7 @@ import { checkSpendAlerts } from './services/spendAlertService';
 import { collectDailyData } from './services/intelligenceDataCollector';
 import { analyzeWithClaude } from './services/intelligenceAnalyzer';
 import { deliverDailyIntelligence } from './services/intelligenceDelivery';
-import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_PERF_MARKETING_CHANNEL, SLACK_SEO_CHANNEL, DEFAULT_TENANT_SLUG } from './config/constants';
+import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_PERF_MARKETING_CHANNEL, SLACK_SEO_CHANNEL, SLACK_OUTREACH_CHANNEL, DEFAULT_TENANT_SLUG } from './config/constants';
 
 console.log('[worker] Worker process started');
 
@@ -418,6 +418,60 @@ const PLACEMENT_INTERVAL = setInterval(() => safeCron('Pipeline Placement', asyn
     }
 }), 30_000);
 console.log('[cron] Pipeline placement job scheduled — every 30 seconds');
+
+// ---------------------------------------------------------------------------
+// Outreach Daily Digest — 8:00 PM IST (14:30 UTC), Mon-Sat
+// Posts pipeline stats to #outreach / #sales-bd channel
+// ---------------------------------------------------------------------------
+cron.schedule('30 14 * * 1-6', () => safeCron('Outreach Daily Digest', async () => {
+  const { sendSlackMessage } = await import('./services/slackService');
+  const today = new Date().toISOString().slice(0, 10);
+  const dateStr = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
+
+  const statusResult = await pool.query(
+    `SELECT status, COUNT(*)::int AS count FROM outreach_leads GROUP BY status ORDER BY count DESC`,
+  );
+  const sc: Record<string, number> = {};
+  for (const row of statusResult.rows as Array<{ status: string; count: number }>) {
+    sc[row.status] = row.count;
+  }
+
+  const todayResult = await pool.query(
+    `SELECT COUNT(*)::int AS count FROM outreach_leads WHERE created_at::date = $1`, [today],
+  );
+  const leadsToday = (todayResult.rows[0] as { count: number }).count;
+
+  const ownerResult = await pool.query(
+    `SELECT LOWER(assigned_to) AS owner, COUNT(*)::int AS count
+     FROM outreach_leads WHERE status IN ('New','Enriching','Active')
+     GROUP BY LOWER(assigned_to)`,
+  );
+  const owners: Record<string, number> = {};
+  for (const row of ownerResult.rows as Array<{ owner: string; count: number }>) {
+    owners[row.owner || 'unassigned'] = row.count;
+  }
+
+  const repliesResult = await pool.query(
+    `SELECT COUNT(*)::int AS count FROM outreach_leads WHERE status = 'Replied' AND updated_at::date = $1`, [today],
+  );
+  const repliesToday = (repliesResult.rows[0] as { count: number }).count;
+
+  const total = Object.values(sc).reduce((a, b) => a + b, 0);
+
+  let msg = `📬 *Outreach Daily Digest — ${dateStr}*\n\n`;
+  msg += `*Pipeline Status*\n`;
+  msg += `New: ${sc.New ?? 0} · Enriching: ${sc.Enriching ?? 0} · Active: ${sc.Active ?? 0} · Replied: ${sc.Replied ?? 0}\n`;
+  msg += `Closed: ${sc.Closed ?? 0} · Not Found: ${sc.Not_Found ?? 0} · Duplicate: ${sc.Duplicate ?? 0}\n\n`;
+  msg += `*By Owner*\n`;
+  msg += `Jatin: ${owners.jatin ?? 0} active · Sakcham: ${owners.saksham ?? owners.sakcham ?? 0} active\n\n`;
+  msg += `*Today*\n`;
+  msg += `Leads added: ${leadsToday} · Replies: ${repliesToday}\n`;
+  msg += `Total in pipeline: ${total}\n`;
+
+  await sendSlackMessage(SLACK_OUTREACH_CHANNEL, msg);
+  console.log('[CRON] Outreach digest sent');
+}), { timezone: 'UTC' });
+console.log('[cron] Outreach daily digest scheduled — 8:00 PM IST Mon-Sat');
 
 // ---------------------------------------------------------------------------
 // Audit booking follow-up check — every 6 hours
