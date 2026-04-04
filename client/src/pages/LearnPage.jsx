@@ -13,6 +13,8 @@ export default function LearnPage() {
   const [searchParams] = useSearchParams();
   const prefillName  = searchParams.get('name') || '';
   const prefillEmail = searchParams.get('email') || '';
+  const bump1  = searchParams.get('bump1') === '1';
+  const bump2  = searchParams.get('bump2') === '1';
 
   const [name, setName]       = useState(prefillName);
   const [email, setEmail]     = useState(prefillEmail);
@@ -85,31 +87,37 @@ export default function LearnPage() {
             For Freelancers
           </div>
           <h1 className="text-3xl md:text-4xl font-bold mb-4">
-            {prefillName ? `${prefillName}, land ` : 'Land '}your first ₹25,000/month D2C performance marketing client
+            {prefillName ? `${prefillName}, your ` : 'Your '}D2C Funnel Breakdown Pack is ready!
           </h1>
           <p className="text-lg text-gray-300 mb-6">
-            A 4-week intensive that takes you from freelancer to in-demand D2C ads specialist — with your first retainer before you finish.
+            Here is how freelancers use this to land better clients.
           </p>
 
-          {count !== null && (
-            <div
-              className="inline-block text-sm font-semibold px-4 py-2 rounded-full mb-4"
-              style={{ backgroundColor: 'rgba(249,115,22,0.2)', color: '#fb923c' }}
-            >
-              🔥 {count} freelancers already on the waitlist
-            </div>
-          )}
-
-          {/* Order confirmation + download */}
-          <div className="inline-block text-left bg-white/10 rounded-xl p-5 space-y-3 text-sm mt-2">
-            <div className="text-white font-semibold mb-1">✅ Your purchase is confirmed</div>
-            <div className="text-gray-300">📦 D2C Funnel Breakdown Pack delivered to your WhatsApp &amp; email</div>
+          {/* Download section */}
+          <div className="inline-block text-left bg-white/10 rounded-xl p-6 space-y-4">
+            <div className="text-white font-semibold">✅ Your purchase is confirmed</div>
             <a href="https://pub-42526281354a42f3879bd56bed4ad62b.r2.dev/5%20Winning%20D2C%20Brands.pdf"
               target="_blank" rel="noopener noreferrer"
-              className="inline-block mt-2 px-5 py-2.5 rounded-lg font-semibold text-white text-sm"
-              style={{ backgroundColor: '#7C3AED' }}>
-              Download PDF Now
+              className="block text-center font-semibold text-white text-sm rounded-xl py-3 px-6 transition-all hover:opacity-90"
+              style={{ backgroundColor: '#22c55e' }}>
+              📄 Download Your Pack Now
             </a>
+            {bump1 && (
+              <a href="https://pub-42526281354a42f3879bd56bed4ad62b.r2.dev/Advanced%20D2C%20Growth%20Kit%20Latest.pdf"
+                target="_blank" rel="noopener noreferrer"
+                className="block text-center font-semibold text-white text-sm rounded-xl py-3 px-6 transition-all hover:opacity-90"
+                style={{ backgroundColor: '#F97316' }}>
+                📦 Download Your Growth Kit
+              </a>
+            )}
+            {bump2 && (
+              <a href="https://cal.com/growth-escalators/discovery-call"
+                target="_blank" rel="noopener noreferrer"
+                className="block text-center font-semibold text-white text-sm rounded-xl py-3 px-6 transition-all hover:opacity-90"
+                style={{ backgroundColor: '#7C3AED' }}>
+                🎯 Book Your 45-Min Audit Call
+              </a>
+            )}
           </div>
         </div>
       </div>
@@ -117,9 +125,12 @@ export default function LearnPage() {
       {/* CURRICULUM */}
       <div className="py-16 px-4" style={{ backgroundColor: '#f8f9ff' }}>
         <div className="max-w-2xl mx-auto">
-          <h2 className="text-2xl font-bold text-center mb-10" style={{ color: '#1B2E5E' }}>
-            What you'll learn
+          <h2 className="text-2xl font-bold text-center mb-4" style={{ color: '#1B2E5E' }}>
+            How to Use This in Your Next Client Pitch
           </h2>
+          <p className="text-gray-500 text-center mb-10">
+            Show your client exactly how The Souled Store, Minimalist, and other top D2C brands structure their Meta funnels. Walk them through what is working. Position yourself as the expert who already knows — not the one still figuring it out.
+          </p>
           <div className="space-y-4">
             {CURRICULUM.map((c) => (
               <div key={c.week} className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 flex gap-4">

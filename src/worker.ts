@@ -362,7 +362,8 @@ console.log('[cron] Co-pilot message poller scheduled — every 2 minutes');
 // Picks up slo_purchase events whose contacts haven't been placed in a pipeline yet.
 // Hooks into the payment flow without touching cashfree.ts or webhooks.ts.
 // ---------------------------------------------------------------------------
-cron.schedule('*/5 * * * *', () => safeCron('Pipeline Placement', async () => {
+// Runs every 30 seconds for fast asset delivery after purchase
+const PLACEMENT_INTERVAL = setInterval(() => safeCron('Pipeline Placement', async () => {
   const { rows } = await pool.query(`
       SELECT e.id, e.contact_id, e.payload, e.tenant_id
       FROM events e
@@ -415,8 +416,8 @@ cron.schedule('*/5 * * * *', () => safeCron('Pipeline Placement', async () => {
         console.error('[CRON] Pipeline placement failed for contact', contact_id, ':', e);
       }
     }
-}), { timezone: 'UTC' });
-console.log('[cron] Pipeline placement job scheduled — every 5 minutes');
+}), 30_000);
+console.log('[cron] Pipeline placement job scheduled — every 30 seconds');
 
 // ---------------------------------------------------------------------------
 // Audit booking follow-up check — every 6 hours

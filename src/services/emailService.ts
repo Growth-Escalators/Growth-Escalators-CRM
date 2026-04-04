@@ -21,9 +21,9 @@ const EMAIL_TEMPLATES: Record<string, { subject: string; html: string; text: str
     html: `<p>Hi,</p>
 <p>Just following up on your inquiry from a few days ago.</p>
 <p>At Growth Escalators, we help D2C brands and clinics run Meta Ads that generate consistent, qualified leads — not just clicks.</p>
-<p>Would a quick 15-minute call this week work? You can book directly here: <a href="https://cal.com/growth-escalators">cal.com/growth-escalators</a></p>
+<p>Would a quick 45-minute call this week work? You can book directly here: <a href="https://cal.com/growth-escalators">cal.com/growth-escalators</a></p>
 <p>Best,<br>Jatin<br>Growth Escalators</p>`,
-    text: `Hi,\n\nJust following up on your inquiry from a few days ago.\n\nAt Growth Escalators, we help D2C brands and clinics run Meta Ads that generate consistent, qualified leads — not just clicks.\n\nWould a quick 15-minute call this week work? Book here: cal.com/growth-escalators\n\nBest,\nJatin\nGrowth Escalators`,
+    text: `Hi,\n\nJust following up on your inquiry from a few days ago.\n\nAt Growth Escalators, we help D2C brands and clinics run Meta Ads that generate consistent, qualified leads — not just clicks.\n\nWould a quick 45-minute call this week work? Book here: cal.com/growth-escalators\n\nBest,\nJatin\nGrowth Escalators`,
   },
   nudge_day7: {
     subject: 'Last follow-up — Growth Escalators',

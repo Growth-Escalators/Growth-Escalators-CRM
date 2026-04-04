@@ -111,7 +111,7 @@ export default function ConsultingPage() {
           <p className="text-base text-gray-300 mb-6">
             {SEGMENT_DESC[segment] ?? SEGMENT_DESC['d2c']}
           </p>
-          <div className="inline-block text-left bg-white/10 rounded-xl px-6 py-4 space-y-2">
+          <div className="inline-block text-left bg-white/10 rounded-xl px-6 py-5 space-y-3">
             <div className="flex items-center gap-3">
               <span className="text-green-400 text-lg">✅</span>
               <span className="text-sm">D2C Funnel Breakdown Pack</span>
@@ -128,6 +128,30 @@ export default function ConsultingPage() {
                 <span className="text-sm">Growth Audit Call (₹499)</span>
               </div>
             )}
+            <div className="pt-2 space-y-2">
+              <a href="https://pub-42526281354a42f3879bd56bed4ad62b.r2.dev/5%20Winning%20D2C%20Brands.pdf"
+                target="_blank" rel="noopener noreferrer"
+                className="block text-center font-semibold text-white text-sm rounded-lg py-2.5 px-5 transition-all hover:opacity-90"
+                style={{ backgroundColor: '#22c55e' }}>
+                📄 Download Your Pack Now
+              </a>
+              {hasBump1 && (
+                <a href="https://pub-42526281354a42f3879bd56bed4ad62b.r2.dev/Advanced%20D2C%20Growth%20Kit%20Latest.pdf"
+                  target="_blank" rel="noopener noreferrer"
+                  className="block text-center font-semibold text-white text-sm rounded-lg py-2.5 px-5 transition-all hover:opacity-90"
+                  style={{ backgroundColor: '#F97316' }}>
+                  📦 Download Growth Kit
+                </a>
+              )}
+              {hasBump2 && (
+                <a href="https://cal.com/growth-escalators/discovery-call"
+                  target="_blank" rel="noopener noreferrer"
+                  className="block text-center font-semibold text-white text-sm rounded-lg py-2.5 px-5 transition-all hover:opacity-90"
+                  style={{ backgroundColor: '#7C3AED' }}>
+                  🎯 Book Your 45-Min Audit Call
+                </a>
+              )}
+            </div>
           </div>
         </div>
       </div>

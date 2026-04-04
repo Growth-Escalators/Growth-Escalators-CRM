@@ -476,7 +476,7 @@ export default function CheckoutPage() {
                     🎯 Expert Guidance — Only ₹499
                   </div>
                   <div className="font-bold text-base" style={{ color: '#1B2E5E' }}>
-                    Book a Private 15-min Audit Call with Jatin
+                    Book a Private 45-min Audit Call with Jatin
                   </div>
 
                   {/* Jatin social proof block */}
@@ -562,7 +562,7 @@ export default function CheckoutPage() {
                 )}
                 {bump2 && (
                   <div className="flex justify-between" style={{ color: '#1B2E5E' }}>
-                    <span>15-min Audit Call with Jatin</span>
+                    <span>45-min Audit Call with Jatin</span>
                     <span className="font-medium">₹499</span>
                   </div>
                 )}

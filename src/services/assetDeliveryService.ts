@@ -55,7 +55,7 @@ export async function deliverPurchaseAssets(params: {
     // Message 3: Audit call booking (bump2 buyers)
     if (bump2) {
       const msg3 =
-        `Your 15-min Meta Ads Audit with Jatin is confirmed! 🎯\n\n` +
+        `Your 45-min Meta Ads Audit with Jatin is confirmed! 🎯\n\n` +
         `Book your slot here (slots fill fast): ${ASSETS.auditCall}\n\n` +
         `Come prepared with:\n` +
         `- Your current ROAS or CPL\n` +
@@ -178,7 +178,7 @@ async function sendPurchaseEmail(params: {
     body += `📦 Advanced Growth Kit (your ₹199 add-on):\n${ASSETS.growthKit}\n\n`;
   }
   if (bump2) {
-    body += `🎯 Book your 15-min Meta Ads Audit with Jatin:\n${ASSETS.auditCall}\n(Book now — slots are limited)\n\n`;
+    body += `🎯 Book your 45-min Meta Ads Audit with Jatin:\n${ASSETS.auditCall}\n(Book now — slots are limited)\n\n`;
   }
   body += `Start with the PDF — go through Section 2 first. Most people find their biggest insight there.\n\n`;
   body += `Reply to this email if you have any questions.\n\n`;
