@@ -82,10 +82,16 @@ export default function WhitelabelPage() {
             Take the exact system that powers India's fastest-growing D2C brands and offer it to your clients — under your own brand.
           </p>
 
-          {/* Order confirmation */}
-          <div className="inline-block text-left bg-white/10 rounded-xl p-5 space-y-2 text-sm">
+          {/* Order confirmation + download */}
+          <div className="inline-block text-left bg-white/10 rounded-xl p-5 space-y-3 text-sm">
             <div className="text-white font-semibold mb-1">✅ Your purchase is confirmed</div>
             <div className="text-gray-300">📦 D2C Funnel Breakdown Pack delivered to your WhatsApp &amp; email</div>
+            <a href="https://pub-42526281354a42f3879bd56bed4ad62b.r2.dev/5%20Winning%20D2C%20Brands.pdf"
+              target="_blank" rel="noopener noreferrer"
+              className="inline-block mt-2 px-5 py-2.5 rounded-lg font-semibold text-white text-sm"
+              style={{ backgroundColor: '#F97316' }}>
+              Download PDF Now
+            </a>
           </div>
         </div>
       </div>

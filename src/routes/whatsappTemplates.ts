@@ -12,8 +12,8 @@ const router = Router();
 // ---------------------------------------------------------------------------
 const DEFAULT_BODIES: Record<string, { body: string; description: string }> = {
   welcome_d2c: {
-    description: 'Welcome message for new D2C leads',
-    body: 'Hi {{firstName}}, thanks for reaching out to Growth Escalators! I am Jatin, and I help D2C brands scale profitably on Meta. I will be in touch shortly. Meanwhile, reply with your biggest Meta ads challenge right now.',
+    description: 'Day 0 asset delivery — main PDF download link',
+    body: 'Hi {{firstName}}! 🎉 Your purchase is confirmed. Here is your D2C Funnel Breakdown Pack — download it now, it is yours forever: https://pub-42526281354a42f3879bd56bed4ad62b.r2.dev/5%20Winning%20D2C%20Brands.pdf\n\nThis PDF breaks down exactly what 5 winning D2C brands are doing on Meta right now. Go through Section 2 first — that is where most brands find their biggest insight.\n\nReply anytime if you have questions. — Jatin from Growth Escalators',
   },
   followup_day3: {
     description: 'Day 3 follow-up for leads who haven\'t booked a call',
