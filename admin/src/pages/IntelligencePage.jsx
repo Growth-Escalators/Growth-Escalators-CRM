@@ -442,6 +442,7 @@ export default function IntelligencePage() {
   const [scores, setScores]           = useState([]);
   const [generating, setGenerating]   = useState(false);
   const [generateResult, setGenerateResult] = useState(null);
+  const [genProgress, setGenProgress] = useState('');
   const [loading, setLoading]         = useState(true);
   const [activeTab, setActiveTab]     = useState('today');  // 'today' | 'prompts' | 'history'
 
@@ -460,43 +461,85 @@ export default function IntelligencePage() {
 
   useEffect(() => { load(); }, [load]);
 
+  const PROGRESS_STEPS = [
+    { after: 0,  msg: 'Collecting ClickUp task data...' },
+    { after: 8,  msg: 'Analysing Meta Ads performance...' },
+    { after: 20, msg: 'Collecting SEO & pipeline data...' },
+    { after: 35, msg: 'Running AI coaching analysis...' },
+    { after: 60, msg: 'Generating action prompts...' },
+    { after: 90, msg: 'Finalizing report...' },
+  ];
+
   async function generateReport() {
     setGenerating(true);
     setGenerateResult(null);
+    setGenProgress(PROGRESS_STEPS[0].msg);
+    const startTime = Date.now();
+
+    // Progress ticker
+    const progressId = setInterval(() => {
+      const elapsed = (Date.now() - startTime) / 1000;
+      const step = [...PROGRESS_STEPS].reverse().find(s => elapsed >= s.after);
+      if (step) setGenProgress(step.msg);
+    }, 2000);
+
     try {
       const r = await apiFetch('/api/intelligence/generate', { method: 'POST' });
       if (r?.status === 'generating' || r?.status === 'already_generating') {
-        // Non-blocking — poll until report appears (max 90s)
-        const todayStr = new Date().toISOString().slice(0, 10);
-        const deadline = Date.now() + 90_000;
+        const reportId = r.reportId;
+        const deadline = Date.now() + 180_000; // 3 minute timeout
+
         const poll = async () => {
           if (Date.now() > deadline) {
-            setGenerateResult({ ok: false, error: 'Timed out after 90s. Check server logs.' });
+            clearInterval(progressId);
+            setGenerateResult({ ok: false, error: 'Taking longer than expected. Check back in a few minutes.' });
             setGenerating(false);
             return;
           }
-          const t = await apiFetch('/api/intelligence/today').catch(() => null);
-          const rpt = t?.report;
-          if (rpt && rpt.report_date && rpt.report_date.slice(0, 10) === todayStr) {
-            // Report is ready
+
+          // Poll by reportId if available, fall back to /today
+          const statusRes = reportId
+            ? await apiFetch(`/api/intelligence/status/${reportId}`).catch(() => null)
+            : null;
+
+          if (statusRes?.status === 'complete') {
+            clearInterval(progressId);
             await load();
-            setGenerateResult({ ok: true, score: rpt.overall_score, aiEnabled: rpt.tokens_used > 0 });
+            setGenerateResult({ ok: true, score: statusRes.score, aiEnabled: statusRes.aiEnabled });
             setGenerating(false);
-          } else {
-            setTimeout(poll, 5000);
+            return;
           }
+          if (statusRes?.status === 'failed') {
+            clearInterval(progressId);
+            setGenerateResult({ ok: false, error: statusRes.error || 'Generation failed' });
+            setGenerating(false);
+            return;
+          }
+
+          // Fall back to checking /today
+          if (!reportId) {
+            const todayStr = new Date().toISOString().slice(0, 10);
+            const t = await apiFetch('/api/intelligence/today').catch(() => null);
+            const rpt = t?.report;
+            if (rpt && rpt.report_date?.slice(0, 10) === todayStr) {
+              clearInterval(progressId);
+              await load();
+              setGenerateResult({ ok: true, score: rpt.overall_score, aiEnabled: rpt.tokens_used > 0 });
+              setGenerating(false);
+              return;
+            }
+          }
+
+          setTimeout(poll, 3000);
         };
-        setTimeout(poll, 5000);
-      } else if (r?.ok) {
-        // Legacy sync response (shouldn't happen but handle gracefully)
-        setGenerateResult({ ok: true, score: r.score, aiEnabled: r.aiEnabled });
-        await load();
-        setGenerating(false);
+        setTimeout(poll, 3000);
       } else {
+        clearInterval(progressId);
         setGenerateResult({ ok: false, error: r?.error ?? 'Unknown error' });
         setGenerating(false);
       }
     } catch (e) {
+      clearInterval(progressId);
       setGenerateResult({ ok: false, error: String(e) });
       setGenerating(false);
     }
@@ -549,7 +592,7 @@ export default function IntelligencePage() {
               <button onClick={generateReport} disabled={generating}
                 className="flex items-center gap-2 px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors">
                 {generating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                {generating ? 'Generating… (polling for result)' : 'Generate Now'}
+                {generating ? genProgress : 'Generate Now'}
               </button>
             </div>
           </div>

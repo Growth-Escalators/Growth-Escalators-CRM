@@ -109,6 +109,7 @@ export async function analyzeWithClaude(data: AgencyDailyData): Promise<Analysis
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
+    signal: AbortSignal.timeout(60000), // 60s max for Claude API
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': apiKey!,
@@ -202,7 +203,8 @@ Respond ONLY with valid JSON in this exact format:
   if (!response.ok) {
     const errBody = await response.text().catch(() => '');
     logger.error(`[intelligence] Claude API error ${response.status}:`, errBody);
-    throw new Error(`Claude API returned ${response.status}`);
+    logger.warn('[intelligence] Falling back to rule-based analysis after Claude API error');
+    return buildFallbackAnalysis(data);
   }
 
   const rawResponse = await response.json() as {

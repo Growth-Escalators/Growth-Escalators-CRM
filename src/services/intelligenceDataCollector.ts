@@ -339,6 +339,19 @@ function extractInsightMetric(data: unknown, field: string): number {
 // Main collector
 // ---------------------------------------------------------------------------
 
+// Timeout wrapper for individual data sources
+async function withTimeout<T>(promise: Promise<T>, name: string, fallback: T, timeoutMs = 15000): Promise<T> {
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${name} timed out after ${timeoutMs}ms`)), timeoutMs)),
+    ]);
+  } catch (e) {
+    logger.warn(`[intel-collector] ${name}: ${e instanceof Error ? e.message : String(e)} — using fallback`);
+    return fallback;
+  }
+}
+
 export async function collectDailyData(): Promise<AgencyDailyData> {
   const errors: string[] = [];
   const client = await pool.connect();
