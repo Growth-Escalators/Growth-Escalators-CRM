@@ -535,6 +535,17 @@ setInterval(() => safeCron('Saleshandy Auto-Upload', async () => {
 console.log('[cron] Saleshandy auto-upload scheduled — every 15 minutes');
 
 // ---------------------------------------------------------------------------
+// Outreach → CRM Sync — every 30 minutes
+// Creates CRM contacts + deals from Active outreach leads
+// ---------------------------------------------------------------------------
+import('./services/outreachCrmSyncService').then(m => m.ensureOutreachCrmSetup()).catch(() => {});
+setInterval(() => safeCron('Outreach CRM Sync', async () => {
+  const { syncOutreachToCrm } = await import('./services/outreachCrmSyncService');
+  await syncOutreachToCrm();
+}), 30 * 60_000);
+console.log('[cron] Outreach CRM sync scheduled — every 30 minutes');
+
+// ---------------------------------------------------------------------------
 // Daily Lead Discovery — 7:00 AM IST (1:30 UTC)
 // Runs 3 searches per day, rotating through the list
 // ---------------------------------------------------------------------------
