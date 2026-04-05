@@ -32,6 +32,9 @@ export async function ensureOutreachLeadsTable(): Promise<void> {
     `ALTER TABLE outreach_leads ADD COLUMN IF NOT EXISTS fit_score    INTEGER DEFAULT 0`,
     `ALTER TABLE outreach_leads ADD COLUMN IF NOT EXISTS source       VARCHAR(100) DEFAULT 'google_places'`,
     `ALTER TABLE outreach_leads ADD COLUMN IF NOT EXISTS source_detail TEXT`,
+    `ALTER TABLE outreach_leads ADD COLUMN IF NOT EXISTS assigned_to  VARCHAR(100)`,
+    `ALTER TABLE outreach_leads ADD COLUMN IF NOT EXISTS last_name    VARCHAR(200)`,
+    `ALTER TABLE outreach_leads ADD COLUMN IF NOT EXISTS enriched_at  TIMESTAMP`,
   ];
   for (const stmt of alterStmts) {
     await pool.query(stmt);
@@ -43,6 +46,21 @@ export async function ensureOutreachLeadsTable(): Promise<void> {
     CREATE INDEX IF NOT EXISTS outreach_leads_created_at_idx ON outreach_leads(created_at);
   `);
   logger.info('[outreach-leads] outreach_leads table ready');
+
+  // Create outreach_errors table for WF-01 error logging
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS outreach_errors (
+      id              SERIAL PRIMARY KEY,
+      lead_id         INTEGER,
+      workflow        TEXT NOT NULL,
+      error_type      VARCHAR(50) DEFAULT 'Unknown',
+      error_message   TEXT NOT NULL,
+      retry_count     INTEGER DEFAULT 0,
+      resolved        BOOLEAN DEFAULT FALSE,
+      created_at      TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  logger.info('[outreach-leads] outreach_errors table ready');
 }
 
 // ---------------------------------------------------------------------------
