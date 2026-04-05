@@ -37,16 +37,29 @@ router.get('/health/ping', (_req, res) => {
 
 // GET /api/system/health/seo-data — public diagnostic for SEO tables
 router.get('/health/seo-data', async (_req, res) => {
+  const { pool } = await import('../db/index');
   try {
-    const tables = ['seo_weekly_metrics', 'keyword_rankings', 'site_health_metrics', 'backlink_data', 'seo_opportunities', 'seo_alerts_log'];
+    // Also try to create tables if they don't exist
+    try {
+      const { ensureSeoTables } = await import('../services/seoWorkflowHealthService');
+      await ensureSeoTables();
+    } catch { /* non-critical */ }
+
+    const tableConfigs = [
+      { name: 'seo_weekly_metrics', tsCol: 'created_at' },
+      { name: 'keyword_rankings', tsCol: 'created_at' },
+      { name: 'site_health_metrics', tsCol: 'checked_at' },
+      { name: 'backlink_data', tsCol: 'checked_at' },
+      { name: 'seo_opportunities', tsCol: 'created_at' },
+      { name: 'seo_alerts_log', tsCol: 'created_at' },
+    ];
     const results: Record<string, { count: number; latest: string | null }> = {};
-    for (const table of tables) {
+    for (const tc of tableConfigs) {
       try {
-        const r = await db.execute(sql`SELECT COUNT(*)::int AS count, MAX(created_at)::text AS latest FROM ${sql.raw(table)}`);
-        const row = r.rows[0] as { count: number; latest: string | null };
-        results[table] = { count: row.count, latest: row.latest };
-      } catch {
-        results[table] = { count: -1, latest: 'table_not_found' };
+        const r = await pool.query(`SELECT COUNT(*)::int AS count, MAX(${tc.tsCol})::text AS latest FROM ${tc.name}`);
+        results[tc.name] = { count: (r.rows[0] as { count: number }).count, latest: (r.rows[0] as { latest: string | null }).latest };
+      } catch (e) {
+        results[tc.name] = { count: -1, latest: `error: ${e instanceof Error ? e.message.slice(0, 50) : 'unknown'}` };
       }
     }
     res.json({ tables: results, checkedAt: new Date().toISOString() });
