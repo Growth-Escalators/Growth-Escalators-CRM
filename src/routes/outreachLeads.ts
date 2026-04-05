@@ -348,4 +348,74 @@ router.get('/digest-stats', async (req: Request, res: Response) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// GET /api/outreach/leads/replied — all replied leads with category summary
+// ---------------------------------------------------------------------------
+router.get('/replied', async (req: Request, res: Response) => {
+  if (!checkInternalSecret(req, res)) return;
+
+  try {
+    const leadsResult = await pool.query(`
+      SELECT first_name, last_name, company, email, country,
+             reply_category, notes, assigned_to, updated_at
+      FROM outreach_leads
+      WHERE status = 'Replied'
+      ORDER BY updated_at DESC
+    `);
+
+    const summaryResult = await pool.query(`
+      SELECT COALESCE(reply_category, 'UNCATEGORIZED') AS category, COUNT(*)::int AS count
+      FROM outreach_leads
+      WHERE status = 'Replied'
+      GROUP BY reply_category
+      ORDER BY count DESC
+    `);
+
+    res.json({
+      total: leadsResult.rows.length,
+      summary: summaryResult.rows,
+      leads: leadsResult.rows,
+    });
+  } catch (err) {
+    logger.error({ err }, '[outreach-leads] replied error');
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/outreach/leads/pipeline-summary — full pipeline overview
+// ---------------------------------------------------------------------------
+router.get('/pipeline-summary', async (req: Request, res: Response) => {
+  if (!checkInternalSecret(req, res)) return;
+
+  try {
+    const statusResult = await pool.query(`
+      SELECT status, COUNT(*)::int AS count
+      FROM outreach_leads GROUP BY status ORDER BY count DESC
+    `);
+
+    const totalResult = await pool.query(`SELECT COUNT(*)::int AS count FROM outreach_leads`);
+
+    const last7dResult = await pool.query(`
+      SELECT COUNT(*)::int AS count FROM outreach_leads
+      WHERE created_at >= NOW() - INTERVAL '7 days'
+    `);
+
+    const countryResult = await pool.query(`
+      SELECT COALESCE(country, 'Unknown') AS country, COUNT(*)::int AS count
+      FROM outreach_leads GROUP BY country ORDER BY count DESC LIMIT 20
+    `);
+
+    res.json({
+      total: (totalResult.rows[0] as { count: number }).count,
+      addedLast7Days: (last7dResult.rows[0] as { count: number }).count,
+      byStatus: statusResult.rows,
+      byCountry: countryResult.rows,
+    });
+  } catch (err) {
+    logger.error({ err }, '[outreach-leads] pipeline-summary error');
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 export default router;
