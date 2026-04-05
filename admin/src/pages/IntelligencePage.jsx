@@ -434,6 +434,101 @@ function HistoryTable({ reports }) {
 }
 
 // ---------------------------------------------------------------------------
+// System Health Tab
+// ---------------------------------------------------------------------------
+function SystemHealthTab() {
+  const [health, setHealth] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const d = await apiFetch('/api/intelligence/system-health').catch(() => null);
+    setHealth(d);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); const id = setInterval(load, 5 * 60_000); return () => clearInterval(id); }, [load]);
+
+  if (loading) return <div className="text-center py-12 text-slate-400">Checking systems...</div>;
+  if (!health) return <div className="text-center py-12 text-red-500 text-sm">Health check failed</div>;
+
+  const scoreColor = health.overallScore >= 80 ? 'text-green-600' : health.overallScore >= 50 ? 'text-amber-600' : 'text-red-600';
+  const statusBadge = (s) => s === 'HEALTHY' ? 'bg-green-100 text-green-700' : s === 'WARNING' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700';
+
+  return (
+    <section className="space-y-4">
+      {/* Score */}
+      <div className="flex items-center gap-4 mb-4">
+        <div className={`text-5xl font-bold ${scoreColor}`}>{health.overallScore}</div>
+        <div>
+          <p className="text-sm font-medium text-slate-800">System Health Score</p>
+          <p className="text-xs text-slate-400">Checked {new Date(health.checkedAt).toLocaleTimeString('en-IN')}</p>
+        </div>
+        <button onClick={load} className="ml-auto text-xs text-sky-600 hover:underline flex items-center gap-1">
+          <RefreshCw className="w-3 h-3" /> Refresh
+        </button>
+      </div>
+
+      {/* Subsystem cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { name: 'Outreach', data: health.outreach },
+          { name: 'SEO', data: health.seo },
+          { name: 'CRM', data: health.crm },
+          { name: 'Infrastructure', data: health.infrastructure },
+        ].map(sub => (
+          <div key={sub.name} className="bg-white rounded-xl border border-slate-200 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-slate-700">{sub.name}</span>
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${statusBadge(sub.data.status)}`}>{sub.data.status}</span>
+            </div>
+            <div className="space-y-0.5 text-[11px] text-slate-500">
+              {Object.entries(sub.data.metrics || {}).slice(0, 4).map(([k, v]) => (
+                <div key={k} className="flex justify-between">
+                  <span>{k.replace(/([A-Z])/g, ' $1').toLowerCase()}</span>
+                  <span className="font-medium text-slate-700">{String(v)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Cron jobs */}
+      {health.cronJobs?.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <h3 className="text-sm font-bold text-slate-700 mb-2">Cron Jobs</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead><tr className="text-slate-400 border-b">
+                <th className="text-left py-1 px-2">Job</th>
+                <th className="text-left py-1 px-2">Status</th>
+                <th className="text-left py-1 px-2">Last Run</th>
+                <th className="text-left py-1 px-2">Duration</th>
+                <th className="text-left py-1 px-2">Records</th>
+              </tr></thead>
+              <tbody>
+                {health.cronJobs.map(c => (
+                  <tr key={c.name} className="border-b border-slate-50">
+                    <td className="py-1 px-2 font-medium text-slate-700">{c.name}</td>
+                    <td className="py-1 px-2">
+                      {c.healthy ? <span className="text-green-600">✓</span> : <span className="text-red-500">✗</span>}
+                    </td>
+                    <td className="py-1 px-2 text-slate-500">{c.lastRun ? new Date(c.lastRun).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' }) : 'Never'}</td>
+                    <td className="py-1 px-2 text-slate-500">{c.durationMs ? `${(c.durationMs / 1000).toFixed(1)}s` : '—'}</td>
+                    <td className="py-1 px-2 text-slate-500">{c.recordsProcessed || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 export default function IntelligencePage() {
@@ -564,6 +659,7 @@ export default function IntelligencePage() {
   const TABS = [
     { id: 'today',   label: 'Today\'s Report', icon: Brain },
     { id: 'prompts', label: `Action Prompts${promptCount > 0 ? ` (${promptCount})` : ''}`, icon: Zap },
+    { id: 'health',  label: 'System Health', icon: Activity },
     { id: 'history', label: 'History', icon: Activity },
   ];
 
@@ -785,6 +881,9 @@ export default function IntelligencePage() {
           {activeTab === 'prompts' && (
             <ActionPromptsTab report={todayReport} />
           )}
+
+          {/* ── SYSTEM HEALTH TAB ── */}
+          {activeTab === 'health' && <SystemHealthTab />}
 
           {/* ── HISTORY TAB ── */}
           {activeTab === 'history' && (

@@ -38,6 +38,29 @@ export async function deliverDailyIntelligence(analysis: Analysis, data: AgencyD
   let msg = `${scoreEmo} *GE Daily Coaching Report — ${date}*\n`;
   msg += `Overall: *${analysis.scores.overall}/100*\n\n`;
 
+  // System health section
+  try {
+    const { checkAllSystems } = await import('./systemHealthMonitor');
+    const health = await checkAllSystems();
+    const hEmo = health.overallScore >= 80 ? '🟢' : health.overallScore >= 50 ? '🟡' : '🔴';
+    msg += `${hEmo} *System Health: ${health.overallScore}/100*\n`;
+    const subsystems = [
+      { name: 'Outreach', s: health.outreach },
+      { name: 'SEO', s: health.seo },
+      { name: 'CRM', s: health.crm },
+      { name: 'Infra', s: health.infrastructure },
+    ];
+    for (const sub of subsystems) {
+      const icon = sub.s.status === 'HEALTHY' ? '✅' : sub.s.status === 'WARNING' ? '⚠️' : '🔴';
+      msg += `   ${icon} ${sub.name}: ${sub.s.status}\n`;
+    }
+    const failedCrons = health.cronJobs.filter(c => !c.healthy);
+    if (failedCrons.length > 0) {
+      msg += `   ⏰ ${failedCrons.length} cron job(s) overdue\n`;
+    }
+    msg += '\n';
+  } catch { /* health check non-critical */ }
+
   // Focus today — most prominent
   msg += `🎯 *FOCUS TODAY:*\n${analysis.focus_today}\n\n`;
 

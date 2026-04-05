@@ -40,18 +40,33 @@ startSocialPostWorker();
 // safeCron — wraps cron handlers with error catch + Slack DM alert to Jatin
 // ---------------------------------------------------------------------------
 async function safeCron(name: string, fn: () => Promise<unknown>): Promise<void> {
+  let logId = 0;
+  const start = Date.now();
+  try {
+    const { logCronStart } = await import('./services/systemHealthMonitor');
+    logId = await logCronStart(name).catch(() => 0);
+  } catch { /* logging non-critical */ }
+
   try {
     await fn();
+    if (logId) {
+      const { logCronSuccess } = await import('./services/systemHealthMonitor');
+      await logCronSuccess(logId, Date.now() - start).catch(() => {});
+    }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error(`[CRON FAIL] ${name}:`, error);
+    if (logId) {
+      const { logCronFailure } = await import('./services/systemHealthMonitor');
+      await logCronFailure(logId, Date.now() - start, msg).catch(() => {});
+    }
     try {
       const { sendSlackDM } = await import('./services/slackService');
       const ts = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
       await sendSlackDM(SLACK_JATIN,
         `🚨 *CRON FAILED: ${name}*\n\nError: ${msg.slice(0, 300)}\nTime: ${ts}\n\nCheck worker logs for details.`
       );
-    } catch { /* Slack send failed — already logged to console */ }
+    } catch { /* Slack send failed */ }
   }
 }
 
@@ -539,6 +554,7 @@ console.log('[cron] Saleshandy auto-upload scheduled — every 15 minutes');
 // Creates CRM contacts + deals from Active outreach leads
 // ---------------------------------------------------------------------------
 import('./services/outreachCrmSyncService').then(m => m.ensureOutreachCrmSetup()).catch(() => {});
+import('./services/systemHealthMonitor').then(m => m.ensureCronJobLogsTable()).catch(() => {});
 setInterval(() => safeCron('Outreach CRM Sync', async () => {
   const { syncOutreachToCrm } = await import('./services/outreachCrmSyncService');
   await syncOutreachToCrm();
@@ -620,6 +636,17 @@ cron.schedule('30 1 * * *', () => safeCron('Daily Lead Discovery', async () => {
   console.log(`[CRON] Daily discovery: ${totalInserted} new leads`);
 }), { timezone: 'UTC' });
 console.log('[cron] Daily lead discovery scheduled — 7:00 AM IST');
+
+// ---------------------------------------------------------------------------
+// System Health Monitor — every 30 minutes
+// ---------------------------------------------------------------------------
+setInterval(() => safeCron('System Health Check', async () => {
+  const { checkAllSystems, sendCriticalAlerts } = await import('./services/systemHealthMonitor');
+  const report = await checkAllSystems();
+  await sendCriticalAlerts(report);
+  console.log(`[health] System score: ${report.overallScore}/100`);
+}), 30 * 60_000);
+console.log('[cron] System health monitor scheduled — every 30 minutes');
 
 // ---------------------------------------------------------------------------
 // Worker health check HTTP server (for Railway health monitoring)

@@ -95,6 +95,19 @@ router.get('/actions', async (_req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/intelligence/system-health — real-time system health check
+// ---------------------------------------------------------------------------
+router.get('/system-health', async (_req: Request, res: Response) => {
+  try {
+    const { checkAllSystems } = await import('../services/systemHealthMonitor');
+    const report = await checkAllSystems();
+    res.json(report);
+  } catch (e) {
+    res.status(500).json({ error: 'Health check failed' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/intelligence/status/:id — poll generation status
 // ---------------------------------------------------------------------------
 router.get('/status/:id', async (req: Request, res: Response) => {
