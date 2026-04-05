@@ -15,6 +15,7 @@
  *   Returns pipeline stats grouped by status.
  */
 
+import axios from 'axios';
 import { Router, type Request, type Response } from 'express';
 import logger from '../utils/logger';
 import { insertOutreachLead } from '../services/outreachLeadsService';
@@ -540,18 +541,17 @@ router.post('/upload-saleshandy', async (req: Request, res: Response) => {
       }));
 
       try {
-        const shRes = await fetch(`https://api.saleshandy.com/api/v1/sequence/${sequenceId}/prospects`, {
-          method: 'POST',
-          headers: {
-            'X-Auth-Token': apiKey,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
+        const shRes = await axios.post(
+          `https://api.saleshandy.com/api/v1/sequence/${sequenceId}/prospects`,
+          { prospects },
+          {
+            headers: { 'X-Auth-Token': apiKey, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            timeout: 15000,
+            validateStatus: () => true,
           },
-          signal: AbortSignal.timeout(15000),
-          body: JSON.stringify({ prospects }),
-        });
+        );
 
-        if (shRes.ok) {
+        if (shRes.status >= 200 && shRes.status < 300) {
           uploaded += batch.length;
           const ids = batch.map(l => l.id);
           await pool.query(
@@ -559,8 +559,8 @@ router.post('/upload-saleshandy', async (req: Request, res: Response) => {
             [ids],
           );
         } else {
-          const errBody = await shRes.text().catch(() => '');
-          errors.push(`Batch ${i / 10 + 1}: HTTP ${shRes.status} — ${errBody.slice(0, 100)}`);
+          const errBody = typeof shRes.data === 'string' ? shRes.data.slice(0, 100) : JSON.stringify(shRes.data).slice(0, 100);
+          errors.push(`Batch ${i / 10 + 1}: HTTP ${shRes.status} — ${errBody}`);
         }
       } catch (e) {
         errors.push(`Batch ${i / 10 + 1}: ${e instanceof Error ? e.message : String(e)}`);

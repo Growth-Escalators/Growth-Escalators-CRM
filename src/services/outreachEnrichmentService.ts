@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { sendSlackMessage } from './slackService';
@@ -148,14 +149,17 @@ export async function uploadToSaleshandy(): Promise<{ uploaded: number; errors: 
         customFields: { icebreaker: l.icebreaker || '', website: l.website_url || '', country: l.country || '' },
       }));
 
-      const res = await fetch(`https://api.saleshandy.com/api/v1/sequence/${sequenceId}/prospects`, {
-        method: 'POST',
-        headers: { 'X-Auth-Token': apiKey, 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(15000),
-        body: JSON.stringify({ prospects }),
-      });
+      const res = await axios.post(
+        `https://api.saleshandy.com/api/v1/sequence/${sequenceId}/prospects`,
+        { prospects },
+        {
+          headers: { 'X-Auth-Token': apiKey, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          timeout: 15000,
+          validateStatus: () => true, // don't throw on non-2xx
+        },
+      );
 
-      if (res.ok) {
+      if (res.status >= 200 && res.status < 300) {
         uploaded += batch.length;
         await pool.query(
           `UPDATE outreach_leads SET saleshandy_uploaded = TRUE, saleshandy_uploaded_at = NOW() WHERE id = ANY($1)`,
@@ -163,8 +167,8 @@ export async function uploadToSaleshandy(): Promise<{ uploaded: number; errors: 
         );
       } else {
         uploadErrors += batch.length;
-        const errBody = await res.text().catch(() => '');
-        logger.warn(`[saleshandy] Upload failed: ${res.status} — ${errBody.slice(0, 100)}`);
+        const errBody = typeof res.data === 'string' ? res.data.slice(0, 100) : JSON.stringify(res.data).slice(0, 100);
+        logger.warn(`[saleshandy] Upload failed: ${res.status} — ${errBody}`);
       }
     } catch (e) {
       uploadErrors += batch.length;
