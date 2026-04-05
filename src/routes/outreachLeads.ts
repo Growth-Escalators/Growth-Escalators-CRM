@@ -418,4 +418,30 @@ router.get('/pipeline-summary', async (req: Request, res: Response) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// POST /api/outreach/leads/reset-stuck — reset stuck Enriching leads to New
+// ---------------------------------------------------------------------------
+router.post('/reset-stuck', async (req: Request, res: Response) => {
+  if (!checkInternalSecret(req, res)) return;
+
+  try {
+    // Reset leads stuck in Enriching for more than 1 hour back to New
+    const result = await pool.query(`
+      UPDATE outreach_leads
+      SET status = 'New', updated_at = NOW()
+      WHERE status = 'Enriching'
+        AND updated_at < NOW() - INTERVAL '1 hour'
+      RETURNING id, company
+    `);
+
+    res.json({
+      reset: result.rows.length,
+      leads: result.rows,
+    });
+  } catch (err) {
+    logger.error({ err }, '[outreach-leads] reset-stuck error');
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 export default router;

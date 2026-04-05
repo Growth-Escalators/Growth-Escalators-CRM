@@ -20,6 +20,14 @@ import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_PERF_MARKETIN
 
 console.log('[worker] Worker process started');
 
+// One-time startup: reset any leads stuck in Enriching
+pool.query(`
+  UPDATE outreach_leads SET status = 'New', updated_at = NOW()
+  WHERE status = 'Enriching' AND updated_at < NOW() - INTERVAL '30 minutes'
+`).then(r => {
+  if (r.rowCount && r.rowCount > 0) console.log(`[worker] Reset ${r.rowCount} stuck Enriching lead(s) to New on startup`);
+}).catch(() => {});
+
 // ---------------------------------------------------------------------------
 // Background workers
 // ---------------------------------------------------------------------------
@@ -472,6 +480,29 @@ cron.schedule('30 14 * * 1-6', () => safeCron('Outreach Daily Digest', async () 
   console.log('[CRON] Outreach digest sent');
 }), { timezone: 'UTC' });
 console.log('[cron] Outreach daily digest scheduled — 8:00 PM IST Mon-Sat');
+
+// ---------------------------------------------------------------------------
+// Outreach: reset stuck Enriching leads — every 2 hours
+// Leads stuck in Enriching for >1 hour get reset to New for WF-01 retry
+// ---------------------------------------------------------------------------
+cron.schedule('0 */2 * * *', () => safeCron('Reset Stuck Enriching Leads', async () => {
+  const result = await pool.query(`
+    UPDATE outreach_leads
+    SET status = 'New', updated_at = NOW()
+    WHERE status = 'Enriching'
+      AND updated_at < NOW() - INTERVAL '1 hour'
+    RETURNING id, company
+  `);
+  if (result.rows.length > 0) {
+    console.log(`[CRON] Reset ${result.rows.length} stuck Enriching lead(s) to New`);
+    const { sendSlackMessage } = await import('./services/slackService');
+    await sendSlackMessage(SLACK_OUTREACH_CHANNEL,
+      `🔄 Reset ${result.rows.length} stuck lead(s) from Enriching → New for retry:\n` +
+      result.rows.slice(0, 10).map((r: { company: string }) => `• ${r.company}`).join('\n'),
+    ).catch(() => {});
+  }
+}), { timezone: 'UTC' });
+console.log('[cron] Outreach stuck lead reset scheduled — every 2 hours');
 
 // ---------------------------------------------------------------------------
 // Audit booking follow-up check — every 6 hours
