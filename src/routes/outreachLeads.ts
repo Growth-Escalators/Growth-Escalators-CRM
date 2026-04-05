@@ -607,4 +607,44 @@ router.get('/dashboard', async (req: Request, res: Response) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// POST /api/outreach/leads/sync-crm — manually trigger CRM sync
+// ---------------------------------------------------------------------------
+router.post('/sync-crm', async (req: Request, res: Response) => {
+  if (!checkInternalSecret(req, res)) return;
+  try {
+    const { syncOutreachToCrm } = await import('../services/outreachCrmSyncService');
+    const result = await syncOutreachToCrm();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/outreach/leads/:id/reply — set reply category + auto-promote
+// ---------------------------------------------------------------------------
+router.patch('/:id/reply', async (req: Request, res: Response) => {
+  if (!checkInternalSecret(req, res)) return;
+  try {
+    const leadId = parseInt(req.params.id as string, 10);
+    const { reply_category, notes } = req.body as { reply_category: string; notes?: string };
+
+    await pool.query(
+      `UPDATE outreach_leads SET status = 'Replied', reply_category = $1, notes = COALESCE($2, notes), updated_at = NOW() WHERE id = $3`,
+      [reply_category, notes ?? null, leadId],
+    );
+
+    // Auto-promote INTERESTED leads
+    if (reply_category === 'INTERESTED') {
+      const { promoteInterestedLead } = await import('../services/outreachCrmSyncService');
+      await promoteInterestedLead(leadId);
+    }
+
+    res.json({ success: true, reply_category });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 export default router;
