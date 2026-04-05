@@ -22,6 +22,7 @@ import SEOPage from './pages/SEOPage.jsx';
 import IntelligencePage from './pages/IntelligencePage.jsx';
 import GrowthOSPage from './pages/GrowthOSPage.jsx';
 import WhatsAppTemplatesPage from './pages/WhatsAppTemplatesPage.jsx';
+import OutreachDashboard from './pages/OutreachDashboard.jsx';
 
 function PrivateRoute({ children }) {
   const token = localStorage.getItem('ge_crm_token');
@@ -54,6 +55,7 @@ export default function App() {
         <Route path="/intelligence" element={<PrivateRoute><IntelligencePage /></PrivateRoute>} />
         <Route path="/growth-os" element={<PrivateRoute><GrowthOSPage /></PrivateRoute>} />
         <Route path="/whatsapp-templates" element={<PrivateRoute><WhatsAppTemplatesPage /></PrivateRoute>} />
+        <Route path="/outreach-dashboard" element={<PrivateRoute><OutreachDashboard /></PrivateRoute>} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
