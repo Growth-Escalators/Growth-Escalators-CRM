@@ -148,11 +148,11 @@ export async function uploadToSaleshandy(): Promise<{ uploaded: number; errors: 
         customFields: { icebreaker: l.icebreaker || '', website: l.website_url || '', country: l.country || '' },
       }));
 
-      const res = await fetch('https://api.saleshandy.com/v1/sequence-prospect/import', {
+      const res = await fetch(`https://api.saleshandy.com/api/v1/sequence/${sequenceId}/prospects`, {
         method: 'POST',
-        headers: { 'X-Auth-Token': apiKey, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        headers: { 'X-Auth-Token': apiKey, 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(15000),
-        body: JSON.stringify({ sequenceId, prospects }),
+        body: JSON.stringify({ prospects }),
       });
 
       if (res.ok) {

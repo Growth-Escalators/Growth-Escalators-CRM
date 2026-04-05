@@ -540,15 +540,14 @@ router.post('/upload-saleshandy', async (req: Request, res: Response) => {
       }));
 
       try {
-        const shRes = await fetch('https://api.saleshandy.com/v1/sequence-prospect/import', {
+        const shRes = await fetch(`https://api.saleshandy.com/api/v1/sequence/${sequenceId}/prospects`, {
           method: 'POST',
           headers: {
             'X-Auth-Token': apiKey,
             'Content-Type': 'application/json',
-            'Accept': 'application/json',
           },
           signal: AbortSignal.timeout(15000),
-          body: JSON.stringify({ sequenceId, prospects }),
+          body: JSON.stringify({ prospects }),
         });
 
         if (shRes.ok) {
