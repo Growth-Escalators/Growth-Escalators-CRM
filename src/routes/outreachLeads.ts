@@ -469,4 +469,107 @@ router.post('/enrich-now', async (req: Request, res: Response) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// GET /api/outreach/leads/active — list all Active leads with full details
+// ---------------------------------------------------------------------------
+router.get('/active', async (req: Request, res: Response) => {
+  if (!checkInternalSecret(req, res)) return;
+  try {
+    const result = await pool.query(`
+      SELECT id, company, first_name, last_name, email, website_url, icebreaker,
+             country, phone, fit_score, enriched_at
+      FROM outreach_leads WHERE status = 'Active'
+      ORDER BY enriched_at DESC
+    `);
+    res.json({ total: result.rows.length, leads: result.rows });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/outreach/leads/upload-saleshandy — push Active leads to Saleshandy
+// ---------------------------------------------------------------------------
+router.post('/upload-saleshandy', async (req: Request, res: Response) => {
+  if (!checkInternalSecret(req, res)) return;
+
+  const apiKey = process.env.SALESHANDY_API_KEY;
+  const sequenceId = process.env.SALESHANDY_SEQUENCE_ID;
+
+  if (!apiKey || !sequenceId) {
+    res.status(400).json({
+      error: 'SALESHANDY_API_KEY and SALESHANDY_SEQUENCE_ID must be set in Railway env vars',
+      apiKeySet: !!apiKey,
+      sequenceIdSet: !!sequenceId,
+    });
+    return;
+  }
+
+  try {
+    const result = await pool.query(`
+      SELECT id, company, first_name, last_name, email, website_url, icebreaker
+      FROM outreach_leads WHERE status = 'Active' AND email IS NOT NULL
+      ORDER BY enriched_at DESC
+    `);
+
+    const leads = result.rows as Array<{
+      id: number; company: string; first_name: string | null; last_name: string | null;
+      email: string; website_url: string | null; icebreaker: string | null;
+    }>;
+
+    if (leads.length === 0) {
+      res.json({ uploaded: 0, message: 'No Active leads with emails to upload' });
+      return;
+    }
+
+    let uploaded = 0;
+    const errors: string[] = [];
+
+    // Upload in batches of 10
+    for (let i = 0; i < leads.length; i += 10) {
+      const batch = leads.slice(i, i + 10);
+      const prospects = batch.map(lead => ({
+        emailAddress: lead.email,
+        firstName: lead.first_name || lead.company.split(' ')[0],
+        lastName: lead.last_name || lead.company,
+        customFields: {
+          icebreaker: lead.icebreaker || '',
+          website: lead.website_url || '',
+          company: lead.company,
+        },
+      }));
+
+      try {
+        const shRes = await fetch('https://api.saleshandy.com/v1/sequence-prospect/import', {
+          method: 'POST',
+          headers: {
+            'X-Auth-Token': apiKey,
+            'Content-Type': 'application/json',
+          },
+          signal: AbortSignal.timeout(15000),
+          body: JSON.stringify({ sequenceId, prospects }),
+        });
+
+        if (shRes.ok) {
+          uploaded += batch.length;
+          const ids = batch.map(l => l.id);
+          await pool.query(
+            `UPDATE outreach_leads SET status = 'Uploaded', updated_at = NOW() WHERE id = ANY($1)`,
+            [ids],
+          );
+        } else {
+          const errBody = await shRes.text().catch(() => '');
+          errors.push(`Batch ${i / 10 + 1}: HTTP ${shRes.status} — ${errBody.slice(0, 100)}`);
+        }
+      } catch (e) {
+        errors.push(`Batch ${i / 10 + 1}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+
+    res.json({ uploaded, total: leads.length, errors });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 export default router;
