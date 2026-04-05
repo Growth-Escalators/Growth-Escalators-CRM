@@ -2,6 +2,7 @@ import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { sendSlackMessage } from './slackService';
 import { SLACK_OUTREACH_CHANNEL } from '../config/constants';
+import { extractEmailFromWebsite } from './emailExtractorService';
 
 interface EnrichmentResult {
   processed: number;
@@ -11,19 +12,23 @@ interface EnrichmentResult {
 }
 
 /**
- * Backend enrichment for leads stuck in Enriching or New.
- * Bypasses n8n WF-01 — runs directly from the backend.
+ * Backend enrichment: scrapes emails from agency websites.
+ * Falls back to Hunter.io if available. Processes batches of 20.
  */
 export async function enrichStuckLeads(): Promise<EnrichmentResult> {
   const hunterKey = process.env.HUNTER_API_KEY;
 
-  // Find leads stuck in Enriching >15min OR still New (batch of 20)
+  // Find leads that need enrichment
   const result = await pool.query(`
     SELECT id, company, first_name, website_url, email
     FROM outreach_leads
-    WHERE (status = 'Enriching' AND updated_at < NOW() - INTERVAL '15 minutes')
-       OR (status = 'New')
-    ORDER BY created_at ASC
+    WHERE status IN ('New', 'Enriching')
+       OR (status = 'Not_Found' AND notes LIKE '%not configured%')
+    ORDER BY
+      CASE WHEN status = 'New' THEN 0
+           WHEN status = 'Enriching' THEN 1
+           ELSE 2 END,
+      created_at ASC
     LIMIT 20
   `);
 
@@ -35,6 +40,13 @@ export async function enrichStuckLeads(): Promise<EnrichmentResult> {
     website_url: string | null; email: string | null;
   }>;
 
+  // Set all to Enriching
+  const ids = leads.map(l => l.id);
+  await pool.query(
+    `UPDATE outreach_leads SET status = 'Enriching', updated_at = NOW() WHERE id = ANY($1)`,
+    [ids],
+  );
+
   for (const lead of leads) {
     try {
       // Skip if already has email
@@ -44,32 +56,44 @@ export async function enrichStuckLeads(): Promise<EnrichmentResult> {
         continue;
       }
 
-      // Extract domain from website_url
-      const domain = extractDomain(lead.website_url);
-      if (!domain) {
+      if (!lead.website_url) {
         await markNotFound(lead.id, 'No website URL');
         notFound++;
         continue;
       }
 
-      // Try Hunter.io
       let email: string | null = null;
       let firstName = lead.first_name;
 
-      if (hunterKey) {
+      // Strategy 1: Scrape website directly (free, no API key)
+      try {
+        const extracted = await extractEmailFromWebsite(lead.website_url);
+        if (extracted) {
+          email = extracted.email;
+          logger.info(`[enrichment] Scraped email for ${lead.company}: ${email} (from ${extracted.source})`);
+        }
+      } catch (e) {
+        logger.warn(`[enrichment] Scrape failed for ${lead.company}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+
+      // Strategy 2: Hunter.io fallback (if key available and scrape found nothing)
+      if (!email && hunterKey) {
         try {
-          const hunterUrl = `https://api.hunter.io/v2/domain-search?domain=${encodeURIComponent(domain)}&api_key=${hunterKey}&limit=5`;
-          const res = await fetch(hunterUrl, { signal: AbortSignal.timeout(10000) });
-          if (res.ok) {
-            const data = await res.json() as { data?: { emails?: Array<{ value: string; first_name?: string; last_name?: string }> } };
-            const emails = data.data?.emails ?? [];
-            if (emails.length > 0) {
-              email = emails[0].value;
-              if (!firstName && emails[0].first_name) firstName = emails[0].first_name;
+          const domain = extractDomain(lead.website_url);
+          if (domain) {
+            const hunterUrl = `https://api.hunter.io/v2/domain-search?domain=${encodeURIComponent(domain)}&api_key=${hunterKey}&limit=5`;
+            const res = await fetch(hunterUrl, { signal: AbortSignal.timeout(10000) });
+            if (res.ok) {
+              const data = await res.json() as { data?: { emails?: Array<{ value: string; first_name?: string }> } };
+              const emails = data.data?.emails ?? [];
+              if (emails.length > 0) {
+                email = emails[0].value;
+                if (!firstName && emails[0].first_name) firstName = emails[0].first_name;
+              }
             }
           }
         } catch (e) {
-          logger.warn(`[enrichment] Hunter failed for ${domain}: ${e instanceof Error ? e.message : String(e)}`);
+          logger.warn(`[enrichment] Hunter failed for ${lead.company}: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
 
@@ -77,14 +101,18 @@ export async function enrichStuckLeads(): Promise<EnrichmentResult> {
         await markActive(lead.id, email, firstName, lead.company);
         active++;
       } else {
-        await markNotFound(lead.id, hunterKey ? 'No email found via Hunter' : 'HUNTER_API_KEY not configured');
+        await markNotFound(lead.id, 'No email found on website or via Hunter');
         notFound++;
       }
 
-      // Rate limit: 1 request per second
-      await new Promise(r => setTimeout(r, 1000));
+      // 1.5s between leads to be polite to target websites
+      await new Promise(r => setTimeout(r, 1500));
     } catch (e) {
       logger.error(`[enrichment] Lead ${lead.id} failed:`, e instanceof Error ? e.message : String(e));
+      await pool.query(
+        `UPDATE outreach_leads SET status = 'Not_Found', notes = $1, updated_at = NOW() WHERE id = $2`,
+        [`Error: ${e instanceof Error ? e.message : String(e)}`, lead.id],
+      ).catch(() => {});
       errors++;
     }
   }
@@ -92,11 +120,10 @@ export async function enrichStuckLeads(): Promise<EnrichmentResult> {
   const summary = { processed: leads.length, active, notFound, errors };
   logger.info(`[enrichment] Batch complete: ${JSON.stringify(summary)}`);
 
-  // Post to Slack
   if (leads.length > 0) {
     await sendSlackMessage(SLACK_OUTREACH_CHANNEL,
       `🔄 *Enrichment batch complete*\n` +
-      `Processed: ${leads.length} · Active: ${active} · Not Found: ${notFound} · Errors: ${errors}`,
+      `Processed: ${leads.length} · ✅ Active: ${active} · ❌ Not Found: ${notFound} · ⚠️ Errors: ${errors}`,
     ).catch(() => {});
   }
 
@@ -104,7 +131,8 @@ export async function enrichStuckLeads(): Promise<EnrichmentResult> {
 }
 
 async function markActive(leadId: number, email: string, firstName: string | null, company: string): Promise<void> {
-  const icebreaker = `I came across ${company} and was impressed by your work in performance marketing. I would love to share how we help agencies like yours scale their D2C client base.`;
+  const name = firstName || 'there';
+  const icebreaker = `Hi ${name}, came across ${company} — impressive work in performance marketing. We help agencies like yours deliver Meta Ads for D2C clients at 60-70% lower cost. Worth a quick chat?`;
 
   await pool.query(`
     UPDATE outreach_leads
@@ -139,7 +167,6 @@ function extractDomain(url: string | null): string | null {
     const parsed = new URL(u);
     return parsed.hostname.replace(/^www\./, '');
   } catch {
-    // Try as bare domain
     const match = url.match(/([a-zA-Z0-9-]+\.[a-zA-Z]{2,})/);
     return match ? match[1] : null;
   }

@@ -451,9 +451,18 @@ router.post('/enrich-now', async (req: Request, res: Response) => {
   if (!checkInternalSecret(req, res)) return;
 
   try {
+    // Reset Not_Found leads that were marked due to missing API key so they can be re-scraped
+    const resetResult = await pool.query(`
+      UPDATE outreach_leads SET status = 'New', notes = NULL, updated_at = NOW()
+      WHERE status = 'Not_Found'
+      RETURNING id
+    `);
+    const resetCount = resetResult.rows.length;
+
+    // Run enrichment (processes batches of 20)
     const { enrichStuckLeads } = await import('../services/outreachEnrichmentService');
     const result = await enrichStuckLeads();
-    res.json(result);
+    res.json({ ...result, resetFromNotFound: resetCount });
   } catch (err) {
     logger.error({ err }, '[outreach-leads] enrich-now error');
     res.status(500).json({ error: String(err) });
