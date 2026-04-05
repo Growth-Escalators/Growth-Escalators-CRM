@@ -545,6 +545,7 @@ router.post('/upload-saleshandy', async (req: Request, res: Response) => {
           headers: {
             'X-Auth-Token': apiKey,
             'Content-Type': 'application/json',
+            'Accept': 'application/json',
           },
           signal: AbortSignal.timeout(15000),
           body: JSON.stringify({ prospects }),

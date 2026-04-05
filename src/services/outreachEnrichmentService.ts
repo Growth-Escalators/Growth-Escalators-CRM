@@ -150,7 +150,7 @@ export async function uploadToSaleshandy(): Promise<{ uploaded: number; errors: 
 
       const res = await fetch(`https://api.saleshandy.com/api/v1/sequence/${sequenceId}/prospects`, {
         method: 'POST',
-        headers: { 'X-Auth-Token': apiKey, 'Content-Type': 'application/json' },
+        headers: { 'X-Auth-Token': apiKey, 'Content-Type': 'application/json', 'Accept': 'application/json' },
         signal: AbortSignal.timeout(15000),
         body: JSON.stringify({ prospects }),
       });
