@@ -20,7 +20,8 @@ import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_PERF_MARKETIN
 
 console.log('[worker] Worker process started');
 
-// One-time startup: reset any leads stuck in Enriching
+// One-time startup: ensure enrichment columns + reset stuck leads
+import('./services/outreachEnrichmentService').then(m => m.ensureEnrichmentColumns()).catch(() => {});
 pool.query(`
   UPDATE outreach_leads SET status = 'New', updated_at = NOW()
   WHERE status = 'Enriching' AND updated_at < NOW() - INTERVAL '30 minutes'
@@ -485,11 +486,11 @@ console.log('[cron] Outreach daily digest scheduled — 8:00 PM IST Mon-Sat');
 // Outreach: backend enrichment — every 10 minutes
 // Bypasses n8n WF-01 and enriches leads directly from backend
 // ---------------------------------------------------------------------------
-cron.schedule('*/10 * * * *', () => safeCron('Outreach Enrichment', async () => {
+setInterval(() => safeCron('Outreach Enrichment', async () => {
   const { enrichStuckLeads } = await import('./services/outreachEnrichmentService');
   await enrichStuckLeads();
-}), { timezone: 'UTC' });
-console.log('[cron] Outreach enrichment scheduled — every 10 minutes');
+}), 5 * 60_000); // every 5 minutes
+console.log('[cron] Outreach enrichment scheduled — every 5 minutes');
 
 // ---------------------------------------------------------------------------
 // Outreach: reset stuck Enriching leads — every 2 hours
@@ -523,6 +524,91 @@ cron.schedule('0 */6 * * *', () => safeCron('Audit Booking Follow-up', async () 
   await checkUnbookedAuditCalls();
 }), { timezone: 'UTC' });
 console.log('[cron] Audit booking follow-up scheduled — every 6 hours');
+
+// ---------------------------------------------------------------------------
+// Saleshandy auto-upload — every 15 minutes
+// ---------------------------------------------------------------------------
+setInterval(() => safeCron('Saleshandy Auto-Upload', async () => {
+  const { uploadToSaleshandy } = await import('./services/outreachEnrichmentService');
+  await uploadToSaleshandy();
+}), 15 * 60_000);
+console.log('[cron] Saleshandy auto-upload scheduled — every 15 minutes');
+
+// ---------------------------------------------------------------------------
+// Daily Lead Discovery — 7:00 AM IST (1:30 UTC)
+// Runs 3 searches per day, rotating through the list
+// ---------------------------------------------------------------------------
+const DISCOVERY_QUERIES = [
+  { query: 'performance marketing agency', location: 'Birmingham', country: 'UK' },
+  { query: 'performance marketing agency', location: 'Leeds', country: 'UK' },
+  { query: 'performance marketing agency', location: 'Bristol', country: 'UK' },
+  { query: 'digital marketing agency', location: 'Edinburgh', country: 'UK' },
+  { query: 'ppc agency', location: 'Liverpool', country: 'UK' },
+  { query: 'performance marketing agency', location: 'Sydney', country: 'AU' },
+  { query: 'digital marketing agency', location: 'Brisbane', country: 'AU' },
+  { query: 'ppc agency', location: 'Perth', country: 'AU' },
+  { query: 'performance marketing agency', location: 'Vancouver', country: 'CA' },
+  { query: 'digital marketing agency', location: 'Calgary', country: 'CA' },
+  { query: 'meta ads agency', location: 'New York', country: 'US' },
+  { query: 'performance marketing agency', location: 'Austin', country: 'US' },
+  { query: 'digital advertising agency', location: 'Chicago', country: 'US' },
+  { query: 'ecommerce marketing agency', location: 'Miami', country: 'US' },
+];
+
+cron.schedule('30 1 * * *', () => safeCron('Daily Lead Discovery', async () => {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  if (!apiKey) { console.log('[CRON] Discovery: GOOGLE_PLACES_API_KEY not set'); return; }
+
+  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
+  const startIdx = (dayOfYear * 3) % DISCOVERY_QUERIES.length;
+  const todayQueries = [0, 1, 2].map(i => DISCOVERY_QUERIES[(startIdx + i) % DISCOVERY_QUERIES.length]);
+
+  let totalInserted = 0;
+  const countryCounts: Record<string, number> = {};
+  const { insertOutreachLead } = await import('./services/outreachLeadsService');
+
+  for (const q of todayQueries) {
+    try {
+      const fullQuery = encodeURIComponent(`${q.query} ${q.location}`);
+      const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${fullQuery}&key=${apiKey}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      if (!res.ok) continue;
+      const data = await res.json() as { results?: Array<{ name: string; formatted_address?: string; rating?: number; user_ratings_total?: number }> };
+      const places = data.results ?? [];
+
+      for (const p of places.slice(0, 20)) {
+        const fitScore = Math.min(100, 50 + (p.rating ?? 0) * 5 + Math.min((p.user_ratings_total ?? 0), 10) * 2);
+        if (fitScore < 60) continue;
+
+        const result = await insertOutreachLead({
+          company: p.name,
+          address: p.formatted_address ?? null,
+          country: q.country,
+          fitScore,
+          sourceDetail: `auto_discovery: ${q.query} in ${q.location}`,
+        });
+        if (result.inserted) {
+          totalInserted++;
+          countryCounts[q.country] = (countryCounts[q.country] ?? 0) + 1;
+        }
+      }
+      await new Promise(r => setTimeout(r, 2000));
+    } catch (e) {
+      console.error(`[discovery] ${q.query} ${q.location} failed:`, e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  if (totalInserted > 0) {
+    const { sendSlackMessage } = await import('./services/slackService');
+    const totalPipeline = await pool.query(`SELECT COUNT(*)::int AS c FROM outreach_leads`);
+    const parts = Object.entries(countryCounts).map(([c, n]) => `${c}: ${n}`).join(', ');
+    await sendSlackMessage(SLACK_OUTREACH_CHANNEL,
+      `🔍 *Discovery*: Found ${totalInserted} new leads today (${parts}). Total pipeline: ${(totalPipeline.rows[0] as { c: number }).c} leads.`,
+    ).catch(() => {});
+  }
+  console.log(`[CRON] Daily discovery: ${totalInserted} new leads`);
+}), { timezone: 'UTC' });
+console.log('[cron] Daily lead discovery scheduled — 7:00 AM IST');
 
 // ---------------------------------------------------------------------------
 // Worker health check HTTP server (for Railway health monitoring)
