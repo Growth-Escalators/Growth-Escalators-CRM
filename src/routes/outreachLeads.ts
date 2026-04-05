@@ -356,8 +356,8 @@ router.get('/replied', async (req: Request, res: Response) => {
 
   try {
     const leadsResult = await pool.query(`
-      SELECT first_name, last_name, company, email, country,
-             reply_category, notes, assigned_to, updated_at
+      SELECT first_name, company, email, country,
+             reply_category, notes, updated_at
       FROM outreach_leads
       WHERE status = 'Replied'
       ORDER BY updated_at DESC
