@@ -35,6 +35,26 @@ router.get('/health/ping', (_req, res) => {
   res.json({ status: 'ok', ts: Date.now() });
 });
 
+// GET /api/system/health/seo-data — public diagnostic for SEO tables
+router.get('/health/seo-data', async (_req, res) => {
+  try {
+    const tables = ['seo_weekly_metrics', 'keyword_rankings', 'site_health_metrics', 'backlink_data', 'seo_opportunities', 'seo_alerts_log'];
+    const results: Record<string, { count: number; latest: string | null }> = {};
+    for (const table of tables) {
+      try {
+        const r = await db.execute(sql`SELECT COUNT(*)::int AS count, MAX(created_at)::text AS latest FROM ${sql.raw(table)}`);
+        const row = r.rows[0] as { count: number; latest: string | null };
+        results[table] = { count: row.count, latest: row.latest };
+      } catch {
+        results[table] = { count: -1, latest: 'table_not_found' };
+      }
+    }
+    res.json({ tables: results, checkedAt: new Date().toISOString() });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 // GET /api/system/health — JWT protected
 router.get('/health', requireAuth, async (req, res) => {
   const tenantId = req.user!.tenantId;
