@@ -149,20 +149,36 @@ export async function uploadToSaleshandy(): Promise<{ uploaded: number; errors: 
         customFields: { icebreaker: l.icebreaker || '', website: l.website_url || '', country: l.country || '' },
       }));
 
+      // Use Node.js https module directly — axios/fetch add charset to Content-Type
+      // which Saleshandy rejects with 406
       const bodyStr = JSON.stringify({ prospects });
-      const res = await axios({
-        method: 'POST',
-        url: `https://api.saleshandy.com/api/v1/sequence/${sequenceId}/prospects`,
-        data: bodyStr,
-        headers: {
-          'X-Auth-Token': apiKey,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Content-Length': String(Buffer.byteLength(bodyStr)),
-        },
-        timeout: 15000,
-        validateStatus: () => true,
-        transformRequest: [(data: string) => data],
+      const res = await new Promise<{ status: number; data: unknown }>((resolve) => {
+        const https = require('https');
+        const urlObj = new URL(`https://api.saleshandy.com/api/v1/sequence/${sequenceId}/prospects`);
+        const req = https.request({
+          hostname: urlObj.hostname,
+          path: urlObj.pathname,
+          method: 'POST',
+          headers: {
+            'X-Auth-Token': apiKey,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Content-Length': Buffer.byteLength(bodyStr),
+          },
+          timeout: 15000,
+        }, (resp: import('http').IncomingMessage) => {
+          let body = '';
+          resp.on('data', (c: string) => { body += c; });
+          resp.on('end', () => {
+            let data: unknown;
+            try { data = JSON.parse(body); } catch { data = body; }
+            resolve({ status: resp.statusCode ?? 500, data });
+          });
+        });
+        req.on('error', () => resolve({ status: 500, data: 'request failed' }));
+        req.on('timeout', () => { req.destroy(); resolve({ status: 408, data: 'timeout' }); });
+        req.write(bodyStr);
+        req.end();
       });
 
       if (res.status >= 200 && res.status < 300) {
