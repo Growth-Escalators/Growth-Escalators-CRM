@@ -639,6 +639,28 @@ console.log('[cron] Daily lead discovery scheduled — 7:00 AM IST');
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
+// Retainer Invoice Generator — daily 9:00 AM IST (3:30 UTC)
+// ---------------------------------------------------------------------------
+import('./services/retainerService').then(m => m.ensureRetainerTables()).catch(() => {});
+cron.schedule('30 3 * * *', () => safeCron('Retainer Invoice Generator', async () => {
+  const tenantResult = await db.execute(sql`SELECT id FROM tenants WHERE slug = ${DEFAULT_TENANT_SLUG} LIMIT 1`);
+  const tenantId = (tenantResult.rows[0] as { id: string } | undefined)?.id;
+  if (!tenantId) return;
+
+  const { generatePendingInvoices } = await import('./services/retainerService');
+  const result = await generatePendingInvoices(tenantId, 'system');
+
+  if (result.generated > 0) {
+    const { sendSlackMessage } = await import('./services/slackService');
+    await sendSlackMessage(SLACK_SOD_EOD_CHANNEL,
+      `🧾 *Auto-generated ${result.generated} retainer invoice(s)*\nReview at: /crm/billing`,
+    ).catch(() => {});
+  }
+  console.log(`[CRON] Retainer invoices: ${result.generated} generated, ${result.errors.length} errors`);
+}), { timezone: 'UTC' });
+console.log('[cron] Retainer invoice generator scheduled — daily 9:00 AM IST');
+
+// ---------------------------------------------------------------------------
 // Weekly Data Cleanup — Sunday 2:00 AM IST (Saturday 20:30 UTC)
 // ---------------------------------------------------------------------------
 cron.schedule('30 20 * * 6', () => safeCron('Weekly Data Cleanup', async () => {

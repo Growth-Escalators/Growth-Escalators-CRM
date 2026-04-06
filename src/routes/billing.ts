@@ -639,4 +639,201 @@ router.get('/payments', async (req: Request, res: Response) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// GET /api/billing/next-invoice-number
+// ---------------------------------------------------------------------------
+router.get('/next-invoice-number', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const userId = req.user!.id;
+  const p = await getPerms(userId);
+  if (!p?.billingView && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
+
+  try {
+    const type = (req.query.type as string) === 'non_gst' ? 'non_gst' : 'gst';
+    const result = await getNextInvoiceNumber(tenantId, type as 'gst' | 'non_gst');
+    res.json({ nextNumber: result.number, financialYear: result.financialYear, series: result.series });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Retainer CRUD
+// ---------------------------------------------------------------------------
+router.get('/retainers', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const userId = req.user!.id;
+  const p = await getPerms(userId);
+  if (!p?.billingView && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
+
+  try {
+    const { pool } = await import('../db/index');
+    const retainers = await pool.query(
+      `SELECT r.*, (SELECT json_agg(li ORDER BY li.sort_order) FROM retainer_line_items li WHERE li.retainer_id = r.id) AS line_items
+       FROM client_retainers r WHERE r.tenant_id = $1 ORDER BY r.created_at DESC`,
+      [tenantId],
+    );
+    res.json({ retainers: retainers.rows });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+router.get('/retainers/:id', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  try {
+    const { pool } = await import('../db/index');
+    const r = await pool.query(`SELECT * FROM client_retainers WHERE id = $1 AND tenant_id = $2`, [req.params.id, tenantId]);
+    if (r.rows.length === 0) { res.status(404).json({ error: 'not found' }); return; }
+    const li = await pool.query(`SELECT * FROM retainer_line_items WHERE retainer_id = $1 ORDER BY sort_order`, [req.params.id]);
+    res.json({ retainer: r.rows[0], lineItems: li.rows });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+router.post('/retainers', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const userId = req.user!.id;
+  const p = await getPerms(userId);
+  if (!p?.billingCreate && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
+
+  try {
+    const { pool } = await import('../db/index');
+    const { getNextRetainerNumber } = await import('../services/retainerService');
+    const { lineItems, ...fields } = req.body;
+    const retainerNumber = fields.retainerNumber || await getNextRetainerNumber();
+
+    const r = await pool.query(`
+      INSERT INTO client_retainers (tenant_id, client_id, client_name, retainer_number, status,
+        billing_address_line1, billing_address_line2, billing_city, billing_state, billing_pincode,
+        billing_country, gstin, invoice_type, tax_type, billing_day, start_date, end_date, currency, notes)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+      RETURNING *`,
+      [tenantId, fields.clientId ?? null, fields.clientName, retainerNumber, fields.status ?? 'active',
+       fields.billingAddressLine1 ?? null, fields.billingAddressLine2 ?? null, fields.billingCity ?? null,
+       fields.billingState ?? null, fields.billingPincode ?? null, fields.billingCountry ?? 'India',
+       fields.gstin ?? null, fields.invoiceType ?? 'gst', fields.taxType ?? 'cgst_sgst',
+       fields.billingDay ?? 1, fields.startDate ?? null, fields.endDate ?? null,
+       fields.currency ?? 'INR', fields.notes ?? null],
+    );
+
+    const retainerId = (r.rows[0] as { id: number }).id;
+    if (Array.isArray(lineItems)) {
+      for (let idx = 0; idx < lineItems.length; idx++) {
+        const li = lineItems[idx];
+        await pool.query(
+          `INSERT INTO retainer_line_items (retainer_id, description, sac_code, quantity, unit, rate, amount, sort_order)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [retainerId, li.description, li.sacCode ?? '9983', li.quantity ?? 1, li.unit ?? 'Month', li.rate, li.amount, idx],
+        );
+      }
+    }
+
+    res.status(201).json({ retainer: r.rows[0] });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+router.patch('/retainers/:id', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const userId = req.user!.id;
+  const p = await getPerms(userId);
+  if (!p?.billingEdit && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
+
+  try {
+    const { pool } = await import('../db/index');
+    const { lineItems, ...fields } = req.body;
+
+    const sets: string[] = ['updated_at = NOW()'];
+    const vals: unknown[] = [];
+    let idx = 1;
+    const fieldMap: Record<string, string> = {
+      clientName: 'client_name', clientId: 'client_id', status: 'status',
+      billingAddressLine1: 'billing_address_line1', billingAddressLine2: 'billing_address_line2',
+      billingCity: 'billing_city', billingState: 'billing_state', billingPincode: 'billing_pincode',
+      gstin: 'gstin', invoiceType: 'invoice_type', taxType: 'tax_type',
+      billingDay: 'billing_day', startDate: 'start_date', notes: 'notes',
+    };
+    for (const [k, col] of Object.entries(fieldMap)) {
+      if (k in fields) { sets.push(`${col} = $${idx}`); vals.push(fields[k]); idx++; }
+    }
+    vals.push(req.params.id, tenantId);
+
+    const r = await pool.query(
+      `UPDATE client_retainers SET ${sets.join(', ')} WHERE id = $${idx} AND tenant_id = $${idx + 1} RETURNING *`,
+      vals,
+    );
+    if (r.rows.length === 0) { res.status(404).json({ error: 'not found' }); return; }
+
+    if (Array.isArray(lineItems)) {
+      await pool.query(`DELETE FROM retainer_line_items WHERE retainer_id = $1`, [req.params.id]);
+      for (let i = 0; i < lineItems.length; i++) {
+        const li = lineItems[i];
+        await pool.query(
+          `INSERT INTO retainer_line_items (retainer_id, description, sac_code, quantity, unit, rate, amount, sort_order)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [req.params.id, li.description, li.sacCode ?? '9983', li.quantity ?? 1, li.unit ?? 'Month', li.rate, li.amount, i],
+        );
+      }
+    }
+
+    res.json({ retainer: r.rows[0] });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+router.delete('/retainers/:id', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const userId = req.user!.id;
+  const p = await getPerms(userId);
+  if (!p?.billingEdit && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
+
+  try {
+    const { pool } = await import('../db/index');
+    await pool.query(
+      `UPDATE client_retainers SET status = 'cancelled', updated_at = NOW() WHERE id = $1 AND tenant_id = $2`,
+      [req.params.id, tenantId],
+    );
+    res.json({ success: true });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+router.post('/retainers/:id/generate-invoice', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const userId = req.user!.id;
+  const userEmail = req.user!.email;
+  const p = await getPerms(userId);
+  if (!p?.billingCreate && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
+
+  try {
+    const { generateInvoiceFromRetainer } = await import('../services/retainerService');
+    const result = await generateInvoiceFromRetainer(parseInt(req.params.id as string, 10), tenantId, userEmail);
+    if (result.error) { res.status(400).json({ error: result.error }); return; }
+    res.status(201).json({ invoiceId: result.invoiceId });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+router.post('/retainers/generate-pending', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const userEmail = req.user!.email;
+  const userId = req.user!.id;
+  const p = await getPerms(userId);
+  if (!p?.billingCreate && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
+
+  try {
+    const { generatePendingInvoices } = await import('../services/retainerService');
+    const result = await generatePendingInvoices(tenantId, userEmail);
+    res.json(result);
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 export default router;

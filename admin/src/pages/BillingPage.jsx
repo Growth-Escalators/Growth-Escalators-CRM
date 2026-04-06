@@ -595,6 +595,75 @@ function PaymentModal({ invoice, onClose, onSaved }) {
   );
 }
 
+// ── Retainers Tab ────────────────────────────────────────────────────────────
+function RetainersTab() {
+  const [retainers, setRetainers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [msg, setMsg] = useState('');
+
+  useEffect(() => {
+    apiFetch('/api/billing/retainers')
+      .then(d => setRetainers(d?.retainers || []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function handleGenerate(id, name) {
+    if (!confirm(`Generate invoice for ${name}?`)) return;
+    try {
+      const r = await apiFetch(`/api/billing/retainers/${id}/generate-invoice`, { method: 'POST' });
+      setMsg(`Invoice generated for ${name} (ID: ${r.invoiceId})`);
+    } catch (e) { setMsg(`Error: ${e.message}`); }
+  }
+
+  if (loading) return <div className="text-center py-12 text-slate-400">Loading retainers...</div>;
+
+  return (
+    <div>
+      {msg && <div className="mb-4 bg-sky-50 border border-sky-200 rounded-xl p-3 text-sm text-sky-700">{msg}</div>}
+      {retainers.length === 0 ? (
+        <div className="text-center py-16 text-slate-400">
+          <p className="mb-2">No retainers yet</p>
+          <p className="text-xs">Create a retainer to auto-generate monthly invoices</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {retainers.map(r => {
+            const items = r.line_items || [];
+            const total = items.reduce((s, i) => s + (i.amount || 0), 0);
+            return (
+              <div key={r.id} className="bg-white rounded-xl border border-slate-200 p-5">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <h3 className="font-semibold text-slate-800">{r.client_name}</h3>
+                    <p className="text-xs text-slate-400 font-mono">{r.retainer_number}</p>
+                  </div>
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                    r.status === 'active' ? 'bg-green-100 text-green-700' :
+                    r.status === 'paused' ? 'bg-amber-100 text-amber-700' :
+                    'bg-slate-100 text-slate-400'
+                  }`}>{r.status}</span>
+                </div>
+                <div className="text-sm text-slate-600 space-y-1 mb-3">
+                  <div className="flex justify-between"><span>Monthly value</span><span className="font-semibold">{fmt(total)}</span></div>
+                  <div className="flex justify-between"><span>Billing day</span><span>{r.billing_day || 1}st of month</span></div>
+                  <div className="flex justify-between"><span>Tax type</span><span>{r.tax_type === 'igst' ? 'IGST 18%' : r.tax_type === 'cgst_sgst' ? 'CGST+SGST' : 'No Tax'}</span></div>
+                </div>
+                {r.status === 'active' && (
+                  <button onClick={() => handleGenerate(r.id, r.client_name)}
+                    className="w-full text-center text-xs font-medium px-3 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700">
+                    Generate Invoice
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function BillingPage() {
   const [tab, setTab] = useState('invoices');
@@ -755,7 +824,7 @@ export default function BillingPage() {
 
         {/* Tabs */}
         <div className="flex gap-1 mb-5 border-b border-slate-200">
-          {[['invoices', 'Invoices'], ['clients', 'Clients'], ['payments', 'Payments']].map(([id, label]) => (
+          {[['invoices', 'Invoices'], ['retainers', 'Retainers'], ['clients', 'Clients'], ['payments', 'Payments']].map(([id, label]) => (
             <button key={id} onClick={() => setTab(id)}
               className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
                 tab === id ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -943,6 +1012,9 @@ export default function BillingPage() {
                 </table>
               </div>
             )}
+
+            {/* ── RETAINERS TAB ── */}
+            {tab === 'retainers' && <RetainersTab />}
 
             {/* ── PAYMENTS TAB ── */}
             {tab === 'payments' && (
