@@ -663,4 +663,32 @@ router.patch('/:id/reply', async (req: Request, res: Response) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// GET /api/outreach/leads/export-csv — download Active leads as Saleshandy CSV
+// ---------------------------------------------------------------------------
+router.get('/export-csv', async (req: Request, res: Response) => {
+  if (!checkInternalSecret(req, res)) return;
+  try {
+    const result = await pool.query(`
+      SELECT first_name, company AS last_name, email, website_url, country, icebreaker
+      FROM outreach_leads
+      WHERE status = 'Active' AND email IS NOT NULL
+      ORDER BY enriched_at DESC
+    `);
+
+    const escape = (v: unknown) => { const s = v == null ? '' : String(v).replace(/"/g, '""'); return `"${s}"`; };
+    const headers = 'First Name,Last Name,Email,Custom Field 1,Custom Field 2,Custom Field 3';
+    const rows = (result.rows as Array<Record<string, string>>).map(r =>
+      [escape(r.first_name), escape(r.last_name), escape(r.email), escape(r.icebreaker), escape(r.website_url), escape(r.country)].join(',')
+    );
+
+    const csv = [headers, ...rows].join('\n');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="outreach-leads-saleshandy.csv"');
+    res.send(csv);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 export default router;
