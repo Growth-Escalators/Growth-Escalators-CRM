@@ -238,6 +238,13 @@ function ClientModal({ client, onClose, onSaved }) {
 }
 
 // ── Invoice Edit Modal ────────────────────────────────────────────────────────
+function toDateString(val) {
+  if (!val) return '';
+  if (typeof val === 'string' && val.match(/^\d{4}-\d{2}-\d{2}/)) return val.slice(0, 10);
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+}
+
 function InvoiceModal({ invoice, clients, onClose, onSaved }) {
   const isEdit = !!invoice;
   const today = new Date().toISOString().split('T')[0];
@@ -246,8 +253,8 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
 
   const [form, setForm] = useState(isEdit ? {
     clientId: invoice.client_id || '',
-    invoiceDate: invoice.invoice_date ? new Date(invoice.invoice_date).toISOString().split('T')[0] : today,
-    dueDate: invoice.due_date ? new Date(invoice.due_date).toISOString().split('T')[0] : dueStr,
+    invoiceDate: toDateString(invoice.invoice_date) || today,
+    dueDate: toDateString(invoice.due_date) || dueStr,
     invoiceType: invoice.invoice_type || 'gst',
     taxType: invoice.tax_type || '',
     notes: invoice.notes || '',
