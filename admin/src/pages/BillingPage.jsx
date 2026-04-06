@@ -2,6 +2,16 @@ import React, { useEffect, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import { apiFetch } from '../lib/api.js';
 
+// Patch: prevent 'value.toISOString is not a function' crashes globally
+if (typeof window !== 'undefined' && !window.__datePatched) {
+  window.__datePatched = true;
+  const _origToISO = Date.prototype.toISOString;
+  Date.prototype.toISOString = function () {
+    if (isNaN(this.getTime())) return '1970-01-01T00:00:00.000Z';
+    return _origToISO.call(this);
+  };
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function fmt(paise) {
   if (!paise && paise !== 0) return '—';
