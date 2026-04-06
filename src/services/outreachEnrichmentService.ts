@@ -149,15 +149,21 @@ export async function uploadToSaleshandy(): Promise<{ uploaded: number; errors: 
         customFields: { icebreaker: l.icebreaker || '', website: l.website_url || '', country: l.country || '' },
       }));
 
-      const res = await axios.post(
-        `https://api.saleshandy.com/api/v1/sequence/${sequenceId}/prospects`,
-        { prospects },
-        {
-          headers: { 'X-Auth-Token': apiKey, 'Content-Type': 'application/json', 'Accept': 'application/json' },
-          timeout: 15000,
-          validateStatus: () => true, // don't throw on non-2xx
+      const bodyStr = JSON.stringify({ prospects });
+      const res = await axios({
+        method: 'POST',
+        url: `https://api.saleshandy.com/api/v1/sequence/${sequenceId}/prospects`,
+        data: bodyStr,
+        headers: {
+          'X-Auth-Token': apiKey,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Content-Length': String(Buffer.byteLength(bodyStr)),
         },
-      );
+        timeout: 15000,
+        validateStatus: () => true,
+        transformRequest: [(data: string) => data],
+      });
 
       if (res.status >= 200 && res.status < 300) {
         uploaded += batch.length;
