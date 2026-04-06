@@ -240,9 +240,12 @@ function ClientModal({ client, onClose, onSaved }) {
 // ── Invoice Edit Modal ────────────────────────────────────────────────────────
 function toDateString(val) {
   if (!val) return '';
-  if (typeof val === 'string' && val.match(/^\d{4}-\d{2}-\d{2}/)) return val.slice(0, 10);
-  const d = new Date(val);
-  return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+  try {
+    if (val instanceof Date) return isNaN(val.getTime()) ? '' : val.toISOString().slice(0, 10);
+    if (typeof val === 'string' && val.match(/^\d{4}-\d{2}-\d{2}/)) return val.slice(0, 10);
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+  } catch { return ''; }
 }
 
 function InvoiceModal({ invoice, clients, onClose, onSaved }) {
@@ -374,12 +377,12 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">Invoice Date</label>
               <input type="date" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
-                value={form.invoiceDate} onChange={e => setForm(f => ({ ...f, invoiceDate: e.target.value }))} />
+                value={String(form.invoiceDate || '')} onChange={e => setForm(f => ({ ...f, invoiceDate: e.target.value }))} />
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">Due Date</label>
               <input type="date" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
-                value={form.dueDate} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} />
+                value={String(form.dueDate || '')} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} />
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">Invoice Type</label>
