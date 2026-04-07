@@ -140,7 +140,7 @@ export async function generateInvoiceFromRetainer(
       $5, $6, $7,
       $8, $9, $10, $11, $12, $13,
       $14, 0, $14, $15,
-      $16, $17, '08DRYPA4899F2ZZ',
+      $16, $17, process.env.COMPANY_GSTIN ?? '08DRYPA4899F2ZZ',
       $18, '9983', $19, $20,
       $21, $22, $23, $24, $25, $26, $27,
       $28, $29

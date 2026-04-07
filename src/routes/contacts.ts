@@ -126,7 +126,11 @@ router.get('/counts', async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get('/:id/conversation', async (req, res) => {
   const { id } = req.params;
+  const tenantId = req.user!.tenantId;
   try {
+  // Verify contact belongs to tenant
+  const [owner] = await db.select({ id: contacts.id }).from(contacts).where(and(eq(contacts.id, id), eq(contacts.tenantId, tenantId))).limit(1);
+  if (!owner) { res.status(404).json({ error: 'contact not found' }); return; }
   const [msgs, evts, bkgs, nts] = await Promise.all([
     db.execute(sql`
       SELECT id::text, 'message' as item_type, channel, direction, content,
@@ -182,8 +186,9 @@ router.get('/:id/conversation', async (req, res) => {
 router.get('/:id/notes', async (req, res) => {
   try {
   const { id } = req.params;
+  const tenantId = req.user!.tenantId;
   const notes = await db.select().from(contactNotes)
-    .where(eq(contactNotes.contactId, id))
+    .where(and(eq(contactNotes.contactId, id), eq(contactNotes.tenantId, tenantId)))
     .orderBy(desc(contactNotes.createdAt));
   res.json({ notes });
   } catch (e: unknown) {
