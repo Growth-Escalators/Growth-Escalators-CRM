@@ -66,9 +66,9 @@ router.post('/clients', async (req: Request, res: Response) => {
   if (!p?.billingManageClients && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
 
   try {
+    const { name, contactPerson, email, phone, addressLine1, city, state, stateCode, pincode, isGst, gstin, taxType, retainerAmount, serviceDescription, sacCode, invoiceDayOfMonth, notes: clientNotes } = req.body;
     const [client] = await db.insert(billingClients).values({
-      ...req.body,
-      tenantId,
+      tenantId, name, contactPerson, email, phone, addressLine1, city, state, stateCode, pincode, isGst, gstin, taxType, retainerAmount, serviceDescription, sacCode, invoiceDayOfMonth, notes: clientNotes,
     }).returning();
     res.status(201).json({ client });
   } catch (e: unknown) {
@@ -87,8 +87,9 @@ router.patch('/clients/:id', async (req: Request, res: Response) => {
   if (!p?.billingManageClients && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
 
   try {
+    const { name, contactPerson, email, phone, addressLine1, city, state, stateCode, pincode, isGst, gstin, taxType, retainerAmount, serviceDescription, sacCode, invoiceDayOfMonth, notes: clientNotes, isActive } = req.body;
     const [client] = await db.update(billingClients)
-      .set({ ...req.body, updatedAt: new Date() })
+      .set({ name, contactPerson, email, phone, addressLine1, city, state, stateCode, pincode, isGst, gstin, taxType, retainerAmount, serviceDescription, sacCode, invoiceDayOfMonth, notes: clientNotes, isActive, updatedAt: new Date() })
       .where(and(eq(billingClients.id, clientId), eq(billingClients.tenantId, tenantId)))
       .returning();
     if (!client) { res.status(404).json({ error: 'client not found' }); return; }

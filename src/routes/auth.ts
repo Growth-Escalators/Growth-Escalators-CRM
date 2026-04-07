@@ -11,7 +11,11 @@ import https from 'https';
 
 const router = Router();
 
-const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('FATAL: JWT_SECRET environment variable is required');
+  if (process.env.NODE_ENV === 'production') process.exit(1);
+}
 const JWT_EXPIRES = '8h';
 
 // POST /auth/login
@@ -42,7 +46,7 @@ router.post('/login', async (req: Request, res: Response) => {
 
     const token = jwt.sign(
       { id: user.id, email: user.email, tenantId: user.tenantId, role, tokenVersion },
-      JWT_SECRET,
+      JWT_SECRET!,
       { expiresIn: JWT_EXPIRES }
     );
 

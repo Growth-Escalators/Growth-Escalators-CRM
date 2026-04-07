@@ -247,8 +247,9 @@ router.delete('/:id/notes/:noteId', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
   const { id } = req.params;
+  const tenantId = req.user!.tenantId;
 
-  const contactRows = await db.select().from(contacts).where(eq(contacts.id, id)).limit(1);
+  const contactRows = await db.select().from(contacts).where(and(eq(contacts.id, id), eq(contacts.tenantId, tenantId))).limit(1);
   if (contactRows.length === 0) {
     res.status(404).json({ error: 'contact not found' });
     return;

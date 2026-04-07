@@ -19,6 +19,8 @@ declare global {
   }
 }
 
+const JWT_SECRET_VALUE = process.env.JWT_SECRET;
+
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) {
@@ -26,10 +28,15 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     return;
   }
 
+  const secret = JWT_SECRET_VALUE || process.env.JWT_SECRET;
+  if (!secret) {
+    res.status(500).json({ error: 'server misconfigured' });
+    return;
+  }
+
   const token = header.slice(7);
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET ?? 'dev-secret') as AuthPayload;
-    // Default role/tokenVersion for legacy tokens
+    const payload = jwt.verify(token, secret) as AuthPayload;
     if (!payload.role) payload.role = 'admin';
     if (!payload.tokenVersion) payload.tokenVersion = 1;
     req.user = payload;
@@ -37,6 +44,23 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   } catch {
     res.status(401).json({ error: 'invalid or expired token' });
   }
+}
+
+// Optional auth — parses JWT if present, but allows requests without it
+export function optionalAuth(req: Request, _res: Response, next: NextFunction): void {
+  const header = req.headers.authorization;
+  if (header?.startsWith('Bearer ')) {
+    const secret = JWT_SECRET_VALUE || process.env.JWT_SECRET;
+    if (secret) {
+      try {
+        const payload = jwt.verify(header.slice(7), secret) as AuthPayload;
+        if (!payload.role) payload.role = 'admin';
+        if (!payload.tokenVersion) payload.tokenVersion = 1;
+        req.user = payload;
+      } catch { /* token invalid — continue without user */ }
+    }
+  }
+  next();
 }
 
 // Strict auth: also verifies tokenVersion against DB (use for sensitive endpoints)

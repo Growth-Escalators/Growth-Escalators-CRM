@@ -27,6 +27,9 @@ const router = Router();
 // Internal-secret auth (same pattern as imapReplies.ts)
 // ---------------------------------------------------------------------------
 function checkInternalSecret(req: Request, res: Response): boolean {
+  // Accept JWT auth from CRM frontend (admin users)
+  if ((req as Request & { user?: { role: string } }).user?.role === 'admin') return true;
+
   const secret = process.env.OUTREACH_INTERNAL_SECRET;
   if (!secret) {
     logger.error('[outreach-leads] OUTREACH_INTERNAL_SECRET not set — blocking request');

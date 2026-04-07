@@ -88,10 +88,11 @@ router.post('/', async (req, res) => {
 router.patch('/:id', async (req, res) => {
   try {
   const { id } = req.params;
+  const tenantId = req.user!.tenantId;
   const { stage, value, dealValue, lostReason, wonNotes, closedAt, metadata, assignedTo, pipelineId, notes } = req.body;
 
   // Get current deal to check stage change
-  const existing = await db.select().from(deals).where(eq(deals.id, id)).limit(1);
+  const existing = await db.select().from(deals).where(and(eq(deals.id, id), eq(deals.tenantId, tenantId))).limit(1);
   if (existing.length === 0) {
     res.status(404).json({ error: 'deal not found' });
     return;

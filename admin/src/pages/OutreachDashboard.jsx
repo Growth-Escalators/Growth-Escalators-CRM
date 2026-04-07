@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 
-const SECRET = 'ge-imap-2026-xK9mQ'; // internal secret for outreach endpoints
-
 async function fetchOutreach(path) {
-  const res = await fetch(`/api/outreach/leads${path}`, { headers: { 'x-internal-secret': SECRET } });
+  const token = localStorage.getItem('ge_crm_token');
+  const res = await fetch(`/api/outreach/leads${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
