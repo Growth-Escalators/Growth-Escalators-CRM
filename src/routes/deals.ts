@@ -309,4 +309,40 @@ router.post('/add-or-update', async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// GET /deals/export — CSV export of all deals
+// ---------------------------------------------------------------------------
+router.get('/export', async (req, res) => {
+  try {
+    const tenantId = req.user!.tenantId;
+    const rows = await db.execute(sql`
+      SELECT d.title, d.stage, p.name AS pipeline_name,
+             c.first_name || ' ' || COALESCE(c.last_name, '') AS contact_name,
+             d.deal_value, d.assigned_to, d.created_at, d.closed_at
+      FROM deals d
+      LEFT JOIN pipelines p ON p.id = d.pipeline_id
+      LEFT JOIN contacts c ON c.id = d.contact_id
+      WHERE d.tenant_id = ${tenantId}
+      ORDER BY d.created_at DESC LIMIT 5000
+    `);
+
+    const esc = (v: unknown) => { const s = v == null ? '' : String(v).replace(/"/g, '""'); return `"${s}"`; };
+    const headers = 'Title,Stage,Pipeline,Contact,Value,Assigned To,Created,Closed';
+    const csvRows = (rows.rows as Array<Record<string, unknown>>).map(r =>
+      [esc(r.title), esc(r.stage), esc(r.pipeline_name), esc(r.contact_name),
+       esc(r.deal_value ? (Number(r.deal_value) / 100).toFixed(2) : ''), esc(r.assigned_to),
+       esc(r.created_at ? new Date(r.created_at as string).toISOString().slice(0, 10) : ''),
+       esc(r.closed_at ? new Date(r.closed_at as string).toISOString().slice(0, 10) : ''),
+      ].join(',')
+    );
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="deals.csv"');
+    res.send([headers, ...csvRows].join('\n'));
+  } catch (e: unknown) {
+    logger.error('[deals] export error:', e);
+    res.status(500).json({ error: 'Export failed' });
+  }
+});
+
 export default router;

@@ -344,12 +344,79 @@ router.post('/invoices/:id/send', async (req: Request, res: Response) => {
   if (!p?.billingEdit && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
 
   try {
-    const [inv] = await db.update(invoices)
-      .set({ status: 'sent', sentAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(invoices.id, invoiceId), eq(invoices.tenantId, tenantId)))
-      .returning();
+    // Fetch full invoice + client + line items
+    const [inv] = await db.select().from(invoices)
+      .where(and(eq(invoices.id, invoiceId), eq(invoices.tenantId, tenantId))).limit(1);
     if (!inv) { res.status(404).json({ error: 'invoice not found' }); return; }
-    res.json({ invoice: inv });
+
+    const [client] = await db.select().from(billingClients).where(eq(billingClients.id, inv.clientId)).limit(1);
+    const lineItems = await db.select().from(invoiceLineItems)
+      .where(eq(invoiceLineItems.invoiceId, invoiceId));
+
+    // Send via Brevo if configured
+    const brevoKey = process.env.BREVO_API_KEY;
+    if (brevoKey && client?.email) {
+      const itemsHtml = lineItems.map(li =>
+        `<tr><td style="padding:8px;border:1px solid #e2e8f0">${li.description}</td><td style="padding:8px;border:1px solid #e2e8f0;text-align:right">₹${((li.amount ?? 0) / 100).toLocaleString('en-IN')}</td></tr>`
+      ).join('');
+
+      const html = `
+        <div style="font-family:Inter,sans-serif;max-width:600px;margin:0 auto">
+          <div style="background:#1B2E5E;color:white;padding:20px;text-align:center;border-radius:8px 8px 0 0">
+            <h2 style="margin:0">Growth Escalators</h2>
+          </div>
+          <div style="padding:24px;border:1px solid #e2e8f0;border-top:none">
+            <p>Dear ${client.contactPerson || client.name},</p>
+            <p>Please find your invoice details below:</p>
+            <table style="width:100%;margin:16px 0">
+              <tr><td><strong>Invoice #:</strong></td><td>${inv.invoiceNumber}</td></tr>
+              <tr><td><strong>Date:</strong></td><td>${new Date(inv.invoiceDate).toLocaleDateString('en-IN')}</td></tr>
+              <tr><td><strong>Due Date:</strong></td><td>${new Date(inv.dueDate).toLocaleDateString('en-IN')}</td></tr>
+            </table>
+            <table style="width:100%;border-collapse:collapse;margin:16px 0">
+              <tr style="background:#f8fafc"><th style="padding:8px;border:1px solid #e2e8f0;text-align:left">Description</th><th style="padding:8px;border:1px solid #e2e8f0;text-align:right">Amount</th></tr>
+              ${itemsHtml}
+              <tr style="font-weight:bold"><td style="padding:8px;border:1px solid #e2e8f0">Total</td><td style="padding:8px;border:1px solid #e2e8f0;text-align:right">₹${(inv.totalAmount / 100).toLocaleString('en-IN')}</td></tr>
+            </table>
+            <p style="font-size:14px;color:#64748b">Amount in words: ${inv.amountInWords || ''}</p>
+            <div style="margin:16px 0;padding:12px;background:#f0fdf4;border-radius:8px">
+              <p style="margin:0;font-size:14px"><strong>Bank Details:</strong></p>
+              <p style="margin:4px 0;font-size:13px">Account: ${process.env.GE_BANK_ACCOUNT ?? '3617 0500 1178'} | IFSC: ${process.env.GE_BANK_IFSC ?? 'ICIC0003617'} | Growth Escalators</p>
+            </div>
+            <p style="font-size:12px;color:#94a3b8;margin-top:24px">GSTIN: ${process.env.COMPANY_GSTIN ?? '08DRYPA4899F2ZZ'}</p>
+          </div>
+        </div>`;
+
+      const emailRes = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: { 'api-key': brevoKey, 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(15000),
+        body: JSON.stringify({
+          sender: { name: 'Growth Escalators', email: 'jatin@growthescalators.com' },
+          to: [{ email: client.email, name: client.contactPerson || client.name }],
+          subject: `Invoice ${inv.invoiceNumber} from Growth Escalators`,
+          htmlContent: html,
+        }),
+      });
+
+      if (!emailRes.ok) {
+        const err = await emailRes.text().catch(() => '');
+        res.status(500).json({ error: `Email failed: ${emailRes.status} — ${err.slice(0, 100)}` });
+        return;
+      }
+    }
+
+    // Mark as sent
+    const [updated] = await db.update(invoices)
+      .set({ status: 'sent', sentAt: new Date(), updatedAt: new Date() })
+      .where(eq(invoices.id, invoiceId))
+      .returning();
+
+    // Audit log
+    const { auditLog } = await import('../services/auditLogger');
+    await auditLog({ tenantId, userId, action: 'invoice_sent', entityType: 'invoice', entityId: invoiceId, entityName: inv.invoiceNumber });
+
+    res.json({ invoice: updated, emailSent: !!(brevoKey && client?.email) });
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
@@ -635,6 +702,46 @@ router.get('/payments', async (req: Request, res: Response) => {
       LIMIT 100
     `);
     res.json({ payments: result.rows });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/billing/invoices/export — CSV export
+// ---------------------------------------------------------------------------
+router.get('/invoices/export', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const userId = req.user!.id;
+  const p = await getPerms(userId);
+  if (!p?.billingView && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
+
+  try {
+    const result = await db.execute(sql`
+      SELECT i.invoice_number, bc.name AS client_name, i.invoice_date, i.due_date,
+             i.subtotal, i.cgst_amount + i.sgst_amount + i.igst_amount AS tax_amount,
+             i.total_amount, i.status
+      FROM invoices i JOIN billing_clients bc ON bc.id = i.client_id
+      WHERE i.tenant_id = ${tenantId}
+      ORDER BY i.invoice_date DESC LIMIT 5000
+    `);
+
+    const esc = (v: unknown) => { const s = v == null ? '' : String(v).replace(/"/g, '""'); return `"${s}"`; };
+    const headers = 'Invoice #,Client,Date,Due Date,Subtotal,Tax,Total,Status';
+    const rows = (result.rows as Array<Record<string, unknown>>).map(r =>
+      [esc(r.invoice_number), esc(r.client_name),
+       esc(r.invoice_date ? new Date(r.invoice_date as string).toISOString().slice(0, 10) : ''),
+       esc(r.due_date ? new Date(r.due_date as string).toISOString().slice(0, 10) : ''),
+       esc(((Number(r.subtotal) || 0) / 100).toFixed(2)),
+       esc(((Number(r.tax_amount) || 0) / 100).toFixed(2)),
+       esc(((Number(r.total_amount) || 0) / 100).toFixed(2)),
+       esc(r.status),
+      ].join(',')
+    );
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="invoices.csv"');
+    res.send([headers, ...rows].join('\n'));
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }

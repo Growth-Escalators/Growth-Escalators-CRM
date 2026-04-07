@@ -295,6 +295,8 @@ async function startServer() {
   import('./services/seoWorkflowHealthService').then(m => m.ensureSeoTables()).catch(e => console.error('[startup] SEO tables bootstrap failed:', e));
   // Bootstrap retainer tables
   import('./services/retainerService').then(m => m.ensureRetainerTables()).catch(e => console.error('[startup] Retainer tables bootstrap failed:', e));
+  // Bootstrap audit logs table
+  import('./services/auditLogger').then(m => m.ensureAuditLogsTable()).catch(e => console.error('[startup] Audit logs bootstrap failed:', e));
 
   httpServer.listen(PORT, () => {
     console.log(`Growth Escalators backend running on port ${PORT}`);

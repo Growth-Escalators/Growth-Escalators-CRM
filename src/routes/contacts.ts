@@ -608,7 +608,25 @@ router.post('/import', async (req, res) => {
     const phoneIdx = header.findIndex(h => h === 'phone' || h === 'whatsapp');
     const companyIdx = header.findIndex(h => h === 'company' || h === 'company name');
 
+    // Dedup: collect all emails from CSV and check existing
+    const csvEmails: string[] = [];
+    for (let i = 1; i < lines.length; i++) {
+      const fields = lines[i].match(/("([^"]|"")*"|[^,]*)/g)?.map(f => f.replace(/^"|"$/g, '').replace(/""/g, '"').trim()) ?? [];
+      const email = emailIdx >= 0 ? (fields[emailIdx] ?? '').toLowerCase().trim() : '';
+      if (email) csvEmails.push(email);
+    }
+    const existingEmails = new Set<string>();
+    if (csvEmails.length > 0) {
+      const existResult = await db.execute(
+        sql`SELECT LOWER(cv.channel_value) AS email FROM contact_channels cv
+            WHERE cv.channel_type = 'email' AND cv.tenant_id = ${tenantId}
+              AND LOWER(cv.channel_value) = ANY(ARRAY[${sql.join(csvEmails.map(e => sql`${e}`), sql`, `)}])`
+      );
+      for (const r of existResult.rows as Array<{ email: string }>) existingEmails.add(r.email);
+    }
+
     let imported = 0;
+    let skipped = 0;
     const errors: string[] = [];
 
     for (let i = 1; i < lines.length; i++) {
@@ -625,6 +643,12 @@ router.post('/import', async (req, res) => {
         const company = companyIdx >= 0 ? fields[companyIdx] : null;
 
         if (!firstName && !email && !phone) continue;
+
+        // Dedup: skip if email already exists
+        if (email && existingEmails.has(email.toLowerCase().trim())) {
+          skipped++;
+          continue;
+        }
 
         const [contact] = await db.insert(contacts).values({
           tenantId,
@@ -656,7 +680,7 @@ router.post('/import', async (req, res) => {
       }
     }
 
-    res.json({ imported, errors: errors.slice(0, 10), totalRows: lines.length - 1 });
+    res.json({ imported, skipped, errors: errors.slice(0, 10), totalRows: lines.length - 1 });
   } catch (e: unknown) {
     logger.error('[contacts] POST /import error:', e);
     res.status(500).json({ error: 'Something went wrong. Please try again.' });
