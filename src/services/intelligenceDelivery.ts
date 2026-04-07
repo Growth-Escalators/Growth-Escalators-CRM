@@ -114,17 +114,10 @@ export async function deliverDailyIntelligence(analysis: Analysis, data: AgencyD
   msg += `📊 Ads:${analysis.scores.ads} SEO:${analysis.scores.seo} Sales:${analysis.scores.sales} Ops:${analysis.scores.ops}\n`;
   msg += `_Full coaching report + fix prompts: crm.growthescalators.com/crm/intelligence_`;
 
-  try {
-    await sendSlackMessage(SLACK_SOD_EOD_CHANNEL, msg);
-    logger.info(`[intelligence] Coaching report delivered to channel. Score: ${analysis.scores.overall}`);
-  } catch (e) {
-    logger.error('[intelligence] Slack channel delivery failed:', e);
-  }
-
-  // Always DM Jatin the full coaching report
+  // AI coaching report goes to Jatin DM only — not to #sod-eod channel
   try {
     await sendSlackDM(SLACK_JATIN, msg);
-    logger.info(`[intelligence] Coaching report DM sent to Jatin`);
+    logger.info(`[intelligence] Coaching report DM sent to Jatin. Score: ${analysis.scores.overall}`);
   } catch (e) {
     logger.error('[intelligence] Jatin DM failed:', e);
   }

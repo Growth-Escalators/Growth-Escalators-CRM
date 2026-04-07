@@ -84,10 +84,9 @@ async function safeCron(name: string, fn: () => Promise<unknown>): Promise<void>
 // Cron jobs
 // ---------------------------------------------------------------------------
 
-// Blocker alerts — 10:15 AM IST (04:45 UTC) + 5:00 PM IST (11:30 UTC), Mon-Sat
-cron.schedule('45 4 * * 1-6', () => safeCron('Blocker Alerts (morning)', checkAndAlertBlockers), { timezone: 'UTC' });
-cron.schedule('30 11 * * 1-6', () => safeCron('Blocker Alerts (evening)', checkAndAlertBlockers), { timezone: 'UTC' });
-console.log('[cron] blocker alerts scheduled — 10:15 AM + 5:00 PM IST Mon-Sat');
+// Blocker alerts — 10:15 AM IST (04:45 UTC), Mon-Sat, ONCE per day
+cron.schedule('45 4 * * 1-6', () => safeCron('Blocker Alerts', checkAndAlertBlockers), { timezone: 'UTC' });
+console.log('[cron] blocker alerts scheduled — 10:15 AM IST Mon-Sat (once daily)');
 
 // SOD Digest — 10 AM IST (04:30 UTC), Mon-Sat
 cron.schedule('30 4 * * 1-6', async () => {
@@ -96,9 +95,9 @@ cron.schedule('30 4 * * 1-6', async () => {
 }, { timezone: 'UTC' });
 console.log('[cron] SOD digest scheduled — 10:00 AM IST Mon-Sat');
 
-// EOD Summary — 7 PM IST (13:30 UTC), Mon-Sat
-cron.schedule('30 13 * * 1-6', () => safeCron('EOD Summary', sendEODSummary), { timezone: 'UTC' });
-console.log('[cron] EOD summary scheduled — 7:00 PM IST Mon-Sat');
+// EOD Summary — 7:15 PM IST (13:45 UTC), Mon-Sat
+cron.schedule('45 13 * * 1-6', () => safeCron('EOD Summary', sendEODSummary), { timezone: 'UTC' });
+console.log('[cron] EOD summary scheduled — 7:15 PM IST Mon-Sat');
 
 // Spend alert check — every hour
 cron.schedule('0 * * * *', () => safeCron('Spend Alert Check', checkSpendAlerts), { timezone: 'UTC' });
@@ -224,89 +223,41 @@ cron.schedule('30 2 * * *', () => safeCron('Growth OS Health Scores', async () =
 console.log('[cron] Growth OS health scores scheduled — daily 8:00 AM IST');
 
 // ---------------------------------------------------------------------------
-// Growth OS — Daily ROAS Report to #performance-marketing — 8:15 AM IST (2:45 UTC)
+// Meta Ads Daily Report — 9:30 AM IST (4:00 UTC), Mon-Sat
+// Uses dedicated Meta Ads service with circuit breaker + proper API parsing
 // ---------------------------------------------------------------------------
-cron.schedule('45 2 * * *', () => safeCron('Daily ROAS Report', async () => {
+import('./services/metaAdsService').then(m => m.ensureAdAccountsTable()).catch(() => {});
+cron.schedule('0 4 * * 1-6', () => safeCron('Meta Ads Daily Report', async () => {
   const { sendSlackMessage } = await import('./services/slackService');
-  const { getActiveGrowthOSClients } = await import('./services/growthOSSetup');
-  const clients = await getActiveGrowthOSClients();
+  const { fetchAccountInsights, buildDailyReport } = await import('./services/metaAdsService');
 
-  if (clients.length === 0) { console.log('[CRON] ROAS report: no active clients'); return; }
+  const token = process.env.META_ADS_TOKEN || process.env.META_ACCESS_TOKEN;
+  if (!token) {
+    await sendSlackMessage(SLACK_PERF_MARKETING_CHANNEL, '📊 *Meta Ads Daily Report*\n\n⚠️ META_ADS_TOKEN not configured — cannot fetch data.');
+    return;
+  }
 
-    const dateStr = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
-    let msg = `📊 *Daily ROAS Report — ${dateStr}*\n\n`;
-
-    const token = process.env.META_ADS_TOKEN;
-
-    for (const client of clients) {
-      try {
-        let roas = 0, totalSpend = 0, bestCampaign = '', bestRoas = 0, activeCampaigns = 0, biggestIssue = '';
-
-        if (token) {
-          const url = `https://graph.facebook.com/v19.0/${client.ad_account_id}/campaigns?fields=name,status,insights.date_preset(last_7d){spend,actions,impressions,clicks}&access_token=${token}&limit=20`;
-          const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
-          if (res.ok) {
-            const data = await res.json() as { data?: Array<Record<string, unknown>> };
-            const campaigns = (data.data ?? []).filter((c: Record<string, unknown>) => c.status === 'ACTIVE');
-            activeCampaigns = campaigns.length;
-
-            let totalPurchaseValue = 0;
-            for (const camp of campaigns) {
-              const ins = camp.insights as Record<string, unknown> | undefined;
-              const rows = (ins?.data as Array<Record<string, unknown>> | undefined) ?? [];
-              let campSpend = 0, campPurchaseValue = 0;
-              for (const row of rows) {
-                campSpend += parseFloat(String(row.spend ?? 0));
-                totalSpend += parseFloat(String(row.spend ?? 0));
-                const actions = (row.actions as Array<{ action_type: string; value: string }> | undefined) ?? [];
-                for (const a of actions) {
-                  if (a.action_type === 'purchase' || a.action_type === 'omni_purchase') {
-                    campPurchaseValue += parseFloat(a.value ?? '0');
-                    totalPurchaseValue += parseFloat(a.value ?? '0');
-                  }
-                }
-              }
-              const campRoas = campSpend > 0 ? campPurchaseValue / campSpend : 0;
-              if (campRoas > bestRoas) {
-                bestRoas = campRoas;
-                bestCampaign = camp.name as string;
-              }
-            }
-            roas = totalSpend > 0 ? totalPurchaseValue / totalSpend : 0;
-
-            if (activeCampaigns === 0) biggestIssue = 'No active campaigns running';
-            else if (roas < client.target_roas * 0.6) biggestIssue = `ROAS critically low at ${roas.toFixed(2)}x`;
-            else if (totalSpend === 0) biggestIssue = 'Zero spend this period';
-          } else {
-            biggestIssue = `Meta API error (${res.status})`;
-          }
-        } else {
-          biggestIssue = 'META_ADS_TOKEN not configured';
-        }
-
-        const target = client.target_roas;
-        let statusEmoji: string;
-        if (roas >= target) statusEmoji = '✅ Above target';
-        else if (roas >= target * 0.8) statusEmoji = '⚠️ At target';
-        else statusEmoji = '🔴 Below target';
-
-        msg += `*${client.client_name}*\n`;
-        msg += `   ROAS: *${roas.toFixed(2)}x* (target: ${target}x) — ${statusEmoji}\n`;
-        if (totalSpend > 0) msg += `   Spend (7d): ₹${Math.round(totalSpend).toLocaleString('en-IN')} · ${activeCampaigns} active campaign${activeCampaigns !== 1 ? 's' : ''}\n`;
-        if (bestCampaign && bestRoas > 0) msg += `   💡 Best: "${bestCampaign}" at ${bestRoas.toFixed(2)}x ROAS\n`;
-        if (biggestIssue) msg += `   ⚠️ ${biggestIssue}\n`;
-        msg += '\n';
-      } catch (e) {
-        msg += `*${client.client_name}*\n   ❌ Data fetch failed: ${e instanceof Error ? e.message : String(e)}\n\n`;
-      }
+  const accounts = await pool.query(`SELECT account_id, client_name, currency, exchange_rate FROM ad_accounts WHERE is_active = true`);
+  if (accounts.rows.length === 0) {
+    // Fallback: use growth_os_clients if no ad_accounts configured
+    const clients = await pool.query(`SELECT ad_account_id AS account_id, client_name FROM growth_os_clients WHERE is_active = true`);
+    if (clients.rows.length === 0) { console.log('[CRON] Meta Ads: no active accounts'); return; }
+    for (const c of clients.rows as Array<{ account_id: string; client_name: string }>) {
+      accounts.rows.push({ account_id: c.account_id, client_name: c.client_name, currency: 'INR', exchange_rate: 1 });
     }
+  }
 
-    msg += `_Scores refresh daily at 8 AM · Full dashboard: crm.growthescalators.com/crm/growth-os_`;
+  const insights = [];
+  for (const acct of accounts.rows as Array<{ account_id: string; client_name: string; currency: string; exchange_rate: number }>) {
+    const data = await fetchAccountInsights(acct.account_id, token, acct.client_name, acct.currency, Number(acct.exchange_rate ?? 1));
+    insights.push(data);
+  }
 
-  await sendSlackMessage(SLACK_PERF_MARKETING_CHANNEL, msg);
-  console.log('[CRON] Daily ROAS report sent to #performance-marketing');
+  const report = buildDailyReport(insights);
+  await sendSlackMessage(SLACK_PERF_MARKETING_CHANNEL, report);
+  console.log('[CRON] Meta Ads report sent');
 }), { timezone: 'UTC' });
-console.log('[cron] Daily ROAS report scheduled — 8:15 AM IST');
+console.log('[cron] Meta Ads daily report scheduled — 9:30 AM IST Mon-Sat');
 
 // Growth OS — Money on Table — Every Monday 8:30 AM IST (3:00 UTC)
 cron.schedule('0 3 * * 1', () => safeCron('Money on Table', async () => {

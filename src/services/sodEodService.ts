@@ -379,6 +379,22 @@ export async function sendEODSummary(): Promise<{ sent: number; errors: string[]
     channelMsg += '\n';
   }
 
+  // E2 — Summary totals
+  const totalOverdueCompleted = completed.filter(t => t.daysOverdue > 0).length;
+  const totalOpen = overdue.length + inProgress.length;
+  // Most productive by assignee
+  const byAssignee: Record<string, number> = {};
+  for (const t of completed) byAssignee[t.assigneeName] = (byAssignee[t.assigneeName] ?? 0) + 1;
+  const topAssignee = Object.entries(byAssignee).sort(([, a], [, b]) => b - a)[0];
+
+  channelMsg += `─────────────────────\n`;
+  channelMsg += `📊 *Today's Summary*\n`;
+  channelMsg += `✅ Total completed: ${completed.length} tasks\n`;
+  if (totalOverdueCompleted > 0) channelMsg += `⚠️ Overdue when completed: ${totalOverdueCompleted} tasks\n`;
+  channelMsg += `📋 Still open: ${totalOpen} tasks carrying forward\n`;
+  if (topAssignee && topAssignee[1] > 0) channelMsg += `👥 Most productive: ${topAssignee[0]} (${topAssignee[1]} tasks)\n`;
+  channelMsg += '\n';
+
   // F — Daily Score
   channelMsg += `📊 *Team Score Today: ${score}/100*\n_${emoji} ${label}_\n\n`;
   channelMsg += `━━━━━━━━━━━━━━━━━━━━━\n_Next SOD: ${nextSodLabel()} 10AM IST_`;
