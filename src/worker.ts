@@ -37,9 +37,17 @@ startSequenceWorker();
 startSocialPostWorker();
 
 // ---------------------------------------------------------------------------
-// safeCron — wraps cron handlers with error catch + Slack DM alert to Jatin
+// safeCron — wraps cron handlers with error catch, logging, overlap protection
 // ---------------------------------------------------------------------------
+const _cronRunning = new Map<string, boolean>();
+
 async function safeCron(name: string, fn: () => Promise<unknown>): Promise<void> {
+  // Overlap protection — skip if already running
+  if (_cronRunning.get(name)) {
+    console.log(`[CRON] ${name} already running — skipping`);
+    return;
+  }
+  _cronRunning.set(name, true);
   let logId = 0;
   const start = Date.now();
   try {
@@ -67,6 +75,8 @@ async function safeCron(name: string, fn: () => Promise<unknown>): Promise<void>
         `🚨 *CRON FAILED: ${name}*\n\nError: ${msg.slice(0, 300)}\nTime: ${ts}\n\nCheck worker logs for details.`
       );
     } catch { /* Slack send failed */ }
+  } finally {
+    _cronRunning.set(name, false);
   }
 }
 

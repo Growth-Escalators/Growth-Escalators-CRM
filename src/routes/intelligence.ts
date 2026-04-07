@@ -14,6 +14,9 @@ ensureIntelligenceTable().catch(e => logger.error('[intelligence] table bootstra
 pool.query(`ALTER TABLE ai_intelligence_reports ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'complete'`).catch(() => {});
 pool.query(`ALTER TABLE ai_intelligence_reports ADD COLUMN IF NOT EXISTS error_message TEXT`).catch(() => {});
 
+// Reset orphaned generating reports on startup
+pool.query(`UPDATE ai_intelligence_reports SET status='failed', error_message='Orphaned — server restarted' WHERE status='generating' AND created_at < NOW() - INTERVAL '10 minutes'`).catch(() => {});
+
 // API key reminder
 const _apiKey = process.env.CLAUDE_API_KEY;
 if (!_apiKey || _apiKey.length <= 10 || !_apiKey.startsWith('sk-ant-')) {
@@ -135,6 +138,8 @@ router.get('/status/:id', async (req: Request, res: Response) => {
 
 // In-memory flag
 let _generating = false;
+let _generatingStartedAt: number | null = null;
+const GENERATION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 // ---------------------------------------------------------------------------
 // POST /api/intelligence/generate — async with status tracking
@@ -144,6 +149,13 @@ router.post('/generate', async (req: Request, res: Response) => {
   if (user?.role !== 'admin') {
     res.status(403).json({ error: 'Admin only' });
     return;
+  }
+
+  // Auto-reset if stuck for more than 5 minutes
+  if (_generating && _generatingStartedAt && (Date.now() - _generatingStartedAt > GENERATION_TIMEOUT_MS)) {
+    _generating = false;
+    _generatingStartedAt = null;
+    logger.warn('[intelligence] Generation flag auto-reset after 5min timeout');
   }
 
   if (_generating) {
@@ -176,6 +188,7 @@ router.post('/generate', async (req: Request, res: Response) => {
 
   // Background generation
   _generating = true;
+  _generatingStartedAt = Date.now();
   setImmediate(async () => {
     try {
       logger.info('[intelligence] Background generation started');
@@ -201,6 +214,7 @@ router.post('/generate', async (req: Request, res: Response) => {
       }
     } finally {
       _generating = false;
+      _generatingStartedAt = null;
     }
   });
 });
