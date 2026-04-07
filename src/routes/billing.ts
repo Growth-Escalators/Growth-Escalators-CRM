@@ -228,7 +228,7 @@ router.post('/invoices', async (req: Request, res: Response) => {
       clientGstin: client.gstin,
       clientState: client.state,
       clientStateCode: client.stateCode,
-      companyGstin: '08DRYPA4899F2ZZ',
+      companyGstin: process.env.COMPANY_GSTIN ?? '08DRYPA4899F2ZZ',
       taxType: effectiveTaxType,
       serviceDescription: client.serviceDescription,
       sacCode: client.sacCode ?? '9983',

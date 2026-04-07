@@ -1,5 +1,6 @@
 import logger from '../utils/logger';
 import { Router, type Request, type Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import jwt from 'jsonwebtoken';
 import { verify, hash } from '@node-rs/argon2';
 import { db, users, passwordResetTokens } from '../db/index';
@@ -18,8 +19,12 @@ if (!JWT_SECRET) {
 }
 const JWT_EXPIRES = '8h';
 
+// Rate limiters
+const loginLimiter = rateLimit({ windowMs: 60_000, max: 5, message: { error: 'Too many login attempts. Try again in 1 minute.' }, standardHeaders: true, legacyHeaders: false });
+const resetLimiter = rateLimit({ windowMs: 15 * 60_000, max: 3, message: { error: 'Too many reset attempts. Try again in 15 minutes.' }, standardHeaders: true, legacyHeaders: false });
+
 // POST /auth/login
-router.post('/login', async (req: Request, res: Response) => {
+router.post('/login', loginLimiter, async (req: Request, res: Response) => {
   const { email, password } = req.body as { email?: string; password?: string };
 
   if (!email || !password) {
@@ -68,7 +73,7 @@ router.get('/me', requireAuth, (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // POST /auth/forgot-password
 // ---------------------------------------------------------------------------
-router.post('/forgot-password', async (req: Request, res: Response) => {
+router.post('/forgot-password', resetLimiter, async (req: Request, res: Response) => {
   const { email } = req.body as { email?: string };
 
   // Always return success — don't reveal if email exists
@@ -132,7 +137,7 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // POST /auth/reset-password
 // ---------------------------------------------------------------------------
-router.post('/reset-password', async (req: Request, res: Response) => {
+router.post('/reset-password', resetLimiter, async (req: Request, res: Response) => {
   const { email, code, newPassword } = req.body as { email?: string; code?: string; newPassword?: string };
 
   if (!email || !code || !newPassword) {
