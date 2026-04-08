@@ -274,6 +274,29 @@ router.post('/generate-local-pages', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/seo/regenerate-pages — delete old pages and generate fresh ones
+// ---------------------------------------------------------------------------
+router.post('/regenerate-pages', async (req: Request, res: Response) => {
+  const user = (req as Request & { user?: { role: string } }).user;
+  if (user?.role !== 'admin') { res.status(403).json({ error: 'Admin only' }); return; }
+
+  try {
+    const { pool } = await import('../db/index');
+    // Delete old pages
+    const del = await pool.query(`DELETE FROM client_pages WHERE client_domain = 'ageddentistry.org'`);
+    logger.info(`[seo] Deleted ${del.rowCount} old pages`);
+
+    // Generate new pages
+    const { generateLocationPages } = await import('../services/programmaticSeoService');
+    const result = await generateLocationPages();
+    res.json({ ...result, oldPagesDeleted: del.rowCount });
+  } catch (e) {
+    logger.error('[seo] regenerate-pages error:', e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/seo/publish-pending-pages — publish draft_local pages to WordPress
 // ---------------------------------------------------------------------------
 router.post('/publish-pending-pages', async (req: Request, res: Response) => {

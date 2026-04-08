@@ -3,9 +3,26 @@ import logger from '../utils/logger';
 import { sendSlackMessage } from './slackService';
 import { SLACK_SEO_CHANNEL } from '../config/constants';
 
-const AGED_DENTISTRY_LOCATIONS = [
-  'Sydney', 'Melbourne', 'Brisbane', 'Perth', 'Adelaide',
-  'Canberra', 'Gold Coast', 'Newcastle', 'Wollongong', 'Hobart',
+// AGeD programmatic pages — 3 categories for Indian dental professionals
+const AGED_PAGES = [
+  // Category 1: City membership pages
+  { slug: 'geriatric-dentistry-mumbai', title: 'Geriatric Dentistry Mumbai — Join AGeD', category: 'city' },
+  { slug: 'geriatric-dentistry-delhi', title: 'Geriatric Dentistry Delhi — Join AGeD', category: 'city' },
+  { slug: 'geriatric-dentistry-bengaluru', title: 'Geriatric Dentistry Bengaluru — Join AGeD', category: 'city' },
+  { slug: 'geriatric-dentistry-chennai', title: 'Geriatric Dentistry Chennai — Join AGeD', category: 'city' },
+  { slug: 'geriatric-dentistry-hyderabad', title: 'Geriatric Dentistry Hyderabad — Join AGeD', category: 'city' },
+  // Category 2: Training pages
+  { slug: 'geriatric-dentistry-course-india', title: 'Geriatric Dentistry Course in India', category: 'training' },
+  { slug: 'geriatric-dentistry-training-program', title: 'Training Programs for Dentists in Geriatric Care', category: 'training' },
+  { slug: 'dental-care-elderly-patients-training', title: 'Treating Elderly Dental Patients — Training', category: 'training' },
+  { slug: 'geriatric-dentistry-certification', title: 'Certification in Geriatric Dentistry', category: 'training' },
+  { slug: 'geriatric-dentistry-workshop', title: 'Workshops and CME Programs — AGeD', category: 'training' },
+  // Category 3: Awareness pages
+  { slug: 'oral-health-elderly-india', title: 'Oral Health in Elderly — India', category: 'awareness' },
+  { slug: 'dental-problems-aging-population', title: 'Common Dental Problems in Aging Population', category: 'awareness' },
+  { slug: 'importance-geriatric-dentistry', title: 'Why Geriatric Dentistry Matters', category: 'awareness' },
+  { slug: 'dental-care-senior-citizens-india', title: 'Dental Care for Senior Citizens in India', category: 'awareness' },
+  { slug: 'join-aged-membership', title: 'Join AGeD — Membership Benefits for Dental Professionals', category: 'awareness' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -28,13 +45,13 @@ export async function ensureClientPagesTable(): Promise<void> {
 // ---------------------------------------------------------------------------
 // Generate content using Claude Haiku
 // ---------------------------------------------------------------------------
-async function generatePageContent(location: string): Promise<{
+async function generatePageContent(pageTitle: string): Promise<{
   title: string; meta_description: string; h1: string; content_html: string;
 } | null> {
   const apiKey = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     logger.warn('[prog-seo] No Claude API key — using template fallback');
-    return generateFallbackContent(location);
+    return generateFallbackContent(pageTitle);
   }
 
   try {
@@ -47,70 +64,66 @@ async function generatePageContent(location: string): Promise<{
         max_tokens: 2000,
         messages: [{
           role: 'user',
-          content: `You are writing SEO content for Aged Dentistry, a specialized dental service for elderly patients and aged care facilities in Australia.
+          content: `You are writing SEO content for AGeD — Association of Geriatric Dentistry, India's premier professional association for geriatric dental care.
 
-Write a complete page for: Aged Care Dental Services in ${location}
+Write a complete page for: ${pageTitle}
+
+Target audience: Dental professionals in India — BDS/MDS graduates, faculty, students
+Goal: Generate leads for AGeD membership, training programs, and events
 
 Include:
-1. SEO Title (60 chars max): Aged Care Dental Services in ${location} | Aged Dentistry
-2. Meta description (155 chars max): compassionate, includes location + service + CTA
-3. H1: Aged Care Dental Services in ${location}
-4. Introduction (150 words): Why elderly dental care matters in ${location}
-5. Our Services section (200 words): what we offer for aged care facilities
-6. Why Choose Aged Dentistry (3 bullet points)
-7. FAQ section (3 Q&As specific to ${location})
-8. Call to action paragraph
+1. SEO Title (60 chars max)
+2. Meta description (155 chars max) — include a clear CTA
+3. H1 heading
+4. Introduction (150 words) — why this topic matters for dental professionals in India
+5. Main content section (200 words) — what AGeD offers related to this topic
+6. Benefits section — 3 bullet points for dental professionals who join/attend
+7. Call to action — Join AGeD, Register for next event, or Contact us
+8. FAQ (3 questions relevant to this topic)
 
-Tone: Compassionate, reassuring, professional.
+Tone: Professional, academic, warm. Written for Indian dental professionals.
 Return ONLY valid JSON: { "title": "...", "meta_description": "...", "h1": "...", "content_html": "<h1>...</h1>..." }`,
         }],
       }),
     });
 
     if (!res.ok) {
-      logger.error(`[prog-seo] Claude API ${res.status} for ${location}`);
-      return generateFallbackContent(location);
+      logger.error(`[prog-seo] Claude API ${res.status} for ${pageTitle}`);
+      return generateFallbackContent(pageTitle);
     }
 
     const data = await res.json() as { content?: Array<{ type: string; text: string }> };
     const text = data.content?.find(c => c.type === 'text')?.text ?? '';
     const firstBrace = text.indexOf('{');
     const lastBrace = text.lastIndexOf('}');
-    if (firstBrace === -1 || lastBrace <= firstBrace) return generateFallbackContent(location);
+    if (firstBrace === -1 || lastBrace <= firstBrace) return generateFallbackContent(pageTitle);
 
     return JSON.parse(text.slice(firstBrace, lastBrace + 1));
   } catch (e) {
-    logger.error(`[prog-seo] Content generation failed for ${location}:`, e instanceof Error ? e.message : String(e));
-    return generateFallbackContent(location);
+    logger.error(`[prog-seo] Content generation failed for ${pageTitle}:`, e instanceof Error ? e.message : String(e));
+    return generateFallbackContent(pageTitle);
   }
 }
 
-function generateFallbackContent(location: string): {
+function generateFallbackContent(pageTitle: string): {
   title: string; meta_description: string; h1: string; content_html: string;
 } {
   return {
-    title: `Aged Care Dental Services in ${location} | Aged Dentistry`,
-    meta_description: `Professional dental care for elderly patients and aged care facilities in ${location}. Compassionate, specialized service. Book a visit today.`,
-    h1: `Aged Care Dental Services in ${location}`,
-    content_html: `<h1>Aged Care Dental Services in ${location}</h1>
-<p>Aged Dentistry provides specialized dental care designed specifically for elderly patients and aged care facilities in ${location}. Our team understands the unique oral health challenges faced by seniors and delivers compassionate, professional treatment in a comfortable environment.</p>
-<h2>Our Services in ${location}</h2>
-<p>We offer comprehensive dental services tailored for aged care residents including preventive check-ups, denture care and repair, emergency dental treatment, oral hygiene programs, and regular dental assessments for facility residents. Our mobile dental team visits aged care facilities across ${location} on a regular schedule.</p>
-<h2>Why Choose Aged Dentistry</h2>
+    title: `${pageTitle} | AGeD India`,
+    meta_description: `${pageTitle} — Join AGeD, India's premier association for geriatric dentistry. Training, research, and professional development for dental professionals.`,
+    h1: pageTitle,
+    content_html: `<h1>${pageTitle}</h1>
+<p>AGeD — the Association of Geriatric Dentistry — is India's first and only professional body dedicated to advancing geriatric dental care. We bring together dental professionals, researchers, and educators committed to improving oral health outcomes for India's aging population.</p>
+<h2>What AGeD Offers</h2>
+<p>As a member, you gain access to specialized training programs, continuing dental education workshops, research collaboration opportunities, and a network of dental professionals focused on geriatric care. Our programs are designed for BDS and MDS graduates, dental faculty, and practitioners looking to expand their expertise in elderly dental care.</p>
+<h2>Why Join AGeD</h2>
 <ul>
-<li><strong>Specialized Expertise:</strong> Our dentists are trained specifically in geriatric dental care</li>
-<li><strong>Mobile Service:</strong> We come to your facility in ${location} — no transport stress for residents</li>
-<li><strong>Compassionate Care:</strong> Patient, gentle approach designed for elderly patients</li>
+<li><strong>Professional Growth:</strong> Specialized training in geriatric dentistry — a rapidly growing field in India</li>
+<li><strong>Research Opportunities:</strong> Collaborate on cutting-edge research in elderly oral health</li>
+<li><strong>Network:</strong> Connect with India's leading geriatric dentistry professionals</li>
 </ul>
-<h2>Frequently Asked Questions</h2>
-<h3>How often should elderly residents have dental check-ups?</h3>
-<p>We recommend dental check-ups every 6 months for aged care residents in ${location}. Regular visits help prevent serious issues and maintain oral comfort.</p>
-<h3>Do you visit aged care facilities in ${location}?</h3>
-<p>Yes, our mobile dental team provides on-site visits to aged care facilities throughout the ${location} area. Contact us to arrange a schedule for your facility.</p>
-<h3>What dental services do you provide for residents with dementia?</h3>
-<p>We have specialized protocols for patients with cognitive impairments, including gentle examination techniques, familiar environment care, and coordination with facility care teams.</p>
-<h2>Book a Visit</h2>
-<p>Contact Aged Dentistry today to arrange dental care for your ${location} aged care facility. Call us or fill out our online form to get started.</p>`,
+<h2>Get Involved</h2>
+<p>Join AGeD today and be part of India's geriatric dentistry movement. Visit our membership page to register, or contact us to learn about upcoming events and training programs.</p>`,
   };
 }
 
@@ -167,9 +180,10 @@ export async function generateLocationPages(): Promise<{ generated: number; wpPu
 
   let generated = 0, wpPublished = 0, errors = 0;
 
-  for (const location of AGED_DENTISTRY_LOCATIONS) {
+  for (const pageDef of AGED_PAGES) {
+    const slug = pageDef.slug;
+    const location = pageDef.title; // Used as the page title for generation
     try {
-      const slug = `aged-care-dental-${location.toLowerCase().replace(/\s+/g, '-')}`;
 
       // Check if already generated
       try {
