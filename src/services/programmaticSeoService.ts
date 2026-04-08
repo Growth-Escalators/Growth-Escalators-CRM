@@ -121,9 +121,10 @@ async function publishToWordPress(
   pageData: { title: string; content_html: string; meta_description: string },
   slug: string,
 ): Promise<{ wpPageId: number; url: string } | null> {
-  const wpUrl = 'https://ageddentistry.org/wp-json/wp/v2/pages';
+  const wpBaseUrl = process.env.WP_AGEDDENTISTRY_URL || 'https://ageddentistry.org';
+  const wpUrl = `${wpBaseUrl}/wp-json/wp/v2/pages`;
   const user = process.env.WP_AGEDDENTISTRY_USER;
-  const pass = process.env.WP_AGEDDENTISTRY_PASSWORD;
+  const pass = process.env.WP_AGEDDENTISTRY_PASS || process.env.WP_AGEDDENTISTRY_PASSWORD;
 
   if (!user || !pass) {
     logger.warn('[prog-seo] WordPress credentials not set — storing locally only');
@@ -227,4 +228,67 @@ export async function generateLocationPages(): Promise<{ generated: number; wpPu
   }
 
   return { generated, wpPublished, errors };
+}
+
+// ---------------------------------------------------------------------------
+// Publish pending pages to WordPress (ones stored as draft_local)
+// ---------------------------------------------------------------------------
+export async function publishPendingToWordPress(): Promise<{ published: number; failed: number; urls: string[] }> {
+  await ensureClientPagesTable();
+
+  const result = await pool.query(
+    `SELECT id, page_title, page_slug, content, meta_description
+     FROM client_pages
+     WHERE client_domain = 'ageddentistry.org' AND status = 'draft_local'
+     ORDER BY id`,
+  );
+
+  let published = 0, failed = 0;
+  const urls: string[] = [];
+
+  // Deduplicate by slug (keep first occurrence)
+  const seen = new Set<string>();
+  const pages = (result.rows as Array<Record<string, unknown>>).filter(p => {
+    const slug = p.page_slug as string;
+    if (seen.has(slug)) return false;
+    seen.add(slug);
+    return true;
+  });
+
+  for (const page of pages) {
+    try {
+      const wpResult = await publishToWordPress(
+        { title: page.page_title as string, content_html: page.content as string, meta_description: page.meta_description as string },
+        page.page_slug as string,
+      );
+
+      if (wpResult) {
+        // Update ALL rows with this slug (handles duplicates)
+        await pool.query(
+          `UPDATE client_pages SET status = 'draft_wp', wp_post_id = $1, page_url = $2
+           WHERE client_domain = 'ageddentistry.org' AND page_slug = $3`,
+          [wpResult.wpPageId, wpResult.url, page.page_slug],
+        );
+        published++;
+        urls.push(wpResult.url);
+        logger.info(`[prog-seo] Published to WP: ${page.page_title} → ${wpResult.url}`);
+      } else {
+        failed++;
+      }
+
+      await new Promise(r => setTimeout(r, 2000));
+    } catch (e) {
+      logger.error(`[prog-seo] WP publish failed for ${page.page_slug}:`, e instanceof Error ? e.message : String(e));
+      failed++;
+    }
+  }
+
+  if (published > 0) {
+    const wpAdmin = (process.env.WP_AGEDDENTISTRY_URL || 'https://ageddentistry.org') + '/wp-admin/edit.php?post_type=page';
+    await sendSlackMessage(SLACK_SEO_CHANNEL,
+      `🚀 *SEO*: Published ${published} programmatic pages to ageddentistry.org as drafts.\nReview at: ${wpAdmin}`,
+    ).catch(() => {});
+  }
+
+  return { published, failed, urls };
 }

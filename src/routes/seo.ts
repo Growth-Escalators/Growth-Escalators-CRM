@@ -274,6 +274,23 @@ router.post('/generate-local-pages', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/seo/publish-pending-pages — publish draft_local pages to WordPress
+// ---------------------------------------------------------------------------
+router.post('/publish-pending-pages', async (req: Request, res: Response) => {
+  const user = (req as Request & { user?: { role: string } }).user;
+  if (user?.role !== 'admin') { res.status(403).json({ error: 'Admin only' }); return; }
+
+  try {
+    const { publishPendingToWordPress } = await import('../services/programmaticSeoService');
+    const result = await publishPendingToWordPress();
+    res.json(result);
+  } catch (e) {
+    logger.error('[seo] publish-pending error:', e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/seo/pages — list all generated pages
 // ---------------------------------------------------------------------------
 router.get('/pages', async (_req: Request, res: Response) => {
