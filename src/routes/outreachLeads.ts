@@ -652,7 +652,11 @@ router.patch('/:id/reply', async (req: Request, res: Response) => {
     const { reply_category, notes } = req.body as { reply_category: string; notes?: string };
 
     await pool.query(
-      `UPDATE outreach_leads SET status = 'Replied', reply_category = $1, notes = COALESCE($2, notes), updated_at = NOW() WHERE id = $3`,
+      `UPDATE outreach_leads
+       SET status = 'Replied', reply_category = $1, notes = COALESCE($2, notes),
+           reply_time = CASE WHEN $1 = 'INTERESTED' THEN NOW() ELSE reply_time END,
+           updated_at = NOW()
+       WHERE id = $3`,
       [reply_category, notes ?? null, leadId],
     );
 

@@ -20,8 +20,9 @@ import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_PERF_MARKETIN
 
 console.log('[worker] Worker process started');
 
-// One-time startup: ensure enrichment columns + reset stuck leads
+// One-time startup: ensure enrichment columns + reply alert columns
 import('./services/outreachEnrichmentService').then(m => m.ensureEnrichmentColumns()).catch(() => {});
+import('./services/outreachAlertService').then(m => m.ensureOutreachAlertColumns()).catch(() => {});
 pool.query(`
   UPDATE outreach_leads SET status = 'New', updated_at = NOW()
   WHERE status = 'Enriching' AND updated_at < NOW() - INTERVAL '30 minutes'
@@ -465,6 +466,9 @@ console.log('[cron] Outreach daily digest scheduled — 8:00 PM IST Mon-Sat');
 setInterval(() => safeCron('Outreach Enrichment', async () => {
   const { enrichStuckLeads } = await import('./services/outreachEnrichmentService');
   await enrichStuckLeads();
+  // Task 6: check for INTERESTED leads unanswered >90 minutes
+  const { checkReplySpeedAlerts } = await import('./services/outreachAlertService');
+  await checkReplySpeedAlerts();
 }), 5 * 60_000); // every 5 minutes
 console.log('[cron] Outreach enrichment scheduled — every 5 minutes');
 
@@ -630,6 +634,16 @@ cron.schedule('30 11 * * 5', () => safeCron('SEO Weekly Email', async () => {
   await sendSEOWeeklyEmail();
 }), { timezone: 'UTC' });
 console.log('[cron] SEO weekly email scheduled — Fridays 5:00 PM IST');
+
+// ---------------------------------------------------------------------------
+// Task 7: Weekly Outreach Performance Summary — Monday 8:00 AM IST (2:30 UTC)
+// Posts pipeline stats + reply activity to Jatin's Slack DM
+// ---------------------------------------------------------------------------
+cron.schedule('30 2 * * 1', () => safeCron('Weekly Outreach Summary', async () => {
+  const { sendWeeklyOutreachSummary } = await import('./services/outreachAlertService');
+  await sendWeeklyOutreachSummary();
+}), { timezone: 'UTC' });
+console.log('[cron] Weekly outreach summary scheduled — Mondays 8:00 AM IST (2:30 UTC)');
 
 // ---------------------------------------------------------------------------
 // Backend PageSpeed Monitor — Sunday 7:30 AM IST (2:00 UTC)

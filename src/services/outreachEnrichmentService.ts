@@ -1,9 +1,111 @@
 import axios from 'axios';
+import https from 'https';
 import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { sendSlackMessage } from './slackService';
 import { SLACK_OUTREACH_CHANNEL } from '../config/constants';
 import { findEmail } from './emailExtractorService';
+
+// ---------------------------------------------------------------------------
+// Claude Haiku icebreaker generation
+// Uses the website content to write a personalised, human-sounding opener
+// ---------------------------------------------------------------------------
+
+async function fetchWebsiteSnippet(url: string): Promise<string> {
+  return new Promise((resolve) => {
+    try {
+      const u = new URL(url.startsWith('http') ? url : `https://${url}`);
+      const options = {
+        hostname: u.hostname,
+        path: u.pathname || '/',
+        method: 'GET',
+        timeout: 8000,
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; GrowthEscalators/1.0)' },
+      };
+      const req = https.request(options, (res) => {
+        let body = '';
+        res.on('data', (c: string) => { body += c; if (body.length > 8000) res.destroy(); });
+        res.on('end', () => {
+          // Strip tags, get first 600 chars of visible text
+          const text = body.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 600);
+          resolve(text);
+        });
+      });
+      req.on('error', () => resolve(''));
+      req.on('timeout', () => { req.destroy(); resolve(''); });
+      req.end();
+    } catch { resolve(''); }
+  });
+}
+
+async function generateIcebreaker(company: string, websiteUrl: string | null, country: string | null): Promise<string> {
+  const apiKey = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return buildFallbackIcebreaker(company);
+
+  let websiteContent = '';
+  if (websiteUrl) {
+    websiteContent = await fetchWebsiteSnippet(websiteUrl);
+  }
+
+  const systemPrompt = `You write the first sentence of a cold email from Jatin at Growth Escalators to a performance marketing agency founder. The sentence must feel like it was written by a human who actually visited their website, not a bot. Never start with "I", never use words like "impressive", "innovative", "passionate", "dedicated". Maximum 20 words. Output the sentence only — no quotes, no punctuation at end. If website content is unavailable, write a natural opener referencing the agency's country and niche instead.`;
+
+  const userPrompt = `Agency: ${company}
+Website content: ${websiteContent || 'Not available — write based on agency name and country only'}
+Country: ${country ?? 'Unknown'}
+
+Write a single opening sentence. If website content is available, reference something specific from it. If not, write naturally based on the agency name and location.`;
+
+  try {
+    const bodyStr = JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 60,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }],
+    });
+
+    const result = await new Promise<string>((resolve) => {
+      const req = https.request({
+        hostname: 'api.anthropic.com',
+        path: '/v1/messages',
+        method: 'POST',
+        timeout: 20000,
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(bodyStr),
+        },
+      }, (res) => {
+        let body = '';
+        res.on('data', (c: string) => { body += c; });
+        res.on('end', () => {
+          try {
+            const data = JSON.parse(body) as { content?: Array<{ text?: string }> };
+            const text = data.content?.[0]?.text?.trim() ?? '';
+            resolve(text || buildFallbackIcebreaker(company));
+          } catch { resolve(buildFallbackIcebreaker(company)); }
+        });
+      });
+      req.on('error', () => resolve(buildFallbackIcebreaker(company)));
+      req.on('timeout', () => { req.destroy(); resolve(buildFallbackIcebreaker(company)); });
+      req.write(bodyStr);
+      req.end();
+    });
+
+    return result;
+  } catch {
+    return buildFallbackIcebreaker(company);
+  }
+}
+
+function buildFallbackIcebreaker(company: string): string {
+  return `Came across ${company} while looking at performance marketing agencies — wanted to reach out directly`;
+}
 
 interface EnrichmentResult {
   processed: number;
@@ -36,7 +138,7 @@ export async function enrichStuckLeads(): Promise<EnrichmentResult> {
 
   // Find leads to enrich (New or stuck Enriching >15min, max retries < 3)
   const result = await pool.query(`
-    SELECT id, company, first_name, website_url, email, COALESCE(retry_count, 0) AS retry_count
+    SELECT id, company, first_name, website_url, email, country, COALESCE(retry_count, 0) AS retry_count
     FROM outreach_leads
     WHERE (status = 'New' AND COALESCE(retry_count, 0) < 3)
        OR (status = 'Enriching' AND updated_at < NOW() - INTERVAL '15 minutes' AND COALESCE(retry_count, 0) < 3)
@@ -49,7 +151,7 @@ export async function enrichStuckLeads(): Promise<EnrichmentResult> {
   let active = 0, notFound = 0, errors = 0;
   const leads = result.rows as Array<{
     id: number; company: string; first_name: string | null;
-    website_url: string | null; email: string | null; retry_count: number;
+    website_url: string | null; email: string | null; country: string | null; retry_count: number;
   }>;
 
   // Set all to Enriching
@@ -62,7 +164,7 @@ export async function enrichStuckLeads(): Promise<EnrichmentResult> {
   for (const lead of leads) {
     try {
       if (lead.email && lead.email.includes('@')) {
-        await markActive(lead.id, lead.email, lead.first_name, lead.company, 'existing');
+        await markActive(lead.id, lead.email, lead.first_name, lead.company, 'existing', lead.website_url, lead.country);
         active++;
         continue;
       }
@@ -76,7 +178,7 @@ export async function enrichStuckLeads(): Promise<EnrichmentResult> {
       const emailResult = await findEmail(lead.website_url);
 
       if (emailResult) {
-        await markActive(lead.id, emailResult.email, lead.first_name, lead.company, emailResult.source);
+        await markActive(lead.id, emailResult.email, lead.first_name, lead.company, emailResult.source, lead.website_url, lead.country);
         active++;
       } else if (lead.retry_count >= 2) {
         // 3rd attempt (retry_count was incremented above) — give up
@@ -208,9 +310,16 @@ export async function uploadToSaleshandy(): Promise<{ uploaded: number; errors: 
   return { uploaded, errors: uploadErrors };
 }
 
-async function markActive(leadId: number, email: string, firstName: string | null, company: string, emailSource: string): Promise<void> {
-  const name = firstName || 'there';
-  const icebreaker = `Hi ${name}, came across ${company} — impressive work in performance marketing. We help agencies like yours deliver Meta Ads for D2C clients at 60-70% lower cost. Worth a quick chat?`;
+async function markActive(
+  leadId: number,
+  email: string,
+  firstName: string | null,
+  company: string,
+  emailSource: string,
+  websiteUrl?: string | null,
+  country?: string | null,
+): Promise<void> {
+  const icebreaker = await generateIcebreaker(company, websiteUrl ?? null, country ?? null);
 
   await pool.query(`
     UPDATE outreach_leads
@@ -225,4 +334,38 @@ async function markNotFound(leadId: number, reason: string): Promise<void> {
     `UPDATE outreach_leads SET status = 'Not_Found', notes = $1, updated_at = NOW() WHERE id = $2`,
     [reason, leadId],
   );
+}
+
+/**
+ * Regenerate icebreakers for existing Active leads using Claude Haiku.
+ * Pass limit to control how many to regenerate per call.
+ */
+export async function regenerateIcebreakers(limit = 10): Promise<Array<{ id: number; company: string; before: string; after: string }>> {
+  const result = await pool.query(`
+    SELECT id, company, website_url, country, COALESCE(icebreaker, '') AS icebreaker
+    FROM outreach_leads
+    WHERE status = 'Active' AND email IS NOT NULL
+    ORDER BY enriched_at DESC NULLS LAST
+    LIMIT $1
+  `, [limit]);
+
+  const leads = result.rows as Array<{
+    id: number; company: string; website_url: string | null;
+    country: string | null; icebreaker: string;
+  }>;
+
+  const updates: Array<{ id: number; company: string; before: string; after: string }> = [];
+
+  for (const lead of leads) {
+    const before = lead.icebreaker;
+    const after = await generateIcebreaker(lead.company, lead.website_url, lead.country);
+    await pool.query(
+      `UPDATE outreach_leads SET icebreaker = $1, updated_at = NOW() WHERE id = $2`,
+      [after, lead.id],
+    );
+    updates.push({ id: lead.id, company: lead.company, before, after });
+    await new Promise(r => setTimeout(r, 500));
+  }
+
+  return updates;
 }
