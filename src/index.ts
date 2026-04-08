@@ -300,6 +300,39 @@ async function startServer() {
   // Seed SEO client knowledge base
   import('./services/seoKnowledgeBase').then(m => m.seedClientKnowledgeBase()).catch(e => console.error('[startup] SEO knowledge base seed failed:', e));
 
+  // One-time startup: run PageSpeed if site_health_metrics is empty
+  setTimeout(async () => {
+    try {
+      const { pool: dbPool } = await import('./db/index');
+      const r = await dbPool.query(`SELECT COUNT(*)::int AS c FROM site_health_metrics`);
+      if ((r.rows[0] as { c: number }).c === 0) {
+        console.log('[startup] site_health_metrics empty — running PageSpeed checks');
+        const { runPageSpeedChecks } = await import('./services/pagespeedService');
+        const result = await runPageSpeedChecks();
+        console.log(`[startup] PageSpeed: ${result.checked} checked, ${result.errors} errors`);
+      }
+    } catch (e) { console.error('[startup] PageSpeed check failed:', e); }
+  }, 10000); // 10 seconds after startup
+
+  // One-time startup: generate programmatic pages if client_pages is empty
+  setTimeout(async () => {
+    try {
+      const { pool: dbPool } = await import('./db/index');
+      await dbPool.query(`CREATE TABLE IF NOT EXISTS client_pages (
+        id SERIAL PRIMARY KEY, client_domain TEXT NOT NULL, page_title TEXT,
+        page_slug TEXT, page_url TEXT, status TEXT DEFAULT 'draft', page_type TEXT DEFAULT 'manual',
+        wp_page_id INTEGER, meta_description TEXT, content TEXT, created_at TIMESTAMP DEFAULT NOW()
+      )`).catch(() => {});
+      const r = await dbPool.query(`SELECT COUNT(*)::int AS c FROM client_pages WHERE client_domain = 'ageddentistry.org'`);
+      if ((r.rows[0] as { c: number }).c === 0) {
+        console.log('[startup] No programmatic pages — generating for Aged Dentistry');
+        const { generateLocationPages } = await import('./services/programmaticSeoService');
+        const result = await generateLocationPages();
+        console.log(`[startup] Programmatic SEO: ${result.generated} generated, ${result.wpPublished} to WordPress, ${result.errors} errors`);
+      }
+    } catch (e) { console.error('[startup] Programmatic page generation failed:', e); }
+  }, 15000); // 15 seconds after startup
+
   httpServer.listen(PORT, () => {
     console.log(`Growth Escalators backend running on port ${PORT}`);
     // Workers and cron jobs now run in a separate process (src/worker.ts)

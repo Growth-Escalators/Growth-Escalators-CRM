@@ -47,7 +47,34 @@ export async function ensureSeoTables(): Promise<void> {
   for (const s of stmts) {
     await pool.query(s).catch(e => logger.warn(`[seo-tables] ${e instanceof Error ? e.message : String(e)}`));
   }
-  logger.info('[seo-tables] SEO tables bootstrapped');
+  // Looker Studio views
+  const views = [
+    `CREATE OR REPLACE VIEW seo_looker_weekly AS
+     SELECT client_domain, client_name, week_start, total_clicks, total_impressions,
+       ROUND(avg_position::numeric, 1) AS avg_position,
+       LAG(total_clicks) OVER (PARTITION BY client_domain ORDER BY week_start) AS prev_week_clicks,
+       LAG(total_impressions) OVER (PARTITION BY client_domain ORDER BY week_start) AS prev_week_impressions
+     FROM seo_weekly_metrics ORDER BY client_domain, week_start DESC`,
+    `CREATE OR REPLACE VIEW seo_looker_keywords AS
+     SELECT keyword, client_domain, position, previous_position,
+       (COALESCE(previous_position,0) - position) AS position_improvement,
+       search_volume, checked_at,
+       CASE WHEN position <= 3 THEN 'Top 3' WHEN position <= 10 THEN 'Page 1'
+            WHEN position <= 20 THEN 'Page 2' ELSE 'Page 3+' END AS ranking_tier
+     FROM keyword_rankings ORDER BY client_domain, position ASC`,
+    `CREATE OR REPLACE VIEW seo_looker_alerts AS
+     SELECT project_name AS client_domain, alert_type, message AS alert_message,
+       severity, created_at, DATE_TRUNC('week', created_at) AS alert_week
+     FROM seo_alerts_log ORDER BY created_at DESC`,
+    `CREATE OR REPLACE VIEW seo_looker_health AS
+     SELECT project_name AS client_domain, pagespeed_mobile AS mobile_score,
+       pagespeed_desktop AS desktop_score, lcp, fid, cls, checked_at AS created_at,
+       CASE WHEN pagespeed_mobile >= 90 THEN 'Good' WHEN pagespeed_mobile >= 50 THEN 'Needs Improvement' ELSE 'Poor' END AS mobile_status
+     FROM site_health_metrics ORDER BY project_name, checked_at DESC`,
+  ];
+  for (const v of views) await pool.query(v).catch(e => logger.warn(`[seo-views] ${e instanceof Error ? e.message : String(e)}`));
+
+  logger.info('[seo-tables] SEO tables + Looker Studio views bootstrapped');
 }
 
 // ---------------------------------------------------------------------------
