@@ -12,21 +12,17 @@ const AGED_DENTISTRY_LOCATIONS = [
 // Ensure client_pages table exists
 // ---------------------------------------------------------------------------
 export async function ensureClientPagesTable(): Promise<void> {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS client_pages (
-      id SERIAL PRIMARY KEY,
-      client_domain TEXT NOT NULL,
-      page_title TEXT,
-      page_slug TEXT,
-      page_url TEXT,
-      status TEXT DEFAULT 'draft',
-      page_type TEXT DEFAULT 'manual',
-      wp_page_id INTEGER,
-      meta_description TEXT,
-      content TEXT,
-      created_at TIMESTAMP DEFAULT NOW()
-    )
-  `).catch(() => {});
+  // The client_pages table exists from Drizzle schema with different columns
+  // Add the columns we need for programmatic SEO
+  const alters = [
+    `ALTER TABLE client_pages ADD COLUMN IF NOT EXISTS client_domain TEXT`,
+    `ALTER TABLE client_pages ADD COLUMN IF NOT EXISTS page_slug TEXT`,
+    `ALTER TABLE client_pages ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'draft'`,
+    `ALTER TABLE client_pages ADD COLUMN IF NOT EXISTS page_type TEXT DEFAULT 'manual'`,
+    `ALTER TABLE client_pages ADD COLUMN IF NOT EXISTS meta_description TEXT`,
+    `ALTER TABLE client_pages ADD COLUMN IF NOT EXISTS content TEXT`,
+  ];
+  for (const s of alters) await pool.query(s).catch(() => {});
 }
 
 // ---------------------------------------------------------------------------
@@ -193,15 +189,18 @@ export async function generateLocationPages(): Promise<{ generated: number; wpPu
       // Publish to WordPress
       const wpResult = await publishToWordPress(content, slug);
 
-      // Store in client_pages
+      // Store in client_pages (existing Drizzle table with UUID PK)
       await pool.query(
-        `INSERT INTO client_pages (client_domain, page_title, page_slug, page_url, status, page_type, wp_page_id, meta_description, content)
-         VALUES ($1, $2, $3, $4, $5, 'programmatic_seo', $6, $7, $8)`,
+        `INSERT INTO client_pages (id, project_name, page_url, page_title, wp_post_id, client_domain, page_slug, status, page_type, meta_description, content)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, 'programmatic_seo', $8, $9)`,
         [
-          'ageddentistry.org', content.title, slug,
+          'ageddentistry.org',
           wpResult?.url ?? `https://ageddentistry.org/${slug}/`,
+          content.title,
+          wpResult?.wpPageId ?? null,
+          'ageddentistry.org', slug,
           wpResult ? 'draft_wp' : 'draft_local',
-          wpResult?.wpPageId ?? null, content.meta_description, content.content_html,
+          content.meta_description, content.content_html,
         ],
       );
 

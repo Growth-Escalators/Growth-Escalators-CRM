@@ -318,11 +318,9 @@ async function startServer() {
   setTimeout(async () => {
     try {
       const { pool: dbPool } = await import('./db/index');
-      await dbPool.query(`CREATE TABLE IF NOT EXISTS client_pages (
-        id SERIAL PRIMARY KEY, client_domain TEXT NOT NULL, page_title TEXT,
-        page_slug TEXT, page_url TEXT, status TEXT DEFAULT 'draft', page_type TEXT DEFAULT 'manual',
-        wp_page_id INTEGER, meta_description TEXT, content TEXT, created_at TIMESTAMP DEFAULT NOW()
-      )`).catch(() => {});
+      // Ensure programmatic SEO columns exist on the Drizzle-managed client_pages table
+      const { ensureClientPagesTable } = await import('./services/programmaticSeoService');
+      await ensureClientPagesTable();
       const r = await dbPool.query(`SELECT COUNT(*)::int AS c FROM client_pages WHERE client_domain = 'ageddentistry.org'`);
       if ((r.rows[0] as { c: number }).c === 0) {
         console.log('[startup] No programmatic pages — generating for Aged Dentistry');
