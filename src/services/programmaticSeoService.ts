@@ -175,17 +175,20 @@ export async function generateLocationPages(): Promise<{ generated: number; wpPu
       const slug = `aged-care-dental-${location.toLowerCase().replace(/\s+/g, '-')}`;
 
       // Check if already generated
-      const existing = await pool.query(
-        `SELECT id FROM client_pages WHERE client_domain = 'ageddentistry.org' AND page_slug = $1`,
-        [slug],
-      );
-      if (existing.rows.length > 0) {
-        logger.info(`[prog-seo] ${location} already exists — skipping`);
-        continue;
-      }
+      try {
+        const existing = await pool.query(
+          `SELECT id FROM client_pages WHERE client_domain = 'ageddentistry.org' AND page_slug = $1`,
+          [slug],
+        );
+        if (existing.rows.length > 0) {
+          logger.info(`[prog-seo] ${location} already exists — skipping`);
+          continue;
+        }
+      } catch { /* table may not exist yet — proceed */ }
 
+      logger.info(`[prog-seo] Generating content for ${location}...`);
       const content = await generatePageContent(location);
-      if (!content) { errors++; continue; }
+      if (!content) { logger.error(`[prog-seo] No content for ${location}`); errors++; continue; }
 
       // Publish to WordPress
       const wpResult = await publishToWordPress(content, slug);
@@ -208,7 +211,9 @@ export async function generateLocationPages(): Promise<{ generated: number; wpPu
 
       await new Promise(r => setTimeout(r, 2000));
     } catch (e) {
-      logger.error(`[prog-seo] ${location} failed:`, e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      logger.error(`[prog-seo] ${location} failed: ${msg}`);
+      console.error(`[prog-seo] FULL ERROR for ${location}:`, e);
       errors++;
     }
   }
