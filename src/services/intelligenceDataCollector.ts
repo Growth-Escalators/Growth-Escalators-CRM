@@ -340,7 +340,7 @@ function extractInsightMetric(data: unknown, field: string): number {
 // ---------------------------------------------------------------------------
 
 // Timeout wrapper for individual data sources
-async function withTimeout<T>(promise: Promise<T>, name: string, fallback: T, timeoutMs = 15000): Promise<T> {
+async function withTimeout<T>(promise: Promise<T>, name: string, fallback: T, timeoutMs = 8000): Promise<T> {
   try {
     return await Promise.race([
       promise,
@@ -356,6 +356,17 @@ export async function collectDailyData(): Promise<AgencyDailyData> {
   const errors: string[] = [];
   const client = await pool.connect();
   logger.info('[intel-collector] Starting data collection...');
+
+  // Ensure connection is always released
+  try {
+    return await _collectDailyDataInner(client, errors);
+  } finally {
+    client.release();
+    logger.info('[intel-collector] Pool connection released');
+  }
+}
+
+async function _collectDailyDataInner(client: import('pg').PoolClient, errors: string[]): Promise<AgencyDailyData> {
 
   // Resolve tenant ID
   let tenantId = '';
@@ -716,7 +727,7 @@ export async function collectDailyData(): Promise<AgencyDailyData> {
     if (scoreRes.rows[0]) yesterdayScore = Number((scoreRes.rows[0] as { overall_score: number }).overall_score);
   } catch { /* table may not exist yet */ }
 
-  client.release();
+  // Connection released in outer try/finally
 
   // -------------------------------------------------------------------------
   // 8. SEO WORKFLOW HEALTH (uses pool directly, no client conn needed)
@@ -726,23 +737,24 @@ export async function collectDailyData(): Promise<AgencyDailyData> {
     n8nAlive: false, workflows: [], brokenCritical: [],
     allHealthy: false, healthyCount: 0, totalCount: 0,
   };
-  try {
-    seoWorkflows = await collectSEOWorkflowHealth();
-  } catch (e) {
-    logger.error('[intel-collector] seo workflow health check failed:', e);
-    errors.push('seo_workflow_health_failed');
-  }
+  seoWorkflows = await withTimeout(
+    collectSEOWorkflowHealth(),
+    'SEO workflow health',
+    seoWorkflows,
+    8000,
+  );
 
   // -------------------------------------------------------------------------
   // 9. SYSTEM ERRORS
   logger.info('[intel-collector] Collecting system errors...');
   // -------------------------------------------------------------------------
   let systemErrors: SystemError[] = [];
-  try {
-    systemErrors = await collectSystemErrors();
-  } catch (e) {
-    logger.error('[intel-collector] system error check failed:', e);
-  }
+  systemErrors = await withTimeout(
+    collectSystemErrors(),
+    'system errors',
+    systemErrors,
+    5000,
+  );
 
   logger.info(`[intel-collector] All data collected. Errors: [${errors.join(', ') || 'none'}]`);
 
