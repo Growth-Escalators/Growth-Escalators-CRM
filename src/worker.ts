@@ -623,6 +623,15 @@ console.log('[cron] Retainer invoice generator scheduled — daily 9:00 AM IST')
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
+// SEO Weekly Email — Friday 5:00 PM IST (11:30 UTC)
+// ---------------------------------------------------------------------------
+cron.schedule('30 11 * * 5', () => safeCron('SEO Weekly Email', async () => {
+  const { sendSEOWeeklyEmail } = await import('./services/seoWeeklyEmailService');
+  await sendSEOWeeklyEmail();
+}), { timezone: 'UTC' });
+console.log('[cron] SEO weekly email scheduled — Fridays 5:00 PM IST');
+
+// ---------------------------------------------------------------------------
 // Backend PageSpeed Monitor — Sunday 7:30 AM IST (2:00 UTC)
 // Bypasses n8n WF-SEO-05 which has a connection issue
 // ---------------------------------------------------------------------------
