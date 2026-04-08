@@ -109,7 +109,7 @@ export async function analyzeWithClaude(data: AgencyDailyData): Promise<Analysis
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
-    signal: AbortSignal.timeout(60000), // 60s max for Claude API
+    signal: AbortSignal.timeout(90000), // 90s max for Claude API
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': apiKey!,
