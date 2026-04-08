@@ -598,22 +598,24 @@ router.post('/upload-saleshandy', async (req: Request, res: Response) => {
 router.get('/dashboard', async (req: Request, res: Response) => {
   if (!checkInternalSecret(req, res)) return;
   try {
-    const [statusR, recentR, interestedR, countryR, weeklyR] = await Promise.all([
+    const [statusR, recentR, interestedR, countryR, weeklyR, uploadedR] = await Promise.all([
       pool.query(`SELECT status, COUNT(*)::int AS count FROM outreach_leads GROUP BY status`),
       pool.query(`SELECT id, company, status, email, email_source, reply_category, country, updated_at FROM outreach_leads ORDER BY updated_at DESC LIMIT 20`),
       pool.query(`SELECT id, company, email, country, notes, updated_at FROM outreach_leads WHERE reply_category = 'INTERESTED' ORDER BY updated_at DESC`),
       pool.query(`SELECT COALESCE(country, 'Unknown') AS country, COUNT(*)::int AS count FROM outreach_leads GROUP BY country ORDER BY count DESC`),
       pool.query(`SELECT created_at::date AS date, COUNT(*)::int AS count FROM outreach_leads WHERE created_at >= NOW() - INTERVAL '7 days' GROUP BY created_at::date ORDER BY date`),
+      pool.query(`SELECT COUNT(*)::int AS count FROM outreach_leads WHERE saleshandy_uploaded = true`),
     ]);
 
     const sc: Record<string, number> = {};
     for (const r of statusR.rows as Array<{ status: string; count: number }>) sc[r.status] = r.count;
     const total = Object.values(sc).reduce((a, b) => a + b, 0);
+    const uploadedCount = (uploadedR.rows[0] as { count: number }).count;
 
     res.json({
       pipeline: {
         total, new: sc.New ?? 0, enriching: sc.Enriching ?? 0, active: sc.Active ?? 0,
-        notFound: sc.Not_Found ?? 0, uploaded: sc.Uploaded ?? 0, replied: sc.Replied ?? 0,
+        notFound: sc.Not_Found ?? 0, uploaded: uploadedCount, replied: sc.Replied ?? 0,
         closed: sc.Closed ?? 0, interested: (interestedR.rows as unknown[]).length,
       },
       recentActivity: recentR.rows,
