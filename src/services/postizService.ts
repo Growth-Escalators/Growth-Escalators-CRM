@@ -121,7 +121,7 @@ export async function schedulePost(opts: SchedulePostOptions): Promise<Scheduled
     '[postiz] scheduling post',
   );
 
-  const result = await postizRequest<ScheduledPost>('POST', '/api/posts', payload);
+  const result = await postizRequest<ScheduledPost>('POST', '/posts', payload);
 
   logger.info({ postId: result.id, status: result.status }, '[postiz] post scheduled');
   return result;
@@ -147,7 +147,7 @@ export async function createClientWorkspace(
 ): Promise<Workspace> {
   logger.info({ name }, '[postiz] creating workspace');
 
-  const result = await postizRequest<Workspace>('POST', '/api/organizations', {
+  const result = await postizRequest<Workspace>('POST', '/organizations', {
     name,
     ...(description ? { description } : {}),
   });
@@ -160,7 +160,7 @@ export async function createClientWorkspace(
  * List all workspaces the API key has access to.
  */
 export async function listWorkspaces(): Promise<Workspace[]> {
-  const result = await postizRequest<{ organizations: Workspace[] }>('GET', '/api/organizations');
+  const result = await postizRequest<{ organizations: Workspace[] }>('GET', '/organizations');
   return result.organizations ?? [];
 }
 
@@ -170,7 +170,7 @@ export async function listWorkspaces(): Promise<Workspace[]> {
 export async function getIntegrations(workspaceId: string): Promise<Array<{ id: string; name: string; type: SocialChannel }>> {
   const result = await postizRequest<{ integrations: Array<{ id: string; name: string; type: SocialChannel }> }>(
     'GET',
-    `/api/integrations?organizationId=${encodeURIComponent(workspaceId)}`,
+    `/integrations?organizationId=${encodeURIComponent(workspaceId)}`,
   );
   return result.integrations ?? [];
 }
