@@ -1,47 +1,253 @@
+/**
+ * emailExtractorService.ts
+ * Multi-step email enrichment cascade — zero Hunter dependency.
+ *
+ * Strategy order (stops at first hit):
+ *   1. Website scraping (self-hosted, unlimited)
+ *   2. Apollo.io People Search (free tier: 50 searches/month)
+ *   3. Snov.io Domain Search   (free tier: 50 credits/month)
+ *   4. MX-validated prefix guessing (self-hosted, unlimited)
+ *   5. Reacher SMTP verification  (self-hosted, unlimited) — validates guesses
+ *   6. Google SERP scrape         (self-hosted, unlimited)
+ *
+ * Env vars:
+ *   APOLLO_API_KEY        — Apollo.io API key (optional, falls through if missing)
+ *   SNOV_CLIENT_ID        — Snov.io OAuth client ID (optional)
+ *   SNOV_CLIENT_SECRET    — Snov.io OAuth client secret (optional)
+ *   REACHER_BASE_URL      — Self-hosted Reacher instance URL (optional)
+ */
+
 import { promises as dns } from 'dns';
 import logger from '../utils/logger';
 
-const EMAIL_REGEX = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
+// ─── Config ───────────────────────────────────────────────────────────────────
+
+const APOLLO_API_KEY       = process.env.APOLLO_API_KEY ?? '';
+const SNOV_CLIENT_ID       = process.env.SNOV_CLIENT_ID ?? '';
+const SNOV_CLIENT_SECRET   = process.env.SNOV_CLIENT_SECRET ?? '';
+const REACHER_BASE_URL     = process.env.REACHER_BASE_URL ?? '';
+
+const EMAIL_REGEX      = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
 const OBFUSCATED_REGEX = /[a-zA-Z0-9._%+\-]+\s*[\[\(]\s*at\s*[\]\)]\s*[a-zA-Z0-9.\-]+\s*[\[\(]\s*dot\s*[\]\)]\s*[a-zA-Z]{2,}/gi;
-const CONTACT_PATHS = ['/contact', '/contact-us', '/get-in-touch', '/about', '/about-us', '/team', '/'];
+const CONTACT_PATHS    = ['/contact', '/contact-us', '/get-in-touch', '/about', '/about-us', '/team', '/'];
 const GENERIC_PREFIXES = ['noreply', 'no-reply', 'mailer', 'postmaster', 'abuse', 'webmaster', 'admin'];
 const PREFERRED_PREFIXES = ['hello', 'hi', 'team', 'founder', 'ceo', 'director', 'md', 'owner', 'agency', 'contact', 'business', 'partner'];
-const GUESS_PREFIXES = ['hello', 'info', 'contact', 'team', 'hi'];
+const GUESS_PREFIXES   = ['hello', 'info', 'contact', 'team', 'hi'];
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface EmailResult {
   email: string;
-  source: 'scraped' | 'guessed' | 'google';
+  source: 'scraped' | 'apollo' | 'snov' | 'guessed' | 'reacher-verified' | 'google';
   confidence: 'high' | 'medium' | 'low';
 }
 
+// ─── Main entry point ─────────────────────────────────────────────────────────
+
 /**
- * Multi-strategy email finder. Tries in order:
- * 1. Website scraping (high confidence)
- * 2. MX-validated common prefix guessing (medium confidence)
- * 3. Google search (low confidence)
+ * Multi-strategy email finder. Tries all strategies in order,
+ * stopping at the first successful result.
+ *
+ * @param websiteUrl  Full URL or domain of the target company website
+ * @param firstName   Optional first name for Apollo people search
+ * @param lastName    Optional last name for Apollo people search
  */
-export async function findEmail(websiteUrl: string): Promise<EmailResult | null> {
+export async function findEmail(
+  websiteUrl: string,
+  firstName?: string,
+  lastName?: string,
+): Promise<EmailResult | null> {
   const domain = extractDomain(websiteUrl);
   if (!domain) return null;
 
-  // Strategy 1: Scrape website
+  // ── Step 1: Scrape website ─────────────────────────────────────────────────
   const scraped = await scrapeWebsite(websiteUrl);
-  if (scraped) return { email: scraped, source: 'scraped', confidence: 'high' };
+  if (scraped) {
+    logger.debug({ domain, email: scraped }, '[emailExtractor] step1 scrape hit');
+    return { email: scraped, source: 'scraped', confidence: 'high' };
+  }
 
-  // Strategy 2: MX-validated guessing
+  // ── Step 2: Apollo.io ──────────────────────────────────────────────────────
+  if (APOLLO_API_KEY && APOLLO_API_KEY !== 'REPLACE_WITH_APOLLO_API_KEY') {
+    const apollo = await apolloSearch(domain, firstName, lastName);
+    if (apollo) {
+      logger.debug({ domain, email: apollo }, '[emailExtractor] step2 apollo hit');
+      return { email: apollo, source: 'apollo', confidence: 'high' };
+    }
+  }
+
+  // ── Step 3: Snov.io ────────────────────────────────────────────────────────
+  if (SNOV_CLIENT_ID && SNOV_CLIENT_ID !== 'REPLACE_WITH_SNOV_CLIENT_ID') {
+    const snov = await snovSearch(domain);
+    if (snov) {
+      logger.debug({ domain, email: snov }, '[emailExtractor] step3 snov hit');
+      return { email: snov, source: 'snov', confidence: 'high' };
+    }
+  }
+
+  // ── Step 4: MX-validated prefix guessing ──────────────────────────────────
   const guessed = await guessEmail(domain);
-  if (guessed) return { email: guessed, source: 'guessed', confidence: 'medium' };
 
-  // Strategy 3: Google search
+  if (guessed) {
+    // ── Step 5: Reacher SMTP verification ─────────────────────────────────
+    if (REACHER_BASE_URL && REACHER_BASE_URL !== 'REPLACE_WITH_REACHER_URL') {
+      const verified = await reacherVerify(guessed);
+      if (verified) {
+        logger.debug({ domain, email: guessed }, '[emailExtractor] step5 reacher-verified');
+        return { email: guessed, source: 'reacher-verified', confidence: 'medium' };
+      }
+      // Reacher says invalid — fall through to Google
+    } else {
+      // No Reacher configured — return guess with medium confidence
+      logger.debug({ domain, email: guessed }, '[emailExtractor] step4 guessed (no reacher)');
+      return { email: guessed, source: 'guessed', confidence: 'medium' };
+    }
+  }
+
+  // ── Step 6: Google SERP scrape ─────────────────────────────────────────────
   const googled = await googleSearchEmail(domain);
-  if (googled) return { email: googled, source: 'google', confidence: 'low' };
+  if (googled) {
+    logger.debug({ domain, email: googled }, '[emailExtractor] step6 google hit');
+    return { email: googled, source: 'google', confidence: 'low' };
+  }
 
+  logger.debug({ domain }, '[emailExtractor] all strategies exhausted — no email found');
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Strategy 1: Scrape website pages
-// ---------------------------------------------------------------------------
+// ─── Step 2: Apollo.io ────────────────────────────────────────────────────────
+
+async function apolloSearch(
+  domain: string,
+  firstName?: string,
+  lastName?: string,
+): Promise<string | null> {
+  try {
+    const body: Record<string, unknown> = {
+      api_key: APOLLO_API_KEY,
+      q_organization_domains: domain,
+      page: 1,
+      per_page: 5,
+      // Request email reveal
+      reveal_personal_emails: false,
+    };
+    if (firstName) body.q_person_name = [firstName, lastName].filter(Boolean).join(' ');
+
+    const res = await fetch('https://api.apollo.io/v1/mixed_people/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(8000),
+    });
+
+    if (!res.ok) {
+      logger.debug({ status: res.status }, '[emailExtractor] apollo non-200');
+      return null;
+    }
+
+    const data = (await res.json()) as {
+      people?: Array<{ email?: string; email_status?: string }>;
+    };
+
+    const people = data.people ?? [];
+    // Prefer verified/guessed emails over catch-all
+    for (const person of people) {
+      if (person.email && person.email_status !== 'invalid') {
+        return person.email.toLowerCase();
+      }
+    }
+  } catch (err) {
+    logger.debug({ err }, '[emailExtractor] apollo error');
+  }
+  return null;
+}
+
+// ─── Step 3: Snov.io ──────────────────────────────────────────────────────────
+
+let _snovToken: { token: string; expiresAt: number } | null = null;
+
+async function getSnovToken(): Promise<string | null> {
+  if (_snovToken && Date.now() < _snovToken.expiresAt - 60_000) return _snovToken.token;
+  try {
+    const res = await fetch('https://api.snov.io/v1/oauth/access_token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grant_type: 'client_credentials',
+        client_id: SNOV_CLIENT_ID,
+        client_secret: SNOV_CLIENT_SECRET,
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { access_token?: string; expires_in?: number };
+    if (!data.access_token) return null;
+    _snovToken = {
+      token: data.access_token,
+      expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000,
+    };
+    return _snovToken.token;
+  } catch {
+    return null;
+  }
+}
+
+async function snovSearch(domain: string): Promise<string | null> {
+  try {
+    const token = await getSnovToken();
+    if (!token) return null;
+
+    const res = await fetch('https://api.snov.io/v1/get-emails-from-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ access_token: token, url: `https://${domain}` }),
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!res.ok) return null;
+    const data = (await res.json()) as { emails?: Array<{ email: string; emailStatus?: string }> };
+
+    const emails = data.emails ?? [];
+    for (const e of emails) {
+      if (e.email && e.emailStatus !== 'Invalid') {
+        const prefix = e.email.split('@')[0].toLowerCase();
+        if (!GENERIC_PREFIXES.some(g => prefix === g)) {
+          return e.email.toLowerCase();
+        }
+      }
+    }
+    // Fall back to any email in the list
+    if (emails[0]?.email) return emails[0].email.toLowerCase();
+  } catch (err) {
+    logger.debug({ err }, '[emailExtractor] snov error');
+  }
+  return null;
+}
+
+// ─── Step 5: Reacher SMTP verification ───────────────────────────────────────
+
+async function reacherVerify(email: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${REACHER_BASE_URL}/v0/check_email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to_email: email }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) return false;
+    const data = (await res.json()) as {
+      is_reachable?: 'safe' | 'risky' | 'invalid' | 'unknown';
+    };
+    // Accept safe or risky (risky = catch-all / uncertain SMTP)
+    return data.is_reachable === 'safe' || data.is_reachable === 'risky';
+  } catch (err) {
+    logger.debug({ err }, '[emailExtractor] reacher error — skipping SMTP check');
+    return false;
+  }
+}
+
+// ─── Step 1: Scrape website ───────────────────────────────────────────────────
+
 async function scrapeWebsite(websiteUrl: string): Promise<string | null> {
   const baseUrl = normalizeUrl(websiteUrl);
   if (!baseUrl) return null;
@@ -57,7 +263,9 @@ async function scrapeWebsite(websiteUrl: string): Promise<string | null> {
       const matches: string[] = [...(html.match(EMAIL_REGEX) ?? [])];
       const obfuscated = html.match(OBFUSCATED_REGEX) ?? [];
       for (const obs of obfuscated) {
-        const cleaned = obs.replace(/\s*[\[\(]\s*at\s*[\]\)]\s*/gi, '@').replace(/\s*[\[\(]\s*dot\s*[\]\)]\s*/gi, '.');
+        const cleaned = obs
+          .replace(/\s*[\[\(]\s*at\s*[\]\)]\s*/gi, '@')
+          .replace(/\s*[\[\(]\s*dot\s*[\]\)]\s*/gi, '.');
         if (cleaned.match(EMAIL_REGEX)) matches.push(cleaned);
       }
 
@@ -88,17 +296,14 @@ async function scrapeWebsite(websiteUrl: string): Promise<string | null> {
   return allEmails[0].email;
 }
 
-// ---------------------------------------------------------------------------
-// Strategy 2: MX-validated common prefix guessing
-// ---------------------------------------------------------------------------
+// ─── Step 4: MX-validated prefix guessing ────────────────────────────────────
+
 async function guessEmail(domain: string): Promise<string | null> {
   try {
     const mx = await dns.resolveMx(domain).catch(() => []);
-    if (mx.length === 0) return null; // Domain doesn't accept email
-
-    // Domain has MX records — use best guess prefix
+    if (mx.length === 0) return null;
     for (const prefix of GUESS_PREFIXES) {
-      return `${prefix}@${domain}`; // Return first — hello@ preferred
+      return `${prefix}@${domain}`;
     }
   } catch {
     return null;
@@ -106,9 +311,8 @@ async function guessEmail(domain: string): Promise<string | null> {
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Strategy 3: Google search for email
-// ---------------------------------------------------------------------------
+// ─── Step 6: Google SERP scrape ───────────────────────────────────────────────
+
 async function googleSearchEmail(domain: string): Promise<string | null> {
   try {
     const url = `https://www.google.com/search?q=email+site:${encodeURIComponent(domain)}&num=5`;
@@ -124,7 +328,6 @@ async function googleSearchEmail(domain: string): Promise<string | null> {
         }
       }
     }
-    // Accept any email found at the domain
     for (const raw of matches) {
       const email = raw.toLowerCase().trim();
       if (email.endsWith('@' + domain)) return email;
@@ -133,16 +336,15 @@ async function googleSearchEmail(domain: string): Promise<string | null> {
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 async function fetchPage(url: string): Promise<string | null> {
   try {
     const res = await fetch(url, {
       signal: AbortSignal.timeout(5000),
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml',
+        Accept: 'text/html,application/xhtml+xml',
       },
       redirect: 'follow',
     });
