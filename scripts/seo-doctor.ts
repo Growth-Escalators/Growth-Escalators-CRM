@@ -183,8 +183,7 @@ async function loginN8n(): Promise<void> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const REQUIRED_VARS: Array<{ key: string; expected?: string }> = [
-  { key: 'VALUESERP_API_KEY' },
-  { key: 'VALUESREP_API_KEY' },  // alternate spelling
+  { key: 'SERPER_API_KEY' },
   { key: 'DATAFORSEO_LOGIN' },
   { key: 'DATAFORSEO_PASSWORD' },
   { key: 'CLAUDE_API_KEY' },
@@ -223,7 +222,7 @@ async function check1_envVars(): Promise<void> {
   // Cache useful values
   claudeApiKey    = primaryEnvVars['CLAUDE_API_KEY'] ?? process.env.CLAUDE_API_KEY ?? '';
   slackToken      = primaryEnvVars['SLACK_BOT_TOKEN'] ?? process.env.SLACK_BOT_TOKEN ?? '';
-  valueSerpKey    = primaryEnvVars['VALUESERP_API_KEY'] ?? primaryEnvVars['VALUESREP_API_KEY'] ?? process.env.VALUESERP_API_KEY ?? process.env.VALUESREP_API_KEY ?? '';
+  valueSerpKey    = primaryEnvVars['SERPER_API_KEY'] ?? process.env.SERPER_API_KEY ?? '';
   dataForSeoLogin = primaryEnvVars['DATAFORSEO_LOGIN'] ?? process.env.DATAFORSEO_LOGIN ?? '';
   dataForSeoPass  = primaryEnvVars['DATAFORSEO_PASSWORD'] ?? process.env.DATAFORSEO_PASSWORD ?? '';
 
@@ -497,34 +496,40 @@ async function check5_externalApis(): Promise<void> {
     addCheck('API:GA4', 'fail', `${e}`);
   }
 
-  // 5C — ValueSERP
-  log('\n  ─ 5C ValueSERP ─');
+  // 5C — Serper.dev (replaces ValueSERP — free tier 2,500 searches/month)
+  log('\n  ─ 5C Serper.dev ─');
   if (!valueSerpKey) {
-    apiResults['valueserp'] = { pass: false, detail: '⚠️ BLOCKED — VALUESERP_API_KEY not set' };
-    addCheck('API:ValueSERP', 'blocked', 'BLOCKED — VALUESERP_API_KEY not set in Railway');
+    apiResults['valueserp'] = { pass: false, detail: '⚠️ BLOCKED — SERPER_API_KEY not set' };
+    addCheck('API:Serper', 'blocked', 'BLOCKED — SERPER_API_KEY not set in Railway');
     addManualStep(
-      'Add VALUESERP_API_KEY to Railway:\n' +
+      'Add SERPER_API_KEY to Railway:\n' +
+      '   → Sign up free at serper.dev (2,500 searches/month free)\n' +
       '   → railway.app → GE-Backend-Server → Primary service → Variables\n' +
-      '   → Add: VALUESERP_API_KEY = <key from valueserp.com/dashboard>\n' +
-      '   → Add: VALUESREP_API_KEY = same value (alternate spelling used by some nodes)\n' +
-      '   → Redeploy Primary after saving'
+      '   → Add: SERPER_API_KEY = <key from serper.dev/dashboard>\n' +
+      '   → Also add to GE-Worker service\n' +
+      '   → Redeploy both services after saving'
     );
   } else {
     try {
       const r = await httpReq(
-        `https://api.valueserp.com/search?api_key=${valueSerpKey}&q=test&num=1`,
-        { timeoutMs: 10000 }
+        'https://google.serper.dev/search',
+        {
+          method: 'POST',
+          headers: { 'X-API-KEY': valueSerpKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ q: 'test', num: 1 }),
+          timeoutMs: 10000,
+        }
       );
       if (r.status === 200) {
         apiResults['valueserp'] = { pass: true, detail: '✅ Working' };
-        addCheck('API:ValueSERP', 'pass', 'HTTP 200 — key valid');
+        addCheck('API:Serper', 'pass', 'HTTP 200 — key valid');
       } else {
         apiResults['valueserp'] = { pass: false, detail: `❌ HTTP ${r.status}` };
-        addCheck('API:ValueSERP', 'fail', `HTTP ${r.status}: ${r.body.substring(0,80)}`);
+        addCheck('API:Serper', 'fail', `HTTP ${r.status}: ${r.body.substring(0,80)}`);
       }
     } catch (e) {
       apiResults['valueserp'] = { pass: false, detail: `❌ ${e}` };
-      addCheck('API:ValueSERP', 'fail', `${e}`);
+      addCheck('API:Serper', 'fail', `${e}`);
     }
   }
 
@@ -773,9 +778,9 @@ async function check6_triggerWorkflows(): Promise<void> {
 
   await trigger('WF-SEO-01', '/webhook/mtrig-seo01', 'seo_weekly_metrics',   45000, gscOk && ga4Ok,      'GSC or GA4 API not working');
   await trigger('WF-SEO-05', '/webhook/mtrig-seo05', 'site_health_metrics',  30000, true,                undefined);
-  await trigger('WF-SEO-06', '/webhook/mtrig-seo06', 'keyword_rankings',     60000, valueSerpOk,         'VALUESERP_API_KEY missing or test failed');
+  await trigger('WF-SEO-06', '/webhook/mtrig-seo06', 'keyword_rankings',     60000, valueSerpOk,         'SERPER_API_KEY missing or test failed');
   await trigger('WF-SEO-02', '/webhook/mtrig-seo02', 'seo_alerts_log',       20000, (triggerResults['WF-SEO-01']?.rowsAfter ?? 0) > 0, 'WF-SEO-01 produced no data');
-  await trigger('WF-SEO-07', '/webhook/mtrig-seo07', 'content_gap_analysis', 45000, valueSerpOk,         'VALUESERP_API_KEY missing or test failed');
+  await trigger('WF-SEO-07', '/webhook/mtrig-seo07', 'content_gap_analysis', 45000, valueSerpOk,         'SERPER_API_KEY missing or test failed');
   await trigger('WF-SEO-08', '/webhook/mtrig-seo08', 'backlink_data',        45000, dataForSeoOk,        'DataForSEO credentials missing or test failed');
   await trigger('WF-SEO-11', '/webhook/mtrig-seo11', 'seo_opportunities',    60000,
     claudeOk && (tableRowCounts['seo_weekly_metrics'] ?? 0) > 0, 'Claude API not working or seo_weekly_metrics empty');

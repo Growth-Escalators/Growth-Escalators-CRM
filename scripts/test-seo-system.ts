@@ -13,7 +13,7 @@ const N8N_URL = 'https://primary-production-6c6f5.up.railway.app';
 const N8N_API_KEY = process.env.N8N_API_KEY || '';
 const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY || '';
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN || '';
-const VALUESREP_API_KEY = process.env.VALUESREP_API_KEY || process.env.VALUESERP_API_KEY || '';
+const SERPER_API_KEY = process.env.SERPER_API_KEY || '';
 const DATAFORSEO_LOGIN = process.env.DATAFORSEO_LOGIN || '';
 const DATAFORSEO_PASSWORD = process.env.DATAFORSEO_PASSWORD || '';
 
@@ -151,25 +151,31 @@ async function test3_pagespeed(): Promise<void> {
   }
 }
 
-// ─── TEST 4: ValueSERP API ───────────────────────────────────────────────────
+// ─── TEST 4: Serper.dev API (replaces ValueSERP — free tier 2,500/month) ─────
 
 async function test4_valueserp(): Promise<void> {
-  console.log('\n─── TEST 4: ValueSERP (rank tracking) ───');
-  if (!VALUESREP_API_KEY) {
-    fail('TEST 4', 'VALUESREP_API_KEY not set in environment',
-      'Add VALUESREP_API_KEY to Railway n8n service variables');
+  console.log('\n─── TEST 4: Serper.dev (rank tracking) ───');
+  if (!SERPER_API_KEY) {
+    fail('TEST 4', 'SERPER_API_KEY not set in environment',
+      'Sign up free at serper.dev, then add SERPER_API_KEY to Railway services');
     return;
   }
   try {
-    const res = await httpRequest(
-      `https://api.valueserp.com/search?api_key=${VALUESREP_API_KEY}&q=ayurvedic+treatment&location=United+States&num=10`
-    );
+    const body = JSON.stringify({ q: 'ayurvedic treatment', gl: 'us', num: 10 });
+    const res = await httpRequest('https://google.serper.dev/search', {
+      method: 'POST',
+      headers: {
+        'X-API-KEY': SERPER_API_KEY,
+        'Content-Type': 'application/json',
+      },
+      body,
+    });
     const data = JSON.parse(res.body);
-    if (data.organic_results?.length > 0) {
-      pass('TEST 4', `ValueSERP working — ${data.organic_results.length} results for "ayurvedic treatment"`);
-    } else if (data.request_info?.success === false) {
-      fail('TEST 4', `ValueSERP error: ${data.request_info.message}`,
-        'Check VALUESREP_API_KEY is valid');
+    if (data.organic?.length > 0) {
+      pass('TEST 4', `Serper.dev working — ${data.organic.length} results for "ayurvedic treatment"`);
+    } else if (data.statusCode && data.statusCode !== 200) {
+      fail('TEST 4', `Serper error: ${data.message}`,
+        'Check SERPER_API_KEY is valid at serper.dev/dashboard');
     } else {
       fail('TEST 4', `Unexpected response: ${JSON.stringify(data).slice(0, 100)}`);
     }
