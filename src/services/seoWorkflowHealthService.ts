@@ -50,18 +50,20 @@ export async function ensureSeoTables(): Promise<void> {
   // Looker Studio views
   const views = [
     `CREATE OR REPLACE VIEW seo_looker_weekly AS
-     SELECT client_domain, client_name, week_start, total_clicks, total_impressions,
+     SELECT project_name AS client_domain, project_name AS client_name, week_start_date AS week_start,
+       total_clicks, total_impressions,
        ROUND(avg_position::numeric, 1) AS avg_position,
-       LAG(total_clicks) OVER (PARTITION BY client_domain ORDER BY week_start) AS prev_week_clicks,
-       LAG(total_impressions) OVER (PARTITION BY client_domain ORDER BY week_start) AS prev_week_impressions
-     FROM seo_weekly_metrics ORDER BY client_domain, week_start DESC`,
+       ga4_sessions,
+       LAG(total_clicks) OVER (PARTITION BY project_name ORDER BY week_start_date) AS prev_week_clicks,
+       LAG(total_impressions) OVER (PARTITION BY project_name ORDER BY week_start_date) AS prev_week_impressions
+     FROM seo_weekly_metrics ORDER BY project_name, week_start_date DESC`,
     `CREATE OR REPLACE VIEW seo_looker_keywords AS
-     SELECT keyword, client_domain, position, previous_position,
-       (COALESCE(previous_position,0) - position) AS position_improvement,
-       search_volume, checked_at,
-       CASE WHEN position <= 3 THEN 'Top 3' WHEN position <= 10 THEN 'Page 1'
-            WHEN position <= 20 THEN 'Page 2' ELSE 'Page 3+' END AS ranking_tier
-     FROM keyword_rankings ORDER BY client_domain, position ASC`,
+     SELECT keyword, project_name AS client_domain, current_position AS position, previous_position,
+       (COALESCE(previous_position,0) - current_position) AS position_improvement,
+       search_volume, recorded_date AS checked_at,
+       CASE WHEN current_position <= 3 THEN 'Top 3' WHEN current_position <= 10 THEN 'Page 1'
+            WHEN current_position <= 20 THEN 'Page 2' ELSE 'Page 3+' END AS ranking_tier
+     FROM keyword_rankings ORDER BY project_name, current_position ASC`,
     `CREATE OR REPLACE VIEW seo_looker_alerts AS
      SELECT project_name AS client_domain, alert_type, message AS alert_message,
        severity, created_at, DATE_TRUNC('week', created_at) AS alert_week
@@ -167,10 +169,10 @@ export async function checkWorkflowHealth(): Promise<{
   const client = await pool.connect();
   try {
     const [wm, al, sh, kr, bd, op, logs] = await Promise.all([
-      client.query('SELECT MAX(week_start) AS last_run, COUNT(*) AS cnt FROM seo_weekly_metrics'),
+      client.query('SELECT MAX(week_start_date) AS last_run, COUNT(*) AS cnt FROM seo_weekly_metrics'),
       client.query('SELECT MAX(created_at)  AS last_run, COUNT(*) AS cnt FROM seo_alerts_log'),
       client.query('SELECT MAX(checked_at)  AS last_run, COUNT(*) AS cnt FROM site_health_metrics'),
-      client.query('SELECT MAX(checked_at)  AS last_run, COUNT(*) AS cnt FROM keyword_rankings'),
+      client.query('SELECT MAX(recorded_date) AS last_run, COUNT(*) AS cnt FROM keyword_rankings'),
       client.query('SELECT MAX(checked_at)  AS last_run, COUNT(*) AS cnt FROM backlink_data'),
       client.query('SELECT MAX(created_at)  AS last_run, COUNT(*) AS cnt FROM seo_opportunities'),
       client.query(`

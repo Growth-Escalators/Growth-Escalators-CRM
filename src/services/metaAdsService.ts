@@ -169,9 +169,17 @@ export async function ensureAdAccountsTable(): Promise<void> {
     )
   `).catch(() => {});
 
-  await pool.query(`
-    INSERT INTO ad_accounts (account_id, client_name, account_name, currency, is_active)
-    VALUES ('act_689363376592426', 'Paraiso', 'Paraiso - Meta Ads', 'INR', true)
-    ON CONFLICT (account_id) DO UPDATE SET client_name='Paraiso', is_active=true
-  `).catch(() => {});
+  // Seed known accounts — safe to run multiple times (ON CONFLICT is idempotent)
+  const seedAccounts = [
+    { id: 'act_689363376592426', client: 'Paraiso',   name: 'Paraiso - Meta Ads',  currency: 'INR' },
+    { id: 'act_323237510625803', client: 'GE Agency', name: 'GE Agency - Meta Ads', currency: 'INR' },
+  ];
+  for (const a of seedAccounts) {
+    await pool.query(
+      `INSERT INTO ad_accounts (account_id, client_name, account_name, currency, is_active)
+       VALUES ($1, $2, $3, $4, true)
+       ON CONFLICT (account_id) DO UPDATE SET client_name=$2, account_name=$3, is_active=true`,
+      [a.id, a.client, a.name, a.currency],
+    ).catch(() => {});
+  }
 }

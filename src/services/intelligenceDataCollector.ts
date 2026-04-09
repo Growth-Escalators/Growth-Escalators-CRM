@@ -52,7 +52,7 @@ export async function collectSEOWorkflowHealth(): Promise<SEOWorkflowHealth> {
     {
       id: 'WF-SEO-01', name: 'GSC + GA4 Data Pull', schedule: 'Monday 8AM IST', critical: true,
       check: async () => {
-        const r = await pool.query(`SELECT MAX(week_start) AS last_run, COUNT(*) AS total FROM seo_weekly_metrics`);
+        const r = await pool.query(`SELECT MAX(week_start_date) AS last_run, COUNT(*) AS total FROM seo_weekly_metrics`);
         const lastRun = (r.rows[0] as { last_run: string | null }).last_run;
         const daysSince = lastRun ? Math.floor((now.getTime() - new Date(lastRun).getTime()) / 86400000) : 999;
         return { lastRun, daysSince, total: Number((r.rows[0] as { total: string }).total), healthy: daysSince <= 8 };
@@ -608,8 +608,8 @@ async function _collectDailyDataInner(client: import('pg').PoolClient, errors: s
         FROM site_health_metrics ORDER BY checked_at DESC LIMIT 1
       `),
       client.query(`
-        SELECT total_sessions FROM seo_weekly_metrics
-        ORDER BY week_start DESC LIMIT 1
+        SELECT ga4_sessions AS total_sessions FROM seo_weekly_metrics
+        ORDER BY week_start_date DESC LIMIT 1
       `),
     ]);
 
