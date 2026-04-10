@@ -32,16 +32,28 @@ export interface SystemHealthReport {
 
 // Cron expected windows in minutes
 const CRON_WINDOWS: Record<string, number> = {
-  'Blocker Alerts (morning)': 120, 'Blocker Alerts (evening)': 120,
+  // Alerts & digests
+  'Blocker Alerts': 120,
   'SOD Digest': 1500, 'Sakcham Priority SOD': 1500, 'EOD Summary': 1500,
+  // Finance
   'Spend Alert Check': 120, 'Monthly Invoice Drafts': 44640,
-  'Overdue Invoice Check': 1500, 'Daily Intelligence Report': 1500,
+  'Overdue Invoice Check': 1500, 'Retainer Invoice Generator': 1500,
+  // Intelligence & reporting
+  'Daily Intelligence Report': 1500,
+  'Meta Ads Daily Report': 1500, 'Meta Token Check': 10080,
   'SEO Workflow Health': 1500, 'Growth OS Health Scores': 1500,
-  'Daily ROAS Report': 1500, 'Money on Table': 10080,
-  'Creative Intelligence': 360, 'Competitor Pulse': 10080,
+  'Money on Table': 10080, 'Creative Intelligence': 360,
+  'Competitor Pulse': 10080, 'SEO Weekly Email': 10080,
+  'PageSpeed Monitor': 10080, 'Daily Archive': 1500,
+  // Outreach
   'Outreach Enrichment': 10, 'Outreach CRM Sync': 60,
   'Outreach Daily Digest': 1500, 'Daily Lead Discovery': 1500,
-  'Reset Stuck Enriching Leads': 120,
+  'Reset Stuck Enriching Leads': 120, 'Weekly Outreach Summary': 10080,
+  'Saleshandy Auto-Upload': 15,
+  // Ops
+  'Audit Booking Follow-up': 360, 'Weekly Data Cleanup': 10080,
+  'Co-Pilot Poller': 5, 'Pipeline Placement': 1,
+  'System Health Check': 60,
 };
 
 // Alert rate limiting
