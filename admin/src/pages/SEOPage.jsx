@@ -18,9 +18,10 @@ const CLIENTS = [
 ];
 
 const DASHBOARD_TABS = [
-  { id: 'overview', label: 'Overview',  icon: BarChart2 },
-  { id: 'keywords', label: 'Keywords',  icon: Search },
-  { id: 'alerts',   label: 'Alerts',    icon: AlertCircle },
+  { id: 'overview',   label: 'Overview',   icon: BarChart2 },
+  { id: 'keywords',   label: 'Keywords',   icon: Search },
+  { id: 'alerts',     label: 'Alerts',     icon: AlertCircle },
+  { id: 'workflows',  label: 'Workflows',  icon: Activity },
 ];
 
 // ---------------------------------------------------------------------------
@@ -359,6 +360,131 @@ function AlertsTab({ alerts, loading }) {
 }
 
 // ---------------------------------------------------------------------------
+// Workflows Tab — trigger buttons + data freshness + status
+// ---------------------------------------------------------------------------
+function WorkflowsTab() {
+  const [workflows, setWorkflows] = useState([]);
+  const [dataHealth, setDataHealth] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [triggering, setTriggering] = useState(null);
+  const [triggerResult, setTriggerResult] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const [wfRes, dhRes] = await Promise.all([
+      apiFetch('/api/seo/workflows').catch(() => null),
+      apiFetch('/api/seo-workflows/data-health').catch(() => null),
+    ]);
+    setWorkflows(wfRes?.workflows ?? []);
+    setDataHealth(dhRes ?? null);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function triggerWorkflow(wfId, wfName) {
+    setTriggering(wfId);
+    setTriggerResult(null);
+    try {
+      const res = await apiFetch(`/api/seo/trigger/${wfId}`, { method: 'POST' });
+      setTriggerResult({ ok: true, name: wfName, message: res?.message || 'Triggered successfully' });
+    } catch (e) {
+      setTriggerResult({ ok: false, name: wfName, message: e.message || 'Failed to trigger' });
+    } finally {
+      setTriggering(null);
+    }
+  }
+
+  if (loading) {
+    return <div className="py-12 text-center text-slate-400"><RefreshCw className="w-5 h-5 animate-spin inline mr-2" />Loading workflows...</div>;
+  }
+
+  const dh = dataHealth;
+
+  return (
+    <div className="space-y-5">
+      {/* Trigger result banner */}
+      {triggerResult && (
+        <div className={`rounded-xl border p-3 text-sm flex items-center gap-2 ${triggerResult.ok ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
+          {triggerResult.ok ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+          <strong>{triggerResult.name}:</strong> {triggerResult.message}
+          <button onClick={() => setTriggerResult(null)} className="ml-auto text-xs underline">Dismiss</button>
+        </div>
+      )}
+
+      {/* Data Freshness */}
+      {dh && (
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+            <Database className="w-4 h-4 text-sky-500" /> Data Freshness
+          </h3>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {Object.entries(dh).filter(([k]) => k !== 'checkedAt').map(([table, info]) => {
+              const d = info || {};
+              const count = d.count ?? 0;
+              const lastEntry = d.lastEntry;
+              const daysAgo = lastEntry ? Math.floor((Date.now() - new Date(lastEntry).getTime()) / 86400000) : null;
+              const freshness = daysAgo === null ? 'empty' : daysAgo <= 2 ? 'fresh' : daysAgo <= 7 ? 'stale' : 'old';
+              const dot = freshness === 'fresh' ? 'bg-green-400' : freshness === 'stale' ? 'bg-yellow-400' : freshness === 'old' ? 'bg-red-400' : 'bg-slate-300';
+              const label = table.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+              return (
+                <div key={table} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-50 text-xs">
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dot}`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-slate-700 truncate">{label}</p>
+                    <p className="text-slate-400">
+                      {count} rows {daysAgo !== null ? `· ${daysAgo === 0 ? 'today' : `${daysAgo}d ago`}` : '· empty'}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Workflow Trigger Grid */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+            <Zap className="w-4 h-4 text-amber-500" /> n8n SEO Workflows
+          </h3>
+          <button onClick={load} className="text-xs text-sky-600 hover:underline flex items-center gap-1">
+            <RefreshCw className="w-3 h-3" /> Refresh
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          {workflows.map(wf => {
+            const isTriggering = triggering === wf.id;
+            return (
+              <div key={wf.id} className="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-slate-100 hover:border-slate-200 transition-colors">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-700 truncate">
+                    <span className="text-xs text-slate-400 mr-1">#{wf.num ?? ''}</span>
+                    {wf.name}
+                  </p>
+                  <p className="text-xs text-slate-400">{wf.schedule}</p>
+                </div>
+                <button
+                  onClick={() => triggerWorkflow(wf.id, wf.name)}
+                  disabled={isTriggering}
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold bg-sky-50 text-sky-700 border border-sky-200 rounded-lg hover:bg-sky-100 disabled:opacity-50 transition-colors flex-shrink-0"
+                >
+                  {isTriggering ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+                  {isTriggering ? 'Running...' : 'Trigger'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main SEOPage
 // ---------------------------------------------------------------------------
 export default function SEOPage() {
@@ -487,6 +613,9 @@ export default function SEOPage() {
           )}
           {activeTab === 'alerts' && (
             <AlertsTab alerts={alerts} loading={loadingAlerts} />
+          )}
+          {activeTab === 'workflows' && (
+            <WorkflowsTab />
           )}
         </div>
       </main>

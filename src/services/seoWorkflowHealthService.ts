@@ -6,6 +6,22 @@ import logger from '../utils/logger';
 // ---------------------------------------------------------------------------
 export async function ensureSeoTables(): Promise<void> {
   const stmts = [
+    `CREATE TABLE IF NOT EXISTS seo_weekly_metrics (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      project_name TEXT,
+      client_domain TEXT,
+      client_name TEXT,
+      week_start DATE,
+      week_start_date DATE,
+      total_clicks INTEGER DEFAULT 0,
+      total_impressions INTEGER DEFAULT 0,
+      avg_position NUMERIC,
+      avg_ctr NUMERIC,
+      total_sessions INTEGER DEFAULT 0,
+      ga4_sessions INTEGER DEFAULT 0,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS seo_weekly_metrics_domain_week_idx ON seo_weekly_metrics(client_domain, week_start DESC)`,
     `CREATE TABLE IF NOT EXISTS site_health_metrics (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       project_name TEXT NOT NULL,
