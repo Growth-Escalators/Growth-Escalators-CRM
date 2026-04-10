@@ -1,11 +1,29 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
 
-const CLIENTS = [
+// Fallback client list — used if client_knowledge_base is empty
+const FALLBACK_CLIENTS = [
   { project: 'aarohaom', url: 'https://aarohaom.com' },
   { project: 'blackpanda', url: 'https://blackpandaenterprises.com' },
   { project: 'ageddentistry', url: 'https://ageddentistry.org' },
 ];
+
+async function getClients(): Promise<Array<{ project: string; url: string }>> {
+  try {
+    const r = await pool.query(
+      `SELECT project_name, 'https://' || (SELECT client_domain FROM seo_weekly_metrics WHERE project_name = kb.project_name LIMIT 1) AS url
+       FROM client_knowledge_base kb
+       WHERE project_name IS NOT NULL
+       LIMIT 20`,
+    );
+    if (r.rows.length > 0) {
+      return (r.rows as Array<{ project_name: string; url: string }>)
+        .filter(row => row.url && row.url !== 'https://')
+        .map(row => ({ project: row.project_name, url: row.url }));
+    }
+  } catch { /* fallback below */ }
+  return FALLBACK_CLIENTS;
+}
 
 interface PageSpeedResult {
   project: string;
@@ -31,7 +49,8 @@ async function fetchScore(url: string, strategy: 'mobile' | 'desktop'): Promise<
 export async function runPageSpeedChecks(): Promise<{ checked: number; errors: number }> {
   let checked = 0, errors = 0;
 
-  for (const client of CLIENTS) {
+  const clients = await getClients();
+  for (const client of clients) {
     try {
       const [mobileData, desktopData] = await Promise.all([
         fetchScore(client.url, 'mobile'),
