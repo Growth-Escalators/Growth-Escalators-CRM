@@ -5,6 +5,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { createServer } from 'http';
 import express, { type Request, type Response, type NextFunction } from 'express';
+import helmet from 'helmet';
 import { Server as SocketServer } from 'socket.io';
 // Migrations run via dist/scripts/migrate.js at startup (see railway.json)
 import { pool } from './db/index';
@@ -59,6 +60,14 @@ import intelligenceChatRouter from './routes/intelligenceChat';
 import { requireAuth, optionalAuth } from './middleware/auth';
 
 const app = express();
+
+// ---------------------------------------------------------------------------
+// Security headers
+// ---------------------------------------------------------------------------
+app.use(helmet({
+  contentSecurityPolicy: false, // CRM frontend loads inline scripts
+  crossOriginEmbedderPolicy: false, // Allow embedding (Postiz, n8n iframes)
+}));
 
 // ---------------------------------------------------------------------------
 // Request logging
@@ -261,7 +270,14 @@ async function startServer() {
   // Create HTTP server + Socket.io
   const httpServer = createServer(app);
   const io = new SocketServer(httpServer, {
-    cors: { origin: '*', methods: ['GET', 'POST'] },
+    cors: {
+      origin: [
+        'https://crm.growthescalators.com',
+        'https://ecom.growthescalators.com',
+        ...(process.env.NODE_ENV !== 'production' ? ['http://localhost:5173', 'http://localhost:3000'] : []),
+      ],
+      methods: ['GET', 'POST'],
+    },
     path: '/socket.io',
   });
 
@@ -376,5 +392,19 @@ async function startServer() {
     process.on('SIGINT', () => shutdown('SIGINT'));
   });
 }
+
+// ---------------------------------------------------------------------------
+// Global unhandled error safety net
+// ---------------------------------------------------------------------------
+process.on('unhandledRejection', (reason: unknown) => {
+  console.error('[FATAL] Unhandled promise rejection:', reason);
+  // Don't exit — log and continue. Railway will capture the log.
+});
+
+process.on('uncaughtException', (error: Error) => {
+  console.error('[FATAL] Uncaught exception:', error);
+  // Exit after logging — let Railway restart the process
+  process.exit(1);
+});
 
 startServer();

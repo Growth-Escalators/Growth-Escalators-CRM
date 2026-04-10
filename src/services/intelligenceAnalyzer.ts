@@ -109,7 +109,7 @@ export async function analyzeWithClaude(data: AgencyDailyData): Promise<Analysis
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
-    signal: AbortSignal.timeout(90000), // 90s max for Claude API
+    signal: AbortSignal.timeout(120000), // 120s max for Claude API
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': apiKey!,
@@ -268,14 +268,14 @@ function buildPrompt(data: AgencyDailyData): string {
     purchases: a.today.purchases, sevenDayAvgRoas: a.sevenDayAvg.roas.toFixed(2),
   }));
 
-  const teamSummary = data.team.map(m => ({
+  const teamSummary = data.team.slice(0, 10).map(m => ({
     name: m.name, completedToday: m.completedToday,
     overdueCount: m.overdueCount, dueTodayCount: m.dueTodayCount,
     weekCompletionPct: m.weekCompletionRate + '%',
   }));
 
   const pipelineSummary = {
-    stages: Object.entries(data.pipeline.stageBreakdown).map(([stage, d]) => ({
+    stages: Object.entries(data.pipeline.stageBreakdown).slice(0, 10).map(([stage, d]) => ({
       stage, count: d.count, value: `₹${Math.round(d.value / 100).toLocaleString('en-IN')}`,
     })),
     newContactsToday: data.pipeline.newContactsToday,
@@ -299,7 +299,7 @@ function buildPrompt(data: AgencyDailyData): string {
     : 'All critical workflows healthy';
 
   const syserrSummary = (data.systemErrors ?? []).length > 0
-    ? JSON.stringify(data.systemErrors, null, 2)
+    ? JSON.stringify((data.systemErrors ?? []).slice(0, 10), null, 2)
     : 'No errors detected';
 
   return `Today's agency data for Growth Escalators — ${new Date().toDateString()}:

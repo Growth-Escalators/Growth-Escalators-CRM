@@ -211,13 +211,15 @@ async function checkInfrastructure(): Promise<SubsystemHealth> {
 
   // Web service
   try {
-    const r = await fetch('https://web-production-311da.up.railway.app/health', { signal: AbortSignal.timeout(5000) });
+    const webUrl = process.env.BASE_URL || 'https://web-production-311da.up.railway.app';
+    const r = await fetch(`${webUrl}/health`, { signal: AbortSignal.timeout(5000) });
     checks.webUp = r.ok;
   } catch { checks.webUp = false; }
 
   // n8n
   try {
-    const r = await fetch('https://primary-production-6c6f5.up.railway.app/healthz', { signal: AbortSignal.timeout(5000) });
+    const n8nUrl = process.env.N8N_BASE_URL || 'https://primary-production-6c6f5.up.railway.app';
+    const r = await fetch(`${n8nUrl}/healthz`, { signal: AbortSignal.timeout(5000) });
     checks.n8nUp = r.ok;
   } catch { checks.n8nUp = false; }
 

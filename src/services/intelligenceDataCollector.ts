@@ -29,7 +29,7 @@ export interface SEOWorkflowHealth {
   totalCount: number;
 }
 
-const N8N_BASE = 'https://primary-production-6c6f5.up.railway.app';
+const N8N_BASE = process.env.N8N_BASE_URL || 'https://primary-production-6c6f5.up.railway.app';
 
 export async function collectSEOWorkflowHealth(): Promise<SEOWorkflowHealth> {
   const now = new Date();

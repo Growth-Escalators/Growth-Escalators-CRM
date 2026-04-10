@@ -5,7 +5,7 @@ import logger from '../utils/logger';
 
 const router = Router();
 
-const N8N_BASE = 'https://primary-production-6c6f5.up.railway.app';
+const N8N_BASE = process.env.N8N_BASE_URL || 'https://primary-production-6c6f5.up.railway.app';
 
 const WORKFLOWS = [
   { id: 'YXmClFSKZB9DMkyu', name: 'GSC + GA4 Data Pull',          schedule: 'Monday 8AM IST',          num: 1  },
