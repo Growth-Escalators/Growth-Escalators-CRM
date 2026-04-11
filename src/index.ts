@@ -237,6 +237,12 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   }
 });
 
+// Redirect bare CRM paths to /crm/* prefix (avoids blank page on /login etc.)
+const CRM_REDIRECTS = ['/login', '/dashboard', '/contacts', '/pipeline', '/inbox', '/ads', '/seo', '/intelligence', '/billing', '/settings', '/reports', '/outreach-dashboard', '/growth-os', '/links', '/social-scheduling'];
+for (const p of CRM_REDIRECTS) {
+  app.get(p, (_req: Request, res: Response) => res.redirect(301, `/crm${p}`));
+}
+
 // D2C client SPA (ecom.growthescalators.com + Railway domain)
 app.use(express.static(clientDist));
 
