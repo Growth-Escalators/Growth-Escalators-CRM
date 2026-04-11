@@ -20,9 +20,10 @@ import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_PERF_MARKETIN
 
 console.log('[worker] Worker process started');
 
-// One-time startup: ensure enrichment columns + reply alert columns
+// One-time startup: ensure enrichment columns + reply alert columns + self-healing columns
 import('./services/outreachEnrichmentService').then(m => m.ensureEnrichmentColumns()).catch(() => {});
 import('./services/outreachAlertService').then(m => m.ensureOutreachAlertColumns()).catch(() => {});
+import('./services/workflowSelfHealingService').then(m => m.ensureSelfHealingColumns()).catch(() => {});
 pool.query(`
   UPDATE outreach_leads SET status = 'New', updated_at = NOW()
   WHERE status = 'Enriching' AND updated_at < NOW() - INTERVAL '30 minutes'
@@ -240,6 +241,13 @@ cron.schedule('45 3 * * *', () => safeCron('SEO Workflow Health', async () => {
   console.log(`[CRON] SEO health: ${health.healthyCount}/${health.totalCount} healthy`);
 }), { timezone: 'UTC' });
 console.log('[cron] SEO workflow health check scheduled — daily 9:15 AM IST');
+
+// SEO Workflow Self-Healing — every 30 min, auto-retry failed n8n executions
+cron.schedule('*/30 * * * *', () => safeCron('Workflow Self-Healing', async () => {
+  const { runSelfHealingCycle } = await import('./services/workflowSelfHealingService');
+  await runSelfHealingCycle();
+}), { timezone: 'UTC' });
+console.log('[cron] workflow self-healing scheduled — every 30 minutes');
 
 // ---------------------------------------------------------------------------
 // Growth OS — Brand Health Score — Daily 8:00 AM IST (2:30 UTC)

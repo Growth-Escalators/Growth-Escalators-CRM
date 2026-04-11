@@ -50,14 +50,22 @@ router.post('/trigger/:workflowPath', async (req: Request, res: Response) => {
     });
 
     const status = triggerRes.ok ? 'triggered' : 'error';
+
+    // Capture executionId from n8n response (if available)
+    let executionId: string | null = null;
+    try {
+      const responseBody = await triggerRes.json() as { executionId?: string };
+      executionId = responseBody.executionId ?? null;
+    } catch { /* n8n may return non-JSON */ }
+
     await pool.query(
-      `INSERT INTO seo_workflow_logs (workflow_id, workflow_name, status, started_at, triggered_by)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [wf.id, wf.name, status, startedAt, triggeredBy],
+      `INSERT INTO seo_workflow_logs (workflow_id, workflow_name, status, started_at, triggered_by, execution_id)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [wf.id, wf.name, status, startedAt, triggeredBy, executionId],
     );
 
-    logger.info(`[seo-workflows] triggered ${wf.name} → ${triggerRes.status}`);
-    res.json({ triggered: triggerRes.ok, workflow: wf.name, at: startedAt.toISOString(), httpStatus: triggerRes.status });
+    logger.info(`[seo-workflows] triggered ${wf.name} → ${triggerRes.status}${executionId ? ` (exec: ${executionId})` : ''}`);
+    res.json({ triggered: triggerRes.ok, workflow: wf.name, at: startedAt.toISOString(), httpStatus: triggerRes.status, executionId });
   } catch (e) {
     logger.error('[seo-workflows] trigger error:', e);
     await pool.query(

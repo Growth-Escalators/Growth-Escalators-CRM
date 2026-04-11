@@ -53,7 +53,7 @@ const CRON_WINDOWS: Record<string, number> = {
   // Ops
   'Audit Booking Follow-up': 360, 'Weekly Data Cleanup': 10080,
   'Co-Pilot Poller': 5, 'Pipeline Placement': 1,
-  'System Health Check': 60,
+  'System Health Check': 60, 'Workflow Self-Healing': 60,
 };
 
 // Alert rate limiting
