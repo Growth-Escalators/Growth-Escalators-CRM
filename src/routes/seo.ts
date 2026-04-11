@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { db } from '../db';
 import { sql } from 'drizzle-orm';
 import logger from '../utils/logger';
+import { SEO_WORKFLOWS } from '../services/seoWorkflowHealthService';
 
 const router = Router();
 
@@ -201,12 +202,16 @@ router.get('/workflows', async (_req: Request, res: Response) => {
 router.post('/trigger/:workflowId', async (req: Request, res: Response) => {
   const { workflowId } = req.params;
   const workflow = WORKFLOWS.find(w => w.id === workflowId);
+  // Also look up the correct zero-padded webhook path from SEO_WORKFLOWS
+  const seoWf = SEO_WORKFLOWS.find(w => w.id === workflowId);
   if (!workflow) {
     res.status(404).json({ error: 'Workflow not found' });
     return;
   }
   try {
-    const webhookUrl = `${N8N_BASE}/webhook/mtrig-seo${workflow.num}`;
+    // Use the canonical webhookPath (e.g. 'mtrig-seo01') not the numeric shorthand
+    const webhookPath = seoWf?.webhookPath ?? `mtrig-seo${String(workflow.num).padStart(2, '0')}`;
+    const webhookUrl = `${N8N_BASE}/webhook/${webhookPath}`;
     const triggerRes = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

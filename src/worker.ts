@@ -661,13 +661,13 @@ console.log('[cron] Retainer invoice generator scheduled — daily 9:00 AM IST')
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
-// SEO Weekly Email — Friday 5:00 PM IST (11:30 UTC)
+// SEO Weekly Email — Thursday 10:30 AM IST (5:00 UTC)
 // ---------------------------------------------------------------------------
-cron.schedule('30 11 * * 5', () => safeCron('SEO Weekly Email', async () => {
+cron.schedule('0 5 * * 4', () => safeCron('SEO Weekly Email', async () => {
   const { sendSEOWeeklyEmail } = await import('./services/seoWeeklyEmailService');
   await sendSEOWeeklyEmail();
 }), { timezone: 'UTC' });
-console.log('[cron] SEO weekly email scheduled — Fridays 5:00 PM IST');
+console.log('[cron] SEO weekly email scheduled — Thursdays 10:30 AM IST');
 
 // ---------------------------------------------------------------------------
 // Task 7: Weekly Outreach Performance Summary — Monday 8:00 AM IST (2:30 UTC)
