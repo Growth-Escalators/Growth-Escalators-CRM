@@ -221,6 +221,19 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 // ---------------------------------------------------------------------------
+// Redirect bare CRM paths to /crm/* prefix (must be BEFORE static handlers)
+const CRM_REDIRECTS = ['/login', '/dashboard', '/contacts', '/pipeline', '/inbox', '/ads', '/seo', '/intelligence', '/billing', '/settings', '/reports', '/outreach-dashboard', '/growth-os', '/links', '/social-scheduling'];
+for (const p of CRM_REDIRECTS) {
+  app.get(p, (req: Request, res: Response, next: NextFunction) => {
+    // Only redirect on non-CRM hosts (Railway domain, ecom domain)
+    // On crm.growthescalators.com, the hostname handler serves admin SPA at root
+    const CRM_HOSTS = ['crm.growthescalators.com'];
+    if (CRM_HOSTS.includes(req.hostname)) return next();
+    res.redirect(301, `/crm${p}`);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Path-based: /crm and /crm/* on any host
 app.use('/crm', express.static(adminDist));
 app.get('/crm/{*path}', (_req: Request, res: Response) => {
@@ -238,12 +251,6 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     next();
   }
 });
-
-// Redirect bare CRM paths to /crm/* prefix (avoids blank page on /login etc.)
-const CRM_REDIRECTS = ['/login', '/dashboard', '/contacts', '/pipeline', '/inbox', '/ads', '/seo', '/intelligence', '/billing', '/settings', '/reports', '/outreach-dashboard', '/growth-os', '/links', '/social-scheduling'];
-for (const p of CRM_REDIRECTS) {
-  app.get(p, (_req: Request, res: Response) => res.redirect(301, `/crm${p}`));
-}
 
 // D2C client SPA (ecom.growthescalators.com + Railway domain)
 app.use(express.static(clientDist));
