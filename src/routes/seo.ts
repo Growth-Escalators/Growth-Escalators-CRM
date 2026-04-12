@@ -323,4 +323,45 @@ router.get('/pages', async (_req: Request, res: Response) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// GET /api/seo/content-gaps — all content gaps across clients
+// ---------------------------------------------------------------------------
+router.get('/content-gaps', async (_req: Request, res: Response) => {
+  try {
+    const result = await db.execute(sql`
+      SELECT id, project_name, target_keyword, our_url, our_position,
+             competitor_urls, topics_missing, questions_missing,
+             word_count_gap, priority_score, status, analysed_at
+      FROM content_gap_analysis
+      ORDER BY priority_score DESC NULLS LAST, analysed_at DESC
+      LIMIT 100
+    `);
+    res.json({ gaps: result.rows });
+  } catch (e) {
+    logger.error('[seo] content-gaps error:', e);
+    res.status(500).json({ error: 'Failed to fetch content gaps' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/seo/backlinks — all backlinks across clients
+// ---------------------------------------------------------------------------
+router.get('/backlinks', async (_req: Request, res: Response) => {
+  try {
+    const result = await db.execute(sql`
+      SELECT id, project_name, source_url, target_url,
+             domain_authority, anchor_text, link_type,
+             first_seen, last_seen, status
+      FROM backlink_data
+      WHERE status = 'active'
+      ORDER BY domain_authority DESC NULLS LAST, first_seen DESC
+      LIMIT 200
+    `);
+    res.json({ backlinks: result.rows });
+  } catch (e) {
+    logger.error('[seo] backlinks error:', e);
+    res.status(500).json({ error: 'Failed to fetch backlinks' });
+  }
+});
+
 export default router;

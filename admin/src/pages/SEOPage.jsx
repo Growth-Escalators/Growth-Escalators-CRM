@@ -5,7 +5,7 @@ import {
   TrendingUp, TrendingDown, BarChart2, Globe, Search, Zap, AlertCircle,
   ChevronDown, RefreshCw, ExternalLink, ArrowUp, ArrowDown, Minus,
   Activity, Shield, FileText, Target, Clock, CheckCircle, XCircle,
-  ChevronRight, Database, Play
+  ChevronRight, Database, Play, Link2, Layers, X, ChevronLeft
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -18,10 +18,12 @@ const CLIENTS = [
 ];
 
 const DASHBOARD_TABS = [
-  { id: 'overview',   label: 'Overview',   icon: BarChart2 },
-  { id: 'keywords',   label: 'Keywords',   icon: Search },
-  { id: 'alerts',     label: 'Alerts',     icon: AlertCircle },
-  { id: 'workflows',  label: 'Workflows',  icon: Activity },
+  { id: 'overview',      label: 'Overview',      icon: BarChart2 },
+  { id: 'keywords',      label: 'Keywords',      icon: Search },
+  { id: 'content-gaps',  label: 'Content Gaps',  icon: Layers },
+  { id: 'backlinks',     label: 'Backlinks',     icon: Link2 },
+  { id: 'alerts',        label: 'Alerts',        icon: AlertCircle },
+  { id: 'workflows',     label: 'Workflows',     icon: Activity },
 ];
 
 // ---------------------------------------------------------------------------
@@ -103,7 +105,7 @@ function timeAgo(dateStr) {
 // ---------------------------------------------------------------------------
 // Overview Tab — card per client with metrics + WoW trend
 // ---------------------------------------------------------------------------
-function OverviewTab({ clients, loading }) {
+function OverviewTab({ clients, loading, onClientClick }) {
   if (loading) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
@@ -131,7 +133,8 @@ function OverviewTab({ clients, loading }) {
 
         return (
           <div key={client.client_domain}
-            className="bg-white rounded-xl border border-slate-200 p-5 hover:shadow-md transition-shadow">
+            onClick={() => onClientClick?.(client.client_domain)}
+            className="bg-white rounded-xl border border-slate-200 p-5 hover:shadow-md hover:border-sky-300 transition-all cursor-pointer">
             {/* Header */}
             <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100">
               <Globe className="w-4 h-4 text-sky-500 flex-shrink-0" />
@@ -360,6 +363,401 @@ function AlertsTab({ alerts, loading }) {
 }
 
 // ---------------------------------------------------------------------------
+// Content Gaps Tab — keyword gaps across all clients
+// ---------------------------------------------------------------------------
+function ContentGapsTab() {
+  const [gaps, setGaps] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState('');
+
+  useEffect(() => {
+    setLoading(true);
+    apiFetch('/api/seo/content-gaps')
+      .then(d => setGaps(d?.gaps ?? []))
+      .catch(() => setGaps([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="py-12 text-center text-slate-400"><RefreshCw className="w-5 h-5 animate-spin inline mr-2" />Loading content gaps...</div>;
+
+  if (gaps.length === 0) {
+    return (
+      <div className="py-16 text-center">
+        <Layers className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+        <p className="text-slate-500 text-sm">No content gap data yet.</p>
+        <p className="text-slate-400 text-xs mt-1">Run the Content Gap Analysis workflow (WF-07) to identify gaps.</p>
+      </div>
+    );
+  }
+
+  const filtered = filter
+    ? gaps.filter(g => g.project_name?.toLowerCase().includes(filter.toLowerCase()) || g.target_keyword?.toLowerCase().includes(filter.toLowerCase()))
+    : gaps;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <input
+          type="text" placeholder="Filter by keyword or client..."
+          value={filter} onChange={e => setFilter(e.target.value)}
+          className="flex-1 text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-sky-400"
+        />
+        <span className="text-xs text-slate-400">{filtered.length} gaps</span>
+      </div>
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 border-b border-slate-200">
+            <tr>
+              <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500">Keyword</th>
+              <th className="text-left px-3 py-2.5 text-xs font-semibold text-slate-500">Client</th>
+              <th className="text-center px-3 py-2.5 text-xs font-semibold text-slate-500">Our Pos</th>
+              <th className="text-center px-3 py-2.5 text-xs font-semibold text-slate-500">Word Gap</th>
+              <th className="text-center px-3 py-2.5 text-xs font-semibold text-slate-500">Priority</th>
+              <th className="text-center px-3 py-2.5 text-xs font-semibold text-slate-500">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {filtered.map((g, i) => {
+              const priority = parseFloat(g.priority_score ?? '0');
+              const priorityColor = priority >= 7 ? 'text-red-600 bg-red-50' : priority >= 4 ? 'text-amber-600 bg-amber-50' : 'text-slate-500 bg-slate-50';
+              const statusColor = g.status === 'pending' ? 'bg-yellow-100 text-yellow-700' : g.status === 'addressed' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600';
+              const client = CLIENTS.find(c => c.domain === g.project_name) || CLIENTS.find(c => g.project_name?.includes(c.domain?.split('.')[0]));
+              return (
+                <tr key={g.id ?? i} className="hover:bg-slate-50">
+                  <td className="px-4 py-2.5 font-medium text-slate-700">{g.target_keyword}</td>
+                  <td className="px-3 py-2.5 text-slate-500 text-xs">{client?.label ?? g.project_name}</td>
+                  <td className="px-3 py-2.5 text-center">
+                    <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${posColor(g.our_position)}`}>
+                      {g.our_position ? fmtPos(g.our_position) : '—'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 text-center text-slate-600 text-xs">
+                    {g.word_count_gap > 0 ? `+${g.word_count_gap} words` : '—'}
+                  </td>
+                  <td className="px-3 py-2.5 text-center">
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${priorityColor}`}>
+                      {priority.toFixed(1)}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 text-center">
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${statusColor}`}>{g.status}</span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Backlinks Tab — backlink profile across all clients
+// ---------------------------------------------------------------------------
+function BacklinksTab() {
+  const [backlinks, setBacklinks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState('');
+
+  useEffect(() => {
+    setLoading(true);
+    apiFetch('/api/seo/backlinks')
+      .then(d => setBacklinks(d?.backlinks ?? []))
+      .catch(() => setBacklinks([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="py-12 text-center text-slate-400"><RefreshCw className="w-5 h-5 animate-spin inline mr-2" />Loading backlinks...</div>;
+
+  if (backlinks.length === 0) {
+    return (
+      <div className="py-16 text-center">
+        <Link2 className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+        <p className="text-slate-500 text-sm">No backlink data yet.</p>
+        <p className="text-slate-400 text-xs mt-1">Run the Backlink Monitor workflow (WF-08) to track backlinks.</p>
+      </div>
+    );
+  }
+
+  const filtered = filter
+    ? backlinks.filter(b => b.source_url?.toLowerCase().includes(filter.toLowerCase()) || b.anchor_text?.toLowerCase().includes(filter.toLowerCase()) || b.project_name?.toLowerCase().includes(filter.toLowerCase()))
+    : backlinks;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <input
+          type="text" placeholder="Filter by URL, anchor text or client..."
+          value={filter} onChange={e => setFilter(e.target.value)}
+          className="flex-1 text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-sky-400"
+        />
+        <span className="text-xs text-slate-400">{filtered.length} backlinks</span>
+      </div>
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 border-b border-slate-200">
+            <tr>
+              <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500">Source URL</th>
+              <th className="text-left px-3 py-2.5 text-xs font-semibold text-slate-500">Client</th>
+              <th className="text-center px-3 py-2.5 text-xs font-semibold text-slate-500">DA</th>
+              <th className="text-left px-3 py-2.5 text-xs font-semibold text-slate-500">Anchor</th>
+              <th className="text-center px-3 py-2.5 text-xs font-semibold text-slate-500">Type</th>
+              <th className="text-center px-3 py-2.5 text-xs font-semibold text-slate-500">First Seen</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {filtered.map((b, i) => {
+              const da = parseFloat(b.domain_authority ?? '0');
+              const daColor = da >= 50 ? 'text-green-600 bg-green-50' : da >= 20 ? 'text-amber-600 bg-amber-50' : 'text-slate-500 bg-slate-50';
+              const client = CLIENTS.find(c => c.domain === b.project_name) || CLIENTS.find(c => b.project_name?.includes(c.domain?.split('.')[0]));
+              const typeColor = b.link_type === 'dofollow' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600';
+              return (
+                <tr key={b.id ?? i} className="hover:bg-slate-50">
+                  <td className="px-4 py-2.5 text-slate-700 text-xs truncate max-w-[280px]" title={b.source_url}>
+                    <a href={b.source_url} target="_blank" rel="noopener noreferrer" className="hover:text-sky-600 hover:underline">
+                      {b.source_url?.replace(/^https?:\/\/(www\.)?/, '').slice(0, 50)}
+                    </a>
+                  </td>
+                  <td className="px-3 py-2.5 text-slate-500 text-xs">{client?.label ?? b.project_name}</td>
+                  <td className="px-3 py-2.5 text-center">
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${daColor}`}>{da}</span>
+                  </td>
+                  <td className="px-3 py-2.5 text-slate-600 text-xs truncate max-w-[150px]">{b.anchor_text || '—'}</td>
+                  <td className="px-3 py-2.5 text-center">
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${typeColor}`}>{b.link_type || '—'}</span>
+                  </td>
+                  <td className="px-3 py-2.5 text-center text-slate-400 text-xs">{b.first_seen ? new Date(b.first_seen).toLocaleDateString('en-IN') : '—'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Client Detail Panel — slide-in from right when clicking an Overview card
+// ---------------------------------------------------------------------------
+function ClientDetailPanel({ domain, onClose }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!domain) return;
+    setLoading(true);
+    apiFetch(`/api/seo/client/${domain}`)
+      .then(d => setData(d))
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, [domain]);
+
+  if (!domain) return null;
+
+  const client = CLIENTS.find(c => c.domain === domain);
+  const displayName = client?.label ?? domain;
+
+  return (
+    <div className="fixed inset-0 z-50 flex">
+      {/* Backdrop */}
+      <div className="flex-1 bg-black/30" onClick={onClose} />
+      {/* Panel */}
+      <div className="w-full max-w-2xl bg-white shadow-2xl overflow-y-auto">
+        {/* Header */}
+        <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center gap-3 z-10">
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1">
+            <X className="w-5 h-5" />
+          </button>
+          <Globe className="w-5 h-5 text-sky-500" />
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">{displayName}</h2>
+            <p className="text-xs text-slate-400">{domain}</p>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-6">
+          {loading ? (
+            <div className="py-12 text-center text-slate-400">
+              <RefreshCw className="w-5 h-5 animate-spin inline mr-2" />Loading client data...
+            </div>
+          ) : !data ? (
+            <div className="py-12 text-center text-red-500 text-sm">Failed to load data for {domain}</div>
+          ) : (
+            <>
+              {/* PageSpeed / Health */}
+              {data.health && (
+                <section>
+                  <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-green-500" /> Core Web Vitals
+                  </h3>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    {[
+                      { label: 'Mobile', value: data.health.pagespeed_mobile, suffix: '', color: parseFloat(data.health.pagespeed_mobile ?? 0) >= 70 ? 'text-green-600' : 'text-red-500' },
+                      { label: 'Desktop', value: data.health.pagespeed_desktop, suffix: '', color: parseFloat(data.health.pagespeed_desktop ?? 0) >= 70 ? 'text-green-600' : 'text-red-500' },
+                      { label: 'LCP', value: data.health.lcp, suffix: 's', color: parseFloat(data.health.lcp ?? 0) <= 2.5 ? 'text-green-600' : 'text-amber-600' },
+                      { label: 'FID', value: data.health.fid, suffix: 'ms', color: parseFloat(data.health.fid ?? 0) <= 100 ? 'text-green-600' : 'text-amber-600' },
+                      { label: 'CLS', value: data.health.cls, suffix: '', color: parseFloat(data.health.cls ?? 0) <= 0.1 ? 'text-green-600' : 'text-amber-600' },
+                    ].map(m => (
+                      <div key={m.label} className="bg-slate-50 rounded-lg p-3 text-center">
+                        <p className="text-xs text-slate-500 mb-1">{m.label}</p>
+                        <p className={`text-xl font-bold ${m.color}`}>
+                          {m.value != null ? `${parseFloat(m.value).toFixed(m.label === 'CLS' ? 3 : 1)}${m.suffix}` : '—'}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* Weekly Trend */}
+              {data.weekly?.length > 0 && (
+                <section>
+                  <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-sky-500" /> Weekly Trend (last {data.weekly.length} weeks)
+                  </h3>
+                  <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead className="bg-slate-50 border-b">
+                        <tr>
+                          <th className="text-left px-3 py-2 text-slate-500">Week</th>
+                          <th className="text-right px-3 py-2 text-slate-500">Clicks</th>
+                          <th className="text-right px-3 py-2 text-slate-500">Impressions</th>
+                          <th className="text-right px-3 py-2 text-slate-500">Avg Pos</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {data.weekly.slice(0, 8).map((w, i) => (
+                          <tr key={i} className="hover:bg-slate-50">
+                            <td className="px-3 py-2 text-slate-600">{w.week_start ? new Date(w.week_start).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '—'}</td>
+                            <td className="px-3 py-2 text-right font-medium text-slate-700">{fmt(w.total_clicks)}</td>
+                            <td className="px-3 py-2 text-right text-slate-600">{fmt(w.total_impressions)}</td>
+                            <td className="px-3 py-2 text-right text-slate-600">{fmtPos(w.avg_position)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              )}
+
+              {/* Top Keywords */}
+              {data.keywords?.length > 0 && (
+                <section>
+                  <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                    <Search className="w-4 h-4 text-indigo-500" /> Keywords ({data.keywords.length})
+                  </h3>
+                  <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead className="bg-slate-50 border-b">
+                        <tr>
+                          <th className="text-left px-3 py-2 text-slate-500">Keyword</th>
+                          <th className="text-center px-3 py-2 text-slate-500">Position</th>
+                          <th className="text-center px-3 py-2 text-slate-500">Change</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {data.keywords.slice(0, 20).map((kw, i) => {
+                          const change = kw.position_change != null ? Number(kw.position_change) : null;
+                          return (
+                            <tr key={i} className="hover:bg-slate-50">
+                              <td className="px-3 py-2 text-slate-700 font-medium">{kw.keyword}</td>
+                              <td className="px-3 py-2 text-center">
+                                <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${posColor(kw.position)}`}>
+                                  {kw.position ? fmtPos(kw.position) : '—'}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-center">
+                                {change != null && change !== 0 ? (
+                                  <span className={`inline-flex items-center gap-0.5 text-xs font-semibold ${change < 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                    {change < 0 ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />}
+                                    {Math.abs(change)}
+                                  </span>
+                                ) : <Minus className="w-3 h-3 text-slate-300 mx-auto" />}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              )}
+
+              {/* Alerts */}
+              {data.alerts?.length > 0 && (
+                <section>
+                  <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-500" /> Recent Alerts ({data.alerts.length})
+                  </h3>
+                  <div className="space-y-2">
+                    {data.alerts.map((a, i) => (
+                      <div key={i} className="flex items-start gap-2 bg-slate-50 rounded-lg px-3 py-2 text-xs">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold flex-shrink-0 ${alertBadge(a.alert_type)}`}>
+                          {(a.alert_type ?? 'info').replace(/_/g, ' ')}
+                        </span>
+                        <span className="text-slate-600 flex-1">{a.message}</span>
+                        <span className="text-slate-400 flex-shrink-0">{a.created_at ? timeAgo(a.created_at) : ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* Opportunities */}
+              {data.opportunities?.length > 0 && (
+                <section>
+                  <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                    <Target className="w-4 h-4 text-purple-500" /> Open Opportunities ({data.opportunities.length})
+                  </h3>
+                  <div className="space-y-2">
+                    {data.opportunities.map((opp, i) => (
+                      <div key={i} className="bg-white border border-slate-200 rounded-lg px-4 py-3">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-semibold bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">{opp.opportunity_type}</span>
+                          <span className="text-xs text-slate-400">Impact: {opp.estimated_impact} · Effort: {opp.effort_level}</span>
+                        </div>
+                        <p className="text-sm text-slate-700">{opp.description}</p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* Content Gaps */}
+              {data.content?.length > 0 && (
+                <section>
+                  <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-orange-500" /> Content Gaps ({data.content.length})
+                  </h3>
+                  <div className="space-y-2">
+                    {data.content.map((gap, i) => (
+                      <div key={i} className="bg-orange-50 border border-orange-100 rounded-lg px-4 py-3">
+                        <p className="text-sm font-semibold text-orange-800">{gap.target_keyword}</p>
+                        {gap.word_count_gap > 0 && <p className="text-xs text-orange-600 mt-0.5">Word count gap: +{gap.word_count_gap} words needed</p>}
+                        {gap.our_url && <p className="text-xs text-slate-500 mt-0.5 truncate">Current URL: {gap.our_url}</p>}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* Empty state */}
+              {!data.weekly?.length && !data.keywords?.length && !data.health && (
+                <div className="py-12 text-center text-slate-400 text-sm">
+                  No data available for {displayName}. Run the SEO workflows to start collecting data.
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Workflows Tab — trigger buttons + data freshness + status
 // ---------------------------------------------------------------------------
 function WorkflowsTab() {
@@ -490,6 +888,7 @@ function WorkflowsTab() {
 export default function SEOPage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [selectedClient, setSelectedClient] = useState(null); // domain string for detail panel
 
   // Data state
   const [overview, setOverview] = useState([]);
@@ -606,10 +1005,16 @@ export default function SEOPage() {
         {/* Body */}
         <div className="p-6">
           {activeTab === 'overview' && (
-            <OverviewTab clients={overview} loading={loadingOverview} />
+            <OverviewTab clients={overview} loading={loadingOverview} onClientClick={setSelectedClient} />
           )}
           {activeTab === 'keywords' && (
             <KeywordsTab keywords={keywords} loading={loadingKeywords} />
+          )}
+          {activeTab === 'content-gaps' && (
+            <ContentGapsTab />
+          )}
+          {activeTab === 'backlinks' && (
+            <BacklinksTab />
           )}
           {activeTab === 'alerts' && (
             <AlertsTab alerts={alerts} loading={loadingAlerts} />
@@ -618,6 +1023,11 @@ export default function SEOPage() {
             <WorkflowsTab />
           )}
         </div>
+
+        {/* Client Detail Slide-In Panel */}
+        {selectedClient && (
+          <ClientDetailPanel domain={selectedClient} onClose={() => setSelectedClient(null)} />
+        )}
       </main>
     </div>
   );
