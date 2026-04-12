@@ -698,6 +698,14 @@ cron.schedule('0 2 * * 0', () => safeCron('PageSpeed Monitor', async () => {
 }), { timezone: 'UTC' });
 console.log('[cron] PageSpeed monitor scheduled — Sundays 7:30 AM IST');
 
+// Rank Tracking via Serper.dev — Tuesday 9:00 AM IST (3:30 UTC)
+cron.schedule('30 3 * * 2', () => safeCron('Rank Tracking', async () => {
+  const { runRankChecks } = await import('./services/rankTrackingService');
+  const result = await runRankChecks();
+  console.log(`[CRON] Rank tracking: ${result.checked} keywords checked, ${result.errors} errors`);
+}), { timezone: 'UTC' });
+console.log('[cron] Rank tracking scheduled — Tuesdays 9:00 AM IST (Serper.dev)');
+
 // Weekly Data Cleanup — Sunday 2:00 AM IST (Saturday 20:30 UTC)
 // ---------------------------------------------------------------------------
 cron.schedule('30 20 * * 6', () => safeCron('Weekly Data Cleanup', async () => {
