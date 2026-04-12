@@ -95,37 +95,37 @@ router.get('/client/:domain', async (req: Request, res: Response) => {
       `),
       db.execute(sql`
         SELECT DISTINCT ON (keyword)
-          keyword, position, previous_position,
-          position - previous_position AS position_change,
-          search_volume, url, checked_at
+          keyword, current_position AS position, previous_position,
+          (current_position - previous_position) AS position_change,
+          search_volume, url_ranking AS url, recorded_date AS checked_at
         FROM keyword_rankings
-        WHERE client_domain = ${domain}
-        ORDER BY keyword, checked_at DESC
+        WHERE client_domain = ${domain} OR project_name = ${domain}
+        ORDER BY keyword, recorded_date DESC
       `),
       db.execute(sql`
         SELECT * FROM site_health_metrics
-        WHERE client_domain = ${domain}
+        WHERE client_domain = ${domain} OR project_name = ${domain}
         ORDER BY checked_at DESC LIMIT 1
       `),
       db.execute(sql`
         SELECT * FROM seo_alerts_log
-        WHERE client_domain = ${domain}
+        WHERE client_domain = ${domain} OR project_name = ${domain}
         ORDER BY created_at DESC LIMIT 10
       `),
       db.execute(sql`
         SELECT * FROM seo_opportunities
-        WHERE client_domain = ${domain} AND status = 'open'
-        ORDER BY priority DESC, created_at DESC LIMIT 10
+        WHERE (client_domain = ${domain} OR project_name = ${domain}) AND status = 'open'
+        ORDER BY priority_score DESC NULLS LAST, created_at DESC LIMIT 10
       `),
       db.execute(sql`
         SELECT * FROM content_gap_analysis
-        WHERE client_domain = ${domain}
-        ORDER BY created_at DESC LIMIT 5
+        WHERE client_domain = ${domain} OR project_name = ${domain}
+        ORDER BY analysed_at DESC LIMIT 5
       `),
       db.execute(sql`
         SELECT * FROM backlink_data
-        WHERE client_domain = ${domain}
-        ORDER BY checked_at DESC LIMIT 1
+        WHERE client_domain = ${domain} OR project_name = ${domain}
+        ORDER BY first_seen DESC NULLS LAST LIMIT 20
       `),
     ]);
 
@@ -151,12 +151,12 @@ router.get('/keywords/:domain', async (req: Request, res: Response) => {
   const { domain } = req.params;
   try {
     const result = await db.execute(sql`
-      SELECT keyword, position, previous_position,
-        position - previous_position AS change,
-        search_volume, url, checked_at
+      SELECT keyword, current_position AS position, previous_position,
+        (current_position - previous_position) AS change,
+        search_volume, url_ranking AS url, recorded_date AS checked_at
       FROM keyword_rankings
-      WHERE client_domain = ${domain}
-      ORDER BY position ASC
+      WHERE client_domain = ${domain} OR project_name = ${domain}
+      ORDER BY current_position ASC NULLS LAST
     `);
     res.json({ keywords: result.rows });
   } catch (e) {
@@ -234,12 +234,12 @@ router.post('/trigger/:workflowId', async (req: Request, res: Response) => {
 router.get('/keywords-all', async (_req: Request, res: Response) => {
   try {
     const result = await db.execute(sql`
-      SELECT keyword, client_domain,
+      SELECT keyword, COALESCE(client_domain, project_name) AS client_domain,
         current_position AS position,
         previous_position,
         (current_position - previous_position) AS change,
         search_volume,
-        checked_at
+        recorded_date AS checked_at
       FROM keyword_rankings
       ORDER BY current_position ASC NULLS LAST
       LIMIT 200
