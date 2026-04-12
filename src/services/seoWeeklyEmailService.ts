@@ -18,16 +18,12 @@ export async function sendSEOWeeklyEmail(): Promise<void> {
       ORDER BY client_domain, week_start DESC
     `).catch(() => ({ rows: [] })),
     pool.query(`
-      SELECT keyword, client_domain, current_position AS position, previous_position,
-             current_position - previous_position AS change
+      SELECT keyword, COALESCE(client_domain, project_name) AS client_domain,
+             current_position AS position, previous_position,
+             (current_position - previous_position) AS change
       FROM keyword_rankings
-      ORDER BY current_position ASC LIMIT 20
-    `).catch(() => pool.query(`
-      SELECT keyword, client_domain, position, previous_position,
-             position - previous_position AS change
-      FROM keyword_rankings
-      ORDER BY position ASC LIMIT 20
-    `).catch(() => ({ rows: [] }))),
+      ORDER BY current_position ASC NULLS LAST LIMIT 20
+    `).catch(() => ({ rows: [] })),
     pool.query(`
       SELECT alert_type, project_name, message, created_at
       FROM seo_alerts_log

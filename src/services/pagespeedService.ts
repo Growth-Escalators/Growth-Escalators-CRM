@@ -10,16 +10,27 @@ const FALLBACK_CLIENTS = [
 
 async function getClients(): Promise<Array<{ project: string; url: string }>> {
   try {
-    const r = await pool.query(
-      `SELECT project_name, 'https://' || (SELECT client_domain FROM seo_weekly_metrics WHERE project_name = kb.project_name LIMIT 1) AS url
-       FROM client_knowledge_base kb
-       WHERE project_name IS NOT NULL
-       LIMIT 20`,
-    );
+    // Try to get clients from knowledge base with their domains
+    const r = await pool.query(`
+      SELECT project_name,
+        COALESCE(
+          (SELECT 'https://' || client_domain FROM seo_weekly_metrics WHERE project_name = kb.project_name AND client_domain IS NOT NULL LIMIT 1),
+          CASE
+            WHEN project_name ILIKE '%aaroha%' THEN 'https://aarohaom.com'
+            WHEN project_name ILIKE '%blackpanda%' OR project_name ILIKE '%black%panda%' THEN 'https://blackpandaenterprises.com'
+            WHEN project_name ILIKE '%aged%' OR project_name ILIKE '%dentistry%' THEN 'https://ageddentistry.org'
+            ELSE NULL
+          END
+        ) AS url
+      FROM client_knowledge_base kb
+      WHERE project_name IS NOT NULL
+      LIMIT 20
+    `);
     if (r.rows.length > 0) {
-      return (r.rows as Array<{ project_name: string; url: string }>)
+      const clients = (r.rows as Array<{ project_name: string; url: string }>)
         .filter(row => row.url && row.url !== 'https://')
         .map(row => ({ project: row.project_name, url: row.url }));
+      if (clients.length > 0) return clients;
     }
   } catch { /* fallback below */ }
   return FALLBACK_CLIENTS;
