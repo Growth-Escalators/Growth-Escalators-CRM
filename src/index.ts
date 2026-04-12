@@ -233,6 +233,14 @@ for (const p of CRM_REDIRECTS) {
   });
 }
 
+// Redirect exact /crm to /crm/login (no trailing path)
+app.get('/crm', (req: Request, res: Response, next: NextFunction) => {
+  // On CRM hostname, let the SPA handle it (React Router → /dashboard → /login)
+  const CRM_HOSTS_LIST = ['crm.growthescalators.com'];
+  if (CRM_HOSTS_LIST.includes(req.hostname)) return next();
+  res.redirect(302, '/crm/login');
+});
+
 // ---------------------------------------------------------------------------
 // Path-based: /crm and /crm/* on any host
 app.use('/crm', express.static(adminDist));

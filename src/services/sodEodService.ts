@@ -341,63 +341,58 @@ export async function sendEODSummary(): Promise<{ sent: number; errors: string[]
 
   const { score, emoji, label } = calculateDailyScore(completed.length, overdue.length);
 
-  // Channel message: A + B + C + E + F
-  let channelMsg = `📊 *Growth Escalators — End of Day Report*\n_${dateStr} | 7:00 PM IST_\n\n`;
-
-  // A — Completed Today
-  if (completed.length > 0) {
-    channelMsg += `✅ *Completed Today (${completed.length})*\n`;
-    for (const t of completed.slice(0, 15)) channelMsg += `  • ${t.name} — ${t.assigneeName}\n`;
-    if (completed.length > 15) channelMsg += `  _...and ${completed.length - 15} more_\n`;
-  } else {
-    channelMsg += `✅ *Completed Today (0)*\n  _No tasks marked complete today_\n`;
+  // ── Group data by team member ──
+  const perMember: Record<string, { completed: TeamTask[]; open: number }> = {};
+  for (const m of TEAM) {
+    perMember[m.name] = { completed: [], open: 0 };
   }
-  channelMsg += '\n';
+  for (const t of completed) {
+    if (perMember[t.assigneeName]) perMember[t.assigneeName].completed.push(t);
+  }
+  for (const t of overdue) {
+    if (perMember[t.assigneeName]) perMember[t.assigneeName].open++;
+  }
+  for (const t of inProgress) {
+    if (perMember[t.assigneeName]) perMember[t.assigneeName].open++;
+  }
 
-  // B — Overdue Tasks
-  if (overdue.length > 0) {
-    channelMsg += `🔴 *Overdue Tasks (${overdue.length})*\n`;
-    for (const t of overdue.slice(0, 10)) {
-      const days = t.daysOverdue === 1 ? '1 day overdue' : `${t.daysOverdue} days overdue`;
-      channelMsg += `  • ${t.name} — ${t.assigneeName} _(${days})_\n`;
+  // ── Channel message: per-person format ──
+  let channelMsg = `*Team EOD — ${dateStr}*\n\n`;
+
+  // Team summary header
+  channelMsg += `Completed today across team: *${completed.length}*\n`;
+  for (const m of TEAM) {
+    const data = perMember[m.name];
+    channelMsg += `• <@${m.slackId}>: *${data.completed.length} done*, ${data.open} open\n`;
+  }
+
+  // Per-person detail blocks
+  for (const m of TEAM) {
+    const data = perMember[m.name];
+    channelMsg += `\n━━━━━━━━━━━━━━━━━━\n`;
+    channelMsg += `📝 *EOD — <@${m.slackId}>*\n`;
+
+    if (data.completed.length > 0) {
+      channelMsg += `✅ *Completed:*\n`;
+      for (const t of data.completed.slice(0, 10)) {
+        channelMsg += `  • ${t.name}\n`;
+      }
+      if (data.completed.length > 10) channelMsg += `  _...and ${data.completed.length - 10} more_\n`;
+    } else {
+      channelMsg += `No tasks completed today.\n`;
     }
-    if (overdue.length > 10) channelMsg += `  _...and ${overdue.length - 10} more_\n`;
-    channelMsg += '\n';
+
+    channelMsg += `📋 Open: ${data.open} tasks\n`;
+
+    if (data.completed.length === 0) {
+      channelMsg += `💡 Remember to update ClickUp as you finish work!\n`;
+    }
   }
 
-  // C — In Progress
-  if (inProgress.length > 0) {
-    channelMsg += `🔄 *In Progress (${inProgress.length})*\n`;
-    for (const t of inProgress.slice(0, 10)) channelMsg += `  • ${t.name} — ${t.assigneeName}\n`;
-    channelMsg += '\n';
-  }
-
-  // E — At Risk Tomorrow
-  if (atRisk.length > 0) {
-    channelMsg += `⚠️ *At Risk Tomorrow (${atRisk.length})*\n`;
-    for (const t of atRisk) channelMsg += `  • ${t.name} — ${t.assigneeName} _(due tomorrow, not started)_\n`;
-    channelMsg += '\n';
-  }
-
-  // E2 — Summary totals
-  const totalOverdueCompleted = completed.filter(t => t.daysOverdue > 0).length;
-  const totalOpen = overdue.length + inProgress.length;
-  // Most productive by assignee
-  const byAssignee: Record<string, number> = {};
-  for (const t of completed) byAssignee[t.assigneeName] = (byAssignee[t.assigneeName] ?? 0) + 1;
-  const topAssignee = Object.entries(byAssignee).sort(([, a], [, b]) => b - a)[0];
-
-  channelMsg += `─────────────────────\n`;
-  channelMsg += `📊 *Today's Summary*\n`;
-  channelMsg += `✅ Total completed: ${completed.length} tasks\n`;
-  if (totalOverdueCompleted > 0) channelMsg += `⚠️ Overdue when completed: ${totalOverdueCompleted} tasks\n`;
-  channelMsg += `📋 Still open: ${totalOpen} tasks carrying forward\n`;
-  if (topAssignee && topAssignee[1] > 0) channelMsg += `👥 Most productive: ${topAssignee[0]} (${topAssignee[1]} tasks)\n`;
-  channelMsg += '\n';
-
-  // F — Daily Score
-  channelMsg += `📊 *Team Score Today: ${score}/100*\n_${emoji} ${label}_\n\n`;
-  channelMsg += `━━━━━━━━━━━━━━━━━━━━━\n_Next SOD: ${nextSodLabel()} 10AM IST_`;
+  // Score footer
+  channelMsg += `\n━━━━━━━━━━━━━━━━━━\n`;
+  channelMsg += `📊 *Team Score: ${score}/100* ${emoji} ${label}\n`;
+  channelMsg += `_Next SOD: ${nextSodLabel()} 10AM IST_`;
 
   let sent = 0;
   const channelOk = await sendSlackMessage(SOD_EOD_CHANNEL, channelMsg).catch(e => {

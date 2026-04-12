@@ -474,6 +474,146 @@ router.post('/invoices/:id/payment', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// PATCH /api/billing/invoices/:id/payment-status — manual status update
+// ---------------------------------------------------------------------------
+router.patch('/invoices/:id/payment-status', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const invoiceId = String(req.params.id);
+  const { status, amountPaid, notes } = req.body as {
+    status?: string;
+    amountPaid?: number; // in rupees
+    notes?: string;
+  };
+
+  if (!status || !['paid', 'partially_paid', 'sent', 'overdue', 'draft'].includes(status)) {
+    res.status(400).json({ error: 'Valid status required: paid, partially_paid, sent, overdue, draft' });
+    return;
+  }
+
+  try {
+    // Fetch current invoice
+    const [inv] = await db.select().from(invoices)
+      .where(and(eq(invoices.id, invoiceId), eq(invoices.tenantId, tenantId)))
+      .limit(1);
+    if (!inv) { res.status(404).json({ error: 'Invoice not found' }); return; }
+
+    const updateFields: Record<string, unknown> = { status, updatedAt: new Date() };
+
+    // If amountPaid is provided, update the amounts
+    if (amountPaid != null) {
+      const paise = Math.round(amountPaid * 100);
+      updateFields.amountPaid = paise;
+      updateFields.amountDue = inv.totalAmount - paise;
+    }
+
+    // Set paidAt if marking as paid
+    if (status === 'paid') {
+      updateFields.paidAt = new Date();
+    }
+
+    // Add notes if provided
+    if (notes) {
+      updateFields.notes = notes;
+    }
+
+    await db.execute(sql`
+      UPDATE invoices SET
+        status = ${status},
+        amount_paid = COALESCE(${updateFields.amountPaid ?? null}::integer, amount_paid),
+        amount_due = COALESCE(${updateFields.amountDue ?? null}::integer, amount_due),
+        paid_at = ${status === 'paid' ? sql`NOW()` : sql`paid_at`},
+        notes = COALESCE(${notes ?? null}, notes),
+        updated_at = NOW()
+      WHERE id = ${invoiceId} AND tenant_id = ${tenantId}
+    `);
+
+    // Log to audit
+    const { pool } = await import('../db/index');
+    await pool.query(
+      `INSERT INTO audit_events (actor_id, actor_email, action, resource_type, details, created_at)
+       VALUES ($1, $2, $3, 'invoice', $4, NOW())`,
+      [req.user!.id, req.user!.email, 'billing:update_payment_status',
+       JSON.stringify({ invoiceId, oldStatus: inv.status, newStatus: status, amountPaid, notes })],
+    ).catch(() => {});
+
+    res.json({ success: true, invoiceId, status });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/billing/monthly-tracker — per-client payment status by month
+// ---------------------------------------------------------------------------
+router.get('/monthly-tracker', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const months = Math.min(Number(req.query.months) || 3, 12);
+
+  try {
+    // Get active billing clients
+    const clients = await db.select().from(billingClients)
+      .where(and(eq(billingClients.tenantId, tenantId), eq(billingClients.isActive, true)));
+
+    // Build month list (last N months)
+    const monthList: Array<{ label: string; start: Date; end: Date }> = [];
+    const now = new Date();
+    for (let i = 0; i < months; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
+      monthList.push({
+        label: d.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }),
+        start: d,
+        end,
+      });
+    }
+
+    // For each client, check invoice status per month
+    const { pool } = await import('../db/index');
+    const tracker = await Promise.all(clients.map(async (client) => {
+      const monthData = await Promise.all(monthList.map(async (m) => {
+        const result = await pool.query(
+          `SELECT status, total_amount, amount_paid, amount_due, invoice_number
+           FROM invoices
+           WHERE client_id = $1 AND tenant_id = $2
+             AND invoice_date >= $3 AND invoice_date <= $4
+             AND status != 'cancelled'
+           ORDER BY invoice_date DESC LIMIT 1`,
+          [client.id, tenantId, m.start, m.end],
+        );
+        const inv = result.rows[0] as Record<string, unknown> | undefined;
+        return {
+          month: m.label,
+          hasInvoice: !!inv,
+          status: inv?.status ?? null,
+          invoiceNumber: inv?.invoice_number ?? null,
+          amountInvoiced: Number(inv?.total_amount ?? 0),
+          amountPaid: Number(inv?.amount_paid ?? 0),
+          amountDue: Number(inv?.amount_due ?? 0),
+        };
+      }));
+      return {
+        clientId: client.id,
+        clientName: client.name,
+        retainerAmount: client.retainerAmount,
+        months: monthData,
+      };
+    }));
+
+    // Totals per month
+    const totals = monthList.map((m, i) => ({
+      month: m.label,
+      expected: tracker.reduce((s, c) => s + (c.months[i].amountInvoiced), 0),
+      collected: tracker.reduce((s, c) => s + (c.months[i].amountPaid), 0),
+      due: tracker.reduce((s, c) => s + (c.months[i].amountDue), 0),
+    }));
+
+    res.json({ tracker, totals, months: monthList.map(m => m.label) });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/billing/invoices/:id/pdf
 // ---------------------------------------------------------------------------
 router.get('/invoices/:id/pdf', async (req: Request, res: Response) => {

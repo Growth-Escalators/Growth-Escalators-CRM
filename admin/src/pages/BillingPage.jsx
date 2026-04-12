@@ -608,6 +608,196 @@ function PaymentModal({ invoice, onClose, onSaved }) {
   );
 }
 
+// ── Status Update Modal ──────────────────────────────────────────────────────
+function StatusUpdateModal({ invoice, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    status: invoice.status || 'draft',
+    amountPaid: '',
+    notes: '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleSave() {
+    setSaving(true); setError('');
+    try {
+      const payload = { status: form.status, notes: form.notes || undefined };
+      if (form.amountPaid) payload.amountPaid = Math.round(parseFloat(form.amountPaid) * 100);
+      await apiFetch(`/api/billing/invoices/${invoice.id}/payment-status`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+      onSaved();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between p-5 border-b">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Update Status</h2>
+            <p className="text-sm text-slate-500 mt-0.5">{invoice.invoice_number} &middot; {invoice.client_name}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">&#10005;</button>
+        </div>
+        <div className="p-5 space-y-4">
+          {error && <div className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{error}</div>}
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">Current Status</label>
+            <span className={`text-xs font-medium px-2 py-1 rounded-full ${STATUS_BADGE[invoice.status] || 'bg-slate-100 text-slate-600'}`}>
+              {invoice.status?.replace('_', ' ')}
+            </span>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">New Status *</label>
+            <select className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
+              {['draft', 'sent', 'paid', 'partially_paid', 'overdue'].map(s => (
+                <option key={s} value={s}>{s.replace('_', ' ')}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">Amount Paid (&#8377;) <span className="text-slate-400 font-normal">optional</span></label>
+            <input type="number" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              placeholder="0" value={form.amountPaid} onChange={e => setForm(f => ({ ...f, amountPaid: e.target.value }))} />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">Notes <span className="text-slate-400 font-normal">optional</span></label>
+            <textarea rows={2} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+          </div>
+        </div>
+        <div className="flex justify-end gap-3 p-5 border-t">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50">Cancel</button>
+          <button onClick={handleSave} disabled={saving}
+            className="px-4 py-2 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50">
+            {saving ? 'Updating...' : 'Update Status'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Collection Tab ──────────────────────────────────────────────────────────
+function CollectionTab() {
+  const [tracker, setTracker] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    apiFetch('/api/billing/monthly-tracker?months=3')
+      .then(d => setTracker(d))
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="text-center py-12 text-slate-400">Loading collection tracker...</div>;
+  if (error) return <div className="text-center py-12 text-red-500">Error: {error}</div>;
+  if (!tracker || !tracker.months || tracker.months.length === 0) {
+    return (
+      <div className="text-center py-16 text-slate-400">
+        <p className="mb-2">No collection data available</p>
+        <p className="text-xs">Generate invoices first to see the collection tracker</p>
+      </div>
+    );
+  }
+
+  const months = tracker.months || [];
+  const clients = tracker.clients || [];
+
+  function monthLabel(m) {
+    const d = new Date(m.year, m.month - 1);
+    return d.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+  }
+
+  function renderCell(cell) {
+    if (!cell || !cell.status || cell.status === 'none') {
+      return <span className="text-slate-300 text-lg">&mdash;</span>;
+    }
+    if (cell.status === 'paid') {
+      return <span className="text-green-600 text-lg" title="Paid">&#9989;</span>;
+    }
+    if (cell.status === 'partially_paid') {
+      const paid = cell.amount_paid || 0;
+      const total = cell.total_amount || 0;
+      return (
+        <div className="text-center">
+          <span className="text-amber-500 text-lg" title="Partially Paid">&#128993;</span>
+          <div className="text-xs text-amber-600 mt-0.5">{fmt(paid)}/{fmt(total)}</div>
+        </div>
+      );
+    }
+    // overdue, sent, draft — unpaid
+    return <span className="text-red-500 text-lg" title={cell.status}>&#10060;</span>;
+  }
+
+  // Compute totals per month
+  const monthTotals = months.map((m, mi) => {
+    let expected = 0, collected = 0, due = 0;
+    clients.forEach(c => {
+      const cell = c.months?.[mi];
+      if (!cell || cell.status === 'none') return;
+      expected += cell.total_amount || 0;
+      collected += cell.amount_paid || 0;
+      due += (cell.total_amount || 0) - (cell.amount_paid || 0);
+    });
+    return { expected, collected, due };
+  });
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <table className="w-full">
+        <thead className="bg-slate-50 border-b border-slate-200">
+          <tr>
+            <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide min-w-[200px]">Client</th>
+            {months.map((m, i) => (
+              <th key={i} className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">{monthLabel(m)}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {clients.length === 0 && (
+            <tr><td colSpan={months.length + 1} className="text-center py-12 text-slate-400">No clients with invoices</td></tr>
+          )}
+          {clients.map((c, ci) => (
+            <tr key={ci} className="hover:bg-slate-50 transition-colors">
+              <td className="px-4 py-3">
+                <div className="text-sm font-medium text-slate-800">{c.client_name}</div>
+                {c.retainer_amount ? (
+                  <div className="text-xs text-slate-400">{fmt(c.retainer_amount)}/mo</div>
+                ) : null}
+              </td>
+              {months.map((m, mi) => (
+                <td key={mi} className="px-4 py-3 text-center">
+                  {renderCell(c.months?.[mi])}
+                </td>
+              ))}
+            </tr>
+          ))}
+          {/* Totals row */}
+          <tr className="bg-slate-50 border-t-2 border-slate-300 font-semibold">
+            <td className="px-4 py-3 text-sm text-slate-700">Totals</td>
+            {monthTotals.map((t, i) => (
+              <td key={i} className="px-4 py-3 text-center">
+                <div className="text-xs text-slate-500">Expected: {fmt(t.expected)}</div>
+                <div className="text-xs text-green-600">Collected: {fmt(t.collected)}</div>
+                <div className="text-xs text-red-500">Due: {fmt(t.due)}</div>
+              </td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ── Retainers Tab ────────────────────────────────────────────────────────────
 function RetainersTab() {
   const [retainers, setRetainers] = useState([]);
@@ -692,6 +882,7 @@ export default function BillingPage() {
   const [editClient, setEditClient] = useState(null);
   const [showClientModal, setShowClientModal] = useState(false);
   const [paymentInvoice, setPaymentInvoice] = useState(null);
+  const [statusInvoice, setStatusInvoice] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [msg, setMsg] = useState('');
 
@@ -837,7 +1028,7 @@ export default function BillingPage() {
 
         {/* Tabs */}
         <div className="flex gap-1 mb-5 border-b border-slate-200">
-          {[['invoices', 'Invoices'], ['retainers', 'Retainers'], ['clients', 'Clients'], ['payments', 'Payments']].map(([id, label]) => (
+          {[['invoices', 'Invoices'], ['retainers', 'Retainers'], ['clients', 'Clients'], ['payments', 'Payments'], ['collection', 'Collection']].map(([id, label]) => (
             <button key={id} onClick={() => setTab(id)}
               className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
                 tab === id ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -953,6 +1144,14 @@ export default function BillingPage() {
                                   </svg>
                                 </button>
                               )}
+                              {inv.status !== 'cancelled' && (
+                                <button onClick={() => setStatusInvoice(inv)}
+                                  className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded" title="Update Status">
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                  </svg>
+                                </button>
+                              )}
                               {inv.status === 'cancelled' ? (
                                 <button onClick={() => handleDelete(inv.id)}
                                   className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded" title="Delete permanently">
@@ -1064,6 +1263,9 @@ export default function BillingPage() {
                 </table>
               </div>
             )}
+
+            {/* ── COLLECTION TAB ── */}
+            {tab === 'collection' && <CollectionTab />}
           </>
         )}
       </main>
@@ -1089,6 +1291,13 @@ export default function BillingPage() {
           invoice={paymentInvoice}
           onClose={() => setPaymentInvoice(null)}
           onSaved={() => { setPaymentInvoice(null); fetchData(); }}
+        />
+      )}
+      {statusInvoice && (
+        <StatusUpdateModal
+          invoice={statusInvoice}
+          onClose={() => setStatusInvoice(null)}
+          onSaved={() => { setStatusInvoice(null); fetchData(); }}
         />
       )}
     </div>
