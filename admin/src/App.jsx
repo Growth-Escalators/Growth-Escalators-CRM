@@ -25,6 +25,7 @@ import WhatsAppTemplatesPage from './pages/WhatsAppTemplatesPage.jsx';
 import OutreachDashboard from './pages/OutreachDashboard.jsx';
 import LinksPage from './pages/LinksPage.jsx';
 import SocialSchedulingPage from './pages/SocialSchedulingPage.jsx';
+import ClientDetailPage from './pages/ClientDetailPage.jsx';
 
 function PrivateRoute({ children }) {
   const token = localStorage.getItem('ge_crm_token');
@@ -60,6 +61,7 @@ export default function App() {
         <Route path="/outreach-dashboard" element={<PrivateRoute><OutreachDashboard /></PrivateRoute>} />
         <Route path="/links" element={<PrivateRoute><LinksPage /></PrivateRoute>} />
         <Route path="/social-scheduling" element={<PrivateRoute><SocialSchedulingPage /></PrivateRoute>} />
+        <Route path="/client/:clientId" element={<PrivateRoute><ClientDetailPage /></PrivateRoute>} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>

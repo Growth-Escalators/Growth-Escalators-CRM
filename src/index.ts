@@ -57,6 +57,7 @@ import whatsappTemplatesRouter from './routes/whatsappTemplates';
 import linksRouter from './routes/links';
 import postizRouter from './routes/postiz';
 import intelligenceChatRouter from './routes/intelligenceChat';
+import clientDetailRouter from './routes/clientDetail';
 import { requireAuth, optionalAuth } from './middleware/auth';
 
 const app = express();
@@ -167,6 +168,7 @@ app.use('/api/outreach/leads', optionalAuth, outreachLeadsRouter);
 app.use('/api/links', requireAuth, linksRouter);
 app.use('/api/postiz', requireAuth, postizRouter);
 app.use('/api/intelligence', requireAuth, intelligenceChatRouter);
+app.use('/api/clients', requireAuth, clientDetailRouter);
 app.use('/api/funnel', funnelRouter);
 
 // ---------------------------------------------------------------------------

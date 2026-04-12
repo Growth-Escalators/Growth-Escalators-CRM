@@ -4,7 +4,8 @@ import TopBar from '../components/TopBar.jsx';
 import GlobalSearch from '../components/GlobalSearch.jsx';
 import { SkeletonCard, SkeletonTable } from '../components/SkeletonLoader.jsx';
 import { apiFetch } from '../lib/api.js';
-import { TrendingUp, ArrowRight } from 'lucide-react';
+import { TrendingUp, ArrowRight, Users, DollarSign, BarChart3 } from 'lucide-react';
+import TeamPerformanceSection from '../components/TeamPerformanceSection.jsx';
 
 function FunnelStage({ name, count, conversionRate, isFirst, color }) {
   return (
@@ -25,6 +26,10 @@ function FunnelStage({ name, count, conversionRate, isFirst, color }) {
   );
 }
 
+function inr(paise) {
+  return `\u20B9${(Number(paise || 0) / 100).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+}
+
 export default function AnalyticsPage() {
   const [sources, setSources] = useState([]);
   const [funnel, setFunnel] = useState([]);
@@ -32,6 +37,11 @@ export default function AnalyticsPage() {
   const [trendDays, setTrendDays] = useState(30);
   const [loading, setLoading] = useState(true);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('leads');
+  const [revenue, setRevenue] = useState([]);
+  const [revenueLoading, setRevenueLoading] = useState(false);
+  const [mrr, setMrr] = useState(null);
+  const [mrrLoading, setMrrLoading] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -45,6 +55,21 @@ export default function AnalyticsPage() {
       setLoading(false);
     });
   }, [trendDays]);
+
+  // Fetch revenue and MRR when leads tab is active
+  useEffect(() => {
+    if (activeTab !== 'leads') return;
+    setRevenueLoading(true);
+    setMrrLoading(true);
+    apiFetch('/api/analytics/revenue-trend?months=12')
+      .then(d => setRevenue(d?.data || d?.months || []))
+      .catch(() => setRevenue([]))
+      .finally(() => setRevenueLoading(false));
+    apiFetch('/api/analytics/mrr-trend?months=6')
+      .then(d => setMrr(d))
+      .catch(() => setMrr(null))
+      .finally(() => setMrrLoading(false));
+  }, [activeTab]);
 
   useEffect(() => {
     const h = (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setSearchOpen(true); } };
@@ -70,6 +95,18 @@ export default function AnalyticsPage() {
     return `${x},${y}`;
   }).join(' ');
 
+  // Revenue bar chart helpers
+  const maxRevenue = Math.max(...revenue.map(r => Number(r.amount || 0)), 1);
+
+  // MRR trend line
+  const mrrData = mrr?.data || mrr?.months || [];
+  const maxMrr = Math.max(...mrrData.map(m => Number(m.mrr || m.amount || 0)), 1);
+  const mrrPoints = mrrData.map((m, i) => {
+    const x = (i / Math.max(mrrData.length - 1, 1)) * 280;
+    const y = 50 - ((Number(m.mrr || m.amount || 0) / maxMrr) * 45);
+    return `${x},${y}`;
+  }).join(' ');
+
   return (
     <div className="flex h-screen bg-slate-50">
       <Sidebar />
@@ -78,100 +115,220 @@ export default function AnalyticsPage() {
         <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
 
         <div className="p-6 space-y-8">
-          <div className="flex items-center gap-3">
-            <TrendingUp className="w-6 h-6 text-sky-600" />
-            <div>
-              <h1 className="text-xl font-bold text-slate-900">Lead Analytics</h1>
-              <p className="text-sm text-slate-500">Source performance and funnel conversion</p>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <TrendingUp className="w-6 h-6 text-sky-600" />
+              <div>
+                <h1 className="text-xl font-bold text-slate-900">Analytics</h1>
+                <p className="text-sm text-slate-500">Performance metrics and insights</p>
+              </div>
+            </div>
+
+            {/* Tab toggle */}
+            <div className="flex bg-slate-100 rounded-lg p-1">
+              <button
+                onClick={() => setActiveTab('leads')}
+                className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${activeTab === 'leads' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <TrendingUp className="w-4 h-4" />
+                Lead Analytics
+              </button>
+              <button
+                onClick={() => setActiveTab('team')}
+                className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${activeTab === 'team' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <Users className="w-4 h-4" />
+                Team Performance
+              </button>
             </div>
           </div>
 
-          {/* Section 1: Lead Sources */}
-          <div>
-            <h2 className="text-sm font-semibold text-slate-700 mb-3">Lead Sources</h2>
-            {loading ? <SkeletonTable rows={5} cols={7} /> : (
-              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="border-b border-slate-100 bg-slate-50">
-                      <th className="px-4 py-3 text-xs font-semibold text-slate-500">Source</th>
-                      <th className="px-4 py-3 text-xs font-semibold text-slate-500 text-right">Leads</th>
-                      <th className="px-4 py-3 text-xs font-semibold text-slate-500 text-right">Avg Score</th>
-                      <th className="px-4 py-3 text-xs font-semibold text-slate-500 text-right">Booking Rate</th>
-                      <th className="px-4 py-3 text-xs font-semibold text-slate-500 text-right">Conversion</th>
-                      <th className="px-4 py-3 text-xs font-semibold text-slate-500 text-right">Hot Lead %</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sources.map(s => (
-                      <tr key={s.source} className={`border-b border-slate-50 hover:bg-slate-50 ${bestSource?.source === s.source ? 'bg-green-50' : ''}`}>
-                        <td className="px-4 py-3 text-sm font-medium text-slate-800 capitalize">{s.source.replace(/_/g, ' ')}</td>
-                        <td className="px-4 py-3 text-sm text-slate-700 text-right">{s.totalLeads}</td>
-                        <td className="px-4 py-3 text-sm text-slate-700 text-right">{s.avgScore}</td>
-                        <td className="px-4 py-3 text-sm text-slate-700 text-right">{s.bookingRate}%</td>
-                        <td className="px-4 py-3 text-sm text-right">
-                          <span className={`font-semibold ${s.conversionRate > 0 ? 'text-green-600' : 'text-slate-400'}`}>{s.conversionRate}%</span>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-slate-700 text-right">{s.hotLeadRate}%</td>
-                      </tr>
+          {/* Lead Analytics Tab */}
+          {activeTab === 'leads' && (
+            <>
+              {/* Section 1: Lead Sources */}
+              <div>
+                <h2 className="text-sm font-semibold text-slate-700 mb-3">Lead Sources</h2>
+                {loading ? <SkeletonTable rows={5} cols={7} /> : (
+                  <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="border-b border-slate-100 bg-slate-50">
+                          <th className="px-4 py-3 text-xs font-semibold text-slate-500">Source</th>
+                          <th className="px-4 py-3 text-xs font-semibold text-slate-500 text-right">Leads</th>
+                          <th className="px-4 py-3 text-xs font-semibold text-slate-500 text-right">Avg Score</th>
+                          <th className="px-4 py-3 text-xs font-semibold text-slate-500 text-right">Booking Rate</th>
+                          <th className="px-4 py-3 text-xs font-semibold text-slate-500 text-right">Conversion</th>
+                          <th className="px-4 py-3 text-xs font-semibold text-slate-500 text-right">Hot Lead %</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sources.map(s => (
+                          <tr key={s.source} className={`border-b border-slate-50 hover:bg-slate-50 ${bestSource?.source === s.source ? 'bg-green-50' : ''}`}>
+                            <td className="px-4 py-3 text-sm font-medium text-slate-800 capitalize">{s.source.replace(/_/g, ' ')}</td>
+                            <td className="px-4 py-3 text-sm text-slate-700 text-right">{s.totalLeads}</td>
+                            <td className="px-4 py-3 text-sm text-slate-700 text-right">{s.avgScore}</td>
+                            <td className="px-4 py-3 text-sm text-slate-700 text-right">{s.bookingRate}%</td>
+                            <td className="px-4 py-3 text-sm text-right">
+                              <span className={`font-semibold ${s.conversionRate > 0 ? 'text-green-600' : 'text-slate-400'}`}>{s.conversionRate}%</span>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-slate-700 text-right">{s.hotLeadRate}%</td>
+                          </tr>
+                        ))}
+                        {sources.length === 0 && (
+                          <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400 text-sm">No lead data yet</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Section 2: Funnel */}
+              <div>
+                <h2 className="text-sm font-semibold text-slate-700 mb-3">Funnel Conversion</h2>
+                {loading ? (
+                  <div className="flex gap-4">{[1,2,3,4,5].map(i => <SkeletonCard key={i} className="flex-1" />)}</div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    {funnel.map((stage, i) => (
+                      <FunnelStage
+                        key={stage.name}
+                        name={stage.name}
+                        count={stage.count}
+                        conversionRate={stage.conversionRate}
+                        isFirst={i === 0}
+                        color={funnelColors[i] || funnelColors[0]}
+                      />
                     ))}
-                    {sources.length === 0 && (
-                      <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400 text-sm">No lead data yet</td></tr>
-                    )}
-                  </tbody>
-                </table>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
-          {/* Section 2: Funnel */}
-          <div>
-            <h2 className="text-sm font-semibold text-slate-700 mb-3">Funnel Conversion</h2>
-            {loading ? (
-              <div className="flex gap-4">{[1,2,3,4,5].map(i => <SkeletonCard key={i} className="flex-1" />)}</div>
-            ) : (
-              <div className="flex items-center gap-2">
-                {funnel.map((stage, i) => (
-                  <FunnelStage
-                    key={stage.name}
-                    name={stage.name}
-                    count={stage.count}
-                    conversionRate={stage.conversionRate}
-                    isFirst={i === 0}
-                    color={funnelColors[i] || funnelColors[0]}
-                  />
-                ))}
+              {/* Section 3: Trends */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-sm font-semibold text-slate-700">Daily Lead Trend</h2>
+                  <div className="flex bg-slate-100 rounded-lg p-1">
+                    {[7, 30, 90].map(d => (
+                      <button key={d} onClick={() => { setTrendDays(d); setLoading(true); }}
+                        className={`px-3 py-1 rounded-md text-xs font-medium ${trendDays === d ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500'}`}>
+                        {d}d
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="bg-white rounded-xl border border-slate-200 p-6">
+                  {trends.length > 1 ? (
+                    <svg viewBox="0 0 280 55" className="w-full h-20">
+                      <polyline fill="none" stroke="#0ea5e9" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" points={sparkPoints} />
+                    </svg>
+                  ) : (
+                    <p className="text-sm text-slate-400 text-center py-6">Not enough data for trend chart</p>
+                  )}
+                  <div className="flex justify-between text-xs text-slate-400 mt-2">
+                    <span>{trends[0]?.day || ''}</span>
+                    <span>{trends[trends.length - 1]?.day || ''}</span>
+                  </div>
+                </div>
               </div>
-            )}
-          </div>
 
-          {/* Section 3: Trends */}
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold text-slate-700">Daily Lead Trend</h2>
-              <div className="flex bg-slate-100 rounded-lg p-1">
-                {[7, 30, 90].map(d => (
-                  <button key={d} onClick={() => { setTrendDays(d); setLoading(true); }}
-                    className={`px-3 py-1 rounded-md text-xs font-medium ${trendDays === d ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500'}`}>
-                    {d}d
-                  </button>
-                ))}
+              {/* Section 4: Revenue Chart */}
+              <div>
+                <h2 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                  <DollarSign className="w-4 h-4 text-slate-400" /> Revenue Trend (12 Months)
+                </h2>
+                <div className="bg-white rounded-xl border border-slate-200 p-6">
+                  {revenueLoading ? (
+                    <div className="flex items-end gap-2 h-40">
+                      {[...Array(12)].map((_, i) => (
+                        <div key={i} className="flex-1 bg-slate-100 rounded-t animate-pulse" style={{ height: `${20 + Math.random() * 60}%` }} />
+                      ))}
+                    </div>
+                  ) : revenue.length > 0 ? (
+                    <>
+                      <div className="flex items-end gap-2 h-40">
+                        {revenue.map((r, i) => {
+                          const h = maxRevenue > 0 ? (Number(r.amount || 0) / maxRevenue) * 100 : 0;
+                          return (
+                            <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                              <span className="text-[10px] text-slate-500 font-medium">
+                                {inr(r.amount)}
+                              </span>
+                              <div
+                                className="w-full bg-sky-500 rounded-t transition-all hover:bg-sky-600"
+                                style={{ height: `${Math.max(h, 2)}%` }}
+                                title={`${r.month || r.name}: ${inr(r.amount)}`}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="flex gap-2 mt-2">
+                        {revenue.map((r, i) => (
+                          <div key={i} className="flex-1 text-center">
+                            <span className="text-[10px] text-slate-400">{r.month || r.name || ''}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-sm text-slate-400 text-center py-8">No revenue data available</p>
+                  )}
+                </div>
               </div>
-            </div>
-            <div className="bg-white rounded-xl border border-slate-200 p-6">
-              {trends.length > 1 ? (
-                <svg viewBox="0 0 280 55" className="w-full h-20">
-                  <polyline fill="none" stroke="#0ea5e9" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" points={sparkPoints} />
-                </svg>
-              ) : (
-                <p className="text-sm text-slate-400 text-center py-6">Not enough data for trend chart</p>
-              )}
-              <div className="flex justify-between text-xs text-slate-400 mt-2">
-                <span>{trends[0]?.day || ''}</span>
-                <span>{trends[trends.length - 1]?.day || ''}</span>
+
+              {/* Section 5: MRR Trend */}
+              <div>
+                <h2 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4 text-slate-400" /> Monthly Recurring Revenue (MRR)
+                </h2>
+                <div className="bg-white rounded-xl border border-slate-200 p-6">
+                  {mrrLoading ? (
+                    <div className="animate-pulse">
+                      <div className="h-10 bg-slate-200 rounded w-40 mb-4" />
+                      <div className="h-20 bg-slate-100 rounded" />
+                    </div>
+                  ) : mrr && mrrData.length > 0 ? (
+                    <>
+                      <div className="mb-4">
+                        <p className="text-xs text-slate-500 uppercase tracking-wide font-medium">Current MRR</p>
+                        <p className="text-3xl font-bold text-slate-900 mt-1">
+                          {inr(mrr.currentMrr || mrrData[mrrData.length - 1]?.mrr || mrrData[mrrData.length - 1]?.amount || 0)}
+                        </p>
+                      </div>
+                      <svg viewBox="0 0 280 55" className="w-full h-20">
+                        <defs>
+                          <linearGradient id="mrrGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#10b981" stopOpacity="0.2" />
+                            <stop offset="100%" stopColor="#10b981" stopOpacity="0" />
+                          </linearGradient>
+                        </defs>
+                        {mrrData.length > 1 && (
+                          <>
+                            <polygon
+                              fill="url(#mrrGrad)"
+                              points={`0,55 ${mrrPoints} 280,55`}
+                            />
+                            <polyline fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" points={mrrPoints} />
+                          </>
+                        )}
+                      </svg>
+                      <div className="flex justify-between text-xs text-slate-400 mt-2">
+                        <span>{mrrData[0]?.month || mrrData[0]?.name || ''}</span>
+                        <span>{mrrData[mrrData.length - 1]?.month || mrrData[mrrData.length - 1]?.name || ''}</span>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-sm text-slate-400 text-center py-8">No MRR data available</p>
+                  )}
+                </div>
               </div>
-            </div>
-          </div>
+            </>
+          )}
+
+          {/* Team Performance Tab */}
+          {activeTab === 'team' && <TeamPerformanceSection />}
         </div>
       </main>
     </div>
