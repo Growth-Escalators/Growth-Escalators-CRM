@@ -206,14 +206,13 @@ describe('CRM Path Redirects', () => {
 const TEAM_MEMBERS = [
   { name: 'Jatin',   clickupId: 88911769 },
   { name: 'Sakcham', clickupId: 242618940 },
-  { name: 'Vishal',  clickupId: 100972806 },
   { name: 'Nimisha', clickupId: 100972807 },
   { name: 'Keshav',  clickupId: 4800274   },
 ];
 
 describe('Team Members Configuration', () => {
-  it('has 5 members', () => {
-    expect(TEAM_MEMBERS).toHaveLength(5);
+  it('has 4 members', () => {
+    expect(TEAM_MEMBERS).toHaveLength(4);
   });
 
   it('all members have unique clickupIds', () => {
