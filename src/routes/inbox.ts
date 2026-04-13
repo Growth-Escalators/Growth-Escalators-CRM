@@ -35,9 +35,14 @@ router.get('/conversations', async (req: Request, res: Response) => {
         c.id AS "contactId",
         c.first_name || COALESCE(' ' || c.last_name, '') AS "contactName",
         cc.channel_value AS "contactPhone",
+        cc_em.channel_value AS "contactEmail",
+        c.company_name AS "companyName",
+        c.tags,
+        c.source,
         m.content AS "lastMessage",
         m.sent_at AS "lastMessageAt",
         m.direction AS "lastDirection",
+        m.channel AS "lastChannel",
         COUNT(m2.id) FILTER (WHERE m2.direction = 'inbound' AND m2.status = 'received') AS "unreadCount"
       FROM contacts c
       JOIN messages m ON m.id = (
@@ -46,9 +51,11 @@ router.get('/conversations', async (req: Request, res: Response) => {
         ORDER BY sent_at DESC LIMIT 1
       )
       LEFT JOIN contact_channels cc ON cc.contact_id = c.id AND cc.channel_type = 'whatsapp'
+      LEFT JOIN contact_channels cc_em ON cc_em.contact_id = c.id AND cc_em.channel_type = 'email'
       LEFT JOIN messages m2 ON m2.contact_id = c.id AND m2.tenant_id = ${tenantId}
       WHERE c.tenant_id = ${tenantId}
-      GROUP BY c.id, c.first_name, c.last_name, cc.channel_value, m.content, m.sent_at, m.direction
+      GROUP BY c.id, c.first_name, c.last_name, cc.channel_value, cc_em.channel_value,
+               c.company_name, c.tags, c.source, m.content, m.sent_at, m.direction, m.channel
       ORDER BY m.sent_at DESC
       LIMIT 100
     `);
