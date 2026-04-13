@@ -28,6 +28,7 @@ export default function ClientDetailPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -67,6 +68,19 @@ export default function ClientDetailPage() {
                   {client.phone && <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{client.phone}</span>}
                 </div>
               </div>
+              <button
+                onClick={async () => {
+                  try {
+                    const d = await apiFetch(`/api/clients/${clientId}/quick-update`);
+                    await navigator.clipboard.writeText(d?.text || '');
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  } catch {}
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 transition-colors"
+              >
+                {copied ? '✓ Copied!' : '📋 Copy Update'}
+              </button>
             </div>
           ) : (
             <div>

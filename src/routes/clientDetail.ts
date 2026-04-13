@@ -169,4 +169,79 @@ async function fetchClientSeo(clientName: string): Promise<Record<string, unknow
   }
 }
 
+// GET /api/clients/:clientId/quick-update — plain text client summary for copy-paste
+router.get('/:clientId/quick-update', requirePermission('REPORTS_VIEW'), async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const clientId = String(req.params.clientId);
+
+  try {
+    const [client] = await db.select().from(billingClients)
+      .where(and(eq(billingClients.id, clientId), eq(billingClients.tenantId, tenantId)))
+      .limit(1);
+    if (!client) { res.status(404).json({ error: 'Client not found' }); return; }
+
+    const { pool: dbPool } = await import('../db/index');
+    const fmtINR = (paise: number) => `₹${Math.round(paise / 100).toLocaleString('en-IN')}`;
+
+    // Ads (last 7 days)
+    let adsText = 'No ad account linked';
+    if (client.metaAdAccountId) {
+      const token = process.env.META_ADS_TOKEN || process.env.META_ACCESS_TOKEN;
+      if (token) {
+        try {
+          const r = await fetch(`https://graph.facebook.com/v19.0/${client.metaAdAccountId}/insights?fields=spend,impressions,clicks,actions,action_values&date_preset=last_7d&level=account&access_token=${token}`, { signal: AbortSignal.timeout(10000) });
+          const d = await r.json() as { data?: Array<Record<string, unknown>> };
+          const row = d?.data?.[0];
+          if (row) {
+            const spend = Number(row.spend || 0);
+            const actions = (row.actions as Array<{action_type:string;value:string}>) || [];
+            const actionValues = (row.action_values as Array<{action_type:string;value:string}>) || [];
+            const purchases = actions.filter(a => a.action_type.includes('purchase')).reduce((s, a) => s + Number(a.value), 0);
+            const revenue = actionValues.filter(a => a.action_type.includes('purchase')).reduce((s, a) => s + Number(a.value), 0);
+            const roas = spend > 0 ? (revenue / spend).toFixed(1) : '0';
+            adsText = `Spend: ₹${Math.round(spend).toLocaleString('en-IN')} | ROAS: ${roas}x | Purchases: ${purchases}`;
+          }
+        } catch { adsText = 'Ad data unavailable'; }
+      }
+    }
+
+    // SEO
+    let seoText = 'No SEO data';
+    try {
+      const kw = await dbPool.query(`
+        SELECT COUNT(*) FILTER (WHERE current_position < previous_position) AS improved,
+               COUNT(*) FILTER (WHERE current_position > previous_position) AS dropped
+        FROM keyword_rankings
+      `);
+      const health = await dbPool.query(`SELECT pagespeed_mobile, pagespeed_desktop FROM site_health_metrics ORDER BY checked_at DESC LIMIT 1`);
+      const k = kw.rows[0] as Record<string, string>;
+      const h = health.rows[0] as Record<string, string> | undefined;
+      seoText = `${k?.improved || 0} keywords ↑, ${k?.dropped || 0} ↓`;
+      if (h) seoText += `\n• PageSpeed: Mobile ${h.pagespeed_mobile || '—'}, Desktop ${h.pagespeed_desktop || '—'}`;
+    } catch {}
+
+    // Billing
+    let billingText = 'No invoices';
+    try {
+      const inv = await dbPool.query(`
+        SELECT invoice_number, status, due_date FROM invoices
+        WHERE client_id = $1 AND tenant_id = $2 AND status != 'cancelled'
+        ORDER BY invoice_date DESC LIMIT 1
+      `, [clientId, tenantId]);
+      const i = inv.rows[0] as Record<string, string> | undefined;
+      if (i) {
+        const statusEmoji = i.status === 'paid' ? 'Paid ✅' : i.status === 'sent' ? 'Sent' : i.status === 'overdue' ? 'Overdue ⚠️' : i.status;
+        billingText = `Last: ${i.invoice_number} — ${statusEmoji}`;
+        if (i.due_date) billingText += `\n• Next due: ${new Date(i.due_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+      }
+    } catch {}
+
+    const text = `📊 Growth Escalators — ${client.name}\n\nMeta Ads (last 7 days):\n• ${adsText}\n\nSEO:\n• ${seoText}\n\nBilling:\n• ${billingText}`;
+
+    res.json({ text, clientName: client.name });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to generate update' });
+  }
+});
+
 export default router;

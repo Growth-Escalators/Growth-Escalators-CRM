@@ -87,6 +87,9 @@ export default function DashboardPage() {
   // Row 3 — system status (admin only)
   const [cronHealth, setCronHealth] = useState(null);
 
+  // Today's priority actions
+  const [actions, setActions] = useState([]);
+
   const loadStats = useCallback(async () => {
     try {
       // Core data (all roles)
@@ -113,6 +116,19 @@ export default function DashboardPage() {
         setSeoOverview(seoData?.clients ?? []);
         setOutreach(outreachData);
         setCronHealth(cronData);
+
+        // Today's priority actions for logged-in user
+        try {
+          const problems = intelData?.report?.problems;
+          if (problems) {
+            const parsed = typeof problems === 'string' ? JSON.parse(problems) : problems;
+            const firstName = user?.name?.split(' ')[0];
+            const myActions = (Array.isArray(parsed) ? parsed : [])
+              .filter(p => !firstName || (p.owner || '').toLowerCase().includes(firstName.toLowerCase()))
+              .slice(0, 3);
+            setActions(myActions);
+          }
+        } catch {}
       }
 
       setLastUpdated(Date.now());
@@ -206,6 +222,27 @@ export default function DashboardPage() {
             <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
               Could not load some dashboard data. Try refreshing.
             </div>
+          )}
+
+          {/* ── Today's Actions ── */}
+          {actions.length > 0 && (
+            <section>
+              <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Your Priority Today</h2>
+              <div className="bg-white rounded-xl border-2 border-sky-200 p-4 mb-6 shadow-sm">
+                <div className="space-y-2">
+                  {actions.slice(0, 5).map((a, i) => (
+                    <div key={i} className={`flex items-center gap-3 rounded-lg px-4 py-2.5 ${
+                      a.severity === 'critical' ? 'bg-red-50' : a.severity === 'high' ? 'bg-amber-50' : 'bg-yellow-50'
+                    }`}>
+                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                        a.severity === 'critical' ? 'bg-red-500' : a.severity === 'high' ? 'bg-amber-500' : 'bg-yellow-400'
+                      }`} />
+                      <p className="text-sm text-slate-700"><strong>{a.title}</strong></p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
           )}
 
           {/* ── ROW 1: Core Metrics (all roles) ── */}
