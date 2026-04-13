@@ -44,7 +44,7 @@ function severityColor(s) {
 }
 function ownerColor(o) {
   const m = { Jatin:'bg-purple-100 text-purple-700', Sakcham:'bg-orange-100 text-orange-700',
-    Vishal:'bg-sky-100 text-sky-700', Nimisha:'bg-pink-100 text-pink-700', Keshav:'bg-emerald-100 text-emerald-700' };
+    Nimisha:'bg-pink-100 text-pink-700', Keshav:'bg-emerald-100 text-emerald-700' };
   return m[o] ?? 'bg-slate-100 text-slate-700';
 }
 
