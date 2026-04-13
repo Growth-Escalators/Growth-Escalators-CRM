@@ -1,7 +1,7 @@
 import { sendSlackMessage } from '../services/slackService';
 import {
-  SLACK_JATIN, SLACK_SAKCHAM, SLACK_VISHAL, SLACK_NIMISHA, SLACK_KESHAV,
-  CLICKUP_JATIN, CLICKUP_SAKCHAM, CLICKUP_VISHAL, CLICKUP_NIMISHA, CLICKUP_KESHAV,
+  SLACK_JATIN, SLACK_SAKCHAM, SLACK_NIMISHA, SLACK_KESHAV,
+  CLICKUP_JATIN, CLICKUP_SAKCHAM, CLICKUP_NIMISHA, CLICKUP_KESHAV,
   SLACK_SOD_EOD_CHANNEL, SLACK_GENERAL_CHANNEL, SLACK_SALES_BD_CHANNEL, SLACK_PERF_MARKETING_CHANNEL,
 } from '../config/constants';
 
@@ -15,7 +15,6 @@ export interface TeamMember {
 export const TEAM_MEMBERS: TeamMember[] = [
   { name: 'Jatin', clickupId: String(CLICKUP_JATIN), slackId: SLACK_JATIN, email: 'jatin@growthescalators.com' },
   { name: 'Sakcham', clickupId: String(CLICKUP_SAKCHAM), slackId: SLACK_SAKCHAM, email: 'sakcham@growthescalators.com' },
-  { name: 'Vishal', clickupId: String(CLICKUP_VISHAL), slackId: SLACK_VISHAL, email: 'vishal.malakar@growthescalators.com' },
   { name: 'Nimisha', clickupId: String(CLICKUP_NIMISHA), slackId: SLACK_NIMISHA, email: 'nimisha.daiya@growthescalators.com' },
   { name: 'Keshav', clickupId: String(CLICKUP_KESHAV), slackId: SLACK_KESHAV, email: 'keshav.growthescalators@gmail.com' },
 ];
@@ -23,7 +22,6 @@ export const TEAM_MEMBERS: TeamMember[] = [
 export const CLICKUP_IDS = {
   jatin: CLICKUP_JATIN,
   sakcham: CLICKUP_SAKCHAM,
-  vishal: CLICKUP_VISHAL,
   nimisha: CLICKUP_NIMISHA,
   keshav: CLICKUP_KESHAV,
 };
@@ -31,7 +29,6 @@ export const CLICKUP_IDS = {
 export const SLACK_IDS = {
   jatin: SLACK_JATIN,
   sakcham: SLACK_SAKCHAM,
-  vishal: SLACK_VISHAL,
   nimisha: SLACK_NIMISHA,
   keshav: SLACK_KESHAV,
 };

@@ -6,7 +6,6 @@ import logger from '../utils/logger';
 export const TEAM_MEMBERS = [
   { name: 'Jatin',   clickupId: 88911769 },
   { name: 'Sakcham', clickupId: 242618940 },
-  { name: 'Vishal',  clickupId: 100972806 },
   { name: 'Nimisha', clickupId: 100972807 },
   { name: 'Keshav',  clickupId: 4800274   },
 ];

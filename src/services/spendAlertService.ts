@@ -5,12 +5,12 @@ import { sendSlackDM } from './slackService';
 import { logAuditEvent } from '../utils/audit';
 import {
   META_API_BASE, SPEND_ALERT_COOLDOWN_HOURS,
-  SLACK_JATIN, SLACK_VISHAL, DEFAULT_TENANT_SLUG,
+  SLACK_JATIN, SLACK_SAKCHAM, DEFAULT_TENANT_SLUG,
 } from '../config/constants';
 
 const ALERT_COOLDOWN_HOURS = SPEND_ALERT_COOLDOWN_HOURS;
 const JATIN_SLACK = SLACK_JATIN;
-const VISHAL_SLACK = SLACK_VISHAL;
+const ADS_ALERT_SLACK = SLACK_SAKCHAM;
 
 async function getTenantId(): Promise<string | null> {
   try {
@@ -99,7 +99,7 @@ export async function checkSpendAlerts(dryRun = false): Promise<{ checked: numbe
         console.log(`[spend-alert] [DRY RUN] would send alert:\n${msg}`);
       } else {
         await sendSlackDM(JATIN_SLACK, msg);
-        await sendSlackDM(VISHAL_SLACK, msg);
+        await sendSlackDM(ADS_ALERT_SLACK, msg);
 
         await db.update(marketingAccounts)
           .set({ lastAlertSentAt: new Date() })
