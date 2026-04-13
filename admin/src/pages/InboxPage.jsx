@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import ContactSlideIn from '../components/ContactSlideIn.jsx';
 import { apiFetch } from '../lib/api.js';
-import { MessageSquare, Send, Search, Check, CheckCheck, Image, FileText, Phone, User, ArrowLeft, Pencil } from 'lucide-react';
+import { MessageSquare, Send, Search, Check, CheckCheck, Image, FileText, Phone, User, ArrowLeft, Pencil, Mail } from 'lucide-react';
 import { io } from 'socket.io-client';
 
 function timeAgo(isoDate) {
@@ -219,7 +219,7 @@ export default function InboxPage() {
   }
 
   const filtered = conversations.filter(c =>
-    !search || (c.contactName || '').toLowerCase().includes(search.toLowerCase()) || (c.contactPhone || '').includes(search)
+    !search || (c.contactName || '').toLowerCase().includes(search.toLowerCase()) || (c.contactPhone || '').includes(search) || (c.contactEmail || '').toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -271,15 +271,25 @@ export default function InboxPage() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between mb-0.5">
-                    <p className={`text-sm truncate ${unread > 0 ? 'font-bold text-slate-900' : 'font-medium text-slate-800'}`}>
-                      {conv.contactName || conv.contactPhone || 'Unknown'}
-                    </p>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {(conv.lastChannel === 'email' || (!conv.contactPhone && conv.contactEmail)) ? (
+                        <Mail className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
+                      ) : (
+                        <MessageSquare className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                      )}
+                      <p className={`text-sm truncate ${unread > 0 ? 'font-bold text-slate-900' : 'font-medium text-slate-800'}`}>
+                        {conv.contactName || conv.contactPhone || 'Unknown'}
+                      </p>
+                    </div>
                     <p className="text-xs text-slate-400 flex-shrink-0 ml-2">{timeAgo(conv.lastMessageAt)}</p>
                   </div>
+                  {conv.companyName && (
+                    <p className="text-xs text-slate-400 mb-0.5 truncate">{conv.companyName}</p>
+                  )}
                   <div className="flex items-center justify-between">
                     <p className={`text-xs truncate ${unread > 0 ? 'text-slate-700' : 'text-slate-400'}`}>
                       {conv.lastDirection === 'outbound' && '→ '}
-                      {(conv.lastMessage || '').slice(0, 35)}
+                      {(conv.lastMessage || '').slice(0, 50)}
                     </p>
                     {unread > 0 && (
                       <span className="ml-2 flex-shrink-0 bg-green-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-medium">
