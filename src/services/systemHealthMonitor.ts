@@ -86,6 +86,11 @@ export async function ensureCronJobLogsTable(): Promise<void> {
   `).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS cron_job_logs_name_idx ON cron_job_logs(job_name)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS cron_job_logs_started_idx ON cron_job_logs(started_at DESC)`).catch(() => {});
+  // Clean up obsolete job names from before rename fix
+  await pool.query(`
+    DELETE FROM cron_job_logs
+    WHERE job_name IN ('Blocker Alerts (morning)', 'Blocker Alerts (evening)', 'Daily ROAS Report')
+  `).catch(() => {});
 }
 
 // ---------------------------------------------------------------------------
@@ -246,11 +251,13 @@ async function checkInfrastructure(): Promise<SubsystemHealth> {
 
 async function checkCronJobs(): Promise<CronJobStatus[]> {
   try {
+    const validNames = Object.keys(CRON_WINDOWS);
     const r = await pool.query(`
       SELECT DISTINCT ON (job_name) job_name, status, started_at, completed_at, duration_ms, records_processed
       FROM cron_job_logs
+      WHERE job_name = ANY($1)
       ORDER BY job_name, started_at DESC
-    `);
+    `, [validNames]);
 
     return (r.rows as Array<Record<string, unknown>>).map(row => {
       const name = row.job_name as string;
