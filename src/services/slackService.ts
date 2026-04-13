@@ -9,7 +9,6 @@ export const MEMBER_MAP: Record<string, { slackId: string; name: string; role: s
   '242618940': { slackId: 'U09TY8RGN30', name: 'Sakcham', role: 'sales' },
   '4800274':   { slackId: 'U073Y6S4K4H', name: 'Keshav',  role: 'ops' },
   '100972807': { slackId: 'U0ALMKD2XFB', name: 'Nimisha', role: 'ops' },
-  '100972806': { slackId: 'U0ALC9Z09RA', name: 'Vishal',  role: 'ops' },
 };
 
 export const SLACK_MEMBERS = {

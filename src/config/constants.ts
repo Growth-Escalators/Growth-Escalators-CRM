@@ -13,14 +13,12 @@ export const SLACK_OUTREACH_CHANNEL = process.env.SLACK_OUTREACH_CHANNEL ?? 'C0A
 // -- Slack User IDs ----------------------------------------------------------
 export const SLACK_JATIN = process.env.SLACK_JATIN ?? 'U073Y677JBB';
 export const SLACK_SAKCHAM = process.env.SLACK_SAKCHAM ?? 'U09TY8RGN30';
-export const SLACK_VISHAL = process.env.SLACK_VISHAL ?? 'U0ALC9Z09RA';
 export const SLACK_NIMISHA = process.env.SLACK_NIMISHA ?? 'U0ALMKD2XFB';
 export const SLACK_KESHAV = process.env.SLACK_KESHAV ?? 'U073Y6S4K4H';
 
 // -- ClickUp User IDs -------------------------------------------------------
 export const CLICKUP_JATIN = Number(process.env.CLICKUP_JATIN ?? '88911769');
 export const CLICKUP_SAKCHAM = Number(process.env.CLICKUP_SAKCHAM ?? '242618940');
-export const CLICKUP_VISHAL = Number(process.env.CLICKUP_VISHAL ?? '100972806');
 export const CLICKUP_NIMISHA = Number(process.env.CLICKUP_NIMISHA ?? '100972807');
 export const CLICKUP_KESHAV = Number(process.env.CLICKUP_KESHAV ?? '4800274');
 

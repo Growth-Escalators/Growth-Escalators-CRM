@@ -3,7 +3,7 @@ import { sendSlackMessage } from './slackService';
 import logger from '../utils/logger';
 import {
   SLACK_SALES_BD_CHANNEL,
-  CLICKUP_JATIN, CLICKUP_SAKCHAM, CLICKUP_VISHAL, CLICKUP_NIMISHA, CLICKUP_KESHAV,
+  CLICKUP_JATIN, CLICKUP_SAKCHAM, CLICKUP_NIMISHA, CLICKUP_KESHAV,
   SLACK_JATIN, SLACK_SAKCHAM,
 } from '../config/constants';
 
@@ -14,7 +14,6 @@ const SALES_BD_CHANNEL = SLACK_SALES_BD_CHANNEL;
 const CLICKUP_IDS = {
   jatin: CLICKUP_JATIN,
   sakcham: CLICKUP_SAKCHAM,
-  vishal: CLICKUP_VISHAL,
   nimisha: CLICKUP_NIMISHA,
   keshav: CLICKUP_KESHAV,
 };

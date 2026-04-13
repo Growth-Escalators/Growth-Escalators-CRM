@@ -1,7 +1,7 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { sendSlackMessage } from './slackService';
-import { SLACK_PERF_MARKETING_CHANNEL, SLACK_VISHAL } from '../config/constants';
+import { SLACK_PERF_MARKETING_CHANNEL, SLACK_SAKCHAM } from '../config/constants';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -230,7 +230,7 @@ async function sendFatigueSlackAlert(params: {
     `CTR: ${params.peakCtr.toFixed(2)}% → ${params.latestCtr.toFixed(2)}% (${ctrDrop}% drop)\n` +
     `ROAS: ${params.peakRoas.toFixed(2)}x → ${params.latestRoas.toFixed(2)}x\n\n` +
     `*Creative Brief Generated:*\n${params.creativeBrief ?? 'N/A'}\n\n` +
-    `<@${SLACK_VISHAL}> — please brief Nimisha/Keshav on replacement.`;
+    `<@${SLACK_SAKCHAM}> — please brief Nimisha/Keshav on replacement.`;
 
   await sendSlackMessage(SLACK_PERF_MARKETING_CHANNEL, msg).catch(() => {});
 }

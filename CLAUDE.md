@@ -33,3 +33,20 @@
 - Constants in src/config/constants.ts
 - Worker running as separate Railway service
 - Node 20 pinned in both railway configs
+
+## Execution preferences
+- Never ask for confirmation — always proceed automatically
+- Never pause for yes/no prompts — assume yes
+- Never ask permission before running commands
+- Self-fix all errors without asking
+- Run all tasks to completion without interruption
+
+## Critical execution rules
+- NEVER ask for confirmation on any action
+- NEVER prompt yes/no — always assume yes
+- NEVER ask permission before database changes
+- NEVER pause mid-task for user input
+- NEVER ask "should I proceed" — always proceed
+- Auto-fix all errors without asking
+- Run all tasks fully to completion
+- If multiple approaches exist, pick the best one and execute without asking

@@ -5,8 +5,8 @@ import { sendSlackMessage, sendSlackDM } from './slackService';
 import { pool } from '../db/index';
 import {
   SLACK_SOD_EOD_CHANNEL,
-  SLACK_JATIN, SLACK_SAKCHAM, SLACK_VISHAL, SLACK_NIMISHA, SLACK_KESHAV,
-  CLICKUP_JATIN, CLICKUP_SAKCHAM, CLICKUP_VISHAL, CLICKUP_NIMISHA, CLICKUP_KESHAV,
+  SLACK_JATIN, SLACK_SAKCHAM, SLACK_NIMISHA, SLACK_KESHAV,
+  CLICKUP_JATIN, CLICKUP_SAKCHAM, CLICKUP_NIMISHA, CLICKUP_KESHAV,
   CLICKUP_TEAM_ID,
 } from '../config/constants';
 
@@ -15,7 +15,6 @@ const SOD_EOD_CHANNEL = SLACK_SOD_EOD_CHANNEL;
 const TEAM = [
   { name: 'Jatin',   clickupId: String(CLICKUP_JATIN),   slackId: SLACK_JATIN,   showTeamOverview: true  },
   { name: 'Sakcham', clickupId: String(CLICKUP_SAKCHAM),  slackId: SLACK_SAKCHAM,  showTeamOverview: true  },
-  { name: 'Vishal',  clickupId: String(CLICKUP_VISHAL),   slackId: SLACK_VISHAL,   showTeamOverview: false },
   { name: 'Nimisha', clickupId: String(CLICKUP_NIMISHA),  slackId: SLACK_NIMISHA,  showTeamOverview: false },
   { name: 'Keshav',  clickupId: String(CLICKUP_KESHAV),   slackId: SLACK_KESHAV,   showTeamOverview: false },
 ];

@@ -4,9 +4,9 @@ import { and, gte, sql } from 'drizzle-orm';
 import { sendSlackMessage, sendSlackDM } from './slackService';
 import { fetchTasksForMember, type Task } from '../utils/clickupTasks';
 import {
-  SLACK_GENERAL_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_VISHAL, SLACK_NIMISHA, SLACK_KESHAV,
+  SLACK_GENERAL_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_NIMISHA, SLACK_KESHAV,
   BLOCKER_THRESHOLD_DAYS as BT_DAYS, CRITICAL_THRESHOLD_DAYS as CT_DAYS,
-  CLICKUP_JATIN, CLICKUP_SAKCHAM, CLICKUP_VISHAL, CLICKUP_NIMISHA, CLICKUP_KESHAV,
+  CLICKUP_JATIN, CLICKUP_SAKCHAM, CLICKUP_NIMISHA, CLICKUP_KESHAV,
 } from '../config/constants';
 
 const GENERAL_CHANNEL = SLACK_GENERAL_CHANNEL;
@@ -17,7 +17,6 @@ const JATIN_SLACK = SLACK_JATIN;
 const TEAM = [
   { name: 'Jatin',   clickupId: String(CLICKUP_JATIN),   slackId: SLACK_JATIN },
   { name: 'Sakcham', clickupId: String(CLICKUP_SAKCHAM),  slackId: SLACK_SAKCHAM },
-  { name: 'Vishal',  clickupId: String(CLICKUP_VISHAL),   slackId: SLACK_VISHAL },
   { name: 'Nimisha', clickupId: String(CLICKUP_NIMISHA),  slackId: SLACK_NIMISHA },
   { name: 'Keshav',  clickupId: String(CLICKUP_KESHAV),   slackId: SLACK_KESHAV },
 ];
