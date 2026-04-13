@@ -86,24 +86,40 @@ async function safeCron(name: string, fn: () => Promise<unknown>): Promise<void>
 // Cron jobs
 // ---------------------------------------------------------------------------
 
-// Blocker alerts — 10:15 AM IST (04:45 UTC), Mon-Sat, ONCE per day
-cron.schedule('45 4 * * 1-6', () => safeCron('Blocker Alerts', checkAndAlertBlockers), { timezone: 'UTC' });
-console.log('[cron] blocker alerts scheduled — 10:15 AM IST Mon-Sat (once daily)');
+// Blocker alerts — DISABLED (folded into Morning Briefing)
+// cron.schedule('45 4 * * 1-6', () => safeCron('Blocker Alerts', checkAndAlertBlockers), { timezone: 'UTC' });
+console.log('[cron] blocker alerts — disabled (folded into morning briefing)');
 
-// SOD Digest — 10 AM IST (04:30 UTC), Mon-Sat
-cron.schedule('30 4 * * 1-6', async () => {
+// Morning Briefing — 9:00 AM IST (03:30 UTC), Mon-Sat — personalized DM per team member
+cron.schedule('30 3 * * 1-6', () => safeCron('Morning Briefing', async () => {
+  const { sendMorningBriefings } = await import('./services/morningBriefingService');
+  const result = await sendMorningBriefings();
+  console.log(`[CRON] Morning Briefing: ${result.sent} sent, ${result.errors.length} errors`);
+}), { timezone: 'UTC' });
+console.log('[cron] morning briefing scheduled — 9:00 AM IST Mon-Sat');
+
+// SOD Digest — 10:15 AM IST (04:45 UTC), Mon-Sat
+cron.schedule('45 4 * * 1-6', async () => {
   await safeCron('SOD Digest', sendSODDigest);
   await safeCron('Sakcham Priority SOD', sendSakhamSOD);
 }, { timezone: 'UTC' });
-console.log('[cron] SOD digest scheduled — 10:00 AM IST Mon-Sat');
+console.log('[cron] SOD digest scheduled — 10:15 AM IST Mon-Sat');
 
 // EOD Summary — 7:15 PM IST (13:45 UTC), Mon-Sat
 cron.schedule('45 13 * * 1-6', () => safeCron('EOD Summary', sendEODSummary), { timezone: 'UTC' });
 console.log('[cron] EOD summary scheduled — 7:15 PM IST Mon-Sat');
 
-// Spend alert check — every hour
-cron.schedule('0 * * * *', () => safeCron('Spend Alert Check', checkSpendAlerts), { timezone: 'UTC' });
-console.log('[cron] spend alert check scheduled — hourly');
+// Evening Summary — 7:30 PM IST (14:00 UTC), Mon-Sat — personalized DM per team member
+cron.schedule('0 14 * * 1-6', () => safeCron('Evening Summary', async () => {
+  const { sendEveningSummaries } = await import('./services/eveningSummaryService');
+  const result = await sendEveningSummaries();
+  console.log(`[CRON] Evening Summary: ${result.sent} sent, ${result.errors.length} errors`);
+}), { timezone: 'UTC' });
+console.log('[cron] evening summary scheduled — 7:30 PM IST Mon-Sat');
+
+// Spend alert check — DISABLED (folded into Morning Briefing)
+// cron.schedule('0 * * * *', () => safeCron('Spend Alert Check', checkSpendAlerts), { timezone: 'UTC' });
+console.log('[cron] spend alert check — disabled (folded into morning briefing)');
 
 // Generate monthly draft invoices on the 1st of every month at 9 AM IST (3:30 AM UTC)
 cron.schedule('30 3 1 * *', () => safeCron('Monthly Invoice Drafts', async () => {
@@ -448,9 +464,10 @@ const PLACEMENT_INTERVAL = setInterval(() => safeCron('Pipeline Placement', asyn
 console.log('[cron] Pipeline placement job scheduled — every 30 seconds');
 
 // ---------------------------------------------------------------------------
-// Outreach Daily Digest — 8:00 PM IST (14:30 UTC), Mon-Sat
+// Outreach Daily Digest — DISABLED (folded into Evening Summary)
 // Posts pipeline stats to #outreach / #sales-bd channel
 // ---------------------------------------------------------------------------
+/* DISABLED — outreach stats now in Evening Summary DMs
 cron.schedule('30 14 * * 1-6', () => safeCron('Outreach Daily Digest', async () => {
   const { sendSlackMessage } = await import('./services/slackService');
   const today = new Date().toISOString().slice(0, 10);
@@ -499,7 +516,8 @@ cron.schedule('30 14 * * 1-6', () => safeCron('Outreach Daily Digest', async () 
   await sendSlackMessage(SLACK_OUTREACH_CHANNEL, msg);
   console.log('[CRON] Outreach digest sent');
 }), { timezone: 'UTC' });
-console.log('[cron] Outreach daily digest scheduled — 8:00 PM IST Mon-Sat');
+DISABLED — end of outreach daily digest */
+console.log('[cron] Outreach daily digest — disabled (folded into evening summary)');
 
 // ---------------------------------------------------------------------------
 // Outreach: backend enrichment — every 10 minutes

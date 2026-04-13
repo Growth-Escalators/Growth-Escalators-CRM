@@ -54,6 +54,7 @@ const CRON_WINDOWS: Record<string, number> = {
   'Audit Booking Follow-up': 360, 'Weekly Data Cleanup': 10080,
   'Co-Pilot Poller': 5, 'Pipeline Placement': 1,
   'System Health Check': 60, 'Workflow Self-Healing': 60, 'Rank Tracking': 10080,
+  'Morning Briefing': 1500, 'Evening Summary': 1500,
   'Competitor Content Analysis': 21600,
   'SEO Alert Triggers': 1500, 'SEO Backlink Monitor': 10080,
   'SEO Content Decay': 44640, 'SEO Weekly Digest': 10080,
