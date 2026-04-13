@@ -40,9 +40,9 @@ export default function App() {
         <Route path="/dashboard" element={<PrivateRoute><DashboardPage /></PrivateRoute>} />
         <Route path="/contacts" element={<PrivateRoute><ContactsPage /></PrivateRoute>} />
         <Route path="/pipeline" element={<PrivateRoute><PipelinePage /></PrivateRoute>} />
-        <Route path="/automations" element={<PrivateRoute><AutomationsPage /></PrivateRoute>} />
+        <Route path="/automations" element={<Navigate to="/intelligence?tab=automations" replace />} />
         <Route path="/pipelines/settings" element={<PrivateRoute><PipelineManagerPage /></PrivateRoute>} />
-        <Route path="/health" element={<PrivateRoute><SystemHealthPage /></PrivateRoute>} />
+        <Route path="/health" element={<Navigate to="/intelligence?tab=health" replace />} />
         <Route path="/emails" element={<PrivateRoute><EmailTemplatesPage /></PrivateRoute>} />
         <Route path="/billing" element={<PrivateRoute><BillingPage /></PrivateRoute>} />
         <Route path="/settings/permissions" element={<PrivateRoute><PermissionsPage /></PrivateRoute>} />
@@ -52,7 +52,7 @@ export default function App() {
         <Route path="/social" element={<PrivateRoute><SocialPage /></PrivateRoute>} />
         <Route path="/inbox" element={<PrivateRoute><InboxPage /></PrivateRoute>} />
         <Route path="/discover" element={<PrivateRoute><LeadDiscoveryPage /></PrivateRoute>} />
-        <Route path="/marketing" element={<PrivateRoute><MarketingPage /></PrivateRoute>} />
+        <Route path="/marketing" element={<Navigate to="/ads?tab=accounts" replace />} />
         <Route path="/analytics" element={<PrivateRoute><AnalyticsPage /></PrivateRoute>} />
         <Route path="/seo" element={<PrivateRoute><SEOPage /></PrivateRoute>} />
         <Route path="/intelligence" element={<PrivateRoute><IntelligencePage /></PrivateRoute>} />
