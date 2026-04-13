@@ -138,4 +138,31 @@ router.get('/data-health', async (_req: Request, res: Response) => {
   }
 });
 
+// POST /api/seo-workflows/trigger-all
+router.post('/trigger-all', async (req: Request, res: Response) => {
+  const triggeredBy = (req as Request & { user?: { id: string } }).user?.id ?? 'manual';
+  const results: Array<{ name: string; ok: boolean }> = [];
+
+  for (const wf of SEO_WORKFLOWS) {
+    if (!wf.webhookPath) continue;
+    try {
+      const webhookUrl = `${N8N_BASE}/webhook/${wf.webhookPath}`;
+      const r = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ triggered_by: triggeredBy, triggered_at: new Date().toISOString() }),
+        signal: AbortSignal.timeout(10000),
+      });
+      results.push({ name: wf.name, ok: r.ok });
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    } catch {
+      results.push({ name: wf.name, ok: false });
+    }
+  }
+
+  const succeeded = results.filter(r => r.ok).length;
+  logger.info(`[seo-workflows] trigger-all: ${succeeded}/${results.length} succeeded`);
+  res.json({ triggered: results.length, succeeded, results });
+});
+
 export default router;
