@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
+import { Settings } from 'lucide-react';
 import Sidebar from '../components/Sidebar.jsx';
 import ContactSlideIn from '../components/ContactSlideIn.jsx';
 import { apiFetch } from '../lib/api.js';
@@ -533,9 +534,10 @@ export default function PipelinePage() {
               )}
               <Link
                 to="/pipelines/settings"
-                className="text-xs text-orange-500 hover:text-orange-700 font-medium ml-1 flex items-center gap-1"
+                className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                title="Pipeline Settings"
               >
-                Manage Pipelines &rarr;
+                <Settings className="w-4 h-4" />
               </Link>
             </div>
 
