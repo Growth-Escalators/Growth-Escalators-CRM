@@ -545,7 +545,71 @@ function SystemHealthTab() {
           </div>
         </div>
       )}
+      <a href="/crm/settings/audit" className="text-xs text-sky-600 hover:underline flex items-center gap-1 mt-4">
+        View Audit Trail →
+      </a>
     </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Automations embed (admin-only tab)
+// ---------------------------------------------------------------------------
+function AutomationsEmbed() {
+  const [flows, setFlows] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiFetch('/api/automations/hub-stats')
+      .then(d => setFlows(d?.flows ?? d?.automations ?? []))
+      .catch(() => setFlows([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="py-12 text-center text-slate-400">Loading automations...</div>;
+
+  if (flows.length === 0) {
+    return (
+      <div className="py-12 text-center">
+        <Zap className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+        <p className="text-slate-500 text-sm">No automation flows configured yet.</p>
+      </div>
+    );
+  }
+
+  const toolColors = {
+    n8n: 'bg-orange-100 text-orange-700',
+    brevo: 'bg-blue-100 text-blue-700',
+    'meta-wa': 'bg-green-100 text-green-700',
+    slack: 'bg-purple-100 text-purple-700',
+    clickup: 'bg-indigo-100 text-indigo-700',
+    calcom: 'bg-sky-100 text-sky-700',
+  };
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+        <Zap className="w-4 h-4 text-amber-500" /> Automation Flows ({flows.length})
+      </h2>
+      <div className="grid gap-3">
+        {flows.map((flow, i) => (
+          <div key={i} className="bg-white rounded-xl border border-slate-200 p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <p className="text-sm font-semibold text-slate-800">{flow.name || flow.title || `Flow ${i + 1}`}</p>
+              {flow.active !== false && <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded">Active</span>}
+            </div>
+            {flow.description && <p className="text-xs text-slate-500 mb-2">{flow.description}</p>}
+            <div className="flex gap-1.5 flex-wrap">
+              {(flow.tools || flow.nodes || []).slice(0, 5).map((tool, j) => {
+                const name = typeof tool === 'string' ? tool : tool.type || tool.name || 'unknown';
+                const color = toolColors[name.toLowerCase()] || 'bg-slate-100 text-slate-600';
+                return <span key={j} className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${color}`}>{name}</span>;
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -562,7 +626,11 @@ export default function IntelligencePage() {
   const [generateResult, setGenerateResult] = useState(null);
   const [genProgress, setGenProgress] = useState('');
   const [loading, setLoading]         = useState(true);
-  const [activeTab, setActiveTab]     = useState('today');  // 'today' | 'prompts' | 'history'
+  const [activeTab, setActiveTab]     = useState(() => {
+    const urlTab = new URLSearchParams(window.location.search).get('tab');
+    return urlTab && ['today', 'prompts', 'health', 'history', 'automations', 'chat'].includes(urlTab)
+      ? urlTab : 'today';
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -684,6 +752,7 @@ export default function IntelligencePage() {
     { id: 'prompts', label: `Action Prompts${promptCount > 0 ? ` (${promptCount})` : ''}`, icon: Zap },
     { id: 'health',  label: 'System Health', icon: Activity },
     { id: 'history', label: 'History', icon: Activity },
+    ...(isAdmin ? [{ id: 'automations', label: 'Automations', icon: Zap }] : []),
     ...(isAdmin ? [{ id: 'chat', label: 'Ask AI', icon: MessageSquare }] : []),
   ];
 
@@ -929,6 +998,11 @@ export default function IntelligencePage() {
 
           {/* ── SYSTEM HEALTH TAB ── */}
           {activeTab === 'health' && <SystemHealthTab />}
+
+          {/* ── AUTOMATIONS TAB (admin only) ── */}
+          {activeTab === 'automations' && isAdmin && (
+            <AutomationsEmbed />
+          )}
 
           {/* ── CHAT TAB (admin only) ── */}
           {activeTab === 'chat' && isAdmin && (
