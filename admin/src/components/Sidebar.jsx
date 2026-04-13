@@ -91,11 +91,6 @@ export default function Sidebar() {
         <NavLink to="/dashboard" className={navClass}>
           <Home className="w-4 h-4" /> Dashboard
         </NavLink>
-        {isAdmin && (
-          <NavLink to="/intelligence" className={navClass}>
-            <Brain className="w-4 h-4" /> AI Intelligence
-          </NavLink>
-        )}
         {canCRM && (
           <>
             <NavLink to="/contacts" className={navClass}>
@@ -133,12 +128,17 @@ export default function Sidebar() {
         )}
 
         {/* Marketing */}
-        {(canAds || canSocial || canMarketing || canSEO) && (
+        {(canAds || canSocial || canMarketing || canSEO || canReports) && (
           <>
             <SectionLabel>Marketing</SectionLabel>
             {canAds && (
               <NavLink to="/ads" className={navClass}>
                 <BarChart2 className="w-4 h-4" /> Meta Ads
+              </NavLink>
+            )}
+            {canSEO && (
+              <NavLink to="/seo" className={navClass}>
+                <BarChart2 className="w-4 h-4" /> SEO
               </NavLink>
             )}
             {canSocial && (
@@ -151,19 +151,14 @@ export default function Sidebar() {
                 <Target className="w-4 h-4" /> Outreach
               </NavLink>
             )}
-            {canMarketing && (
-              <NavLink to="/marketing" className={navClass}>
-                <TrendingUp className="w-4 h-4" /> Ad Accounts
-              </NavLink>
-            )}
-            {canSEO && (
-              <NavLink to="/seo" className={navClass}>
-                <BarChart2 className="w-4 h-4" /> SEO
-              </NavLink>
-            )}
             {isAdmin && (
               <NavLink to="/social-scheduling" className={navClass}>
                 <Calendar className="w-4 h-4" /> Social Scheduling
+              </NavLink>
+            )}
+            {canReports && (
+              <NavLink to="/reports" className={navClass}>
+                <FileText className="w-4 h-4" /> Reports
               </NavLink>
             )}
             {isAdmin && (
@@ -174,35 +169,26 @@ export default function Sidebar() {
           </>
         )}
 
+        {/* AI & Automation */}
+        {isAdmin && (
+          <>
+            <SectionLabel>AI & Automation</SectionLabel>
+            <NavLink to="/intelligence" className={navClass}>
+              <Brain className="w-4 h-4" /> AI Intelligence
+            </NavLink>
+          </>
+        )}
+
         {/* Operations */}
-        {(canSequences || canAutomations || canReports) && (
+        {canSequences && (
           <>
             <SectionLabel>Operations</SectionLabel>
-            {canSequences && (
-              <NavLink to="/emails" className={navClass}>
-                <Mail className="w-4 h-4" /> Email Templates
-              </NavLink>
-            )}
-            {isAdmin && (
-              <NavLink to="/links" className={navClass}>
-                <Link className="w-4 h-4" /> Link Shortener
-              </NavLink>
-            )}
-            {canSequences && (
-              <NavLink to="/whatsapp-templates" className={navClass}>
-                <MessageSquare className="w-4 h-4" /> WA Templates
-              </NavLink>
-            )}
-            {canAutomations && (
-              <NavLink to="/automations" className={navClass}>
-                <Zap className="w-4 h-4" /> Automations
-              </NavLink>
-            )}
-            {canReports && (
-              <NavLink to="/reports" className={navClass}>
-                <FileText className="w-4 h-4" /> Reports
-              </NavLink>
-            )}
+            <NavLink to="/emails" className={navClass}>
+              <Mail className="w-4 h-4" /> Email Templates
+            </NavLink>
+            <NavLink to="/whatsapp-templates" className={navClass}>
+              <MessageSquare className="w-4 h-4" /> WA Templates
+            </NavLink>
           </>
         )}
 
@@ -217,19 +203,11 @@ export default function Sidebar() {
         )}
 
         {/* Settings */}
-        <SectionLabel>Settings</SectionLabel>
-        {canHealth && (
-          <NavLink to="/health" className={navClass}>
-            <Activity className="w-4 h-4" /> System Health
-          </NavLink>
-        )}
         {isAdmin && (
           <>
+            <SectionLabel>Settings</SectionLabel>
             <NavLink to="/settings/permissions" className={navClass}>
               <Shield className="w-4 h-4" /> Permissions
-            </NavLink>
-            <NavLink to="/pipelines/settings" className={navClass}>
-              <Settings className="w-4 h-4" /> Pipeline Settings
             </NavLink>
             <NavLink to="/settings/audit" className={navClass}>
               <ClipboardList className="w-4 h-4" /> Audit Log
