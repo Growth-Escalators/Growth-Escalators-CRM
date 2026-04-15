@@ -41,24 +41,7 @@ export async function ensureSeoTables(): Promise<void> {
     `ALTER TABLE content_gap_analysis ADD COLUMN IF NOT EXISTS client_domain TEXT`,
     `ALTER TABLE backlink_data ADD COLUMN IF NOT EXISTS client_domain TEXT`,
     `ALTER TABLE backlink_data ADD COLUMN IF NOT EXISTS checked_at TIMESTAMP DEFAULT NOW()`,
-    `ALTER TABLE seo_opportunities ADD COLUMN IF NOT EXISTS client_domain TEXT`,
-    // client_knowledge_base — add columns the seed service needs
-    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS client_domain TEXT`,
-    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS brand_name TEXT`,
-    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS industry TEXT`,
-    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS target_audience TEXT`,
-    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS unique_value_prop TEXT`,
-    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS primary_keywords TEXT`,
-    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS tone_of_voice TEXT`,
-    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS competitors TEXT`,
-    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS content_themes TEXT`,
-    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS cta_style TEXT`,
-    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS ga4_property_id TEXT`,
-    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS gsc_domain TEXT`,
-    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS wordpress_url TEXT`,
-    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS target_monthly_traffic INTEGER`,
-    // seo_alerts_log — ensure message column has alias
-    `ALTER TABLE seo_alerts_log ADD COLUMN IF NOT EXISTS client_domain TEXT`,
+    // Create tables BEFORE ALTER TABLE (order matters)
     `CREATE TABLE IF NOT EXISTS seo_opportunities (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       project_name TEXT NOT NULL,
@@ -81,6 +64,24 @@ export async function ensureSeoTables(): Promise<void> {
       created_at TIMESTAMP DEFAULT NOW()
     )`,
     `CREATE INDEX IF NOT EXISTS seo_alerts_log_created_idx ON seo_alerts_log(created_at DESC)`,
+    // ALTER TABLE columns — must come AFTER CREATE TABLE
+    `ALTER TABLE seo_opportunities ADD COLUMN IF NOT EXISTS client_domain TEXT`,
+    `ALTER TABLE seo_alerts_log ADD COLUMN IF NOT EXISTS client_domain TEXT`,
+    // client_knowledge_base — add columns the seed service needs
+    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS client_domain TEXT`,
+    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS brand_name TEXT`,
+    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS industry TEXT`,
+    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS target_audience TEXT`,
+    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS unique_value_prop TEXT`,
+    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS primary_keywords TEXT`,
+    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS tone_of_voice TEXT`,
+    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS competitors TEXT`,
+    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS content_themes TEXT`,
+    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS cta_style TEXT`,
+    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS ga4_property_id TEXT`,
+    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS gsc_domain TEXT`,
+    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS wordpress_url TEXT`,
+    `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS target_monthly_traffic INTEGER`,
   ];
   for (const s of stmts) {
     await pool.query(s).catch(e => logger.warn(`[seo-tables] ${e instanceof Error ? e.message : String(e)}`));
