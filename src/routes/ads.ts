@@ -297,4 +297,118 @@ router.get('/ads', async (req: Request, res: Response) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// POST /api/ads/slack-digest — send performance summary to Slack
+// ---------------------------------------------------------------------------
+router.post('/slack-digest', async (req: Request, res: Response) => {
+  const token = getToken();
+  if (!token) { res.json({ sent: false, error: 'Meta Ads token not configured' }); return; }
+
+  const dateRange = (req.body?.dateRange as string) || 'last_7d';
+
+  try {
+    const { sendSlackMessage, CHANNELS } = await import('../services/slackService');
+    const adAccounts = await getAdAccounts();
+
+    const allInsights: Array<{ accountName: string; spend: number; purchases: number; roas: number; impressions: number }> = [];
+
+    for (const acct of adAccounts) {
+      const timeParams = dateRangeToParams(dateRange);
+      const fields = 'spend,impressions,clicks,actions,action_values';
+      const params = new URLSearchParams({ fields, level: 'account', time_range: timeParams.time_range, limit: '1', access_token: token });
+      const url = `${META_API_BASE}/${acct.id}/insights?${params.toString()}`;
+
+      try {
+        const r = await fetchWithRetry(url);
+        const data = await r.json() as Record<string, unknown>;
+        const rows = ((data as { data: Array<Record<string, unknown>> }).data || []);
+        if (rows.length > 0) {
+          const parsed = parseInsightRow(rows[0]);
+          allInsights.push({ accountName: acct.name, spend: parsed.spend, purchases: parsed.purchases, roas: parsed.roas, impressions: parsed.impressions });
+        }
+      } catch { /* skip failed accounts */ }
+    }
+
+    const totalSpend = allInsights.reduce((s, i) => s + i.spend, 0);
+    const totalPurchases = allInsights.reduce((s, i) => s + i.purchases, 0);
+    const totalImpressions = allInsights.reduce((s, i) => s + i.impressions, 0);
+
+    const dateLabel = dateRange.replace(/_/g, ' ').replace('last ', 'Last ');
+
+    const lines = [
+      `*Meta Ads Performance Digest* (${dateLabel})`,
+      '',
+      `*Total Spend:* ₹${totalSpend.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
+      `*Total Purchases:* ${totalPurchases}`,
+      `*Impressions:* ${totalImpressions.toLocaleString('en-IN')}`,
+      '',
+      '*Per Account:*',
+      ...allInsights.map(i => `• *${i.accountName}*: ₹${i.spend.toLocaleString('en-IN', { maximumFractionDigits: 0 })} spend | ${i.purchases} purchases | ${i.roas}x ROAS`),
+    ];
+
+    if (allInsights.length === 0) {
+      lines.push('_No data available for this period_');
+    }
+
+    const sent = await sendSlackMessage(CHANNELS.sodEod, lines.join('\n'));
+    res.json({ sent });
+  } catch (e: unknown) {
+    res.status(500).json({ sent: false, error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/ads/slack-alert — send specific alert type to Slack
+// ---------------------------------------------------------------------------
+router.post('/slack-alert', async (req: Request, res: Response) => {
+  const token = getToken();
+  if (!token) { res.json({ sent: false, error: 'Meta Ads token not configured' }); return; }
+
+  const alertType = (req.body?.type as string) || 'roas_check';
+  const dateRange = (req.body?.dateRange as string) || 'today';
+
+  try {
+    const { sendSlackDM, SLACK_MEMBERS } = await import('../services/slackService');
+    const adAccounts = await getAdAccounts();
+    const alerts: string[] = [];
+
+    for (const acct of adAccounts) {
+      const timeParams = dateRangeToParams(dateRange);
+      const fields = 'spend,impressions,clicks,actions,action_values';
+      const params = new URLSearchParams({ fields, level: 'account', time_range: timeParams.time_range, limit: '1', access_token: token });
+      const url = `${META_API_BASE}/${acct.id}/insights?${params.toString()}`;
+
+      try {
+        const r = await fetchWithRetry(url);
+        const data = await r.json() as Record<string, unknown>;
+        const rows = ((data as { data: Array<Record<string, unknown>> }).data || []);
+        if (rows.length > 0) {
+          const parsed = parseInsightRow(rows[0]);
+
+          if (alertType === 'roas_check' && parsed.roas < 2.0 && parsed.spend > 100) {
+            alerts.push(`⚠️ *${acct.name}*: ROAS ${parsed.roas}x (₹${parsed.spend} spend, ${parsed.purchases} purchases)`);
+          }
+          if (alertType === 'spend_check') {
+            alerts.push(`💰 *${acct.name}*: ₹${parsed.spend.toLocaleString('en-IN', { maximumFractionDigits: 0 })} spend | ${parsed.purchases} purchases | ${parsed.roas}x ROAS`);
+          }
+        }
+      } catch { /* skip */ }
+    }
+
+    let message: string;
+    if (alertType === 'roas_check') {
+      message = alerts.length > 0
+        ? `*🔴 ROAS Alert Check*\n\n${alerts.join('\n')}\n\n_Action needed: review campaigns with ROAS < 2.0x_`
+        : `*✅ ROAS Check — All Clear*\n\nAll accounts above 2.0x ROAS threshold.`;
+    } else {
+      message = `*📊 Spend Summary (${dateRange.replace(/_/g, ' ')})*\n\n${alerts.length > 0 ? alerts.join('\n') : '_No spend data available_'}`;
+    }
+
+    const sent = await sendSlackDM(SLACK_MEMBERS.jatin, message);
+    res.json({ sent });
+  } catch (e: unknown) {
+    res.status(500).json({ sent: false, error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 export default router;

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import { apiFetch } from '../lib/api.js';
-import { BarChart2, RefreshCw, TrendingUp, TrendingDown, ChevronDown, ChevronRight, AlertCircle, Settings, Bell, Plus, Trash2 } from 'lucide-react';
+import { BarChart2, RefreshCw, TrendingUp, TrendingDown, ChevronDown, ChevronRight, AlertCircle, Settings, Bell, Plus, Trash2, MessageSquare, Send, CheckCircle, Clock, Zap } from 'lucide-react';
 
 const FALLBACK_ACCOUNTS = [
   { id: 'act_323237510625803', name: 'GE Agency' },
@@ -249,25 +249,30 @@ function AccountsTab() {
             {!loading && accounts.length === 0 && (
               <tr><td colSpan={4} className="px-6 py-8 text-center text-sm text-slate-400">No accounts found</td></tr>
             )}
-            {accounts.map(a => (
-              <tr key={a.account_id || a.id} className="border-b border-slate-50 hover:bg-slate-50">
-                <td className="px-6 py-3 text-sm font-mono text-slate-700">{a.account_id || a.id}</td>
-                <td className="px-6 py-3 text-sm text-slate-800">{a.client_name || a.name}</td>
-                <td className="px-6 py-3">
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                    a.status === 'active' ? 'bg-green-100 text-green-700' :
-                    a.status === 'pending_removal' ? 'bg-amber-100 text-amber-700' :
-                    'bg-slate-100 text-slate-500'
-                  }`}>{a.status || 'active'}</span>
-                </td>
-                <td className="px-6 py-3 text-right">
-                  <button onClick={() => handleRemove(a.account_id || a.id)}
-                    className="text-red-400 hover:text-red-600 p-1" title="Request removal">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {accounts.map(a => {
+              const metaId = a.accountId || a.account_id || '';
+              const name = a.clientName || a.client_name || a.accountName || a.account_name || '';
+              const status = a.isActive === false ? 'inactive' : (a.removalRequestedAt || a.removal_requested_at) ? 'pending_removal' : 'active';
+              return (
+                <tr key={a.id} className="border-b border-slate-50 hover:bg-slate-50">
+                  <td className="px-6 py-3 text-sm font-mono text-slate-700">{metaId}</td>
+                  <td className="px-6 py-3 text-sm text-slate-800 font-medium">{name || '—'}</td>
+                  <td className="px-6 py-3">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                      status === 'active' ? 'bg-green-100 text-green-700' :
+                      status === 'pending_removal' ? 'bg-amber-100 text-amber-700' :
+                      'bg-slate-100 text-slate-500'
+                    }`}>{status}</span>
+                  </td>
+                  <td className="px-6 py-3 text-right">
+                    <button onClick={() => handleRemove(a.id)}
+                      className="text-red-400 hover:text-red-600 p-1" title="Request removal">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -326,6 +331,176 @@ function AlertsTab({ adAccounts }) {
   );
 }
 
+function SlackAutomationTab({ adAccounts, insights, dateRange }) {
+  const [sending, setSending] = useState(false);
+  const [toast, setToast] = useState('');
+  const [automations, setAutomations] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('ge_slack_automations') || '{}'); }
+    catch { return {}; }
+  });
+
+  function saveAutomations(next) {
+    setAutomations(next);
+    localStorage.setItem('ge_slack_automations', JSON.stringify(next));
+  }
+
+  function toggleAutomation(key) {
+    saveAutomations({ ...automations, [key]: !automations[key] });
+  }
+
+  async function sendSlackDigest() {
+    setSending(true);
+    try {
+      const data = await apiFetch('/api/ads/slack-digest', {
+        method: 'POST',
+        body: JSON.stringify({ dateRange }),
+      });
+      setToast(data?.sent ? 'Digest sent to Slack!' : (data?.error || 'Failed to send'));
+    } catch (e) {
+      setToast('Failed: ' + e.message);
+    }
+    setSending(false);
+  }
+
+  async function sendSlackAlert(type) {
+    setSending(true);
+    try {
+      const data = await apiFetch('/api/ads/slack-alert', {
+        method: 'POST',
+        body: JSON.stringify({ type, dateRange }),
+      });
+      setToast(data?.sent ? `${type} alert sent!` : (data?.error || 'Failed'));
+    } catch (e) {
+      setToast('Failed: ' + e.message);
+    }
+    setSending(false);
+  }
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(''), 4000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const AUTOMATION_PRESETS = [
+    { key: 'daily_digest', label: 'Daily Performance Digest', desc: 'Auto-send spend, ROAS, purchases summary to Slack at 10 AM', icon: Clock },
+    { key: 'roas_drop', label: 'ROAS Drop Alert', desc: 'Notify when any account ROAS drops below threshold', icon: TrendingDown },
+    { key: 'high_spend', label: 'High Spend Alert', desc: 'Alert when daily spend exceeds ₹10K on any account', icon: AlertCircle },
+    { key: 'zero_purchases', label: 'Zero Purchases Alert', desc: 'Alert when an active campaign gets 0 purchases for the day', icon: Zap },
+  ];
+
+  return (
+    <div className="space-y-6">
+      {/* Quick Actions */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="px-6 py-3 border-b border-slate-100 bg-slate-50 flex items-center gap-2">
+          <Send className="w-3.5 h-3.5 text-sky-500" />
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Quick Slack Actions</p>
+        </div>
+        <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+          <button
+            onClick={sendSlackDigest}
+            disabled={sending}
+            className="flex flex-col items-center gap-3 p-5 rounded-xl border-2 border-dashed border-slate-200 hover:border-sky-300 hover:bg-sky-50 transition-all disabled:opacity-50"
+          >
+            <div className="w-10 h-10 rounded-full bg-sky-100 flex items-center justify-center">
+              <MessageSquare className="w-5 h-5 text-sky-600" />
+            </div>
+            <div className="text-center">
+              <p className="text-sm font-semibold text-slate-800">Send Performance Digest</p>
+              <p className="text-xs text-slate-500 mt-0.5">Spend, ROAS, top campaigns → Slack</p>
+            </div>
+          </button>
+
+          <button
+            onClick={() => sendSlackAlert('roas_check')}
+            disabled={sending}
+            className="flex flex-col items-center gap-3 p-5 rounded-xl border-2 border-dashed border-slate-200 hover:border-amber-300 hover:bg-amber-50 transition-all disabled:opacity-50"
+          >
+            <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+              <TrendingDown className="w-5 h-5 text-amber-600" />
+            </div>
+            <div className="text-center">
+              <p className="text-sm font-semibold text-slate-800">Check ROAS Now</p>
+              <p className="text-xs text-slate-500 mt-0.5">Flag underperforming campaigns</p>
+            </div>
+          </button>
+
+          <button
+            onClick={() => sendSlackAlert('spend_check')}
+            disabled={sending}
+            className="flex flex-col items-center gap-3 p-5 rounded-xl border-2 border-dashed border-slate-200 hover:border-emerald-300 hover:bg-emerald-50 transition-all disabled:opacity-50"
+          >
+            <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center">
+              <BarChart2 className="w-5 h-5 text-emerald-600" />
+            </div>
+            <div className="text-center">
+              <p className="text-sm font-semibold text-slate-800">Spend Summary</p>
+              <p className="text-xs text-slate-500 mt-0.5">Current spend across all accounts</p>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      {/* Automation Toggles */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="px-6 py-3 border-b border-slate-100 bg-slate-50 flex items-center gap-2">
+          <Zap className="w-3.5 h-3.5 text-purple-500" />
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Automated Slack Alerts</p>
+          <span className="ml-auto text-xs text-slate-400">Runs via daily CRON</span>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {AUTOMATION_PRESETS.map(a => {
+            const enabled = !!automations[a.key];
+            return (
+              <div key={a.key} className="px-6 py-4 flex items-center gap-4">
+                <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${enabled ? 'bg-purple-100' : 'bg-slate-100'}`}>
+                  <a.icon className={`w-4 h-4 ${enabled ? 'text-purple-600' : 'text-slate-400'}`} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-800">{a.label}</p>
+                  <p className="text-xs text-slate-500">{a.desc}</p>
+                </div>
+                <button
+                  onClick={() => toggleAutomation(a.key)}
+                  className={`relative w-11 h-6 rounded-full transition-colors ${enabled ? 'bg-purple-600' : 'bg-slate-300'}`}
+                >
+                  <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${enabled ? 'translate-x-5.5 left-auto right-0.5' : 'left-0.5'}`}
+                    style={enabled ? { left: 'auto', right: '2px' } : { left: '2px' }}
+                  />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Slack Channel Config */}
+      <div className="bg-white rounded-xl border border-slate-200 p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <MessageSquare className="w-4 h-4 text-slate-500" />
+          <p className="text-sm font-semibold text-slate-800">Slack Channel</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2 border border-slate-200">
+            <span className="text-sm text-slate-500">#</span>
+            <span className="text-sm font-medium text-slate-800">sod-eod</span>
+          </div>
+          <CheckCircle className="w-4 h-4 text-green-500" />
+          <span className="text-xs text-green-600 font-medium">Connected</span>
+          <span className="text-xs text-slate-400 ml-auto">Alerts go to #sod-eod and DM to Jatin</span>
+        </div>
+      </div>
+
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-sm font-medium px-5 py-3 rounded-2xl shadow-2xl">
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdsPage() {
   const [selectedAccount, setSelectedAccount] = useState('all');
   const [dateRange, setDateRange] = useState('last_7d');
@@ -356,7 +531,7 @@ export default function AdsPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab');
-    if (tab && ['performance', 'accounts', 'alerts'].includes(tab)) setActiveTab(tab);
+    if (tab && ['performance', 'accounts', 'alerts', 'slack'].includes(tab)) setActiveTab(tab);
   }, []);
 
   const accountsToFetch = selectedAccount === 'all' ? adAccounts.map(a => a.id) : [selectedAccount];
@@ -448,6 +623,7 @@ export default function AdsPage() {
               { id: 'performance', label: 'Performance', icon: BarChart2 },
               { id: 'accounts', label: 'Accounts', icon: Settings },
               { id: 'alerts', label: 'ROAS Alerts', icon: Bell },
+              { id: 'slack', label: 'Slack Automation', icon: MessageSquare },
             ].map(t => (
               <button key={t.id} onClick={() => setActiveTab(t.id)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
@@ -568,6 +744,8 @@ export default function AdsPage() {
           {activeTab === 'accounts' && <AccountsTab />}
 
           {activeTab === 'alerts' && <AlertsTab adAccounts={adAccounts} />}
+
+          {activeTab === 'slack' && <SlackAutomationTab adAccounts={adAccounts} insights={insights} dateRange={dateRange} />}
         </div>
       </main>
     </div>
