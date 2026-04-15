@@ -24,6 +24,7 @@ export const CHANNELS = {
   sodEod:  'sod-eod',
   general: 'general',
   outreach: 'outreach',
+  performanceMarketing: 'C0ALLQG0SUS',
 };
 
 // Send a message to a Slack channel

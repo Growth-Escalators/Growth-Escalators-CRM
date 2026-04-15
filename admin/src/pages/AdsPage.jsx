@@ -408,7 +408,7 @@ function SlackAutomationTab({ adAccounts, insights, dateRange }) {
             </div>
             <div className="text-center">
               <p className="text-sm font-semibold text-slate-800">Send Performance Digest</p>
-              <p className="text-xs text-slate-500 mt-0.5">Spend, ROAS, top campaigns → Slack</p>
+              <p className="text-xs text-slate-500 mt-0.5">Spend, ROAS, top campaigns → #performance-marketing</p>
             </div>
           </button>
 
@@ -484,11 +484,11 @@ function SlackAutomationTab({ adAccounts, insights, dateRange }) {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2 border border-slate-200">
             <span className="text-sm text-slate-500">#</span>
-            <span className="text-sm font-medium text-slate-800">sod-eod</span>
+            <span className="text-sm font-medium text-slate-800">performance-marketing</span>
           </div>
           <CheckCircle className="w-4 h-4 text-green-500" />
           <span className="text-xs text-green-600 font-medium">Connected</span>
-          <span className="text-xs text-slate-400 ml-auto">Alerts go to #sod-eod and DM to Jatin</span>
+          <span className="text-xs text-slate-400 ml-auto">Digests go to #performance-marketing, alerts DM to Jatin</span>
         </div>
       </div>
 
