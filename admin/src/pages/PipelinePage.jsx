@@ -392,6 +392,9 @@ export default function PipelinePage() {
   const [selectedContact, setSelectedContact] = useState(null);
   const [wonLostModal, setWonLostModal] = useState(null);
   const [addDealModal, setAddDealModal] = useState(null);
+  const [filterAssigned, setFilterAssigned] = useState('');
+  const [filterValue, setFilterValue] = useState('');
+  const [filterAge, setFilterAge] = useState('');
 
   useEffect(() => {
     apiFetch('/api/pipelines').then((data) => {
@@ -541,7 +544,7 @@ export default function PipelinePage() {
               </Link>
             </div>
 
-            <div className="flex-1"/>
+            <div className="flex-1" />
 
             {/* Show archived toggle */}
             <label className="flex items-center gap-2 text-sm text-slate-500 cursor-pointer select-none">
@@ -553,6 +556,60 @@ export default function PipelinePage() {
               />
               Show archived
             </label>
+
+            {/* Add Deal — top right */}
+            <button
+              onClick={() => setAddDealModal({ pipelineId: activePipelineId, stageName: kanbanStages[0]?.stageName ?? '' })}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-sky-600 hover:bg-sky-700 rounded-lg transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+              Add Deal
+            </button>
+          </div>
+
+          {/* Filters row */}
+          <div className="flex items-center gap-3 mt-3 flex-wrap">
+            <select
+              value={filterAssigned}
+              onChange={(e) => setFilterAssigned(e.target.value)}
+              className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-orange-400"
+            >
+              <option value="">All Owners</option>
+              <option value="jatin">Jatin</option>
+              <option value="saksham">Saksham</option>
+              <option value="unassigned">Unassigned</option>
+            </select>
+
+            <select
+              value={filterValue}
+              onChange={(e) => setFilterValue(e.target.value)}
+              className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-orange-400"
+            >
+              <option value="">All Values</option>
+              <option value="high">High Value (10L+)</option>
+              <option value="medium">Medium (1L-10L)</option>
+              <option value="low">Low (&lt; 1L)</option>
+            </select>
+
+            <select
+              value={filterAge}
+              onChange={(e) => setFilterAge(e.target.value)}
+              className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-orange-400"
+            >
+              <option value="">All Ages</option>
+              <option value="stale">Stale (3+ days)</option>
+              <option value="week">This Week</option>
+              <option value="today">Today</option>
+            </select>
+
+            {(filterAssigned || filterValue || filterAge) && (
+              <button
+                onClick={() => { setFilterAssigned(''); setFilterValue(''); setFilterAge(''); }}
+                className="text-xs text-red-500 hover:text-red-700 font-medium"
+              >
+                Clear filters
+              </button>
+            )}
           </div>
         </div>
 
@@ -586,7 +643,25 @@ export default function PipelinePage() {
             <div className="flex gap-3 px-4 py-4 overflow-x-auto snap-x snap-mandatory md:overflow-x-visible flex-1">
               {kanbanStages.map((stageData, stageIndex) => {
                 const { color, light } = getStageStyle(stageData.stageName, stageIndex);
-                const stageDeals = stageData.deals ?? [];
+                const stageDeals = (stageData.deals ?? []).filter(deal => {
+                  if (filterAssigned) {
+                    if (filterAssigned === 'unassigned' && deal.assignedTo) return false;
+                    if (filterAssigned !== 'unassigned' && deal.assignedTo?.toLowerCase() !== filterAssigned) return false;
+                  }
+                  if (filterValue) {
+                    const v = Number(deal.dealValue || 0);
+                    if (filterValue === 'high' && v < 1000000) return false;
+                    if (filterValue === 'medium' && (v < 100000 || v >= 1000000)) return false;
+                    if (filterValue === 'low' && v >= 100000) return false;
+                  }
+                  if (filterAge) {
+                    const days = daysAgo(deal.updatedAt || deal.createdAt);
+                    if (filterAge === 'stale' && days < 3) return false;
+                    if (filterAge === 'week' && days > 7) return false;
+                    if (filterAge === 'today' && days > 0) return false;
+                  }
+                  return true;
+                });
                 return (
                   <div key={stageData.stageName} className={`snap-center min-w-[85vw] md:min-w-[220px] flex flex-col rounded-xl border ${light} w-[220px] shrink-0`}>
                     {/* Column header */}

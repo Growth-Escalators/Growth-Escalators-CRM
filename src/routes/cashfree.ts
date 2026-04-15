@@ -166,7 +166,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const existingContact = await db.select().from(contacts).where(eq(contacts.id, contact.id)).limit(1);
     const existingMeta = (existingContact[0]?.metadata ?? {}) as Record<string, unknown>;
     const existingTags = (existingContact[0]?.tags ?? []) as string[];
-    const newTags = [...new Set([...existingTags, SEGMENT_TAGS[segment] || segment, ...products])];
+    const newTags = [...new Set([...existingTags, 'slo_buyer', SEGMENT_TAGS[segment] || segment, ...products])];
 
     await db.update(contacts).set({
       status: 'prospect',

@@ -4,7 +4,8 @@ import { logout, getUser, apiFetch } from '../lib/api.js';
 import {
   Users, BarChart2, Zap, Mail, Receipt, Activity, Lock, Home,
   TrendingUp, FileText, Share2, MessageSquare, Settings, Layout, MapPin,
-  Shield, ClipboardList, CreditCard, Kanban, Brain, Target, Link, Calendar
+  Shield, ClipboardList, CreditCard, Kanban, Brain, Target, Link, Calendar,
+  ExternalLink, Wrench, Search, Megaphone
 } from 'lucide-react';
 
 const ROLE_BADGE_COLORS = {
@@ -116,11 +117,6 @@ export default function Sidebar() {
             )}
           </NavLink>
         )}
-        {canDiscovery && (
-          <NavLink to="/discover" className={navClass}>
-            <MapPin className="w-4 h-4" /> Lead Discovery
-          </NavLink>
-        )}
         {canReports && (
           <NavLink to="/analytics" className={navClass}>
             <TrendingUp className="w-4 h-4" /> Analytics
@@ -133,12 +129,7 @@ export default function Sidebar() {
             <SectionLabel>Marketing</SectionLabel>
             {canAds && (
               <NavLink to="/ads" className={navClass}>
-                <BarChart2 className="w-4 h-4" /> Meta Ads
-              </NavLink>
-            )}
-            {canSEO && (
-              <NavLink to="/seo" className={navClass}>
-                <BarChart2 className="w-4 h-4" /> SEO
+                <Megaphone className="w-4 h-4" /> Meta Ads
               </NavLink>
             )}
             {canSocial && (
@@ -151,19 +142,14 @@ export default function Sidebar() {
                 <Target className="w-4 h-4" /> Outreach
               </NavLink>
             )}
-            {isAdmin && (
-              <NavLink to="/social-scheduling" className={navClass}>
-                <Calendar className="w-4 h-4" /> Social Scheduling
+            {canSEO && (
+              <NavLink to="/seo" className={navClass}>
+                <Search className="w-4 h-4" /> SEO
               </NavLink>
             )}
             {canReports && (
               <NavLink to="/reports" className={navClass}>
                 <FileText className="w-4 h-4" /> Reports
-              </NavLink>
-            )}
-            {isAdmin && (
-              <NavLink to="/growth-os" className={navClass}>
-                <Zap className="w-4 h-4" /> Growth OS
               </NavLink>
             )}
           </>
@@ -179,16 +165,36 @@ export default function Sidebar() {
           </>
         )}
 
-        {/* Operations */}
-        {canSequences && (
+        {/* Tools — opens in new tab */}
+        {canDiscovery && (
           <>
-            <SectionLabel>Operations</SectionLabel>
-            <NavLink to="/emails" className={navClass}>
-              <Mail className="w-4 h-4" /> Email Templates
+            <SectionLabel>Tools</SectionLabel>
+            <NavLink to="/discover" className={navClass} target="_blank" rel="noopener noreferrer">
+              <MapPin className="w-4 h-4" />
+              <span className="flex-1">Lead Discovery</span>
+              <ExternalLink className="w-3 h-3 text-slate-500" />
             </NavLink>
-            <NavLink to="/whatsapp-templates" className={navClass}>
-              <MessageSquare className="w-4 h-4" /> WA Templates
-            </NavLink>
+            {isAdmin && (
+              <NavLink to="/growth-os" className={navClass} target="_blank" rel="noopener noreferrer">
+                <Zap className="w-4 h-4" />
+                <span className="flex-1">Growth OS</span>
+                <ExternalLink className="w-3 h-3 text-slate-500" />
+              </NavLink>
+            )}
+            {canSequences && (
+              <>
+                <NavLink to="/emails" className={navClass} target="_blank" rel="noopener noreferrer">
+                  <Mail className="w-4 h-4" />
+                  <span className="flex-1">Email Templates</span>
+                  <ExternalLink className="w-3 h-3 text-slate-500" />
+                </NavLink>
+                <NavLink to="/whatsapp-templates" className={navClass} target="_blank" rel="noopener noreferrer">
+                  <MessageSquare className="w-4 h-4" />
+                  <span className="flex-1">WA Templates</span>
+                  <ExternalLink className="w-3 h-3 text-slate-500" />
+                </NavLink>
+              </>
+            )}
           </>
         )}
 

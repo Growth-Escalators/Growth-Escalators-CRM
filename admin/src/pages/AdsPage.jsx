@@ -342,7 +342,11 @@ export default function AdsPage() {
   useEffect(() => {
     apiFetch('/api/ads/accounts')
       .then(d => {
-        const accts = (d?.accounts || []).map(a => ({ id: a.account_id || a.id, name: a.client_name || a.name }));
+        const accts = (d?.accounts || []).map(a => {
+          const rawId = a.account_id || a.id || '';
+          const id = rawId.startsWith('act_') ? rawId : `act_${rawId}`;
+          return { id, name: a.client_name || a.name || id };
+        });
         if (accts.length > 0) setAdAccounts(accts);
       })
       .catch(() => {});

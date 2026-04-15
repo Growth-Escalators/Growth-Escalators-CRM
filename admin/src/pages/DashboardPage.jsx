@@ -7,15 +7,19 @@ import {
   Users, TrendingUp, DollarSign, Receipt, BarChart2, Kanban,
   FileText, Share2, MessageSquare, Brain, Search, Activity,
   AlertTriangle, CheckCircle, ArrowUp, ArrowDown, RefreshCw,
-  Clock, Zap, Target, CreditCard
+  Clock, Zap, Target, CreditCard, ChevronRight, ChevronDown,
+  Sparkles, AlertCircle
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Small stat card
 // ---------------------------------------------------------------------------
-function StatCard({ icon: Icon, title, value, sub, color = 'text-slate-900', alert = false }) {
+function StatCard({ icon: Icon, title, value, sub, color = 'text-slate-900', alert = false, onClick }) {
   return (
-    <div className={`bg-white rounded-xl border ${alert ? 'border-red-200' : 'border-slate-200'} p-4 flex items-start gap-3`}>
+    <div
+      onClick={onClick}
+      className={`bg-white rounded-xl border ${alert ? 'border-red-200' : 'border-slate-200'} p-4 flex items-start gap-3 ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}
+    >
       <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
         alert ? 'bg-red-50' : 'bg-slate-50'
       }`}>
@@ -26,20 +30,6 @@ function StatCard({ icon: Icon, title, value, sub, color = 'text-slate-900', ale
         <p className={`text-xl font-bold ${alert ? 'text-red-600' : color}`}>{value}</p>
         {sub && <p className="text-xs text-slate-400 mt-0.5 truncate">{sub}</p>}
       </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Mini status badge
-// ---------------------------------------------------------------------------
-function StatusBadge({ ok, label }) {
-  return (
-    <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium ${
-      ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
-    }`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${ok ? 'bg-green-500' : 'bg-red-500'}`} />
-      {label}
     </div>
   );
 }
@@ -61,6 +51,105 @@ function fmtNum(n) {
   return Number(n).toLocaleString('en-IN');
 }
 
+function parseJson(val) {
+  if (!val) return null;
+  if (typeof val === 'object') return val;
+  try { return JSON.parse(val); } catch { return null; }
+}
+
+function severityBg(s) {
+  if (s === 'critical') return 'bg-red-50 border-red-200';
+  if (s === 'high') return 'bg-amber-50 border-amber-200';
+  return 'bg-yellow-50 border-yellow-200';
+}
+function severityDot(s) {
+  if (s === 'critical') return 'bg-red-500';
+  if (s === 'high') return 'bg-amber-500';
+  return 'bg-yellow-400';
+}
+
+// ---------------------------------------------------------------------------
+// Action Item with expand
+// ---------------------------------------------------------------------------
+function ActionItem({ action, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className={`rounded-xl border overflow-hidden ${severityBg(action.severity)}`}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-3 px-4 py-3 text-left"
+      >
+        <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${severityDot(action.severity)}`} />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-slate-800">{action.title}</p>
+          <div className="flex items-center gap-2 mt-0.5">
+            {action.owner && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 font-medium">{action.owner}</span>
+            )}
+            {action.deadline && (
+              <span className="text-xs text-slate-500 flex items-center gap-1"><Clock className="w-3 h-3" />{action.deadline}</span>
+            )}
+          </div>
+        </div>
+        {open ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+      </button>
+      {open && (
+        <div className="px-4 pb-3 space-y-2">
+          {action.business_impact && (
+            <p className="text-xs text-slate-600"><span className="font-semibold">Impact:</span> {action.business_impact}</p>
+          )}
+          {action.what_is_broken && (
+            <p className="text-xs text-slate-600"><span className="font-semibold">What's broken:</span> {action.what_is_broken}</p>
+          )}
+          {action.fix_steps?.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-slate-600 mb-1">Fix steps:</p>
+              <ol className="space-y-1 ml-1">
+                {action.fix_steps.map((s, i) => (
+                  <li key={i} className="text-xs text-slate-700 flex gap-2">
+                    <span className="w-4 h-4 bg-slate-200 rounded-full text-slate-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">{i + 1}</span>
+                    {s}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Highlight Card — wins & anomalies
+// ---------------------------------------------------------------------------
+function HighlightCard({ icon: Icon, title, items, color, iconColor }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div className={`bg-white rounded-xl border border-slate-200 overflow-hidden`}>
+      <div className={`px-4 py-3 border-b border-slate-100 ${color} flex items-center gap-2`}>
+        <Icon className={`w-4 h-4 ${iconColor}`} />
+        <p className="text-xs font-bold uppercase tracking-wide">{title}</p>
+      </div>
+      <div className="divide-y divide-slate-50">
+        {items.map((item, i) => (
+          <div key={i} className="px-4 py-3">
+            {typeof item === 'string' ? (
+              <p className="text-sm text-slate-700">{item}</p>
+            ) : (
+              <>
+                <p className="text-sm font-medium text-slate-800">{item.title || item.metric || item.description}</p>
+                {item.detail && <p className="text-xs text-slate-500 mt-0.5">{item.detail}</p>}
+                {item.change && <p className="text-xs text-slate-500 mt-0.5">{item.change}</p>}
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // DashboardPage
 // ---------------------------------------------------------------------------
@@ -72,27 +161,29 @@ export default function DashboardPage() {
   const [secondsAgo, setSecondsAgo] = useState(0);
   const user = getUser();
   const isAdmin = user?.role === 'admin';
+  const firstName = user?.name?.split(' ')[0] || 'there';
 
-  // Row 1 — today's numbers
+  // Core metrics
   const [contacts, setContacts] = useState(0);
   const [deals, setDeals] = useState(0);
   const [billing, setBilling] = useState(null);
   const [pipelineSummary, setPipelineSummary] = useState(null);
 
-  // Row 2 — intelligence + SEO + outreach (admin only)
+  // Intelligence (admin)
   const [intelligence, setIntelligence] = useState(null);
   const [seoOverview, setSeoOverview] = useState([]);
   const [outreach, setOutreach] = useState(null);
-
-  // Row 3 — system status (admin only)
   const [cronHealth, setCronHealth] = useState(null);
 
-  // Today's priority actions
-  const [actions, setActions] = useState([]);
+  // Parsed AI data
+  const [myActions, setMyActions] = useState([]);
+  const [allActions, setAllActions] = useState([]);
+  const [wins, setWins] = useState([]);
+  const [anomalies, setAnomalies] = useState([]);
+  const [coachingScore, setCoachingScore] = useState(null);
 
   const loadStats = useCallback(async () => {
     try {
-      // Core data (all roles)
       const [contactData, dealData, billingData, pipelineData] = await Promise.all([
         apiFetch('/contacts?limit=1').catch(() => null),
         apiFetch('/deals?limit=1').catch(() => null),
@@ -104,7 +195,6 @@ export default function DashboardPage() {
       setBilling(billingData);
       setPipelineSummary(pipelineData);
 
-      // Admin-only data
       if (isAdmin) {
         const [intelData, seoData, outreachData, cronData] = await Promise.all([
           apiFetch('/api/intelligence/today').catch(() => null),
@@ -112,23 +202,36 @@ export default function DashboardPage() {
           apiFetch('/api/outreach/leads/dashboard').catch(() => null),
           apiFetch('/api/intelligence/system-health').catch(() => null),
         ]);
-        setIntelligence(intelData?.report ?? null);
+        const report = intelData?.report ?? null;
+        setIntelligence(report);
         setSeoOverview(seoData?.clients ?? []);
         setOutreach(outreachData);
         setCronHealth(cronData);
 
-        // Today's priority actions for logged-in user
-        try {
-          const problems = intelData?.report?.problems;
-          if (problems) {
-            const parsed = typeof problems === 'string' ? JSON.parse(problems) : problems;
-            const firstName = user?.name?.split(' ')[0];
-            const myActions = (Array.isArray(parsed) ? parsed : [])
-              .filter(p => !firstName || (p.owner || '').toLowerCase().includes(firstName.toLowerCase()))
-              .slice(0, 3);
-            setActions(myActions);
-          }
-        } catch {}
+        // Parse AI coaching data
+        if (report) {
+          const problems = parseJson(report.problems) ?? [];
+          const winsData = parseJson(report.wins) ?? [];
+          const anomalyData = parseJson(report.anomalies) ?? [];
+
+          setAllActions(Array.isArray(problems) ? problems : []);
+          setWins(Array.isArray(winsData) ? winsData : []);
+          setAnomalies(Array.isArray(anomalyData) ? anomalyData : []);
+
+          // Filter to current user's actions
+          const myItems = (Array.isArray(problems) ? problems : [])
+            .filter(p => !firstName || firstName === 'there' || (p.owner || '').toLowerCase().includes(firstName.toLowerCase()));
+          setMyActions(myItems);
+
+          // Set coaching scores
+          setCoachingScore({
+            overall: report.overall_score,
+            ads: report.ads_score,
+            seo: report.seo_score,
+            sales: report.sales_score,
+            ops: report.ops_score,
+          });
+        }
       }
 
       setLastUpdated(Date.now());
@@ -137,7 +240,7 @@ export default function DashboardPage() {
       setError(true);
     }
     setLoading(false);
-  }, [isAdmin]);
+  }, [isAdmin, firstName]);
 
   useEffect(() => { loadStats(); }, [loadStats]);
   useEffect(() => {
@@ -152,7 +255,7 @@ export default function DashboardPage() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  // Derived metrics
+  // Derived
   const mrr = billing?.totalMrr;
   const outstanding = billing?.outstanding;
   const overdueCount = billing?.overdueCount ?? 0;
@@ -160,19 +263,11 @@ export default function DashboardPage() {
   const dealsInProposal = pipelineSummary?.stages?.find(s => s.stage?.toLowerCase() === 'proposal')?.count ?? 0;
   const intelScore = intelligence?.overall_score;
   const intelFocus = intelligence?.analysis;
-
-  // SEO summary
-  const seoKeywordsUp = seoOverview.reduce((sum, c) => sum + (Number(c.total_clicks) || 0), 0);
-  const seoClients = seoOverview.length;
-
-  // Outreach summary
   const outreachTotal = outreach?.totalLeads ?? 0;
   const outreachInterested = outreach?.interested ?? 0;
-
-  // Cron summary
+  const seoClients = seoOverview.length;
   const cronFailedCount = cronHealth?.cronJobs?.filter(c => !c.healthy)?.length ?? 0;
   const cronTotal = cronHealth?.cronJobs?.length ?? 0;
-  const systemScore = cronHealth?.overallScore;
 
   const ROLE_BADGE = {
     admin: 'bg-purple-100 text-purple-700',
@@ -194,10 +289,10 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold text-slate-900">
-                Welcome back, {user?.name?.split(' ')[0] || 'there'}
+                Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'}, {firstName}
               </h1>
               <div className="flex items-center gap-2 mt-1">
-                <p className="text-sm text-slate-500">Growth Escalators CRM</p>
+                <p className="text-sm text-slate-500">Here's what needs your attention today</p>
                 {user?.role && (
                   <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${ROLE_BADGE[user.role] || ROLE_BADGE.staff}`}>
                     {user.role.replace(/_/g, ' ')}
@@ -224,37 +319,106 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* ── Today's Actions ── */}
-          {actions.length > 0 && (
+          {/* ── YOUR PRIORITY ACTIONS (personalized) ── */}
+          {myActions.length > 0 && (
             <section>
-              <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Your Priority Today</h2>
-              <div className="bg-white rounded-xl border-2 border-sky-200 p-4 mb-6 shadow-sm">
-                <div className="space-y-2">
-                  {actions.slice(0, 5).map((a, i) => (
-                    <div key={i} className={`flex items-center gap-3 rounded-lg px-4 py-2.5 ${
-                      a.severity === 'critical' ? 'bg-red-50' : a.severity === 'high' ? 'bg-amber-50' : 'bg-yellow-50'
-                    }`}>
-                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                        a.severity === 'critical' ? 'bg-red-500' : a.severity === 'high' ? 'bg-amber-500' : 'bg-yellow-400'
-                      }`} />
-                      <p className="text-sm text-slate-700"><strong>{a.title}</strong></p>
-                    </div>
-                  ))}
+              <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
+                Your Priority Actions Today
+              </h2>
+              <div className="space-y-2">
+                {myActions.slice(0, 5).map((a, i) => (
+                  <ActionItem key={i} action={a} defaultOpen={i === 0} />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* ── AI INTELLIGENCE SCORE + COACHING ── */}
+          {isAdmin && coachingScore && (
+            <section>
+              <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <Brain className="w-3.5 h-3.5 text-indigo-500" />
+                AI Coaching Score
+              </h2>
+              <div className="bg-white rounded-xl border border-slate-200 p-5">
+                <div className="flex items-center gap-6 mb-4">
+                  <div className="text-center">
+                    <p className={`text-4xl font-black ${intelScore >= 70 ? 'text-emerald-600' : intelScore >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
+                      {intelScore ?? '—'}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">Overall</p>
+                  </div>
+                  <div className="flex-1 grid grid-cols-4 gap-3">
+                    {[
+                      { label: 'Ads', score: coachingScore.ads, icon: BarChart2 },
+                      { label: 'SEO', score: coachingScore.seo, icon: Search },
+                      { label: 'Sales', score: coachingScore.sales, icon: TrendingUp },
+                      { label: 'Ops', score: coachingScore.ops, icon: Activity },
+                    ].map(s => (
+                      <div key={s.label} className="text-center bg-slate-50 rounded-lg py-2.5">
+                        <s.icon className="w-3.5 h-3.5 mx-auto text-slate-400 mb-1" />
+                        <p className={`text-lg font-bold ${(s.score ?? 0) >= 70 ? 'text-emerald-600' : (s.score ?? 0) >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
+                          {s.score ?? '—'}
+                        </p>
+                        <p className="text-[10px] text-slate-500 uppercase font-semibold">{s.label}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {intelFocus && (
+                  <div className="bg-indigo-50 border border-indigo-100 rounded-lg px-4 py-3">
+                    <p className="text-xs font-semibold text-indigo-700 mb-1 flex items-center gap-1">
+                      <Sparkles className="w-3 h-3" /> AI Focus Summary
+                    </p>
+                    <p className="text-sm text-indigo-900 leading-relaxed">{intelFocus}</p>
+                  </div>
+                )}
+                <div className="mt-3 text-right">
+                  <a href="/crm/intelligence" className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
+                    View full AI Intelligence report →
+                  </a>
                 </div>
               </div>
             </section>
           )}
 
-          {/* ── ROW 1: Core Metrics (all roles) ── */}
+          {/* ── HIGHLIGHTS: Wins + Anomalies ── */}
+          {isAdmin && (wins.length > 0 || anomalies.length > 0) && (
+            <section>
+              <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
+                Today's Highlights
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <HighlightCard
+                  icon={CheckCircle}
+                  title="Wins"
+                  items={wins}
+                  color="bg-emerald-50"
+                  iconColor="text-emerald-600"
+                />
+                <HighlightCard
+                  icon={AlertTriangle}
+                  title="Anomalies"
+                  items={anomalies}
+                  color="bg-amber-50"
+                  iconColor="text-amber-600"
+                />
+              </div>
+            </section>
+          )}
+
+          {/* ── CORE METRICS ── */}
           <section>
             <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Core Metrics</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {loading ? (
-                [1,2,3,4].map(i => <div key={i} className="h-24 bg-white rounded-xl border border-slate-200 animate-pulse" />)
+                [1, 2, 3, 4].map(i => <div key={i} className="h-24 bg-white rounded-xl border border-slate-200 animate-pulse" />)
               ) : (
                 <>
-                  <StatCard icon={Users} title="Total Contacts" value={fmtNum(contacts)} color="text-slate-900" />
-                  <StatCard icon={TrendingUp} title="Active Deals" value={fmtNum(deals)} sub={dealsInProposal > 0 ? `${dealsInProposal} in proposal` : null} color="text-green-600" />
+                  <StatCard icon={Users} title="Total Contacts" value={fmtNum(contacts)} color="text-slate-900" onClick={() => window.location.href = '/crm/contacts'} />
+                  <StatCard icon={TrendingUp} title="Active Deals" value={fmtNum(deals)} sub={dealsInProposal > 0 ? `${dealsInProposal} in proposal` : null} color="text-green-600" onClick={() => window.location.href = '/crm/pipeline'} />
                   <StatCard icon={DollarSign} title="Monthly MRR" value={fmtINR(mrr)} color="text-sky-600" />
                   <StatCard icon={Receipt} title="Outstanding" value={fmtINR(outstanding)} sub={overdueCount > 0 ? `${overdueCount} overdue` : 'None overdue'} color="text-amber-600" alert={overdueCount > 0} />
                 </>
@@ -262,62 +426,45 @@ export default function DashboardPage() {
             </div>
           </section>
 
-          {/* ── ROW 2: Pipeline + Intelligence (all roles see pipeline, admin sees intel) ── */}
+          {/* ── PIPELINE & OUTREACH ── */}
           <section>
-            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Pipeline & Intelligence</h2>
+            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Pipeline & Growth</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <StatCard icon={Target} title="Pipeline Value" value={fmtINR(pipelineValue)} color="text-indigo-600" />
-              {isAdmin && intelligence ? (
-                <div className="bg-white rounded-xl border border-slate-200 p-4 col-span-2">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Brain className={`w-4 h-4 ${intelScore >= 70 ? 'text-green-500' : intelScore >= 50 ? 'text-amber-500' : 'text-red-500'}`} />
-                    <span className="text-xs text-slate-500">Today's Intelligence Score</span>
-                    <span className={`ml-auto text-2xl font-bold ${intelScore >= 70 ? 'text-green-600' : intelScore >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
-                      {intelScore ?? '—'}
-                    </span>
-                  </div>
-                  {intelFocus && (
-                    <p className="text-xs text-slate-600 leading-relaxed line-clamp-2">{intelFocus}</p>
-                  )}
-                </div>
-              ) : isAdmin ? (
-                <div className="bg-white rounded-xl border border-slate-200 p-4 col-span-2 flex items-center justify-center">
-                  <a href="/crm/intelligence" className="text-xs text-indigo-600 hover:underline flex items-center gap-1">
-                    <Brain className="w-3.5 h-3.5" /> Generate today's intelligence report →
-                  </a>
-                </div>
-              ) : null}
+              <StatCard icon={Target} title="Pipeline Value" value={fmtINR(pipelineValue)} color="text-indigo-600" onClick={() => window.location.href = '/crm/pipeline'} />
               {isAdmin && (
-                <StatCard icon={Target} title="Outreach Leads" value={fmtNum(outreachTotal)} sub={outreachInterested > 0 ? `${outreachInterested} interested` : null} color="text-purple-600" />
+                <>
+                  <StatCard icon={Target} title="Outreach Leads" value={fmtNum(outreachTotal)} sub={outreachInterested > 0 ? `${outreachInterested} interested` : null} color="text-purple-600" onClick={() => window.location.href = '/crm/outreach-dashboard'} />
+                  <StatCard icon={Search} title="SEO Clients" value={seoClients} color="text-emerald-600" onClick={() => window.location.href = '/crm/seo'} />
+                  <StatCard icon={Activity} title="System Health" value={cronHealth?.overallScore != null ? `${cronHealth.overallScore}/100` : '—'} sub={cronFailedCount > 0 ? `${cronFailedCount}/${cronTotal} crons unhealthy` : `${cronTotal} crons healthy`} color={cronFailedCount > 0 ? 'text-amber-600' : 'text-green-600'} alert={cronFailedCount > 2} />
+                </>
               )}
             </div>
           </section>
 
-          {/* ── ROW 3: SEO + System (admin only) ── */}
-          {isAdmin && (
+          {/* ── ALL TEAM ACTIONS (admin can see everyone's) ── */}
+          {isAdmin && allActions.length > myActions.length && (
             <section>
-              <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">SEO & System Health</h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <StatCard icon={Search} title="SEO Clients Tracked" value={seoClients} sub={seoKeywordsUp > 0 ? `${fmtNum(seoKeywordsUp)} total clicks` : 'Run GSC workflow'} color="text-emerald-600" />
-                <StatCard icon={Activity} title="System Health" value={systemScore != null ? `${systemScore}/100` : '—'} sub={cronFailedCount > 0 ? `${cronFailedCount}/${cronTotal} crons unhealthy` : `${cronTotal} crons healthy`} color={cronFailedCount > 0 ? 'text-amber-600' : 'text-green-600'} alert={cronFailedCount > 2} />
-                <StatCard icon={CreditCard} title="Billing MRR" value={fmtINR(mrr)} sub={mrr ? `₹${((mrr / 100) * 12).toLocaleString('en-IN')} ARR` : null} color="text-sky-600" />
-                <StatCard icon={Zap} title="Deals in Pipeline" value={fmtNum(deals)} sub={pipelineSummary?.stages?.length ? `${pipelineSummary.stages.length} stages` : null} color="text-indigo-600" />
+              <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">All Team Actions</h2>
+              <div className="space-y-2">
+                {allActions.filter(a => !myActions.includes(a)).slice(0, 5).map((a, i) => (
+                  <ActionItem key={i} action={a} />
+                ))}
               </div>
             </section>
           )}
 
-          {/* ── ROW 4: Quick Links ── */}
+          {/* ── QUICK ACCESS ── */}
           <section>
             <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Quick Access</h2>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
               {[
-                { icon: Users, label: 'Contacts', path: '/contacts', color: 'bg-sky-50 text-sky-600', roles: ['admin','manager_ops','sales','staff'] },
-                { icon: Kanban, label: 'Pipeline', path: '/pipeline', color: 'bg-indigo-50 text-indigo-600', roles: ['admin','manager_ops','sales','staff'] },
-                { icon: MessageSquare, label: 'Inbox', path: '/inbox', color: 'bg-purple-50 text-purple-600', roles: ['admin','manager_ops','sales','staff'] },
-                { icon: BarChart2, label: 'Meta Ads', path: '/ads', color: 'bg-green-50 text-green-600', roles: ['admin','manager_ads'] },
-                { icon: Search, label: 'SEO', path: '/seo', color: 'bg-emerald-50 text-emerald-600', roles: ['admin','manager_ops','manager_ads'] },
+                { icon: Users, label: 'Contacts', path: '/contacts', color: 'bg-sky-50 text-sky-600', roles: ['admin', 'manager_ops', 'sales', 'staff'] },
+                { icon: Kanban, label: 'Pipeline', path: '/pipeline', color: 'bg-indigo-50 text-indigo-600', roles: ['admin', 'manager_ops', 'sales', 'staff'] },
+                { icon: MessageSquare, label: 'Inbox', path: '/inbox', color: 'bg-purple-50 text-purple-600', roles: ['admin', 'manager_ops', 'sales', 'staff'] },
+                { icon: BarChart2, label: 'Meta Ads', path: '/ads', color: 'bg-green-50 text-green-600', roles: ['admin', 'manager_ads'] },
+                { icon: Search, label: 'SEO', path: '/seo', color: 'bg-emerald-50 text-emerald-600', roles: ['admin', 'manager_ops', 'manager_ads'] },
                 { icon: Brain, label: 'AI Intelligence', path: '/intelligence', color: 'bg-violet-50 text-violet-600', roles: ['admin'] },
-                { icon: FileText, label: 'Reports', path: '/reports', color: 'bg-amber-50 text-amber-600', roles: ['admin','manager_ops','manager_ads'] },
+                { icon: FileText, label: 'Reports', path: '/reports', color: 'bg-amber-50 text-amber-600', roles: ['admin', 'manager_ops', 'manager_ads'] },
                 { icon: Share2, label: 'Outreach', path: '/outreach-dashboard', color: 'bg-pink-50 text-pink-600', roles: ['admin'] },
               ].filter(link => link.roles.includes(user?.role || 'staff')).map(link => (
                 <a key={link.path} href={`/crm${link.path}`}

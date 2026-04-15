@@ -31,6 +31,19 @@ router.get('/conversations', async (req: Request, res: Response) => {
 
   try {
     const rows = await db.execute(sql`
+      WITH latest_msg AS (
+        SELECT DISTINCT ON (contact_id)
+          id, contact_id, content, sent_at, direction, channel, status
+        FROM messages
+        WHERE tenant_id = ${tenantId}
+        ORDER BY contact_id, sent_at DESC
+      ),
+      unread AS (
+        SELECT contact_id, COUNT(*)::int AS cnt
+        FROM messages
+        WHERE tenant_id = ${tenantId} AND direction = 'inbound' AND status = 'received'
+        GROUP BY contact_id
+      )
       SELECT
         c.id AS "contactId",
         c.first_name || COALESCE(' ' || c.last_name, '') AS "contactName",
@@ -39,24 +52,18 @@ router.get('/conversations', async (req: Request, res: Response) => {
         c.company_name AS "companyName",
         c.tags,
         c.source,
-        m.content AS "lastMessage",
-        m.sent_at AS "lastMessageAt",
-        m.direction AS "lastDirection",
-        m.channel AS "lastChannel",
-        COUNT(m2.id) FILTER (WHERE m2.direction = 'inbound' AND m2.status = 'received') AS "unreadCount"
+        lm.content AS "lastMessage",
+        lm.sent_at AS "lastMessageAt",
+        lm.direction AS "lastDirection",
+        lm.channel AS "lastChannel",
+        COALESCE(u.cnt, 0) AS "unreadCount"
       FROM contacts c
-      JOIN messages m ON m.id = (
-        SELECT id FROM messages
-        WHERE contact_id = c.id AND tenant_id = ${tenantId}
-        ORDER BY sent_at DESC LIMIT 1
-      )
+      JOIN latest_msg lm ON lm.contact_id = c.id
       LEFT JOIN contact_channels cc ON cc.contact_id = c.id AND cc.channel_type = 'whatsapp'
       LEFT JOIN contact_channels cc_em ON cc_em.contact_id = c.id AND cc_em.channel_type = 'email'
-      LEFT JOIN messages m2 ON m2.contact_id = c.id AND m2.tenant_id = ${tenantId}
+      LEFT JOIN unread u ON u.contact_id = c.id
       WHERE c.tenant_id = ${tenantId}
-      GROUP BY c.id, c.first_name, c.last_name, cc.channel_value, cc_em.channel_value,
-               c.company_name, c.tags, c.source, m.content, m.sent_at, m.direction, m.channel
-      ORDER BY m.sent_at DESC
+      ORDER BY lm.sent_at DESC
       LIMIT 100
     `);
     res.json({ conversations: rows.rows });

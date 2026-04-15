@@ -14,7 +14,9 @@ const FALLBACK_AD_ACCOUNTS = [
 async function getAdAccounts(): Promise<Array<{ id: string; name: string }>> {
   try {
     const result = await pool.query(
-      `SELECT 'act_' || account_id AS id, COALESCE(client_name, account_name) AS name
+      `SELECT
+         CASE WHEN account_id LIKE 'act_%' THEN account_id ELSE 'act_' || account_id END AS id,
+         COALESCE(client_name, account_name) AS name
        FROM marketing_accounts WHERE is_active = true ORDER BY account_name`
     );
     if (result.rows.length > 0) return result.rows as Array<{ id: string; name: string }>;

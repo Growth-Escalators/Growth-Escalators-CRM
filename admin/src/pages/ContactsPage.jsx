@@ -54,6 +54,8 @@ const SMART_LISTS = [
   { id: 'uncontacted', label: 'Uncontacted', filters: { status: 'lead' } },
   { id: 'ecom', label: 'Ecom Buyers', filters: { source: 'checkout' } },
   { id: 'consulting', label: 'Consulting Leads', filters: { source: 'calcom' } },
+  { id: 'discover', label: 'Discovery', filters: { source: 'discovery' } },
+  { id: 'outreach', label: 'Cold Outreach', filters: { source: 'outreach' } },
 ];
 
 const LIMIT_OPTIONS = [20, 50, 100];
@@ -564,7 +566,7 @@ export default function ContactsPage() {
   useEffect(() => {
     apiFetch('/contacts/counts')
       .then((d) => {
-        if (d) setListCounts({ hot: +d.hot, uncontacted: +d.uncontacted, ecom: +d.ecom, consulting: +d.consulting });
+        if (d) setListCounts({ hot: +d.hot, uncontacted: +d.uncontacted, ecom: +d.ecom, consulting: +d.consulting, discover: +d.discover, outreach: +d.outreach });
       })
       .catch(() => {});
   }, []);
@@ -682,8 +684,10 @@ export default function ContactsPage() {
             <option value="whatsapp">WhatsApp</option>
             <option value="organic">Organic</option>
             <option value="calcom">Cal.com</option>
-            <option value="checkout">Checkout</option>
+            <option value="checkout">Checkout / SLO</option>
             <option value="referral">Referral</option>
+            <option value="discovery">Discovery</option>
+            <option value="outreach">Cold Outreach</option>
           </select>
 
           <select value={filterAssignedTo} onChange={(e) => { setFilterAssignedTo(e.target.value); setPage(1); }}

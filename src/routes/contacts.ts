@@ -111,7 +111,9 @@ router.get('/counts', async (req, res) => {
         COUNT(*) FILTER (WHERE status = 'qualified') AS hot,
         COUNT(*) FILTER (WHERE status = 'lead')      AS uncontacted,
         COUNT(*) FILTER (WHERE source = 'checkout')  AS ecom,
-        COUNT(*) FILTER (WHERE source = 'calcom')    AS consulting
+        COUNT(*) FILTER (WHERE source = 'calcom')    AS consulting,
+        COUNT(*) FILTER (WHERE source = 'discovery') AS discover,
+        COUNT(*) FILTER (WHERE source IN ('outreach', 'cold_outreach')) AS outreach
       FROM contacts WHERE tenant_id = ${tenantId}::uuid
     `);
     res.json(result.rows[0]);
