@@ -136,12 +136,12 @@ export async function enrichStuckLeads(): Promise<EnrichmentResult> {
     WHERE status = 'Enriching' AND updated_at < NOW() - INTERVAL '60 minutes'
   `).catch(() => {});
 
-  // Find leads to enrich (New or stuck Enriching >15min, max retries < 3)
+  // Find leads to enrich (New or stuck Enriching >15min, max retries < 5)
   const result = await pool.query(`
     SELECT id, company, first_name, website_url, email, country, COALESCE(retry_count, 0) AS retry_count
     FROM outreach_leads
-    WHERE (status = 'New' AND COALESCE(retry_count, 0) < 3)
-       OR (status = 'Enriching' AND updated_at < NOW() - INTERVAL '15 minutes' AND COALESCE(retry_count, 0) < 3)
+    WHERE (status = 'New' AND COALESCE(retry_count, 0) < 5)
+       OR (status = 'Enriching' AND updated_at < NOW() - INTERVAL '15 minutes' AND COALESCE(retry_count, 0) < 5)
     ORDER BY COALESCE(retry_count, 0) ASC, created_at ASC
     LIMIT 25
   `);
@@ -208,8 +208,23 @@ export async function enrichStuckLeads(): Promise<EnrichmentResult> {
   logger.info(`[enrichment] Batch: ${JSON.stringify(summary)}`);
 
   if (active > 0) {
+    // Track email source breakdown for this batch
+    let sourceBreakdown = '';
+    try {
+      const sources = await pool.query(`
+        SELECT email_source, COUNT(*)::int AS cnt
+        FROM outreach_leads
+        WHERE id = ANY($1) AND status = 'Active' AND email_source IS NOT NULL
+        GROUP BY email_source ORDER BY cnt DESC
+      `, [ids]);
+      if (sources.rows.length > 0) {
+        sourceBreakdown = '\n📊 Sources: ' + (sources.rows as Array<{ email_source: string; cnt: number }>)
+          .map(r => `${r.email_source} (${r.cnt})`).join(', ');
+      }
+    } catch { /* non-critical */ }
+
     await sendSlackMessage(SLACK_OUTREACH_CHANNEL,
-      `🔄 *Enrichment*: ${active} new Active leads found (${notFound} not found, ${errors} errors)`,
+      `🔄 *Enrichment*: ${active} new Active leads found (${notFound} not found, ${errors} errors)${sourceBreakdown}`,
     ).catch(() => {});
   }
 
