@@ -601,7 +601,9 @@ router.get('/dashboard', async (req: Request, res: Response) => {
     const [statusR, recentR, interestedR, countryR, weeklyR, uploadedR] = await Promise.all([
       pool.query(`SELECT status, COUNT(*)::int AS count FROM outreach_leads GROUP BY status`),
       pool.query(`SELECT id, company, status, email, email_source, reply_category, country, updated_at FROM outreach_leads ORDER BY updated_at DESC LIMIT 20`),
-      pool.query(`SELECT id, company, email, country, notes, updated_at FROM outreach_leads WHERE reply_category = 'INTERESTED' ORDER BY updated_at DESC`),
+      pool.query(`SELECT id, company, email, country, notes, updated_at, reply_time, jatin_responded_at,
+        EXTRACT(EPOCH FROM (COALESCE(jatin_responded_at, NOW()) - COALESCE(reply_time, updated_at))) / 60 AS minutes_waiting
+        FROM outreach_leads WHERE reply_category = 'INTERESTED' ORDER BY updated_at DESC`),
       pool.query(`SELECT COALESCE(country, 'Unknown') AS country, COUNT(*)::int AS count FROM outreach_leads GROUP BY country ORDER BY count DESC`),
       pool.query(`SELECT created_at::date AS date, COUNT(*)::int AS count FROM outreach_leads WHERE created_at >= NOW() - INTERVAL '7 days' GROUP BY created_at::date ORDER BY date`),
       pool.query(`SELECT COUNT(*)::int AS count FROM outreach_leads WHERE saleshandy_uploaded = true`),

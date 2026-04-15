@@ -591,20 +591,60 @@ console.log('[cron] Outreach CRM sync scheduled — every 30 minutes');
 // Runs 3 searches per day, rotating through the list
 // ---------------------------------------------------------------------------
 const DISCOVERY_QUERIES = [
+  // UK — major cities × keyword variations
   { query: 'performance marketing agency', location: 'Birmingham', country: 'UK' },
   { query: 'performance marketing agency', location: 'Leeds', country: 'UK' },
   { query: 'performance marketing agency', location: 'Bristol', country: 'UK' },
   { query: 'digital marketing agency', location: 'Edinburgh', country: 'UK' },
   { query: 'ppc agency', location: 'Liverpool', country: 'UK' },
+  { query: 'meta ads agency', location: 'Manchester', country: 'UK' },
+  { query: 'google ads agency', location: 'Glasgow', country: 'UK' },
+  { query: 'paid social agency', location: 'Newcastle', country: 'UK' },
+  { query: 'ecommerce marketing agency', location: 'Nottingham', country: 'UK' },
+  { query: 'shopify marketing agency', location: 'Sheffield', country: 'UK' },
+  { query: 'facebook ads agency', location: 'Cardiff', country: 'UK' },
+  { query: 'D2C marketing agency', location: 'Belfast', country: 'UK' },
+  { query: 'paid media agency', location: 'Southampton', country: 'UK' },
+  { query: 'growth marketing agency', location: 'Brighton', country: 'UK' },
+  // AU — expanded cities
   { query: 'performance marketing agency', location: 'Sydney', country: 'AU' },
   { query: 'digital marketing agency', location: 'Brisbane', country: 'AU' },
   { query: 'ppc agency', location: 'Perth', country: 'AU' },
+  { query: 'meta ads agency', location: 'Melbourne', country: 'AU' },
+  { query: 'google ads agency', location: 'Adelaide', country: 'AU' },
+  { query: 'ecommerce marketing agency', location: 'Gold Coast', country: 'AU' },
+  { query: 'paid social agency', location: 'Canberra', country: 'AU' },
+  { query: 'shopify agency', location: 'Hobart', country: 'AU' },
+  // CA — expanded cities
   { query: 'performance marketing agency', location: 'Vancouver', country: 'CA' },
   { query: 'digital marketing agency', location: 'Calgary', country: 'CA' },
+  { query: 'meta ads agency', location: 'Toronto', country: 'CA' },
+  { query: 'ppc agency', location: 'Montreal', country: 'CA' },
+  { query: 'google ads agency', location: 'Ottawa', country: 'CA' },
+  { query: 'ecommerce marketing agency', location: 'Edmonton', country: 'CA' },
+  { query: 'paid media agency', location: 'Winnipeg', country: 'CA' },
+  // US — expanded cities + niche keywords
   { query: 'meta ads agency', location: 'New York', country: 'US' },
   { query: 'performance marketing agency', location: 'Austin', country: 'US' },
   { query: 'digital advertising agency', location: 'Chicago', country: 'US' },
   { query: 'ecommerce marketing agency', location: 'Miami', country: 'US' },
+  { query: 'google ads agency', location: 'Los Angeles', country: 'US' },
+  { query: 'shopify marketing agency', location: 'San Francisco', country: 'US' },
+  { query: 'paid social agency', location: 'Denver', country: 'US' },
+  { query: 'D2C marketing agency', location: 'Atlanta', country: 'US' },
+  { query: 'facebook ads agency', location: 'Dallas', country: 'US' },
+  { query: 'growth marketing agency', location: 'Seattle', country: 'US' },
+  { query: 'ppc management agency', location: 'Boston', country: 'US' },
+  { query: 'performance media agency', location: 'Nashville', country: 'US' },
+  { query: 'paid advertising agency', location: 'Portland', country: 'US' },
+  { query: 'digital ads agency', location: 'Phoenix', country: 'US' },
+  { query: 'meta advertising agency', location: 'Charlotte', country: 'US' },
+  // NZ
+  { query: 'digital marketing agency', location: 'Auckland', country: 'NZ' },
+  { query: 'ppc agency', location: 'Wellington', country: 'NZ' },
+  // IE
+  { query: 'performance marketing agency', location: 'Dublin', country: 'IE' },
+  { query: 'paid social agency', location: 'Cork', country: 'IE' },
 ];
 
 cron.schedule('30 1 * * *', () => safeCron('Daily Lead Discovery', async () => {
@@ -763,6 +803,14 @@ cron.schedule('30 3 1,15 * *', () => safeCron('Competitor Content Analysis', asy
   console.log(`[CRON] Competitor content: ${result.analyzed} keywords analyzed, ${result.errors} errors`);
 }), { timezone: 'UTC' });
 console.log('[cron] Competitor content analysis scheduled — 1st & 15th of month at 9:00 AM IST');
+
+// Outreach Weekly Summary — Monday 8 AM IST (2:30 UTC)
+cron.schedule('30 2 * * 1', () => safeCron('Outreach Weekly Summary', async () => {
+  const { sendWeeklyOutreachSummary } = await import('./services/outreachAlertService');
+  await sendWeeklyOutreachSummary();
+  console.log('[CRON] Outreach weekly summary sent');
+}), { timezone: 'UTC' });
+console.log('[cron] Outreach weekly summary scheduled — Mondays 8:00 AM IST');
 
 // Weekly Data Cleanup — Sunday 2:00 AM IST (Saturday 20:30 UTC)
 // ---------------------------------------------------------------------------
