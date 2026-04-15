@@ -60,18 +60,34 @@ export async function seedClientKnowledgeBase(): Promise<void> {
   ];
 
   for (const c of clients) {
-    await pool.query(`
-      INSERT INTO client_knowledge_base (client_domain, brand_name, industry, target_audience, unique_value_prop,
-        primary_keywords, tone_of_voice, competitors, content_themes, cta_style,
-        ga4_property_id, gsc_domain, wordpress_url, target_monthly_traffic)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-      ON CONFLICT (client_domain) DO UPDATE SET
-        brand_name=$2, industry=$3, target_audience=$4, unique_value_prop=$5,
-        primary_keywords=$6, tone_of_voice=$7, competitors=$8, content_themes=$9, cta_style=$10,
-        ga4_property_id=$11, gsc_domain=$12, wordpress_url=$13, target_monthly_traffic=$14, updated_at=NOW()
-    `, [c.client_domain, c.brand_name, c.industry, c.target_audience, c.unique_value_prop,
-        c.primary_keywords, c.tone_of_voice, c.competitors, c.content_themes, c.cta_style,
-        c.ga4_property_id, c.gsc_domain, c.wordpress_url, c.target_monthly_traffic]);
+    // Check if this client already exists (by client_domain or project_name containing the domain)
+    const existing = await pool.query(
+      `SELECT id FROM client_knowledge_base WHERE client_domain = $1 OR project_name ILIKE '%' || $1 || '%' LIMIT 1`,
+      [c.client_domain],
+    );
+
+    if ((existing.rows as unknown[]).length > 0) {
+      // Update existing row
+      await pool.query(`
+        UPDATE client_knowledge_base SET
+          client_domain=$1, brand_name=$2, industry=$3, target_audience=$4, unique_value_prop=$5,
+          primary_keywords=$6, tone_of_voice=$7, competitors=$8, content_themes=$9, cta_style=$10,
+          ga4_property_id=$11, gsc_domain=$12, wordpress_url=$13, target_monthly_traffic=$14, updated_at=NOW()
+        WHERE client_domain = $1 OR project_name ILIKE '%' || $1 || '%'
+      `, [c.client_domain, c.brand_name, c.industry, c.target_audience, c.unique_value_prop,
+          c.primary_keywords, c.tone_of_voice, c.competitors, c.content_themes, c.cta_style,
+          c.ga4_property_id, c.gsc_domain, c.wordpress_url, c.target_monthly_traffic]);
+    } else {
+      // Insert new row
+      await pool.query(`
+        INSERT INTO client_knowledge_base (client_domain, brand_name, industry, target_audience, unique_value_prop,
+          primary_keywords, tone_of_voice, competitors, content_themes, cta_style,
+          ga4_property_id, gsc_domain, wordpress_url, target_monthly_traffic)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+      `, [c.client_domain, c.brand_name, c.industry, c.target_audience, c.unique_value_prop,
+          c.primary_keywords, c.tone_of_voice, c.competitors, c.content_themes, c.cta_style,
+          c.ga4_property_id, c.gsc_domain, c.wordpress_url, c.target_monthly_traffic]);
+    }
   }
 
   logger.info('[seo-kb] Client knowledge base seeded with 3 clients');
