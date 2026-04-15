@@ -350,6 +350,188 @@ router.delete('/team-payroll/:id', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/finance/attendance?month=2026-04
+// ---------------------------------------------------------------------------
+router.get('/attendance', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
+  const firstDay = `${month}-01`;
+
+  try {
+    // Get team members
+    const teamR = await pool.query(
+      `SELECT id, name, role FROM team_payroll WHERE tenant_id = $1 AND is_active = TRUE ORDER BY COALESCE(sort_order, 0), name`,
+      [tenantId],
+    );
+
+    // Get attendance records for the month
+    const attendanceR = await pool.query(
+      `SELECT a.*, t.name AS member_name
+       FROM team_attendance a
+       JOIN team_payroll t ON t.id = a.member_id
+       WHERE a.tenant_id = $1
+         AND a.attendance_date >= $2 AND a.attendance_date < ($2::date + INTERVAL '1 month')
+       ORDER BY a.attendance_date DESC, t.name`,
+      [tenantId, firstDay],
+    );
+
+    // Summary per member
+    const summaryR = await pool.query(
+      `SELECT a.member_id, t.name AS member_name,
+         COUNT(*) FILTER (WHERE a.status = 'present') AS present,
+         COUNT(*) FILTER (WHERE a.status = 'absent') AS absent,
+         COUNT(*) FILTER (WHERE a.status = 'half_day') AS half_days,
+         COUNT(*) FILTER (WHERE a.status = 'leave') AS leaves,
+         COALESCE(SUM(a.hours_worked), 0) AS total_hours
+       FROM team_attendance a
+       JOIN team_payroll t ON t.id = a.member_id
+       WHERE a.tenant_id = $1
+         AND a.attendance_date >= $2 AND a.attendance_date < ($2::date + INTERVAL '1 month')
+       GROUP BY a.member_id, t.name
+       ORDER BY t.name`,
+      [tenantId, firstDay],
+    );
+
+    res.json({
+      team: teamR.rows,
+      attendance: attendanceR.rows,
+      summary: summaryR.rows,
+      month,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/finance/attendance — mark attendance (single or bulk)
+// ---------------------------------------------------------------------------
+router.post('/attendance', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const { memberId, memberIds, date, status, checkIn, checkOut, notes } = req.body;
+
+  const targetDate = date || new Date().toISOString().split('T')[0];
+  const ids = memberIds || (memberId ? [memberId] : []);
+
+  if (ids.length === 0) { res.status(400).json({ error: 'memberId or memberIds required' }); return; }
+
+  try {
+    let marked = 0;
+    for (const id of ids) {
+      // Calculate hours if check-in and check-out provided
+      let hours: number | null = null;
+      if (checkIn && checkOut) {
+        const [h1, m1] = checkIn.split(':').map(Number);
+        const [h2, m2] = checkOut.split(':').map(Number);
+        hours = Math.round(((h2 * 60 + m2) - (h1 * 60 + m1)) / 60 * 100) / 100;
+      }
+
+      await pool.query(
+        `INSERT INTO team_attendance (tenant_id, member_id, attendance_date, status, check_in, check_out, hours_worked, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (member_id, attendance_date) DO UPDATE SET
+           status = EXCLUDED.status, check_in = EXCLUDED.check_in, check_out = EXCLUDED.check_out,
+           hours_worked = EXCLUDED.hours_worked, notes = EXCLUDED.notes`,
+        [tenantId, id, targetDate, status || 'present', checkIn || null, checkOut || null, hours, notes || null],
+      );
+      marked++;
+    }
+
+    res.json({ marked, date: targetDate });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/finance/leaves?month=2026-04
+// ---------------------------------------------------------------------------
+router.get('/leaves', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
+  const firstDay = `${month}-01`;
+
+  try {
+    const result = await pool.query(
+      `SELECT l.*, t.name AS member_name
+       FROM team_leaves l
+       JOIN team_payroll t ON t.id = l.member_id
+       WHERE l.tenant_id = $1
+         AND l.start_date >= $2 AND l.start_date < ($2::date + INTERVAL '1 month')
+       ORDER BY l.start_date DESC`,
+      [tenantId, firstDay],
+    );
+    res.json({ leaves: result.rows, month });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/finance/leaves — request leave
+// ---------------------------------------------------------------------------
+router.post('/leaves', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const { memberId, leaveType, startDate, endDate, days, reason } = req.body;
+
+  if (!memberId || !startDate || !endDate) {
+    res.status(400).json({ error: 'memberId, startDate, endDate required' });
+    return;
+  }
+
+  try {
+    const calcDays = days || Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1;
+
+    const result = await pool.query(
+      `INSERT INTO team_leaves (tenant_id, member_id, leave_type, start_date, end_date, days, reason)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [tenantId, memberId, leaveType || 'casual', startDate, endDate, calcDays, reason || null],
+    );
+
+    // Auto-mark attendance as 'leave' for those dates
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const dateStr = d.toISOString().split('T')[0];
+      await pool.query(
+        `INSERT INTO team_attendance (tenant_id, member_id, attendance_date, status, notes)
+         VALUES ($1, $2, $3, 'leave', $4)
+         ON CONFLICT (member_id, attendance_date) DO UPDATE SET status = 'leave', notes = EXCLUDED.notes`,
+        [tenantId, memberId, dateStr, `Leave: ${leaveType || 'casual'}`],
+      );
+    }
+
+    res.json({ leave: result.rows[0] });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/finance/leaves/:id — approve/reject leave
+// ---------------------------------------------------------------------------
+router.patch('/leaves/:id', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const { status } = req.body;
+
+  if (!['approved', 'rejected'].includes(status)) {
+    res.status(400).json({ error: 'status must be approved or rejected' });
+    return;
+  }
+
+  try {
+    await pool.query(
+      `UPDATE team_leaves SET status = $3, approved_by = $4
+       WHERE id = $1 AND tenant_id = $2`,
+      [req.params.id, tenantId, status, req.user!.id],
+    );
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/finance/pnl?months=6
 // ---------------------------------------------------------------------------
 router.get('/pnl', async (req: Request, res: Response) => {

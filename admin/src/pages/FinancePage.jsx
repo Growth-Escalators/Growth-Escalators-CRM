@@ -4,7 +4,7 @@ import { apiFetch } from '../lib/api.js';
 import {
   DollarSign, TrendingUp, TrendingDown, Receipt, Plus, Trash2,
   RefreshCw, ChevronLeft, ChevronRight, Users, Settings, Calendar,
-  ArrowUp, ArrowDown, CreditCard, PieChart
+  ArrowUp, ArrowDown, CreditCard, PieChart, Clock, CheckCircle, XCircle
 } from 'lucide-react';
 
 function fmtINR(v) {
@@ -154,6 +154,8 @@ export default function FinancePage() {
   const [team, setTeam] = useState([]);
   const [income, setIncome] = useState([]);
   const [pnlHistory, setPnlHistory] = useState([]);
+  const [attendance, setAttendance] = useState({ team: [], attendance: [], summary: [] });
+  const [leaves, setLeaves] = useState([]);
   const [toast, setToast] = useState('');
 
   // New team member form
@@ -162,15 +164,21 @@ export default function FinancePage() {
   // New category form
   const [newCat, setNewCat] = useState({ name: '', color: '#3b82f6' });
 
+  // Attendance form
+  const [attDate, setAttDate] = useState(new Date().toISOString().split('T')[0]);
+  const [attStatus, setAttStatus] = useState('present');
+
   const loadData = useCallback(async () => {
     setLoading(true);
-    const [dashR, expR, catR, teamR, incR, pnlR] = await Promise.all([
+    const [dashR, expR, catR, teamR, incR, pnlR, attR, leaveR] = await Promise.all([
       apiFetch(`/api/finance/dashboard?month=${month}`).catch(() => null),
       apiFetch(`/api/finance/expenses?month=${month}`).catch(() => ({ expenses: [] })),
       apiFetch('/api/finance/categories').catch(() => ({ categories: [] })),
       apiFetch('/api/finance/team-payroll').catch(() => ({ team: [] })),
       apiFetch(`/api/finance/income?month=${month}`).catch(() => ({ income: [] })),
       apiFetch('/api/finance/pnl?months=6').catch(() => ({ pnl: [] })),
+      apiFetch(`/api/finance/attendance?month=${month}`).catch(() => ({ team: [], attendance: [], summary: [] })),
+      apiFetch(`/api/finance/leaves?month=${month}`).catch(() => ({ leaves: [] })),
     ]);
     setDashboard(dashR);
     setExpenses(expR?.expenses ?? []);
@@ -178,6 +186,8 @@ export default function FinancePage() {
     setTeam(teamR?.team ?? []);
     setIncome(incR?.income ?? []);
     setPnlHistory(pnlR?.pnl ?? []);
+    setAttendance(attR || { team: [], attendance: [], summary: [] });
+    setLeaves(leaveR?.leaves ?? []);
     setLoading(false);
   }, [month]);
 
@@ -275,6 +285,7 @@ export default function FinancePage() {
               { id: 'expenses', label: 'Expenses', icon: Receipt },
               { id: 'income', label: 'Income', icon: TrendingUp },
               { id: 'team', label: 'Team', icon: Users },
+              { id: 'attendance', label: 'Attendance', icon: Clock },
               { id: 'categories', label: 'Categories', icon: Settings },
             ].map(t => (
               <button key={t.id} onClick={() => setActiveTab(t.id)}
@@ -512,6 +523,160 @@ export default function FinancePage() {
                 </div>
                 <button type="submit" className="px-4 py-2 bg-sky-600 text-white rounded-lg text-sm font-medium hover:bg-sky-700">Add</button>
               </form>
+            </div>
+          )}
+
+          {/* ── ATTENDANCE TAB ── */}
+          {activeTab === 'attendance' && (
+            <div className="space-y-6">
+              {/* Quick mark attendance */}
+              <div className="bg-white rounded-xl border border-slate-200 p-5">
+                <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-sky-500" /> Mark Attendance — {new Date(attDate).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })}
+                </h3>
+                <div className="flex items-center gap-3 mb-4">
+                  <input type="date" value={attDate} onChange={e => setAttDate(e.target.value)}
+                    className="border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+                  <select value={attStatus} onChange={e => setAttStatus(e.target.value)}
+                    className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white">
+                    <option value="present">Present</option>
+                    <option value="absent">Absent</option>
+                    <option value="half_day">Half Day</option>
+                    <option value="leave">Leave</option>
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                  {(attendance.team || []).map(m => {
+                    // Check if already marked for this date
+                    const existing = (attendance.attendance || []).find(a => a.member_id === m.id && a.attendance_date?.split('T')[0] === attDate);
+                    const currentStatus = existing?.status;
+                    const statusIcon = currentStatus === 'present' ? <CheckCircle className="w-4 h-4 text-green-500" /> :
+                      currentStatus === 'absent' ? <XCircle className="w-4 h-4 text-red-500" /> :
+                      currentStatus === 'half_day' ? <Clock className="w-4 h-4 text-amber-500" /> :
+                      currentStatus === 'leave' ? <Calendar className="w-4 h-4 text-blue-500" /> :
+                      <span className="w-4 h-4 rounded-full border-2 border-slate-300" />;
+
+                    return (
+                      <button key={m.id}
+                        onClick={async () => {
+                          await apiFetch('/api/finance/attendance', {
+                            method: 'POST',
+                            body: JSON.stringify({ memberId: m.id, date: attDate, status: attStatus }),
+                          });
+                          setToast(`${m.name} marked ${attStatus}`);
+                          loadData();
+                        }}
+                        className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm text-left transition-colors ${
+                          currentStatus ? 'border-slate-200 bg-slate-50' : 'border-dashed border-slate-300 hover:border-sky-300 hover:bg-sky-50'
+                        }`}
+                      >
+                        {statusIcon}
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-slate-800 truncate">{m.name}</p>
+                          {currentStatus && <p className="text-[10px] text-slate-400 capitalize">{currentStatus.replace('_', ' ')}</p>}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {(attendance.team || []).length > 0 && (
+                  <button
+                    onClick={async () => {
+                      const ids = (attendance.team || []).map(m => m.id);
+                      await apiFetch('/api/finance/attendance', {
+                        method: 'POST',
+                        body: JSON.stringify({ memberIds: ids, date: attDate, status: attStatus }),
+                      });
+                      setToast(`All team marked ${attStatus}`);
+                      loadData();
+                    }}
+                    className="mt-3 flex items-center gap-2 px-4 py-2 bg-sky-600 text-white rounded-lg text-sm font-medium hover:bg-sky-700"
+                  >
+                    <CheckCircle className="w-4 h-4" /> Mark All {attStatus === 'present' ? 'Present' : attStatus.replace('_', ' ')}
+                  </button>
+                )}
+              </div>
+
+              {/* Monthly summary */}
+              {(attendance.summary || []).length > 0 && (
+                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                  <div className="px-6 py-3 border-b bg-slate-50">
+                    <p className="text-xs font-semibold text-slate-500 uppercase">Monthly Summary — {monthLabel}</p>
+                  </div>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Team Member</th>
+                        <th className="px-4 py-2 text-center text-xs font-semibold text-green-600">Present</th>
+                        <th className="px-4 py-2 text-center text-xs font-semibold text-red-600">Absent</th>
+                        <th className="px-4 py-2 text-center text-xs font-semibold text-amber-600">Half Days</th>
+                        <th className="px-4 py-2 text-center text-xs font-semibold text-blue-600">Leaves</th>
+                        <th className="px-4 py-2 text-center text-xs font-semibold text-slate-500">Total Hours</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(attendance.summary || []).map((s, i) => (
+                        <tr key={i} className="border-b border-slate-50 hover:bg-slate-50">
+                          <td className="px-4 py-2.5 font-medium text-slate-800">{s.member_name}</td>
+                          <td className="px-4 py-2.5 text-center"><span className="bg-green-50 text-green-700 px-2 py-0.5 rounded-full text-xs font-semibold">{s.present}</span></td>
+                          <td className="px-4 py-2.5 text-center"><span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${Number(s.absent) > 0 ? 'bg-red-50 text-red-700' : 'bg-slate-50 text-slate-400'}`}>{s.absent}</span></td>
+                          <td className="px-4 py-2.5 text-center"><span className="bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full text-xs font-semibold">{s.half_days}</span></td>
+                          <td className="px-4 py-2.5 text-center"><span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full text-xs font-semibold">{s.leaves}</span></td>
+                          <td className="px-4 py-2.5 text-center text-slate-600">{Number(s.total_hours).toFixed(1)}h</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Leaves section */}
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <div className="px-6 py-3 border-b bg-slate-50 flex items-center justify-between">
+                  <p className="text-xs font-semibold text-slate-500 uppercase">Leave Requests</p>
+                </div>
+                {leaves.length === 0 ? (
+                  <div className="p-8 text-center text-sm text-slate-400">No leave requests for {monthLabel}</div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Member</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Type</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Dates</th>
+                        <th className="px-4 py-2 text-center text-xs font-semibold text-slate-500">Days</th>
+                        <th className="px-4 py-2 text-center text-xs font-semibold text-slate-500">Status</th>
+                        <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {leaves.map(l => (
+                        <tr key={l.id} className="border-b border-slate-50">
+                          <td className="px-4 py-2.5 font-medium text-slate-800">{l.member_name}</td>
+                          <td className="px-4 py-2.5 capitalize text-slate-600">{l.leave_type}</td>
+                          <td className="px-4 py-2.5 text-slate-600">{new Date(l.start_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} — {new Date(l.end_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</td>
+                          <td className="px-4 py-2.5 text-center">{l.days}</td>
+                          <td className="px-4 py-2.5 text-center">
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${l.status === 'approved' ? 'bg-green-50 text-green-700' : l.status === 'rejected' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>
+                              {l.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right">
+                            {l.status === 'pending' && (
+                              <div className="flex gap-1 justify-end">
+                                <button onClick={async () => { await apiFetch(`/api/finance/leaves/${l.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'approved' }) }); loadData(); }}
+                                  className="px-2 py-1 bg-green-50 text-green-700 rounded text-xs font-medium hover:bg-green-100">Approve</button>
+                                <button onClick={async () => { await apiFetch(`/api/finance/leaves/${l.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'rejected' }) }); loadData(); }}
+                                  className="px-2 py-1 bg-red-50 text-red-700 rounded text-xs font-medium hover:bg-red-100">Reject</button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
             </div>
           )}
 

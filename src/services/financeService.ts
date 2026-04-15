@@ -67,6 +67,39 @@ export async function ensureFinanceTables(): Promise<void> {
     `CREATE INDEX IF NOT EXISTS expenses_recurring_idx ON expenses(is_recurring) WHERE is_recurring = TRUE`,
     `CREATE INDEX IF NOT EXISTS income_tenant_date_idx ON income_entries(tenant_id, income_date DESC)`,
     `CREATE UNIQUE INDEX IF NOT EXISTS income_invoice_uniq ON income_entries(invoice_id) WHERE invoice_id IS NOT NULL`,
+
+    // Attendance tracking
+    `CREATE TABLE IF NOT EXISTS team_attendance (
+      id SERIAL PRIMARY KEY,
+      tenant_id UUID,
+      member_id INTEGER REFERENCES team_payroll(id),
+      attendance_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      check_in TIME,
+      check_out TIME,
+      status TEXT DEFAULT 'present',
+      hours_worked NUMERIC(4,2),
+      notes TEXT,
+      created_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(member_id, attendance_date)
+    )`,
+    `CREATE INDEX IF NOT EXISTS attendance_member_date_idx ON team_attendance(member_id, attendance_date DESC)`,
+    `CREATE INDEX IF NOT EXISTS attendance_tenant_date_idx ON team_attendance(tenant_id, attendance_date DESC)`,
+
+    // Leave management
+    `CREATE TABLE IF NOT EXISTS team_leaves (
+      id SERIAL PRIMARY KEY,
+      tenant_id UUID,
+      member_id INTEGER REFERENCES team_payroll(id),
+      leave_type TEXT DEFAULT 'casual',
+      start_date DATE NOT NULL,
+      end_date DATE NOT NULL,
+      days NUMERIC(3,1) DEFAULT 1,
+      status TEXT DEFAULT 'pending',
+      approved_by UUID,
+      reason TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS leaves_member_idx ON team_leaves(member_id, start_date DESC)`,
   ];
 
   for (const s of stmts) {
@@ -124,6 +157,9 @@ export async function generateMonthlyExpenses(tenantId: string, month?: string):
   );
   if (catR.rows.length > 0) teamCatId = (catR.rows[0] as { id: number }).id;
 
+  const lastDayOfMonth = new Date(year, mon, 0).getDate(); // working days in month (approx 26)
+  const workingDays = Math.min(lastDayOfMonth - 4, 26); // subtract ~4 Sundays
+
   for (const member of team.rows as Array<{ id: number; name: string; base_salary: number }>) {
     // Check if already generated
     const exists = await pool.query(
@@ -132,10 +168,39 @@ export async function generateMonthlyExpenses(tenantId: string, month?: string):
     );
     if ((exists.rows as unknown[]).length > 0) continue;
 
+    // Check attendance: count absent/unpaid leave days
+    let absentDays = 0;
+    try {
+      const absentR = await pool.query(
+        `SELECT COUNT(*)::int AS cnt FROM team_attendance
+         WHERE member_id = $1 AND status = 'absent'
+           AND attendance_date >= $2 AND attendance_date < ($2::date + INTERVAL '1 month')`,
+        [member.id, firstDay],
+      );
+      absentDays += (absentR.rows[0] as { cnt: number }).cnt;
+
+      // Count unpaid leaves
+      const unpaidR = await pool.query(
+        `SELECT COALESCE(SUM(days), 0)::int AS cnt FROM team_leaves
+         WHERE member_id = $1 AND leave_type = 'unpaid' AND status = 'approved'
+           AND start_date >= $2 AND start_date < ($2::date + INTERVAL '1 month')`,
+        [member.id, firstDay],
+      );
+      absentDays += (unpaidR.rows[0] as { cnt: number }).cnt;
+    } catch { /* attendance tables may not exist yet */ }
+
+    const dailyRate = Math.round(member.base_salary / workingDays);
+    const deduction = dailyRate * absentDays;
+    const netSalary = Math.max(0, member.base_salary - deduction);
+    const desc = absentDays > 0
+      ? `Salary — ${member.name} (${absentDays} day${absentDays > 1 ? 's' : ''} deducted)`
+      : `Salary — ${member.name}`;
+
     await pool.query(
-      `INSERT INTO expenses (tenant_id, category_id, description, amount, expense_date, expense_type, team_member_id)
-       VALUES ($1, $2, $3, $4, $5, 'fixed', $6)`,
-      [tenantId, teamCatId, `Salary — ${member.name}`, member.base_salary, firstDay, member.id],
+      `INSERT INTO expenses (tenant_id, category_id, description, amount, expense_date, expense_type, team_member_id, notes)
+       VALUES ($1, $2, $3, $4, $5, 'fixed', $6, $7)`,
+      [tenantId, teamCatId, desc, netSalary, firstDay, member.id,
+       absentDays > 0 ? `Base: ${member.base_salary}, Absent: ${absentDays} days, Deducted: ${deduction}` : null],
     );
     generated++;
   }
