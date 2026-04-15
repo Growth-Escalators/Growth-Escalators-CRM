@@ -38,42 +38,58 @@ router.post('/trigger/:workflowPath', async (req: Request, res: Response) => {
     return;
   }
 
-  const triggeredBy = (req as Request & { user?: { id: string } }).user?.id ?? 'manual';
   const startedAt = new Date();
 
+  // Map webhook paths to backend-native services
+  const BACKEND_SERVICES: Record<string, () => Promise<{ ok: boolean; detail: string }>> = {
+    'mtrig-seo02': async () => { const { runSeoAlertChecks } = await import('../services/seoAlertService'); const r = await runSeoAlertChecks(); return { ok: true, detail: `${r.alerts} alerts` }; },
+    'mtrig-seo05': async () => { const { runPageSpeedChecks } = await import('../services/pagespeedService'); const r = await runPageSpeedChecks(); return { ok: true, detail: `${r.checked} sites` }; },
+    'mtrig-seo06': async () => { const { runRankChecks } = await import('../services/rankTrackingService'); const r = await runRankChecks(); return { ok: true, detail: `${r.checked} keywords` }; },
+    'mtrig-seo08': async () => { const { runBacklinkCheck } = await import('../services/seoBacklinkService'); const r = await runBacklinkCheck(); return { ok: true, detail: `${r.found} new` }; },
+    'mtrig-seo11': async () => { const { runContentDecayDetection } = await import('../services/seoContentDecayService'); const r = await runContentDecayDetection(); return { ok: true, detail: `${r.opportunities} opportunities` }; },
+    'mtrig-seo12': async () => { const { sendWeeklyOpportunityDigest } = await import('../services/seoDigestService'); const r = await sendWeeklyOpportunityDigest(); return { ok: r.sent, detail: r.sent ? 'Sent' : 'Failed' }; },
+  };
+
   try {
-    const webhookUrl = `${N8N_BASE}/webhook/${workflowPath}`;
-    const triggerRes = await fetch(webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ triggered_by: triggeredBy, triggered_at: startedAt.toISOString() }),
-    });
+    const backendService = BACKEND_SERVICES[workflowPath as string];
+    if (backendService) {
+      // Run backend-native service directly
+      const result = await backendService();
 
-    const status = triggerRes.ok ? 'triggered' : 'error';
+      await pool.query(
+        `INSERT INTO seo_workflow_logs (workflow_id, workflow_name, status, started_at, triggered_by, records_processed)
+         VALUES ($1, $2, $3, $4, 'manual', 0)`,
+        [wf.id, wf.name, result.ok ? 'success' : 'error', startedAt],
+      );
 
-    // Capture executionId from n8n response (if available)
-    let executionId: string | null = null;
-    try {
-      const responseBody = await triggerRes.json() as { executionId?: string };
-      executionId = responseBody.executionId ?? null;
-    } catch { /* n8n may return non-JSON */ }
+      logger.info(`[seo-workflows] ran ${wf.name} (backend-native) → ${result.detail}`);
+      res.json({ triggered: result.ok, workflow: wf.name, at: startedAt.toISOString(), method: 'backend', detail: result.detail });
+    } else {
+      // Fallback to n8n webhook for workflows without backend implementation
+      const webhookUrl = `${N8N_BASE}/webhook/${workflowPath}`;
+      const triggerRes = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ triggered_by: 'manual', triggered_at: startedAt.toISOString() }),
+        signal: AbortSignal.timeout(10000),
+      });
 
-    await pool.query(
-      `INSERT INTO seo_workflow_logs (workflow_id, workflow_name, status, started_at, triggered_by, execution_id)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [wf.id, wf.name, status, startedAt, triggeredBy, executionId],
-    );
+      await pool.query(
+        `INSERT INTO seo_workflow_logs (workflow_id, workflow_name, status, started_at, triggered_by)
+         VALUES ($1, $2, $3, $4, 'manual')`,
+        [wf.id, wf.name, triggerRes.ok ? 'triggered' : 'error', startedAt],
+      );
 
-    logger.info(`[seo-workflows] triggered ${wf.name} → ${triggerRes.status}${executionId ? ` (exec: ${executionId})` : ''}`);
-    res.json({ triggered: triggerRes.ok, workflow: wf.name, at: startedAt.toISOString(), httpStatus: triggerRes.status, executionId });
+      res.json({ triggered: triggerRes.ok, workflow: wf.name, at: startedAt.toISOString(), method: 'n8n', httpStatus: triggerRes.status });
+    }
   } catch (e) {
     logger.error('[seo-workflows] trigger error:', e);
     await pool.query(
       `INSERT INTO seo_workflow_logs (workflow_id, workflow_name, status, started_at, triggered_by, error_message)
-       VALUES ($1, $2, 'error', $3, $4, $5)`,
-      [wf.id, wf.name, startedAt, triggeredBy, String(e)],
+       VALUES ($1, $2, 'error', $3, 'manual', $4)`,
+      [wf.id, wf.name, startedAt, String(e)],
     ).catch(() => {});
-    res.status(500).json({ error: 'Failed to trigger workflow' });
+    res.status(500).json({ error: 'Failed to run workflow' });
   }
 });
 
@@ -138,31 +154,118 @@ router.get('/data-health', async (_req: Request, res: Response) => {
   }
 });
 
-// POST /api/seo-workflows/trigger-all
-router.post('/trigger-all', async (req: Request, res: Response) => {
-  const triggeredBy = (req as Request & { user?: { id: string } }).user?.id ?? 'manual';
-  const results: Array<{ name: string; ok: boolean }> = [];
+// POST /api/seo-workflows/trigger-all — runs backend-native services directly
+router.post('/trigger-all', async (_req: Request, res: Response) => {
+  const results: Array<{ name: string; ok: boolean; detail?: string }> = [];
 
-  for (const wf of SEO_WORKFLOWS) {
-    if (!wf.webhookPath) continue;
-    try {
-      const webhookUrl = `${N8N_BASE}/webhook/${wf.webhookPath}`;
-      const r = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ triggered_by: triggeredBy, triggered_at: new Date().toISOString() }),
-        signal: AbortSignal.timeout(10000),
-      });
-      results.push({ name: wf.name, ok: r.ok });
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    } catch {
-      results.push({ name: wf.name, ok: false });
-    }
+  // 1. Rank Tracking (Serper.dev)
+  try {
+    const { runRankChecks } = await import('../services/rankTrackingService');
+    const r = await runRankChecks();
+    results.push({ name: 'Rank Tracking', ok: true, detail: `${r.checked} keywords, ${r.errors} errors` });
+  } catch (e) {
+    results.push({ name: 'Rank Tracking', ok: false, detail: String(e) });
+  }
+
+  // 2. PageSpeed Monitor
+  try {
+    const { runPageSpeedChecks } = await import('../services/pagespeedService');
+    const r = await runPageSpeedChecks();
+    results.push({ name: 'PageSpeed Monitor', ok: true, detail: `${r.checked} sites, ${r.errors} errors` });
+  } catch (e) {
+    results.push({ name: 'PageSpeed Monitor', ok: false, detail: String(e) });
+  }
+
+  // 3. Alert Triggers
+  try {
+    const { runSeoAlertChecks } = await import('../services/seoAlertService');
+    const r = await runSeoAlertChecks();
+    results.push({ name: 'Alert Triggers', ok: true, detail: `${r.alerts} alerts` });
+  } catch (e) {
+    results.push({ name: 'Alert Triggers', ok: false, detail: String(e) });
+  }
+
+  // 4. Backlink Monitor
+  try {
+    const { runBacklinkCheck } = await import('../services/seoBacklinkService');
+    const r = await runBacklinkCheck();
+    results.push({ name: 'Backlink Monitor', ok: true, detail: `${r.found} new, ${r.errors} errors` });
+  } catch (e) {
+    results.push({ name: 'Backlink Monitor', ok: false, detail: String(e) });
+  }
+
+  // 5. Content Decay Detection
+  try {
+    const { runContentDecayDetection } = await import('../services/seoContentDecayService');
+    const r = await runContentDecayDetection();
+    results.push({ name: 'Content Decay', ok: true, detail: `${r.opportunities} opportunities` });
+  } catch (e) {
+    results.push({ name: 'Content Decay', ok: false, detail: String(e) });
+  }
+
+  // 6. Weekly Digest (Slack)
+  try {
+    const { sendWeeklyOpportunityDigest } = await import('../services/seoDigestService');
+    const r = await sendWeeklyOpportunityDigest();
+    results.push({ name: 'Weekly Digest', ok: r.sent, detail: r.sent ? 'Sent to Slack' : 'Failed to send' });
+  } catch (e) {
+    results.push({ name: 'Weekly Digest', ok: false, detail: String(e) });
   }
 
   const succeeded = results.filter(r => r.ok).length;
-  logger.info(`[seo-workflows] trigger-all: ${succeeded}/${results.length} succeeded`);
+  logger.info(`[seo-workflows] run-all: ${succeeded}/${results.length} succeeded`);
   res.json({ triggered: results.length, succeeded, results });
+});
+
+// POST /api/seo-workflows/run/:service — run a specific backend service
+router.post('/run/:service', async (req: Request, res: Response) => {
+  const { service } = req.params;
+
+  try {
+    switch (service) {
+      case 'rank-tracking': {
+        const { runRankChecks } = await import('../services/rankTrackingService');
+        const r = await runRankChecks();
+        res.json({ ok: true, service, detail: `${r.checked} keywords, ${r.errors} errors` });
+        return;
+      }
+      case 'pagespeed': {
+        const { runPageSpeedChecks } = await import('../services/pagespeedService');
+        const r = await runPageSpeedChecks();
+        res.json({ ok: true, service, detail: `${r.checked} sites, ${r.errors} errors` });
+        return;
+      }
+      case 'alerts': {
+        const { runSeoAlertChecks } = await import('../services/seoAlertService');
+        const r = await runSeoAlertChecks();
+        res.json({ ok: true, service, detail: `${r.alerts} alerts` });
+        return;
+      }
+      case 'backlinks': {
+        const { runBacklinkCheck } = await import('../services/seoBacklinkService');
+        const r = await runBacklinkCheck();
+        res.json({ ok: true, service, detail: `${r.found} new, ${r.errors} errors` });
+        return;
+      }
+      case 'content-decay': {
+        const { runContentDecayDetection } = await import('../services/seoContentDecayService');
+        const r = await runContentDecayDetection();
+        res.json({ ok: true, service, detail: `${r.opportunities} opportunities` });
+        return;
+      }
+      case 'digest': {
+        const { sendWeeklyOpportunityDigest } = await import('../services/seoDigestService');
+        const r = await sendWeeklyOpportunityDigest();
+        res.json({ ok: r.sent, service, detail: r.sent ? 'Sent to Slack' : 'Failed' });
+        return;
+      }
+      default:
+        res.status(404).json({ error: `Unknown service: ${service}. Valid: rank-tracking, pagespeed, alerts, backlinks, content-decay, digest` });
+    }
+  } catch (e) {
+    logger.error(`[seo-workflows] run ${service} error:`, e);
+    res.status(500).json({ ok: false, service, error: e instanceof Error ? e.message : String(e) });
+  }
 });
 
 export default router;
