@@ -724,50 +724,37 @@ cron.schedule('30 3 * * 2', () => safeCron('Rank Tracking', async () => {
 }), { timezone: 'UTC' });
 console.log('[cron] Rank tracking scheduled — Tuesdays 9:00 AM IST (Serper.dev)');
 
-// SEO Alert Triggers — Daily 9 AM IST (3:30 UTC)
-const N8N_WEBHOOK_BASE = process.env.N8N_BASE_URL ?? 'https://primary-production-6c6f5.up.railway.app';
+// SEO Alert Triggers — Daily 9 AM IST (3:30 UTC) — runs directly (no n8n dependency)
 cron.schedule('30 3 * * *', () => safeCron('SEO Alert Triggers', async () => {
-  await fetch(`${N8N_WEBHOOK_BASE}/webhook/mtrig-seo02`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ triggered_by: 'cron', triggered_at: new Date().toISOString() }),
-    signal: AbortSignal.timeout(15000),
-  });
-  console.log('[CRON] SEO Alert Triggers fired');
+  const { runSeoAlertChecks } = await import('./services/seoAlertService');
+  const result = await runSeoAlertChecks();
+  console.log(`[CRON] SEO Alert Triggers: ${result.alerts} alerts generated`);
 }), { timezone: 'UTC' });
-console.log('[cron] SEO alert triggers scheduled — daily 9:00 AM IST');
+console.log('[cron] SEO alert triggers scheduled — daily 9:00 AM IST (backend-native)');
 
-// SEO Backlink Monitor — Friday 9 AM IST (3:30 UTC)
+// SEO Backlink Monitor — Friday 9 AM IST (3:30 UTC) — runs directly via Serper.dev
 cron.schedule('30 3 * * 5', () => safeCron('SEO Backlink Monitor', async () => {
-  await fetch(`${N8N_WEBHOOK_BASE}/webhook/mtrig-seo08`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ triggered_by: 'cron', triggered_at: new Date().toISOString() }),
-    signal: AbortSignal.timeout(15000),
-  });
-  console.log('[CRON] SEO Backlink Monitor fired');
+  const { runBacklinkCheck } = await import('./services/seoBacklinkService');
+  const result = await runBacklinkCheck();
+  console.log(`[CRON] SEO Backlink Monitor: ${result.found} new backlinks, ${result.errors} errors`);
 }), { timezone: 'UTC' });
-console.log('[cron] SEO backlink monitor scheduled — Fridays 9:00 AM IST');
+console.log('[cron] SEO backlink monitor scheduled — Fridays 9:00 AM IST (backend-native)');
 
-// SEO Content Decay Detection — 1st Monday 9 AM IST (3:30 UTC)
+// SEO Content Decay Detection — 1st Monday 9 AM IST (3:30 UTC) — runs directly
 cron.schedule('30 3 1-7 * 1', () => safeCron('SEO Content Decay', async () => {
-  await fetch(`${N8N_WEBHOOK_BASE}/webhook/mtrig-seo11`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ triggered_by: 'cron', triggered_at: new Date().toISOString() }),
-    signal: AbortSignal.timeout(15000),
-  });
-  console.log('[CRON] SEO Content Decay fired');
+  const { runContentDecayDetection } = await import('./services/seoContentDecayService');
+  const result = await runContentDecayDetection();
+  console.log(`[CRON] SEO Content Decay: ${result.opportunities} decay opportunities found`);
 }), { timezone: 'UTC' });
-console.log('[cron] SEO content decay scheduled — 1st Monday 9:00 AM IST');
+console.log('[cron] SEO content decay scheduled — 1st Monday 9:00 AM IST (backend-native)');
 
-// SEO Weekly Opportunity Digest — Friday 5 PM IST (11:30 UTC)
+// SEO Weekly Opportunity Digest — Friday 5 PM IST (11:30 UTC) — sends via Slack directly
 cron.schedule('30 11 * * 5', () => safeCron('SEO Weekly Digest', async () => {
-  await fetch(`${N8N_WEBHOOK_BASE}/webhook/mtrig-seo12`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ triggered_by: 'cron', triggered_at: new Date().toISOString() }),
-    signal: AbortSignal.timeout(15000),
-  });
-  console.log('[CRON] SEO Weekly Digest fired');
+  const { sendWeeklyOpportunityDigest } = await import('./services/seoDigestService');
+  const result = await sendWeeklyOpportunityDigest();
+  console.log(`[CRON] SEO Weekly Digest: ${result.sent ? 'sent' : 'failed'}`);
 }), { timezone: 'UTC' });
-console.log('[cron] SEO weekly digest scheduled — Fridays 5:00 PM IST');
+console.log('[cron] SEO weekly digest scheduled — Fridays 5:00 PM IST (backend-native)');
 
 // Competitor Content Analysis — 1st and 15th of each month at 9:00 AM IST (3:30 UTC)
 cron.schedule('30 3 1,15 * *', () => safeCron('Competitor Content Analysis', async () => {
