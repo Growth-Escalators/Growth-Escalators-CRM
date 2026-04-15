@@ -350,7 +350,7 @@ router.post('/slack-digest', async (req: Request, res: Response) => {
       lines.push('_No data available for this period_');
     }
 
-    const sent = await sendSlackMessage(CHANNELS.sodEod, lines.join('\n'));
+    const sent = await sendSlackMessage(CHANNELS.performanceMarketing, lines.join('\n'));
     res.json({ sent });
   } catch (e: unknown) {
     res.status(500).json({ sent: false, error: e instanceof Error ? e.message : String(e) });
