@@ -336,14 +336,14 @@ async function startServer() {
   ensureOutreachPipelines().catch(e => console.error('[startup] Outreach pipelines bootstrap failed:', e));
   // Bootstrap outreach_leads table for WF-01 enrichment pipeline
   ensureOutreachLeadsTable().catch(e => console.error('[startup] outreach_leads table bootstrap failed:', e));
-  // Bootstrap SEO tables (site_health_metrics, seo_opportunities, seo_alerts_log)
-  import('./services/seoWorkflowHealthService').then(m => m.ensureSeoTables()).catch(e => console.error('[startup] SEO tables bootstrap failed:', e));
+  // Bootstrap SEO tables (site_health_metrics, seo_opportunities, seo_alerts_log) THEN seed knowledge base
+  import('./services/seoWorkflowHealthService').then(m => m.ensureSeoTables())
+    .then(() => import('./services/seoKnowledgeBase').then(m => m.seedClientKnowledgeBase()))
+    .catch(e => console.error('[startup] SEO tables/seed failed:', e));
   // Bootstrap retainer tables
   import('./services/retainerService').then(m => m.ensureRetainerTables()).catch(e => console.error('[startup] Retainer tables bootstrap failed:', e));
   // Bootstrap audit logs table
   import('./services/auditLogger').then(m => m.ensureAuditLogsTable()).catch(e => console.error('[startup] Audit logs bootstrap failed:', e));
-  // Seed SEO client knowledge base
-  import('./services/seoKnowledgeBase').then(m => m.seedClientKnowledgeBase()).catch(e => console.error('[startup] SEO knowledge base seed failed:', e));
 
   // One-time startup: run PageSpeed if site_health_metrics is empty
   setTimeout(async () => {
