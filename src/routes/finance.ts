@@ -266,10 +266,10 @@ router.get('/income', async (req: Request, res: Response) => {
     let invoices: unknown[] = [];
     try {
       const invR = await pool.query(
-        `SELECT i.id, bc.company_name AS source, i.invoice_number AS description, i.total_amount AS amount, i.invoice_date AS income_date, 'invoice' AS category
+        `SELECT i.id, bc.name AS source, i.invoice_number AS description, i.total_amount AS amount, i.invoice_date AS income_date, 'invoice' AS category
          FROM invoices i
          LEFT JOIN billing_clients bc ON bc.id = i.client_id
-         WHERE i.tenant_id = $1 AND i.payment_status IN ('paid', 'partially_paid')
+         WHERE i.tenant_id = $1 AND i.status IN ('paid', 'partially_paid')
            AND i.invoice_date >= $2 AND i.invoice_date < ($2::date + INTERVAL '1 month')
          ORDER BY i.invoice_date DESC`,
         [tenantId, firstDay],

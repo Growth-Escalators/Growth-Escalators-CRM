@@ -96,6 +96,54 @@ function AddExpenseForm({ categories, onAdded }) {
   );
 }
 
+function AddIncomeForm({ onAdded }) {
+  const [form, setForm] = useState({ source: '', description: '', amount: '', incomeDate: new Date().toISOString().split('T')[0], category: 'other', notes: '' });
+  const [saving, setSaving] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!form.source || !form.amount) return;
+    setSaving(true);
+    await apiFetch('/api/finance/income', { method: 'POST', body: JSON.stringify({ ...form, amount: Number(form.amount) }) });
+    setSaving(false);
+    setForm({ ...form, source: '', description: '', amount: '', notes: '' });
+    onAdded();
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-slate-200 p-5 space-y-3">
+      <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2"><Plus className="w-4 h-4 text-emerald-500" /> Add Income</h3>
+      <input type="text" placeholder="Source *" value={form.source} onChange={e => setForm({ ...form, source: e.target.value })}
+        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" required />
+      <input type="text" placeholder="Description (optional)" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
+        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+      <div className="grid grid-cols-2 gap-3">
+        <div className="relative">
+          <span className="absolute left-3 top-2.5 text-slate-400 text-sm">INR</span>
+          <input type="number" placeholder="Amount *" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })}
+            className="w-full border border-slate-200 rounded-lg pl-12 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" required />
+        </div>
+        <input type="date" value={form.incomeDate} onChange={e => setForm({ ...form, incomeDate: e.target.value })}
+          className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+      </div>
+      <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}
+        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500">
+        <option value="client_revenue">Client Revenue</option>
+        <option value="consulting">Consulting</option>
+        <option value="product_sales">Product Sales</option>
+        <option value="refund">Refund</option>
+        <option value="other">Other</option>
+      </select>
+      <textarea placeholder="Notes (optional)" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2}
+        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none" />
+      <button type="submit" disabled={saving}
+        className="w-full py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
+        {saving ? 'Adding...' : 'Add Income'}
+      </button>
+    </form>
+  );
+}
+
 export default function FinancePage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
@@ -233,7 +281,7 @@ export default function FinancePage() {
               {/* P&L Cards */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <StatCard icon={TrendingUp} title="Revenue" value={`INR ${fmtINR(dashboard.revenue)}`} sub={`Invoices: INR ${fmtINR(dashboard.revenueBreakdown?.invoices)}`} color="text-emerald-600" trend={revChange} />
-                <StatCard icon={Receipt} title="Expenses" value={`INR ${fmtINR(dashboard.expenses)}`} sub={`${dashboard.expensesByCategory?.length || 0} categories`} color="text-red-600" trend={expChange} />
+                <StatCard icon={Receipt} title="Expenses" value={`INR ${fmtINR(dashboard.expenses)}`} sub={`Incl. team payroll: INR ${fmtINR(team.reduce((s, m) => s + Number(m.base_salary || 0), 0))}`} color="text-red-600" trend={expChange} />
                 <StatCard icon={DollarSign} title="Profit" value={`INR ${fmtINR(dashboard.profit)}`} sub={dashboard.profit >= 0 ? 'Positive' : 'Negative'} color={dashboard.profit >= 0 ? 'text-emerald-600' : 'text-red-600'} />
               </div>
 
@@ -351,34 +399,42 @@ export default function FinancePage() {
 
           {/* ── INCOME TAB ── */}
           {activeTab === 'income' && (
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-              <div className="px-6 py-3 border-b bg-slate-50 flex items-center justify-between">
-                <p className="text-xs font-semibold text-slate-500 uppercase">Income — {monthLabel}</p>
-                <p className="text-sm font-semibold text-emerald-600">Total: INR {fmtINR(income.reduce((s, i) => s + Number(i.amount), 0))}</p>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2">
+                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                  <div className="px-6 py-3 border-b bg-slate-50 flex items-center justify-between">
+                    <p className="text-xs font-semibold text-slate-500 uppercase">Income — {monthLabel}</p>
+                    <p className="text-sm font-semibold text-emerald-600">Total: INR {fmtINR(income.reduce((s, i) => s + Number(i.amount), 0))}</p>
+                  </div>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Date</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Source</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Description</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Type</th>
+                        <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {income.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">No income for {monthLabel}</td></tr>}
+                      {income.map((i, idx) => (
+                        <tr key={idx} className="border-b border-slate-50 hover:bg-slate-50">
+                          <td className="px-4 py-2.5 text-slate-600">{new Date(i.income_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</td>
+                          <td className="px-4 py-2.5 text-slate-800 font-medium">{i.source}</td>
+                          <td className="px-4 py-2.5 text-slate-600">{i.description || '—'}</td>
+                          <td className="px-4 py-2.5"><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${i.category === 'invoice' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{i.category === 'invoice' ? 'Invoice' : 'Other'}</span></td>
+                          <td className="px-4 py-2.5 text-right font-semibold text-emerald-600">INR {Number(i.amount).toLocaleString('en-IN')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b">
-                    <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Date</th>
-                    <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Source</th>
-                    <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Description</th>
-                    <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Type</th>
-                    <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {income.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">No income for {monthLabel}</td></tr>}
-                  {income.map((i, idx) => (
-                    <tr key={idx} className="border-b border-slate-50 hover:bg-slate-50">
-                      <td className="px-4 py-2.5 text-slate-600">{new Date(i.income_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</td>
-                      <td className="px-4 py-2.5 text-slate-800 font-medium">{i.source}</td>
-                      <td className="px-4 py-2.5 text-slate-600">{i.description || '—'}</td>
-                      <td className="px-4 py-2.5"><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${i.category === 'invoice' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{i.category === 'invoice' ? 'Invoice' : 'Other'}</span></td>
-                      <td className="px-4 py-2.5 text-right font-semibold text-emerald-600">INR {Number(i.amount).toLocaleString('en-IN')}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              {/* Add Income Form */}
+              <div>
+                <AddIncomeForm onAdded={loadData} />
+              </div>
             </div>
           )}
 
@@ -407,7 +463,10 @@ export default function FinancePage() {
                       </tr>
                     ))}
                     <tr className="bg-slate-50 border-t">
-                      <td colSpan={2} className="px-4 py-2.5 text-sm font-semibold text-slate-700">Total Monthly Payroll</td>
+                      <td colSpan={2} className="px-4 py-2.5 text-sm font-semibold text-slate-700">
+                        Total Monthly Payroll
+                        <span className="text-xs font-normal text-slate-400 ml-2">(already included in Expenses total)</span>
+                      </td>
                       <td className="px-4 py-2.5 text-right font-bold text-slate-900">INR {fmtINR(team.reduce((s, m) => s + Number(m.base_salary || 0), 0))}</td>
                     </tr>
                   </tbody>

@@ -181,7 +181,7 @@ export async function calculatePnL(tenantId: string, month: string): Promise<{
     const billingR = await pool.query(
       `SELECT COALESCE(SUM(total_amount), 0)::int AS total
        FROM invoices
-       WHERE tenant_id = $1 AND payment_status IN ('paid', 'partially_paid')
+       WHERE tenant_id = $1 AND status IN ('paid', 'partially_paid')
          AND invoice_date >= $2 AND invoice_date < ($2::date + INTERVAL '1 month')`,
       [tenantId, firstDay],
     );
