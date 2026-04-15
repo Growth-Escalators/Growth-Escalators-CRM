@@ -310,7 +310,9 @@ function nextSodLabel(): string {
 }
 
 // -----------------------------------------------------------------------
-// Enhanced EOD Summary
+// Enhanced EOD Summary — separate messages per person
+// Nimisha & Keshav: individual messages in #sod-eod
+// Jatin & Sakcham: combined team overview in #sod-eod + Jatin private DM
 // -----------------------------------------------------------------------
 export async function sendEODSummary(): Promise<{ sent: number; errors: string[] }> {
   console.log('[EOD] starting enhanced summary…');
@@ -341,70 +343,101 @@ export async function sendEODSummary(): Promise<{ sent: number; errors: string[]
   const { score, emoji, label } = calculateDailyScore(completed.length, overdue.length);
 
   // ── Group data by team member ──
-  const perMember: Record<string, { completed: TeamTask[]; open: number }> = {};
+  const perMember: Record<string, { completed: TeamTask[]; overdue: TeamTask[]; inProgress: TeamTask[] }> = {};
   for (const m of TEAM) {
-    perMember[m.name] = { completed: [], open: 0 };
+    perMember[m.name] = { completed: [], overdue: [], inProgress: [] };
   }
   for (const t of completed) {
     if (perMember[t.assigneeName]) perMember[t.assigneeName].completed.push(t);
   }
   for (const t of overdue) {
-    if (perMember[t.assigneeName]) perMember[t.assigneeName].open++;
+    if (perMember[t.assigneeName]) perMember[t.assigneeName].overdue.push(t);
   }
   for (const t of inProgress) {
-    if (perMember[t.assigneeName]) perMember[t.assigneeName].open++;
+    if (perMember[t.assigneeName]) perMember[t.assigneeName].inProgress.push(t);
   }
 
-  // ── Channel message: per-person format ──
-  let channelMsg = `*Team EOD — ${dateStr}*\n\n`;
+  let sent = 0;
 
-  // Team summary header
-  channelMsg += `Completed today across team: *${completed.length}*\n`;
-  for (const m of TEAM) {
+  // ── Individual messages: Nimisha & Keshav each get their own message ──
+  const individualMembers = TEAM.filter(m => !m.showTeamOverview); // Nimisha, Keshav
+  for (const m of individualMembers) {
     const data = perMember[m.name];
-    channelMsg += `• <@${m.slackId}>: *${data.completed.length} done*, ${data.open} open\n`;
-  }
+    const openCount = data.overdue.length + data.inProgress.length;
 
-  // Per-person detail blocks
-  for (const m of TEAM) {
-    const data = perMember[m.name];
-    channelMsg += `\n━━━━━━━━━━━━━━━━━━\n`;
-    channelMsg += `📝 *EOD — <@${m.slackId}>*\n`;
+    let msg = `📝 *EOD — <@${m.slackId}> · ${dateStr}*\n\n`;
 
     if (data.completed.length > 0) {
-      channelMsg += `✅ *Completed:*\n`;
+      msg += `✅ *Completed today (${data.completed.length}):*\n`;
       for (const t of data.completed.slice(0, 10)) {
-        channelMsg += `  • ${t.name}\n`;
+        msg += `  • ${t.name}\n`;
       }
-      if (data.completed.length > 10) channelMsg += `  _...and ${data.completed.length - 10} more_\n`;
+      if (data.completed.length > 10) msg += `  _...and ${data.completed.length - 10} more_\n`;
     } else {
-      channelMsg += `No tasks completed today.\n`;
+      msg += `No tasks completed today.\n`;
+      msg += `💡 _Remember to update ClickUp as you finish work!_\n`;
     }
 
-    channelMsg += `📋 Open: ${data.open} tasks\n`;
-
-    if (data.completed.length === 0) {
-      channelMsg += `💡 Remember to update ClickUp as you finish work!\n`;
+    if (data.overdue.length > 0) {
+      msg += `\n🔴 *Overdue (${data.overdue.length}):*\n`;
+      for (const t of data.overdue.slice(0, 5)) {
+        msg += `  • ${t.name} — _${t.daysOverdue}d overdue_\n`;
+      }
     }
+
+    msg += `\n📋 Open: ${openCount} tasks`;
+
+    const ok = await sendSlackMessage(SOD_EOD_CHANNEL, msg).catch(e => {
+      errors.push(`channel-${m.name}: ${e}`); return false;
+    });
+    if (ok) { sent++; console.log(`[EOD] individual message sent for ${m.name}`); }
+    await delay(1500);
+  }
+
+  // ── Combined message: Jatin & Sakcham team overview ──
+  let teamMsg = `📊 *Team EOD — ${dateStr}*\n\n`;
+  teamMsg += `Completed today across team: *${completed.length}*\n`;
+  for (const m of TEAM) {
+    const data = perMember[m.name];
+    const openCount = data.overdue.length + data.inProgress.length;
+    teamMsg += `• <@${m.slackId}>: *${data.completed.length} done*, ${openCount} open\n`;
+  }
+
+  // Detail blocks for Jatin & Sakcham only
+  const leaderMembers = TEAM.filter(m => m.showTeamOverview); // Jatin, Sakcham
+  for (const m of leaderMembers) {
+    const data = perMember[m.name];
+    const openCount = data.overdue.length + data.inProgress.length;
+    teamMsg += `\n━━━━━━━━━━━━━━━━━━\n`;
+    teamMsg += `📝 *EOD — <@${m.slackId}>*\n`;
+
+    if (data.completed.length > 0) {
+      teamMsg += `✅ *Completed:*\n`;
+      for (const t of data.completed.slice(0, 10)) {
+        teamMsg += `  • ${t.name}\n`;
+      }
+      if (data.completed.length > 10) teamMsg += `  _...and ${data.completed.length - 10} more_\n`;
+    } else {
+      teamMsg += `No tasks completed today.\n`;
+    }
+
+    teamMsg += `📋 Open: ${openCount} tasks\n`;
   }
 
   // Score footer
-  channelMsg += `\n━━━━━━━━━━━━━━━━━━\n`;
-  channelMsg += `📊 *Team Score: ${score}/100* ${emoji} ${label}\n`;
-  channelMsg += `_Next SOD: ${nextSodLabel()} 10AM IST_`;
+  teamMsg += `\n━━━━━━━━━━━━━━━━━━\n`;
+  teamMsg += `📊 *Team Score: ${score}/100* ${emoji} ${label}\n`;
+  teamMsg += `_Next SOD: ${nextSodLabel()} 10AM IST_`;
 
-  let sent = 0;
-  const channelOk = await sendSlackMessage(SOD_EOD_CHANNEL, channelMsg).catch(e => {
-    errors.push(`channel-send: ${e}`); return false;
+  const channelOk = await sendSlackMessage(SOD_EOD_CHANNEL, teamMsg).catch(e => {
+    errors.push(`channel-team: ${e}`); return false;
   });
-  if (channelOk) { sent++; console.log('[EOD] channel message sent to #sod-eod'); }
-  else { errors.push('channel-send-failed'); }
+  if (channelOk) { sent++; console.log('[EOD] team overview sent to #sod-eod'); }
 
-  // Jatin DM: channel content + D (pattern insights) + action items
+  // ── Jatin private DM: team overview + pattern insights + action items ──
   await delay(2000);
-  let jatinMsg = channelMsg + '\n\n';
+  let jatinMsg = teamMsg + '\n\n';
 
-  // D — Pattern Insights (Jatin-only — never in channel, never shown to Sakcham)
   try {
     const histories = await Promise.all(TEAM.map(m => fetchMemberHistory14Days(m)));
     const insights = await generatePatternInsights(histories);
@@ -414,7 +447,6 @@ export async function sendEODSummary(): Promise<{ sent: number; errors: string[]
     errors.push('pattern-insights');
   }
 
-  // Action items for Jatin
   const actionItems: string[] = [];
   const criticalOverdue = overdue.filter(t => t.daysOverdue >= 3);
   if (criticalOverdue.length > 0) {
@@ -433,7 +465,6 @@ export async function sendEODSummary(): Promise<{ sent: number; errors: string[]
     errors.push(`dm-jatin: ${e}`); return false;
   });
   if (dmOk) { sent++; console.log('[EOD] Jatin DM sent with pattern insights'); }
-  else { errors.push('dm-jatin-failed'); }
 
   console.log(`[EOD] complete — sent: ${sent}, errors: ${errors.length}`);
   return { sent, errors };

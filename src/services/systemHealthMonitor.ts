@@ -32,11 +32,10 @@ export interface SystemHealthReport {
 
 // Cron expected windows in minutes
 const CRON_WINDOWS: Record<string, number> = {
-  // Alerts & digests
-  'Blocker Alerts': 120,
+  // Alerts & digests (Blocker Alerts & Spend Alert Check removed — disabled in worker.ts)
   'SOD Digest': 1500, 'Sakcham Priority SOD': 1500, 'EOD Summary': 1500,
   // Finance
-  'Spend Alert Check': 120, 'Monthly Invoice Drafts': 44640,
+  'Monthly Invoice Drafts': 44640,
   'Overdue Invoice Check': 1500, 'Retainer Invoice Generator': 1500,
   // Intelligence & reporting
   'Daily Intelligence Report': 1500,
@@ -60,9 +59,12 @@ const CRON_WINDOWS: Record<string, number> = {
   'SEO Content Decay': 44640, 'SEO Weekly Digest': 10080,
 };
 
-// Alert rate limiting
+// Alert rate limiting — 12h cooldown + 5-minute startup grace period
+const WORKER_BOOT_TIME = Date.now();
+const STARTUP_GRACE_MS = 5 * 60 * 1000; // suppress alerts for 5 min after boot
 const lastAlerts = new Map<string, number>();
-function canAlert(key: string, cooldownMs = 4 * 60 * 60 * 1000): boolean {
+function canAlert(key: string, cooldownMs = 12 * 60 * 60 * 1000): boolean {
+  if (Date.now() - WORKER_BOOT_TIME < STARTUP_GRACE_MS) return false;
   const last = lastAlerts.get(key) ?? 0;
   if (Date.now() - last < cooldownMs) return false;
   lastAlerts.set(key, Date.now());
