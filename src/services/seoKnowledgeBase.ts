@@ -78,12 +78,12 @@ export async function seedClientKnowledgeBase(): Promise<void> {
           c.primary_keywords, c.tone_of_voice, c.competitors, c.content_themes, c.cta_style,
           c.ga4_property_id, c.gsc_domain, c.wordpress_url, c.target_monthly_traffic]);
     } else {
-      // Insert new row
+      // Insert new row — project_name is NOT NULL in Drizzle schema, use domain as fallback
       await pool.query(`
-        INSERT INTO client_knowledge_base (client_domain, brand_name, industry, target_audience, unique_value_prop,
+        INSERT INTO client_knowledge_base (project_name, client_domain, brand_name, industry, target_audience, unique_value_prop,
           primary_keywords, tone_of_voice, competitors, content_themes, cta_style,
           ga4_property_id, gsc_domain, wordpress_url, target_monthly_traffic)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        VALUES ($1,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
       `, [c.client_domain, c.brand_name, c.industry, c.target_audience, c.unique_value_prop,
           c.primary_keywords, c.tone_of_voice, c.competitors, c.content_themes, c.cta_style,
           c.ga4_property_id, c.gsc_domain, c.wordpress_url, c.target_monthly_traffic]);
