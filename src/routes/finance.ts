@@ -78,8 +78,8 @@ router.post('/expenses', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const { categoryId, description, amount, expenseDate, isRecurring, vendorName, paymentMethod, notes, teamMemberId, expenseType } = req.body;
 
-  if (!description || !amount) {
-    res.status(400).json({ error: 'description and amount required' });
+  if (!description || !amount || Number(amount) <= 0) {
+    res.status(400).json({ error: 'description and a positive amount required' });
     return;
   }
 
@@ -196,7 +196,7 @@ router.get('/team-payroll', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   try {
     const result = await pool.query(
-      `SELECT * FROM team_payroll WHERE tenant_id = $1 ORDER BY sort_order, name`,
+      `SELECT * FROM team_payroll WHERE tenant_id = $1 AND is_active = TRUE ORDER BY COALESCE(sort_order, 0), name`,
       [tenantId],
     );
     res.json({ team: result.rows });
@@ -266,7 +266,7 @@ router.get('/income', async (req: Request, res: Response) => {
     let invoices: unknown[] = [];
     try {
       const invR = await pool.query(
-        `SELECT i.id, bc.name AS source, i.invoice_number AS description, i.total_amount AS amount, i.invoice_date AS income_date, 'invoice' AS category
+        `SELECT i.id, bc.name AS source, i.invoice_number AS description, ROUND(i.total_amount / 100.0)::int AS amount, i.invoice_date AS income_date, 'invoice' AS category
          FROM invoices i
          LEFT JOIN billing_clients bc ON bc.id = i.client_id
          WHERE i.tenant_id = $1 AND i.status IN ('paid', 'partially_paid')
@@ -289,7 +289,7 @@ router.get('/income', async (req: Request, res: Response) => {
 router.post('/income', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const { source, description, amount, incomeDate, category, notes } = req.body;
-  if (!source || !amount) { res.status(400).json({ error: 'source and amount required' }); return; }
+  if (!source || !amount || Number(amount) <= 0) { res.status(400).json({ error: 'source and a positive amount required' }); return; }
 
   try {
     const result = await pool.query(
@@ -297,6 +297,53 @@ router.post('/income', async (req: Request, res: Response) => {
       [tenantId, source, description || null, Math.round(amount), incomeDate || new Date().toISOString().split('T')[0], category || 'other', notes || null],
     );
     res.json({ income: result.rows[0] });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/finance/income/:id
+// ---------------------------------------------------------------------------
+router.patch('/income/:id', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const { source, description, amount, incomeDate, category, notes } = req.body;
+  try {
+    await pool.query(
+      `UPDATE income_entries SET
+        source = COALESCE($3, source), description = COALESCE($4, description),
+        amount = COALESCE($5, amount), income_date = COALESCE($6, income_date),
+        category = COALESCE($7, category), notes = COALESCE($8, notes)
+       WHERE id = $1 AND tenant_id = $2`,
+      [req.params.id, tenantId, source, description, amount ? Math.round(amount) : null, incomeDate, category, notes],
+    );
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /api/finance/income/:id
+// ---------------------------------------------------------------------------
+router.delete('/income/:id', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  try {
+    await pool.query(`DELETE FROM income_entries WHERE id = $1 AND tenant_id = $2`, [req.params.id, tenantId]);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /api/finance/team-payroll/:id — soft-delete team member
+// ---------------------------------------------------------------------------
+router.delete('/team-payroll/:id', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  try {
+    await pool.query(`UPDATE team_payroll SET is_active = FALSE WHERE id = $1 AND tenant_id = $2`, [req.params.id, tenantId]);
+    res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }

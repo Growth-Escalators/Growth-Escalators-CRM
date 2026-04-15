@@ -24,9 +24,11 @@ export async function ensureFinanceTables(): Promise<void> {
       name TEXT NOT NULL,
       role TEXT,
       base_salary INTEGER DEFAULT 0,
+      sort_order INTEGER DEFAULT 0,
       is_active BOOLEAN DEFAULT TRUE,
       created_at TIMESTAMP DEFAULT NOW()
     )`,
+    `ALTER TABLE team_payroll ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0`,
 
     `CREATE TABLE IF NOT EXISTS expenses (
       id SERIAL PRIMARY KEY,
@@ -60,6 +62,11 @@ export async function ensureFinanceTables(): Promise<void> {
       created_at TIMESTAMP DEFAULT NOW()
     )`,
     `CREATE INDEX IF NOT EXISTS income_date_idx ON income_entries(income_date DESC)`,
+    // Composite indexes for performance
+    `CREATE INDEX IF NOT EXISTS expenses_tenant_date_idx ON expenses(tenant_id, expense_date DESC)`,
+    `CREATE INDEX IF NOT EXISTS expenses_recurring_idx ON expenses(is_recurring) WHERE is_recurring = TRUE`,
+    `CREATE INDEX IF NOT EXISTS income_tenant_date_idx ON income_entries(tenant_id, income_date DESC)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS income_invoice_uniq ON income_entries(invoice_id) WHERE invoice_id IS NOT NULL`,
   ];
 
   for (const s of stmts) {
@@ -185,7 +192,8 @@ export async function calculatePnL(tenantId: string, month: string): Promise<{
          AND invoice_date >= $2 AND invoice_date < ($2::date + INTERVAL '1 month')`,
       [tenantId, firstDay],
     );
-    invoiceRevenue = (billingR.rows[0] as { total: number }).total;
+    // Invoices store amounts in paise (×100), convert to rupees
+    invoiceRevenue = Math.round((billingR.rows[0] as { total: number }).total / 100);
   } catch { /* invoices table may not exist */ }
 
   // Other income

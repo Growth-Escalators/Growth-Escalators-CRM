@@ -197,7 +197,20 @@ export default function FinancePage() {
   const monthLabel = new Date(month + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 
   async function deleteExpense(id) {
+    if (!window.confirm('Delete this expense? This cannot be undone.')) return;
     await apiFetch(`/api/finance/expenses/${id}`, { method: 'DELETE' });
+    loadData();
+  }
+
+  async function deleteIncome(id) {
+    if (!window.confirm('Delete this income entry?')) return;
+    await apiFetch(`/api/finance/income/${id}`, { method: 'DELETE' });
+    loadData();
+  }
+
+  async function deleteTeamMember(id, name) {
+    if (!window.confirm(`Remove ${name} from payroll? Their existing salary expenses will remain.`)) return;
+    await apiFetch(`/api/finance/team-payroll/${id}`, { method: 'DELETE' });
     loadData();
   }
 
@@ -414,17 +427,21 @@ export default function FinancePage() {
                         <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Description</th>
                         <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Type</th>
                         <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500">Amount</th>
+                        <th className="px-4 py-2 w-10"></th>
                       </tr>
                     </thead>
                     <tbody>
-                      {income.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">No income for {monthLabel}</td></tr>}
+                      {income.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">No income for {monthLabel}</td></tr>}
                       {income.map((i, idx) => (
                         <tr key={idx} className="border-b border-slate-50 hover:bg-slate-50">
                           <td className="px-4 py-2.5 text-slate-600">{new Date(i.income_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</td>
                           <td className="px-4 py-2.5 text-slate-800 font-medium">{i.source}</td>
                           <td className="px-4 py-2.5 text-slate-600">{i.description || '—'}</td>
                           <td className="px-4 py-2.5"><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${i.category === 'invoice' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{i.category === 'invoice' ? 'Invoice' : 'Other'}</span></td>
-                          <td className="px-4 py-2.5 text-right font-semibold text-emerald-600">INR {Number(i.amount).toLocaleString('en-IN')}</td>
+                          <td className="px-4 py-2.5 text-right font-semibold text-emerald-600">INR {fmtINR(i.amount)}</td>
+                          <td className="px-4 py-2.5 text-right">
+                            {i.category !== 'invoice' && <button onClick={() => deleteIncome(i.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 className="w-3.5 h-3.5" /></button>}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -451,15 +468,19 @@ export default function FinancePage() {
                       <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Name</th>
                       <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Role</th>
                       <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500">Base Salary</th>
+                      <th className="px-4 py-2 w-10"></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {team.length === 0 && <tr><td colSpan={3} className="px-4 py-8 text-center text-slate-400">No team members added</td></tr>}
+                    {team.length === 0 && <tr><td colSpan={4} className="px-4 py-8 text-center text-slate-400">No team members added</td></tr>}
                     {team.map(m => (
                       <tr key={m.id} className="border-b border-slate-50 hover:bg-slate-50">
                         <td className="px-4 py-2.5 text-slate-800 font-medium">{m.name}</td>
                         <td className="px-4 py-2.5 text-slate-600">{m.role || '—'}</td>
                         <td className="px-4 py-2.5 text-right font-semibold text-slate-800">INR {Number(m.base_salary).toLocaleString('en-IN')}</td>
+                        <td className="px-4 py-2.5 text-right">
+                          <button onClick={() => deleteTeamMember(m.id, m.name)} className="text-red-400 hover:text-red-600 p-1"><Trash2 className="w-3.5 h-3.5" /></button>
+                        </td>
                       </tr>
                     ))}
                     <tr className="bg-slate-50 border-t">
@@ -506,7 +527,7 @@ export default function FinancePage() {
                     <div key={c.id} className="px-6 py-3 flex items-center gap-3">
                       <span className="w-4 h-4 rounded-full flex-shrink-0" style={{ background: c.color }} />
                       <p className="text-sm font-medium text-slate-800 flex-1">{c.name}</p>
-                      <button onClick={async () => { await apiFetch(`/api/finance/categories/${c.id}`, { method: 'DELETE' }); loadData(); }}
+                      <button onClick={async () => { if (!window.confirm(`Delete "${c.name}" category? Existing expenses will show as uncategorized.`)) return; await apiFetch(`/api/finance/categories/${c.id}`, { method: 'DELETE' }); loadData(); }}
                         className="text-red-400 hover:text-red-600 p-1"><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
                   ))}
