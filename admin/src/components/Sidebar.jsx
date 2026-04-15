@@ -133,9 +133,14 @@ export default function Sidebar() {
               </NavLink>
             )}
             {canSocial && (
-              <NavLink to="/social" className={navClass}>
-                <Share2 className="w-4 h-4" /> Social
-              </NavLink>
+              <>
+                <NavLink to="/social" className={navClass}>
+                  <Share2 className="w-4 h-4" /> Social
+                </NavLink>
+                <NavLink to="/social-scheduling" className={navClass}>
+                  <Calendar className="w-4 h-4" /> Scheduling
+                </NavLink>
+              </>
             )}
             {isAdmin && (
               <NavLink to="/outreach-dashboard" className={navClass}>
