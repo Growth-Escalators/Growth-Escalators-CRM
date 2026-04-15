@@ -65,8 +65,10 @@ export async function ensureSeoTables(): Promise<void> {
     )`,
     `CREATE INDEX IF NOT EXISTS seo_alerts_log_created_idx ON seo_alerts_log(created_at DESC)`,
     // ALTER TABLE columns — must come AFTER CREATE TABLE
+    `ALTER TABLE seo_opportunities ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()`,
     `ALTER TABLE seo_opportunities ADD COLUMN IF NOT EXISTS client_domain TEXT`,
     `ALTER TABLE seo_alerts_log ADD COLUMN IF NOT EXISTS client_domain TEXT`,
+    `ALTER TABLE keyword_rankings ADD COLUMN IF NOT EXISTS checked_at TIMESTAMP DEFAULT NOW()`,
     // client_knowledge_base — add columns the seed service needs
     `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS client_domain TEXT`,
     `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS brand_name TEXT`,
