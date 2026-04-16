@@ -60,6 +60,24 @@ export async function ensureFunnelConfigTable(): Promise<void> {
 
   await pool.query(`CREATE INDEX IF NOT EXISTS funnel_configs_slug_idx ON funnel_configs(slug)`).catch(() => {});
 
+  // Frontend display fields (added for config-driven checkout)
+  const alterStmts = [
+    `ALTER TABLE funnel_configs ADD COLUMN IF NOT EXISTS hero_headline TEXT`,
+    `ALTER TABLE funnel_configs ADD COLUMN IF NOT EXISTS hero_subheadline TEXT`,
+    `ALTER TABLE funnel_configs ADD COLUMN IF NOT EXISTS cta_text TEXT`,
+    `ALTER TABLE funnel_configs ADD COLUMN IF NOT EXISTS accent_color TEXT DEFAULT '#F97316'`,
+    `ALTER TABLE funnel_configs ADD COLUMN IF NOT EXISTS segment_options JSONB`,
+    `ALTER TABLE funnel_configs ADD COLUMN IF NOT EXISTS testimonials JSONB`,
+    `ALTER TABLE funnel_configs ADD COLUMN IF NOT EXISTS post_purchase_route TEXT DEFAULT '/thank-you'`,
+    `ALTER TABLE funnel_configs ADD COLUMN IF NOT EXISTS brand_names JSONB`,
+    `ALTER TABLE funnel_configs ADD COLUMN IF NOT EXISTS bump1_description TEXT`,
+    `ALTER TABLE funnel_configs ADD COLUMN IF NOT EXISTS bump2_description TEXT`,
+    `ALTER TABLE funnel_configs ADD COLUMN IF NOT EXISTS main_product_description TEXT`,
+  ];
+  for (const s of alterStmts) {
+    await pool.query(s).catch(() => {});
+  }
+
   logger.info('[funnel-config] Table bootstrapped');
 }
 
@@ -260,6 +278,26 @@ export async function seedDefaultFunnelConfigs(tenantId: string): Promise<void> 
   }
 
   logger.info('[funnel-config] Default funnel configs seeded (ecom, doctors, real-estate)');
+
+  // Seed frontend fields for existing configs (idempotent — only fills NULL fields)
+  const frontendSeeds = [
+    { slug: 'ecom', hero_headline: 'See Exactly How India\'s Top 5 D2C Brands Build Their Funnels', hero_subheadline: 'Get the exact funnel breakdown that helps Indian brands scale past ₹10L/month on Meta', cta_text: 'Get Instant Access for ₹9', accent_color: '#F97316', segment_options: JSON.stringify([{id:'d2c',label:'I run a D2C Brand',icon:'🛍️'},{id:'agency',label:'I run an Agency',icon:'🏢'},{id:'freelancer',label:'I am a Freelancer',icon:'💻'}]), brand_names: JSON.stringify(['boAt','GIVA','Minimalist','Libas','SUGAR']), post_purchase_route: '/consulting', main_product_description: 'PDF breaking down exactly what 5 winning D2C brands are doing on Meta right now', bump1_description: 'Ad templates, landing page swipe file, Meta ads checklist, WA sequences', bump2_description: 'Live Meta account review with Jatin — 3 specific fixes for your campaigns' },
+    { slug: 'doctors', hero_headline: 'How Top Doctors Get 50+ New Patients Every Month', hero_subheadline: 'The exact digital marketing playbook used by India\'s leading clinics', cta_text: 'Get Your Blueprint for ₹49', accent_color: '#10B981', segment_options: JSON.stringify([{id:'clinic_owner',label:'I own a Clinic/Hospital',icon:'🏥'},{id:'solo_practitioner',label:'I am a Solo Practitioner',icon:'👨‍⚕️'},{id:'dental',label:'I run a Dental Practice',icon:'🦷'}]), brand_names: JSON.stringify(['Apollo','Practo','PharmEasy','1mg','Pristyn Care']), post_purchase_route: '/doctors-welcome', main_product_description: 'Guide showing how top clinics acquire 50+ patients per month using digital marketing', bump1_description: 'Patient communication templates, Google review automation, social media calendar for clinics', bump2_description: 'Live review of your online presence with Jatin — 3 fixes to double your patient walk-ins' },
+    { slug: 'real-estate', hero_headline: 'Generate 100+ Qualified Property Leads Every Month', hero_subheadline: 'The lead generation playbook used by India\'s top real estate agents', cta_text: 'Get Your Playbook for ₹29', accent_color: '#3B82F6', segment_options: JSON.stringify([{id:'agent',label:'I am a Real Estate Agent',icon:'🏠'},{id:'builder',label:'I am a Builder/Developer',icon:'🏗️'},{id:'broker',label:'I run a Brokerage Firm',icon:'🏢'}]), brand_names: JSON.stringify(['MagicBricks','99acres','Housing.com','NoBroker','Square Yards']), post_purchase_route: '/realestate-welcome', main_product_description: 'Playbook showing how top agents generate 100+ qualified leads per month', bump1_description: 'Property listing templates, lead nurture sequences, site visit booking automation', bump2_description: 'Custom funnel strategy session for your market — we build the plan together' },
+  ];
+  for (const s of frontendSeeds) {
+    await pool.query(
+      `UPDATE funnel_configs SET
+        hero_headline = COALESCE(hero_headline, $2), hero_subheadline = COALESCE(hero_subheadline, $3),
+        cta_text = COALESCE(cta_text, $4), accent_color = COALESCE(accent_color, $5),
+        segment_options = COALESCE(segment_options, $6::jsonb), brand_names = COALESCE(brand_names, $7::jsonb),
+        post_purchase_route = COALESCE(post_purchase_route, $8),
+        main_product_description = COALESCE(main_product_description, $9),
+        bump1_description = COALESCE(bump1_description, $10), bump2_description = COALESCE(bump2_description, $11)
+       WHERE tenant_id = $12 AND slug = $1`,
+      [s.slug, s.hero_headline, s.hero_subheadline, s.cta_text, s.accent_color, s.segment_options, s.brand_names, s.post_purchase_route, s.main_product_description, s.bump1_description, s.bump2_description, tenantId],
+    ).catch(() => {});
+  }
 }
 
 // ---------------------------------------------------------------------------

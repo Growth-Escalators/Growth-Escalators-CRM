@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-// Segment → destination route
+// Legacy segment → route mapping (fallback when no funnel config post_purchase_route)
 const SEGMENT_ROUTES = {
   d2c: '/consulting',
   agency: '/whitelabel',
@@ -12,8 +12,6 @@ export default function ThankYouPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Return URL is handled entirely in code via sessionStorage segment.
-    // No return URL configuration needed in Cashfree dashboard.
     const segment = sessionStorage.getItem('ge_segment') || 'd2c';
     const bump1   = sessionStorage.getItem('ge_bump1') === '1';
     const bump2   = sessionStorage.getItem('ge_bump2') === '1';
@@ -22,7 +20,7 @@ export default function ThankYouPage() {
 
     // Fire GTM purchase event
     if (window.dataLayer) {
-      window.dataLayer.push({ event: 'purchase', segment, bump1, bump2 });
+      window.dataLayer.push({ event: 'purchase', segment, bump1, bump2, funnelSlug: sessionStorage.getItem('ge_funnel_slug') });
     }
 
     // Build query string for destination page
@@ -34,7 +32,9 @@ export default function ThankYouPage() {
       email,
     });
 
-    const route = SEGMENT_ROUTES[segment] ?? '/consulting';
+    // Config-driven post-purchase route (falls back to legacy segment routing)
+    const configRoute = sessionStorage.getItem('ge_post_purchase_route');
+    const route = configRoute || SEGMENT_ROUTES[segment] || '/consulting';
     navigate(`${route}?${params.toString()}`, { replace: true });
   }, [navigate]);
 

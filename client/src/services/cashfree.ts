@@ -6,6 +6,7 @@ interface PaymentParams {
   segment: string;
   bump1: boolean;
   bump2: boolean;
+  funnelSlug?: string;
 }
 
 export async function initiateCashfreePayment(params: PaymentParams): Promise<void> {

@@ -16,6 +16,33 @@ import { listFunnelConfigs, getFunnelConfig } from '../services/funnelConfigServ
 const router = Router();
 
 // ---------------------------------------------------------------------------
+// GET /public/:slug — PUBLIC endpoint (no auth) for frontend checkout
+// Returns only display-safe fields (no WA templates, no Slack config)
+// ---------------------------------------------------------------------------
+router.get('/public/:slug', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const slug = String(req.params.slug);
+    const result = await pool.query(
+      `SELECT slug, name, is_active, base_price, bump1_price, bump2_price, bump1_label, bump2_label,
+              product_name, product_labels, main_pdf_url, bump1_pdf_url, bump2_booking_url,
+              pipeline_name, pipeline_stages, service_type,
+              hero_headline, hero_subheadline, cta_text, accent_color,
+              segment_options, testimonials, post_purchase_route, brand_names,
+              bump1_description, bump2_description, main_product_description
+       FROM funnel_configs WHERE slug = $1 AND is_active = TRUE LIMIT 1`,
+      [slug],
+    );
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'funnel not found' });
+      return;
+    }
+    res.json({ ok: true, config: result.rows[0] });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET / — list all funnel configs for tenant
 // ---------------------------------------------------------------------------
 router.get('/', async (req: Request, res: Response): Promise<void> => {

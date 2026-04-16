@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { initiateCashfreePayment } from '../services/cashfree';
+import { useFunnelConfig } from '../hooks/useFunnelConfig';
 
 // ---------------------------------------------------------------------------
-// Constants
+// Fallback constants (used if config loading fails)
 // ---------------------------------------------------------------------------
-const SEGMENT_OPTIONS = [
+const FALLBACK_SEGMENTS = [
   { id: 'd2c', label: 'I run a D2C Brand', subtitle: 'I sell products online and run Meta/Google ads', icon: '🛍️' },
   { id: 'agency', label: 'I run an Agency', subtitle: 'I manage performance marketing for clients', icon: '🏢' },
   { id: 'freelancer', label: 'I am a Freelancer', subtitle: 'I do performance marketing independently', icon: '💻' },
@@ -22,12 +23,28 @@ const STEPS = ['Who are you?', 'Your details', 'Upgrade', 'Pay'];
 // Component
 // ---------------------------------------------------------------------------
 export default function CheckoutPage() {
+  const { config: funnelConfig, loading: configLoading, slug: funnelSlug } = useFunnelConfig();
+
   const [segment, setSegment] = useState(null);
-  const [bump1, setBump1] = useState(true);   // FIX 5: pre-selected
-  const [bump2, setBump2] = useState(true);   // FIX 5: pre-selected
+  const [bump1, setBump1] = useState(true);
+  const [bump2, setBump2] = useState(true);
   const [form, setForm] = useState({ name: '', email: '', phone: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Config-driven values (with fallbacks)
+  const basePrice = funnelConfig?.base_price ?? 9;
+  const bump1Price = funnelConfig?.bump1_price ?? null;
+  const bump2Price = funnelConfig?.bump2_price ?? null;
+  const hasBump1 = bump1Price != null && bump1Price > 0;
+  const hasBump2 = bump2Price != null && bump2Price > 0;
+  const SEGMENT_OPTIONS = (funnelConfig?.segment_options && Array.isArray(funnelConfig.segment_options))
+    ? funnelConfig.segment_options
+    : (typeof funnelConfig?.segment_options === 'string' ? JSON.parse(funnelConfig.segment_options) : FALLBACK_SEGMENTS);
+  const productName = funnelConfig?.product_name ?? 'D2C Funnel Breakdown Pack';
+  const accentColor = funnelConfig?.accent_color ?? '#F97316';
+  const heroHeadline = funnelConfig?.hero_headline ?? 'Top 5 D2C Brand Funnel Breakdown';
+  const ctaText = funnelConfig?.cta_text ?? `Get Instant Access for ₹${basePrice}`;
 
   // FIX 3: floating popup state
   const [tickerVisible, setTickerVisible] = useState(false);
@@ -62,7 +79,7 @@ export default function CheckoutPage() {
   }, []);
 
   const progressStep = segment ? 1 : 0;
-  const total = 9 + (bump1 ? 199 : 0) + (bump2 ? 499 : 0);
+  const total = basePrice + (bump1 && hasBump1 ? bump1Price : 0) + (bump2 && hasBump2 ? bump2Price : 0);
 
   function handleFormChange(e) {
     setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -77,15 +94,21 @@ export default function CheckoutPage() {
     if (!/^[6-9]\d{9}$/.test(form.phone.trim())) { setError('Please enter a valid 10-digit WhatsApp number.'); return; }
 
     sessionStorage.setItem('ge_segment', segment);
-    sessionStorage.setItem('ge_bump1', bump1 ? '1' : '0');
-    sessionStorage.setItem('ge_bump2', bump2 ? '1' : '0');
+    sessionStorage.setItem('ge_bump1', bump1 && hasBump1 ? '1' : '0');
+    sessionStorage.setItem('ge_bump2', bump2 && hasBump2 ? '1' : '0');
     sessionStorage.setItem('ge_name', form.name.trim());
     sessionStorage.setItem('ge_email', form.email.trim());
     sessionStorage.setItem('ge_purchased', 'true');
+    sessionStorage.setItem('ge_funnel_slug', funnelSlug);
+    if (funnelConfig?.post_purchase_route) sessionStorage.setItem('ge_post_purchase_route', funnelConfig.post_purchase_route);
+    if (funnelConfig?.main_pdf_url) sessionStorage.setItem('ge_main_pdf_url', funnelConfig.main_pdf_url);
+    if (funnelConfig?.bump1_pdf_url) sessionStorage.setItem('ge_bump1_pdf_url', funnelConfig.bump1_pdf_url);
+    if (funnelConfig?.bump2_booking_url) sessionStorage.setItem('ge_bump2_booking_url', funnelConfig.bump2_booking_url);
+    if (funnelConfig?.product_name) sessionStorage.setItem('ge_product_name', funnelConfig.product_name);
 
     setLoading(true);
     try {
-      await initiateCashfreePayment({ name: form.name.trim(), email: form.email.trim(), phone: form.phone.trim(), amount: total, segment, bump1, bump2 });
+      await initiateCashfreePayment({ name: form.name.trim(), email: form.email.trim(), phone: form.phone.trim(), amount: total, segment, bump1: bump1 && hasBump1, bump2: bump2 && hasBump2, funnelSlug });
     } catch (err) {
       setError(err.message || 'Payment failed. Please try again.');
       setLoading(false);
@@ -115,8 +138,8 @@ export default function CheckoutPage() {
       <div style={{ backgroundColor: '#1B2E5E' }} className="px-4 pb-4 pt-3">
         <div className="max-w-2xl mx-auto text-center">
           <div className="inline-block text-[10px] font-bold uppercase tracking-widest px-2.5 py-0.5 rounded-full mb-2"
-            style={{ backgroundColor: '#F97316', color: 'white' }}>
-            📦 Top 5 D2C Brand Funnel Breakdown
+            style={{ backgroundColor: accentColor, color: 'white' }}>
+            📦 {heroHeadline}
           </div>
           <h1 className="text-lg md:text-xl font-bold text-white leading-snug">
             You are <span style={{ color: '#F97316' }}>60 seconds away</span> from the funnel framework that helps Indian brands scale past <span style={{ color: '#F97316' }}>₹10L/month on Meta</span>

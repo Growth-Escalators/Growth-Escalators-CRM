@@ -213,6 +213,9 @@ export default function Sidebar() {
             <NavLink to="/finance" className={navClass}>
               <Receipt className="w-4 h-4" /> Expenses
             </NavLink>
+            <NavLink to="/funnels" className={navClass}>
+              <Zap className="w-4 h-4" /> Funnels
+            </NavLink>
           </>
         )}
 
