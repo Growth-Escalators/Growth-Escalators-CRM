@@ -97,7 +97,7 @@ export async function deliverPurchaseAssets(params: {
 
     // Schedule 48h follow-up check via event
     await pool.query(
-      `INSERT INTO events (id, tenant_id, contact_id, type, data, created_at)
+      `INSERT INTO events (id, tenant_id, contact_id, event_type, payload, created_at)
        SELECT gen_random_uuid(), c.tenant_id, c.id,
               'audit_booking_followup',
               $2::jsonb,
@@ -125,7 +125,7 @@ export async function checkUnbookedAuditCalls(): Promise<void> {
         AND c.created_at > NOW() - INTERVAL '7 days'
         AND NOT EXISTS (
           SELECT 1 FROM events e
-          WHERE e.contact_id = c.id AND e.type = 'audit_followup_sent'
+          WHERE e.contact_id = c.id AND e.event_type = 'audit_followup_sent'
         )
       LIMIT 10
     `);
@@ -140,7 +140,7 @@ export async function checkUnbookedAuditCalls(): Promise<void> {
 
       // Mark as sent so we don't re-alert
       await pool.query(
-        `INSERT INTO events (id, tenant_id, contact_id, type, data, created_at)
+        `INSERT INTO events (id, tenant_id, contact_id, event_type, payload, created_at)
          SELECT gen_random_uuid(), c.tenant_id, c.id, 'audit_followup_sent', '{}'::jsonb, NOW()
          FROM contacts c WHERE c.id = $1`,
         [row.id],
