@@ -1,7 +1,7 @@
 import logger from '../utils/logger';
 import { Router, type Request, type Response } from 'express';
 import { eq } from 'drizzle-orm';
-import { db, tenants, deals, contacts, processedEvents, events } from '../db/index';
+import { db, pool, tenants, deals, contacts, processedEvents, events } from '../db/index';
 import { findOrCreateContact } from '../services/contactService';
 import { sendPurchaseEvent } from '../services/metaCapi';
 import { sendSlackMessage } from '../services/slackService';
@@ -17,9 +17,10 @@ const CASHFREE_BASE =
 // POST /api/cashfree/create-order
 // ---------------------------------------------------------------------------
 router.post('/create-order', async (req: Request, res: Response) => {
-  const { name, email, phone, amount, segment, bump1, bump2 } = req.body as {
+  const { name, email, phone, amount, segment, bump1, bump2, fbp, fbc } = req.body as {
     name: string; email: string; phone: string; amount: number;
     segment?: string; bump1?: boolean; bump2?: boolean;
+    fbp?: string; fbc?: string;
   };
 
   if (!name || !email || !phone || !amount) {
@@ -48,7 +49,7 @@ router.post('/create-order', async (req: Request, res: Response) => {
           customer_email: email,
           customer_phone: phone,
         },
-        order_meta: { segment: segment ?? null, bump1: bump1 ?? false, bump2: bump2 ?? false },
+        order_meta: { segment: segment ?? null, bump1: bump1 ?? false, bump2: bump2 ?? false, fbp: fbp ?? null, fbc: fbc ?? null },
       }),
     });
 
@@ -113,6 +114,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
   const segment = (orderMeta.segment as string) || 'unknown';
   const bump1 = Boolean(orderMeta.bump1);
   const bump2 = Boolean(orderMeta.bump2);
+  const fbpCookie = (orderMeta.fbp as string) || undefined;
+  const fbcCookie = (orderMeta.fbc as string) || undefined;
 
   try {
     // Idempotency check
@@ -190,6 +193,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
       contact: { id: contact.id, firstName, lastName, email: email || undefined },
       value: orderAmount, orderId: cfPaymentId,
       productName: productLabel, ipAddress, userAgent,
+      fbc: fbcCookie, fbp: fbpCookie,
     }).then(result => {
       if (result.success) {
         db.insert(events).values({
@@ -258,6 +262,19 @@ router.post('/webhook', async (req: Request, res: Response) => {
       tenantId: tenant.id, contactId: contact.id, eventType: 'slo_purchase',
       payload: { amount: orderAmount, segment, products, cfPaymentId },
     });
+
+    // Auto-enroll in D2C Lead Nurture sequence (Day 0: welcome, Day 3: follow-up, Day 7: nudge)
+    pool.query(
+      `INSERT INTO sequence_enrolments (id, tenant_id, contact_id, sequence_id, current_step, status, next_step_at, enrolled_at)
+       SELECT gen_random_uuid(), $1, $2, s.id, 1, 'active', NOW() + (s.steps->1->>'delayDays')::int * INTERVAL '1 day', NOW()
+       FROM sequences s
+       WHERE s.name = 'D2C Lead Nurture' AND s.tenant_id = $1 AND s.is_active = TRUE
+         AND NOT EXISTS (SELECT 1 FROM sequence_enrolments se WHERE se.contact_id = $2 AND se.sequence_id = s.id AND se.status = 'active')
+       LIMIT 1`,
+      [tenant.id, contact.id],
+    ).then(r => {
+      if (r.rowCount && r.rowCount > 0) logger.info(`[cashfree] Enrolled ${name} in D2C Lead Nurture sequence`);
+    }).catch(e => logger.error('[cashfree] Sequence enrollment error:', e));
 
     // Mark as processed
     await db.insert(processedEvents).values({ eventId: cfPaymentId, source: 'cashfree' });
