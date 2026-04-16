@@ -185,14 +185,28 @@ async function checkOutreach(): Promise<SubsystemHealth> {
 }
 
 async function checkSeo(): Promise<SubsystemHealth> {
-  const r = await pool.query(`
-    SELECT
-      (SELECT COUNT(*)::int FROM seo_weekly_metrics WHERE week_start >= CURRENT_DATE - 14) AS recent_metrics,
-      (SELECT COUNT(*)::int FROM keyword_rankings WHERE checked_at >= NOW() - INTERVAL '48 hours') AS recent_rankings
-  `);
-  const m = r.rows[0] as Record<string, string>;
-  const recentMetrics = parseInt(m.recent_metrics ?? '0');
-  const recentRankings = parseInt(m.recent_rankings ?? '0');
+  let recentMetrics = 0;
+  let recentRankings = 0;
+
+  try {
+    const r = await pool.query(`
+      SELECT
+        (SELECT COUNT(*)::int FROM seo_weekly_metrics WHERE week_start >= CURRENT_DATE - 14) AS recent_metrics,
+        (SELECT COUNT(*)::int FROM keyword_rankings WHERE checked_at >= NOW() - INTERVAL '48 hours') AS recent_rankings
+    `);
+    const m = r.rows[0] as Record<string, string>;
+    recentMetrics = parseInt(m.recent_metrics ?? '0');
+    recentRankings = parseInt(m.recent_rankings ?? '0');
+  } catch (e) {
+    return {
+      status: 'WARNING',
+      metrics: {
+        recentMetrics: 0,
+        recentRankings: 0,
+        error: e instanceof Error ? e.message : 'SEO tables query failed',
+      },
+    };
+  }
 
   let status: 'HEALTHY' | 'WARNING' | 'CRITICAL' = 'HEALTHY';
   if (recentMetrics === 0 && recentRankings === 0) status = 'CRITICAL';
@@ -227,11 +241,28 @@ async function checkInfrastructure(): Promise<SubsystemHealth> {
     checks.webUp = r.ok;
   } catch { checks.webUp = false; }
 
-  // n8n
+  // n8n — check /healthz AND DB connectivity via API
   try {
     const n8nUrl = process.env.N8N_BASE_URL || 'https://primary-production-6c6f5.up.railway.app';
     const r = await fetch(`${n8nUrl}/healthz`, { signal: AbortSignal.timeout(5000) });
     checks.n8nUp = r.ok;
+
+    if (r.ok) {
+      const apiKey = process.env.N8N_API_KEY;
+      if (apiKey) {
+        try {
+          const dbCheck = await fetch(`${n8nUrl}/api/v1/workflows?limit=1`, {
+            headers: { 'X-N8N-API-KEY': apiKey },
+            signal: AbortSignal.timeout(5000),
+          });
+          checks.n8nDbHealthy = dbCheck.ok;
+          if (!dbCheck.ok) checks.n8nUp = false;
+        } catch {
+          checks.n8nDbHealthy = false;
+          checks.n8nUp = false;
+        }
+      }
+    }
   } catch { checks.n8nUp = false; }
 
   // Database

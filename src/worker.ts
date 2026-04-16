@@ -670,7 +670,7 @@ cron.schedule('30 1 * * *', () => safeCron('Daily Lead Discovery', async () => {
 
       for (const p of places.slice(0, 20)) {
         const fitScore = Math.min(100, 50 + (p.rating ?? 0) * 5 + Math.min((p.user_ratings_total ?? 0), 10) * 2);
-        if (fitScore < 60) continue;
+        if (fitScore < 40) continue;
 
         const result = await insertOutreachLead({
           company: p.name,
