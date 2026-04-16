@@ -3,19 +3,21 @@ import logger from '../utils/logger';
 import { sendWhatsAppMessage } from './growthOSSetup';
 import { sendSlackDM } from './slackService';
 import { SLACK_JATIN } from '../config/constants';
+import { getFunnelConfig, renderTemplate, type FunnelConfig } from './funnelConfigService';
 
 // ---------------------------------------------------------------------------
-// Asset URLs
+// Legacy asset URLs (fallback when no funnel config exists)
 // ---------------------------------------------------------------------------
-const ASSETS = {
+const LEGACY_ASSETS = {
   mainPdf:    'https://pub-42526281354a42f3879bd56bed4ad62b.r2.dev/5%20Winning%20D2C%20Brands.pdf',
   growthKit:  'https://pub-42526281354a42f3879bd56bed4ad62b.r2.dev/Advanced%20D2C%20Growth%20Kit%20Latest.pdf',
   auditCall:  'https://cal.com/growth-escalators/discovery-call',
 };
 
 // ---------------------------------------------------------------------------
-// Send post-purchase assets via WhatsApp
+// Send post-purchase assets via WhatsApp + Email
 // Called from worker.ts after pipeline placement
+// Now config-driven — reads templates and URLs from funnel_configs table
 // ---------------------------------------------------------------------------
 export async function deliverPurchaseAssets(params: {
   contactId: string;
@@ -25,52 +27,110 @@ export async function deliverPurchaseAssets(params: {
   bump1: boolean;
   bump2: boolean;
   segment: string;
+  funnelSlug?: string;
 }): Promise<void> {
-  const { contactId, firstName, phone, email, bump1, bump2, segment } = params;
+  const { contactId, firstName, phone, email, bump1, bump2, segment, funnelSlug } = params;
+
+  // Load funnel config for this purchase
+  const config = funnelSlug ? await getFunnelConfig(funnelSlug) : null;
+
+  // Resolve asset URLs from config or legacy
+  const mainPdfUrl = config?.main_pdf_url || LEGACY_ASSETS.mainPdf;
+  const bump1PdfUrl = config?.bump1_pdf_url || LEGACY_ASSETS.growthKit;
+  const bump2BookingUrl = config?.bump2_booking_url || LEGACY_ASSETS.auditCall;
+
+  // Template variables for message rendering
+  const templateVars: Record<string, string> = {
+    firstName,
+    productName: config?.product_name || 'D2C Funnel Breakdown Pack',
+    mainPdfUrl,
+    bump1PdfUrl,
+    bump2BookingUrl,
+    bump1Label: config?.bump1_label || 'Growth Kit',
+    bump2Label: config?.bump2_label || 'Audit Call',
+  };
+
+  // Track delivery status
+  let waStatus: 'sent' | 'failed' = 'sent';
+  let waError: string | null = null;
+  let emailStatus: 'sent' | 'failed' = 'sent';
+  let emailError: string | null = null;
 
   // --- WhatsApp messages ---
   if (phone) {
-    // Message 1: Main product delivery (always)
-    const msg1 =
-      `Hi ${firstName}! 🎉 Your purchase is confirmed. Here is your D2C Funnel Breakdown Pack — download it now, it is yours forever: ${ASSETS.mainPdf}\n\n` +
-      `This PDF breaks down exactly what 5 winning D2C brands are doing on Meta right now. Go through Section 2 first — that is where most brands find their biggest insight.\n\n` +
-      `Reply anytime if you have questions. — Jatin from Growth Escalators`;
-    await sendWhatsAppMessage(phone, msg1).catch(e =>
-      logger.error('[asset-delivery] WA msg1 failed:', e instanceof Error ? e.message : String(e)));
-
-    await delay(2000);
-
-    // Message 2: Growth Kit (bump1 buyers)
-    if (bump1) {
-      const msg2 =
-        `Your Growth Kit is also ready! 📦 Download it here: ${ASSETS.growthKit}\n\n` +
-        `Inside you will find swipe files, ad templates, landing page frameworks, and the Meta ads checklist. ` +
-        `Start with the checklist — it takes 10 minutes and shows you exactly where your funnel is leaking. — Jatin`;
-      await sendWhatsAppMessage(phone, msg2).catch(e =>
-        logger.error('[asset-delivery] WA msg2 failed:', e instanceof Error ? e.message : String(e)));
+    try {
+      // Message 1: Main product delivery (always)
+      const msg1 = config?.wa_msg1_template
+        ? renderTemplate(config.wa_msg1_template, templateVars)
+        : `Hi ${firstName}! 🎉 Your purchase is confirmed. Here is your ${templateVars.productName} — download it now: ${mainPdfUrl}\n\nReply anytime if you have questions. — Jatin from Growth Escalators`;
+      await sendWhatsAppMessage(phone, msg1);
 
       await delay(2000);
-    }
 
-    // Message 3: Audit call booking (bump2 buyers)
-    if (bump2) {
-      const msg3 =
-        `Your 45-min Meta Ads Audit with Jatin is confirmed! 🎯\n\n` +
-        `Book your slot here (slots fill fast): ${ASSETS.auditCall}\n\n` +
-        `Come prepared with:\n` +
-        `- Your current ROAS or CPL\n` +
-        `- Your top 2-3 running creatives\n` +
-        `- Your biggest challenge right now\n\n` +
-        `Jatin will review your live account and give you 3 specific fixes. See you on the call!`;
-      await sendWhatsAppMessage(phone, msg3).catch(e =>
-        logger.error('[asset-delivery] WA msg3 failed:', e instanceof Error ? e.message : String(e)));
+      // Message 2: Bump 1 (only if bump1 purchased AND bump1 exists in config)
+      if (bump1 && (config?.bump1_price || !config)) {
+        const msg2 = config?.wa_msg2_template
+          ? renderTemplate(config.wa_msg2_template, templateVars)
+          : `Your ${templateVars.bump1Label} is also ready! 📦 Download it here: ${bump1PdfUrl}`;
+        await sendWhatsAppMessage(phone, msg2);
+        await delay(2000);
+      }
+
+      // Message 3: Bump 2 (only if bump2 purchased AND bump2 exists in config)
+      if (bump2 && (config?.bump2_price || !config)) {
+        const msg3 = config?.wa_msg3_template
+          ? renderTemplate(config.wa_msg3_template, templateVars)
+          : `Your ${templateVars.bump2Label} is confirmed! 🎯 Book your slot: ${bump2BookingUrl}`;
+        await sendWhatsAppMessage(phone, msg3);
+      }
+    } catch (e) {
+      waStatus = 'failed';
+      waError = e instanceof Error ? e.message : String(e);
+      logger.error(`[asset-delivery] WA failed for ${contactId}:`, waError);
     }
+  } else {
+    waStatus = 'failed';
+    waError = 'no_phone_number';
   }
 
-  // --- Email delivery ---
+  // --- Email delivery (always attempt as fallback) ---
   if (email) {
-    await sendPurchaseEmail({ firstName, email, bump1, bump2 }).catch(e =>
-      logger.error('[asset-delivery] email failed:', e instanceof Error ? e.message : String(e)));
+    try {
+      await sendPurchaseEmail({ firstName, email, bump1, bump2, config });
+    } catch (e) {
+      emailStatus = 'failed';
+      emailError = e instanceof Error ? e.message : String(e);
+      logger.error(`[asset-delivery] email failed for ${contactId}:`, emailError);
+    }
+  } else {
+    emailStatus = 'failed';
+    emailError = 'no_email';
+  }
+
+  // --- Log delivery status ---
+  const manualNeeded = waStatus === 'failed' && emailStatus === 'failed';
+  pool.query(
+    `INSERT INTO purchase_delivery_log (tenant_id, contact_id, funnel_slug, wa_status, wa_error, wa_sent_at, email_status, email_error, email_sent_at, manual_followup_needed)
+     SELECT c.tenant_id, c.id, $3, $4, $5, $6, $7, $8, $9, $10
+     FROM contacts c WHERE c.id = $1
+     ON CONFLICT DO NOTHING`,
+    [contactId, null, funnelSlug || 'ecom',
+     waStatus, waError, waStatus === 'sent' ? new Date() : null,
+     emailStatus, emailError, emailStatus === 'sent' ? new Date() : null,
+     manualNeeded],
+  ).catch(() => {});
+
+  // --- Alert team if BOTH channels failed ---
+  if (manualNeeded) {
+    sendSlackDM(SLACK_JATIN,
+      `⚠️ *DELIVERY FAILED — Manual follow-up needed*\n` +
+      `• Contact: ${firstName} (${contactId})\n` +
+      `• Funnel: ${config?.name || funnelSlug || 'ecom'}\n` +
+      `• WA Error: ${waError}\n` +
+      `• Email Error: ${emailError}\n` +
+      `• Phone: ${phone || 'N/A'} | Email: ${email || 'N/A'}\n` +
+      `*ACTION:* Send assets manually via WhatsApp or email`,
+    ).catch(() => {});
   }
 
   // --- Bump2: audit booking follow-up tracking ---
@@ -135,7 +195,7 @@ export async function checkUnbookedAuditCalls(): Promise<void> {
       await sendSlackDM(SLACK_JATIN,
         `⚠️ *FOLLOW UP:* ${name} purchased audit call 48hrs ago but has not booked.\n` +
         `WhatsApp: ${row.phone ?? 'unknown'}\n` +
-        `Book link: ${ASSETS.auditCall}`
+        `Book link: ${LEGACY_ASSETS.auditCall}`
       ).catch(() => {});
 
       // Mark as sent so we don't re-alert
@@ -163,6 +223,7 @@ async function sendPurchaseEmail(params: {
   email: string;
   bump1: boolean;
   bump2: boolean;
+  config?: FunnelConfig | null;
 }): Promise<void> {
   const apiKey = process.env.BREVO_API_KEY;
   if (!apiKey) {
@@ -170,47 +231,54 @@ async function sendPurchaseEmail(params: {
     return;
   }
 
-  const { firstName, email, bump1, bump2 } = params;
+  const { firstName, email, bump1, bump2, config } = params;
 
-  let body = `Hi ${firstName},\n\nYour purchase is confirmed. Here is everything you have access to:\n\n`;
-  body += `📄 D2C Funnel Breakdown Pack (₹9 product):\n${ASSETS.mainPdf}\n\n`;
-  if (bump1) {
-    body += `📦 Advanced Growth Kit (your ₹199 add-on):\n${ASSETS.growthKit}\n\n`;
-  }
-  if (bump2) {
-    body += `🎯 Book your 45-min Meta Ads Audit with Jatin:\n${ASSETS.auditCall}\n(Book now — slots are limited)\n\n`;
-  }
-  body += `Start with the PDF — go through Section 2 first. Most people find their biggest insight there.\n\n`;
-  body += `Reply to this email if you have any questions.\n\n`;
-  body += `— Jatin Agrawal\nFounder, Growth Escalators`;
+  let subject: string;
+  let body: string;
 
-  const htmlBody = body.replace(/\n/g, '<br>');
+  if (config?.email_body) {
+    // Config-driven email
+    const templateVars: Record<string, string> = {
+      firstName,
+      productName: config.product_name,
+      mainPdfUrl: config.main_pdf_url || '[PDF will be delivered shortly]',
+      bump1Section: bump1 && config.bump1_pdf_url ? `📦 ${config.bump1_label || 'Add-on'}:\n${config.bump1_pdf_url}\n\n` : '',
+      bump2Section: bump2 && config.bump2_booking_url ? `🎯 ${config.bump2_label || 'Call'}:\n${config.bump2_booking_url}\n\n` : '',
+    };
+    subject = renderTemplate(config.email_subject || 'Your purchase is confirmed, {firstName}!', templateVars);
+    body = renderTemplate(config.email_body, templateVars);
+  } else {
+    // Legacy fallback
+    subject = `Your D2C Funnel Breakdown Pack is ready, ${firstName} 🎯`;
+    body = `Hi ${firstName},\n\nYour purchase is confirmed. Here is everything you have access to:\n\n`;
+    body += `📄 D2C Funnel Breakdown Pack:\n${LEGACY_ASSETS.mainPdf}\n\n`;
+    if (bump1) body += `📦 Advanced Growth Kit:\n${LEGACY_ASSETS.growthKit}\n\n`;
+    if (bump2) body += `🎯 Book your Audit Call:\n${LEGACY_ASSETS.auditCall}\n\n`;
+    body += `Reply to this email if you have any questions.\n\n— Jatin Agrawal\nFounder, Growth Escalators`;
+  }
 
   try {
     const res = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
-      headers: {
-        'api-key': apiKey,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'api-key': apiKey, 'Content-Type': 'application/json' },
       signal: AbortSignal.timeout(15000),
       body: JSON.stringify({
         sender: { name: 'Jatin from Growth Escalators', email: 'jatin@growthescalators.com' },
         to: [{ email, name: firstName }],
-        subject: `Your D2C Funnel Breakdown Pack is ready, ${firstName} 🎯`,
-        htmlContent: htmlBody,
+        subject,
+        htmlContent: body.replace(/\n/g, '<br>'),
         textContent: body,
       }),
     });
 
     if (!res.ok) {
       const err = await res.text().catch(() => '');
-      logger.error(`[asset-delivery] Brevo ${res.status}:`, err.slice(0, 200));
-    } else {
-      logger.info(`[asset-delivery] Purchase email sent to ${email}`);
+      throw new Error(`Brevo ${res.status}: ${err.slice(0, 200)}`);
     }
+    logger.info(`[asset-delivery] Purchase email sent to ${email}`);
   } catch (e) {
     logger.error('[asset-delivery] Brevo request failed:', e instanceof Error ? e.message : String(e));
+    throw e; // Re-throw so caller can track failure
   }
 }
 

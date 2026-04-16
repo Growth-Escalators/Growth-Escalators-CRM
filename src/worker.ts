@@ -430,10 +430,11 @@ const PLACEMENT_INTERVAL = setInterval(() => safeCron('Pipeline Placement', asyn
       const amount  = typeof payload.amount === 'number' ? payload.amount : 9;
       const bump1   = Boolean(payload.bump1);
       const bump2   = Boolean(payload.bump2);
+      const funnelSlug = (payload.funnelSlug as string) || 'ecom';
       try {
-        const result = await placePipelineContact({ contactId: contact_id, segment, amount, bump1, bump2, tenantId: tenant_id });
+        const result = await placePipelineContact({ contactId: contact_id, segment, amount, bump1, bump2, tenantId: tenant_id, funnelSlug });
         if (!result.success) {
-          console.warn(`[CRON] Pipeline placement failed for ${contact_id} — delivering assets anyway`);
+          console.warn(`[CRON] Pipeline placement failed for ${contact_id} (${funnelSlug}) — delivering assets anyway`);
         }
 
         // Deliver purchase assets (WhatsApp + email) REGARDLESS of pipeline placement
@@ -451,7 +452,7 @@ const PLACEMENT_INTERVAL = setInterval(() => safeCron('Pipeline Placement', asyn
             await deliverPurchaseAssets({
               contactId: contact_id, firstName: info.first_name,
               phone: info.phone, email: info.email,
-              bump1, bump2, segment,
+              bump1, bump2, segment, funnelSlug,
             });
           }
         } catch (ae) {

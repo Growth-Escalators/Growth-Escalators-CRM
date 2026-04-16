@@ -49,6 +49,8 @@ import { ensureGrowthOSTables } from './services/growthOSSetup';
 import imapRepliesRouter from './routes/imapReplies';
 import { ensureProcessedRepliesTable } from './services/imapService';
 import funnelRouter, { ensureFunnelWaitlistTable } from './routes/funnel';
+import funnelConfigRouter from './routes/funnelConfig';
+import { ensureFunnelConfigTable, ensureDeliveryLogTable, seedDefaultFunnelConfigs } from './services/funnelConfigService';
 import { ensurePipelineContactsTable, ensureOutreachPipelines } from './services/pipelineService';
 import outreachLeadsRouter from './routes/outreachLeads';
 import { ensureOutreachLeadsTable } from './services/outreachLeadsService';
@@ -172,6 +174,7 @@ app.use('/api/postiz', requireAuth, postizRouter);
 app.use('/api/intelligence', requireAuth, intelligenceChatRouter);
 app.use('/api/clients', requireAuth, clientDetailRouter);
 app.use('/api/funnel', funnelRouter);
+app.use('/api/funnel-configs', requireAuth, funnelConfigRouter);
 
 // ---------------------------------------------------------------------------
 // Static frontend — hostname-based routing
@@ -340,6 +343,17 @@ async function startServer() {
   ensureOutreachLeadsTable().catch(e => console.error('[startup] outreach_leads table bootstrap failed:', e));
   // Bootstrap finance tables
   import('./services/financeService').then(m => m.ensureFinanceTables()).catch(e => console.error('[startup] Finance tables bootstrap failed:', e));
+  // Bootstrap funnel_configs + purchase_delivery_log tables, then seed defaults
+  ensureFunnelConfigTable()
+    .then(() => ensureDeliveryLogTable())
+    .then(async () => {
+      // Seed default funnel configs for the first tenant found
+      const tenantRes = await pool.query(`SELECT id FROM tenants LIMIT 1`);
+      if (tenantRes.rows.length > 0) {
+        await seedDefaultFunnelConfigs((tenantRes.rows[0] as { id: string }).id);
+      }
+    })
+    .catch(e => console.error('[startup] Funnel config / delivery log bootstrap failed:', e));
   // Bootstrap SEO tables (site_health_metrics, seo_opportunities, seo_alerts_log) THEN seed knowledge base
   import('./services/seoWorkflowHealthService').then(m => m.ensureSeoTables())
     .then(() => import('./services/seoKnowledgeBase').then(m => m.seedClientKnowledgeBase()))

@@ -125,11 +125,46 @@ export async function placePipelineContact(params: {
   bump1: boolean;
   bump2: boolean;
   tenantId?: string;
+  funnelSlug?: string;
 }): Promise<PipelinePlacementResult> {
-  const { contactId, segment, amount, bump1, bump2 } = params;
+  const { contactId, segment, amount, bump1, bump2, funnelSlug } = params;
 
-  const pipelineName = PIPELINE_MAP[segment] ?? 'D2C Prospects';
-  const stageName = stageForAmount(amount);
+  // Config-driven pipeline lookup — if funnelSlug provided, check funnel_configs first
+  let pipelineName: string;
+  let stageName: string;
+
+  if (funnelSlug) {
+    try {
+      const configR = await pool.query(
+        `SELECT pipeline_name, base_price, bump1_price, bump2_price FROM funnel_configs WHERE slug = $1 AND is_active = TRUE LIMIT 1`,
+        [funnelSlug],
+      );
+      if (configR.rows.length > 0) {
+        const cfg = configR.rows[0] as { pipeline_name: string; base_price: number; bump1_price: number | null; bump2_price: number | null };
+        pipelineName = cfg.pipeline_name;
+        // Calculate stage from config prices
+        const base = cfg.base_price;
+        const b1 = cfg.bump1_price ?? 0;
+        const b2 = cfg.bump2_price ?? 0;
+        const allCombo = base + b1 + b2;
+        const baseB2 = base + b2;
+        const baseB1 = base + b1;
+        if (b1 > 0 && b2 > 0 && Math.abs(amount - allCombo) <= 5) stageName = `Paid ₹${allCombo}`;
+        else if (b2 > 0 && Math.abs(amount - baseB2) <= 5) stageName = `Paid ₹${baseB2}`;
+        else if (b1 > 0 && Math.abs(amount - baseB1) <= 5) stageName = `Paid ₹${baseB1}`;
+        else stageName = `Paid ₹${base}`;
+      } else {
+        pipelineName = PIPELINE_MAP[segment] ?? 'D2C Prospects';
+        stageName = stageForAmount(amount);
+      }
+    } catch {
+      pipelineName = PIPELINE_MAP[segment] ?? 'D2C Prospects';
+      stageName = stageForAmount(amount);
+    }
+  } else {
+    pipelineName = PIPELINE_MAP[segment] ?? 'D2C Prospects';
+    stageName = stageForAmount(amount);
+  }
 
   // Build tags
   const tags: string[] = ['slo_buyer', `seg:${segment}`];
