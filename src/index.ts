@@ -179,6 +179,40 @@ app.get('/api/funnel-configs/public/:slug', (req, res, next) => { funnelConfigRo
 app.use('/api/funnel-configs', requireAuth, funnelConfigRouter);
 
 // ---------------------------------------------------------------------------
+// POST /api/feedback — Receive user feedback from CRM, send to Slack + store
+// ---------------------------------------------------------------------------
+app.post('/api/feedback', requireAuth, async (req: Request, res: Response) => {
+  const { type, message, page, userName, userEmail, userRole } = req.body as {
+    type?: string; message?: string; page?: string; userName?: string; userEmail?: string; userRole?: string;
+  };
+  if (!message) { res.status(400).json({ error: 'message required' }); return; }
+
+  const emoji = type === 'bug' ? '🐛' : type === 'question' ? '❓' : '💡';
+  const label = type === 'bug' ? 'Bug Report' : type === 'question' ? 'Question' : 'Suggestion';
+
+  // Store in database
+  const tenantId = req.user!.tenantId;
+  pool.query(
+    `INSERT INTO events (id, tenant_id, contact_id, event_type, payload, created_at)
+     VALUES (gen_random_uuid(), $1, NULL, 'crm_feedback', $2::jsonb, NOW())`,
+    [tenantId, JSON.stringify({ type, message, page, userName, userEmail, userRole, createdAt: new Date().toISOString() })],
+  ).catch(() => {});
+
+  // Send to Slack
+  try {
+    const { sendSlackMessage } = await import('./services/slackService');
+    await sendSlackMessage(process.env.SLACK_SOD_EOD_CHANNEL || 'C08EMRX2HHN',
+      `${emoji} *CRM ${label}*\n` +
+      `From: ${userName || 'Unknown'} (${userEmail || 'no email'}) — ${userRole || 'staff'}\n` +
+      `Page: ${page || '/'}\n\n` +
+      `> ${message}`,
+    );
+  } catch { /* non-critical */ }
+
+  res.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
 // Static frontend — hostname-based routing
 // ---------------------------------------------------------------------------
 const clientDist = path.join(__dirname, '..', 'public', 'client');
