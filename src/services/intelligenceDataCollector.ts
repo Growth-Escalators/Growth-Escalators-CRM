@@ -88,10 +88,11 @@ export async function collectSEOWorkflowHealth(): Promise<SEOWorkflowHealth> {
     {
       id: 'WF-SEO-08', name: 'Backlink Monitor', schedule: 'Friday 9AM IST', critical: false,
       check: async () => {
-        const r = await pool.query(`SELECT MAX(checked_at) AS last_run, COUNT(*) AS total FROM backlink_data`);
+        // Check cron_job_logs for backend-native backlink service runs
+        const r = await pool.query(`SELECT MAX(started_at) AS last_run FROM cron_job_logs WHERE job_name ILIKE '%backlink%'`).catch(() => ({ rows: [{ last_run: null }] }));
         const lastRun = (r.rows[0] as { last_run: string | null }).last_run;
         const daysSince = lastRun ? Math.floor((now.getTime() - new Date(lastRun).getTime()) / 86400000) : 999;
-        return { lastRun, daysSince, total: Number((r.rows[0] as { total: string }).total), healthy: daysSince <= 8 };
+        return { lastRun, daysSince, total: null, healthy: daysSince <= 8 };
       },
     },
     {
@@ -106,7 +107,8 @@ export async function collectSEOWorkflowHealth(): Promise<SEOWorkflowHealth> {
     {
       id: 'WF-SEO-12', name: 'Weekly Opportunity Digest', schedule: 'Friday 5PM IST', critical: false,
       check: async () => {
-        const r = await pool.query(`SELECT MAX(created_at) AS last_run FROM seo_workflow_logs WHERE workflow_id = 'M4rbRZL5jh0jJHku'`).catch(() => ({ rows: [{ last_run: null }] }));
+        // Check cron_job_logs for backend-native digest runs
+        const r = await pool.query(`SELECT MAX(started_at) AS last_run FROM cron_job_logs WHERE job_name ILIKE '%digest%' OR job_name ILIKE '%opportunity%'`).catch(() => ({ rows: [{ last_run: null }] }));
         const lastRun = (r.rows[0] as { last_run: string | null }).last_run;
         const daysSince = lastRun ? Math.floor((now.getTime() - new Date(lastRun).getTime()) / 86400000) : 999;
         return { lastRun, daysSince, total: null, healthy: daysSince <= 8 };

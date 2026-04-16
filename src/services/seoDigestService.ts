@@ -27,20 +27,18 @@ export async function sendWeeklyOpportunityDigest(): Promise<{ sent: boolean }> 
 
     // 2. Recent alerts (last 7 days)
     const alerts = await pool.query(`
-      SELECT client_domain, alert_type, message, severity
+      SELECT COALESCE(client_domain, project_name) AS client_domain, alert_type, COALESCE(message, alert_message) AS message
       FROM seo_alerts_log
       WHERE created_at > NOW() - INTERVAL '7 days'
-      ORDER BY
-        CASE severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'warning' THEN 3 ELSE 4 END,
-        created_at DESC
+      ORDER BY created_at DESC
       LIMIT 10
     `);
 
     // 3. Top rank improvements this week
     const improvements = await pool.query(`
-      SELECT client_domain, keyword, current_position, position_change
+      SELECT COALESCE(client_domain, project_name) AS client_domain, keyword, current_position, position_change
       FROM keyword_rankings
-      WHERE position_change > 0 AND recorded_date >= CURRENT_DATE - INTERVAL '7 days'
+      WHERE position_change > 0 AND (recorded_date >= CURRENT_DATE - INTERVAL '7 days' OR checked_at >= NOW() - INTERVAL '7 days')
       ORDER BY position_change DESC
       LIMIT 5
     `);

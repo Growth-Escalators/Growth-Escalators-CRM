@@ -86,7 +86,7 @@ export async function deliverDailyIntelligence(analysis: Analysis, data: AgencyD
   if (wf && !wf.allHealthy) {
     msg += `⚙️ *SEO Workflows: ${wf.healthyCount}/${wf.totalCount} healthy*\n`;
     for (const w of wf.workflows.filter(x => !x.healthy)) {
-      const days = w.daysSince === 999 ? 'never run' : `${w.daysSince}d overdue`;
+      const days = w.daysSince === 999 ? `not yet run (scheduled: ${w.schedule || 'TBD'})` : `${w.daysSince}d since last run`;
       msg += `   ${w.critical ? '🔴' : '🟡'} ${w.name} — ${days}\n`;
     }
     msg += '\n';
