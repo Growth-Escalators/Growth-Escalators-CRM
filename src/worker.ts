@@ -432,29 +432,30 @@ const PLACEMENT_INTERVAL = setInterval(() => safeCron('Pipeline Placement', asyn
       const bump2   = Boolean(payload.bump2);
       try {
         const result = await placePipelineContact({ contactId: contact_id, segment, amount, bump1, bump2, tenantId: tenant_id });
+        if (!result.success) {
+          console.warn(`[CRON] Pipeline placement failed for ${contact_id} — delivering assets anyway`);
+        }
 
-        // Deliver purchase assets (WhatsApp + email) after successful pipeline placement
-        if (result.success) {
-          try {
-            const { deliverPurchaseAssets } = await import('./services/assetDeliveryService');
-            const contactInfo = await pool.query(
-              `SELECT c.first_name,
-                      (SELECT channel_value FROM contact_channels WHERE contact_id = c.id AND channel_type = 'whatsapp' LIMIT 1) AS phone,
-                      (SELECT channel_value FROM contact_channels WHERE contact_id = c.id AND channel_type = 'email' AND is_primary = true LIMIT 1) AS email
-               FROM contacts c WHERE c.id = $1 LIMIT 1`,
-              [contact_id],
-            );
-            if (contactInfo.rows.length > 0) {
-              const info = contactInfo.rows[0] as { first_name: string; phone: string | null; email: string | null };
-              await deliverPurchaseAssets({
-                contactId: contact_id, firstName: info.first_name,
-                phone: info.phone, email: info.email,
-                bump1, bump2, segment,
-              });
-            }
-          } catch (ae) {
-            console.error('[CRON] Asset delivery failed for contact', contact_id, ':', ae);
+        // Deliver purchase assets (WhatsApp + email) REGARDLESS of pipeline placement
+        try {
+          const { deliverPurchaseAssets } = await import('./services/assetDeliveryService');
+          const contactInfo = await pool.query(
+            `SELECT c.first_name,
+                    (SELECT channel_value FROM contact_channels WHERE contact_id = c.id AND channel_type = 'whatsapp' LIMIT 1) AS phone,
+                    (SELECT channel_value FROM contact_channels WHERE contact_id = c.id AND channel_type = 'email' AND is_primary = true LIMIT 1) AS email
+             FROM contacts c WHERE c.id = $1 LIMIT 1`,
+            [contact_id],
+          );
+          if (contactInfo.rows.length > 0) {
+            const info = contactInfo.rows[0] as { first_name: string; phone: string | null; email: string | null };
+            await deliverPurchaseAssets({
+              contactId: contact_id, firstName: info.first_name,
+              phone: info.phone, email: info.email,
+              bump1, bump2, segment,
+            });
           }
+        } catch (ae) {
+          console.error('[CRON] Asset delivery failed for contact', contact_id, ':', ae);
         }
       } catch (e) {
         console.error('[CRON] Pipeline placement failed for contact', contact_id, ':', e);

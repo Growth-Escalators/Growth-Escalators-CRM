@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { db, tenants, deals, contacts, processedEvents, events } from '../db/index';
 import { findOrCreateContact } from '../services/contactService';
 import { sendPurchaseEvent } from '../services/metaCapi';
+import { sendSlackMessage } from '../services/slackService';
 
 const router = Router();
 
@@ -150,9 +151,10 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const [tenant] = await db.select().from(tenants).where(eq(tenants.slug, 'growth-escalators')).limit(1);
     if (!tenant) { res.json({ ok: true }); return; }
 
-    // Find or create contact
+    // Find or create contact — normalize phone with 91 prefix (matching create-order)
     const channels: { channelType: 'email' | 'whatsapp'; channelValue: string; isPrimary?: boolean }[] = [];
-    if (phone) channels.push({ channelType: 'whatsapp', channelValue: phone });
+    const normalizedPhone = phone ? (phone.startsWith('91') ? phone : `91${phone.replace(/\D/g, '')}`) : '';
+    if (normalizedPhone) channels.push({ channelType: 'whatsapp', channelValue: normalizedPhone });
     if (email) channels.push({ channelType: 'email', channelValue: email, isPrimary: true });
     const parts = name.trim().split(' ');
     const firstName = parts[0] ?? name;
@@ -208,6 +210,47 @@ router.post('/webhook', async (req: Request, res: Response) => {
           template: { name: 'ge_welcome_d2c', language: { code: 'en' } },
         }),
       }).catch(e => logger.error('[cashfree] WhatsApp template error:', e));
+    }
+
+    // Immediate Slack alert so team knows instantly
+    sendSlackMessage(process.env.SLACK_SOD_EOD_CHANNEL || 'C08EMRX2HHN',
+      `💰 *New SLO Purchase!*\n` +
+      `• Name: ${name}\n` +
+      `• Amount: ₹${orderAmount}\n` +
+      `• Segment: ${segment}\n` +
+      `• Products: ${products.join(', ')}\n` +
+      `• Phone: ${phone || 'N/A'} | Email: ${email || 'N/A'}`,
+    ).catch(() => {});
+
+    // Immediate purchase confirmation email (don't rely solely on worker)
+    if (email) {
+      // Worker will also deliver assets, but immediate email below is the failsafe
+
+      // Direct Brevo email as failsafe
+      const brevoKey = process.env.BREVO_API_KEY;
+      if (brevoKey) {
+        let emailBody = `Hi ${firstName},\n\nYour purchase is confirmed! Here is your D2C Funnel Breakdown Pack:\n\n`;
+        emailBody += `📄 Download your PDF: https://pub-42526281354a42f3879bd56bed4ad62b.r2.dev/5%20Winning%20D2C%20Brands.pdf\n\n`;
+        if (bump1) emailBody += `📦 Your Growth Kit: https://pub-42526281354a42f3879bd56bed4ad62b.r2.dev/Advanced%20D2C%20Growth%20Kit%20Latest.pdf\n\n`;
+        if (bump2) emailBody += `🎯 Book your Audit Call: https://cal.com/growth-escalators/discovery-call\n\n`;
+        emailBody += `Go through Section 2 first — that is where most brands find their biggest insight.\n\n— Jatin from Growth Escalators`;
+
+        fetch('https://api.brevo.com/v3/smtp/email', {
+          method: 'POST',
+          headers: { 'api-key': brevoKey, 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(15000),
+          body: JSON.stringify({
+            sender: { name: 'Jatin from Growth Escalators', email: 'jatin@growthescalators.com' },
+            to: [{ email, name: firstName }],
+            subject: `Your D2C Funnel Breakdown Pack is ready, ${firstName} 🎯`,
+            htmlContent: emailBody.replace(/\n/g, '<br>'),
+            textContent: emailBody,
+          }),
+        }).then(r => {
+          if (r.ok) logger.info(`[cashfree] Purchase email sent to ${email}`);
+          else logger.error(`[cashfree] Brevo failed: ${r.status}`);
+        }).catch(e => logger.error('[cashfree] Purchase email error:', e));
+      }
     }
 
     // Log event
