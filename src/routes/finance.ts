@@ -568,7 +568,7 @@ router.get('/expenses/export-csv', async (req: Request, res: Response) => {
 
     const headers = ['Date', 'Description', 'Category', 'Amount (INR)', 'Vendor', 'Payment Method', 'Notes', 'Type', 'Recurring', 'Team Member'];
     const rows = (result.rows as Array<Record<string, unknown>>).map(r => [
-      String(r.expense_date).split('T')[0],
+      r.expense_date instanceof Date ? r.expense_date.toISOString().split('T')[0] : String(r.expense_date).split('T')[0],
       `"${String(r.description || '').replace(/"/g, '""')}"`,
       r.category || 'Uncategorized',
       r.amount,
