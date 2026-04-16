@@ -805,6 +805,14 @@ cron.schedule('30 3 1,15 * *', () => safeCron('Competitor Content Analysis', asy
 }), { timezone: 'UTC' });
 console.log('[cron] Competitor content analysis scheduled — 1st & 15th of month at 9:00 AM IST');
 
+// SEO Content Gap Analysis — 15th of each month at 10 AM IST (4:30 UTC)
+cron.schedule('30 4 15 * *', () => safeCron('SEO Content Gap Analysis', async () => {
+  const { runContentGapAnalysis } = await import('./services/seoContentGapService');
+  const result = await runContentGapAnalysis();
+  console.log(`[CRON] Content gap analysis: ${result.gaps} gaps, ${result.opportunities} opportunities`);
+}), { timezone: 'UTC' });
+console.log('[cron] SEO content gap analysis scheduled — 15th of month at 10:00 AM IST');
+
 // Directory Scrapers — Daily 11 AM IST (5:30 UTC) — Clutch, GoodFirms, Upwork, LinkedIn
 cron.schedule('30 5 * * *', () => safeCron('Directory Scrapers', async () => {
   const { runAllScrapers } = await import('./services/directoryScraperService');
