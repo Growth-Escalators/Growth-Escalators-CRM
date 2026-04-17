@@ -111,4 +111,44 @@ router.put('/users/:userId', async (req: Request, res: Response) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// DELETE /api/permissions/users/:userId — remove a team member
+// ---------------------------------------------------------------------------
+router.delete('/users:userId', async (req: Request, res: Response) => {
+  const myUserId = req.user!.id;
+  const tenantId = req.user!.tenantId;
+  const targetUserId = req.params.userId as string;
+
+  // Only admins can remove users
+  const [myPerms] = await db.select().from(userPermissions)
+    .where(eq(userPermissions.userId, myUserId)).limit(1);
+  if (!myPerms?.isOwner && !(myPerms as Record<string, unknown>)?.isAdmin) {
+    res.status(403).json({ error: 'Only admins can remove team members' });
+    return;
+  }
+
+  // Prevent removing yourself or the owner
+  if (targetUserId === myUserId) {
+    res.status(400).json({ error: 'Cannot remove yourself' });
+    return;
+  }
+  const [targetPerms] = await db.select().from(userPermissions)
+    .where(eq(userPermissions.userId, targetUserId)).limit(1);
+  if (targetPerms?.isOwner) {
+    res.status(400).json({ error: 'Cannot remove the owner' });
+    return;
+  }
+
+  try {
+    // Deactivate user (soft delete)
+    await db.execute(sql`UPDATE users SET is_active = false WHERE id = ${targetUserId} AND tenant_id = ${tenantId}`);
+    // Remove permissions
+    await db.delete(userPermissions).where(eq(userPermissions.userId, targetUserId));
+
+    res.json({ removed: true });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 export default router;
