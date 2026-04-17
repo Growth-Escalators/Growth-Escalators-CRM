@@ -86,6 +86,7 @@ export async function ensureSeoTables(): Promise<void> {
     `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS gsc_domain TEXT`,
     `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS wordpress_url TEXT`,
     `ALTER TABLE client_knowledge_base ADD COLUMN IF NOT EXISTS target_monthly_traffic INTEGER`,
+    `ALTER TABLE seo_weekly_metrics ADD COLUMN IF NOT EXISTS week_start DATE`,
   ];
   for (const s of stmts) {
     await pool.query(s).catch(e => logger.warn(`[seo-tables] ${e instanceof Error ? e.message : String(e)}`));

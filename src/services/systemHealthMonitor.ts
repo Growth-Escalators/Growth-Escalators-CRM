@@ -191,7 +191,7 @@ async function checkSeo(): Promise<SubsystemHealth> {
   try {
     const r = await pool.query(`
       SELECT
-        (SELECT COUNT(*)::int FROM seo_weekly_metrics WHERE COALESCE(week_start, week_start_date) >= CURRENT_DATE - 14) AS recent_metrics,
+        (SELECT COUNT(*)::int FROM seo_weekly_metrics WHERE week_start_date >= CURRENT_DATE - 14) AS recent_metrics,
         (SELECT COUNT(*)::int FROM keyword_rankings WHERE checked_at >= NOW() - INTERVAL '48 hours') AS recent_rankings
     `);
     const m = r.rows[0] as Record<string, string>;
