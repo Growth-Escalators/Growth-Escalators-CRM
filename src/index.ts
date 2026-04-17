@@ -406,11 +406,24 @@ async function startServer() {
   import('./services/creativeIntelligenceService').then(m => m.ensureCreativeIntelligenceColumns()).catch(e => console.error('[startup] Creative intel columns failed:', e));
   import('./services/metaAdsService').then(m => m.ensureClientBenchmarksTable()).catch(e => console.error('[startup] Client benchmarks bootstrap failed:', e));
 
-  // One-time startup: backfill unplaced pipeline contacts (runs 15s after boot)
+  // One-time startup: backfill unplaced pipeline contacts (runs 20s after boot)
   setTimeout(async () => {
     try {
       const { pool: dbPool } = await import('./db/index');
-      const { placePipelineContact } = await import('./services/pipelineService');
+      const { placePipelineContact, ensurePipelineContactsTable } = await import('./services/pipelineService');
+
+      // Ensure table exists first
+      await ensurePipelineContactsTable();
+
+      // Check pipelines exist
+      const pipesCheck = await dbPool.query("SELECT name FROM pipelines WHERE is_active = true");
+      console.log(`[startup-backfill] Active pipelines: ${pipesCheck.rows.map((r: {name: string}) => r.name).join(', ') || 'NONE'}`);
+
+      if (pipesCheck.rows.length === 0) {
+        console.warn('[startup-backfill] No active pipelines found — skipping backfill');
+        return;
+      }
+
       const unplaced = await dbPool.query(`
         SELECT e.id, e.contact_id, e.payload, e.tenant_id
         FROM events e
@@ -419,27 +432,58 @@ async function startServer() {
           AND NOT EXISTS (SELECT 1 FROM pipeline_contacts pc WHERE pc.contact_id = e.contact_id)
         ORDER BY e.created_at ASC
       `);
-      if (unplaced.rows.length > 0) {
-        console.log(`[startup] Backfilling ${unplaced.rows.length} unplaced pipeline contact(s)...`);
-        let placed = 0;
-        for (const row of unplaced.rows as Array<{ contact_id: string; payload: Record<string, unknown>; tenant_id: string }>) {
-          try {
-            const r = await placePipelineContact({
-              contactId: row.contact_id,
-              segment: (row.payload.segment as string) || 'd2c',
-              amount: typeof row.payload.amount === 'number' ? row.payload.amount : 9,
-              bump1: Boolean(row.payload.bump1),
-              bump2: Boolean(row.payload.bump2),
-              tenantId: row.tenant_id,
-              funnelSlug: (row.payload.funnelSlug as string) || 'ecom',
-            });
-            if (r.success) placed++;
-          } catch { /* skip individual failures */ }
+
+      console.log(`[startup-backfill] Found ${unplaced.rows.length} unplaced contact(s)`);
+
+      if (unplaced.rows.length === 0) {
+        // Also check: maybe pipeline_contacts exist but deals don't have pipeline_id
+        const orphanDeals = await dbPool.query("SELECT COUNT(*)::int AS count FROM deals WHERE pipeline_id IS NULL");
+        const orphanCount = orphanDeals.rows[0].count;
+        if (orphanCount > 0) {
+          console.log(`[startup-backfill] ${orphanCount} deal(s) have NULL pipeline_id — fixing...`);
+          // Link deals to pipelines using pipeline_contacts
+          await dbPool.query(`
+            UPDATE deals d SET
+              pipeline_id = pc.pipeline_id,
+              stage = pc.stage_name,
+              updated_at = NOW()
+            FROM pipeline_contacts pc
+            WHERE d.contact_id = pc.contact_id
+              AND d.pipeline_id IS NULL
+          `);
+          const fixed = await dbPool.query("SELECT COUNT(*)::int AS count FROM deals WHERE pipeline_id IS NULL");
+          console.log(`[startup-backfill] Fixed orphan deals: ${orphanCount - fixed.rows[0].count} linked, ${fixed.rows[0].count} still unlinked`);
         }
-        console.log(`[startup] Pipeline backfill complete: ${placed}/${unplaced.rows.length} placed`);
+        return;
       }
-    } catch (e) { console.error('[startup] Pipeline backfill failed:', e); }
-  }, 15000);
+
+      let placed = 0;
+      let failed = 0;
+      for (const row of unplaced.rows as Array<{ contact_id: string; payload: Record<string, unknown>; tenant_id: string }>) {
+        try {
+          const r = await placePipelineContact({
+            contactId: row.contact_id,
+            segment: (row.payload?.segment as string) || 'd2c',
+            amount: typeof row.payload?.amount === 'number' ? row.payload.amount : 9,
+            bump1: Boolean(row.payload?.bump1),
+            bump2: Boolean(row.payload?.bump2),
+            tenantId: row.tenant_id,
+            funnelSlug: (row.payload?.funnelSlug as string) || 'ecom',
+          });
+          if (r.success) {
+            placed++;
+          } else {
+            failed++;
+            console.warn(`[startup-backfill] FAILED for ${row.contact_id}: pipeline=${r.pipeline}, stage=${r.stage}`);
+          }
+        } catch (e) {
+          failed++;
+          console.error(`[startup-backfill] ERROR for ${row.contact_id}:`, (e as Error).message);
+        }
+      }
+      console.log(`[startup-backfill] Complete: ${placed} placed, ${failed} failed out of ${unplaced.rows.length}`);
+    } catch (e) { console.error('[startup-backfill] FATAL:', e); }
+  }, 20000);
 
   // One-time startup: run PageSpeed if site_health_metrics is empty
   setTimeout(async () => {

@@ -2,9 +2,87 @@ import logger from '../utils/logger';
 import { Router } from 'express';
 import { eq, and, asc } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
-import { db, pipelines, deals, contacts, contactChannels } from '../db/index';
+import { db, pool, pipelines, deals, contacts, contactChannels } from '../db/index';
 
 const router = Router();
+
+// ---------------------------------------------------------------------------
+// GET /api/pipelines/diagnose — debug pipeline placement issues (admin only)
+// ---------------------------------------------------------------------------
+router.get('/diagnose', async (req, res) => {
+  try {
+    const results: Record<string, unknown> = {};
+
+    // 1. Check pipeline_contacts table exists
+    try {
+      const pcCount = await pool.query('SELECT COUNT(*)::int AS count FROM pipeline_contacts');
+      results.pipeline_contacts_rows = pcCount.rows[0].count;
+    } catch (e) {
+      results.pipeline_contacts_error = (e as Error).message;
+    }
+
+    // 2. Check slo_purchase events
+    const eventsCount = await pool.query("SELECT COUNT(*)::int AS count FROM events WHERE event_type = 'slo_purchase'");
+    results.slo_purchase_events = eventsCount.rows[0].count;
+
+    // 3. Check events with contact_id
+    const withContact = await pool.query("SELECT COUNT(*)::int AS count FROM events WHERE event_type = 'slo_purchase' AND contact_id IS NOT NULL");
+    results.slo_events_with_contact = withContact.rows[0].count;
+
+    // 4. Check unplaced
+    try {
+      const unplaced = await pool.query(`
+        SELECT COUNT(*)::int AS count FROM events e
+        WHERE e.event_type = 'slo_purchase' AND e.contact_id IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM pipeline_contacts pc WHERE pc.contact_id = e.contact_id)
+      `);
+      results.unplaced_contacts = unplaced.rows[0].count;
+    } catch (e) {
+      results.unplaced_query_error = (e as Error).message;
+    }
+
+    // 5. Check active pipelines
+    const pipesList = await pool.query("SELECT id, name, stages FROM pipelines WHERE is_active = true ORDER BY name");
+    results.active_pipelines = pipesList.rows.map((p: Record<string, unknown>) => ({
+      id: p.id, name: p.name, stages_count: Array.isArray(p.stages) ? (p.stages as string[]).length : 0,
+      stages: p.stages,
+    }));
+
+    // 6. Check deals without pipeline
+    const noPipeline = await pool.query('SELECT COUNT(*)::int AS count FROM deals WHERE pipeline_id IS NULL');
+    results.deals_without_pipeline = noPipeline.rows[0].count;
+
+    // 7. Sample recent events with payload
+    const samples = await pool.query(`
+      SELECT e.contact_id, e.payload, e.created_at
+      FROM events e WHERE e.event_type = 'slo_purchase'
+      ORDER BY e.created_at DESC LIMIT 5
+    `);
+    results.recent_purchases = samples.rows.map((r: Record<string, unknown>) => ({
+      contact_id: r.contact_id,
+      amount: (r.payload as Record<string, unknown>)?.amount,
+      segment: (r.payload as Record<string, unknown>)?.segment,
+      funnelSlug: (r.payload as Record<string, unknown>)?.funnelSlug,
+      date: r.created_at,
+    }));
+
+    // 8. Check funnel_configs
+    const configs = await pool.query("SELECT slug, pipeline_name, base_price FROM funnel_configs WHERE is_active = true");
+    results.funnel_configs = configs.rows;
+
+    // 9. CAPI status
+    results.capi = {
+      pixel_id_set: !!process.env.META_PIXEL_ID,
+      capi_token_set: !!process.env.META_CAPI_TOKEN,
+      access_token_set: !!process.env.META_ACCESS_TOKEN,
+      effective_token: !!(process.env.META_CAPI_TOKEN || process.env.META_ACCESS_TOKEN),
+    };
+
+    res.json(results);
+  } catch (e) {
+    res.status(500).json({ error: (e as Error).message });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // GET /api/pipelines — list all active pipelines for tenant
