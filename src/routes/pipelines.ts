@@ -309,4 +309,73 @@ router.get('/:id/deals', async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// POST /api/pipelines/backfill-all — place ALL unplaced slo_purchase contacts into pipelines
+// One-time catch-up for historical purchases that were never placed.
+// Admin-only. Does NOT re-send WhatsApp/email (those were already sent or attempted).
+// ---------------------------------------------------------------------------
+router.post('/backfill-all', async (req, res) => {
+  try {
+    const user = req.user as { role: string } | undefined;
+    if (user?.role !== 'admin') {
+      res.status(403).json({ error: 'Admin only' });
+      return;
+    }
+
+    const { pool } = await import('../db/index');
+    const { placePipelineContact } = await import('../services/pipelineService');
+
+    // Find ALL slo_purchase events without pipeline placement — no LIMIT
+    const { rows } = await pool.query(`
+      SELECT e.id, e.contact_id, e.payload, e.tenant_id, e.created_at
+      FROM events e
+      WHERE e.event_type = 'slo_purchase'
+        AND e.contact_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM pipeline_contacts pc
+          WHERE pc.contact_id = e.contact_id
+        )
+      ORDER BY e.created_at ASC
+    `);
+
+    if (rows.length === 0) {
+      res.json({ message: 'All contacts are already placed in pipelines', placed: 0, failed: 0 });
+      return;
+    }
+
+    let placed = 0;
+    let failed = 0;
+    const results: Array<{ contactId: string; success: boolean; pipeline?: string; stage?: string; error?: string }> = [];
+
+    for (const row of rows as Array<{ id: string; contact_id: string; payload: Record<string, unknown>; tenant_id: string; created_at: string }>) {
+      const { contact_id, payload, tenant_id } = row;
+      const segment = (payload.segment as string) || 'd2c';
+      const amount = typeof payload.amount === 'number' ? payload.amount : 9;
+      const bump1 = Boolean(payload.bump1);
+      const bump2 = Boolean(payload.bump2);
+      const funnelSlug = (payload.funnelSlug as string) || 'ecom';
+
+      try {
+        const result = await placePipelineContact({ contactId: contact_id, segment, amount, bump1, bump2, tenantId: tenant_id, funnelSlug });
+        if (result.success) {
+          placed++;
+          results.push({ contactId: contact_id, success: true, pipeline: result.pipeline, stage: result.stage });
+        } else {
+          failed++;
+          results.push({ contactId: contact_id, success: false, pipeline: result.pipeline, stage: result.stage, error: 'placement returned false' });
+        }
+      } catch (e) {
+        failed++;
+        results.push({ contactId: contact_id, success: false, error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+
+    logger.info(`[pipeline-backfill] Completed: ${placed} placed, ${failed} failed out of ${rows.length} total`);
+    res.json({ message: `Backfill complete`, total: rows.length, placed, failed, results: results.slice(0, 50) });
+  } catch (e) {
+    logger.error('[pipeline-backfill] error:', e);
+    res.status(500).json({ error: 'Backfill failed' });
+  }
+});
+
 export default router;
