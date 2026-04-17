@@ -498,4 +498,124 @@ router.post('/backfill-all', async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// POST /api/pipelines/backfill-from-deals — comprehensive backfill
+// Finds ALL deals + contacts with purchase evidence (even without slo_purchase events)
+// Creates missing events, then places contacts into correct pipelines.
+// This handles the case where the webhook was broken and no events were logged.
+// ---------------------------------------------------------------------------
+router.post('/backfill-from-deals', async (req, res) => {
+  try {
+    const { placePipelineContact } = await import('../services/pipelineService');
+
+    // Step 1: Find ALL contacts with purchase evidence that aren't in a pipeline
+    // Sources: deals table, contact metadata (paymentStatus=paid), contact tags (slo_buyer)
+    const { rows: purchaseContacts } = await pool.query(`
+      SELECT DISTINCT ON (c.id)
+        c.id AS contact_id,
+        c.first_name,
+        c.last_name,
+        c.tenant_id,
+        c.metadata,
+        c.tags,
+        d.id AS deal_id,
+        d.value AS deal_value,
+        d.stage AS deal_stage,
+        d.pipeline_id
+      FROM contacts c
+      LEFT JOIN deals d ON d.contact_id = c.id
+      WHERE (
+        -- Has a deal (any deal = purchase evidence)
+        d.id IS NOT NULL
+        -- OR has slo_buyer tag
+        OR 'slo_buyer' = ANY(c.tags)
+        -- OR has paymentStatus=paid in metadata
+        OR c.metadata->>'paymentStatus' = 'paid'
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM pipeline_contacts pc WHERE pc.contact_id = c.id
+      )
+      ORDER BY c.id, d.created_at DESC
+    `);
+
+    if (purchaseContacts.length === 0) {
+      res.json({ message: 'All purchase contacts are already in pipelines', total: 0, placed: 0, failed: 0, events_created: 0 });
+      return;
+    }
+
+    console.log(`[backfill-from-deals] Found ${purchaseContacts.length} unplaced purchase contact(s)`);
+
+    let placed = 0;
+    let failed = 0;
+    let eventsCreated = 0;
+    const results: Array<{ contactId: string; name: string; success: boolean; pipeline?: string; stage?: string; error?: string }> = [];
+
+    for (const row of purchaseContacts as Array<Record<string, unknown>>) {
+      const contactId = row.contact_id as string;
+      const tenantId = row.tenant_id as string;
+      const meta = (row.metadata || {}) as Record<string, unknown>;
+      const tags = (row.tags || []) as string[];
+      const dealValue = row.deal_value ? Number(row.deal_value) : null;
+      const firstName = (row.first_name as string) || 'Unknown';
+      const lastName = (row.last_name as string) || '';
+
+      // Extract segment from metadata or tags
+      let segment = (meta.segment as string) || 'd2c';
+      if (segment === 'unknown') {
+        if (tags.includes('agency') || tags.includes('agency_owner') || tags.some(t => t.startsWith('seg:agency'))) segment = 'agency';
+        else if (tags.includes('freelancer') || tags.some(t => t.startsWith('seg:freelancer'))) segment = 'freelancer';
+        else segment = 'd2c';
+      }
+
+      // Extract amount from metadata or deal value
+      const amount = typeof meta.paidAmount === 'number' ? Math.round(meta.paidAmount) : (dealValue ? Math.round(dealValue) : 9);
+      const bump1 = Boolean(meta.bump1);
+      const bump2 = Boolean(meta.bump2);
+      const funnelSlug = (meta.funnelSlug as string) || 'ecom';
+
+      // Step 2: Create missing slo_purchase event if one doesn't exist
+      const existingEvent = await pool.query(
+        "SELECT id FROM events WHERE event_type = 'slo_purchase' AND contact_id = $1 LIMIT 1",
+        [contactId],
+      );
+      if (existingEvent.rows.length === 0) {
+        await pool.query(
+          `INSERT INTO events (id, tenant_id, contact_id, event_type, payload, created_at)
+           VALUES (gen_random_uuid(), $1, $2, 'slo_purchase', $3::jsonb, NOW())`,
+          [tenantId, contactId, JSON.stringify({ amount, segment, products: ['core_product'], funnelSlug, backfilled: true })],
+        );
+        eventsCreated++;
+      }
+
+      // Step 3: Place in pipeline
+      try {
+        const result = await placePipelineContact({ contactId, segment, amount, bump1, bump2, tenantId, funnelSlug });
+        if (result.success) {
+          placed++;
+          results.push({ contactId, name: `${firstName} ${lastName}`.trim(), success: true, pipeline: result.pipeline, stage: result.stage });
+        } else {
+          failed++;
+          results.push({ contactId, name: `${firstName} ${lastName}`.trim(), success: false, pipeline: result.pipeline, stage: result.stage, error: 'placement returned false' });
+        }
+      } catch (e) {
+        failed++;
+        results.push({ contactId, name: `${firstName} ${lastName}`.trim(), success: false, error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+
+    console.log(`[backfill-from-deals] Complete: ${placed} placed, ${failed} failed, ${eventsCreated} events created`);
+    res.json({
+      message: 'Backfill complete',
+      total: purchaseContacts.length,
+      placed,
+      failed,
+      events_created: eventsCreated,
+      results,
+    });
+  } catch (e) {
+    logger.error('[backfill-from-deals] error:', e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 export default router;
