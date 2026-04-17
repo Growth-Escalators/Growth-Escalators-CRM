@@ -20,6 +20,16 @@ import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_PERF_MARKETIN
 
 console.log('[worker] Worker process started');
 
+// Startup: validate critical environment variables
+const _missingEnvVars: string[] = [];
+if (!process.env.SERPER_API_KEY) _missingEnvVars.push('SERPER_API_KEY (SEO rank tracking, backlinks, content gaps will not work)');
+if (!process.env.META_ADS_TOKEN && !process.env.META_ACCESS_TOKEN) _missingEnvVars.push('META_ADS_TOKEN (Meta Ads daily report will not work)');
+if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_API_KEY) _missingEnvVars.push('ANTHROPIC_API_KEY (AI intelligence will use fallback mode)');
+if (_missingEnvVars.length > 0) {
+  console.warn('[worker] ⚠️ MISSING ENV VARS:');
+  for (const v of _missingEnvVars) console.warn(`  • ${v}`);
+}
+
 // Track all setInterval timers for graceful shutdown
 const _intervals: ReturnType<typeof setInterval>[] = [];
 
