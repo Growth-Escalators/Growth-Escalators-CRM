@@ -402,70 +402,58 @@ async function _collectDailyDataInner(client: Queryable, errors: string[]): Prom
       [tenantId],
     );
 
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const yestStr = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    // Fetch live from Meta API instead of empty cache table
+    const token = process.env.META_ADS_TOKEN || process.env.META_ACCESS_TOKEN;
+    if (token) {
+      for (const acc of accountsRes.rows as Array<{ account_id: string; account_name: string; client_name: string; currency?: string; exchange_rate?: number }>) {
+        try {
+          const { fetchAccountInsights } = await import('./metaAdsService');
+          const acctId = acc.account_id.startsWith('act_') ? acc.account_id : `act_${acc.account_id}`;
+          const insights = await fetchAccountInsights(acctId, token, acc.client_name, acc.currency || 'INR', acc.exchange_rate || 1);
 
-    for (const acc of accountsRes.rows as Array<{ account_id: string; account_name: string; client_name: string }>) {
-      try {
-        const [todayCache, yestCache, weekCache] = await Promise.all([
-          client.query(
-            `SELECT data FROM ads_insights_cache WHERE account_id = $1 AND date_range = $2 AND level = 'account' ORDER BY fetched_at DESC LIMIT 1`,
-            [acc.account_id, todayStr],
-          ),
-          client.query(
-            `SELECT data FROM ads_insights_cache WHERE account_id = $1 AND date_range = $2 AND level = 'account' ORDER BY fetched_at DESC LIMIT 1`,
-            [acc.account_id, yestStr],
-          ),
-          client.query(
-            `SELECT data FROM ads_insights_cache WHERE account_id = $1 AND date_range = 'last_7d' AND level = 'account' ORDER BY fetched_at DESC LIMIT 1`,
-            [acc.account_id],
-          ),
-        ]);
+          const yd = insights.yesterday;
+          const wd = insights.last7days;
 
-        const td = todayCache.rows[0]?.data as unknown;
-        const yd = yestCache.rows[0]?.data as unknown;
-        const wd = weekCache.rows[0]?.data as unknown;
+          const weekSpend  = wd ? wd.spend / 7 : 0;
+          const weekClicks = wd ? wd.clicks / 7 : 0;
+          const weekCpc    = weekClicks > 0 ? weekSpend / weekClicks : 0;
+          const weekRoas   = wd ? wd.roas : 0;
 
-        const todaySpend = extractInsightMetric(td, 'spend');
-        const yestSpend  = extractInsightMetric(yd, 'spend');
-        const weekSpend  = extractInsightMetric(wd, 'spend') / 7;
-        const weekClicks = extractInsightMetric(wd, 'clicks') / 7;
-        const weekCpc    = weekClicks > 0 ? weekSpend / weekClicks : 0;
-        const weekRoas   = extractInsightMetric(wd, 'purchase_roas') / 7;
+          const yestSpend  = yd?.spend ?? 0;
+          const yestClicks = yd?.clicks ?? 0;
+          const yestCpc    = yestClicks > 0 ? yestSpend / yestClicks : 0;
+          const yestRoas   = yd?.roas ?? 0;
 
-        const todayClicks  = extractInsightMetric(td, 'clicks');
-        const todayCpc     = todayClicks > 0 ? todaySpend / todayClicks : 0;
-        const yestClicks   = extractInsightMetric(yd, 'clicks');
-        const yestCpc      = yestClicks > 0 ? yestSpend / yestClicks : 0;
-        const todayRoas    = extractInsightMetric(td, 'purchase_roas');
-        const yestRoas     = extractInsightMetric(yd, 'purchase_roas');
-
-        adsData.push({
-          accountId:   acc.account_id,
-          accountName: acc.account_name,
-          clientName:  acc.client_name,
-          today: {
-            spend:       todaySpend,
-            impressions: extractInsightMetric(td, 'impressions'),
-            clicks:      todayClicks,
-            purchases:   extractInsightMetric(td, 'purchases'),
-            roas:        todayRoas,
-          },
-          yesterday: {
-            spend:       yestSpend,
-            impressions: extractInsightMetric(yd, 'impressions'),
-            clicks:      yestClicks,
-            purchases:   extractInsightMetric(yd, 'purchases'),
-            roas:        yestRoas,
-          },
-          sevenDayAvg: { spend: weekSpend, roas: weekRoas, cpc: weekCpc },
-          spendDelta: yestSpend > 0 ? ((todaySpend - yestSpend) / yestSpend) * 100 : 0,
-          roasDelta:  yestRoas  > 0 ? ((todayRoas  - yestRoas)  / yestRoas)  * 100 : 0,
-          cpcDelta:   yestCpc   > 0 ? ((todayCpc   - yestCpc)   / yestCpc)   * 100 : 0,
-        });
-      } catch (e) {
-        errors.push(`ads_account_${acc.account_id}_failed`);
+          // Use yesterday as "today" proxy since Meta's "today" data is always partial
+          adsData.push({
+            accountId:   acc.account_id,
+            accountName: acc.account_name,
+            clientName:  acc.client_name,
+            today: {
+              spend:       yestSpend,
+              impressions: yd?.impressions ?? 0,
+              clicks:      yestClicks,
+              purchases:   yd?.purchases ?? 0,
+              roas:        yestRoas,
+            },
+            yesterday: {
+              spend:       yestSpend,
+              impressions: yd?.impressions ?? 0,
+              clicks:      yestClicks,
+              purchases:   yd?.purchases ?? 0,
+              roas:        yestRoas,
+            },
+            sevenDayAvg: { spend: weekSpend, roas: weekRoas, cpc: weekCpc },
+            spendDelta: 0,
+            roasDelta:  0,
+            cpcDelta:   0,
+          });
+        } catch (e) {
+          errors.push(`ads_account_${acc.account_id}_failed`);
+        }
       }
+    } else {
+      errors.push('META_ADS_TOKEN not set');
     }
   } catch (e) {
     logger.error('[intel-collector] ads fetch failed:', e);
