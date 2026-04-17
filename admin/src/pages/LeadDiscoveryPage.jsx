@@ -94,7 +94,7 @@ export default function LeadDiscoveryPage() {
       setBudget(b);
       setSearches(sr?.searches ?? []);
     } catch (e) {
-      console.error('Failed to load stats', e);
+      /* failed to load stats */
     }
   }, []);
 
@@ -138,7 +138,7 @@ export default function LeadDiscoveryPage() {
       const res = await apiFetch(`/api/outreach/discover/searches/${searchId}/results`);
       setResults(res?.results ?? []);
     } catch (e) {
-      console.error('Failed to load results', e);
+      /* failed to load results */
     } finally {
       setLoadingResults(false);
     }
@@ -153,7 +153,7 @@ export default function LeadDiscoveryPage() {
       });
       setResults(prev => prev.map(r => r.id === resultId ? { ...r, qualificationStatus: status } : r));
     } catch (e) {
-      console.error('Failed to update status', e);
+      /* failed to update status */
     }
   };
 
@@ -223,7 +223,7 @@ export default function LeadDiscoveryPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      console.error('Export failed', e);
+      /* export failed */
     } finally {
       setExporting(false);
     }

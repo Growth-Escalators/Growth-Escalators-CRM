@@ -18,10 +18,11 @@ const CASHFREE_BASE =
 // POST /api/cashfree/create-order
 // ---------------------------------------------------------------------------
 router.post('/create-order', async (req: Request, res: Response) => {
-  const { name, email, phone, amount, segment, bump1, bump2, fbp, fbc, funnelSlug } = req.body as {
+  const { name, email, phone, amount, segment, bump1, bump2, fbp, fbc, funnelSlug, utm_source, utm_medium, utm_campaign, utm_content, utm_term } = req.body as {
     name: string; email: string; phone: string; amount: number;
     segment?: string; bump1?: boolean; bump2?: boolean;
     fbp?: string; fbc?: string; funnelSlug?: string;
+    utm_source?: string; utm_medium?: string; utm_campaign?: string; utm_content?: string; utm_term?: string;
   };
 
   if (!name || !email || !phone || !amount) {
@@ -50,7 +51,7 @@ router.post('/create-order', async (req: Request, res: Response) => {
           customer_email: email,
           customer_phone: phone,
         },
-        order_meta: { segment: segment ?? null, bump1: bump1 ?? false, bump2: bump2 ?? false, fbp: fbp ?? null, fbc: fbc ?? null, funnelSlug: funnelSlug ?? 'ecom' },
+        order_meta: { segment: segment ?? null, bump1: bump1 ?? false, bump2: bump2 ?? false, fbp: fbp ?? null, fbc: fbc ?? null, funnelSlug: funnelSlug ?? 'ecom', utm_source: utm_source ?? null, utm_medium: utm_medium ?? null, utm_campaign: utm_campaign ?? null, utm_content: utm_content ?? null, utm_term: utm_term ?? null },
       }),
     });
 
@@ -119,14 +120,24 @@ router.post('/webhook', async (req: Request, res: Response) => {
   const fbcCookie = (orderMeta.fbc as string) || undefined;
   const funnelSlug = (orderMeta.funnelSlug as string) || 'ecom';
 
+  // Extract UTM attribution data from order metadata
+  const utmData = {
+    utm_source: (orderMeta.utm_source as string) || null,
+    utm_medium: (orderMeta.utm_medium as string) || null,
+    utm_campaign: (orderMeta.utm_campaign as string) || null,
+    utm_content: (orderMeta.utm_content as string) || null,
+    utm_term: (orderMeta.utm_term as string) || null,
+  };
+
+  const client = await pool.connect();
   try {
-    // Idempotency check
+    // Idempotency check (before any writes)
     const existing = await db.select().from(processedEvents).where(eq(processedEvents.eventId, cfPaymentId)).limit(1);
-    if (existing.length > 0) { res.json({ ok: true }); return; }
+    if (existing.length > 0) { client.release(); res.json({ ok: true }); return; }
 
     // Tenant lookup
     const [tenant] = await db.select().from(tenants).where(eq(tenants.slug, 'growth-escalators')).limit(1);
-    if (!tenant) { res.json({ ok: true }); return; }
+    if (!tenant) { client.release(); res.json({ ok: true }); return; }
 
     // Load funnel config (config-driven — no more hardcoded values)
     const funnelConfig = await getFunnelConfig(funnelSlug, tenant.id);
@@ -162,6 +173,9 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const firstName = parts[0] ?? name;
     const lastName = parts.slice(1).join(' ') || undefined;
 
+    // --- BEGIN TRANSACTION for all database writes ---
+    await client.query('BEGIN');
+
     const { contact } = await findOrCreateContact(tenant.id, {
       firstName, lastName, source: 'checkout', channels,
     });
@@ -175,7 +189,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     await db.update(contacts).set({
       status: 'prospect',
       tags: newTags,
-      metadata: { ...existingMeta, paymentStatus: 'paid', paidAmount: orderAmount, segment, bump1, bump2, products, funnelSlug },
+      metadata: { ...existingMeta, paymentStatus: 'paid', paidAmount: orderAmount, segment, bump1, bump2, products, funnelSlug, ...utmData },
       updatedAt: new Date(),
     }).where(eq(contacts.id, contact.id));
 
@@ -186,6 +200,20 @@ router.post('/webhook', async (req: Request, res: Response) => {
       title: `${funnelConfig?.name || 'SLO'} Purchase — ${name}`, stage, serviceType, value: String(orderAmount),
     });
 
+    // Log event (include funnelSlug in payload for worker to read)
+    await db.insert(events).values({
+      tenantId: tenant.id, contactId: contact.id, eventType: 'slo_purchase',
+      payload: { amount: orderAmount, segment, products, cfPaymentId, funnelSlug },
+    });
+
+    // Mark as processed (inside transaction to ensure atomicity)
+    await db.insert(processedEvents).values({ eventId: cfPaymentId, source: 'cashfree' });
+
+    await client.query('COMMIT');
+    // --- END TRANSACTION ---
+
+    // === Fire-and-forget notifications (outside transaction) ===
+
     // Fire CAPI Purchase event
     const ipAddress = String((req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.headers['x-real-ip'] || req.socket.remoteAddress || '') || undefined;
     const userAgent = req.headers['user-agent'] || undefined;
@@ -194,6 +222,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
       value: orderAmount, orderId: cfPaymentId,
       productName: productLabel, ipAddress, userAgent,
       fbc: fbcCookie, fbp: fbpCookie,
+      utmSource: utmData.utm_source || undefined,
+      utmCampaign: utmData.utm_campaign || undefined,
     }).then(result => {
       if (result.success) {
         db.insert(events).values({
@@ -277,12 +307,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
       }
     }
 
-    // Log event (include funnelSlug in payload for worker to read)
-    await db.insert(events).values({
-      tenantId: tenant.id, contactId: contact.id, eventType: 'slo_purchase',
-      payload: { amount: orderAmount, segment, products, cfPaymentId, funnelSlug },
-    });
-
     // Auto-enroll in sequence (config-driven sequence name)
     const seqName = funnelConfig?.sequence_name || 'D2C Lead Nurture';
     pool.query(
@@ -297,14 +321,14 @@ router.post('/webhook', async (req: Request, res: Response) => {
       if (r.rowCount && r.rowCount > 0) logger.info(`[cashfree] Enrolled ${name} in ${seqName} sequence`);
     }).catch(e => logger.error('[cashfree] Sequence enrollment error:', e));
 
-    // Mark as processed
-    await db.insert(processedEvents).values({ eventId: cfPaymentId, source: 'cashfree' });
-
     res.json({ ok: true });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     const msg = err instanceof Error ? err.message : String(err);
     logger.error('[cashfree webhook] error:', msg);
     res.status(500).json({ error: msg });
+  } finally {
+    client.release();
   }
 });
 

@@ -142,6 +142,12 @@ Agency context:
 
 When SEO workflows are broken or overdue, flag as CRITICAL since client data collection has stopped. Name specific workflows and days overdue.
 
+If creatives are fatiguing, recommend replacing them with the best performing creative type.
+If INTERESTED outreach leads are unanswered, flag as CRITICAL with response time SLA — every hour delay reduces conversion probability.
+If content calendar items are overdue, flag them with specific titles and days overdue.
+If invoices are overdue, mention the total amount and recommend immediate follow-up.
+If UTM data shows a dominant source, recommend budget reallocation to double down on what is working.
+
 When generating Claude Code prompts:
 - Start with: cd ~/repo-comparison/v2
 - Include NEVER TOUCH list: src/db/schema.ts, src/db/migrations/, src/middleware/auth.ts, src/middleware/rbac.ts, src/routes/cashfree.ts, src/routes/webhooks.ts
@@ -334,6 +340,27 @@ ${wf.workflows.map(w =>
   ).join('\n')}
 
 SYSTEM ERRORS (last 24h): ${syserrSummary}
+
+## Creative Intelligence
+- ${data.creativeIntel?.fatiguingCount || 0} creatives fatiguing/saturated
+- Best performing type: ${data.creativeIntel?.bestType || 'N/A'}
+- Total tracked: ${data.creativeIntel?.totalTracked || 0}
+
+## Outreach Velocity
+- Enriched today: ${data.outreachVelocity?.enrichedToday || 0}
+- Replies today: ${data.outreachVelocity?.repliedToday || 0}
+- INTERESTED leads pending response: ${data.outreachVelocity?.interestedPending || 0}
+
+## Content Calendar
+- Planned: ${data.contentCalendar?.planned || 0}
+- In writing: ${data.contentCalendar?.writing || 0}
+- Overdue: ${data.contentCalendar?.overdue || 0}
+
+## Finance
+- Overdue invoices: ${data.financeSnapshot?.overdueInvoices || 0} (₹${data.financeSnapshot?.overdueAmount || 0})
+
+## Top Traffic Sources (7 days)
+${(data.topSources || []).map(s => `- ${s.source}: ${s.purchases} purchases`).join('\n') || '- No UTM data yet'}
 
 DATA COLLECTION ERRORS (sources down): ${data.errors.join(', ') || 'none'}
 

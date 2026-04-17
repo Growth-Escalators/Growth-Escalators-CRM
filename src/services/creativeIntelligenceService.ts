@@ -25,6 +25,86 @@ interface AdInsights {
 }
 
 // ---------------------------------------------------------------------------
+// Schema migration — add creative_content & creative_tags columns
+// ---------------------------------------------------------------------------
+export async function ensureCreativeIntelligenceColumns(): Promise<void> {
+  await pool.query(`ALTER TABLE creative_intelligence ADD COLUMN IF NOT EXISTS creative_content JSONB`).catch(() => {});
+  await pool.query(`ALTER TABLE creative_intelligence ADD COLUMN IF NOT EXISTS creative_tags JSONB`).catch(() => {});
+}
+
+// ---------------------------------------------------------------------------
+// Fetch creative content from Meta Graph API
+// ---------------------------------------------------------------------------
+async function fetchCreativeContent(adId: string, token: string): Promise<Record<string, unknown> | null> {
+  try {
+    const url = `https://graph.facebook.com/v19.0/${adId}?fields=creative{thumbnail_url,title,body,effective_object_story_id,object_story_spec,link_url}&access_token=${token}`;
+    const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!resp.ok) return null;
+    const data = await resp.json() as Record<string, unknown>;
+    const creative = (data.creative ?? {}) as Record<string, unknown>;
+    const objectStorySpec = (creative.object_story_spec ?? {}) as Record<string, unknown>;
+    const storySpec = (objectStorySpec.link_data ?? objectStorySpec.video_data ?? {}) as Record<string, unknown>;
+    return {
+      headline: storySpec.name || creative.title || data.name || '',
+      body: storySpec.message || creative.body || '',
+      description: storySpec.description || '',
+      thumbnail_url: creative.thumbnail_url || '',
+      link_url: storySpec.link || creative.link_url || '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Analyze creative with Claude Haiku for tagging
+// ---------------------------------------------------------------------------
+async function analyzeCreativeWithAI(content: Record<string, unknown>): Promise<Record<string, string> | null> {
+  const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+  if (!ANTHROPIC_KEY || (!content.headline && !content.body)) return null;
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      signal: AbortSignal.timeout(15000),
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 200,
+        messages: [{
+          role: 'user',
+          content: `Analyze this ad creative and categorize it. Return ONLY JSON.
+
+Headline: "${content.headline}"
+Body: "${content.body}"
+Description: "${content.description}"
+
+{
+  "hook": one of "problem", "solution", "curiosity", "social-proof", "urgency", "offer",
+  "visual": one of "product-shot", "lifestyle", "ugc", "testimonial", "graphic", "video",
+  "angle": one of "feature", "benefit", "emotion", "authority", "scarcity", "comparison",
+  "cta": one of "weak", "medium", "strong"
+}`,
+        }],
+      }),
+    });
+
+    if (!resp.ok) return null;
+    const data = await resp.json() as { content?: Array<{ text: string }> };
+    const text = data.content?.[0]?.text || '';
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+    return JSON.parse(jsonMatch[0]);
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main tracker
 // ---------------------------------------------------------------------------
 
@@ -93,6 +173,10 @@ async function processAd(ad: Record<string, unknown>, adAccountId: string, token
     roas: spend > 0 ? purchaseValue / spend : 0,
   };
 
+  // Fetch creative content and AI tags
+  const creativeContent = await fetchCreativeContent(adId, token);
+  const creativeTags = creativeContent ? await analyzeCreativeWithAI(creativeContent) : null;
+
   // Upsert to creative_intelligence
   const existing = await pool.query(
     `SELECT * FROM creative_intelligence WHERE ad_id = $1`,
@@ -104,9 +188,9 @@ async function processAd(ad: Record<string, unknown>, adAccountId: string, token
   if (existing.rows.length === 0) {
     // New ad — insert
     await pool.query(
-      `INSERT INTO creative_intelligence (ad_account_id, ad_id, ad_name, campaign_name, adset_name, first_seen, latest_roas, peak_roas, latest_ctr, peak_ctr, latest_frequency, days_running, spend_to_date, raw_metrics, fatigue_status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,$12,$13,'healthy')`,
-      [adAccountId, adId, adName, campaignName, adsetName, today, insights.roas, insights.roas, insights.ctr, insights.ctr, insights.frequency, insights.spend, JSON.stringify(insights)]
+      `INSERT INTO creative_intelligence (ad_account_id, ad_id, ad_name, campaign_name, adset_name, first_seen, latest_roas, peak_roas, latest_ctr, peak_ctr, latest_frequency, days_running, spend_to_date, raw_metrics, fatigue_status, creative_content, creative_tags)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,$12,$13,'healthy',$14,$15)`,
+      [adAccountId, adId, adName, campaignName, adsetName, today, insights.roas, insights.roas, insights.ctr, insights.ctr, insights.frequency, insights.spend, JSON.stringify(insights), creativeContent ? JSON.stringify(creativeContent) : null, creativeTags ? JSON.stringify(creativeTags) : null]
     );
   } else {
     const row = existing.rows[0] as Record<string, unknown>;
@@ -144,10 +228,14 @@ async function processAd(ad: Record<string, unknown>, adAccountId: string, token
         latest_frequency=$5, days_running=$6, fatigue_status=$7,
         fatigue_detected_at=CASE WHEN $8='fatiguing' OR $8='saturated' THEN COALESCE(fatigue_detected_at,NOW()) ELSE fatigue_detected_at END,
         alert_sent=$9, creative_brief=COALESCE($10,creative_brief),
-        spend_to_date=COALESCE(spend_to_date,0)+$11, raw_metrics=$12, updated_at=NOW()
+        spend_to_date=COALESCE(spend_to_date,0)+$11, raw_metrics=$12,
+        creative_content=COALESCE($14,creative_content),
+        creative_tags=COALESCE($15,creative_tags),
+        updated_at=NOW()
        WHERE ad_id=$13`,
       [insights.roas, peakRoas, insights.ctr, peakCtr, insights.frequency, daysRunning,
-       status, status, newAlertSent, creativeBrief, insights.spend, JSON.stringify(insights), adId]
+       status, status, newAlertSent, creativeBrief, insights.spend, JSON.stringify(insights), adId,
+       creativeContent ? JSON.stringify(creativeContent) : null, creativeTags ? JSON.stringify(creativeTags) : null]
     );
   }
 }
@@ -233,4 +321,53 @@ async function sendFatigueSlackAlert(params: {
     `<@${SLACK_SAKCHAM}> — please brief Nimisha/Keshav on replacement.`;
 
   await sendSlackMessage(SLACK_PERF_MARKETING_CHANNEL, msg).catch(() => {});
+}
+
+// ---------------------------------------------------------------------------
+// Pattern detection — aggregate creative tags to find top-performing combos
+// ---------------------------------------------------------------------------
+export async function getCreativePatterns(): Promise<Array<{
+  hook: string; visual: string; angle: string;
+  avg_roas: number; avg_ctr: number; count: number;
+}>> {
+  const result = await pool.query(`
+    SELECT
+      creative_tags->>'hook' AS hook,
+      creative_tags->>'visual' AS visual,
+      creative_tags->>'angle' AS angle,
+      ROUND(AVG(latest_roas)::numeric, 2) AS avg_roas,
+      ROUND(AVG(latest_ctr)::numeric, 2) AS avg_ctr,
+      COUNT(*) AS count
+    FROM creative_intelligence
+    WHERE creative_tags IS NOT NULL
+      AND latest_roas IS NOT NULL
+    GROUP BY
+      creative_tags->>'hook',
+      creative_tags->>'visual',
+      creative_tags->>'angle'
+    HAVING COUNT(*) >= 2
+    ORDER BY AVG(latest_roas) DESC
+  `);
+  return result.rows;
+}
+
+// ---------------------------------------------------------------------------
+// Fatiguing creatives with full context for replacement planning
+// ---------------------------------------------------------------------------
+export async function getFatiguingCreativesWithContext(): Promise<unknown[]> {
+  const result = await pool.query(`
+    SELECT
+      ad_id, ad_name, campaign_name,
+      creative_tags,
+      creative_content,
+      fatigue_status,
+      peak_roas, latest_roas,
+      peak_ctr, latest_ctr,
+      creative_brief,
+      updated_at
+    FROM creative_intelligence
+    WHERE fatigue_status IN ('fatiguing', 'saturated')
+    ORDER BY updated_at DESC
+  `);
+  return result.rows;
 }

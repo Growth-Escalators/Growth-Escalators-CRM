@@ -35,7 +35,7 @@ const LandingPage = () => {
 
     // ── Silent page-view beacon to backend ──
     useEffect(() => {
-        fetch('https://web-production-311da.up.railway.app/webhooks/tally', {
+        fetch('/webhooks/tally', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

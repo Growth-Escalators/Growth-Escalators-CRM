@@ -13,8 +13,34 @@ const pool = new Pool({
   connectionTimeoutMillis: 2_000,
 });
 
+// Pool monitoring
+pool.on('error', (err) => {
+  console.error('[DB POOL] Unexpected error on idle client:', err.message);
+});
+
+pool.on('connect', () => {
+  const total = pool.totalCount;
+  const idle = pool.idleCount;
+  const waiting = pool.waitingCount;
+  if (idle < 3 && total >= 15) {
+    console.warn(`[DB POOL] Low idle connections: idle=${idle}, total=${total}, waiting=${waiting}`);
+  }
+});
+
+pool.on('remove', () => {
+  // Connection was removed from pool (idle timeout) — no action needed
+});
+
 export { pool };
 export const db = drizzle(pool, { schema });
+
+export function getPoolStats() {
+  return {
+    total: pool.totalCount,
+    idle: pool.idleCount,
+    waiting: pool.waitingCount,
+  };
+}
 
 // Re-export all tables for convenient imports throughout the app
 export {

@@ -1,5 +1,4 @@
 import { db } from '../db/index';
-import { invoiceSeries } from '../db/schema';
 import { sql } from 'drizzle-orm';
 
 function getCurrentFinancialYear(): string {
@@ -17,29 +16,17 @@ export async function getNextInvoiceNumber(
   const fy = getCurrentFinancialYear();
   const prefix = type === 'gst' ? 'GE/GST' : 'GE/INV';
 
-  // Atomic increment using UPDATE RETURNING
+  // Atomic upsert — INSERT or increment in a single statement.
+  // PostgreSQL guarantees concurrent calls get distinct numbers.
   const result = await db.execute(sql`
-    UPDATE invoice_series
-    SET last_number = last_number + 1, updated_at = now()
-    WHERE tenant_id = ${tenantId}
-      AND series_type = ${type}
-      AND financial_year = ${fy}
+    INSERT INTO invoice_series (tenant_id, series_type, financial_year, last_number)
+    VALUES (${tenantId}, ${type}, ${fy}, 1)
+    ON CONFLICT (tenant_id, series_type, financial_year)
+    DO UPDATE SET last_number = invoice_series.last_number + 1, updated_at = now()
     RETURNING last_number
   `);
 
-  let seriesNum = 1;
-  if (result.rows.length > 0) {
-    seriesNum = (result.rows[0] as { last_number: number }).last_number;
-  } else {
-    // Create series if not exists
-    await db.insert(invoiceSeries).values({
-      tenantId,
-      seriesType: type,
-      financialYear: fy,
-      lastNumber: 1,
-    });
-    seriesNum = 1;
-  }
+  const seriesNum = (result.rows[0] as { last_number: number }).last_number;
 
   const paddedNum = seriesNum.toString().padStart(3, '0');
   return {

@@ -351,6 +351,114 @@ async function markNotFound(leadId: number, reason: string): Promise<void> {
   );
 }
 
+// ---------------------------------------------------------------------------
+// AI Reply Classification using Claude Haiku
+// ---------------------------------------------------------------------------
+
+export async function classifyReplyWithAI(
+  replyBody: string,
+  originalIcebreaker: string,
+  companyName: string,
+): Promise<{
+  category: string;
+  confidence: number;
+  summary: string;
+  draftReply: string | null;
+}> {
+  const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+  if (!ANTHROPIC_KEY) {
+    return { category: 'UNCATEGORIZED', confidence: 0, summary: 'No API key', draftReply: null };
+  }
+
+  try {
+    const prompt = `Classify this email reply and generate a response if appropriate.
+
+Original outreach icebreaker: "${originalIcebreaker}"
+Company: ${companyName}
+
+Reply received:
+"${replyBody}"
+
+Respond in JSON format:
+{
+  "category": one of "INTERESTED", "NOT_INTERESTED", "FOLLOW_UP", "OUT_OF_OFFICE", "UNSUBSCRIBE", "UNCATEGORIZED",
+  "confidence": number 0-100,
+  "summary": "one sentence summary of what the reply says",
+  "draftReply": "if INTERESTED, write a short professional follow-up (2-3 sentences max) suggesting a quick call. Otherwise null"
+}
+
+Classification rules:
+- INTERESTED: they want to learn more, asked questions, agreed to a call
+- NOT_INTERESTED: polite rejection, not looking, already have a solution
+- FOLLOW_UP: says "not now" but gives a future date, "try next quarter"
+- OUT_OF_OFFICE: auto-responder, vacation, OOO
+- UNSUBSCRIBE: asks to be removed, stop emailing
+- UNCATEGORIZED: can't determine intent
+
+Return ONLY the JSON, no other text.`;
+
+    const bodyStr = JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 500,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const result = await new Promise<{
+      category: string;
+      confidence: number;
+      summary: string;
+      draftReply: string | null;
+    }>((resolve) => {
+      const req = https.request({
+        hostname: 'api.anthropic.com',
+        path: '/v1/messages',
+        method: 'POST',
+        timeout: 20000,
+        headers: {
+          'x-api-key': ANTHROPIC_KEY,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(bodyStr),
+        },
+      }, (res) => {
+        let body = '';
+        res.on('data', (c: string) => { body += c; });
+        res.on('end', () => {
+          try {
+            const data = JSON.parse(body) as { content?: Array<{ text?: string }> };
+            const text = data.content?.[0]?.text?.trim() ?? '';
+            const jsonMatch = text.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) {
+              resolve({ category: 'UNCATEGORIZED', confidence: 0, summary: 'Failed to parse', draftReply: null });
+              return;
+            }
+            const parsed = JSON.parse(jsonMatch[0]) as {
+              category?: string; confidence?: number; summary?: string; draftReply?: string | null;
+            };
+            resolve({
+              category: parsed.category || 'UNCATEGORIZED',
+              confidence: parsed.confidence || 0,
+              summary: parsed.summary || '',
+              draftReply: parsed.draftReply || null,
+            });
+          } catch {
+            resolve({ category: 'UNCATEGORIZED', confidence: 0, summary: 'Parse error', draftReply: null });
+          }
+        });
+      });
+      req.on('error', () => resolve({ category: 'UNCATEGORIZED', confidence: 0, summary: 'Request error', draftReply: null }));
+      req.on('timeout', () => { req.destroy(); resolve({ category: 'UNCATEGORIZED', confidence: 0, summary: 'Timeout', draftReply: null }); });
+      req.write(bodyStr);
+      req.end();
+    });
+
+    return result;
+  } catch (e) {
+    logger.error('[outreach] AI classification failed:', e instanceof Error ? e.message : String(e));
+    return { category: 'UNCATEGORIZED', confidence: 0, summary: 'Classification error', draftReply: null };
+  }
+}
+
 /**
  * Regenerate icebreakers for existing Active leads using Claude Haiku.
  * Pass limit to control how many to regenerate per call.

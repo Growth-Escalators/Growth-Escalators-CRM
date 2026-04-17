@@ -131,6 +131,16 @@ export async function deliverPurchaseAssets(params: {
       `• Phone: ${phone || 'N/A'} | Email: ${email || 'N/A'}\n` +
       `*ACTION:* Send assets manually via WhatsApp or email`,
     ).catch(() => {});
+
+    // Queue for automated retry in 30 minutes
+    try {
+      await pool.query(`
+        INSERT INTO purchase_delivery_log (contact_id, funnel_slug, wa_status, email_status, retry_count, next_retry_at, created_at, tenant_id, manual_followup_needed)
+        SELECT $1, $2, 'failed', 'failed', 0, NOW() + INTERVAL '30 minutes', NOW(), c.tenant_id, TRUE
+        FROM contacts c WHERE c.id = $1
+        ON CONFLICT DO NOTHING
+      `, [contactId, funnelSlug || 'ecom']);
+    } catch { /* non-critical — retry queue is best-effort */ }
   }
 
   // --- Bump2: audit booking follow-up tracking ---

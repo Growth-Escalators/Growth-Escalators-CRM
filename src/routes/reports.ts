@@ -150,6 +150,98 @@ router.get('/generate', async (req: Request, res: Response) => {
       fetchClickUpTasks(weekOf),
     ]);
 
+    // --- Benchmark comparisons ---
+    const clientAdAccountId = client.metaAdAccountId;
+    let benchmark: Record<string, unknown> | null = null;
+    let agencyAvg: Record<string, unknown> | null = null;
+    let lastWeekMetrics: Record<string, unknown> | null = null;
+
+    // Client benchmark
+    try {
+      if (clientAdAccountId) {
+        const { pool } = await import('../db/index');
+        const benchResult = await pool.query(
+          `SELECT avg_roas, avg_ctr, total_spend, total_revenue, top_creative_type
+           FROM client_benchmarks WHERE ad_account_id = $1 ORDER BY month DESC LIMIT 1`,
+          [clientAdAccountId]
+        );
+        if (benchResult.rows.length > 0) benchmark = benchResult.rows[0] as Record<string, unknown>;
+      }
+    } catch { /* benchmarks not yet populated */ }
+
+    // Agency average benchmark
+    try {
+      const { pool } = await import('../db/index');
+      const avgResult = await pool.query(
+        `SELECT ROUND(AVG(avg_roas)::numeric, 2) AS avg_roas,
+                ROUND(AVG(avg_ctr)::numeric, 2) AS avg_ctr
+         FROM client_benchmarks
+         WHERE month = (SELECT MAX(month) FROM client_benchmarks)`
+      );
+      if (avgResult.rows.length > 0) agencyAvg = avgResult.rows[0] as Record<string, unknown>;
+    } catch { /* non-critical */ }
+
+    // Last week metrics for trend arrows
+    try {
+      if (clientAdAccountId) {
+        const lastWeekDate = new Date(start);
+        lastWeekDate.setDate(lastWeekDate.getDate() - 7);
+        const lwWeekOf = lastWeekDate.toISOString().split('T')[0];
+        lastWeekMetrics = await fetchWeeklyAdMetrics(clientAdAccountId, lwWeekOf) as Record<string, unknown> | null;
+        if (lastWeekMetrics && 'error' in lastWeekMetrics) lastWeekMetrics = null;
+      }
+    } catch { /* non-critical */ }
+
+    // Trend calculations
+    const trends: Record<string, string | null> = {
+      roasTrend: null, spendTrend: null, purchasesTrend: null,
+    };
+    if (adMetrics && !('error' in adMetrics) && lastWeekMetrics) {
+      const curRoas = Number(adMetrics.roas ?? 0);
+      const prevRoas = Number(lastWeekMetrics.roas ?? 0);
+      trends.roasTrend = curRoas > prevRoas ? 'up' : curRoas < prevRoas ? 'down' : 'flat';
+      trends.spendTrend = Number(adMetrics.spend ?? 0) > Number(lastWeekMetrics.spend ?? 0) ? 'up' : 'down';
+      trends.purchasesTrend = Number(adMetrics.purchases ?? 0) > Number(lastWeekMetrics.purchases ?? 0) ? 'up' : 'down';
+    }
+
+    // AI recommendations
+    let aiRecommendations: string[] = [];
+    try {
+      const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+      if (ANTHROPIC_KEY && adMetrics && !('error' in adMetrics)) {
+        const clientName = String(client.name || '');
+        const resp = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': ANTHROPIC_KEY,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 300,
+            messages: [{
+              role: 'user',
+              content: `You are a performance marketing analyst. Based on these Meta Ads metrics for ${clientName}, give exactly 3 brief actionable recommendations (1 sentence each).
+
+This week: Spend ₹${adMetrics.spend}, ROAS ${adMetrics.roas}x, CTR ${adMetrics.ctr}%, Purchases ${adMetrics.purchases}
+${benchmark ? `Monthly benchmark: ROAS ${benchmark.avg_roas}x, CTR ${benchmark.avg_ctr}%` : ''}
+${agencyAvg ? `Agency average: ROAS ${agencyAvg.avg_roas}x, CTR ${agencyAvg.avg_ctr}%` : ''}
+${benchmark?.top_creative_type ? `Best performing creative type: ${benchmark.top_creative_type}` : ''}
+
+Return ONLY a JSON array of 3 strings. No other text.`
+            }],
+          }),
+        });
+        const data = await resp.json() as { content?: Array<{ text: string }> };
+        const text = data.content?.[0]?.text || '';
+        const jsonMatch = text.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          aiRecommendations = JSON.parse(jsonMatch[0]) as string[];
+        }
+      }
+    } catch { /* AI recommendations are non-critical */ }
+
     res.json({
       client: {
         id: client.id,
@@ -163,6 +255,10 @@ router.get('/generate', async (req: Request, res: Response) => {
       weekEnd: end.toISOString(),
       adMetrics,
       completedTasks,
+      benchmark: benchmark || null,
+      agencyAvg: agencyAvg || null,
+      aiRecommendations,
+      trends,
       generatedAt: new Date().toISOString(),
     });
   } catch (e: unknown) {
@@ -195,10 +291,17 @@ router.post('/send-pdf', async (req: Request, res: Response) => {
       fetchClickUpTasks(weekOf),
     ]);
 
+    // Fetch benchmark + agency avg + trends for PDF
+    const pdfExtra = await fetchReportExtras(client.metaAdAccountId, start, adMetrics, String(client.name || ''));
+
     // Generate PDF buffer
     const pdfBuffer = await generateReportPDF({
       client, weekOf, weekStart: start, weekEnd: end,
       adMetrics, completedTasks,
+      benchmark: pdfExtra.benchmark,
+      agencyAvg: pdfExtra.agencyAvg,
+      aiRecommendations: pdfExtra.aiRecommendations,
+      trends: pdfExtra.trends,
     });
 
     // Send via WhatsApp if client has phone number
@@ -281,9 +384,16 @@ router.get('/pdf', async (req: Request, res: Response) => {
       fetchClickUpTasks(weekOf),
     ]);
 
+    // Fetch benchmark + agency avg + trends for PDF
+    const pdfExtra = await fetchReportExtras(client.metaAdAccountId, start, adMetrics, String(client.name || ''));
+
     const pdfBuffer = await generateReportPDF({
       client, weekOf, weekStart: start, weekEnd: end,
       adMetrics, completedTasks,
+      benchmark: pdfExtra.benchmark,
+      agencyAvg: pdfExtra.agencyAvg,
+      aiRecommendations: pdfExtra.aiRecommendations,
+      trends: pdfExtra.trends,
     });
 
     res.setHeader('Content-Type', 'application/pdf');
@@ -295,6 +405,114 @@ router.get('/pdf', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// Shared helper: fetch benchmarks, agency avg, last-week trends, AI recs
+// ---------------------------------------------------------------------------
+interface ReportExtras {
+  benchmark: Record<string, unknown> | null;
+  agencyAvg: Record<string, unknown> | null;
+  aiRecommendations: string[];
+  trends: Record<string, string | null>;
+}
+
+async function fetchReportExtras(
+  adAccountId: string | null | undefined,
+  weekStart: Date,
+  adMetrics: Record<string, unknown> | null,
+  clientName: string,
+): Promise<ReportExtras> {
+  let benchmark: Record<string, unknown> | null = null;
+  let agencyAvg: Record<string, unknown> | null = null;
+  let lastWeekMetrics: Record<string, unknown> | null = null;
+
+  // Client benchmark
+  try {
+    if (adAccountId) {
+      const { pool } = await import('../db/index');
+      const benchResult = await pool.query(
+        `SELECT avg_roas, avg_ctr, total_spend, total_revenue, top_creative_type
+         FROM client_benchmarks WHERE ad_account_id = $1 ORDER BY month DESC LIMIT 1`,
+        [adAccountId]
+      );
+      if (benchResult.rows.length > 0) benchmark = benchResult.rows[0] as Record<string, unknown>;
+    }
+  } catch { /* benchmarks not yet populated */ }
+
+  // Agency average benchmark
+  try {
+    const { pool } = await import('../db/index');
+    const avgResult = await pool.query(
+      `SELECT ROUND(AVG(avg_roas)::numeric, 2) AS avg_roas,
+              ROUND(AVG(avg_ctr)::numeric, 2) AS avg_ctr
+       FROM client_benchmarks
+       WHERE month = (SELECT MAX(month) FROM client_benchmarks)`
+    );
+    if (avgResult.rows.length > 0) agencyAvg = avgResult.rows[0] as Record<string, unknown>;
+  } catch { /* non-critical */ }
+
+  // Last week metrics for trend arrows
+  try {
+    if (adAccountId) {
+      const lastWeekDate = new Date(weekStart);
+      lastWeekDate.setDate(lastWeekDate.getDate() - 7);
+      const lwWeekOf = lastWeekDate.toISOString().split('T')[0];
+      lastWeekMetrics = await fetchWeeklyAdMetrics(adAccountId, lwWeekOf) as Record<string, unknown> | null;
+      if (lastWeekMetrics && 'error' in lastWeekMetrics) lastWeekMetrics = null;
+    }
+  } catch { /* non-critical */ }
+
+  // Trend calculations
+  const trends: Record<string, string | null> = {
+    roasTrend: null, spendTrend: null, purchasesTrend: null,
+  };
+  if (adMetrics && !('error' in adMetrics) && lastWeekMetrics) {
+    const curRoas = Number(adMetrics.roas ?? 0);
+    const prevRoas = Number(lastWeekMetrics.roas ?? 0);
+    trends.roasTrend = curRoas > prevRoas ? 'up' : curRoas < prevRoas ? 'down' : 'flat';
+    trends.spendTrend = Number(adMetrics.spend ?? 0) > Number(lastWeekMetrics.spend ?? 0) ? 'up' : 'down';
+    trends.purchasesTrend = Number(adMetrics.purchases ?? 0) > Number(lastWeekMetrics.purchases ?? 0) ? 'up' : 'down';
+  }
+
+  // AI recommendations
+  let aiRecommendations: string[] = [];
+  try {
+    const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+    if (ANTHROPIC_KEY && adMetrics && !('error' in adMetrics)) {
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ANTHROPIC_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 300,
+          messages: [{
+            role: 'user',
+            content: `You are a performance marketing analyst. Based on these Meta Ads metrics for ${clientName}, give exactly 3 brief actionable recommendations (1 sentence each).
+
+This week: Spend ₹${adMetrics.spend}, ROAS ${adMetrics.roas}x, CTR ${adMetrics.ctr}%, Purchases ${adMetrics.purchases}
+${benchmark ? `Monthly benchmark: ROAS ${benchmark.avg_roas}x, CTR ${benchmark.avg_ctr}%` : ''}
+${agencyAvg ? `Agency average: ROAS ${agencyAvg.avg_roas}x, CTR ${agencyAvg.avg_ctr}%` : ''}
+${benchmark?.top_creative_type ? `Best performing creative type: ${benchmark.top_creative_type}` : ''}
+
+Return ONLY a JSON array of 3 strings. No other text.`
+          }],
+        }),
+      });
+      const data = await resp.json() as { content?: Array<{ text: string }> };
+      const text = data.content?.[0]?.text || '';
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        aiRecommendations = JSON.parse(jsonMatch[0]) as string[];
+      }
+    }
+  } catch { /* AI recommendations are non-critical */ }
+
+  return { benchmark, agencyAvg, aiRecommendations, trends };
+}
+
+// ---------------------------------------------------------------------------
 // PDF generation helper
 // ---------------------------------------------------------------------------
 interface ReportData {
@@ -304,6 +522,17 @@ interface ReportData {
   weekEnd: Date;
   adMetrics: Record<string, unknown> | null;
   completedTasks: Array<{ id: unknown; name: unknown; completedAt: unknown }>;
+  benchmark?: Record<string, unknown> | null;
+  agencyAvg?: Record<string, unknown> | null;
+  aiRecommendations?: string[];
+  trends?: Record<string, string | null>;
+}
+
+function trendArrow(trend: string | null | undefined): string {
+  if (trend === 'up') return ' ↑';
+  if (trend === 'down') return ' ↓';
+  if (trend === 'flat') return ' →';
+  return '';
 }
 
 function generateReportPDF(data: ReportData): Promise<Buffer> {
@@ -314,7 +543,8 @@ function generateReportPDF(data: ReportData): Promise<Buffer> {
     doc.on('end', () => resolve(Buffer.concat(buffers)));
     doc.on('error', reject);
 
-    const { client, weekOf, weekStart, weekEnd, adMetrics, completedTasks } = data;
+    const { client, weekOf, weekStart, weekEnd, adMetrics, completedTasks,
+            benchmark, agencyAvg, aiRecommendations, trends } = data;
     const clientName = String(client.name || '');
     const dateStr = `${weekStart.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} – ${weekEnd.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`;
 
@@ -333,21 +563,25 @@ function generateReportPDF(data: ReportData): Promise<Buffer> {
 
     doc.moveTo(50, 160).lineTo(545, 160).strokeColor('#e2e8f0').stroke();
 
-    // Ads Metrics
+    // Ads Metrics (with trend arrows)
     doc.moveDown();
     doc.y = 175;
     doc.fontSize(13).fillColor('#0f172a').text('Meta Ads Performance', 50, doc.y);
     doc.moveDown(0.5);
 
     if (adMetrics && !('error' in adMetrics)) {
+      const roasArrow = trendArrow(trends?.roasTrend);
+      const spendArrow = trendArrow(trends?.spendTrend);
+      const purchasesArrow = trendArrow(trends?.purchasesTrend);
+
       const metrics: Array<[string, string]> = [
-        ['Total Spend', `₹${adMetrics.spend}`],
+        ['Total Spend', `₹${adMetrics.spend}${spendArrow}`],
         ['Impressions', String(adMetrics.impressions)],
         ['Clicks', String(adMetrics.clicks)],
         ['CTR', `${adMetrics.ctr}%`],
         ['CPC', `₹${adMetrics.cpc}`],
-        ['Purchases', String(adMetrics.purchases)],
-        ['ROAS', `${adMetrics.roas}x`],
+        ['Purchases', `${adMetrics.purchases}${purchasesArrow}`],
+        ['ROAS', `${adMetrics.roas}x${roasArrow}`],
       ];
       metrics.forEach(([label, value], i) => {
         const x = i % 2 === 0 ? 50 : 310;
@@ -365,6 +599,62 @@ function generateReportPDF(data: ReportData): Promise<Buffer> {
 
     doc.moveDown(2);
 
+    // --- How You Compare (benchmark section) ---
+    if (adMetrics && !('error' in adMetrics) && (benchmark || agencyAvg)) {
+      doc.fontSize(13).fillColor('#0f172a').text('How You Compare', 50, doc.y);
+      doc.moveDown(0.5);
+      const compY = doc.y;
+
+      if (benchmark) {
+        doc.rect(50, compY, 240, 40).fill('#eff6ff').stroke('#bfdbfe');
+        doc.fontSize(9).fillColor('#1e40af').text('Your Avg ROAS (month)', 62, compY + 8);
+        doc.fontSize(13).fillColor('#1e40af').text(`${benchmark.avg_roas}x`, 62, compY + 21);
+      }
+      if (agencyAvg) {
+        doc.rect(310, compY, 240, 40).fill('#f0fdf4').stroke('#bbf7d0');
+        doc.fontSize(9).fillColor('#166534').text('Agency Avg ROAS', 322, compY + 8);
+        doc.fontSize(13).fillColor('#166534').text(`${agencyAvg.avg_roas}x`, 322, compY + 21);
+      }
+      doc.y = compY + 50;
+
+      const comp2Y = doc.y;
+      if (benchmark) {
+        doc.rect(50, comp2Y, 240, 40).fill('#eff6ff').stroke('#bfdbfe');
+        doc.fontSize(9).fillColor('#1e40af').text('Your Avg CTR (month)', 62, comp2Y + 8);
+        doc.fontSize(13).fillColor('#1e40af').text(`${benchmark.avg_ctr}%`, 62, comp2Y + 21);
+      }
+      if (agencyAvg) {
+        doc.rect(310, comp2Y, 240, 40).fill('#f0fdf4').stroke('#bbf7d0');
+        doc.fontSize(9).fillColor('#166534').text('Agency Avg CTR', 322, comp2Y + 8);
+        doc.fontSize(13).fillColor('#166534').text(`${agencyAvg.avg_ctr}%`, 322, comp2Y + 21);
+      }
+      doc.y = comp2Y + 50;
+
+      if (benchmark?.top_creative_type) {
+        doc.fontSize(10).fillColor('#64748b').text(
+          `Best performing creative type: ${benchmark.top_creative_type}`, 50, doc.y
+        );
+        doc.moveDown(0.5);
+      }
+
+      doc.moveDown(1);
+    }
+
+    // --- AI Recommendations ---
+    if (aiRecommendations && aiRecommendations.length > 0) {
+      doc.fontSize(13).fillColor('#0f172a').text('Recommendations', 50, doc.y);
+      doc.moveDown(0.5);
+
+      aiRecommendations.slice(0, 3).forEach((rec, i) => {
+        const recY = doc.y;
+        doc.rect(50, recY, 495, 28).fill('#fefce8').stroke('#fde68a');
+        doc.fontSize(10).fillColor('#92400e').text(`${i + 1}. ${rec}`, 62, recY + 9, { width: 470 });
+        doc.y = recY + 34;
+      });
+
+      doc.moveDown(1);
+    }
+
     // Completed Tasks
     doc.fontSize(13).fillColor('#0f172a').text('Completed Tasks This Week', 50, doc.y);
     doc.moveDown(0.5);
@@ -372,7 +662,8 @@ function generateReportPDF(data: ReportData): Promise<Buffer> {
     if (completedTasks.length === 0) {
       doc.fontSize(11).fillColor('#94a3b8').text('No completed tasks found for this week.', 50, doc.y);
     } else {
-      completedTasks.slice(0, 20).forEach((task) => {
+      completedTasks.slice(0, 15).forEach((task) => {
+        if (doc.y > 720) return; // avoid overflowing past footer
         const taskDate = task.completedAt ? new Date(Number(task.completedAt)).toLocaleDateString('en-IN') : '';
         doc.rect(50, doc.y, 495, 28).fill('#f0fdf4').stroke('#bbf7d0');
         doc.fontSize(10).fillColor('#166534').text(`✓  ${String(task.name || '')}`, 62, doc.y + 9, { width: 380 });

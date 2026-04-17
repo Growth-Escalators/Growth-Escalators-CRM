@@ -1,6 +1,39 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
 
+// ---------------------------------------------------------------------------
+// Bootstrap content calendar table (idempotent — safe to call every run)
+// ---------------------------------------------------------------------------
+export async function ensureContentCalendarTable(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS seo_content_calendar (
+      id SERIAL PRIMARY KEY,
+      tenant_id UUID DEFAULT '00000000-0000-0000-0000-000000000001',
+      client_domain TEXT NOT NULL,
+      keyword TEXT NOT NULL,
+      content_type TEXT NOT NULL DEFAULT 'blog',
+      title TEXT,
+      status TEXT NOT NULL DEFAULT 'planned',
+      priority TEXT DEFAULT 'medium',
+      source TEXT,
+      source_id TEXT,
+      target_publish_date DATE,
+      published_url TEXT,
+      assigned_to TEXT,
+      notes TEXT,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  // Avoid duplicate entries
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS seo_content_calendar_unique_idx
+    ON seo_content_calendar(client_domain, keyword, content_type)
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS seo_calendar_status_idx ON seo_content_calendar(status)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS seo_calendar_client_idx ON seo_content_calendar(client_domain)`);
+}
+
 const SERPER_API_URL = 'https://google.serper.dev/search';
 const SERPER_API_KEY = process.env.SERPER_API_KEY;
 
@@ -121,14 +154,33 @@ export async function runContentGapAnalysis(): Promise<{ gaps: number; opportuni
 
       // 5. Insert into content_gap_analysis
       if (competitorUrls.length > 0 || ourPosition === null || ourPosition > 10) {
-        await pool.query(
+        const gapInsert = await pool.query(
           `INSERT INTO content_gap_analysis (id, project_name, target_keyword, our_url, our_position, competitor_urls, topics_missing, questions_missing, priority_score, status, analysed_at, client_domain)
-           VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, 'open', NOW(), $9)`,
+           VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, 'open', NOW(), $9)
+           RETURNING id`,
           [client.project_name, keyword, ourUrl, ourPosition,
            JSON.stringify(competitorUrls), JSON.stringify([...new Set(topicsMissing)]),
            JSON.stringify([...new Set(questionsMissing)]), priorityScore, client.client_domain],
         );
+        const gapId = (gapInsert.rows as Array<{ id: string }>)[0]?.id;
         gaps++;
+
+        // Auto-populate content calendar from gap
+        try {
+          await pool.query(`
+            INSERT INTO seo_content_calendar (client_domain, keyword, content_type, title, status, priority, source, source_id)
+            VALUES ($1, $2, 'blog', $3, 'planned', $4, 'content_gap', $5)
+            ON CONFLICT (client_domain, keyword, content_type) DO NOTHING
+          `, [
+            client.client_domain,
+            keyword,
+            `${keyword.split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')} — Complete Guide`,
+            priorityScore >= 80 ? 'high' : priorityScore >= 60 ? 'medium' : 'low',
+            gapId,
+          ]);
+        } catch (calErr) {
+          logger.warn(`[content-gap] calendar insert skipped: ${calErr instanceof Error ? calErr.message : String(calErr)}`);
+        }
 
         // 6. Create corresponding opportunity
         const impact = priorityScore >= 80 ? 'high' : priorityScore >= 60 ? 'medium' : 'low';

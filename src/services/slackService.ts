@@ -70,6 +70,10 @@ export async function sendSlackMessage(channel: string, text: string, blocks?: u
       });
     });
 
+    req.setTimeout(10000, () => {
+      req.destroy(new Error('Slack request timed out after 10s'));
+    });
+
     req.on('error', (e) => {
       logger.error('[Slack] request error:', e.message);
       resolve(false);
@@ -119,6 +123,10 @@ async function openDMChannel(userId: string): Promise<string | null> {
           else { logger.error('[Slack] DM open error:', parsed.error); resolve(null); }
         } catch { resolve(null); }
       });
+    });
+
+    req.setTimeout(10000, () => {
+      req.destroy(new Error('Slack DM request timed out after 10s'));
     });
 
     req.on('error', () => resolve(null));

@@ -240,6 +240,11 @@ export interface AgencyDailyData {
   systemErrors: SystemError[];
   yesterdayScore: number | null;
   errors: string[];
+  creativeIntel?: { fatiguingCount: number; bestType: string | null; totalTracked: number };
+  outreachVelocity?: { enrichedToday: number; repliedToday: number; interestedPending: number };
+  contentCalendar?: { planned: number; writing: number; overdue: number };
+  financeSnapshot?: { overdueInvoices: number; overdueAmount: number };
+  topSources?: Array<{ source: string; purchases: number }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -356,19 +361,20 @@ async function withTimeout<T>(promise: Promise<T>, name: string, fallback: T, ti
 
 export async function collectDailyData(): Promise<AgencyDailyData> {
   const errors: string[] = [];
-  const client = await pool.connect();
   logger.info('[intel-collector] Starting data collection...');
 
-  // Ensure connection is always released
   try {
-    return await _collectDailyDataInner(client, errors);
-  } finally {
-    client.release();
-    logger.info('[intel-collector] Pool connection released');
+    return await _collectDailyDataInner(pool, errors);
+  } catch (e) {
+    logger.error('[intel-collector] Collection failed:', e);
+    throw e;
   }
 }
 
-async function _collectDailyDataInner(client: import('pg').PoolClient, errors: string[]): Promise<AgencyDailyData> {
+// Queryable is satisfied by both Pool and PoolClient — each has .query()
+type Queryable = { query: (text: string, values?: unknown[]) => Promise<import('pg').QueryResult> };
+
+async function _collectDailyDataInner(client: Queryable, errors: string[]): Promise<AgencyDailyData> {
 
   // Resolve tenant ID
   let tenantId = '';
@@ -728,8 +734,6 @@ async function _collectDailyDataInner(client: import('pg').PoolClient, errors: s
     if (scoreRes.rows[0]) yesterdayScore = Number((scoreRes.rows[0] as { overall_score: number }).overall_score);
   } catch { /* table may not exist yet */ }
 
-  // Connection released in outer try/finally
-
   // -------------------------------------------------------------------------
   // 8. SEO WORKFLOW HEALTH (uses pool directly, no client conn needed)
   logger.info('[intel-collector] Collecting SEO workflow health...');
@@ -757,6 +761,109 @@ async function _collectDailyDataInner(client: import('pg').PoolClient, errors: s
     5000,
   );
 
+  // -------------------------------------------------------------------------
+  // 10. CREATIVE INTELLIGENCE
+  logger.info('[intel-collector] Collecting creative intelligence data...');
+  // -------------------------------------------------------------------------
+  let creativeIntel = { fatiguingCount: 0, bestType: null as string | null, totalTracked: 0 };
+  try {
+    const fatiguing = await pool.query(
+      `SELECT COUNT(*) AS count FROM creative_intelligence WHERE fatigue_status IN ('fatiguing', 'saturated')`
+    );
+    creativeIntel.fatiguingCount = parseInt(fatiguing.rows[0]?.count || '0');
+
+    const bestType = await pool.query(`
+      SELECT creative_tags->>'hook' || ' + ' || creative_tags->>'visual' AS type,
+             ROUND(AVG(latest_roas)::numeric, 2) AS avg_roas
+      FROM creative_intelligence
+      WHERE creative_tags IS NOT NULL AND latest_roas IS NOT NULL
+      GROUP BY creative_tags->>'hook', creative_tags->>'visual'
+      HAVING COUNT(*) >= 2
+      ORDER BY AVG(latest_roas) DESC LIMIT 1
+    `);
+    if (bestType.rows.length > 0) creativeIntel.bestType = `${bestType.rows[0].type} (${bestType.rows[0].avg_roas}x ROAS)`;
+
+    const tracked = await pool.query(`SELECT COUNT(*) AS count FROM creative_intelligence`);
+    creativeIntel.totalTracked = parseInt(tracked.rows[0]?.count || '0');
+  } catch { /* creative intel not yet set up */ }
+
+  // -------------------------------------------------------------------------
+  // 11. OUTREACH VELOCITY
+  logger.info('[intel-collector] Collecting outreach velocity data...');
+  // -------------------------------------------------------------------------
+  let outreachVelocity = { enrichedToday: 0, repliedToday: 0, interestedPending: 0 };
+  try {
+    const enriched = await pool.query(
+      `SELECT COUNT(*) AS count FROM outreach_leads WHERE enriched_at >= CURRENT_DATE AND enriched_at < CURRENT_DATE + 1`
+    );
+    outreachVelocity.enrichedToday = parseInt(enriched.rows[0]?.count || '0');
+
+    const replied = await pool.query(
+      `SELECT COUNT(*) AS count FROM outreach_leads WHERE reply_time >= CURRENT_DATE AND reply_time < CURRENT_DATE + 1`
+    );
+    outreachVelocity.repliedToday = parseInt(replied.rows[0]?.count || '0');
+
+    const interested = await pool.query(
+      `SELECT COUNT(*) AS count FROM outreach_leads
+       WHERE reply_category = 'INTERESTED' AND (jatin_responded_at IS NULL)
+       AND reply_time >= NOW() - INTERVAL '7 days'`
+    );
+    outreachVelocity.interestedPending = parseInt(interested.rows[0]?.count || '0');
+  } catch { /* outreach not critical */ }
+
+  // -------------------------------------------------------------------------
+  // 12. SEO CONTENT CALENDAR
+  logger.info('[intel-collector] Collecting content calendar data...');
+  // -------------------------------------------------------------------------
+  let contentCalendar = { planned: 0, writing: 0, overdue: 0 };
+  try {
+    const stats = await pool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'planned') AS planned,
+        COUNT(*) FILTER (WHERE status = 'writing') AS writing,
+        COUNT(*) FILTER (WHERE status = 'planned' AND target_publish_date < CURRENT_DATE) AS overdue
+      FROM seo_content_calendar
+    `);
+    if (stats.rows[0]) {
+      contentCalendar.planned = parseInt(stats.rows[0].planned || '0');
+      contentCalendar.writing = parseInt(stats.rows[0].writing || '0');
+      contentCalendar.overdue = parseInt(stats.rows[0].overdue || '0');
+    }
+  } catch { /* calendar not yet set up */ }
+
+  // -------------------------------------------------------------------------
+  // 13. FINANCE SNAPSHOT
+  logger.info('[intel-collector] Collecting finance snapshot...');
+  // -------------------------------------------------------------------------
+  let financeSnapshot = { overdueInvoices: 0, overdueAmount: 0 };
+  try {
+    const overdue = await pool.query(`
+      SELECT COUNT(*) AS count, COALESCE(SUM(amount_due), 0) AS total
+      FROM invoices WHERE status = 'overdue'
+    `);
+    if (overdue.rows[0]) {
+      financeSnapshot.overdueInvoices = parseInt(overdue.rows[0].count || '0');
+      financeSnapshot.overdueAmount = Math.round(parseInt(overdue.rows[0].total || '0') / 100); // paise to rupees
+    }
+  } catch { /* finance not critical */ }
+
+  // -------------------------------------------------------------------------
+  // 14. UTM ATTRIBUTION (top sources)
+  logger.info('[intel-collector] Collecting UTM attribution data...');
+  // -------------------------------------------------------------------------
+  let topSources: Array<{ source: string; purchases: number }> = [];
+  try {
+    const sources = await pool.query(`
+      SELECT metadata->>'utm_source' AS source, COUNT(*) AS purchases
+      FROM contacts
+      WHERE metadata->>'paymentStatus' = 'paid' AND metadata->>'utm_source' IS NOT NULL
+      AND created_at >= CURRENT_DATE - INTERVAL '7 days'
+      GROUP BY metadata->>'utm_source'
+      ORDER BY COUNT(*) DESC LIMIT 3
+    `);
+    topSources = sources.rows;
+  } catch { /* UTM data not yet available */ }
+
   logger.info(`[intel-collector] All data collected. Errors: [${errors.join(', ') || 'none'}]`);
 
   return {
@@ -773,5 +880,10 @@ async function _collectDailyDataInner(client: import('pg').PoolClient, errors: s
     systemErrors,
     yesterdayScore,
     errors,
+    creativeIntel,
+    outreachVelocity,
+    contentCalendar,
+    financeSnapshot,
+    topSources,
   };
 }

@@ -10,11 +10,30 @@ interface PaymentParams {
 }
 
 export async function initiateCashfreePayment(params: PaymentParams): Promise<void> {
+  // Read UTMs from sessionStorage (set by useUTM hook)
+  const utmRaw = sessionStorage.getItem('ge_utm_params');
+  const utm = utmRaw ? JSON.parse(utmRaw) : {};
+
+  // Read Facebook click/browser IDs from cookies
+  const getCookie = (name: string) =>
+    document.cookie.split('; ').find(r => r.startsWith(name + '='))?.split('=')[1] || undefined;
+  const fbp = getCookie('_fbp');
+  const fbc = getCookie('_fbc');
+
   // 1. Create order on backend
   const res = await fetch('/api/cashfree/create-order', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
+    body: JSON.stringify({
+      ...params,
+      utm_source: utm.source || undefined,
+      utm_medium: utm.medium || undefined,
+      utm_campaign: utm.campaign || undefined,
+      utm_content: utm.content || undefined,
+      utm_term: utm.term || undefined,
+      fbp,
+      fbc,
+    }),
   });
 
   if (!res.ok) {
@@ -38,8 +57,13 @@ export async function initiateCashfreePayment(params: PaymentParams): Promise<vo
   const returnUrl = `${window.location.origin}/thank-you`;
 
   // 4. Launch Cashfree hosted checkout — redirects on success
-  cashfree.checkout({
-    paymentSessionId: payment_session_id,
-    returnUrl,
-  });
+  try {
+    cashfree.checkout({
+      paymentSessionId: payment_session_id,
+      returnUrl,
+    });
+  } catch (e) {
+    console.error('[cashfree] checkout failed:', e);
+    throw new Error('Payment gateway unavailable. Please refresh and try again.');
+  }
 }

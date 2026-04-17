@@ -169,6 +169,9 @@ export async function ensureAdAccountsTable(): Promise<void> {
     )
   `).catch(() => {});
 
+  // Add platform column for multi-platform support
+  await pool.query(`ALTER TABLE ad_accounts ADD COLUMN IF NOT EXISTS platform TEXT DEFAULT 'meta'`).catch(() => {});
+
   // Seed known accounts — safe to run multiple times (ON CONFLICT is idempotent)
   const seedAccounts = [
     { id: 'act_689363376592426', client: 'Paraiso',   name: 'Paraiso - Meta Ads',  currency: 'INR' },
@@ -182,4 +185,85 @@ export async function ensureAdAccountsTable(): Promise<void> {
       [a.id, a.client, a.name, a.currency],
     ).catch(() => {});
   }
+}
+
+// ---------------------------------------------------------------------------
+// Client benchmarks table
+// ---------------------------------------------------------------------------
+export async function ensureClientBenchmarksTable(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS client_benchmarks (
+      id SERIAL PRIMARY KEY,
+      ad_account_id TEXT,
+      client_name TEXT,
+      month TEXT NOT NULL,
+      avg_roas NUMERIC(8,2),
+      avg_ctr NUMERIC(6,3),
+      total_spend NUMERIC(12,2),
+      total_revenue NUMERIC(12,2),
+      total_purchases INTEGER DEFAULT 0,
+      top_creative_type TEXT,
+      created_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(ad_account_id, month)
+    )
+  `);
+}
+
+// ---------------------------------------------------------------------------
+// Calculate monthly benchmarks for all active accounts
+// ---------------------------------------------------------------------------
+export async function calculateMonthlyBenchmarks(): Promise<void> {
+  const month = new Date().toISOString().slice(0, 7);
+  const token = process.env.META_ADS_TOKEN || process.env.META_ACCESS_TOKEN;
+  if (!token) {
+    logger.warn('[benchmarks] META_ADS_TOKEN not set — skipping');
+    return;
+  }
+
+  // Get all active accounts from marketing_accounts
+  const accounts = await pool.query(
+    `SELECT
+       CASE WHEN account_id LIKE 'act_%' THEN account_id ELSE 'act_' || account_id END AS account_id,
+       COALESCE(client_name, account_name) AS name,
+       currency,
+       COALESCE(exchange_rate, 1) AS exchange_rate
+     FROM marketing_accounts WHERE is_active = true`
+  );
+
+  for (const acc of accounts.rows as Array<{ account_id: string; name: string; currency: string; exchange_rate: number }>) {
+    try {
+      const insights = await fetchAccountInsights(acc.account_id, token, acc.name, acc.currency, Number(acc.exchange_rate));
+      if (!insights?.thisMonth) continue;
+
+      const m = insights.thisMonth;
+
+      // Get top creative type for this account
+      let topCreativeType: string | null = null;
+      try {
+        const topCreative = await pool.query(`
+          SELECT creative_tags->>'hook' || ' + ' || creative_tags->>'visual' AS type
+          FROM creative_intelligence
+          WHERE ad_account_id = $1
+            AND creative_tags IS NOT NULL AND latest_roas IS NOT NULL
+          ORDER BY latest_roas DESC LIMIT 1
+        `, [acc.account_id]);
+        if (topCreative.rows.length > 0) topCreativeType = (topCreative.rows[0] as Record<string, string>).type;
+      } catch { /* non-critical */ }
+
+      await pool.query(`
+        INSERT INTO client_benchmarks (ad_account_id, client_name, month, avg_roas, avg_ctr, total_spend, total_revenue, total_purchases, top_creative_type)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ON CONFLICT (ad_account_id, month) DO UPDATE SET
+          avg_roas = EXCLUDED.avg_roas,
+          avg_ctr = EXCLUDED.avg_ctr,
+          total_spend = EXCLUDED.total_spend,
+          total_revenue = EXCLUDED.total_revenue,
+          total_purchases = EXCLUDED.total_purchases,
+          top_creative_type = EXCLUDED.top_creative_type,
+          created_at = NOW()
+      `, [acc.account_id, acc.name, month, m.roas, m.ctr, m.spend, m.revenue, m.purchases, topCreativeType]);
+    } catch { /* skip failing accounts */ }
+  }
+
+  logger.info(`[benchmarks] Monthly benchmarks calculated for ${month}`);
 }

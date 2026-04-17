@@ -147,7 +147,13 @@ export async function sendPurchaseEvent(params: {
   userAgent?: string;
   fbc?: string;
   fbp?: string;
+  utmSource?: string;
+  utmCampaign?: string;
 }): Promise<{ success: boolean; eventId: string }> {
+  const utmCustomData: Record<string, unknown> = {};
+  if (params.utmSource) utmCustomData.utm_source = params.utmSource;
+  if (params.utmCampaign) utmCustomData.utm_campaign = params.utmCampaign;
+
   return sendCapiEvent({
     eventName: 'Purchase',
     customer: {
@@ -169,6 +175,7 @@ export async function sendPurchaseEvent(params: {
     numItems: 1,
     orderId: params.orderId,
     eventSourceUrl: 'https://web-production-311da.up.railway.app',
+    customData: Object.keys(utmCustomData).length > 0 ? utmCustomData : undefined,
   });
 }
 

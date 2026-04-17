@@ -109,6 +109,38 @@ export async function deliverDailyIntelligence(analysis: Analysis, data: AgencyD
     msg += `✅ *Wins:* ${analysis.wins.join(' | ')}\n\n`;
   }
 
+  // Creative intelligence section
+  if (data.creativeIntel && data.creativeIntel.fatiguingCount > 0) {
+    msg += `🎨 *Creative Alert:* ${data.creativeIntel.fatiguingCount} ad(s) fatiguing`;
+    if (data.creativeIntel.bestType) {
+      msg += ` | Best type: ${data.creativeIntel.bestType}`;
+    }
+    msg += '\n';
+  }
+
+  // Outreach velocity
+  if (data.outreachVelocity && data.outreachVelocity.interestedPending > 0) {
+    msg += `🚨 *Outreach:* ${data.outreachVelocity.interestedPending} INTERESTED lead(s) awaiting response!\n`;
+  } else if (data.outreachVelocity && data.outreachVelocity.repliedToday > 0) {
+    msg += `📧 *Outreach:* ${data.outreachVelocity.enrichedToday} enriched, ${data.outreachVelocity.repliedToday} replied today\n`;
+  }
+
+  // Content calendar
+  if (data.contentCalendar && data.contentCalendar.overdue > 0) {
+    msg += `📝 *Content:* ${data.contentCalendar.overdue} piece(s) overdue for publication\n`;
+  }
+
+  // Finance
+  if (data.financeSnapshot && data.financeSnapshot.overdueInvoices > 0) {
+    msg += `💰 *Finance:* ${data.financeSnapshot.overdueInvoices} invoice(s) overdue (₹${data.financeSnapshot.overdueAmount.toLocaleString('en-IN')})\n`;
+  }
+
+  // UTM attribution
+  if (data.topSources && data.topSources.length > 0) {
+    const topSource = data.topSources[0];
+    msg += `📊 *Top source:* ${topSource.source} (${topSource.purchases} purchases this week)\n`;
+  }
+
   // Scores summary
   msg += `📊 Ads:${analysis.scores.ads} SEO:${analysis.scores.seo} Sales:${analysis.scores.sales} Ops:${analysis.scores.ops}\n`;
   msg += `_Full coaching report + fix prompts: crm.growthescalators.com/crm/intelligence_`;

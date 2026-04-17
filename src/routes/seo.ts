@@ -456,4 +456,105 @@ router.get('/content-briefs', async (_req: Request, res: Response) => {
   }
 });
 
+// ─── Content Calendar ────────────────────────────────────────────────
+router.get('/content-calendar', async (req: Request, res: Response) => {
+  try {
+    const { pool: dbPool } = await import('../db/index');
+    const { client, status, limit } = req.query;
+    let query = `SELECT * FROM seo_content_calendar WHERE 1=1`;
+    const params: unknown[] = [];
+    let idx = 0;
+    if (client) { idx++; query += ` AND client_domain = $${idx}`; params.push(client); }
+    if (status) { idx++; query += ` AND status = $${idx}`; params.push(status); }
+    query += ` ORDER BY CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, created_at DESC`;
+    if (limit) { idx++; query += ` LIMIT $${idx}`; params.push(Number(limit)); }
+    const result = await dbPool.query(query, params);
+    res.json(result.rows);
+  } catch (e) {
+    logger.error('[seo] content-calendar error:', e);
+    res.status(500).json({ error: 'Failed to fetch content calendar' });
+  }
+});
+
+router.get('/content-calendar/summary', async (_req: Request, res: Response) => {
+  try {
+    const { pool: dbPool } = await import('../db/index');
+    const result = await dbPool.query(`
+      SELECT
+        client_domain,
+        COUNT(*) FILTER (WHERE status = 'planned') AS planned,
+        COUNT(*) FILTER (WHERE status = 'writing') AS writing,
+        COUNT(*) FILTER (WHERE status = 'review') AS review,
+        COUNT(*) FILTER (WHERE status = 'published') AS published,
+        COUNT(*) AS total
+      FROM seo_content_calendar
+      GROUP BY client_domain
+      ORDER BY client_domain
+    `);
+    res.json(result.rows);
+  } catch (e) {
+    logger.error('[seo] content-calendar summary error:', e);
+    res.status(500).json({ error: 'Failed to fetch calendar summary' });
+  }
+});
+
+router.patch('/content-calendar/:id', async (req: Request, res: Response) => {
+  try {
+    const { pool: dbPool } = await import('../db/index');
+    const { id } = req.params;
+    const { status, title, assigned_to, target_publish_date, published_url, notes, priority } = req.body;
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    let idx = 0;
+    if (status !== undefined) { idx++; fields.push(`status = $${idx}`); values.push(status); }
+    if (title !== undefined) { idx++; fields.push(`title = $${idx}`); values.push(title); }
+    if (assigned_to !== undefined) { idx++; fields.push(`assigned_to = $${idx}`); values.push(assigned_to); }
+    if (target_publish_date !== undefined) { idx++; fields.push(`target_publish_date = $${idx}`); values.push(target_publish_date); }
+    if (published_url !== undefined) { idx++; fields.push(`published_url = $${idx}`); values.push(published_url); }
+    if (notes !== undefined) { idx++; fields.push(`notes = $${idx}`); values.push(notes); }
+    if (priority !== undefined) { idx++; fields.push(`priority = $${idx}`); values.push(priority); }
+    if (fields.length === 0) { res.status(400).json({ error: 'No fields to update' }); return; }
+    fields.push('updated_at = NOW()');
+    idx++; values.push(id);
+    const result = await dbPool.query(`UPDATE seo_content_calendar SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`, values);
+    if (result.rows.length === 0) { res.status(404).json({ error: 'Not found' }); return; }
+    res.json(result.rows[0]);
+  } catch (e) {
+    logger.error('[seo] content-calendar patch error:', e);
+    res.status(500).json({ error: 'Failed to update calendar entry' });
+  }
+});
+
+router.post('/content-calendar', async (req: Request, res: Response) => {
+  try {
+    const { pool: dbPool } = await import('../db/index');
+    const { client_domain, keyword, content_type, title, priority, assigned_to, target_publish_date, notes } = req.body;
+    if (!client_domain || !keyword) { res.status(400).json({ error: 'client_domain and keyword are required' }); return; }
+    const result = await dbPool.query(`
+      INSERT INTO seo_content_calendar (client_domain, keyword, content_type, title, priority, assigned_to, target_publish_date, notes, source)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'manual')
+      ON CONFLICT (client_domain, keyword, content_type) DO UPDATE SET
+        title = COALESCE(EXCLUDED.title, seo_content_calendar.title),
+        priority = COALESCE(EXCLUDED.priority, seo_content_calendar.priority),
+        updated_at = NOW()
+      RETURNING *
+    `, [client_domain, keyword, content_type || 'blog', title, priority || 'medium', assigned_to, target_publish_date, notes]);
+    res.json(result.rows[0]);
+  } catch (e) {
+    logger.error('[seo] content-calendar create error:', e);
+    res.status(500).json({ error: 'Failed to create calendar entry' });
+  }
+});
+
+router.delete('/content-calendar/:id', async (req: Request, res: Response) => {
+  try {
+    const { pool: dbPool } = await import('../db/index');
+    await dbPool.query('DELETE FROM seo_content_calendar WHERE id = $1', [req.params.id]);
+    res.json({ deleted: true });
+  } catch (e) {
+    logger.error('[seo] content-calendar delete error:', e);
+    res.status(500).json({ error: 'Failed to delete' });
+  }
+});
+
 export default router;

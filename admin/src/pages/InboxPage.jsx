@@ -91,6 +91,7 @@ export default function InboxPage() {
   const [toast, setToast] = useState('');
   const messagesEndRef = useRef(null);
   const socketRef = useRef(null);
+  const selectedConvRef = useRef(null);
 
   // Load conversations + templates
   useEffect(() => {
@@ -104,14 +105,17 @@ export default function InboxPage() {
     });
   }, []);
 
-  // Socket.io for real-time
+  // Keep ref in sync with selectedConv for socket handlers
+  useEffect(() => { selectedConvRef.current = selectedConv; }, [selectedConv]);
+
+  // Socket.io for real-time — connect once on mount
   useEffect(() => {
     const socket = io('/', { path: '/socket.io', transports: ['websocket', 'polling'] });
     socketRef.current = socket;
 
     socket.on('new_message', (msg) => {
-      // Update message list if this contact is selected
-      if (selectedConv && msg.contactId === selectedConv.contactId) {
+      // Update message list if this contact is selected (use ref to avoid stale closure)
+      if (selectedConvRef.current && msg.contactId === selectedConvRef.current.contactId) {
         setMessages(prev => [...prev, msg]);
       }
       // Update conversation list
@@ -143,18 +147,18 @@ export default function InboxPage() {
     });
 
     return () => socket.disconnect();
-  }, [selectedConv]);
+  }, []);
 
   // Join/leave socket room on conversation change
   useEffect(() => {
-    if (!socketRef.current) return;
-    if (selectedConv) {
-      socketRef.current.emit('join_contact', selectedConv.contactId);
-    }
+    if (!socketRef.current || !selectedConv) return;
+    socketRef.current.emit('join_contact', selectedConv.contactId);
     return () => {
-      if (selectedConv) socketRef.current?.emit('leave_contact', selectedConv.contactId);
+      if (socketRef.current && selectedConv) {
+        socketRef.current.emit('leave_contact', selectedConv.contactId);
+      }
     };
-  }, [selectedConv?.contactId]);
+  }, [selectedConv]);
 
   // Load messages for selected conversation
   const loadMessages = useCallback(async (conv) => {
@@ -197,9 +201,7 @@ export default function InboxPage() {
       setMessages(prev => [...prev, data.message]);
       setNewMsg('');
       setToast('Message sent successfully');
-    } catch (e) {
-      console.error('Send failed:', e);
-    } finally {
+    } catch { /* send failed */ } finally {
       setSending(false);
     }
   }
@@ -213,9 +215,7 @@ export default function InboxPage() {
       });
       setMessages(prev => [...prev, data.message]);
       setToast('Template sent successfully');
-    } catch (e) {
-      console.error('Template send failed:', e);
-    }
+    } catch { /* template send failed */ }
   }
 
   const filtered = conversations.filter(c =>

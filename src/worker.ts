@@ -20,6 +20,9 @@ import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_PERF_MARKETIN
 
 console.log('[worker] Worker process started');
 
+// Track all setInterval timers for graceful shutdown
+const _intervals: ReturnType<typeof setInterval>[] = [];
+
 // One-time startup: ensure enrichment columns + reply alert columns + self-healing columns
 import('./services/outreachEnrichmentService').then(m => m.ensureEnrichmentColumns()).catch(() => {});
 import('./services/outreachAlertService').then(m => m.ensureOutreachAlertColumns()).catch(() => {});
@@ -43,12 +46,35 @@ startSocialPostWorker();
 // ---------------------------------------------------------------------------
 const _cronRunning = new Map<string, boolean>();
 
-async function safeCron(name: string, fn: () => Promise<unknown>): Promise<void> {
-  // Overlap protection — skip if already running
+function hashCode(s: string): number {
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) {
+    const chr = s.charCodeAt(i);
+    hash = ((hash << 5) - hash) + chr;
+    hash |= 0;
+  }
+  return hash;
+}
+
+async function safeCron(name: string, fn: () => Promise<unknown>, useAdvisoryLock = false): Promise<void> {
+  // Overlap protection — skip if already running (in-process)
   if (_cronRunning.get(name)) {
     console.log(`[CRON] ${name} already running — skipping`);
     return;
   }
+
+  // Cross-process lock (advisory lock using hash of name)
+  if (useAdvisoryLock) {
+    try {
+      const lockKey = Math.abs(hashCode(name));
+      const lockResult = await pool.query('SELECT pg_try_advisory_lock($1) AS acquired', [lockKey]);
+      if (!lockResult.rows[0]?.acquired) {
+        console.log(`[CRON] ${name} — another instance holds the lock, skipping`);
+        return;
+      }
+    } catch { /* advisory lock non-critical, continue anyway */ }
+  }
+
   _cronRunning.set(name, true);
   let logId = 0;
   const start = Date.now();
@@ -79,6 +105,12 @@ async function safeCron(name: string, fn: () => Promise<unknown>): Promise<void>
     } catch { /* Slack send failed */ }
   } finally {
     _cronRunning.set(name, false);
+    if (useAdvisoryLock) {
+      try {
+        const lockKey = Math.abs(hashCode(name));
+        await pool.query('SELECT pg_advisory_unlock($1)', [lockKey]);
+      } catch { /* non-critical */ }
+    }
   }
 }
 
@@ -357,8 +389,8 @@ cron.schedule('30 3 * * 5', () => safeCron('Competitor Pulse', async () => {
 }), { timezone: 'UTC' });
 console.log('[cron] Competitor pulse scheduled — Fridays 9:00 AM IST');
 
-// Growth OS — Co-Pilot: poll unprocessed inbound messages from Growth OS founders — every 2 minutes
-cron.schedule('*/2 * * * *', () => safeCron('Co-Pilot Poller', async () => {
+// Growth OS — Co-Pilot: poll unprocessed inbound messages from Growth OS founders — every 10 minutes
+cron.schedule('*/10 * * * *', () => safeCron('Co-Pilot Poller', async () => {
     const { pool: dbPool } = await import('./db/index');
     const { isCopilotMessage, handleCopilotMessage } = await import('./services/copilotService');
 
@@ -399,14 +431,14 @@ cron.schedule('*/2 * * * *', () => safeCron('Co-Pilot Poller', async () => {
       }
     }
 }), { timezone: 'UTC' });
-console.log('[cron] Co-pilot message poller scheduled — every 2 minutes');
+console.log('[cron] Co-pilot message poller scheduled — every 10 minutes');
 
 // ---------------------------------------------------------------------------
 // Pipeline placement job — every 5 minutes
 // Picks up slo_purchase events whose contacts haven't been placed in a pipeline yet.
 // Hooks into the payment flow without touching cashfree.ts or webhooks.ts.
 // ---------------------------------------------------------------------------
-// Runs every 30 seconds for fast asset delivery after purchase
+// Runs every 5 minutes — fast enough for delivery, reduces DB load from 2880 to 288 queries/day
 const PLACEMENT_INTERVAL = setInterval(() => safeCron('Pipeline Placement', async () => {
   const { rows } = await pool.query(`
       SELECT e.id, e.contact_id, e.payload, e.tenant_id
@@ -419,6 +451,7 @@ const PLACEMENT_INTERVAL = setInterval(() => safeCron('Pipeline Placement', asyn
         )
       ORDER BY e.created_at ASC
       LIMIT 20
+      FOR UPDATE OF e SKIP LOCKED
     `);
 
     if (rows.length === 0) return;
@@ -462,8 +495,9 @@ const PLACEMENT_INTERVAL = setInterval(() => safeCron('Pipeline Placement', asyn
         console.error('[CRON] Pipeline placement failed for contact', contact_id, ':', e);
       }
     }
-}), 30_000);
-console.log('[cron] Pipeline placement job scheduled — every 30 seconds');
+}), 5 * 60_000);
+_intervals.push(PLACEMENT_INTERVAL);
+console.log('[cron] Pipeline placement job scheduled — every 5 minutes');
 
 // ---------------------------------------------------------------------------
 // Outreach Daily Digest — DISABLED (folded into Evening Summary)
@@ -525,13 +559,14 @@ console.log('[cron] Outreach daily digest — disabled (folded into evening summ
 // Outreach: backend enrichment — every 10 minutes
 // Bypasses n8n WF-01 and enriches leads directly from backend
 // ---------------------------------------------------------------------------
-setInterval(() => safeCron('Outreach Enrichment', async () => {
+const ENRICHMENT_INTERVAL = setInterval(() => safeCron('Outreach Enrichment', async () => {
   const { enrichStuckLeads } = await import('./services/outreachEnrichmentService');
   await enrichStuckLeads();
   // Task 6: check for INTERESTED leads unanswered >90 minutes
   const { checkReplySpeedAlerts } = await import('./services/outreachAlertService');
   await checkReplySpeedAlerts();
 }), 5 * 60_000); // every 5 minutes
+_intervals.push(ENRICHMENT_INTERVAL);
 console.log('[cron] Outreach enrichment scheduled — every 5 minutes');
 
 // ---------------------------------------------------------------------------
@@ -570,10 +605,11 @@ console.log('[cron] Audit booking follow-up scheduled — every 6 hours');
 // ---------------------------------------------------------------------------
 // Saleshandy auto-upload — every 15 minutes
 // ---------------------------------------------------------------------------
-setInterval(() => safeCron('Saleshandy Auto-Upload', async () => {
+const SALESHANDY_INTERVAL = setInterval(() => safeCron('Saleshandy Auto-Upload', async () => {
   const { uploadToSaleshandy } = await import('./services/outreachEnrichmentService');
   await uploadToSaleshandy();
 }), 15 * 60_000);
+_intervals.push(SALESHANDY_INTERVAL);
 console.log('[cron] Saleshandy auto-upload scheduled — every 15 minutes');
 
 // ---------------------------------------------------------------------------
@@ -582,10 +618,11 @@ console.log('[cron] Saleshandy auto-upload scheduled — every 15 minutes');
 // ---------------------------------------------------------------------------
 import('./services/outreachCrmSyncService').then(m => m.ensureOutreachCrmSetup()).catch(() => {});
 import('./services/systemHealthMonitor').then(m => m.ensureCronJobLogsTable()).catch(() => {});
-setInterval(() => safeCron('Outreach CRM Sync', async () => {
+const CRM_SYNC_INTERVAL = setInterval(() => safeCron('Outreach CRM Sync', async () => {
   const { syncOutreachToCrm } = await import('./services/outreachCrmSyncService');
   await syncOutreachToCrm();
 }), 30 * 60_000);
+_intervals.push(CRM_SYNC_INTERVAL);
 console.log('[cron] Outreach CRM sync scheduled — every 30 minutes');
 
 // ---------------------------------------------------------------------------
@@ -833,14 +870,6 @@ cron.schedule('30 3 1 * *', () => safeCron('Finance Monthly Generation', async (
 }), { timezone: 'UTC' });
 console.log('[cron] Finance monthly generation scheduled — 1st of month 9:00 AM IST');
 
-// Outreach Weekly Summary — Monday 8 AM IST (2:30 UTC)
-cron.schedule('30 2 * * 1', () => safeCron('Outreach Weekly Summary', async () => {
-  const { sendWeeklyOutreachSummary } = await import('./services/outreachAlertService');
-  await sendWeeklyOutreachSummary();
-  console.log('[CRON] Outreach weekly summary sent');
-}), { timezone: 'UTC' });
-console.log('[cron] Outreach weekly summary scheduled — Mondays 8:00 AM IST');
-
 // Weekly Data Cleanup — Sunday 2:00 AM IST (Saturday 20:30 UTC)
 // ---------------------------------------------------------------------------
 cron.schedule('30 20 * * 6', () => safeCron('Weekly Data Cleanup', async () => {
@@ -888,12 +917,13 @@ console.log('[cron] Daily archive scheduled — 3:00 AM IST');
 // ---------------------------------------------------------------------------
 // System Health Monitor — every 30 minutes
 // ---------------------------------------------------------------------------
-setInterval(() => safeCron('System Health Check', async () => {
+const HEALTH_INTERVAL = setInterval(() => safeCron('System Health Check', async () => {
   const { checkAllSystems, sendCriticalAlerts } = await import('./services/systemHealthMonitor');
   const report = await checkAllSystems();
   await sendCriticalAlerts(report);
   console.log(`[health] System score: ${report.overallScore}/100`);
 }), 30 * 60_000);
+_intervals.push(HEALTH_INTERVAL);
 console.log('[cron] System health monitor scheduled — every 30 minutes');
 
 // ---------------------------------------------------------------------------
@@ -968,16 +998,70 @@ cron.schedule('0 4 * * 1', () => safeCron('Meta Token Check', async () => {
 console.log('[cron] Meta token check scheduled — Mondays 9:30 AM IST');
 
 // ---------------------------------------------------------------------------
+// Late attendance check — 10:30 AM IST (5:00 UTC) Mon-Sat
+// ---------------------------------------------------------------------------
+cron.schedule('0 5 * * 1-6', () => safeCron('Late Attendance Check', async () => {
+  const { sendSlackDM } = await import('./services/slackService');
+  const today = new Date().toISOString().split('T')[0];
+  const members = await pool.query(
+    `SELECT tp.name FROM team_payroll tp
+     WHERE tp.is_active = true
+       AND NOT EXISTS (
+         SELECT 1 FROM team_attendance ta
+         WHERE ta.member_id = tp.id AND ta.attendance_date = $1 AND ta.check_in IS NOT NULL
+       )`, [today]
+  );
+  if (members.rows.length > 0) {
+    const names = members.rows.map((r: { name: string }) => r.name).join(', ');
+    await sendSlackDM(SLACK_JATIN,
+      `⏰ *Late Attendance Alert*\n${members.rows.length} team member(s) not checked in by 10:15 AM: ${names}`
+    );
+    console.log(`[CRON] Late Attendance: ${members.rows.length} member(s) not checked in`);
+  } else {
+    console.log('[CRON] Late Attendance: all team members checked in');
+  }
+}), { timezone: 'UTC' });
+console.log('[cron] Late attendance check scheduled — Mon-Sat 10:30 AM IST');
+
+// ---------------------------------------------------------------------------
+// Monthly client benchmarks — 1st of month, 11:00 AM IST (5:30 UTC)
+// ---------------------------------------------------------------------------
+cron.schedule('30 5 1 * *', () => safeCron('Monthly Client Benchmarks', async () => {
+  const { calculateMonthlyBenchmarks } = await import('./services/metaAdsService');
+  await calculateMonthlyBenchmarks();
+}), { timezone: 'UTC' });
+console.log('[cron] Monthly client benchmarks scheduled — 1st of month 11:00 AM IST');
+
+// ---------------------------------------------------------------------------
 // Graceful shutdown
 // ---------------------------------------------------------------------------
 const shutdown = async (signal: string) => {
   console.log(`[worker-shutdown] ${signal} received — stopping workers…`);
+
+  // 1. Clear all interval timers
+  for (const id of _intervals) clearInterval(id);
+  console.log(`[worker-shutdown] cleared ${_intervals.length} interval timer(s)`);
+
+  // 2. Wait for in-flight cron jobs to finish (max 30 seconds)
+  const runningJobs = [..._cronRunning.entries()].filter(([, v]) => v).map(([k]) => k);
+  if (runningJobs.length > 0) {
+    console.log(`[worker-shutdown] waiting for ${runningJobs.length} running job(s): ${runningJobs.join(', ')}`);
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      const stillRunning = [..._cronRunning.entries()].filter(([, v]) => v);
+      if (stillRunning.length === 0) break;
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  }
+
+  // 3. Close database pool
   try {
     await pool.end();
     console.log('[worker-shutdown] database pool closed');
   } catch (e) {
     console.error('[worker-shutdown] error closing database pool:', e);
   }
+
   console.log('[worker-shutdown] graceful shutdown complete');
   process.exit(0);
 };

@@ -73,10 +73,13 @@ async function processSequenceSteps(): Promise<void> {
       idempotencyKey,
     );
 
-    // Advance the enrolment: next step fires after the NEXT step's delayDays
-    const nextStepDefinition = steps[currentStepIndex + 1];
-    const delayMs = nextStepDefinition
-      ? nextStepDefinition.delayDays * 24 * 60 * 60 * 1000
+    // Advance the enrolment to the next step.
+    // `delayDays` on step N means "wait N days BEFORE executing step N"
+    // (seed data: step 0 = delayDays 0, step 1 = delayDays 3, etc.)
+    // So we use the NEXT step's delayDays to schedule when it should fire.
+    const nextStepDef = steps[currentStepIndex + 1];
+    const delayMs = nextStepDef
+      ? (nextStepDef.delayDays ?? 1) * 24 * 60 * 60 * 1000
       : 0;
     const nextStepAt = new Date(Date.now() + delayMs);
 

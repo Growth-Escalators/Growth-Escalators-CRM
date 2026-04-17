@@ -61,6 +61,7 @@ import linksRouter from './routes/links';
 import postizRouter from './routes/postiz';
 import intelligenceChatRouter from './routes/intelligenceChat';
 import clientDetailRouter from './routes/clientDetail';
+import selfServiceRouter from './routes/selfService';
 import { requireAuth, optionalAuth } from './middleware/auth';
 
 const app = express();
@@ -173,6 +174,7 @@ app.use('/api/links', requireAuth, linksRouter);
 app.use('/api/postiz', requireAuth, postizRouter);
 app.use('/api/intelligence', requireAuth, intelligenceChatRouter);
 app.use('/api/clients', requireAuth, clientDetailRouter);
+app.use('/api/self-service', requireAuth, selfServiceRouter);
 app.use('/api/funnel', funnelRouter);
 // Public funnel config endpoint (no auth — used by checkout frontend)
 app.get('/api/funnel-configs/public/:slug', (req, res, next) => { funnelConfigRouter(req, res, next); });
@@ -398,6 +400,11 @@ async function startServer() {
   import('./services/retainerService').then(m => m.ensureRetainerTables()).catch(e => console.error('[startup] Retainer tables bootstrap failed:', e));
   // Bootstrap audit logs table
   import('./services/auditLogger').then(m => m.ensureAuditLogsTable()).catch(e => console.error('[startup] Audit logs bootstrap failed:', e));
+  // Bootstrap SEO content calendar table
+  import('./services/seoContentGapService').then(m => m.ensureContentCalendarTable()).catch(e => console.error('[startup] Content calendar bootstrap failed:', e));
+  // Bootstrap creative intelligence columns + client benchmarks table
+  import('./services/creativeIntelligenceService').then(m => m.ensureCreativeIntelligenceColumns()).catch(e => console.error('[startup] Creative intel columns failed:', e));
+  import('./services/metaAdsService').then(m => m.ensureClientBenchmarksTable()).catch(e => console.error('[startup] Client benchmarks bootstrap failed:', e));
 
   // One-time startup: run PageSpeed if site_health_metrics is empty
   setTimeout(async () => {

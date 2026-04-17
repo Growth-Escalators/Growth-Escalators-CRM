@@ -106,6 +106,18 @@ export async function ensureFinanceTables(): Promise<void> {
     await pool.query(s).catch(e => logger.warn(`[finance] ${e instanceof Error ? e.message : String(e)}`));
   }
 
+  // Add leave balance columns to team_payroll
+  const alterStmts = [
+    `ALTER TABLE team_payroll ADD COLUMN IF NOT EXISTS user_id UUID`,
+    `ALTER TABLE team_payroll ADD COLUMN IF NOT EXISTS casual_leave_balance INTEGER DEFAULT 12`,
+    `ALTER TABLE team_payroll ADD COLUMN IF NOT EXISTS sick_leave_balance INTEGER DEFAULT 6`,
+    `ALTER TABLE team_payroll ADD COLUMN IF NOT EXISTS earned_leave_balance INTEGER DEFAULT 15`,
+    `ALTER TABLE team_attendance ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`,
+  ];
+  for (const s of alterStmts) {
+    await pool.query(s).catch(e => logger.warn(`[finance] ${e instanceof Error ? e.message : String(e)}`));
+  }
+
   logger.info('[finance] Finance tables bootstrapped');
 }
 
@@ -302,4 +314,17 @@ export async function calculatePnL(tenantId: string, month: string): Promise<{
     expensesByCategory: byCatR.rows as Array<{ category: string; color: string; amount: number }>,
     revenueBreakdown: { invoices: invoiceRevenue, other: otherIncome },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Deduct leave balance when a leave is approved
+// ---------------------------------------------------------------------------
+export async function deductLeaveBalance(memberId: string, leaveType: string, days: number): Promise<void> {
+  const column = leaveType === 'sick' ? 'sick_leave_balance'
+    : leaveType === 'earned' ? 'earned_leave_balance'
+    : 'casual_leave_balance';
+
+  await pool.query(`
+    UPDATE team_payroll SET ${column} = GREATEST(${column} - $1, 0) WHERE id = $2
+  `, [days, memberId]);
 }

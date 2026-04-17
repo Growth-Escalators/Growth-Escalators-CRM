@@ -2,14 +2,9 @@ import React, { useEffect, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import { apiFetch } from '../lib/api.js';
 
-// Patch: prevent 'value.toISOString is not a function' crashes globally
-if (typeof window !== 'undefined' && !window.__datePatched) {
-  window.__datePatched = true;
-  const _origToISO = Date.prototype.toISOString;
-  Date.prototype.toISOString = function () {
-    if (isNaN(this.getTime())) return '1970-01-01T00:00:00.000Z';
-    return _origToISO.call(this);
-  };
+function safeISOString(date) {
+  if (!(date instanceof Date) || isNaN(date.getTime())) return '1970-01-01T00:00:00.000Z';
+  return date.toISOString();
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -251,18 +246,18 @@ function ClientModal({ client, onClose, onSaved }) {
 function toDateString(val) {
   if (!val) return '';
   try {
-    if (val instanceof Date) return isNaN(val.getTime()) ? '' : val.toISOString().slice(0, 10);
+    if (val instanceof Date) return isNaN(val.getTime()) ? '' : safeISOString(val).slice(0, 10);
     if (typeof val === 'string' && val.match(/^\d{4}-\d{2}-\d{2}/)) return val.slice(0, 10);
     const d = new Date(val);
-    return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+    return isNaN(d.getTime()) ? '' : safeISOString(d).slice(0, 10);
   } catch { return ''; }
 }
 
 function InvoiceModal({ invoice, clients, onClose, onSaved }) {
   const isEdit = !!invoice;
-  const today = new Date().toISOString().split('T')[0];
+  const today = safeISOString(new Date()).split('T')[0];
   const due = new Date(); due.setDate(due.getDate() + 15);
-  const dueStr = due.toISOString().split('T')[0];
+  const dueStr = safeISOString(due).split('T')[0];
 
   const [form, setForm] = useState(isEdit ? {
     clientId: invoice.client_id || '',
@@ -528,7 +523,7 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
 
 // ── Payment Modal ─────────────────────────────────────────────────────────────
 function PaymentModal({ invoice, onClose, onSaved }) {
-  const today = new Date().toISOString().split('T')[0];
+  const today = safeISOString(new Date()).split('T')[0];
   const [form, setForm] = useState({
     amount: (invoice.amount_due / 100).toString(),
     paymentDate: today,
@@ -899,9 +894,7 @@ export default function BillingPage() {
       setClients(clientData?.clients || []);
       setStats(statsData);
       setPaymentsList(payData?.payments || []);
-    } catch (e) {
-      console.error(e);
-    } finally {
+    } catch { /* handled */ } finally {
       setLoading(false);
     }
   }, []);

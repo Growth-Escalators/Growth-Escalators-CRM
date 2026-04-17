@@ -64,9 +64,30 @@ router.post('/', async (req, res) => {
     return;
   }
 
+  // Validate numeric fields
+  if (value !== undefined && value !== null) {
+    const parsed = Number(value);
+    if (isNaN(parsed) || parsed < 0) {
+      res.status(400).json({ error: 'Deal value must be a positive number' });
+      return;
+    }
+  }
+  if (dealValue !== undefined && dealValue !== null) {
+    const parsed = Number(dealValue);
+    if (isNaN(parsed) || parsed < 0) {
+      res.status(400).json({ error: 'Deal value must be a positive number' });
+      return;
+    }
+  }
+
   const inserted = await db
     .insert(deals)
-    .values({ tenantId, contactId, title, stage, value, dealValue, serviceType, pipelineId, assignedTo, notes, lostReason, wonNotes, metadata })
+    .values({
+      tenantId, contactId, title, stage,
+      value: value !== undefined ? String(value) : undefined,
+      dealValue: dealValue !== undefined ? Number(dealValue) : undefined,
+      serviceType, pipelineId, assignedTo, notes, lostReason, wonNotes, metadata,
+    })
     .returning();
 
   // Update contact's lastActivityAt

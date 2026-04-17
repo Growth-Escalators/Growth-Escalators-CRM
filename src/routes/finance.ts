@@ -444,6 +444,62 @@ router.post('/attendance', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/finance/attendance/calendar — calendar grid view
+// ---------------------------------------------------------------------------
+router.get('/attendance/calendar', async (req: Request, res: Response) => {
+  try {
+    const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
+
+    // All active members
+    const members = await pool.query(
+      "SELECT id, name, role FROM team_payroll WHERE is_active = true ORDER BY sort_order, name"
+    );
+
+    // All attendance records for the month
+    const attendance = await pool.query(`
+      SELECT member_id, attendance_date, status, check_in, check_out, hours_worked
+      FROM team_attendance
+      WHERE to_char(attendance_date, 'YYYY-MM') = $1
+      ORDER BY attendance_date
+    `, [month]);
+
+    // Build grid: { memberId: { 'YYYY-MM-DD': status } }
+    const grid: Record<string, Record<string, any>> = {};
+    for (const m of members.rows) {
+      grid[m.id] = {};
+    }
+    for (const a of attendance.rows) {
+      if (grid[a.member_id]) {
+        grid[a.member_id][a.attendance_date.toISOString().split('T')[0]] = {
+          status: a.status,
+          checkIn: a.check_in,
+          checkOut: a.check_out,
+          hours: a.hours_worked,
+        };
+      }
+    }
+
+    // Leave balances
+    const balances = await pool.query(
+      'SELECT id, casual_leave_balance, sick_leave_balance, earned_leave_balance FROM team_payroll WHERE is_active = true'
+    );
+    const balanceMap: Record<string, any> = {};
+    for (const b of balances.rows) {
+      balanceMap[b.id] = b;
+    }
+
+    res.json({
+      month,
+      members: members.rows,
+      grid,
+      balances: balanceMap,
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to fetch attendance calendar' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/finance/leaves?month=2026-04
 // ---------------------------------------------------------------------------
 router.get('/leaves', async (req: Request, res: Response) => {
@@ -520,11 +576,28 @@ router.patch('/leaves/:id', async (req: Request, res: Response) => {
   }
 
   try {
+    const id = req.params.id;
     await pool.query(
       `UPDATE team_leaves SET status = $3, approved_by = $4
        WHERE id = $1 AND tenant_id = $2`,
-      [req.params.id, tenantId, status, req.user!.id],
+      [id, tenantId, status, req.user!.id],
     );
+
+    // Deduct leave balance when approved
+    if (status === 'approved') {
+      try {
+        const leaveRecord = await pool.query('SELECT member_id, leave_type, days FROM team_leaves WHERE id = $1', [id]);
+        if (leaveRecord.rows.length > 0) {
+          const { deductLeaveBalance } = await import('../services/financeService');
+          await deductLeaveBalance(
+            leaveRecord.rows[0].member_id,
+            leaveRecord.rows[0].leave_type,
+            leaveRecord.rows[0].days,
+          );
+        }
+      } catch { /* non-critical */ }
+    }
+
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });

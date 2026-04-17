@@ -31,7 +31,7 @@ export default function OutreachDashboard() {
       const d = await fetchOutreach('/dashboard');
       setData(d);
       setLastUpdated(new Date());
-    } catch (e) { console.error(e); }
+    } catch { /* handled */ }
     setLoading(false);
   }, []);
 

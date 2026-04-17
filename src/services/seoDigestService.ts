@@ -86,6 +86,24 @@ export async function sendWeeklyOpportunityDigest(): Promise<{ sent: boolean }> 
       lines.push('');
     }
 
+    // Content calendar status
+    try {
+      const calendarStats = await pool.query(`
+        SELECT
+          COUNT(*) FILTER (WHERE status = 'planned') AS planned,
+          COUNT(*) FILTER (WHERE status = 'writing') AS writing,
+          COUNT(*) FILTER (WHERE status = 'review') AS review,
+          COUNT(*) FILTER (WHERE status = 'published' AND updated_at >= NOW() - INTERVAL '30 days') AS published_this_month
+        FROM seo_content_calendar
+      `);
+      const cs = calendarStats.rows[0] as Record<string, unknown> | undefined;
+      if (cs) {
+        lines.push('*Content Pipeline*');
+        lines.push(`• Planned: ${cs.planned} | Writing: ${cs.writing} | In Review: ${cs.review} | Published (30d): ${cs.published_this_month}`);
+        lines.push('');
+      }
+    } catch { /* content calendar not yet set up */ }
+
     lines.push('_View details: /crm/seo_');
 
     const message = lines.join('\n');

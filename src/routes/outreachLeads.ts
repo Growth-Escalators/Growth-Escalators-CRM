@@ -361,7 +361,8 @@ router.get('/replied', async (req: Request, res: Response) => {
   try {
     const leadsResult = await pool.query(`
       SELECT first_name, company, email, country,
-             reply_category, notes, updated_at
+             reply_category, notes, updated_at,
+             draft_reply, classification_confidence, classification_summary
       FROM outreach_leads
       WHERE status = 'Replied'
       ORDER BY updated_at DESC
@@ -483,7 +484,7 @@ router.get('/active', async (req: Request, res: Response) => {
       SELECT id, company, first_name, last_name, email, website_url, icebreaker,
              country, phone, fit_score, enriched_at
       FROM outreach_leads WHERE status = 'Active'
-      ORDER BY enriched_at DESC
+      ORDER BY COALESCE(fit_score, 0) DESC, enriched_at DESC
     `);
     res.json({ total: result.rows.length, leads: result.rows });
   } catch (err) {
@@ -671,6 +672,61 @@ router.patch('/:id/reply', async (req: Request, res: Response) => {
     res.json({ success: true, reply_category });
   } catch (err) {
     res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/outreach/leads/:id/auto-classify — AI-powered reply classification
+// ---------------------------------------------------------------------------
+router.post('/:id/auto-classify', async (req: Request, res: Response) => {
+  if (!checkInternalSecret(req, res)) return;
+  try {
+    const id = req.params.id as string;
+    const { replyBody } = req.body as { replyBody?: string };
+
+    if (!replyBody) return res.status(400).json({ error: 'replyBody is required' });
+
+    // Get the lead's icebreaker and company
+    const lead = await pool.query(
+      'SELECT id, company, icebreaker FROM outreach_leads WHERE id = $1',
+      [id],
+    );
+    if (lead.rows.length === 0) return res.status(404).json({ error: 'Lead not found' });
+
+    const { company, icebreaker } = lead.rows[0] as { company: string; icebreaker: string | null };
+
+    const { classifyReplyWithAI } = await import('../services/outreachEnrichmentService');
+    const classification = await classifyReplyWithAI(replyBody, icebreaker || '', company || '');
+
+    // Update the lead with classification results
+    await pool.query(`
+      UPDATE outreach_leads
+      SET reply_category = $1,
+          classification_confidence = $2,
+          classification_summary = $3,
+          draft_reply = $4,
+          status = 'Replied',
+          reply_time = COALESCE(reply_time, NOW()),
+          updated_at = NOW()
+      WHERE id = $5
+    `, [classification.category, classification.confidence, classification.summary, classification.draftReply, id]);
+
+    // If INTERESTED, trigger CRM promotion
+    if (classification.category === 'INTERESTED') {
+      try {
+        const { promoteInterestedLead } = await import('../services/outreachCrmSyncService');
+        await promoteInterestedLead(parseInt(id, 10));
+      } catch { /* non-critical */ }
+    }
+
+    res.json({
+      id: parseInt(id, 10),
+      ...classification,
+      status: 'classified',
+    });
+  } catch (err) {
+    logger.error({ err }, '[outreach-leads] auto-classify error');
+    res.status(500).json({ error: 'Classification failed' });
   }
 });
 

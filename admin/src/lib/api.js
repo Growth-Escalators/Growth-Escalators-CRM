@@ -13,8 +13,8 @@ export async function apiFetch(path, options = {}) {
   if (res.status === 401) {
     localStorage.removeItem('ge_crm_token');
     localStorage.removeItem('ge_crm_user');
-    window.location.href = '/login';
-    return null;
+    window.location.href = '/crm/login';
+    throw new Error('Session expired');
   }
 
   const data = await res.json().catch(() => null);

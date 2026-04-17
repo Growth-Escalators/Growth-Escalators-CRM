@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { db } from '../db/index';
+import { db, pool } from '../db/index';
 import { sql } from 'drizzle-orm';
 import { requirePermission } from '../middleware/rbac';
 
@@ -190,6 +190,37 @@ router.get('/team-performance', requirePermission('REPORTS_VIEW'), async (_req: 
     res.json({ members });
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/analytics/attribution — UTM attribution report
+// ---------------------------------------------------------------------------
+router.get('/attribution', requirePermission('REPORTS_VIEW'), async (_req: Request, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        metadata->>'utm_source' AS source,
+        metadata->>'utm_medium' AS medium,
+        metadata->>'utm_campaign' AS campaign,
+        metadata->>'utm_content' AS content,
+        COUNT(*) AS purchases,
+        SUM((metadata->>'paidAmount')::numeric) AS total_revenue,
+        ROUND(AVG((metadata->>'paidAmount')::numeric)) AS avg_order_value
+      FROM contacts
+      WHERE metadata->>'paymentStatus' = 'paid'
+        AND metadata->>'utm_source' IS NOT NULL
+      GROUP BY
+        metadata->>'utm_source',
+        metadata->>'utm_medium',
+        metadata->>'utm_campaign',
+        metadata->>'utm_content'
+      ORDER BY COUNT(*) DESC
+      LIMIT 50
+    `);
+    res.json(result.rows);
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to fetch attribution data' });
   }
 });
 

@@ -38,9 +38,15 @@ export default function CheckoutPage() {
   const bump2Price = funnelConfig?.bump2_price ?? null;
   const hasBump1 = bump1Price != null && bump1Price > 0;
   const hasBump2 = bump2Price != null && bump2Price > 0;
-  const SEGMENT_OPTIONS = (funnelConfig?.segment_options && Array.isArray(funnelConfig.segment_options))
-    ? funnelConfig.segment_options
-    : (typeof funnelConfig?.segment_options === 'string' ? JSON.parse(funnelConfig.segment_options) : FALLBACK_SEGMENTS);
+  let parsedSegments = FALLBACK_SEGMENTS;
+  try {
+    if (funnelConfig?.segment_options) {
+      parsedSegments = Array.isArray(funnelConfig.segment_options)
+        ? funnelConfig.segment_options
+        : (typeof funnelConfig.segment_options === 'string' ? JSON.parse(funnelConfig.segment_options) : FALLBACK_SEGMENTS);
+    }
+  } catch { parsedSegments = FALLBACK_SEGMENTS; }
+  const SEGMENT_OPTIONS = parsedSegments;
   const productName = funnelConfig?.product_name ?? 'D2C Funnel Breakdown Pack';
   const accentColor = funnelConfig?.accent_color ?? '#F97316';
   const heroHeadline = funnelConfig?.hero_headline ?? 'Top 5 D2C Brand Funnel Breakdown';

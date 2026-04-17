@@ -158,7 +158,7 @@ export default function WhatsAppTemplatesPage() {
     setLoading(true);
     apiFetch('/api/whatsapp/templates')
       .then(d => setTemplates(d?.templates || []))
-      .catch(e => console.error(e))
+      .catch(() => { /* handled */ })
       .finally(() => setLoading(false));
   }, []);
 

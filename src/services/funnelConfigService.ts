@@ -342,9 +342,14 @@ export async function ensureDeliveryLogTable(): Promise<void> {
     )
   `).catch(e => logger.warn(`[delivery-log] ${e instanceof Error ? e.message : String(e)}`));
 
+  // Add retry columns (idempotent — safe for existing tables)
+  await pool.query(`ALTER TABLE purchase_delivery_log ADD COLUMN IF NOT EXISTS retry_count INTEGER DEFAULT 0`).catch(() => {});
+  await pool.query(`ALTER TABLE purchase_delivery_log ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMP`).catch(() => {});
+
   await pool.query(`CREATE INDEX IF NOT EXISTS pdl_contact_idx ON purchase_delivery_log(contact_id)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS pdl_funnel_idx ON purchase_delivery_log(funnel_slug)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS pdl_manual_idx ON purchase_delivery_log(manual_followup_needed) WHERE manual_followup_needed = TRUE`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS pdl_retry_idx ON purchase_delivery_log(next_retry_at) WHERE retry_count < 3 AND next_retry_at IS NOT NULL`).catch(() => {});
 
   logger.info('[delivery-log] Table bootstrapped');
 }

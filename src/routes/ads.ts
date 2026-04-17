@@ -411,4 +411,51 @@ router.post('/slack-alert', async (req: Request, res: Response) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// GET /api/ads/creative-intelligence — all tracked creatives with tags
+// ---------------------------------------------------------------------------
+router.get('/creative-intelligence', async (_req: Request, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT ad_id, ad_name, campaign_name,
+             creative_tags, creative_content,
+             peak_roas, latest_roas, peak_ctr, latest_ctr,
+             fatigue_status, creative_brief,
+             updated_at
+      FROM creative_intelligence
+      WHERE creative_tags IS NOT NULL
+      ORDER BY latest_roas DESC NULLS LAST
+    `);
+    res.json(result.rows);
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to fetch creative intelligence' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/ads/creative-patterns — what types of creatives work best
+// ---------------------------------------------------------------------------
+router.get('/creative-patterns', async (_req: Request, res: Response) => {
+  try {
+    const { getCreativePatterns } = await import('../services/creativeIntelligenceService');
+    const patterns = await getCreativePatterns();
+    res.json(patterns);
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to fetch creative patterns' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/ads/creative-fatigue — fatiguing creatives with context
+// ---------------------------------------------------------------------------
+router.get('/creative-fatigue', async (_req: Request, res: Response) => {
+  try {
+    const { getFatiguingCreativesWithContext } = await import('../services/creativeIntelligenceService');
+    const fatiguing = await getFatiguingCreativesWithContext();
+    res.json(fatiguing);
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to fetch fatiguing creatives' });
+  }
+});
+
 export default router;

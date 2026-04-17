@@ -35,6 +35,9 @@ export async function ensureOutreachLeadsTable(): Promise<void> {
     `ALTER TABLE outreach_leads ADD COLUMN IF NOT EXISTS assigned_to  VARCHAR(100)`,
     `ALTER TABLE outreach_leads ADD COLUMN IF NOT EXISTS last_name    VARCHAR(200)`,
     `ALTER TABLE outreach_leads ADD COLUMN IF NOT EXISTS enriched_at  TIMESTAMP`,
+    `ALTER TABLE outreach_leads ADD COLUMN IF NOT EXISTS draft_reply  TEXT`,
+    `ALTER TABLE outreach_leads ADD COLUMN IF NOT EXISTS classification_confidence INTEGER`,
+    `ALTER TABLE outreach_leads ADD COLUMN IF NOT EXISTS classification_summary   TEXT`,
   ];
   for (const stmt of alterStmts) {
     await pool.query(stmt);

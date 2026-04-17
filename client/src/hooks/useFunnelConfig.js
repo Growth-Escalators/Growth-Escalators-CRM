@@ -16,9 +16,12 @@ export function useFunnelConfig() {
   useEffect(() => {
     const slug = detectFunnelSlug();
 
-    // Check sessionStorage cache first
+    // Check sessionStorage cache first (with TTL)
     const cached = sessionStorage.getItem(`funnel_config_${slug}`);
-    if (cached) {
+    const cacheTime = sessionStorage.getItem(`funnel_config_${slug}_ts`);
+    const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+    if (cached && cacheTime && (Date.now() - parseInt(cacheTime)) < CACHE_TTL) {
       try {
         setConfig(JSON.parse(cached));
         setLoading(false);
@@ -35,6 +38,7 @@ export function useFunnelConfig() {
         if (data.config) {
           setConfig(data.config);
           sessionStorage.setItem(`funnel_config_${slug}`, JSON.stringify(data.config));
+          sessionStorage.setItem(`funnel_config_${slug}_ts`, String(Date.now()));
           sessionStorage.setItem('ge_funnel_slug', slug);
         } else {
           throw new Error('No config returned');
