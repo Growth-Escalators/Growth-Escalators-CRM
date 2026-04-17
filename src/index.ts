@@ -407,82 +407,116 @@ async function startServer() {
   import('./services/creativeIntelligenceService').then(m => m.ensureCreativeIntelligenceColumns()).catch(e => console.error('[startup] Creative intel columns failed:', e));
   import('./services/metaAdsService').then(m => m.ensureClientBenchmarksTable()).catch(e => console.error('[startup] Client benchmarks bootstrap failed:', e));
 
-  // One-time startup: backfill unplaced pipeline contacts (runs 20s after boot)
+  // One-time startup: comprehensive backfill — finds ALL purchases and places them
+  // Runs 20s after boot. Looks at deals + contacts (not just slo_purchase events)
+  // because the webhook was broken and no events were created for past purchases.
   setTimeout(async () => {
     try {
       const { pool: dbPool } = await import('./db/index');
       const { placePipelineContact, ensurePipelineContactsTable } = await import('./services/pipelineService');
 
-      // Ensure table exists first
       await ensurePipelineContactsTable();
 
-      // Check pipelines exist
       const pipesCheck = await dbPool.query("SELECT name FROM pipelines WHERE is_active = true");
       console.log(`[startup-backfill] Active pipelines: ${pipesCheck.rows.map((r: {name: string}) => r.name).join(', ') || 'NONE'}`);
-
       if (pipesCheck.rows.length === 0) {
-        console.warn('[startup-backfill] No active pipelines found — skipping backfill');
+        console.warn('[startup-backfill] No active pipelines found — skipping');
         return;
       }
 
-      const unplaced = await dbPool.query(`
-        SELECT e.id, e.contact_id, e.payload, e.tenant_id
-        FROM events e
-        WHERE e.event_type = 'slo_purchase'
-          AND e.contact_id IS NOT NULL
-          AND NOT EXISTS (SELECT 1 FROM pipeline_contacts pc WHERE pc.contact_id = e.contact_id)
-        ORDER BY e.created_at ASC
+      // Phase 1: Find ALL contacts with purchase evidence NOT in a pipeline
+      // Sources: deals, slo_buyer tag, paymentStatus=paid metadata
+      const { rows: purchaseContacts } = await dbPool.query(`
+        SELECT DISTINCT ON (c.id)
+          c.id AS contact_id, c.first_name, c.last_name, c.tenant_id,
+          c.metadata, c.tags,
+          d.value AS deal_value
+        FROM contacts c
+        LEFT JOIN deals d ON d.contact_id = c.id
+        WHERE (
+          d.id IS NOT NULL
+          OR 'slo_buyer' = ANY(c.tags)
+          OR c.metadata->>'paymentStatus' = 'paid'
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM pipeline_contacts pc WHERE pc.contact_id = c.id
+        )
+        ORDER BY c.id, d.created_at DESC
       `);
 
-      console.log(`[startup-backfill] Found ${unplaced.rows.length} unplaced contact(s)`);
+      console.log(`[startup-backfill] Found ${purchaseContacts.length} unplaced purchase contact(s)`);
 
-      if (unplaced.rows.length === 0) {
-        // Also check: maybe pipeline_contacts exist but deals don't have pipeline_id
+      if (purchaseContacts.length === 0) {
+        // Still fix orphan deals (pipeline_id = NULL)
         const orphanDeals = await dbPool.query("SELECT COUNT(*)::int AS count FROM deals WHERE pipeline_id IS NULL");
-        const orphanCount = orphanDeals.rows[0].count;
+        const orphanCount = (orphanDeals.rows[0] as { count: number }).count;
         if (orphanCount > 0) {
-          console.log(`[startup-backfill] ${orphanCount} deal(s) have NULL pipeline_id — fixing...`);
-          // Link deals to pipelines using pipeline_contacts
+          console.log(`[startup-backfill] Fixing ${orphanCount} orphan deal(s)...`);
           await dbPool.query(`
-            UPDATE deals d SET
-              pipeline_id = pc.pipeline_id,
-              stage = pc.stage_name,
-              updated_at = NOW()
-            FROM pipeline_contacts pc
-            WHERE d.contact_id = pc.contact_id
-              AND d.pipeline_id IS NULL
+            UPDATE deals d SET pipeline_id = pc.pipeline_id, stage = pc.stage_name, updated_at = NOW()
+            FROM pipeline_contacts pc WHERE d.contact_id = pc.contact_id AND d.pipeline_id IS NULL
           `);
           const fixed = await dbPool.query("SELECT COUNT(*)::int AS count FROM deals WHERE pipeline_id IS NULL");
-          console.log(`[startup-backfill] Fixed orphan deals: ${orphanCount - fixed.rows[0].count} linked, ${fixed.rows[0].count} still unlinked`);
+          console.log(`[startup-backfill] Orphan deals: ${orphanCount - (fixed.rows[0] as { count: number }).count} fixed, ${(fixed.rows[0] as { count: number }).count} remain`);
         }
         return;
       }
 
       let placed = 0;
       let failed = 0;
-      for (const row of unplaced.rows as Array<{ contact_id: string; payload: Record<string, unknown>; tenant_id: string }>) {
+      let eventsCreated = 0;
+
+      for (const row of purchaseContacts as Array<Record<string, unknown>>) {
+        const contactId = row.contact_id as string;
+        const tenantId = row.tenant_id as string;
+        const meta = (row.metadata || {}) as Record<string, unknown>;
+        const tags = (row.tags || []) as string[];
+        const dealValue = row.deal_value ? Number(row.deal_value) : null;
+
+        // Determine segment
+        let segment = (meta.segment as string) || 'd2c';
+        if (segment === 'unknown') {
+          if (tags.some(t => t.includes('agency'))) segment = 'agency';
+          else if (tags.some(t => t.includes('freelancer'))) segment = 'freelancer';
+          else segment = 'd2c';
+        }
+
+        const amount = typeof meta.paidAmount === 'number' ? Math.round(meta.paidAmount) : (dealValue ? Math.round(dealValue) : 9);
+        const funnelSlug = (meta.funnelSlug as string) || 'ecom';
+
+        // Create missing slo_purchase event
+        const existing = await dbPool.query(
+          "SELECT id FROM events WHERE event_type = 'slo_purchase' AND contact_id = $1 LIMIT 1", [contactId],
+        );
+        if (existing.rows.length === 0) {
+          await dbPool.query(
+            `INSERT INTO events (id, tenant_id, contact_id, event_type, payload, created_at)
+             VALUES (gen_random_uuid(), $1, $2, 'slo_purchase', $3::jsonb, NOW())`,
+            [tenantId, contactId, JSON.stringify({ amount, segment, products: ['core_product'], funnelSlug, backfilled: true })],
+          );
+          eventsCreated++;
+        }
+
+        // Place in pipeline
         try {
           const r = await placePipelineContact({
-            contactId: row.contact_id,
-            segment: (row.payload?.segment as string) || 'd2c',
-            amount: typeof row.payload?.amount === 'number' ? row.payload.amount : 9,
-            bump1: Boolean(row.payload?.bump1),
-            bump2: Boolean(row.payload?.bump2),
-            tenantId: row.tenant_id,
-            funnelSlug: (row.payload?.funnelSlug as string) || 'ecom',
+            contactId, segment, amount,
+            bump1: Boolean(meta.bump1), bump2: Boolean(meta.bump2),
+            tenantId, funnelSlug,
           });
           if (r.success) {
             placed++;
+            console.log(`[startup-backfill] Placed ${row.first_name} ${row.last_name || ''} → ${r.pipeline} / ${r.stage}`);
           } else {
             failed++;
-            console.warn(`[startup-backfill] FAILED for ${row.contact_id}: pipeline=${r.pipeline}, stage=${r.stage}`);
+            console.warn(`[startup-backfill] FAILED for ${row.first_name}: pipeline=${r.pipeline}, stage=${r.stage}`);
           }
         } catch (e) {
           failed++;
-          console.error(`[startup-backfill] ERROR for ${row.contact_id}:`, (e as Error).message);
+          console.error(`[startup-backfill] ERROR for ${contactId}:`, (e as Error).message);
         }
       }
-      console.log(`[startup-backfill] Complete: ${placed} placed, ${failed} failed out of ${unplaced.rows.length}`);
+      console.log(`[startup-backfill] Complete: ${placed} placed, ${failed} failed, ${eventsCreated} events created`);
     } catch (e) { console.error('[startup-backfill] FATAL:', e); }
   }, 20000);
 
