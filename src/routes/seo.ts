@@ -202,26 +202,47 @@ router.get('/workflows', async (_req: Request, res: Response) => {
 router.post('/trigger/:workflowId', async (req: Request, res: Response) => {
   const { workflowId } = req.params;
   const workflow = WORKFLOWS.find(w => w.id === workflowId);
-  // Also look up the correct zero-padded webhook path from SEO_WORKFLOWS
   const seoWf = SEO_WORKFLOWS.find(w => w.id === workflowId);
   if (!workflow) {
     res.status(404).json({ error: 'Workflow not found' });
     return;
   }
+
+  const webhookPath = seoWf?.webhookPath ?? `mtrig-seo${String(workflow.num).padStart(2, '0')}`;
+
+  // Backend-native services — run directly without n8n
+  const BACKEND_SERVICES: Record<string, () => Promise<{ ok: boolean; detail: string }>> = {
+    'mtrig-seo02': async () => { const { runSeoAlertChecks } = await import('../services/seoAlertService'); const r = await runSeoAlertChecks(); return { ok: true, detail: `${r.alerts} alerts generated` }; },
+    'mtrig-seo05': async () => { const { runPageSpeedChecks } = await import('../services/pagespeedService'); const r = await runPageSpeedChecks(); return { ok: true, detail: `${r.checked} sites checked` }; },
+    'mtrig-seo06': async () => { const { runRankChecks } = await import('../services/rankTrackingService'); const r = await runRankChecks(); return { ok: true, detail: `${r.checked} keywords checked` }; },
+    'mtrig-seo07': async () => { const { runContentGapAnalysis } = await import('../services/seoContentGapService'); const r = await runContentGapAnalysis(); return { ok: true, detail: `${r.gaps} gaps found` }; },
+    'mtrig-seo08': async () => { const { runBacklinkCheck } = await import('../services/seoBacklinkService'); const r = await runBacklinkCheck(); return { ok: true, detail: `${r.found} backlinks found` }; },
+    'mtrig-seo11': async () => { const { runContentDecayDetection } = await import('../services/seoContentDecayService'); const r = await runContentDecayDetection(); return { ok: true, detail: `${r.opportunities} opportunities` }; },
+    'mtrig-seo12': async () => { const { sendWeeklyOpportunityDigest } = await import('../services/seoDigestService'); const r = await sendWeeklyOpportunityDigest(); return { ok: r.sent, detail: r.sent ? 'Digest sent' : 'Send failed' }; },
+  };
+
   try {
-    // Use the canonical webhookPath (e.g. 'mtrig-seo01') not the numeric shorthand
-    const webhookPath = seoWf?.webhookPath ?? `mtrig-seo${String(workflow.num).padStart(2, '0')}`;
-    const webhookUrl = `${N8N_BASE}/webhook/${webhookPath}`;
-    const triggerRes = await fetch(webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        triggered_by: (req as Request & { user?: { id: string } }).user?.id ?? 'manual',
-        triggered_at: new Date().toISOString(),
-      }),
-    });
-    logger.info(`[seo] triggered ${workflow.name} → ${triggerRes.status}`);
-    res.json({ ok: triggerRes.ok, workflow: workflow.name, status: triggerRes.status });
+    const backendService = BACKEND_SERVICES[webhookPath];
+    if (backendService) {
+      // Run backend-native service directly (no n8n needed)
+      const result = await backendService();
+      logger.info(`[seo] ran ${workflow.name} (backend-native) → ${result.detail}`);
+      res.json({ ok: result.ok, workflow: workflow.name, method: 'backend', detail: result.detail });
+    } else {
+      // Fallback to n8n webhook for workflows without backend implementation
+      const webhookUrl = `${N8N_BASE}/webhook/${webhookPath}`;
+      const triggerRes = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          triggered_by: (req as Request & { user?: { id: string } }).user?.id ?? 'manual',
+          triggered_at: new Date().toISOString(),
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+      logger.info(`[seo] triggered ${workflow.name} via n8n → ${triggerRes.status}`);
+      res.json({ ok: triggerRes.ok, workflow: workflow.name, method: 'n8n', status: triggerRes.status });
+    }
   } catch (e) {
     logger.error('[seo] trigger error:', e);
     res.status(500).json({ error: 'Failed to trigger workflow' });
