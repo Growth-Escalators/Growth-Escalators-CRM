@@ -78,6 +78,48 @@ router.get('/diagnose', async (req, res) => {
       effective_token: !!(process.env.META_CAPI_TOKEN || process.env.META_ACCESS_TOKEN),
     };
 
+    // Auto-fix: for deals without pipeline, try to place them using contact metadata
+    if ((results.deals_without_pipeline as number) > 0) {
+      try {
+        const { placePipelineContact } = await import('../services/pipelineService');
+        const orphanDeals = await pool.query(`
+          SELECT d.id, d.contact_id, d.tenant_id, d.value, d.stage,
+                 c.metadata, c.tags
+          FROM deals d
+          JOIN contacts c ON c.id = d.contact_id
+          WHERE d.pipeline_id IS NULL
+          ORDER BY d.created_at DESC
+        `);
+
+        const fixResults: Array<{ dealId: string; success: boolean; error?: string }> = [];
+        for (const deal of orphanDeals.rows as Array<Record<string, unknown>>) {
+          const meta = (deal.metadata || {}) as Record<string, unknown>;
+          const tags = (deal.tags || []) as string[];
+          const segment = (meta.segment as string) || (tags.includes('agency') ? 'agency' : 'd2c');
+          const amount = typeof meta.paidAmount === 'number' ? Math.round(meta.paidAmount) : (Number(deal.value) || 9);
+          const funnelSlug = (meta.funnelSlug as string) || 'ecom';
+
+          try {
+            const r = await placePipelineContact({
+              contactId: deal.contact_id as string,
+              segment,
+              amount,
+              bump1: Boolean(meta.bump1),
+              bump2: Boolean(meta.bump2),
+              tenantId: deal.tenant_id as string,
+              funnelSlug,
+            });
+            fixResults.push({ dealId: deal.id as string, success: r.success, error: r.success ? undefined : `pipeline=${r.pipeline} stage=${r.stage}` });
+          } catch (e) {
+            fixResults.push({ dealId: deal.id as string, success: false, error: (e as Error).message });
+          }
+        }
+        results.orphan_deals_fix = fixResults;
+      } catch (e) {
+        results.orphan_deals_fix_error = (e as Error).message;
+      }
+    }
+
     res.json(results);
   } catch (e) {
     res.status(500).json({ error: (e as Error).message });

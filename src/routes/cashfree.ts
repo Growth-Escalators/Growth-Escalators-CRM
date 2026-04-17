@@ -129,15 +129,14 @@ router.post('/webhook', async (req: Request, res: Response) => {
     utm_term: (orderMeta.utm_term as string) || null,
   };
 
-  const client = await pool.connect();
   try {
     // Idempotency check (before any writes)
     const existing = await db.select().from(processedEvents).where(eq(processedEvents.eventId, cfPaymentId)).limit(1);
-    if (existing.length > 0) { client.release(); res.json({ ok: true }); return; }
+    if (existing.length > 0) { res.json({ ok: true }); return; }
 
     // Tenant lookup
     const [tenant] = await db.select().from(tenants).where(eq(tenants.slug, 'growth-escalators')).limit(1);
-    if (!tenant) { client.release(); res.json({ ok: true }); return; }
+    if (!tenant) { res.json({ ok: true }); return; }
 
     // Load funnel config (config-driven — no more hardcoded values)
     const funnelConfig = await getFunnelConfig(funnelSlug, tenant.id);
@@ -173,8 +172,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const firstName = parts[0] ?? name;
     const lastName = parts.slice(1).join(' ') || undefined;
 
-    // --- BEGIN TRANSACTION for all database writes ---
-    await client.query('BEGIN');
+    // --- Database writes (sequential, each auto-commits via pool) ---
 
     const { contact } = await findOrCreateContact(tenant.id, {
       firstName, lastName, source: 'checkout', channels,
@@ -200,17 +198,27 @@ router.post('/webhook', async (req: Request, res: Response) => {
       title: `${funnelConfig?.name || 'SLO'} Purchase — ${name}`, stage, serviceType, value: String(orderAmount),
     });
 
-    // Log event (include funnelSlug in payload for worker to read)
-    await db.insert(events).values({
-      tenantId: tenant.id, contactId: contact.id, eventType: 'slo_purchase',
-      payload: { amount: orderAmount, segment, products, cfPaymentId, funnelSlug },
-    });
+    // Log slo_purchase event — critical for pipeline placement worker
+    try {
+      await db.insert(events).values({
+        tenantId: tenant.id, contactId: contact.id, eventType: 'slo_purchase',
+        payload: { amount: orderAmount, segment, products, cfPaymentId, funnelSlug },
+      });
+    } catch (eventErr) {
+      // Fallback: try raw SQL if Drizzle insert fails
+      logger.error('[cashfree] event insert via Drizzle failed, trying raw SQL:', eventErr);
+      await pool.query(
+        `INSERT INTO events (id, tenant_id, contact_id, event_type, payload, created_at)
+         VALUES (gen_random_uuid(), $1, $2, 'slo_purchase', $3::jsonb, NOW())`,
+        [tenant.id, contact.id, JSON.stringify({ amount: orderAmount, segment, products, cfPaymentId, funnelSlug })],
+      );
+      logger.info('[cashfree] event inserted via raw SQL fallback');
+    }
 
-    // Mark as processed (inside transaction to ensure atomicity)
+    // Mark as processed (prevents duplicate processing on webhook retry)
     await db.insert(processedEvents).values({ eventId: cfPaymentId, source: 'cashfree' });
 
-    await client.query('COMMIT');
-    // --- END TRANSACTION ---
+    // --- End of database writes ---
 
     // === Fire-and-forget notifications (outside transaction) ===
 
@@ -323,12 +331,9 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
     res.json({ ok: true });
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
     const msg = err instanceof Error ? err.message : String(err);
     logger.error('[cashfree webhook] error:', msg);
     res.status(500).json({ error: msg });
-  } finally {
-    client.release();
   }
 });
 
