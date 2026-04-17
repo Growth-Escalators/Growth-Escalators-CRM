@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { db } from '../db';
+import { db, pool } from '../db';
 import { sql } from 'drizzle-orm';
 import logger from '../utils/logger';
 import { SEO_WORKFLOWS } from '../services/seoWorkflowHealthService';
@@ -28,53 +28,61 @@ const WORKFLOWS = [
 // ---------------------------------------------------------------------------
 router.get('/overview', async (_req: Request, res: Response) => {
   try {
-    // Current week and previous week per client for WoW trend
-    const result = await db.execute(sql`
-      WITH ranked AS (
-        SELECT
-          client_domain,
-          client_name,
-          week_start,
-          total_clicks,
-          total_impressions,
-          avg_position,
-          total_sessions,
-          ROW_NUMBER() OVER (PARTITION BY client_domain ORDER BY week_start DESC) AS rn
-        FROM seo_weekly_metrics
-      ),
-      current_week AS (
-        SELECT * FROM ranked WHERE rn = 1
-      ),
-      prev_week AS (
-        SELECT * FROM ranked WHERE rn = 2
-      )
+    // Per-client keyword ranking summary (works without GSC/GA4)
+    const clientStats = await pool.query(`
       SELECT
-        c.client_domain,
-        c.client_name,
-        c.week_start                    AS last_updated,
-        c.total_clicks,
-        c.total_impressions,
-        ROUND(c.avg_position::numeric, 1) AS avg_position,
-        c.total_sessions,
-        CASE
-          WHEN c.total_impressions > 0
-          THEN ROUND((c.total_clicks::numeric / c.total_impressions * 100), 2)
-          ELSE 0
-        END AS avg_ctr,
-        p.total_clicks                  AS prev_clicks,
-        p.total_impressions             AS prev_impressions,
-        ROUND(p.avg_position::numeric, 1) AS prev_position,
-        p.total_sessions                AS prev_sessions,
-        CASE
-          WHEN p.total_impressions > 0
-          THEN ROUND((p.total_clicks::numeric / p.total_impressions * 100), 2)
-          ELSE 0
-        END AS prev_ctr
-      FROM current_week c
-      LEFT JOIN prev_week p ON c.client_domain = p.client_domain
-      ORDER BY c.total_clicks DESC
+        COALESCE(client_domain, project_name) AS client_domain,
+        MAX(COALESCE(client_domain, project_name)) AS client_name,
+        COUNT(DISTINCT keyword) AS total_keywords,
+        COUNT(*) FILTER (WHERE current_position IS NOT NULL AND current_position <= 3) AS top_3,
+        COUNT(*) FILTER (WHERE current_position IS NOT NULL AND current_position <= 10) AS page_1,
+        COUNT(*) FILTER (WHERE current_position IS NOT NULL AND current_position <= 20) AS page_2,
+        ROUND(AVG(current_position)::numeric, 1) AS avg_position,
+        COUNT(*) FILTER (WHERE position_change > 0) AS keywords_improved,
+        COUNT(*) FILTER (WHERE position_change < 0) AS keywords_dropped,
+        COUNT(*) FILTER (WHERE position_change = 0 OR position_change IS NULL) AS keywords_stable,
+        COUNT(*) FILTER (WHERE featured_snippet = true) AS featured_snippets,
+        MAX(COALESCE(checked_at, recorded_date::timestamp)) AS last_checked
+      FROM keyword_rankings
+      WHERE keyword IS NOT NULL
+      GROUP BY COALESCE(client_domain, project_name)
+      ORDER BY COALESCE(client_domain, project_name)
     `);
-    res.json({ clients: result.rows });
+
+    // Site health per client
+    const healthStats = await pool.query(`
+      SELECT DISTINCT ON (project_name) project_name AS client_domain,
+        pagespeed_mobile, pagespeed_desktop, lcp, cls, checked_at
+      FROM site_health_metrics ORDER BY project_name, checked_at DESC
+    `);
+    const healthMap: Record<string, Record<string, unknown>> = {};
+    for (const h of healthStats.rows as Array<Record<string, unknown>>) {
+      healthMap[h.client_domain as string] = h;
+    }
+
+    // Aggregate totals
+    const totals = await pool.query(`
+      SELECT
+        COUNT(DISTINCT keyword) AS total_keywords,
+        COUNT(*) FILTER (WHERE current_position IS NOT NULL AND current_position <= 10) AS total_page_1,
+        COUNT(*) FILTER (WHERE position_change > 0) AS total_improved,
+        COUNT(*) FILTER (WHERE position_change < 0) AS total_dropped,
+        COUNT(*) FILTER (WHERE featured_snippet = true) AS total_featured
+      FROM keyword_rankings WHERE keyword IS NOT NULL
+    `);
+
+    const opps = await pool.query(`SELECT COUNT(*)::int AS count FROM seo_opportunities WHERE status = 'open'`).catch(() => ({ rows: [{ count: 0 }] }));
+    const alerts = await pool.query(`SELECT COUNT(*)::int AS count FROM seo_alerts_log WHERE created_at > NOW() - INTERVAL '7 days'`).catch(() => ({ rows: [{ count: 0 }] }));
+    const backlinks = await pool.query(`SELECT COUNT(*)::int AS count FROM backlink_data WHERE status = 'active'`).catch(() => ({ rows: [{ count: 0 }] }));
+
+    res.json({
+      clients: clientStats.rows,
+      health: healthMap,
+      totals: totals.rows[0],
+      openOpportunities: (opps.rows[0] as Record<string, number>)?.count ?? 0,
+      recentAlerts: (alerts.rows[0] as Record<string, number>)?.count ?? 0,
+      activeBacklinks: (backlinks.rows[0] as Record<string, number>)?.count ?? 0,
+    });
   } catch (e) {
     logger.error('[seo] overview error:', e);
     res.status(500).json({ error: 'Failed to fetch SEO overview' });

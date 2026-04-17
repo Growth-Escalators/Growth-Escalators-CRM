@@ -106,82 +106,111 @@ function timeAgo(dateStr) {
 // ---------------------------------------------------------------------------
 // Overview Tab — card per client with metrics + WoW trend
 // ---------------------------------------------------------------------------
-function OverviewTab({ clients, loading, onClientClick }) {
-  if (loading) {
-    return (
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-        {[1, 2, 3].map(i => (
-          <div key={i} className="h-56 bg-white rounded-xl border border-slate-200 animate-pulse" />
-        ))}
-      </div>
-    );
-  }
+function OverviewTab() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  if (!clients || clients.length === 0) {
+  useEffect(() => {
+    apiFetch('/api/seo/overview')
+      .then(d => setData(d))
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="flex justify-center py-16"><RefreshCw className="w-6 h-6 animate-spin text-slate-400" /></div>;
+
+  if (!data || !data.clients || data.clients.length === 0) {
     return (
       <div className="py-16 text-center">
         <BarChart2 className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-        <p className="text-slate-500 text-sm">No SEO data yet. Run the GSC + GA4 Data Pull workflow to get started.</p>
+        <p className="text-slate-500 text-sm font-medium">No SEO data yet</p>
+        <p className="text-slate-400 text-xs mt-1">Go to Workflows tab and click "Run All Workflows" to populate data.</p>
       </div>
     );
   }
 
+  const t = data.totals || {};
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-      {clients.map(client => {
-        const knownClient = CLIENTS.find(c => c.domain === client.client_domain);
-        const displayName = client.client_name || knownClient?.label || client.client_domain;
-
-        return (
-          <div key={client.client_domain}
-            onClick={() => onClientClick?.(client.client_domain)}
-            className="bg-white rounded-xl border border-slate-200 p-5 hover:shadow-md hover:border-sky-300 transition-all cursor-pointer">
-            {/* Header */}
-            <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100">
-              <Globe className="w-4 h-4 text-sky-500 flex-shrink-0" />
-              <div className="min-w-0">
-                <p className="font-semibold text-slate-800 text-sm truncate">{displayName}</p>
-                <p className="text-xs text-slate-400 truncate">{client.client_domain}</p>
-              </div>
-            </div>
-
-            {/* Metrics grid */}
-            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-              {/* Clicks */}
-              <div>
-                <p className="text-xs text-slate-500 mb-0.5">Total Clicks</p>
-                <p className="text-xl font-bold text-slate-900">{fmt(client.total_clicks)}</p>
-                <div className="mt-0.5">{trendArrow(client.total_clicks, client.prev_clicks)}</div>
-              </div>
-              {/* Impressions */}
-              <div>
-                <p className="text-xs text-slate-500 mb-0.5">Impressions</p>
-                <p className="text-xl font-bold text-slate-900">{fmt(client.total_impressions)}</p>
-                <div className="mt-0.5">{trendArrow(client.total_impressions, client.prev_impressions)}</div>
-              </div>
-              {/* Avg CTR */}
-              <div>
-                <p className="text-xs text-slate-500 mb-0.5">Avg CTR</p>
-                <p className="text-xl font-bold text-slate-900">{fmtCtr(client.avg_ctr)}</p>
-                <div className="mt-0.5">{trendArrow(client.avg_ctr, client.prev_ctr)}</div>
-              </div>
-              {/* Avg Position */}
-              <div>
-                <p className="text-xs text-slate-500 mb-0.5">Avg Position</p>
-                <p className="text-xl font-bold text-slate-900">{fmtPos(client.avg_position)}</p>
-                <div className="mt-0.5">{trendArrow(client.avg_position, client.prev_position, true)}</div>
-              </div>
-            </div>
-
-            {/* Footer */}
-            {client.last_updated && (
-              <p className="text-xs text-slate-400 mt-4 pt-3 border-t border-slate-100">
-                Week of {new Date(client.last_updated).toLocaleDateString('en-IN')}
-              </p>
-            )}
+    <div className="space-y-6">
+      {/* Aggregate summary cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+        {[
+          { label: 'Keywords', value: t.total_keywords || 0, color: 'text-sky-600' },
+          { label: 'Page 1', value: t.total_page_1 || 0, color: 'text-green-600' },
+          { label: 'Improved', value: t.total_improved || 0, color: 'text-emerald-600' },
+          { label: 'Dropped', value: t.total_dropped || 0, color: 'text-red-500' },
+          { label: 'Featured', value: t.total_featured || 0, color: 'text-amber-500' },
+          { label: 'Opportunities', value: data.openOpportunities || 0, color: 'text-purple-600' },
+          { label: 'Backlinks', value: data.activeBacklinks || 0, color: 'text-blue-600' },
+        ].map(card => (
+          <div key={card.label} className="bg-white border border-slate-200 rounded-lg p-3 text-center">
+            <p className={`text-2xl font-bold ${card.color}`}>{card.value}</p>
+            <p className="text-xs text-slate-500 mt-1">{card.label}</p>
           </div>
-        );
-      })}
+        ))}
+      </div>
+
+      {/* Per-client cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {data.clients.map(c => {
+          const health = data.health?.[c.client_domain];
+          const lastChecked = c.last_checked ? new Date(c.last_checked).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : 'Never';
+          return (
+            <div key={c.client_domain} className="bg-white border border-slate-200 rounded-xl p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-semibold text-slate-800">{c.client_domain}</h3>
+                  <p className="text-xs text-slate-400">Last checked: {lastChecked}</p>
+                </div>
+                {c.avg_position && (
+                  <div className="text-right">
+                    <p className="text-lg font-bold text-slate-700">{c.avg_position}</p>
+                    <p className="text-xs text-slate-400">Avg Pos</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                <div className="bg-slate-50 rounded-lg p-2 text-center">
+                  <p className="text-lg font-bold text-sky-600">{c.total_keywords}</p>
+                  <p className="text-[10px] text-slate-500">Keywords</p>
+                </div>
+                <div className="bg-slate-50 rounded-lg p-2 text-center">
+                  <p className="text-lg font-bold text-green-600">{c.page_1}</p>
+                  <p className="text-[10px] text-slate-500">Page 1</p>
+                </div>
+                <div className="bg-slate-50 rounded-lg p-2 text-center">
+                  <p className="text-lg font-bold text-amber-500">{c.top_3}</p>
+                  <p className="text-[10px] text-slate-500">Top 3</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 text-xs mb-3">
+                <span className="text-green-600 font-medium">{'\u2191'} {c.keywords_improved} improved</span>
+                <span className="text-red-500 font-medium">{'\u2193'} {c.keywords_dropped} dropped</span>
+                <span className="text-slate-400">{'\u2192'} {c.keywords_stable} stable</span>
+              </div>
+
+              {parseInt(c.featured_snippets) > 0 && (
+                <p className="text-xs text-amber-600 mb-3">{'\u2B50'} {c.featured_snippets} featured snippet{parseInt(c.featured_snippets) > 1 ? 's' : ''}</p>
+              )}
+
+              {health && (
+                <div className="border-t border-slate-100 pt-3 mt-3">
+                  <div className="flex items-center gap-4 text-xs text-slate-600">
+                    {health.pagespeed_mobile != null && <span>Mobile: <strong>{Math.round(Number(health.pagespeed_mobile))}</strong></span>}
+                    {health.pagespeed_desktop != null && <span>Desktop: <strong>{Math.round(Number(health.pagespeed_desktop))}</strong></span>}
+                    {health.lcp != null && (
+                      <span>LCP: <strong className={Number(health.lcp) <= 2.5 ? 'text-green-600' : Number(health.lcp) <= 4 ? 'text-amber-500' : 'text-red-500'}>{Number(health.lcp).toFixed(1)}s</strong></span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -767,6 +796,8 @@ function WorkflowsTab() {
   const [loading, setLoading] = useState(true);
   const [triggering, setTriggering] = useState(null);
   const [triggerResult, setTriggerResult] = useState(null);
+  const [runAllLoading, setRunAllLoading] = useState(false);
+  const [runAllResult, setRunAllResult] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -802,6 +833,55 @@ function WorkflowsTab() {
 
   return (
     <div className="space-y-5">
+      {/* Run All Workflows */}
+      <div className="mb-2">
+        <div className="flex items-center gap-4 mb-3">
+          <button
+            onClick={async () => {
+              setRunAllLoading(true);
+              setRunAllResult(null);
+              try {
+                const d = await apiFetch('/api/seo-workflows/trigger-all', { method: 'POST' });
+                setRunAllResult(d);
+                load(); // Refresh data freshness
+              } catch {
+                setRunAllResult({ error: 'Failed to run workflows' });
+              } finally {
+                setRunAllLoading(false);
+              }
+            }}
+            disabled={runAllLoading}
+            className="flex items-center gap-2 px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50 text-sm font-medium"
+          >
+            {runAllLoading ? (
+              <><RefreshCw className="w-4 h-4 animate-spin" /> Running all workflows...</>
+            ) : (
+              <><Zap className="w-4 h-4" /> Run All Workflows</>
+            )}
+          </button>
+          {runAllResult && !runAllResult.error && (
+            <span className="text-sm text-green-600 font-medium">{'\u2713'} {runAllResult.succeeded}/{runAllResult.triggered} completed</span>
+          )}
+          {runAllResult?.error && (
+            <span className="text-sm text-red-600">{runAllResult.error}</span>
+          )}
+        </div>
+        {runAllResult?.results && (
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-4">
+            <p className="text-sm font-medium text-slate-700 mb-2">Results:</p>
+            <div className="space-y-1">
+              {runAllResult.results.map((r, i) => (
+                <div key={i} className="flex items-center gap-2 text-sm">
+                  <span className={r.ok ? 'text-green-600' : 'text-red-500'}>{r.ok ? '\u2713' : '\u2717'}</span>
+                  <span className="font-medium">{r.name}</span>
+                  <span className="text-slate-500">{'\u2014'} {r.detail}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Trigger result banner */}
       {triggerResult && (
         <div className={`rounded-xl border p-3 text-sm flex items-center gap-2 ${triggerResult.ok ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
@@ -1401,7 +1481,7 @@ export default function SEOPage() {
         {/* Body */}
         <div className="p-6">
           {activeTab === 'overview' && (
-            <OverviewTab clients={overview} loading={loadingOverview} onClientClick={setSelectedClient} />
+            <OverviewTab />
           )}
           {activeTab === 'keywords' && (
             <KeywordsTab keywords={keywords} loading={loadingKeywords} />
