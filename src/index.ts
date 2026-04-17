@@ -406,6 +406,41 @@ async function startServer() {
   import('./services/creativeIntelligenceService').then(m => m.ensureCreativeIntelligenceColumns()).catch(e => console.error('[startup] Creative intel columns failed:', e));
   import('./services/metaAdsService').then(m => m.ensureClientBenchmarksTable()).catch(e => console.error('[startup] Client benchmarks bootstrap failed:', e));
 
+  // One-time startup: backfill unplaced pipeline contacts (runs 15s after boot)
+  setTimeout(async () => {
+    try {
+      const { pool: dbPool } = await import('./db/index');
+      const { placePipelineContact } = await import('./services/pipelineService');
+      const unplaced = await dbPool.query(`
+        SELECT e.id, e.contact_id, e.payload, e.tenant_id
+        FROM events e
+        WHERE e.event_type = 'slo_purchase'
+          AND e.contact_id IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM pipeline_contacts pc WHERE pc.contact_id = e.contact_id)
+        ORDER BY e.created_at ASC
+      `);
+      if (unplaced.rows.length > 0) {
+        console.log(`[startup] Backfilling ${unplaced.rows.length} unplaced pipeline contact(s)...`);
+        let placed = 0;
+        for (const row of unplaced.rows as Array<{ contact_id: string; payload: Record<string, unknown>; tenant_id: string }>) {
+          try {
+            const r = await placePipelineContact({
+              contactId: row.contact_id,
+              segment: (row.payload.segment as string) || 'd2c',
+              amount: typeof row.payload.amount === 'number' ? row.payload.amount : 9,
+              bump1: Boolean(row.payload.bump1),
+              bump2: Boolean(row.payload.bump2),
+              tenantId: row.tenant_id,
+              funnelSlug: (row.payload.funnelSlug as string) || 'ecom',
+            });
+            if (r.success) placed++;
+          } catch { /* skip individual failures */ }
+        }
+        console.log(`[startup] Pipeline backfill complete: ${placed}/${unplaced.rows.length} placed`);
+      }
+    } catch (e) { console.error('[startup] Pipeline backfill failed:', e); }
+  }, 15000);
+
   // One-time startup: run PageSpeed if site_health_metrics is empty
   setTimeout(async () => {
     try {
