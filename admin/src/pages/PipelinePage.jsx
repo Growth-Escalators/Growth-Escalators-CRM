@@ -567,48 +567,32 @@ export default function PipelinePage() {
             </button>
           </div>
 
-          {/* Filters row */}
-          <div className="flex items-center gap-3 mt-3 flex-wrap">
-            <select
-              value={filterAssigned}
-              onChange={(e) => setFilterAssigned(e.target.value)}
-              className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-orange-400"
-            >
+          {/* Filters — compact inline row */}
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
+            <select value={filterAssigned} onChange={(e) => setFilterAssigned(e.target.value)}
+              className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-sky-400">
               <option value="">All Owners</option>
               <option value="jatin">Jatin</option>
               <option value="saksham">Saksham</option>
               <option value="unassigned">Unassigned</option>
             </select>
-
-            <select
-              value={filterValue}
-              onChange={(e) => setFilterValue(e.target.value)}
-              className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-orange-400"
-            >
+            <select value={filterValue} onChange={(e) => setFilterValue(e.target.value)}
+              className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-sky-400">
               <option value="">All Values</option>
-              <option value="high">High Value (10L+)</option>
-              <option value="medium">Medium (1L-10L)</option>
+              <option value="high">High (10L+)</option>
+              <option value="medium">Medium (1-10L)</option>
               <option value="low">Low (&lt; 1L)</option>
             </select>
-
-            <select
-              value={filterAge}
-              onChange={(e) => setFilterAge(e.target.value)}
-              className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-orange-400"
-            >
+            <select value={filterAge} onChange={(e) => setFilterAge(e.target.value)}
+              className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-sky-400">
               <option value="">All Ages</option>
               <option value="stale">Stale (3+ days)</option>
               <option value="week">This Week</option>
               <option value="today">Today</option>
             </select>
-
             {(filterAssigned || filterValue || filterAge) && (
-              <button
-                onClick={() => { setFilterAssigned(''); setFilterValue(''); setFilterAge(''); }}
-                className="text-xs text-red-500 hover:text-red-700 font-medium"
-              >
-                Clear filters
-              </button>
+              <button onClick={() => { setFilterAssigned(''); setFilterValue(''); setFilterAge(''); }}
+                className="text-xs text-red-500 hover:text-red-700 font-medium">Clear</button>
             )}
           </div>
         </div>
@@ -633,13 +617,6 @@ export default function PipelinePage() {
           </div>
         ) : (
           <DragDropContext onDragEnd={onDragEnd}>
-            {totalDeals === 0 && (
-              <div className="text-center py-16">
-                <p className="text-slate-400 text-lg mb-3">No deals yet</p>
-                <p className="text-slate-400 text-sm mb-4">Add your first deal to get started</p>
-                <button onClick={() => setAddDealModal({ pipelineId: activePipelineId, stageName: kanbanStages[0]?.stageName ?? '' })} className="px-4 py-2 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700">+ Add Deal</button>
-              </div>
-            )}
             <div className="flex gap-3 px-4 py-4 overflow-x-auto snap-x snap-mandatory md:overflow-x-visible flex-1">
               {kanbanStages.map((stageData, stageIndex) => {
                 const { color, light } = getStageStyle(stageData.stageName, stageIndex);
