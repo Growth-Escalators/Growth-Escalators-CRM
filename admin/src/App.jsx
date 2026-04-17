@@ -86,7 +86,7 @@ export default function App() {
             <Route path="/settings/permissions" element={<PrivateRoute><PermissionsPage /></PrivateRoute>} />
             <Route path="/settings/audit" element={<PrivateRoute><AuditPage /></PrivateRoute>} />
             <Route path="/ads" element={<PrivateRoute><AdsPage /></PrivateRoute>} />
-            <Route path="/reports" element={<PrivateRoute><ReportsPage /></PrivateRoute>} />
+            <Route path="/reports" element={<Navigate to="/dashboard" replace />} />
             <Route path="/social" element={<PrivateRoute><SocialPage /></PrivateRoute>} />
             <Route path="/inbox" element={<PrivateRoute><InboxPage /></PrivateRoute>} />
             <Route path="/discover" element={<PrivateRoute><LeadDiscoveryPage /></PrivateRoute>} />
@@ -98,7 +98,7 @@ export default function App() {
             <Route path="/whatsapp-templates" element={<PrivateRoute><WhatsAppTemplatesPage /></PrivateRoute>} />
             <Route path="/outreach-dashboard" element={<PrivateRoute><OutreachDashboard /></PrivateRoute>} />
             <Route path="/links" element={<PrivateRoute><LinksPage /></PrivateRoute>} />
-            <Route path="/social-scheduling" element={<PrivateRoute><SocialSchedulingPage /></PrivateRoute>} />
+            <Route path="/social-scheduling" element={<Navigate to="/social" replace />} />
             <Route path="/client/:clientId" element={<PrivateRoute><ClientDetailPage /></PrivateRoute>} />
             <Route path="/funnels" element={<PrivateRoute><FunnelManagementPage /></PrivateRoute>} />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />

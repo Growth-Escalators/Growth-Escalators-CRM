@@ -216,13 +216,28 @@ export default function PermissionsPage() {
                       )}
                     </div>
                     <div className="flex items-center gap-3">
-                      {saved && <span className="text-sm text-green-600 font-medium">✓ Saved</span>}
+                      {saved && <span className="text-sm text-green-600 font-medium">{'\u2713'} Saved</span>}
                       {error && <span className="text-sm text-red-500">{error}</span>}
                       {!isOwnerUser && (
-                        <button onClick={handleSave} disabled={saving}
-                          className="px-4 py-2 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50">
-                          {saving ? 'Saving…' : 'Save Permissions'}
-                        </button>
+                        <>
+                          <button
+                            onClick={async () => {
+                              if (!confirm(`Remove ${selectedUser.name} from the team? This will revoke all their access.`)) return;
+                              try {
+                                await apiFetch(`/api/permissions/users/${selectedUser.id}`, { method: 'DELETE' });
+                                setUsers(prev => prev.filter(u => u.id !== selectedUser.id));
+                                setSelectedUser(null);
+                              } catch { setError('Failed to remove user'); }
+                            }}
+                            className="px-3 py-2 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
+                          >
+                            Remove
+                          </button>
+                          <button onClick={handleSave} disabled={saving}
+                            className="px-4 py-2 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50">
+                            {saving ? 'Saving\u2026' : 'Save Permissions'}
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
