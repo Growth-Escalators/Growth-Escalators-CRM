@@ -54,8 +54,11 @@ interface CapiEventParams {
 
 export async function sendCapiEvent(params: CapiEventParams): Promise<{ success: boolean; eventId: string; error?: string }> {
   if (!PIXEL_ID || !CAPI_TOKEN) {
-    logger.error('[CAPI] META_PIXEL_ID or META_CAPI_TOKEN not set');
-    return { success: false, eventId: '', error: 'CAPI credentials not configured' };
+    const missing = [];
+    if (!PIXEL_ID) missing.push('META_PIXEL_ID');
+    if (!CAPI_TOKEN) missing.push('META_CAPI_TOKEN or META_ACCESS_TOKEN');
+    logger.error(`[CAPI] Missing: ${missing.join(', ')} — conversion not sent`);
+    return { success: false, eventId: '', error: `Missing: ${missing.join(', ')}` };
   }
 
   const eventId = params.eventId || generateEventId(params.eventName, params.customer.contactId || 'unknown');

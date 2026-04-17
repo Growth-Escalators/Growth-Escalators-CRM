@@ -461,7 +461,7 @@ const PLACEMENT_INTERVAL = setInterval(() => safeCron('Pipeline Placement', asyn
           WHERE pc.contact_id = e.contact_id
         )
       ORDER BY e.created_at ASC
-      LIMIT 20
+      LIMIT 100
     `);
 
     if (rows.length === 0) return;
