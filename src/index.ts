@@ -20,7 +20,7 @@ import jobsRouter from './routes/jobs';
 import messagesRouter from './routes/messages';
 import emailRouter from './routes/email';
 import bookingRouter from './routes/booking';
-import cashfreeRouter from './routes/cashfree';
+import cashfreeRouter, { cashfreeAdminRouter } from './routes/cashfree';
 import authRouter from './routes/auth';
 import healthRouter from './routes/healthRoute';
 import pipelinesRouter from './routes/pipelines';
@@ -132,6 +132,7 @@ app.use('/auth', authRouter);
 app.use('/webhooks', webhooksRouter);
 app.use('/book', bookingRouter);
 app.use('/api/cashfree', cashfreeRouter);
+app.use('/api/cashfree', requireAuth, cashfreeAdminRouter); // simulate-webhook + debug-orders (admin-only)
 
 // ---------------------------------------------------------------------------
 // Protected CRM routes (require JWT)
