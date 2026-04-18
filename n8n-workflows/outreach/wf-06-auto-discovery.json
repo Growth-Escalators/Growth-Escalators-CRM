@@ -1,5 +1,5 @@
 {
-  "name": "WF-06 \u2014 Auto Discovery",
+  "name": "WF-06 \u2014 Auto Discovery [DEPRECATED: superseded by worker cron 'Daily Lead Discovery' at src/worker.ts \u2014 do not re-activate]",
   "nodes": [
     {
       "id": "abf4b3d7-ba83-4c16-bf38-8d7570c6394b",

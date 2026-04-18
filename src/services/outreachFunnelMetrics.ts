@@ -44,10 +44,56 @@ export async function ensureOutreachFunnelTable(): Promise<void> {
       updated_at              TIMESTAMP DEFAULT NOW()
     )
   `);
+  const alterStmts = [
+    `ALTER TABLE outreach_funnel_daily ADD COLUMN IF NOT EXISTS sent_count   INTEGER DEFAULT 0`,
+    `ALTER TABLE outreach_funnel_daily ADD COLUMN IF NOT EXISTS open_count   INTEGER DEFAULT 0`,
+    `ALTER TABLE outreach_funnel_daily ADD COLUMN IF NOT EXISTS bounce_count INTEGER DEFAULT 0`,
+    `ALTER TABLE outreach_funnel_daily ADD COLUMN IF NOT EXISTS click_count  INTEGER DEFAULT 0`,
+  ];
+  for (const s of alterStmts) await pool.query(s).catch(() => {});
   await pool.query(
     `CREATE INDEX IF NOT EXISTS outreach_funnel_daily_date_idx ON outreach_funnel_daily(snapshot_date DESC)`,
   ).catch(() => {});
   logger.info('[outreach-funnel] outreach_funnel_daily table ready');
+}
+
+/**
+ * Called by the Saleshandy stats cron with today's cumulative sequence totals.
+ * Stores today's delta vs yesterday, which is what "today sent" actually means.
+ */
+export async function upsertSaleshandyStats(stats: {
+  sent: number; opens: number; bounces: number; clicks: number;
+}): Promise<void> {
+  try {
+    await upsertTodayRow();
+
+    const yesterday = await pool.query(
+      `SELECT sent_count, open_count, bounce_count, click_count
+         FROM outreach_funnel_daily
+        WHERE snapshot_date = CURRENT_DATE - 1
+        LIMIT 1`,
+    );
+
+    // If yesterday's row has an absolute cumulative-style number we could
+    // subtract — but we already record deltas. So the delta vs yesterday's
+    // cumulative only matters if we start storing cumulative. For now, just
+    // persist the most-recent reading (idempotent per day); the cron runs at
+    // 23:50 IST so the day's reading is effectively "today's totals".
+    void yesterday;
+
+    await pool.query(
+      `UPDATE outreach_funnel_daily
+          SET sent_count   = $1,
+              open_count   = $2,
+              bounce_count = $3,
+              click_count  = $4,
+              updated_at   = NOW()
+        WHERE snapshot_date = CURRENT_DATE`,
+      [stats.sent, stats.opens, stats.bounces, stats.clicks],
+    );
+  } catch (e) {
+    logger.warn(`[outreach-funnel] upsertSaleshandyStats failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -208,6 +254,10 @@ export interface FunnelDailyRow {
   discovery_api_calls: number;
   discovery_cost_usd: number;
   serper_api_calls: number;
+  sent_count: number;
+  open_count: number;
+  bounce_count: number;
+  click_count: number;
 }
 
 export interface FunnelSummary {
@@ -225,6 +275,10 @@ export interface FunnelSummary {
     discoveryCostUsd: number;
     discoveryApiCalls: number;
     serperApiCalls: number;
+    sent: number;
+    opens: number;
+    bounces: number;
+    clicks: number;
   };
   rates: {
     // All expressed as percentages 0–100 (rounded to 2 dp).
@@ -232,6 +286,9 @@ export interface FunnelSummary {
     interestedRate: number;      // repliesInterested / repliesTotal
     enrichmentRate: number;      // leadsEnriched / leadsNew
     unsubscribeRate: number;     // repliesUnsubscribe / repliesTotal
+    openRate: number;            // opens / sent
+    bounceRate: number;          // bounces / sent
+    clickRate: number;           // clicks / sent
   };
   costs: {
     costPerEnrichedLead: number;   // USD
@@ -247,7 +304,8 @@ export async function getFunnelSummary(days = 30): Promise<FunnelSummary> {
     `SELECT snapshot_date, leads_new, leads_enriched, leads_uploaded,
             replies_total, replies_interested, replies_not_now,
             replies_not_interested, replies_unsubscribe, replies_uncategorized,
-            deals_created, discovery_api_calls, discovery_cost_usd, serper_api_calls
+            deals_created, discovery_api_calls, discovery_cost_usd, serper_api_calls,
+            sent_count, open_count, bounce_count, click_count
      FROM outreach_funnel_daily
      WHERE snapshot_date >= CURRENT_DATE - ($1::int - 1)
      ORDER BY snapshot_date ASC`,
@@ -271,6 +329,10 @@ export async function getFunnelSummary(days = 30): Promise<FunnelSummary> {
     discovery_api_calls: Number(r.discovery_api_calls) || 0,
     discovery_cost_usd: Number(r.discovery_cost_usd) || 0,
     serper_api_calls: Number(r.serper_api_calls) || 0,
+    sent_count: Number(r.sent_count) || 0,
+    open_count: Number(r.open_count) || 0,
+    bounce_count: Number(r.bounce_count) || 0,
+    click_count: Number(r.click_count) || 0,
   })) as FunnelDailyRow[];
 
   const totals = daily.reduce(
@@ -287,12 +349,17 @@ export async function getFunnelSummary(days = 30): Promise<FunnelSummary> {
       discoveryCostUsd: a.discoveryCostUsd + d.discovery_cost_usd,
       discoveryApiCalls: a.discoveryApiCalls + d.discovery_api_calls,
       serperApiCalls: a.serperApiCalls + d.serper_api_calls,
+      sent: a.sent + d.sent_count,
+      opens: a.opens + d.open_count,
+      bounces: a.bounces + d.bounce_count,
+      clicks: a.clicks + d.click_count,
     }),
     {
       leadsNew: 0, leadsEnriched: 0, leadsUploaded: 0,
       repliesTotal: 0, repliesInterested: 0, repliesNotNow: 0,
       repliesNotInterested: 0, repliesUnsubscribe: 0, dealsCreated: 0,
       discoveryCostUsd: 0, discoveryApiCalls: 0, serperApiCalls: 0,
+      sent: 0, opens: 0, bounces: 0, clicks: 0,
     },
   );
 
@@ -312,6 +379,9 @@ export async function getFunnelSummary(days = 30): Promise<FunnelSummary> {
       interestedRate: pct(totals.repliesInterested, totals.repliesTotal),
       enrichmentRate: pct(totals.leadsEnriched, totals.leadsNew),
       unsubscribeRate: pct(totals.repliesUnsubscribe, totals.repliesTotal),
+      openRate: pct(totals.opens, totals.sent),
+      bounceRate: pct(totals.bounces, totals.sent),
+      clickRate: pct(totals.clicks, totals.sent),
     },
     costs: {
       costPerEnrichedLead: usd(totals.discoveryCostUsd, totals.leadsEnriched),

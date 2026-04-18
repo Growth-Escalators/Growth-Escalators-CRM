@@ -33,6 +33,8 @@ if (!process.env.SNOVIO_API_KEY && !process.env.SNOV_API_KEY) _missingEnvVars.pu
 if (!process.env.SALESHANDY_API_KEY) _missingEnvVars.push('SALESHANDY_API_KEY (outreach upload-to-sequence automation will not work)');
 if (!process.env.SALESHANDY_SEQUENCE_ID) _missingEnvVars.push('SALESHANDY_SEQUENCE_ID (outreach upload target sequence missing)');
 if (!process.env.OUTREACH_INTERNAL_SECRET) _missingEnvVars.push('OUTREACH_INTERNAL_SECRET (n8n ↔ backend auth for outreach endpoints disabled)');
+if (!process.env.MEETING_BOOKING_URL) _missingEnvVars.push('MEETING_BOOKING_URL (INTERESTED-reply drafts will not include a self-book link)');
+if (!process.env.MAX_DAILY_UPLOADS) _missingEnvVars.push('MAX_DAILY_UPLOADS (default 200) (uploadToSaleshandy daily cap safety-net)');
 const _missingPurelymailSlots: string[] = [];
 for (let i = 1; i <= 6; i++) {
   if (!process.env[`PURELYMAIL_PASS_${i}`]) _missingPurelymailSlots.push(String(i));
@@ -58,6 +60,7 @@ import('./services/outreachEnrichmentService').then(m => m.ensureEnrichmentColum
 import('./services/outreachAlertService').then(m => m.ensureOutreachAlertColumns()).catch(() => {});
 import('./services/workflowSelfHealingService').then(m => m.ensureSelfHealingColumns()).catch(() => {});
 import('./services/outreachFunnelMetrics').then(m => m.ensureOutreachFunnelTable()).catch(() => {});
+import('./services/websiteCacheService').then(m => m.ensureWebsiteCacheTable()).catch(() => {});
 pool.query(`
   UPDATE outreach_leads SET status = 'New', updated_at = NOW()
   WHERE status = 'Enriching' AND updated_at < NOW() - INTERVAL '30 minutes'
@@ -714,32 +717,109 @@ const DISCOVERY_QUERIES = [
   // IE
   { query: 'performance marketing agency', location: 'Dublin', country: 'IE' },
   { query: 'paid social agency', location: 'Cork', country: 'IE' },
+  // EU — Berlin / Amsterdam / Stockholm / Copenhagen (English-speaking agency scene)
+  { query: 'performance marketing agency', location: 'Berlin', country: 'DE' },
+  { query: 'ecommerce marketing agency', location: 'Berlin', country: 'DE' },
+  { query: 'paid social agency', location: 'Munich', country: 'DE' },
+  { query: 'ppc agency', location: 'Hamburg', country: 'DE' },
+  { query: 'performance marketing agency', location: 'Amsterdam', country: 'NL' },
+  { query: 'shopify agency', location: 'Amsterdam', country: 'NL' },
+  { query: 'paid media agency', location: 'Rotterdam', country: 'NL' },
+  { query: 'performance marketing agency', location: 'Stockholm', country: 'SE' },
+  { query: 'ecommerce agency', location: 'Stockholm', country: 'SE' },
+  { query: 'digital marketing agency', location: 'Gothenburg', country: 'SE' },
+  { query: 'performance marketing agency', location: 'Copenhagen', country: 'DK' },
+  { query: 'paid social agency', location: 'Copenhagen', country: 'DK' },
+  { query: 'performance marketing agency', location: 'Oslo', country: 'NO' },
+  { query: 'ecommerce marketing agency', location: 'Helsinki', country: 'FI' },
+  // UK tier-2 + niche
+  { query: 'CRO agency', location: 'London', country: 'UK' },
+  { query: 'lifecycle marketing agency', location: 'London', country: 'UK' },
+  { query: 'retention agency', location: 'London', country: 'UK' },
+  { query: 'TikTok ads agency', location: 'London', country: 'UK' },
+  { query: 'amazon marketing agency', location: 'London', country: 'UK' },
+  { query: 'klaviyo email agency', location: 'London', country: 'UK' },
+  { query: 'email marketing agency', location: 'Manchester', country: 'UK' },
+  { query: 'performance creative agency', location: 'London', country: 'UK' },
+  { query: 'youtube ads agency', location: 'London', country: 'UK' },
+  { query: 'influencer marketing agency', location: 'London', country: 'UK' },
+  { query: 'direct response agency', location: 'London', country: 'UK' },
+  { query: 'B2B marketing agency', location: 'London', country: 'UK' },
+  { query: 'SaaS marketing agency', location: 'London', country: 'UK' },
+  { query: 'dtc agency', location: 'London', country: 'UK' },
+  { query: 'subscription marketing agency', location: 'London', country: 'UK' },
+  // US tier-2 + niche
+  { query: 'CRO agency', location: 'New York', country: 'US' },
+  { query: 'lifecycle marketing agency', location: 'New York', country: 'US' },
+  { query: 'retention agency', location: 'Los Angeles', country: 'US' },
+  { query: 'TikTok ads agency', location: 'Los Angeles', country: 'US' },
+  { query: 'amazon marketing agency', location: 'New York', country: 'US' },
+  { query: 'klaviyo email agency', location: 'New York', country: 'US' },
+  { query: 'email marketing agency', location: 'Chicago', country: 'US' },
+  { query: 'youtube ads agency', location: 'Los Angeles', country: 'US' },
+  { query: 'influencer marketing agency', location: 'Los Angeles', country: 'US' },
+  { query: 'B2B marketing agency', location: 'San Francisco', country: 'US' },
+  { query: 'SaaS marketing agency', location: 'San Francisco', country: 'US' },
+  { query: 'subscription marketing agency', location: 'Austin', country: 'US' },
+  { query: 'performance marketing agency', location: 'Minneapolis', country: 'US' },
+  { query: 'digital marketing agency', location: 'Indianapolis', country: 'US' },
+  { query: 'paid social agency', location: 'Salt Lake City', country: 'US' },
+  { query: 'ecommerce marketing agency', location: 'San Diego', country: 'US' },
+  { query: 'ppc agency', location: 'Orlando', country: 'US' },
+  { query: 'google ads agency', location: 'Las Vegas', country: 'US' },
+  { query: 'facebook ads agency', location: 'Tampa', country: 'US' },
+  { query: 'shopify marketing agency', location: 'Brooklyn', country: 'US' },
+  // AU niche
+  { query: 'shopify agency', location: 'Sydney', country: 'AU' },
+  { query: 'TikTok ads agency', location: 'Melbourne', country: 'AU' },
+  { query: 'klaviyo email agency', location: 'Sydney', country: 'AU' },
+  { query: 'CRO agency', location: 'Melbourne', country: 'AU' },
+  { query: 'B2B marketing agency', location: 'Sydney', country: 'AU' },
+  // CA niche
+  { query: 'shopify agency', location: 'Toronto', country: 'CA' },
+  { query: 'klaviyo email agency', location: 'Toronto', country: 'CA' },
+  { query: 'TikTok ads agency', location: 'Vancouver', country: 'CA' },
 ];
 
 cron.schedule('30 1 * * *', () => safeCron('Daily Lead Discovery', async () => {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) { console.log('[CRON] Discovery: GOOGLE_PLACES_API_KEY not set'); return; }
 
+  const QUERIES_PER_DAY = 5;
   const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
-  const startIdx = (dayOfYear * 3) % DISCOVERY_QUERIES.length;
-  const todayQueries = [0, 1, 2].map(i => DISCOVERY_QUERIES[(startIdx + i) % DISCOVERY_QUERIES.length]);
+  const startIdx = (dayOfYear * QUERIES_PER_DAY) % DISCOVERY_QUERIES.length;
+  const todayQueries = Array.from({ length: QUERIES_PER_DAY }, (_, i) =>
+    DISCOVERY_QUERIES[(startIdx + i) % DISCOVERY_QUERIES.length]);
 
   let totalInserted = 0;
   let totalApiCalls = 0;
   const countryCounts: Record<string, number> = {};
   const { insertOutreachLead } = await import('./services/outreachLeadsService');
 
+  type Place = { name: string; formatted_address?: string; rating?: number; user_ratings_total?: number };
+
   for (const q of todayQueries) {
     try {
       const fullQuery = encodeURIComponent(`${q.query} ${q.location}`);
-      const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${fullQuery}&key=${apiKey}`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
-      totalApiCalls++;
-      if (!res.ok) continue;
-      const data = await res.json() as { results?: Array<{ name: string; formatted_address?: string; rating?: number; user_ratings_total?: number }> };
-      const places = data.results ?? [];
+      const baseUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${fullQuery}&key=${apiKey}`;
 
-      for (const p of places.slice(0, 20)) {
+      // Paginate up to 3 pages (60 results max) via next_page_token.
+      // Places requires ~2s delay before pagetoken becomes active.
+      const allPlaces: Place[] = [];
+      let nextToken: string | undefined;
+      for (let page = 0; page < 3; page++) {
+        const url = page === 0 ? baseUrl : `${baseUrl}&pagetoken=${nextToken}`;
+        if (page > 0) await new Promise(r => setTimeout(r, 2500));
+        const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+        totalApiCalls++;
+        if (!res.ok) break;
+        const data = await res.json() as { results?: Place[]; next_page_token?: string };
+        allPlaces.push(...(data.results ?? []));
+        nextToken = data.next_page_token;
+        if (!nextToken) break;
+      }
+
+      for (const p of allPlaces) {
         const fitScore = Math.min(100, 50 + (p.rating ?? 0) * 5 + Math.min((p.user_ratings_total ?? 0), 10) * 2);
         if (fitScore < 40) continue;
 
@@ -791,6 +871,16 @@ cron.schedule('25 18 * * *', () => safeCron('Outreach Funnel Snapshot', async ()
   await snapshotTodaysFunnel();
 }), { timezone: 'UTC' });
 console.log('[cron] Outreach funnel snapshot scheduled — 23:55 IST');
+
+// ---------------------------------------------------------------------------
+// Saleshandy Stats Poll — 23:50 IST (18:20 UTC), just before funnel snapshot
+// Populates today's sent/open/bounce/click before snapshotTodaysFunnel runs
+// ---------------------------------------------------------------------------
+cron.schedule('20 18 * * *', () => safeCron('Saleshandy Stats Poll', async () => {
+  const { pollSaleshandyStats } = await import('./services/saleshandyStatsService');
+  await pollSaleshandyStats();
+}), { timezone: 'UTC' });
+console.log('[cron] Saleshandy stats poll scheduled — 23:50 IST');
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------

@@ -144,6 +144,35 @@ export default function OutreachDashboard() {
                 color="text-rose-600"
               />
             </div>
+            {/* Deliverability tiles — Saleshandy stats (30d) */}
+            {(funnel?.totals?.sent ?? 0) > 0 && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                <RoiTile
+                  label="Emails sent (30d)"
+                  value={(funnel?.totals?.sent ?? 0).toLocaleString()}
+                  sub="saleshandy total"
+                  color="text-slate-700"
+                />
+                <RoiTile
+                  label="Open rate"
+                  value={fmtPct(rates.openRate)}
+                  sub="opens ÷ sent"
+                  color="text-emerald-600"
+                />
+                <RoiTile
+                  label="Bounce rate"
+                  value={fmtPct(rates.bounceRate)}
+                  sub={`${(funnel?.totals?.bounces ?? 0).toLocaleString()} bounces`}
+                  color={(rates.bounceRate ?? 0) >= 5 ? 'text-red-600' : 'text-slate-700'}
+                />
+                <RoiTile
+                  label="Click rate"
+                  value={fmtPct(rates.clickRate)}
+                  sub={`${(funnel?.totals?.clicks ?? 0).toLocaleString()} clicks`}
+                  color="text-indigo-600"
+                />
+              </div>
+            )}
             {funnel && (
               <p className="text-[10px] text-slate-400 mb-4">
                 Window: last {funnel.days}d · {(funnel.totals?.leadsNew ?? 0)} new · {(funnel.totals?.leadsEnriched ?? 0)} enriched · {(funnel.totals?.repliesTotal ?? 0)} replies · {(funnel.totals?.discoveryApiCalls ?? 0)} Places calls · {(funnel.totals?.serperApiCalls ?? 0)} Serper calls · spend ${(funnel.totals?.discoveryCostUsd ?? 0).toFixed(2)}
