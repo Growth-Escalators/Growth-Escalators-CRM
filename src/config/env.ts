@@ -1,20 +1,27 @@
 /**
  * env.ts — environment variable validation and required-env helper.
  *
- * Two exports:
- *   - validateEnv(): called once at boot from src/index.ts. In production it
- *     throws if any required env var is missing (fail-fast deploy). In other
- *     environments it logs a warning so local dev isn't blocked.
- *   - requiredEnv(name): used by service wrappers to read an env var that
- *     must be present. Throws synchronously if missing — replaces silent
- *     hardcoded URL fallbacks.
+ * Two-tier validation so a missing integration URL doesn't crash-loop prod,
+ * but the operator still gets a loud warning in logs.
+ *
+ *  CRITICAL_ENV_VARS — app cannot function at all without these. Throws and
+ *    exits in production if missing.
+ *  IMPORTANT_ENV_VARS — feature/integration breaks if missing, but the app
+ *    can still serve traffic. Warns at boot in every environment.
+ *
+ * `requiredEnv(name)` is the per-call helper used by service wrappers
+ * (postizService, shlinkService) — it throws on the request that needs the
+ * var, so the failure is local to the feature instead of taking down boot.
  */
 
 import logger from '../utils/logger';
 
-const REQUIRED_ENV_VARS = [
+const CRITICAL_ENV_VARS = [
   'DATABASE_URL',
   'REDIS_URL',
+] as const;
+
+const IMPORTANT_ENV_VARS = [
   'POSTIZ_BASE_URL',
   'POSTIZ_API_KEY',
   'SHLINK_BASE_URL',
@@ -23,23 +30,33 @@ const REQUIRED_ENV_VARS = [
   'GOTENBERG_URL',
 ] as const;
 
-export function validateEnv(): void {
-  const missing = REQUIRED_ENV_VARS.filter(name => {
-    const v = process.env[name];
-    return !v || v.trim() === '';
-  });
+function isMissing(name: string): boolean {
+  const v = process.env[name];
+  return !v || v.trim() === '';
+}
 
-  if (missing.length === 0) return;
+export function validateEnv(): void {
+  const missingCritical = CRITICAL_ENV_VARS.filter(isMissing);
+  const missingImportant = IMPORTANT_ENV_VARS.filter(isMissing);
+
+  if (missingImportant.length > 0) {
+    logger.warn(
+      { missing: missingImportant },
+      `[env] WARNING: missing integration env vars — related features will fail until set: ${missingImportant.join(', ')}`,
+    );
+  }
+
+  if (missingCritical.length === 0) return;
 
   if (process.env.NODE_ENV === 'production') {
-    const msg = `[env] FATAL: missing required environment variables in production: ${missing.join(', ')}`;
+    const msg = `[env] FATAL: missing critical environment variables in production: ${missingCritical.join(', ')}`;
     logger.error(msg);
     throw new Error(msg);
   }
 
   logger.warn(
-    { missing },
-    `[env] WARNING: missing environment variables (non-production, continuing): ${missing.join(', ')}`,
+    { missing: missingCritical },
+    `[env] WARNING: missing critical env vars (non-production, continuing): ${missingCritical.join(', ')}`,
   );
 }
 
