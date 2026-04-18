@@ -47,6 +47,10 @@ export async function ensureOutreachLeadsTable(): Promise<void> {
     CREATE INDEX IF NOT EXISTS outreach_leads_status_idx     ON outreach_leads(status);
     CREATE INDEX IF NOT EXISTS outreach_leads_email_idx      ON outreach_leads(email);
     CREATE INDEX IF NOT EXISTS outreach_leads_created_at_idx ON outreach_leads(created_at);
+    CREATE INDEX IF NOT EXISTS outreach_leads_email_lower_idx ON outreach_leads(LOWER(email)) WHERE email IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS outreach_leads_domain_idx ON outreach_leads(
+      LOWER(regexp_replace(website_url, '^(https?://)?(www\\.)?([^/]+).*$', '\\3'))
+    ) WHERE website_url IS NOT NULL;
   `);
   logger.info('[outreach-leads] outreach_leads table ready');
 
@@ -105,9 +109,26 @@ export async function ensureOutreachLeadsTable(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Normalize a URL to a bare domain for dedup. "https://www.foo.co.uk/a" → "foo.co.uk"
+// ---------------------------------------------------------------------------
+function normalizeDomain(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    let u = url.trim();
+    if (!u) return null;
+    if (!u.startsWith('http')) u = 'https://' + u;
+    const host = new URL(u).hostname.toLowerCase().replace(/^www\./, '');
+    return host || null;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Insert a single lead into outreach_leads.
-// Skips if a row with the same company name already exists (case-insensitive).
-// Returns { inserted: true } or { inserted: false, reason: 'duplicate' }
+// Rejects if a row with the same company, email, OR domain already exists.
+// Same agency re-scraped under "LLC" vs "Inc" would slip past company-dedup —
+// domain-dedup catches that and frees enrichment quota for new leads.
 // ---------------------------------------------------------------------------
 export async function insertOutreachLead(lead: {
   company: string;
@@ -118,14 +139,41 @@ export async function insertOutreachLead(lead: {
   country?: string | null;
   fitScore?: number;
   sourceDetail?: string | null;
+  email?: string | null;
 }): Promise<{ inserted: boolean; id?: number; reason?: string }> {
   // Deduplicate by company name
-  const existing = await pool.query(
+  const existingCompany = await pool.query(
     `SELECT id FROM outreach_leads WHERE LOWER(company) = LOWER($1) LIMIT 1`,
     [lead.company],
   );
-  if (existing.rows.length > 0) {
-    return { inserted: false, reason: 'duplicate' };
+  if (existingCompany.rows.length > 0) {
+    return { inserted: false, reason: 'duplicate-company' };
+  }
+
+  // Deduplicate by email (case-insensitive)
+  if (lead.email) {
+    const existingEmail = await pool.query(
+      `SELECT id FROM outreach_leads WHERE LOWER(email) = LOWER($1) LIMIT 1`,
+      [lead.email],
+    );
+    if (existingEmail.rows.length > 0) {
+      return { inserted: false, reason: 'duplicate-email' };
+    }
+  }
+
+  // Deduplicate by normalized domain
+  const domain = normalizeDomain(lead.websiteUrl);
+  if (domain) {
+    const existingDomain = await pool.query(
+      `SELECT id FROM outreach_leads
+         WHERE website_url IS NOT NULL
+           AND LOWER(regexp_replace(website_url, '^(https?://)?(www\\.)?([^/]+).*$', '\\3')) = $1
+         LIMIT 1`,
+      [domain],
+    );
+    if (existingDomain.rows.length > 0) {
+      return { inserted: false, reason: 'duplicate-domain' };
+    }
   }
 
   const result = await pool.query(

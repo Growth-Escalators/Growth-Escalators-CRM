@@ -85,20 +85,25 @@ export async function findEmail(
     }
   }
 
-  // ── Step 4: MX-validated prefix guessing ──────────────────────────────────
-  const guessed = await guessEmail(domain);
+  // ── Step 4: MX-validated prefix + personal-pattern guessing ───────────────
+  // Builds candidates in priority order: personal patterns (higher reply
+  // likelihood) first, role aliases (hello@, info@, ...) as fallback.
+  const candidates = await guessEmailCandidates(domain, firstName, lastName);
 
-  if (guessed) {
-    // ── Step 5: Reacher SMTP verification ─────────────────────────────────
+  if (candidates.length > 0) {
+    // ── Step 5: Reacher SMTP verification (one attempt per candidate) ─────
     if (REACHER_BASE_URL && REACHER_BASE_URL !== 'REPLACE_WITH_REACHER_URL') {
-      const verified = await reacherVerify(guessed);
-      if (verified) {
-        logger.debug({ domain, email: guessed }, '[emailExtractor] step5 reacher-verified');
-        return { email: guessed, source: 'reacher-verified', confidence: 'medium' };
+      for (const candidate of candidates) {
+        const verified = await reacherVerify(candidate);
+        if (verified) {
+          logger.debug({ domain, email: candidate }, '[emailExtractor] step5 reacher-verified');
+          return { email: candidate, source: 'reacher-verified', confidence: 'medium' };
+        }
       }
-      // Reacher says invalid — fall through to Google
+      // All candidates rejected — fall through to Google
     } else {
-      // No Reacher configured — return guess with medium confidence
+      // No Reacher configured — return first candidate (personal > role)
+      const guessed = candidates[0];
       logger.debug({ domain, email: guessed }, '[emailExtractor] step4 guessed (no reacher)');
       return { email: guessed, source: 'guessed', confidence: 'medium' };
     }
@@ -296,19 +301,50 @@ async function scrapeWebsite(websiteUrl: string): Promise<string | null> {
   return allEmails[0].email;
 }
 
-// ─── Step 4: MX-validated prefix guessing ────────────────────────────────────
+// ─── Step 4: MX-validated prefix + personal-pattern guessing ─────────────────
 
-async function guessEmail(domain: string): Promise<string | null> {
+/**
+ * Builds ranked email candidates for a domain. Personal patterns (firstname@,
+ * first.last@, etc.) come first — industry benchmarks show 35-50% of agency
+ * emails are findable via personal patterns when firstName is known.
+ * Role aliases (hello@, info@, ...) are appended as fallback.
+ *
+ * Returns empty array if domain has no MX records.
+ */
+async function guessEmailCandidates(
+  domain: string,
+  firstName?: string | null,
+  lastName?: string | null,
+): Promise<string[]> {
   try {
     const mx = await dns.resolveMx(domain).catch(() => []);
-    if (mx.length === 0) return null;
-    for (const prefix of GUESS_PREFIXES) {
-      return `${prefix}@${domain}`;
+    if (mx.length === 0) return [];
+
+    const prefixes: string[] = [];
+
+    const clean = (s: string) => s.toLowerCase().replace(/[^a-z]/g, '');
+    const first = firstName ? clean(firstName) : '';
+    const last = lastName ? clean(lastName) : '';
+
+    if (first) {
+      prefixes.push(first);
+      if (last) {
+        prefixes.push(`${first}.${last}`);
+        prefixes.push(`${first}${last}`);
+        prefixes.push(`${first[0]}.${last}`);
+        prefixes.push(`${first}.${last[0]}`);
+        prefixes.push(`${first}_${last}`);
+      }
     }
+
+    for (const p of GUESS_PREFIXES) {
+      if (!prefixes.includes(p)) prefixes.push(p);
+    }
+
+    return prefixes.map(p => `${p}@${domain}`);
   } catch {
-    return null;
+    return [];
   }
-  return null;
 }
 
 // ─── Step 6: Google SERP scrape ───────────────────────────────────────────────

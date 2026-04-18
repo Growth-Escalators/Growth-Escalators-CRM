@@ -5,60 +5,27 @@ import logger from '../utils/logger';
 import { sendSlackMessage } from './slackService';
 import { SLACK_OUTREACH_CHANNEL } from '../config/constants';
 import { findEmail } from './emailExtractorService';
+import { getWebsiteSnippet } from './websiteCacheService';
 
 // ---------------------------------------------------------------------------
 // Claude Haiku icebreaker generation
 // Uses the website content to write a personalised, human-sounding opener
 // ---------------------------------------------------------------------------
 
-async function fetchWebsiteSnippet(url: string): Promise<string> {
-  return new Promise((resolve) => {
-    try {
-      const u = new URL(url.startsWith('http') ? url : `https://${url}`);
-      const options = {
-        hostname: u.hostname,
-        path: u.pathname || '/',
-        method: 'GET',
-        timeout: 8000,
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; GrowthEscalators/1.0)' },
-      };
-      const req = https.request(options, (res) => {
-        let body = '';
-        res.on('data', (c: string) => { body += c; if (body.length > 8000) res.destroy(); });
-        res.on('end', () => {
-          // Strip tags, get first 600 chars of visible text
-          const text = body.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-            .replace(/<[^>]+>/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim()
-            .slice(0, 600);
-          resolve(text);
-        });
-      });
-      req.on('error', () => resolve(''));
-      req.on('timeout', () => { req.destroy(); resolve(''); });
-      req.end();
-    } catch { resolve(''); }
-  });
-}
-
 async function generateIcebreaker(company: string, websiteUrl: string | null, country: string | null): Promise<string> {
   const apiKey = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return buildFallbackIcebreaker(company);
 
-  let websiteContent = '';
-  if (websiteUrl) {
-    websiteContent = await fetchWebsiteSnippet(websiteUrl);
-  }
+  const { snippet: websiteContent, vertical } = await getWebsiteSnippet(websiteUrl);
 
   const systemPrompt = `You write the first sentence of a cold email from Jatin at Growth Escalators to a performance marketing agency founder. The sentence must feel like it was written by a human who actually visited their website, not a bot. Never start with "I", never use words like "impressive", "innovative", "passionate", "dedicated". Never use the word "cheaper" — if cost ever needs to come up, phrase it as "60–70% lower fulfilment costs". Maximum 20 words. Output the sentence only — no quotes, no punctuation at end. If website content is unavailable, write a natural opener referencing the agency's country and niche instead.`;
 
   const userPrompt = `Agency: ${company}
-Website content: ${websiteContent || 'Not available — write based on agency name and country only'}
+Website signal (meta description / og:title / h1 / h2): ${websiteContent || 'Not available — write based on agency name and country only'}
+Detected vertical: ${vertical || 'Unknown'}
 Country: ${country ?? 'Unknown'}
 
-Write a single opening sentence. If website content is available, reference something specific from it. If not, write naturally based on the agency name and location.`;
+Write a single opening sentence. If website signal is available, reference something specific from it. If the detected vertical is set, you may lean on it. If nothing is available, write naturally based on the agency name and location.`;
 
   try {
     const bodyStr = JSON.stringify({
@@ -176,7 +143,7 @@ export async function enrichStuckLeads(): Promise<EnrichmentResult> {
         continue;
       }
 
-      const emailResult = await findEmail(lead.website_url);
+      const emailResult = await findEmail(lead.website_url, lead.first_name ?? undefined);
 
       if (emailResult) {
         await markActive(lead.id, emailResult.email, lead.first_name, lead.company, emailResult.source, lead.website_url, lead.country);
@@ -240,13 +207,36 @@ export async function uploadToSaleshandy(): Promise<{ uploaded: number; errors: 
   const sequenceId = process.env.SALESHANDY_SEQUENCE_ID;
   if (!apiKey || !sequenceId) return { uploaded: 0, errors: 0 };
 
+  // Daily cap safety-net: prevents a runaway enrichment surge from blowing
+  // through a week of warmup capacity in one afternoon. Default 200/day;
+  // override via env MAX_DAILY_UPLOADS.
+  const maxDaily = Math.max(1, parseInt(process.env.MAX_DAILY_UPLOADS || '200', 10));
+  const todayRow = await pool.query(
+    `SELECT leads_uploaded FROM outreach_funnel_daily WHERE snapshot_date = CURRENT_DATE LIMIT 1`,
+  ).catch(() => ({ rows: [] as Array<{ leads_uploaded: number }> }));
+  const uploadedToday = todayRow.rows[0]?.leads_uploaded ?? 0;
+
+  // Fall back to in-table count in case today's funnel row is not yet created
+  const todayCount = uploadedToday > 0 ? uploadedToday : Number(
+    (await pool.query(
+      `SELECT COUNT(*)::int AS c FROM outreach_leads WHERE saleshandy_uploaded_at::date = CURRENT_DATE`,
+    ).catch(() => ({ rows: [{ c: 0 }] }))).rows[0]?.c ?? 0,
+  );
+
+  const remaining = Math.max(0, maxDaily - todayCount);
+  if (remaining === 0) {
+    logger.info(`[saleshandy] Daily cap reached (${todayCount}/${maxDaily}) — skipping upload`);
+    return { uploaded: 0, errors: 0 };
+  }
+
+  const batchLimit = Math.min(50, remaining);
   const result = await pool.query(`
     SELECT id, company, first_name, email, website_url, icebreaker, country
     FROM outreach_leads
     WHERE status = 'Active' AND email IS NOT NULL
       AND (saleshandy_uploaded IS NULL OR saleshandy_uploaded = FALSE)
-    LIMIT 50
-  `);
+    LIMIT $1
+  `, [batchLimit]);
 
   if (result.rows.length === 0) return { uploaded: 0, errors: 0 };
 
@@ -399,6 +389,7 @@ Draft-reply rules:
 - Only produce a draftReply when category = "INTERESTED"; otherwise set it to null.
 - Never use the word "cheaper". When cost advantages come up, phrase it as "60–70% lower fulfilment costs".
 - Keep the draft reply under 3 sentences, written in Jatin's voice — direct, human, no corporate filler.
+- Do NOT include a booking link in your draft — the backend appends it automatically.
 
 Return ONLY the JSON, no other text.`;
 
@@ -456,6 +447,17 @@ Return ONLY the JSON, no other text.`;
       req.write(bodyStr);
       req.end();
     });
+
+    // Append self-book link on INTERESTED replies so the prospect can book
+    // a slot directly — eliminates the calendar-back-and-forth that ghosts
+    // 40-60% of interested leads.
+    if (result.category === 'INTERESTED' && result.draftReply) {
+      const bookingUrl = process.env.MEETING_BOOKING_URL;
+      if (bookingUrl) {
+        result.draftReply =
+          `${result.draftReply.trim()}\n\nFeel free to grab a 20-min slot directly here: ${bookingUrl} — or reply with a time that works.`;
+      }
+    }
 
     return result;
   } catch (e) {
