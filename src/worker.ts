@@ -22,22 +22,42 @@ console.log('[worker] Worker process started');
 
 // Startup: validate critical environment variables
 const _missingEnvVars: string[] = [];
-if (!process.env.SERPER_API_KEY) _missingEnvVars.push('SERPER_API_KEY (SEO rank tracking, backlinks, content gaps will not work)');
+if (!process.env.SERPER_API_KEY) _missingEnvVars.push('SERPER_API_KEY (SEO rank tracking, backlinks, content gaps, outreach directory scraping will not work)');
 if (!process.env.META_ADS_TOKEN && !process.env.META_ACCESS_TOKEN) _missingEnvVars.push('META_ADS_TOKEN (Meta Ads daily report will not work)');
-if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_API_KEY) _missingEnvVars.push('ANTHROPIC_API_KEY (AI intelligence will use fallback mode)');
+if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_API_KEY) _missingEnvVars.push('ANTHROPIC_API_KEY (AI intelligence + outreach icebreaker/reply classifier will use fallback mode)');
 if (!process.env.META_PIXEL_ID) _missingEnvVars.push('META_PIXEL_ID (Meta CAPI conversions will not fire — get from Events Manager)');
+// Outreach-critical env vars
+if (!process.env.GOOGLE_PLACES_API_KEY) _missingEnvVars.push('GOOGLE_PLACES_API_KEY (daily outreach lead discovery will not run)');
+if (!process.env.HUNTER_API_KEY) _missingEnvVars.push('HUNTER_API_KEY (outreach enrichment email-finder primary source disabled)');
+if (!process.env.SNOVIO_API_KEY && !process.env.SNOV_API_KEY) _missingEnvVars.push('SNOVIO_API_KEY (outreach enrichment email-finder secondary source disabled)');
+if (!process.env.SALESHANDY_API_KEY) _missingEnvVars.push('SALESHANDY_API_KEY (outreach upload-to-sequence automation will not work)');
+if (!process.env.SALESHANDY_SEQUENCE_ID) _missingEnvVars.push('SALESHANDY_SEQUENCE_ID (outreach upload target sequence missing)');
+if (!process.env.OUTREACH_INTERNAL_SECRET) _missingEnvVars.push('OUTREACH_INTERNAL_SECRET (n8n ↔ backend auth for outreach endpoints disabled)');
+const _missingPurelymailSlots: string[] = [];
+for (let i = 1; i <= 6; i++) {
+  if (!process.env[`PURELYMAIL_PASS_${i}`]) _missingPurelymailSlots.push(String(i));
+}
+if (_missingPurelymailSlots.length > 0) {
+  _missingEnvVars.push(`PURELYMAIL_PASS_${_missingPurelymailSlots.join(',')} (outreach IMAP reply polling will skip these inboxes)`);
+}
 if (_missingEnvVars.length > 0) {
   console.warn('[worker] ⚠️ MISSING ENV VARS:');
   for (const v of _missingEnvVars) console.warn(`  • ${v}`);
+  // Fire-and-forget Slack DM to Jatin so we notice during boot
+  import('./services/slackService').then(async ({ sendSlackDM }) => {
+    const body = ['⚠️ *Worker startup — missing env vars*', ...(_missingEnvVars.map(v => `• ${v}`))].join('\n');
+    await sendSlackDM(SLACK_JATIN, body).catch(() => {});
+  }).catch(() => {});
 }
 
 // Track all setInterval timers for graceful shutdown
 const _intervals: ReturnType<typeof setInterval>[] = [];
 
-// One-time startup: ensure enrichment columns + reply alert columns + self-healing columns
+// One-time startup: ensure enrichment columns + reply alert columns + self-healing columns + funnel metrics
 import('./services/outreachEnrichmentService').then(m => m.ensureEnrichmentColumns()).catch(() => {});
 import('./services/outreachAlertService').then(m => m.ensureOutreachAlertColumns()).catch(() => {});
 import('./services/workflowSelfHealingService').then(m => m.ensureSelfHealingColumns()).catch(() => {});
+import('./services/outreachFunnelMetrics').then(m => m.ensureOutreachFunnelTable()).catch(() => {});
 pool.query(`
   UPDATE outreach_leads SET status = 'New', updated_at = NOW()
   WHERE status = 'Enriching' AND updated_at < NOW() - INTERVAL '30 minutes'
@@ -705,6 +725,7 @@ cron.schedule('30 1 * * *', () => safeCron('Daily Lead Discovery', async () => {
   const todayQueries = [0, 1, 2].map(i => DISCOVERY_QUERIES[(startIdx + i) % DISCOVERY_QUERIES.length]);
 
   let totalInserted = 0;
+  let totalApiCalls = 0;
   const countryCounts: Record<string, number> = {};
   const { insertOutreachLead } = await import('./services/outreachLeadsService');
 
@@ -713,6 +734,7 @@ cron.schedule('30 1 * * *', () => safeCron('Daily Lead Discovery', async () => {
       const fullQuery = encodeURIComponent(`${q.query} ${q.location}`);
       const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${fullQuery}&key=${apiKey}`;
       const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      totalApiCalls++;
       if (!res.ok) continue;
       const data = await res.json() as { results?: Array<{ name: string; formatted_address?: string; rating?: number; user_ratings_total?: number }> };
       const places = data.results ?? [];
@@ -739,6 +761,15 @@ cron.schedule('30 1 * * *', () => safeCron('Daily Lead Discovery', async () => {
     }
   }
 
+  if (totalApiCalls > 0) {
+    try {
+      const { incrementDiscoveryCost } = await import('./services/outreachFunnelMetrics');
+      await incrementDiscoveryCost(totalApiCalls);
+    } catch (err) {
+      console.error('[CRON] discovery cost track failed:', err instanceof Error ? err.message : String(err));
+    }
+  }
+
   if (totalInserted > 0) {
     const { sendSlackMessage } = await import('./services/slackService');
     const totalPipeline = await pool.query(`SELECT COUNT(*)::int AS c FROM outreach_leads`);
@@ -747,9 +778,19 @@ cron.schedule('30 1 * * *', () => safeCron('Daily Lead Discovery', async () => {
       `🔍 *Discovery*: Found ${totalInserted} new leads today (${parts}). Total pipeline: ${(totalPipeline.rows[0] as { c: number }).c} leads.`,
     ).catch(() => {});
   }
-  console.log(`[CRON] Daily discovery: ${totalInserted} new leads`);
+  console.log(`[CRON] Daily discovery: ${totalInserted} new leads, ${totalApiCalls} Places calls`);
 }), { timezone: 'UTC' });
 console.log('[cron] Daily lead discovery scheduled — 7:00 AM IST');
+
+// ---------------------------------------------------------------------------
+// Outreach Funnel Snapshot — 23:55 IST (18:25 UTC)
+// Captures daily funnel counts for ROI tracking on /outreach-dashboard
+// ---------------------------------------------------------------------------
+cron.schedule('25 18 * * *', () => safeCron('Outreach Funnel Snapshot', async () => {
+  const { snapshotTodaysFunnel } = await import('./services/outreachFunnelMetrics');
+  await snapshotTodaysFunnel();
+}), { timezone: 'UTC' });
+console.log('[cron] Outreach funnel snapshot scheduled — 23:55 IST');
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------

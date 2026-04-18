@@ -15,7 +15,6 @@
  *   Returns pipeline stats grouped by status.
  */
 
-import axios from 'axios';
 import { Router, type Request, type Response } from 'express';
 import logger from '../utils/logger';
 import { insertOutreachLead } from '../services/outreachLeadsService';
@@ -599,7 +598,7 @@ router.post('/upload-saleshandy', async (req: Request, res: Response) => {
 router.get('/dashboard', async (req: Request, res: Response) => {
   if (!checkInternalSecret(req, res)) return;
   try {
-    const [statusR, recentR, interestedR, countryR, weeklyR, uploadedR] = await Promise.all([
+    const [statusR, recentR, interestedR, countryR, weeklyR, uploadedR, replyCatR] = await Promise.all([
       pool.query(`SELECT status, COUNT(*)::int AS count FROM outreach_leads GROUP BY status`),
       pool.query(`SELECT id, company, status, email, email_source, reply_category, country, updated_at FROM outreach_leads ORDER BY updated_at DESC LIMIT 20`),
       pool.query(`SELECT id, company, email, country, notes, updated_at, reply_time, jatin_responded_at,
@@ -608,6 +607,11 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       pool.query(`SELECT COALESCE(country, 'Unknown') AS country, COUNT(*)::int AS count FROM outreach_leads GROUP BY country ORDER BY count DESC`),
       pool.query(`SELECT created_at::date AS date, COUNT(*)::int AS count FROM outreach_leads WHERE created_at >= NOW() - INTERVAL '7 days' GROUP BY created_at::date ORDER BY date`),
       pool.query(`SELECT COUNT(*)::int AS count FROM outreach_leads WHERE saleshandy_uploaded = true`),
+      pool.query(`SELECT reply_category AS category, COUNT(*)::int AS count
+                  FROM outreach_leads
+                  WHERE reply_category IS NOT NULL
+                  GROUP BY reply_category
+                  ORDER BY count DESC`),
     ]);
 
     const sc: Record<string, number> = {};
@@ -625,6 +629,7 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       interestedLeads: interestedR.rows,
       byCountry: countryR.rows,
       weeklyTrend: weeklyR.rows,
+      replyBreakdown: replyCatR.rows,
     });
   } catch (err) {
     res.status(500).json({ error: String(err) });
@@ -727,6 +732,22 @@ router.post('/:id/auto-classify', async (req: Request, res: Response) => {
   } catch (err) {
     logger.error({ err }, '[outreach-leads] auto-classify error');
     res.status(500).json({ error: 'Classification failed' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/outreach/leads/funnel?days=30 — ROI + funnel metrics for dashboard
+// ---------------------------------------------------------------------------
+router.get('/funnel', async (req: Request, res: Response) => {
+  if (!checkInternalSecret(req, res)) return;
+  try {
+    const days = parseInt((req.query.days as string) || '30', 10);
+    const { getFunnelSummary } = await import('../services/outreachFunnelMetrics');
+    const summary = await getFunnelSummary(Number.isFinite(days) ? days : 30);
+    res.json(summary);
+  } catch (err) {
+    logger.error({ err }, '[outreach-leads] funnel error');
+    res.status(500).json({ error: String(err) });
   }
 });
 

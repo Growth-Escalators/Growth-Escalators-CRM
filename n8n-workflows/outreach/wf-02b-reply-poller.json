@@ -65,7 +65,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"model\": \"claude-haiku-4-5-20251001\",\n  \"max_tokens\": 20,\n  \"system\": \"Classify this email reply into exactly ONE of these categories. Reply with ONLY the category name, nothing else.\\n\\nCategories:\\n- INTERESTED: wants to learn more, asks about pricing, availability, or next steps\\n- OBJECTION: interested but has concerns about trust, quality, pricing, or process\\n- NOT_NOW: not interested right now but open to future contact\\n- REFERRAL: not interested but suggests another agency or contact\\n- WRONG_PERSON: not the right contact, left company, or not an agency\\n- UNSUBSCRIBE: explicit opt-out request\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Company: {{ $json.company }}\\nSubject: {{ $json.subject }}\\nReply:\\n{{ $json.body }}\"\n    }\n  ]\n}",
+        "jsonBody": "={\n  \"model\": \"claude-haiku-4-5-20251001\",\n  \"max_tokens\": 20,\n  \"system\": \"Classify this email reply into exactly ONE of these 5 canonical categories. Reply with ONLY the category name in uppercase, nothing else.\\n\\nCategories:\\n- INTERESTED: wants to learn more, asks about pricing, availability, next steps, or says yes\\n- NOT_NOW: not right time but open later, busy, mid-migration, asks to reach back in weeks/months\\n- NOT_INTERESTED: explicit no, not a fit, has objections they won't move past, referral away, wrong person, already has a partner\\n- UNSUBSCRIBE: explicit opt-out / remove-me / stop-emailing request\\n- UNCATEGORIZED: out-of-office, auto-reply, bounce, language-barrier, ambiguous — anything you can't confidently bucket above\\n\\nPrefer NOT_INTERESTED over UNCATEGORIZED when the reply is a clear polite no.\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Company: {{ $json.company }}\\nSubject: {{ $json.subject }}\\nReply:\\n{{ $json.body }}\"\n    }\n  ]\n}",
         "options": {
           "timeout": 20000,
           "response": { "response": { "neverError": true } },
@@ -81,7 +81,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const claudeResp = $input.first().json;\nconst lead = $('Code: Split Replies').item.json;\n\nconst validCategories = ['INTERESTED','OBJECTION','NOT_NOW','REFERRAL','WRONG_PERSON','UNSUBSCRIBE'];\nlet classification = 'INTERESTED';\ntry {\n  const text = claudeResp.content?.[0]?.text?.trim().toUpperCase() || '';\n  if (validCategories.includes(text)) classification = text;\n} catch(e) { /* keep fallback */ }\n\nconst replyPreview200 = (lead.body || '').substring(0, 200);\nconst replyPreview300 = (lead.body || '').substring(0, 300);\nconst reengageDate = new Date();\nreengageDate.setDate(reengageDate.getDate() + 90);\nconst reengageDateStr = reengageDate.toISOString().split('T')[0];\n\nreturn [{ json: { ...lead, classification, replyPreview200, replyPreview300, reengageDateStr } }];"
+        "jsCode": "const claudeResp = $input.first().json;\nconst lead = $('Code: Split Replies').item.json;\n\nconst validCategories = ['INTERESTED','NOT_NOW','NOT_INTERESTED','UNSUBSCRIBE','UNCATEGORIZED'];\nlet classification = 'UNCATEGORIZED';\ntry {\n  const text = claudeResp.content?.[0]?.text?.trim().toUpperCase() || '';\n  if (validCategories.includes(text)) classification = text;\n} catch(e) { /* keep fallback */ }\n\nconst replyPreview200 = (lead.body || '').substring(0, 200);\nconst replyPreview300 = (lead.body || '').substring(0, 300);\nconst reengageDate = new Date();\nreengageDate.setDate(reengageDate.getDate() + 90);\nconst reengageDateStr = reengageDate.toISOString().split('T')[0];\n\nreturn [{ json: { ...lead, classification, replyPreview200, replyPreview300, reengageDateStr } }];"
       },
       "id": "wf02b-0005-parse",
       "name": "Parse Classification",
@@ -105,15 +105,6 @@
             {
               "conditions": {
                 "options": { "caseSensitive": false, "leftValue": "", "typeValidation": "strict" },
-                "conditions": [{ "leftValue": "={{ $json.classification }}", "rightValue": "OBJECTION", "operator": { "type": "string", "operation": "equals" } }],
-                "combinator": "and"
-              },
-              "renameOutput": true,
-              "outputKey": "OBJECTION"
-            },
-            {
-              "conditions": {
-                "options": { "caseSensitive": false, "leftValue": "", "typeValidation": "strict" },
                 "conditions": [{ "leftValue": "={{ $json.classification }}", "rightValue": "NOT_NOW", "operator": { "type": "string", "operation": "equals" } }],
                 "combinator": "and"
               },
@@ -123,20 +114,11 @@
             {
               "conditions": {
                 "options": { "caseSensitive": false, "leftValue": "", "typeValidation": "strict" },
-                "conditions": [{ "leftValue": "={{ $json.classification }}", "rightValue": "REFERRAL", "operator": { "type": "string", "operation": "equals" } }],
+                "conditions": [{ "leftValue": "={{ $json.classification }}", "rightValue": "NOT_INTERESTED", "operator": { "type": "string", "operation": "equals" } }],
                 "combinator": "and"
               },
               "renameOutput": true,
-              "outputKey": "REFERRAL"
-            },
-            {
-              "conditions": {
-                "options": { "caseSensitive": false, "leftValue": "", "typeValidation": "strict" },
-                "conditions": [{ "leftValue": "={{ $json.classification }}", "rightValue": "WRONG_PERSON", "operator": { "type": "string", "operation": "equals" } }],
-                "combinator": "and"
-              },
-              "renameOutput": true,
-              "outputKey": "WRONG_PERSON"
+              "outputKey": "NOT_INTERESTED"
             },
             {
               "conditions": {
@@ -146,6 +128,15 @@
               },
               "renameOutput": true,
               "outputKey": "UNSUBSCRIBE"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": false, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [{ "leftValue": "={{ $json.classification }}", "rightValue": "UNCATEGORIZED", "operator": { "type": "string", "operation": "equals" } }],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "UNCATEGORIZED"
             }
           ]
         },
@@ -160,7 +151,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE outreach_leads SET status = 'Replied', reply_category = 'INTERESTED', notes = '{{ ($json.replyPreview200 || '').replace(/'/g, \"''\") }}', updated_at = NOW() WHERE email = '{{ ($json.from || '').replace(/'/g, \"''\") }}' AND status = 'Active' RETURNING id",
+        "query": "UPDATE outreach_leads SET status = 'Replied', reply_category = 'INTERESTED', notes = '{{ ($json.replyPreview200 || '').replace(/'/g, \"''\") }}', reply_time = COALESCE(reply_time, NOW()), updated_at = NOW() WHERE email = '{{ ($json.from || '').replace(/'/g, \"''\") }}' AND status = 'Active' RETURNING id",
         "options": {}
       },
       "id": "wf02b-0007-pg-int",
@@ -195,49 +186,14 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE outreach_leads SET status = 'Replied', reply_category = 'OBJECTION', notes = '{{ ($json.replyPreview200 || '').replace(/'/g, \"''\") }}', updated_at = NOW() WHERE email = '{{ ($json.from || '').replace(/'/g, \"''\") }}' AND status = 'Active' RETURNING id",
-        "options": {}
-      },
-      "id": "wf02b-0009-pg-obj",
-      "name": "PG: OBJECTION",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [1320, 200],
-      "credentials": { "postgres": { "id": "tEi1y3q2RyS0OOgV", "name": "GE Outreach Postgres" } }
-    },
-    {
-      "parameters": {
-        "url": "https://slack.com/api/chat.postMessage",
-        "method": "POST",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            { "name": "Authorization", "value": "=Bearer {{ $env.SLACK_BOT_TOKEN }}" },
-            { "name": "Content-Type",  "value": "application/json" }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"channel\": \"{{ $env.JATIN_SLACK_USER_ID }}\",\n  \"text\": \"⚠️ [OBJECTION] {{ $json.firstName }} at {{ $json.company }} has concerns (via {{ $json.inbox }})\\n\\n{{ $json.replyPreview200 }}\"\n}",
-        "options": { "response": { "response": { "neverError": true } } }
-      },
-      "id": "wf02b-0010-sl-obj",
-      "name": "Slack DM: OBJECTION",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1540, 200]
-    },
-    {
-      "parameters": {
-        "operation": "executeQuery",
         "query": "UPDATE outreach_leads SET status = 'Replied', reply_category = 'NOT_NOW', notes = 'Re-engage after 90 days ({{ $json.reengageDateStr }}). {{ ($json.replyPreview200 || '').replace(/'/g, \"''\") }}', updated_at = NOW() WHERE email = '{{ ($json.from || '').replace(/'/g, \"''\") }}' AND status = 'Active' RETURNING id",
         "options": {}
       },
-      "id": "wf02b-0011-pg-nn",
+      "id": "wf02b-0009-pg-nn",
       "name": "PG: NOT_NOW",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1320, 340],
+      "position": [1320, 200],
       "credentials": { "postgres": { "id": "tEi1y3q2RyS0OOgV", "name": "GE Outreach Postgres" } }
     },
     {
@@ -249,8 +205,36 @@
         "jsonBody": "={ \"text\": \"⏳ [NOT_NOW] {{ $json.firstName }} at {{ $json.company }} — 90-day re-engage on {{ $json.reengageDateStr }} (via {{ $json.inbox }})\" }",
         "options": { "response": { "response": { "neverError": true } } }
       },
-      "id": "wf02b-0012-sl-nn",
+      "id": "wf02b-0010-sl-nn",
       "name": "Slack: NOT_NOW",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1540, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE outreach_leads SET status = 'Closed', reply_category = 'NOT_INTERESTED', notes = '{{ ($json.replyPreview200 || '').replace(/'/g, \"''\") }}', updated_at = NOW() WHERE email = '{{ ($json.from || '').replace(/'/g, \"''\") }}' AND status = 'Active' RETURNING id",
+        "options": {}
+      },
+      "id": "wf02b-0011-pg-ni",
+      "name": "PG: NOT_INTERESTED",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1320, 340],
+      "credentials": { "postgres": { "id": "tEi1y3q2RyS0OOgV", "name": "GE Outreach Postgres" } }
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SLACK_OUTREACH_WEBHOOK }}",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"text\": \"🚫 [NOT_INTERESTED] {{ $json.firstName }} at {{ $json.company }} — closed (via {{ $json.inbox }})\" }",
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "wf02b-0012-sl-ni",
+      "name": "Slack: NOT_INTERESTED",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [1540, 340]
@@ -258,14 +242,42 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE outreach_leads SET status = 'Replied', reply_category = 'REFERRAL', notes = '{{ ($json.replyPreview300 || '').replace(/'/g, \"''\") }}', updated_at = NOW() WHERE email = '{{ ($json.from || '').replace(/'/g, \"''\") }}' AND status = 'Active' RETURNING id",
+        "query": "UPDATE outreach_leads SET status = 'Closed', reply_category = 'UNSUBSCRIBE', notes = '{{ ($json.replyPreview200 || '').replace(/'/g, \"''\") }}', updated_at = NOW() WHERE email = '{{ ($json.from || '').replace(/'/g, \"''\") }}' AND status = 'Active' RETURNING id",
         "options": {}
       },
-      "id": "wf02b-0013-pg-ref",
-      "name": "PG: REFERRAL",
+      "id": "wf02b-0013-pg-uns",
+      "name": "PG: UNSUBSCRIBE",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [1320, 480],
+      "credentials": { "postgres": { "id": "tEi1y3q2RyS0OOgV", "name": "GE Outreach Postgres" } }
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SLACK_OUTREACH_WEBHOOK }}",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"text\": \"🛑 [UNSUBSCRIBE] {{ $json.firstName }} at {{ $json.company }} — permanently removed (via {{ $json.inbox }})\" }",
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "wf02b-0014-sl-uns",
+      "name": "Slack: UNSUBSCRIBE",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1540, 480]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE outreach_leads SET status = 'Replied', reply_category = 'UNCATEGORIZED', notes = 'Manual review needed. {{ ($json.replyPreview300 || '').replace(/'/g, \"''\") }}', updated_at = NOW() WHERE email = '{{ ($json.from || '').replace(/'/g, \"''\") }}' AND status = 'Active' RETURNING id",
+        "options": {}
+      },
+      "id": "wf02b-0015-pg-unc",
+      "name": "PG: UNCATEGORIZED",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1320, 620],
       "credentials": { "postgres": { "id": "tEi1y3q2RyS0OOgV", "name": "GE Outreach Postgres" } }
     },
     {
@@ -281,75 +293,19 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"channel\": \"{{ $env.JATIN_SLACK_USER_ID }}\",\n  \"text\": \"💎 [REFERRAL] {{ $json.firstName }} at {{ $json.company }} suggested someone! (via {{ $json.inbox }})\\n\\n{{ $json.replyPreview300 }}\"\n}",
+        "jsonBody": "={\n  \"channel\": \"{{ $env.JATIN_SLACK_USER_ID }}\",\n  \"text\": \"❓ [UNCATEGORIZED] {{ $json.firstName }} at {{ $json.company }} — needs manual review (via {{ $json.inbox }})\\n\\n{{ $json.replyPreview300 }}\"\n}",
         "options": { "response": { "response": { "neverError": true } } }
       },
-      "id": "wf02b-0014-sl-ref",
-      "name": "Slack DM: REFERRAL",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1540, 480]
-    },
-    {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "UPDATE outreach_leads SET status = 'Closed', reply_category = 'WRONG_PERSON', notes = '{{ ($json.replyPreview200 || '').replace(/'/g, \"''\") }}', updated_at = NOW() WHERE email = '{{ ($json.from || '').replace(/'/g, \"''\") }}' AND status = 'Active' RETURNING id",
-        "options": {}
-      },
-      "id": "wf02b-0015-pg-wp",
-      "name": "PG: WRONG_PERSON",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [1320, 620],
-      "credentials": { "postgres": { "id": "tEi1y3q2RyS0OOgV", "name": "GE Outreach Postgres" } }
-    },
-    {
-      "parameters": {
-        "url": "={{ $env.SLACK_OUTREACH_WEBHOOK }}",
-        "method": "POST",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={ \"text\": \"🚫 [WRONG_PERSON] {{ $json.firstName }} at {{ $json.company }} — removed (via {{ $json.inbox }})\" }",
-        "options": { "response": { "response": { "neverError": true } } }
-      },
-      "id": "wf02b-0016-sl-wp",
-      "name": "Slack: WRONG_PERSON",
+      "id": "wf02b-0016-sl-unc",
+      "name": "Slack DM: UNCATEGORIZED",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [1540, 620]
     },
     {
       "parameters": {
-        "operation": "executeQuery",
-        "query": "UPDATE outreach_leads SET status = 'Closed', reply_category = 'UNSUBSCRIBE', notes = '{{ ($json.replyPreview200 || '').replace(/'/g, \"''\") }}', updated_at = NOW() WHERE email = '{{ ($json.from || '').replace(/'/g, \"''\") }}' AND status = 'Active' RETURNING id",
-        "options": {}
-      },
-      "id": "wf02b-0017-pg-uns",
-      "name": "PG: UNSUBSCRIBE",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [1320, 760],
-      "credentials": { "postgres": { "id": "tEi1y3q2RyS0OOgV", "name": "GE Outreach Postgres" } }
-    },
-    {
-      "parameters": {
-        "url": "={{ $env.SLACK_OUTREACH_WEBHOOK }}",
-        "method": "POST",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={ \"text\": \"🛑 [UNSUBSCRIBE] {{ $json.firstName }} at {{ $json.company }} — permanently removed (via {{ $json.inbox }})\" }",
-        "options": { "response": { "response": { "neverError": true } } }
-      },
-      "id": "wf02b-0018-sl-uns",
-      "name": "Slack: UNSUBSCRIBE",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1540, 760]
-    },
-    {
-      "parameters": {
-        "content": "**WF-02B — Reply Poller (IMAP)**\n\nReplaces WF-02 webhook approach.\nPolls all 6 Purelymail inboxes every 5 min.\nBackend handles IMAP + dedup + lead matching.\nn8n handles classification + DB update + Slack.\n\n**Env vars needed (n8n service):**\n- OUTREACH_INTERNAL_SECRET\n- ANTHROPIC_API_KEY\n- SLACK_BOT_TOKEN\n- JATIN_SLACK_USER_ID\n- SLACK_OUTREACH_WEBHOOK\n- OUTREACH_BACKEND_URL (default: https://web-production-311da.up.railway.app)\n\n**Env vars needed (web service):**\n- OUTREACH_INTERNAL_SECRET (same value)\n- PURELYMAIL_PASS_JATIN_ADSCALELAB\n- PURELYMAIL_PASS_HELLO_ADSCALELAB\n- PURELYMAIL_PASS_JATIN_PARTNERPEAK\n- PURELYMAIL_PASS_HELLO_PARTNERPEAK\n- PURELYMAIL_PASS_JATIN_PARTNERSGE\n- PURELYMAIL_PASS_HELLO_PARTNERSGE",
-        "height": 480,
+        "content": "**WF-02B — Reply Poller (IMAP)**\n\nReplaces WF-02 webhook approach.\nPolls all 6 Purelymail inboxes every 5 min.\nBackend handles IMAP + dedup + lead matching.\nn8n handles classification + DB update + Slack.\n\n**Canonical 5-category taxonomy** (unified 2026-04):\n- INTERESTED → status=Replied + DM Jatin\n- NOT_NOW → status=Replied + 90-day re-engage note + channel\n- NOT_INTERESTED → status=Closed + channel\n- UNSUBSCRIBE → status=Closed + channel\n- UNCATEGORIZED → status=Replied + DM Jatin (manual review)\n\n**Env vars needed (n8n service):**\n- OUTREACH_INTERNAL_SECRET\n- ANTHROPIC_API_KEY\n- SLACK_BOT_TOKEN\n- JATIN_SLACK_USER_ID\n- SLACK_OUTREACH_WEBHOOK\n- OUTREACH_BACKEND_URL (default: https://web-production-311da.up.railway.app)\n\n**Env vars needed (web service):**\n- OUTREACH_INTERNAL_SECRET (same value)\n- PURELYMAIL_PASS_JATIN_ADSCALELAB\n- PURELYMAIL_PASS_HELLO_ADSCALELAB\n- PURELYMAIL_PASS_JATIN_PARTNERPEAK\n- PURELYMAIL_PASS_HELLO_PARTNERPEAK\n- PURELYMAIL_PASS_JATIN_PARTNERSGE\n- PURELYMAIL_PASS_HELLO_PARTNERSGE",
+        "height": 520,
         "width": 380
       },
       "id": "wf02b-0019-note",
@@ -377,20 +333,18 @@
     },
     "Switch: Classification": {
       "main": [
-        [{ "node": "PG: INTERESTED",  "type": "main", "index": 0 }],
-        [{ "node": "PG: OBJECTION",   "type": "main", "index": 0 }],
-        [{ "node": "PG: NOT_NOW",     "type": "main", "index": 0 }],
-        [{ "node": "PG: REFERRAL",    "type": "main", "index": 0 }],
-        [{ "node": "PG: WRONG_PERSON","type": "main", "index": 0 }],
-        [{ "node": "PG: UNSUBSCRIBE", "type": "main", "index": 0 }]
+        [{ "node": "PG: INTERESTED",     "type": "main", "index": 0 }],
+        [{ "node": "PG: NOT_NOW",        "type": "main", "index": 0 }],
+        [{ "node": "PG: NOT_INTERESTED", "type": "main", "index": 0 }],
+        [{ "node": "PG: UNSUBSCRIBE",    "type": "main", "index": 0 }],
+        [{ "node": "PG: UNCATEGORIZED",  "type": "main", "index": 0 }]
       ]
     },
-    "PG: INTERESTED":   { "main": [[{ "node": "Slack DM: INTERESTED",  "type": "main", "index": 0 }]] },
-    "PG: OBJECTION":    { "main": [[{ "node": "Slack DM: OBJECTION",   "type": "main", "index": 0 }]] },
-    "PG: NOT_NOW":      { "main": [[{ "node": "Slack: NOT_NOW",        "type": "main", "index": 0 }]] },
-    "PG: REFERRAL":     { "main": [[{ "node": "Slack DM: REFERRAL",    "type": "main", "index": 0 }]] },
-    "PG: WRONG_PERSON": { "main": [[{ "node": "Slack: WRONG_PERSON",   "type": "main", "index": 0 }]] },
-    "PG: UNSUBSCRIBE":  { "main": [[{ "node": "Slack: UNSUBSCRIBE",    "type": "main", "index": 0 }]] }
+    "PG: INTERESTED":     { "main": [[{ "node": "Slack DM: INTERESTED",    "type": "main", "index": 0 }]] },
+    "PG: NOT_NOW":        { "main": [[{ "node": "Slack: NOT_NOW",          "type": "main", "index": 0 }]] },
+    "PG: NOT_INTERESTED": { "main": [[{ "node": "Slack: NOT_INTERESTED",   "type": "main", "index": 0 }]] },
+    "PG: UNSUBSCRIBE":    { "main": [[{ "node": "Slack: UNSUBSCRIBE",      "type": "main", "index": 0 }]] },
+    "PG: UNCATEGORIZED":  { "main": [[{ "node": "Slack DM: UNCATEGORIZED", "type": "main", "index": 0 }]] }
   },
   "active": false,
   "settings": {

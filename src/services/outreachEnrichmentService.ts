@@ -52,7 +52,7 @@ async function generateIcebreaker(company: string, websiteUrl: string | null, co
     websiteContent = await fetchWebsiteSnippet(websiteUrl);
   }
 
-  const systemPrompt = `You write the first sentence of a cold email from Jatin at Growth Escalators to a performance marketing agency founder. The sentence must feel like it was written by a human who actually visited their website, not a bot. Never start with "I", never use words like "impressive", "innovative", "passionate", "dedicated". Maximum 20 words. Output the sentence only — no quotes, no punctuation at end. If website content is unavailable, write a natural opener referencing the agency's country and niche instead.`;
+  const systemPrompt = `You write the first sentence of a cold email from Jatin at Growth Escalators to a performance marketing agency founder. The sentence must feel like it was written by a human who actually visited their website, not a bot. Never start with "I", never use words like "impressive", "innovative", "passionate", "dedicated". Never use the word "cheaper" — if cost ever needs to come up, phrase it as "60–70% lower fulfilment costs". Maximum 20 words. Output the sentence only — no quotes, no punctuation at end. If website content is unavailable, write a natural opener referencing the agency's country and niche instead.`;
 
   const userPrompt = `Agency: ${company}
 Website content: ${websiteContent || 'Not available — write based on agency name and country only'}
@@ -136,12 +136,13 @@ export async function enrichStuckLeads(): Promise<EnrichmentResult> {
     WHERE status = 'Enriching' AND updated_at < NOW() - INTERVAL '60 minutes'
   `).catch(() => {});
 
-  // Find leads to enrich (New or stuck Enriching >15min, max retries < 5)
+  // Find leads to enrich (New or stuck Enriching >15min, max 3 total attempts).
+  // Loop below gives up at retry_count >= 2 (i.e. the 3rd try); query must match.
   const result = await pool.query(`
     SELECT id, company, first_name, website_url, email, country, COALESCE(retry_count, 0) AS retry_count
     FROM outreach_leads
-    WHERE (status = 'New' AND COALESCE(retry_count, 0) < 5)
-       OR (status = 'Enriching' AND updated_at < NOW() - INTERVAL '15 minutes' AND COALESCE(retry_count, 0) < 5)
+    WHERE (status = 'New' AND COALESCE(retry_count, 0) < 3)
+       OR (status = 'Enriching' AND updated_at < NOW() - INTERVAL '15 minutes' AND COALESCE(retry_count, 0) < 3)
     ORDER BY COALESCE(retry_count, 0) ASC, created_at ASC
     LIMIT 25
   `);
@@ -381,19 +382,23 @@ Reply received:
 
 Respond in JSON format:
 {
-  "category": one of "INTERESTED", "NOT_INTERESTED", "FOLLOW_UP", "OUT_OF_OFFICE", "UNSUBSCRIBE", "UNCATEGORIZED",
+  "category": one of "INTERESTED", "NOT_NOW", "NOT_INTERESTED", "UNSUBSCRIBE", "UNCATEGORIZED",
   "confidence": number 0-100,
   "summary": "one sentence summary of what the reply says",
   "draftReply": "if INTERESTED, write a short professional follow-up (2-3 sentences max) suggesting a quick call. Otherwise null"
 }
 
-Classification rules:
-- INTERESTED: they want to learn more, asked questions, agreed to a call
-- NOT_INTERESTED: polite rejection, not looking, already have a solution
-- FOLLOW_UP: says "not now" but gives a future date, "try next quarter"
-- OUT_OF_OFFICE: auto-responder, vacation, OOO
-- UNSUBSCRIBE: asks to be removed, stop emailing
-- UNCATEGORIZED: can't determine intent
+Classification rules (pick exactly one of the 5):
+- INTERESTED: they want to learn more, asked questions, agreed to a call, requested pricing/details
+- NOT_NOW: polite defer — "not right now", "try next quarter", out-of-office auto-reply, on holiday, ask us to circle back
+- NOT_INTERESTED: polite rejection, already sorted, wrong person, referral to someone else, objection with no open door
+- UNSUBSCRIBE: asks to be removed, stop emailing, GDPR removal request
+- UNCATEGORIZED: cannot determine intent from the reply
+
+Draft-reply rules:
+- Only produce a draftReply when category = "INTERESTED"; otherwise set it to null.
+- Never use the word "cheaper". When cost advantages come up, phrase it as "60–70% lower fulfilment costs".
+- Keep the draft reply under 3 sentences, written in Jatin's voice — direct, human, no corporate filler.
 
 Return ONLY the JSON, no other text.`;
 

@@ -64,6 +64,44 @@ export async function ensureOutreachLeadsTable(): Promise<void> {
     )
   `);
   logger.info('[outreach-leads] outreach_errors table ready');
+
+  // One-time migrations table — records which idempotent data fixes have already run
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS outreach_migrations (
+      id          VARCHAR(100) PRIMARY KEY,
+      applied_at  TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  // Migration: 2026-04-unify-reply-categories
+  // Collapses the legacy 6-category set (INTERESTED, OBJECTION, NOT_NOW, REFERRAL,
+  // WRONG_PERSON, UNSUBSCRIBE) and the old backend set (NOT_INTERESTED, FOLLOW_UP,
+  // OUT_OF_OFFICE, UNCATEGORIZED) into the canonical 5-category taxonomy:
+  // INTERESTED / NOT_NOW / NOT_INTERESTED / UNSUBSCRIBE / UNCATEGORIZED.
+  const MIGRATION_ID = '2026-04-unify-reply-categories';
+  const alreadyApplied = await pool.query(
+    `SELECT 1 FROM outreach_migrations WHERE id = $1 LIMIT 1`,
+    [MIGRATION_ID],
+  );
+  if (alreadyApplied.rows.length === 0) {
+    await pool.query(`
+      UPDATE outreach_leads SET reply_category = 'NOT_INTERESTED'
+        WHERE reply_category IN ('OBJECTION','REFERRAL','WRONG_PERSON')
+    `);
+    await pool.query(`
+      UPDATE outreach_leads SET reply_category = 'NOT_NOW'
+        WHERE reply_category = 'FOLLOW_UP'
+    `);
+    await pool.query(`
+      UPDATE outreach_leads SET reply_category = 'UNCATEGORIZED'
+        WHERE reply_category = 'OUT_OF_OFFICE'
+    `);
+    await pool.query(
+      `INSERT INTO outreach_migrations (id) VALUES ($1) ON CONFLICT DO NOTHING`,
+      [MIGRATION_ID],
+    );
+    logger.info(`[outreach-leads] applied migration ${MIGRATION_ID}`);
+  }
 }
 
 // ---------------------------------------------------------------------------

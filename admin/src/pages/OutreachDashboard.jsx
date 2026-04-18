@@ -11,6 +11,20 @@ async function fetchOutreach(path) {
 }
 
 const COUNTRY_COLORS = { UK: '#3b82f6', AU: '#22c55e', CA: '#f59e0b', US: '#a855f7' };
+const REPLY_CATEGORY_COLORS = {
+  INTERESTED: '#f59e0b',
+  NOT_NOW: '#3b82f6',
+  NOT_INTERESTED: '#94a3b8',
+  UNSUBSCRIBE: '#ef4444',
+  UNCATEGORIZED: '#cbd5e1',
+};
+const REPLY_CATEGORY_LABELS = {
+  INTERESTED: 'Interested',
+  NOT_NOW: 'Not now',
+  NOT_INTERESTED: 'Not interested',
+  UNSUBSCRIBE: 'Unsubscribed',
+  UNCATEGORIZED: 'Uncategorized',
+};
 
 function MetricCard({ label, value, color = 'text-slate-800' }) {
   return (
@@ -21,8 +35,29 @@ function MetricCard({ label, value, color = 'text-slate-800' }) {
   );
 }
 
+function RoiTile({ label, value, sub, color = 'text-slate-800' }) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 px-4 py-3">
+      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">{label}</p>
+      <p className={`text-xl font-bold mt-0.5 ${color}`}>{value}</p>
+      {sub && <p className="text-[10px] text-slate-400 mt-0.5">{sub}</p>}
+    </div>
+  );
+}
+
+function fmtPct(n) {
+  if (n == null || Number.isNaN(n)) return '—';
+  return `${n.toFixed(1)}%`;
+}
+function fmtUsd(n) {
+  if (n == null || Number.isNaN(n)) return '—';
+  if (n < 1) return `$${n.toFixed(3)}`;
+  return `$${n.toFixed(2)}`;
+}
+
 export default function OutreachDashboard() {
   const [data, setData] = useState(null);
+  const [funnel, setFunnel] = useState(null);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(null);
 
@@ -35,10 +70,28 @@ export default function OutreachDashboard() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); const id = setInterval(load, 60000); return () => clearInterval(id); }, [load]);
+  const loadFunnel = useCallback(async () => {
+    try {
+      const f = await fetchOutreach('/funnel?days=30');
+      setFunnel(f);
+    } catch { /* handled */ }
+  }, []);
+
+  useEffect(() => {
+    load();
+    loadFunnel();
+    const id = setInterval(() => { load(); loadFunnel(); }, 60000);
+    return () => clearInterval(id);
+  }, [load, loadFunnel]);
 
   const p = data?.pipeline ?? {};
   const maxWeekly = Math.max(...(data?.weeklyTrend ?? []).map(d => d.count), 1);
+  const replyBreakdown = data?.replyBreakdown ?? [];
+  const maxReply = Math.max(...replyBreakdown.map(b => b.count || 0), 1);
+  const rates = funnel?.rates ?? {};
+  const costs = funnel?.costs ?? {};
+  const funnelDaily = funnel?.daily ?? [];
+  const maxReplyDaily = Math.max(...funnelDaily.map(d => d.replies_total || 0), 1);
 
   return (
     <div className="flex h-screen bg-slate-50">
@@ -58,6 +111,45 @@ export default function OutreachDashboard() {
           <div className="text-center py-16 text-red-500 text-sm">Failed to load outreach data</div>
         ) : (
           <>
+            {/* ROI Tiles — 30-day funnel */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
+              <RoiTile
+                label="Reply rate (30d)"
+                value={fmtPct(rates.replyRate)}
+                sub="replies ÷ uploaded"
+                color="text-purple-600"
+              />
+              <RoiTile
+                label="Interested rate"
+                value={fmtPct(rates.interestedRate)}
+                sub="interested ÷ replies"
+                color="text-amber-600"
+              />
+              <RoiTile
+                label="Enrichment success"
+                value={fmtPct(rates.enrichmentRate)}
+                sub="active ÷ new"
+                color="text-green-600"
+              />
+              <RoiTile
+                label="Cost / qualified lead"
+                value={fmtUsd(costs.costPerEnrichedLead)}
+                sub="discovery spend ÷ active"
+                color="text-sky-600"
+              />
+              <RoiTile
+                label="Cost / interested reply"
+                value={fmtUsd(costs.costPerInterestedReply)}
+                sub="discovery spend ÷ interested"
+                color="text-rose-600"
+              />
+            </div>
+            {funnel && (
+              <p className="text-[10px] text-slate-400 mb-4">
+                Window: last {funnel.days}d · {(funnel.totals?.leadsNew ?? 0)} new · {(funnel.totals?.leadsEnriched ?? 0)} enriched · {(funnel.totals?.repliesTotal ?? 0)} replies · {(funnel.totals?.discoveryApiCalls ?? 0)} Places calls · {(funnel.totals?.serperApiCalls ?? 0)} Serper calls · spend ${(funnel.totals?.discoveryCostUsd ?? 0).toFixed(2)}
+              </p>
+            )}
+
             {/* Metrics */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
               <MetricCard label="Total" value={p.total ?? 0} />
@@ -88,7 +180,7 @@ export default function OutreachDashboard() {
                 )}
               </div>
 
-              {/* Country Breakdown */}
+              {/* Country Breakdown + Reply Breakdown */}
               <div className="bg-white rounded-xl border border-slate-200 p-4">
                 <h2 className="font-bold text-sm text-slate-800 mb-3">By Country</h2>
                 <div className="space-y-2">
@@ -108,8 +200,50 @@ export default function OutreachDashboard() {
                     );
                   })}
                 </div>
+
+                <h2 className="font-bold text-sm text-slate-800 mt-5 mb-3">Reply breakdown</h2>
+                {replyBreakdown.length === 0 ? (
+                  <p className="text-slate-400 text-xs py-2">No classified replies yet</p>
+                ) : (
+                  <div className="space-y-2">
+                    {replyBreakdown.map(b => {
+                      const pct = Math.round((b.count / maxReply) * 100);
+                      const color = REPLY_CATEGORY_COLORS[b.category] || '#94a3b8';
+                      const label = REPLY_CATEGORY_LABELS[b.category] || b.category;
+                      return (
+                        <div key={b.category}>
+                          <div className="flex justify-between text-xs mb-0.5">
+                            <span className="font-medium text-slate-700">{label}</span>
+                            <span className="text-slate-400">{b.count}</span>
+                          </div>
+                          <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
+
+            {/* Daily replies sparkline (30d from funnel) */}
+            {funnelDaily.length > 0 && (
+              <div className="bg-white rounded-xl border border-slate-200 p-4 mb-5">
+                <h2 className="font-bold text-sm text-slate-800 mb-3">Replies per day (last 30d)</h2>
+                <div className="flex items-end gap-1 h-20">
+                  {funnelDaily.map(d => (
+                    <div key={d.snapshot_date} className="flex-1 flex flex-col items-center" title={`${d.snapshot_date}: ${d.replies_total} replies`}>
+                      <div
+                        className="w-full bg-purple-500 rounded-t"
+                        style={{ height: `${((d.replies_total || 0) / maxReplyDaily) * 64}px`, minHeight: d.replies_total > 0 ? '3px' : '0' }}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[10px] text-slate-400 mt-2">First snapshot runs daily at 23:55 IST — tiles populate after 24h.</p>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
               {/* Weekly Trend */}

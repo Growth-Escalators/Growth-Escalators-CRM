@@ -30,6 +30,8 @@ async function serperSearch(query: string, num = 20): Promise<SerperResult[]> {
       body: JSON.stringify({ q: query, gl: 'us', hl: 'en', num }),
       signal: AbortSignal.timeout(15000),
     });
+    // Fire-and-forget: track Serper API call count for ROI dashboard
+    import('./outreachFunnelMetrics').then(m => m.incrementSerperCalls(1)).catch(() => {});
     if (!res.ok) return [];
     const data = await res.json() as { organic?: SerperResult[] };
     return data.organic ?? [];
