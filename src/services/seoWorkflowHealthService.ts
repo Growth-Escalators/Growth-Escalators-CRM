@@ -137,7 +137,7 @@ export const SEO_WORKFLOWS = [
   { id: '19R3BStSY2S1N9H1', name: 'Backlink Monitor',          schedule: 'Friday 9AM IST',         webhookPath: 'mtrig-seo08', critical: false },
   { id: 'akTW1dgtKtCpcz3R', name: 'Internal Linking',          schedule: 'On publish',             webhookPath: 'mtrig-seo09', critical: false },
   { id: '8l9kEQlRVUbL4Ku6', name: 'Google Indexing Ping',      schedule: 'On publish',             webhookPath: 'mtrig-seo10', critical: false },
-  { id: 'Ss2Bfps5lXBWUUs4', name: 'Content Decay Detection',   schedule: 'First Monday 9AM IST',   webhookPath: 'mtrig-seo11', critical: false },
+  { id: 'Ss2Bfps5lXBWUUs4', name: 'Content Decay Detection',   schedule: 'Every Monday 9AM IST',   webhookPath: 'mtrig-seo11', critical: false },
   { id: 'M4rbRZL5jh0jJHku', name: 'Weekly Opportunity Digest', schedule: 'Friday 5PM IST',         webhookPath: 'mtrig-seo12', critical: false },
 ] as const;
 
@@ -157,7 +157,7 @@ const SCHEDULE_PERIOD_HOURS: Record<string, number> = {
   '19R3BStSY2S1N9H1': 7 * 24,
   akTW1dgtKtCpcz3R:  0,        // on publish
   '8l9kEQlRVUbL4Ku6': 0,       // on publish
-  Ss2Bfps5lXBWUUs4:  28 * 24, // ~monthly
+  Ss2Bfps5lXBWUUs4:  7 * 24,  // weekly (Mondays 9AM IST)
   M4rbRZL5jh0jJHku:  7 * 24,
 };
 
@@ -201,6 +201,45 @@ export async function ensureSeoWorkflowLogsTable(): Promise<void> {
       created_at       TIMESTAMP DEFAULT NOW()
     )
   `);
+}
+
+// ---------------------------------------------------------------------------
+// logSeoWorkflowRun — single-row insert used by both manual triggers and cron.
+// Writes a completed-run row so the SEO admin dashboard sees every execution.
+// Never throws — logging is non-critical.
+// ---------------------------------------------------------------------------
+export async function logSeoWorkflowRun(args: {
+  workflowId: string;
+  workflowName: string;
+  status: 'success' | 'error';
+  startedAt: Date;
+  triggeredBy?: 'cron' | 'manual' | 'schedule';
+  recordsProcessed?: number;
+  errorMessage?: string;
+}): Promise<void> {
+  const finishedAt = new Date();
+  const durationSeconds = Math.round((finishedAt.getTime() - args.startedAt.getTime()) / 1000);
+  try {
+    await pool.query(
+      `INSERT INTO seo_workflow_logs
+        (workflow_id, workflow_name, status, started_at, finished_at, duration_seconds,
+         error_message, records_processed, triggered_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        args.workflowId,
+        args.workflowName,
+        args.status,
+        args.startedAt,
+        finishedAt,
+        durationSeconds,
+        args.errorMessage ?? null,
+        args.recordsProcessed ?? null,
+        args.triggeredBy ?? 'cron',
+      ],
+    );
+  } catch (e) {
+    logger.warn('[seo-workflow-logs] failed to log run:', e instanceof Error ? e.message : String(e));
+  }
 }
 
 // ---------------------------------------------------------------------------

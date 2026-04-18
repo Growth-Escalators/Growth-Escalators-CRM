@@ -115,6 +115,32 @@ router.get('/logs', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/seo-workflows/content-decay-stats
+// Lightweight stats for the Content Decay admin card
+// ---------------------------------------------------------------------------
+router.get('/content-decay-stats', async (_req: Request, res: Response) => {
+  try {
+    const [openQ, recentRowsQ] = await Promise.all([
+      pool.query(
+        `SELECT COUNT(*)::int AS count FROM seo_opportunities
+         WHERE opportunity_type IN ('content_decay', 'lost_ranking') AND status = 'open'`,
+      ),
+      pool.query(
+        `SELECT COUNT(*)::int AS count FROM keyword_rankings
+         WHERE recorded_date >= CURRENT_DATE - INTERVAL '10 days'`,
+      ),
+    ]);
+    res.json({
+      openOpportunities: Number(openQ.rows[0].count),
+      keywordRankingsLast10d: Number(recentRowsQ.rows[0].count),
+    });
+  } catch (e) {
+    logger.error('[seo-workflows] content-decay-stats error:', e);
+    res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/seo-workflows/data-health
 // ---------------------------------------------------------------------------
 router.get('/data-health', async (_req: Request, res: Response) => {

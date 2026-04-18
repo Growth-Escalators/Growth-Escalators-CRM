@@ -12,6 +12,25 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
   let opportunities = 0;
 
   try {
+    // Pre-flight: if upstream rank tracker is silently broken (missing SERPER_API_KEY,
+    // Serper outage, etc.), keyword_rankings stops getting new rows and content decay
+    // returns 0 with no signal. Fail loudly in that case.
+    const recentRowsQ = await pool.query(
+      `SELECT COUNT(*)::int AS cnt FROM keyword_rankings
+       WHERE recorded_date >= CURRENT_DATE - INTERVAL '10 days'`,
+    );
+    const recentRows = Number((recentRowsQ.rows[0] as { cnt: number }).cnt);
+    if (recentRows === 0) {
+      const msg = 'content_decay: keyword_rankings has 0 rows in the last 10 days — upstream rank tracker is broken (check SERPER_API_KEY on Railway worker and WF Rank Tracking logs).';
+      logger.error(`[content-decay] ${msg}`);
+      try {
+        const { sendSlackMessage } = await import('./slackService');
+        const { SLACK_SEO_CHANNEL } = await import('../config/constants');
+        await sendSlackMessage(SLACK_SEO_CHANNEL, `⚠️ ${msg}`);
+      } catch { /* slack non-critical */ }
+      return { opportunities: 0 };
+    }
+
     // Find keywords that dropped >5 positions in the last 30 days
     const decayed = await pool.query(`
       WITH recent AS (

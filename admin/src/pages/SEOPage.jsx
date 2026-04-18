@@ -923,6 +923,9 @@ function WorkflowsTab() {
         </div>
       )}
 
+      {/* Content Decay spotlight — health + run now */}
+      <ContentDecayCard />
+
       {/* Workflow Trigger Grid */}
       <div className="bg-white rounded-xl border border-slate-200 p-4">
         <div className="flex items-center justify-between mb-3">
@@ -959,6 +962,150 @@ function WorkflowsTab() {
           })}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Content Decay focused card — last run, last result, run-now, link to output
+// ---------------------------------------------------------------------------
+const CONTENT_DECAY_ID = 'Ss2Bfps5lXBWUUs4';
+
+function ContentDecayCard() {
+  const [logs, setLogs] = useState([]);
+  const [opportunityCount, setOpportunityCount] = useState(null);
+  const [running, setRunning] = useState(false);
+  const [runResult, setRunResult] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const [keywordRowsRecent, setKeywordRowsRecent] = useState(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    const [logsRes, statsRes] = await Promise.all([
+      apiFetch(`/api/seo-workflows/logs?workflowId=${CONTENT_DECAY_ID}`).catch(() => null),
+      apiFetch(`/api/seo-workflows/content-decay-stats`).catch(() => null),
+    ]);
+    setLogs(logsRes?.logs ?? []);
+    setOpportunityCount(statsRes?.openOpportunities ?? null);
+    setKeywordRowsRecent(statsRes?.keywordRankingsLast10d ?? null);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  async function runNow() {
+    setRunning(true);
+    setRunResult(null);
+    try {
+      const res = await apiFetch('/api/seo-workflows/run/content-decay', { method: 'POST' });
+      setRunResult({ ok: res?.ok !== false, detail: res?.detail ?? 'Done' });
+      refresh();
+    } catch (e) {
+      setRunResult({ ok: false, detail: e?.message ?? 'Failed' });
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  const lastLog = logs[0] ?? null;
+  const lastRunAt = lastLog?.created_at ? new Date(lastLog.created_at) : null;
+  const daysAgo = lastRunAt ? Math.floor((Date.now() - lastRunAt.getTime()) / 86400000) : null;
+  const lastStatus = lastLog?.status ?? 'never';
+  const lastRecords = lastLog?.records_processed;
+  const lastError = lastLog?.error_message;
+
+  const statusColor =
+    lastStatus === 'success' ? 'text-green-600 bg-green-50 border-green-200'
+    : lastStatus === 'error' ? 'text-red-600 bg-red-50 border-red-200'
+    : 'text-slate-500 bg-slate-50 border-slate-200';
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-4">
+      <div className="flex items-start justify-between mb-3">
+        <div>
+          <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+            <TrendingDown className="w-4 h-4 text-rose-500" /> Content Decay Detection
+          </h3>
+          <p className="text-xs text-slate-400 mt-0.5">Every Monday 9 AM IST · finds keywords that slipped &gt;5 positions or fell out of top 100</p>
+        </div>
+        <button
+          onClick={runNow}
+          disabled={running}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200 rounded-lg hover:bg-rose-100 disabled:opacity-50 flex-shrink-0"
+        >
+          {running ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+          {running ? 'Running...' : 'Run Now'}
+        </button>
+      </div>
+
+      {runResult && (
+        <div className={`mb-3 rounded-lg border p-2 text-xs flex items-center gap-2 ${runResult.ok ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
+          {runResult.ok ? <CheckCircle className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
+          <span>{runResult.detail}</span>
+        </div>
+      )}
+
+      {!loading && keywordRowsRecent === 0 && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800 flex items-start gap-2">
+          <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+          <span>
+            <strong>Upstream data is stale.</strong> keyword_rankings has 0 rows in the last 10 days.
+            The rank tracker (Tuesday 9 AM IST) is not writing — check <code>SERPER_API_KEY</code> on the Railway worker.
+            Content Decay cannot produce opportunities until this is fixed.
+          </span>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <div className={`rounded-lg border p-3 ${statusColor}`}>
+          <p className="text-[10px] uppercase tracking-wide opacity-70">Last run</p>
+          <p className="text-sm font-semibold mt-0.5">
+            {loading ? '…' : lastRunAt ? (daysAgo === 0 ? 'Today' : `${daysAgo}d ago`) : 'Never'}
+          </p>
+          <p className="text-[11px] opacity-70 mt-0.5 capitalize">{lastStatus}{lastLog?.triggered_by ? ` · ${lastLog.triggered_by}` : ''}</p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <p className="text-[10px] uppercase tracking-wide text-slate-500">Last result</p>
+          <p className="text-sm font-semibold text-slate-700 mt-0.5">
+            {loading ? '…' : lastRecords != null ? `${lastRecords} opportunities` : '—'}
+          </p>
+          <p className="text-[11px] text-slate-500 mt-0.5">inserted into seo_opportunities</p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <p className="text-[10px] uppercase tracking-wide text-slate-500">Open decay opportunities</p>
+          <p className="text-sm font-semibold text-slate-700 mt-0.5">
+            {loading ? '…' : opportunityCount != null ? opportunityCount : '—'}
+          </p>
+          <p className="text-[11px] text-slate-500 mt-0.5">total across all clients</p>
+        </div>
+      </div>
+
+      {lastError && (
+        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-2 text-xs text-red-700 flex items-start gap-2">
+          <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+          <span><strong>Last error:</strong> {lastError}</span>
+        </div>
+      )}
+
+      {logs.length > 1 && (
+        <details className="mt-3">
+          <summary className="text-xs text-sky-600 cursor-pointer hover:underline">Run history ({logs.length})</summary>
+          <div className="mt-2 space-y-1 max-h-40 overflow-y-auto">
+            {logs.slice(0, 10).map((l, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs px-2 py-1 rounded bg-slate-50">
+                <span className={l.status === 'success' ? 'text-green-600' : 'text-red-600'}>
+                  {l.status === 'success' ? '✓' : '✗'}
+                </span>
+                <span className="text-slate-600">{new Date(l.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                <span className="text-slate-400">·</span>
+                <span className="text-slate-500">{l.records_processed != null ? `${l.records_processed} opps` : l.status}</span>
+                {l.triggered_by && <span className="text-slate-400 ml-auto">{l.triggered_by}</span>}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
     </div>
   );
 }

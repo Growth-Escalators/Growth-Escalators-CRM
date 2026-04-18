@@ -19,7 +19,7 @@ const WORKFLOWS = [
   { id: '19R3BStSY2S1N9H1', name: 'Backlink Monitor',              schedule: 'Friday 9AM IST',           num: 8  },
   { id: 'akTW1dgtKtCpcz3R', name: 'Internal Linking',              schedule: 'On publish',               num: 9  },
   { id: '8l9kEQlRVUbL4Ku6', name: 'Google Indexing Ping',          schedule: 'On publish',               num: 10 },
-  { id: 'Ss2Bfps5lXBWUUs4', name: 'Content Decay Detection',       schedule: 'First Monday 9AM IST',     num: 11 },
+  { id: 'Ss2Bfps5lXBWUUs4', name: 'Content Decay Detection',       schedule: 'Every Monday 9AM IST',     num: 11 },
   { id: 'M4rbRZL5jh0jJHku', name: 'Weekly Opportunity Digest',     schedule: 'Friday 5PM IST',           num: 12 },
 ];
 

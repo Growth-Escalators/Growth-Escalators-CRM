@@ -148,8 +148,8 @@ SUNDAY
 DAILY
   9:00 AM IST  — WF-SEO-02: Daily Alert Triggers
 
-MONTHLY (first Monday)
-  9:00 AM IST  — WF-SEO-11: Content Decay Detector
+WEEKLY (every Monday)
+  9:00 AM IST  — WF-SEO-11: Content Decay Detector (backend-native)
 
 ON-DEMAND (webhooks)
   POST /webhook/seo-publish          — WF-SEO-04: Publish content to WordPress
@@ -323,8 +323,9 @@ VALUES ('aarohaom', 'https://aarohaom.com/page/', 'Page Title', 'target keyword'
 - **Fix:** n8n → Credentials → Google SEO OAuth → Re-authorize
 
 ### WF-SEO-11 shows no decaying pages
-- This is expected on fresh install — needs 90+ days of ranking history
-- The workflow compares current position vs position from 90 days ago
+- Needs ~35 days of ranking history. Backend-native service compares last 7 days vs 7–35-day baseline.
+- **First check:** open the SEO → Workflows tab. The "Content Decay Detection" card shows an amber banner if `keyword_rankings` has 0 rows in the last 10 days — that means the upstream Rank Tracking cron (Tuesday 9 AM IST) is not writing.
+- **Most common cause:** `SERPER_API_KEY` missing on the Railway worker → rank tracker silently skips.
 
 ### WF-SEO-12 Digest shows "Unable to generate AI summary"
 - **Check:** `CLAUDE_API_KEY` is set in Railway env

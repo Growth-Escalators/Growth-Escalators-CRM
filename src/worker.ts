@@ -799,49 +799,134 @@ console.log('[cron] Weekly outreach summary scheduled — Mondays 8:00 AM IST (2
 // Bypasses n8n WF-SEO-05 which has a connection issue
 // ---------------------------------------------------------------------------
 cron.schedule('0 2 * * 0', () => safeCron('PageSpeed Monitor', async () => {
+  const startedAt = new Date();
   const { runPageSpeedChecks } = await import('./services/pagespeedService');
-  const result = await runPageSpeedChecks();
-  console.log(`[CRON] PageSpeed: ${result.checked} checked, ${result.errors} errors`);
+  const { logSeoWorkflowRun } = await import('./services/seoWorkflowHealthService');
+  try {
+    const result = await runPageSpeedChecks();
+    console.log(`[CRON] PageSpeed: ${result.checked} checked, ${result.errors} errors`);
+    await logSeoWorkflowRun({
+      workflowId: 'z21W6MDWBF0dukkT', workflowName: 'PageSpeed Monitor',
+      status: 'success', startedAt, recordsProcessed: result.checked,
+    });
+  } catch (e) {
+    await logSeoWorkflowRun({
+      workflowId: 'z21W6MDWBF0dukkT', workflowName: 'PageSpeed Monitor',
+      status: 'error', startedAt, errorMessage: e instanceof Error ? e.message : String(e),
+    });
+    throw e;
+  }
 }), { timezone: 'UTC' });
 console.log('[cron] PageSpeed monitor scheduled — Sundays 7:30 AM IST');
 
 // Rank Tracking via Serper.dev — Tuesday 9:00 AM IST (3:30 UTC)
 cron.schedule('30 3 * * 2', () => safeCron('Rank Tracking', async () => {
+  const startedAt = new Date();
   const { runRankChecks } = await import('./services/rankTrackingService');
-  const result = await runRankChecks();
-  console.log(`[CRON] Rank tracking: ${result.checked} keywords checked, ${result.errors} errors`);
+  const { logSeoWorkflowRun } = await import('./services/seoWorkflowHealthService');
+  try {
+    const result = await runRankChecks();
+    console.log(`[CRON] Rank tracking: ${result.checked} keywords checked, ${result.errors} errors`);
+    await logSeoWorkflowRun({
+      workflowId: 'BwO187curjMMA60i', workflowName: 'Rank Tracking',
+      status: 'success', startedAt, recordsProcessed: result.checked,
+    });
+  } catch (e) {
+    await logSeoWorkflowRun({
+      workflowId: 'BwO187curjMMA60i', workflowName: 'Rank Tracking',
+      status: 'error', startedAt, errorMessage: e instanceof Error ? e.message : String(e),
+    });
+    throw e;
+  }
 }), { timezone: 'UTC' });
 console.log('[cron] Rank tracking scheduled — Tuesdays 9:00 AM IST (Serper.dev)');
 
 // SEO Alert Triggers — Daily 9 AM IST (3:30 UTC) — runs directly (no n8n dependency)
 cron.schedule('30 3 * * *', () => safeCron('SEO Alert Triggers', async () => {
+  const startedAt = new Date();
   const { runSeoAlertChecks } = await import('./services/seoAlertService');
-  const result = await runSeoAlertChecks();
-  console.log(`[CRON] SEO Alert Triggers: ${result.alerts} alerts generated`);
+  const { logSeoWorkflowRun } = await import('./services/seoWorkflowHealthService');
+  try {
+    const result = await runSeoAlertChecks();
+    console.log(`[CRON] SEO Alert Triggers: ${result.alerts} alerts generated`);
+    await logSeoWorkflowRun({
+      workflowId: '5FVX2kEjuD7vWD0e', workflowName: 'Alert Triggers',
+      status: 'success', startedAt, recordsProcessed: result.alerts,
+    });
+  } catch (e) {
+    await logSeoWorkflowRun({
+      workflowId: '5FVX2kEjuD7vWD0e', workflowName: 'Alert Triggers',
+      status: 'error', startedAt, errorMessage: e instanceof Error ? e.message : String(e),
+    });
+    throw e;
+  }
 }), { timezone: 'UTC' });
 console.log('[cron] SEO alert triggers scheduled — daily 9:00 AM IST (backend-native)');
 
 // SEO Backlink Monitor — Friday 9 AM IST (3:30 UTC) — runs directly via Serper.dev
 cron.schedule('30 3 * * 5', () => safeCron('SEO Backlink Monitor', async () => {
+  const startedAt = new Date();
   const { runBacklinkCheck } = await import('./services/seoBacklinkService');
-  const result = await runBacklinkCheck();
-  console.log(`[CRON] SEO Backlink Monitor: ${result.found} new backlinks, ${result.errors} errors`);
+  const { logSeoWorkflowRun } = await import('./services/seoWorkflowHealthService');
+  try {
+    const result = await runBacklinkCheck();
+    console.log(`[CRON] SEO Backlink Monitor: ${result.found} new backlinks, ${result.errors} errors`);
+    await logSeoWorkflowRun({
+      workflowId: '19R3BStSY2S1N9H1', workflowName: 'Backlink Monitor',
+      status: 'success', startedAt, recordsProcessed: result.found,
+    });
+  } catch (e) {
+    await logSeoWorkflowRun({
+      workflowId: '19R3BStSY2S1N9H1', workflowName: 'Backlink Monitor',
+      status: 'error', startedAt, errorMessage: e instanceof Error ? e.message : String(e),
+    });
+    throw e;
+  }
 }), { timezone: 'UTC' });
 console.log('[cron] SEO backlink monitor scheduled — Fridays 9:00 AM IST (backend-native)');
 
 // SEO Content Decay Detection — Every Monday 9 AM IST (3:30 UTC) — runs directly
 cron.schedule('30 3 * * 1', () => safeCron('SEO Content Decay', async () => {
+  const startedAt = new Date();
   const { runContentDecayDetection } = await import('./services/seoContentDecayService');
-  const result = await runContentDecayDetection();
-  console.log(`[CRON] SEO Content Decay: ${result.opportunities} decay opportunities found`);
+  const { logSeoWorkflowRun } = await import('./services/seoWorkflowHealthService');
+  try {
+    const result = await runContentDecayDetection();
+    console.log(`[CRON] SEO Content Decay: ${result.opportunities} decay opportunities found`);
+    await logSeoWorkflowRun({
+      workflowId: 'Ss2Bfps5lXBWUUs4', workflowName: 'Content Decay Detection',
+      status: 'success', startedAt, recordsProcessed: result.opportunities,
+    });
+  } catch (e) {
+    await logSeoWorkflowRun({
+      workflowId: 'Ss2Bfps5lXBWUUs4', workflowName: 'Content Decay Detection',
+      status: 'error', startedAt, errorMessage: e instanceof Error ? e.message : String(e),
+    });
+    throw e;
+  }
 }), { timezone: 'UTC' });
 console.log('[cron] SEO content decay scheduled — Every Monday 9:00 AM IST (backend-native)');
 
 // SEO Weekly Opportunity Digest — Friday 5 PM IST (11:30 UTC) — sends via Slack directly
 cron.schedule('30 11 * * 5', () => safeCron('SEO Weekly Digest', async () => {
+  const startedAt = new Date();
   const { sendWeeklyOpportunityDigest } = await import('./services/seoDigestService');
-  const result = await sendWeeklyOpportunityDigest();
-  console.log(`[CRON] SEO Weekly Digest: ${result.sent ? 'sent' : 'failed'}`);
+  const { logSeoWorkflowRun } = await import('./services/seoWorkflowHealthService');
+  try {
+    const result = await sendWeeklyOpportunityDigest();
+    console.log(`[CRON] SEO Weekly Digest: ${result.sent ? 'sent' : 'failed'}`);
+    await logSeoWorkflowRun({
+      workflowId: 'M4rbRZL5jh0jJHku', workflowName: 'Weekly Opportunity Digest',
+      status: result.sent ? 'success' : 'error', startedAt,
+      errorMessage: result.sent ? undefined : 'Slack send failed',
+    });
+  } catch (e) {
+    await logSeoWorkflowRun({
+      workflowId: 'M4rbRZL5jh0jJHku', workflowName: 'Weekly Opportunity Digest',
+      status: 'error', startedAt, errorMessage: e instanceof Error ? e.message : String(e),
+    });
+    throw e;
+  }
 }), { timezone: 'UTC' });
 console.log('[cron] SEO weekly digest scheduled — Fridays 5:00 PM IST (backend-native)');
 
