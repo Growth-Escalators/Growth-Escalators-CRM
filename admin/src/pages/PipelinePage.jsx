@@ -421,6 +421,7 @@ function DealDetailSlideIn({ dealId, onClose, onViewContact, onUpdated }) {
   const [deal, setDeal] = useState(null);
   const [activities, setActivities] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [noteText, setNoteText] = useState('');
   const [addingNote, setAddingNote] = useState(false);
   const [editValues, setEditValues] = useState(null); // null = not editing
@@ -433,13 +434,17 @@ function DealDetailSlideIn({ dealId, onClose, onViewContact, onUpdated }) {
   useEffect(() => {
     if (!dealId) return;
     setLoading(true);
+    setLoadError(null);
     Promise.all([
       apiFetch(`/deals/${dealId}`),
       apiFetch(`/deals/${dealId}/activities`),
     ]).then(([d, acts]) => {
       setDeal(d);
       setActivities(Array.isArray(acts) ? acts : []);
-    }).catch(() => {}).finally(() => setLoading(false));
+    }).catch((err) => {
+      setLoadError(err?.message || 'Failed to load deal');
+      console.error('[DealDetailSlideIn] load failed for', dealId, err);
+    }).finally(() => setLoading(false));
   }, [dealId]);
 
   async function addNote() {
@@ -532,6 +537,12 @@ function DealDetailSlideIn({ dealId, onClose, onViewContact, onUpdated }) {
       {loading ? (
         <div className="flex-1 flex items-center justify-center">
           <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"/>
+        </div>
+      ) : loadError ? (
+        <div className="flex-1 flex flex-col items-center justify-center p-6 gap-2 text-center">
+          <p className="text-red-600 text-sm font-medium">Could not load deal</p>
+          <p className="text-slate-400 text-xs">{loadError}</p>
+          <p className="text-slate-300 text-[10px] font-mono break-all">id: {dealId}</p>
         </div>
       ) : !deal ? (
         <div className="flex-1 flex items-center justify-center text-slate-400 text-sm">Deal not found</div>

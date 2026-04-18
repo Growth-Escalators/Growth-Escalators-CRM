@@ -470,7 +470,11 @@ router.get('/:id', async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT d.*,
-        c.first_name, c.last_name, c.email, c.phone, c.company_name,
+        c.first_name, c.last_name, c.company_name,
+        (SELECT channel_value FROM contact_channels
+          WHERE contact_id = d.contact_id AND channel_type IN ('email') LIMIT 1) AS email,
+        (SELECT channel_value FROM contact_channels
+          WHERE contact_id = d.contact_id AND channel_type IN ('whatsapp','phone') LIMIT 1) AS phone,
         p.name AS pipeline_name, p.color AS pipeline_color
       FROM deals d
       LEFT JOIN contacts c ON c.id = d.contact_id

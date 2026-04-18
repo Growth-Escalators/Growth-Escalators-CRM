@@ -61,6 +61,68 @@ const SMART_LISTS = [
 const LIMIT_OPTIONS = [20, 50, 100];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Resizable column widths (persisted in localStorage)
+// ─────────────────────────────────────────────────────────────────────────────
+const DEFAULT_COL_WIDTHS = {
+  contact: 200,
+  phone: 160,
+  email: 220,
+  business: 140,
+  activity: 110,
+  tags: 140,
+};
+const COL_WIDTH_KEY = 'ge_contacts_col_widths_v1';
+
+function useColumnWidths() {
+  const [widths, setWidths] = useState(() => {
+    try {
+      const saved = localStorage.getItem(COL_WIDTH_KEY);
+      return saved ? { ...DEFAULT_COL_WIDTHS, ...JSON.parse(saved) } : DEFAULT_COL_WIDTHS;
+    } catch {
+      return DEFAULT_COL_WIDTHS;
+    }
+  });
+  const setWidth = useCallback((col, w) => {
+    setWidths((prev) => {
+      const next = { ...prev, [col]: Math.max(80, Math.min(600, Math.round(w))) };
+      try { localStorage.setItem(COL_WIDTH_KEY, JSON.stringify(next)); } catch { /* quota full — ignore */ }
+      return next;
+    });
+  }, []);
+  const reset = useCallback(() => {
+    setWidths(DEFAULT_COL_WIDTHS);
+    try { localStorage.removeItem(COL_WIDTH_KEY); } catch { /* ignore */ }
+  }, []);
+  return { widths, setWidth, reset };
+}
+
+function ResizeHandle({ startWidth, onResize }) {
+  function onMouseDown(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const w0 = startWidth;
+    function move(ev) { onResize(w0 + (ev.clientX - startX)); }
+    function up() {
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+      document.body.style.cursor = '';
+    }
+    document.body.style.cursor = 'col-resize';
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  }
+  return (
+    <div
+      onMouseDown={onMouseDown}
+      onClick={(e) => e.stopPropagation()}
+      className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-blue-400 group-hover:bg-slate-300 transition-colors"
+      title="Drag to resize"
+    />
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Add Contact Modal
 // ─────────────────────────────────────────────────────────────────────────────
 function AddContactModal({ onClose, onCreated }) {
@@ -567,6 +629,7 @@ export default function ContactsPage() {
   ].filter(Boolean);
 
   const smartList = SMART_LISTS.find((l) => l.id === activeList) ?? SMART_LISTS[0];
+  const { widths: colWidths, setWidth: setColWidth, reset: resetColWidths } = useColumnWidths();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -780,19 +843,51 @@ export default function ContactsPage() {
         {/* Table */}
         <div className="flex-1 px-8 py-5">
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-            <table className="w-full text-sm">
+            <div className="flex items-center justify-end px-3 py-1.5 border-b border-slate-100 bg-slate-50/60">
+              <button onClick={resetColWidths} className="text-[10px] text-slate-400 hover:text-slate-700 font-medium">
+                Reset column widths
+              </button>
+            </div>
+            <div className="overflow-x-auto">
+            <table className="text-sm table-fixed" style={{ width: 'max-content', minWidth: '100%' }}>
+              <colgroup>
+                <col style={{ width: 36 }} />
+                <col style={{ width: colWidths.contact }} />
+                <col style={{ width: colWidths.phone }} />
+                <col style={{ width: colWidths.email }} />
+                <col style={{ width: colWidths.business }} />
+                <col style={{ width: colWidths.activity }} />
+                <col style={{ width: colWidths.tags }} />
+              </colgroup>
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-left">
-                  <th className="px-4 py-3 w-10">
+                <tr className="bg-slate-50 border-b border-slate-200 text-left select-none">
+                  <th className="px-2 py-2">
                     <input type="checkbox" checked={allOnPageSelected} onChange={toggleAll}
                       className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
                   </th>
-                  <th className="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Contact</th>
-                  <th className="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide hidden sm:table-cell">Phone</th>
-                  <th className="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide hidden md:table-cell">Email</th>
-                  <th className="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide hidden lg:table-cell">Business</th>
-                  <th className="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Last Activity</th>
-                  <th className="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide hidden xl:table-cell">Tags</th>
+                  <th className="relative group px-3 py-2 font-semibold text-slate-500 text-xs uppercase tracking-wide">
+                    Contact
+                    <ResizeHandle startWidth={colWidths.contact} onResize={(w) => setColWidth('contact', w)} />
+                  </th>
+                  <th className="relative group px-3 py-2 font-semibold text-slate-500 text-xs uppercase tracking-wide">
+                    Phone
+                    <ResizeHandle startWidth={colWidths.phone} onResize={(w) => setColWidth('phone', w)} />
+                  </th>
+                  <th className="relative group px-3 py-2 font-semibold text-slate-500 text-xs uppercase tracking-wide">
+                    Email
+                    <ResizeHandle startWidth={colWidths.email} onResize={(w) => setColWidth('email', w)} />
+                  </th>
+                  <th className="relative group px-3 py-2 font-semibold text-slate-500 text-xs uppercase tracking-wide">
+                    Business
+                    <ResizeHandle startWidth={colWidths.business} onResize={(w) => setColWidth('business', w)} />
+                  </th>
+                  <th className="relative group px-3 py-2 font-semibold text-slate-500 text-xs uppercase tracking-wide">
+                    Activity
+                    <ResizeHandle startWidth={colWidths.activity} onResize={(w) => setColWidth('activity', w)} />
+                  </th>
+                  <th className="relative group px-3 py-2 font-semibold text-slate-500 text-xs uppercase tracking-wide">
+                    Tags
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -817,78 +912,70 @@ export default function ContactsPage() {
                   return (
                     <tr key={c.id}
                       className={`border-b border-slate-100 transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
-                      <td className="px-4 py-3 w-10" onClick={(e) => e.stopPropagation()}>
+                      <td className="px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
                         <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(c.id)}
                           className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
                       </td>
 
                       {/* Contact name + avatar */}
-                      <td className="px-4 py-3 cursor-pointer" onClick={() => setSelectedContact(c)}>
-                        <div className="flex items-center gap-3">
+                      <td className="px-3 py-1.5 cursor-pointer overflow-hidden" onClick={() => setSelectedContact(c)}>
+                        <div className="flex items-center gap-2">
                           <div
-                            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
+                            className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0"
                             style={{ background: avatarColor }}
                           >
                             {initials}
                           </div>
-                          <div className="min-w-0">
-                            <p className="font-semibold text-slate-900 leading-tight truncate">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-semibold text-slate-900 leading-tight truncate">
                               {c.firstName} {c.lastName ?? ''}
                             </p>
-                            {c.doNotContact && (
-                              <p className="text-xs text-red-500 font-medium">DNC</p>
-                            )}
-                            {c.assignedTo && (
-                              <p className="text-xs text-slate-400">{c.assignedTo}</p>
+                            {(c.doNotContact || c.assignedTo) && (
+                              <p className="text-[10px] text-slate-400 truncate leading-tight">
+                                {c.doNotContact && <span className="text-red-500 font-medium">DNC </span>}
+                                {c.assignedTo}
+                              </p>
                             )}
                           </div>
                         </div>
                       </td>
 
                       {/* Phone */}
-                      <td className="px-4 py-3 text-slate-600 cursor-pointer hidden sm:table-cell" onClick={() => setSelectedContact(c)}>
-                        <div className="flex items-center gap-1.5">
-                          {c.phone ? (
-                            <>
-                              <svg className="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>
-                              <span className="text-xs">{formatPhone(c.phone)}</span>
-                            </>
-                          ) : <span className="text-slate-300">—</span>}
-                        </div>
+                      <td className="px-3 py-1.5 text-slate-600 cursor-pointer overflow-hidden" onClick={() => setSelectedContact(c)}>
+                        {c.phone ? (
+                          <span className="text-xs truncate block">{formatPhone(c.phone)}</span>
+                        ) : <span className="text-slate-300 text-xs">—</span>}
                       </td>
 
                       {/* Email */}
-                      <td className="px-4 py-3 text-slate-600 cursor-pointer hidden md:table-cell" onClick={() => setSelectedContact(c)}>
-                        <div className="flex items-center gap-1.5">
-                          {c.email ? (
-                            <>
-                              <svg className="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-                              <span className="text-xs truncate max-w-[160px]">{c.email}</span>
-                            </>
-                          ) : <span className="text-slate-300">—</span>}
-                        </div>
+                      <td className="px-3 py-1.5 text-slate-600 cursor-pointer overflow-hidden" onClick={() => setSelectedContact(c)}>
+                        {c.email ? (
+                          <span className="text-xs truncate block" title={c.email}>{c.email}</span>
+                        ) : <span className="text-slate-300 text-xs">—</span>}
                       </td>
 
                       {/* Business */}
-                      <td className="px-4 py-3 text-slate-600 text-xs cursor-pointer hidden lg:table-cell" onClick={() => setSelectedContact(c)}>
-                        {c.companyName || <span className="text-slate-300">—</span>}
+                      <td className="px-3 py-1.5 text-slate-600 text-xs cursor-pointer overflow-hidden" onClick={() => setSelectedContact(c)}>
+                        {c.companyName ? (
+                          <span className="truncate block" title={c.companyName}>{c.companyName}</span>
+                        ) : <span className="text-slate-300">—</span>}
                       </td>
 
                       {/* Last activity */}
-                      <td className="px-4 py-3 text-slate-500 text-xs cursor-pointer" onClick={() => setSelectedContact(c)}>
-                        {relativeTime(lastActivity)}
+                      <td className="px-3 py-1.5 text-slate-500 text-xs cursor-pointer overflow-hidden" onClick={() => setSelectedContact(c)}>
+                        <span className="truncate block">{relativeTime(lastActivity)}</span>
                       </td>
 
                       {/* Tags */}
-                      <td className="px-4 py-3 cursor-pointer hidden xl:table-cell" onClick={() => setSelectedContact(c)}>
+                      <td className="px-3 py-1.5 cursor-pointer overflow-hidden" onClick={() => setSelectedContact(c)}>
                         <div className="flex flex-wrap gap-1">
                           {(c.tags ?? []).slice(0, 2).map((tag) => (
-                            <span key={tag} className="text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 font-medium">
+                            <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 font-medium truncate max-w-[80px]">
                               {tag}
                             </span>
                           ))}
                           {(c.tags?.length ?? 0) > 2 && (
-                            <span className="text-xs text-slate-400">+{c.tags.length - 2}</span>
+                            <span className="text-[10px] text-slate-400">+{c.tags.length - 2}</span>
                           )}
                         </div>
                       </td>
@@ -897,6 +984,7 @@ export default function ContactsPage() {
                 })}
               </tbody>
             </table>
+            </div>
 
             {/* Pagination */}
             <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 bg-slate-50">
