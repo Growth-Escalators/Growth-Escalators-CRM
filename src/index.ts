@@ -129,6 +129,7 @@ app.use(generalLimiter);
 // Public routes (no auth required)
 // ---------------------------------------------------------------------------
 app.use('/', healthRouter);
+app.use('/api', healthRouter); // alias: /api/health matches the /api/* convention used by external monitors
 app.use('/auth', authRouter);
 app.use('/webhooks', webhooksRouter);
 app.use('/book', bookingRouter);
