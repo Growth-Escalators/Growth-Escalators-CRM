@@ -96,12 +96,12 @@ export async function collectSEOWorkflowHealth(): Promise<SEOWorkflowHealth> {
       },
     },
     {
-      id: 'WF-SEO-11', name: 'Content Decay Detection', schedule: 'First Monday 9AM IST', critical: false,
+      id: 'WF-SEO-11', name: 'Content Decay Detection', schedule: 'Every Monday 9AM IST', critical: false,
       check: async () => {
         const r = await pool.query(`SELECT MAX(created_at) AS last_run, COUNT(*) AS total FROM seo_opportunities`);
         const lastRun = (r.rows[0] as { last_run: string | null }).last_run;
         const daysSince = lastRun ? Math.floor((now.getTime() - new Date(lastRun).getTime()) / 86400000) : 999;
-        return { lastRun, daysSince, total: Number((r.rows[0] as { total: string }).total), healthy: daysSince <= 35 };
+        return { lastRun, daysSince, total: Number((r.rows[0] as { total: string }).total), healthy: daysSince <= 10 };
       },
     },
     {
