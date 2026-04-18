@@ -664,11 +664,19 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                   <div key={deal.id} className="border border-slate-200 rounded-xl p-4 bg-white">
                     <div className="flex items-start justify-between mb-1">
                       <span className="text-sm font-semibold text-slate-900">{deal.title}</span>
-                      {deal.dealValue > 0 && (
-                        <span className="text-sm font-semibold text-green-600">
-                          ₹{Number(deal.dealValue).toLocaleString('en-IN')}
-                        </span>
-                      )}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {deal.dealValue > 0 && (
+                          <span className="text-sm font-semibold text-green-600">
+                            ₹{Number(deal.dealValue).toLocaleString('en-IN')}
+                          </span>
+                        )}
+                        <a
+                          href={`/pipeline?dealId=${deal.id}`}
+                          className="text-xs text-blue-600 hover:text-blue-800 font-medium ml-auto shrink-0"
+                        >
+                          Open in Pipeline →
+                        </a>
+                      </div>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${

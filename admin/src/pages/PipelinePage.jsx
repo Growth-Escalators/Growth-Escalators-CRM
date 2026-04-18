@@ -423,6 +423,7 @@ function DealDetailSlideIn({ dealId, onClose, onViewContact, onUpdated }) {
   const [loading, setLoading] = useState(true);
   const [noteText, setNoteText] = useState('');
   const [addingNote, setAddingNote] = useState(false);
+  const [editValues, setEditValues] = useState(null); // null = not editing
 
   const loadActivities = useCallback(async () => {
     const acts = await apiFetch(`/deals/${dealId}/activities`);
@@ -451,6 +452,43 @@ function DealDetailSlideIn({ dealId, onClose, onViewContact, onUpdated }) {
     setNoteText('');
     await loadActivities();
     setAddingNote(false);
+  }
+
+  function startEdit() {
+    setEditValues({
+      deal_value: deal?.deal_value ?? '',
+      assigned_to: deal?.assigned_to ?? '',
+      source: deal?.source ?? '',
+      probability: deal?.probability ?? '',
+      expected_close_date: deal?.expected_close_date ? new Date(deal.expected_close_date).toISOString().slice(0, 10) : '',
+      notes: deal?.notes ?? '',
+    });
+  }
+
+  async function saveEdit() {
+    if (!editValues) return;
+    setAddingNote(true); // reuse spinner state
+    await apiFetch(`/deals/${dealId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        ...(editValues.deal_value !== '' ? { dealValue: Number(editValues.deal_value) } : {}),
+        ...(editValues.assigned_to !== undefined ? { assignedTo: editValues.assigned_to || null } : {}),
+        ...(editValues.source !== undefined ? { source: editValues.source || null } : {}),
+        ...(editValues.probability !== '' ? { probability: Number(editValues.probability) } : {}),
+        ...(editValues.expected_close_date !== undefined ? { expectedCloseDate: editValues.expected_close_date || null } : {}),
+        ...(editValues.notes !== undefined ? { notes: editValues.notes || null } : {}),
+      }),
+    });
+    // Re-fetch deal
+    const [d, acts] = await Promise.all([
+      apiFetch(`/deals/${dealId}`),
+      apiFetch(`/deals/${dealId}/activities`),
+    ]);
+    setDeal(d);
+    setActivities(Array.isArray(acts) ? acts : []);
+    setEditValues(null);
+    setAddingNote(false);
+    if (onUpdated) onUpdated();
   }
 
   function fmtDate(d) {
@@ -500,43 +538,108 @@ function DealDetailSlideIn({ dealId, onClose, onViewContact, onUpdated }) {
       ) : (
         <div className="flex-1 overflow-y-auto">
           {/* Deal stats grid */}
-          <div className="px-5 py-4 grid grid-cols-2 gap-3 border-b border-slate-100 bg-slate-50">
-            <div>
-              <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Value</p>
-              <p className="text-lg font-bold text-green-600">{fmtInr(deal.deal_value) || '—'}</p>
+          <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Deal Info</p>
+              {editValues === null && (
+                <button onClick={startEdit} className="text-xs text-blue-600 hover:text-blue-800 font-medium">Edit</button>
+              )}
             </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Stage</p>
-              <span className="text-xs font-semibold text-slate-700 bg-white border border-slate-200 px-2 py-0.5 rounded-lg">{deal.stage}</span>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Source</p>
-              <p className="text-sm text-slate-600">{SOURCE_LABELS[deal.source] ?? deal.source ?? '—'}</p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Assigned To</p>
-              <p className="text-sm text-slate-600">{deal.assigned_to ?? '—'}</p>
-            </div>
-            {deal.probability != null && (
-              <div>
-                <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Probability</p>
-                <p className="text-sm font-semibold text-blue-600">{deal.probability}%</p>
+            {editValues === null ? (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Value</p>
+                  <p className="text-lg font-bold text-green-600">{fmtInr(deal.deal_value) || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Stage</p>
+                  <span className="text-xs font-semibold text-slate-700 bg-white border border-slate-200 px-2 py-0.5 rounded-lg">{deal.stage}</span>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Source</p>
+                  <p className="text-sm text-slate-600">{SOURCE_LABELS[deal.source] ?? deal.source ?? '—'}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Assigned To</p>
+                  <p className="text-sm text-slate-600">{deal.assigned_to ?? '—'}</p>
+                </div>
+                {deal.probability != null && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Probability</p>
+                    <p className="text-sm font-semibold text-blue-600">{deal.probability}%</p>
+                  </div>
+                )}
+                {deal.expected_close_date && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Expected Close</p>
+                    <p className="text-sm text-slate-600">{new Date(deal.expected_close_date).toLocaleDateString('en-IN')}</p>
+                  </div>
+                )}
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Pipeline</p>
+                  <p className="text-sm text-slate-600">{deal.pipeline_name ?? '—'}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Created</p>
+                  <p className="text-sm text-slate-600">{new Date(deal.created_at).toLocaleDateString('en-IN')}</p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <label className="text-[10px] uppercase text-slate-400">Value (₹)</label>
+                  <input type="number" value={editValues.deal_value} onChange={e => setEditValues({...editValues, deal_value: e.target.value})}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 mt-0.5" />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase text-slate-400">Assigned To</label>
+                  <select value={editValues.assigned_to} onChange={e => setEditValues({...editValues, assigned_to: e.target.value})}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 mt-0.5 bg-white">
+                    <option value="">Unassigned</option>
+                    <option value="jatin">Jatin</option>
+                    <option value="saksham">Saksham</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase text-slate-400">Source</label>
+                  <select value={editValues.source} onChange={e => setEditValues({...editValues, source: e.target.value})}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 mt-0.5 bg-white">
+                    <option value="">Unknown</option>
+                    <option value="form">Website Form</option>
+                    <option value="paid_ad">Paid Ad</option>
+                    <option value="referral">Referral</option>
+                    <option value="cold_outreach">Cold Outreach</option>
+                    <option value="checkout">Checkout</option>
+                    <option value="inbound">Inbound Call</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase text-slate-400">Probability (%)</label>
+                  <input type="number" min="0" max="100" value={editValues.probability} onChange={e => setEditValues({...editValues, probability: e.target.value})}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 mt-0.5" />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase text-slate-400">Expected Close</label>
+                  <input type="date" value={editValues.expected_close_date} onChange={e => setEditValues({...editValues, expected_close_date: e.target.value})}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 mt-0.5" />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase text-slate-400">Notes</label>
+                  <textarea rows={3} value={editValues.notes} onChange={e => setEditValues({...editValues, notes: e.target.value})}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 mt-0.5" />
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button onClick={saveEdit} disabled={addingNote}
+                    className="flex-1 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-50">
+                    {addingNote ? 'Saving…' : 'Save Changes'}
+                  </button>
+                  <button onClick={() => setEditValues(null)}
+                    className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50">
+                    Cancel
+                  </button>
+                </div>
               </div>
             )}
-            {deal.expected_close_date && (
-              <div>
-                <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Expected Close</p>
-                <p className="text-sm text-slate-600">{new Date(deal.expected_close_date).toLocaleDateString('en-IN')}</p>
-              </div>
-            )}
-            <div>
-              <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Pipeline</p>
-              <p className="text-sm text-slate-600">{deal.pipeline_name ?? '—'}</p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Created</p>
-              <p className="text-sm text-slate-600">{new Date(deal.created_at).toLocaleDateString('en-IN')}</p>
-            </div>
           </div>
 
           {/* Notes */}
@@ -634,6 +737,8 @@ export default function PipelinePage() {
   const [filterAssigned, setFilterAssigned] = useState('');
   const [filterValue, setFilterValue] = useState('');
   const [filterAge, setFilterAge] = useState('');
+  const [showAnalytics, setShowAnalytics] = useState(false);
+  const [analytics, setAnalytics] = useState(null);
 
   useEffect(() => {
     apiFetch('/api/pipelines').then((data) => {
@@ -656,6 +761,19 @@ export default function PipelinePage() {
   }, [activePipelineId, showArchived]);
 
   useEffect(() => { loadDeals(); }, [loadDeals]);
+
+  useEffect(() => {
+    if (!showAnalytics || !activePipelineId) return;
+    apiFetch(`/api/pipelines/${activePipelineId}/analytics?days=90`)
+      .then(d => setAnalytics(d))
+      .catch(() => {});
+  }, [showAnalytics, activePipelineId]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const dealId = params.get('dealId');
+    if (dealId) setSelectedDealId(dealId);
+  }, []);
 
   const activePipeline = pipelinesList.find((p) => p.id === activePipelineId);
   const totalDeals = kanbanStages.reduce((s, st) => s + st.deals.length, 0);
@@ -801,6 +919,17 @@ export default function PipelinePage() {
               Show archived
             </label>
 
+            {/* Analytics toggle */}
+            <button
+              onClick={() => setShowAnalytics(v => !v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${showAnalytics ? 'bg-blue-50 border-blue-300 text-blue-700' : 'border-slate-200 text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+              </svg>
+              Analytics
+            </button>
+
             {/* Add Deal — top right */}
             <button
               onClick={() => setAddDealModal({ pipelineId: activePipelineId, stageName: kanbanStages[0]?.stageName ?? '' })}
@@ -840,6 +969,36 @@ export default function PipelinePage() {
             )}
           </div>
         </div>
+
+        {showAnalytics && analytics && (
+          <div className="bg-white border-b border-slate-100 px-6 py-3 shrink-0">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[
+                { label: 'Weighted Forecast', value: analytics.forecast > 0 ? fmtInr(analytics.forecast) : '₹0', color: 'text-green-600' },
+                { label: 'Win Rate', value: `${Math.round(analytics.winRate * 100)}%`, color: 'text-blue-600' },
+                { label: 'Avg Cycle', value: analytics.avgCycleDays ? `${analytics.avgCycleDays}d` : '—', color: 'text-violet-600' },
+                { label: 'Open Deals', value: `${analytics.openCount}`, color: 'text-slate-700' },
+              ].map(kpi => (
+                <div key={kpi.label} className="bg-slate-50 rounded-xl px-4 py-3 border border-slate-100">
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">{kpi.label}</p>
+                  <p className={`text-lg font-bold ${kpi.color}`}>{kpi.value}</p>
+                </div>
+              ))}
+            </div>
+            {analytics.byStage?.length > 0 && (
+              <div className="mt-2 flex gap-3 overflow-x-auto pb-1">
+                {analytics.byStage.map(s => (
+                  <div key={s.stage} className="shrink-0 bg-slate-50 rounded-lg px-3 py-1.5 border border-slate-100 text-xs">
+                    <span className="font-medium text-slate-700">{s.stage}</span>
+                    <span className="text-slate-400 ml-2">{s.count} deals</span>
+                    {s.value > 0 && <span className="text-green-600 ml-2">{fmtInr(s.value)}</span>}
+                    <span className="text-amber-500 ml-2">{s.avg_age_days}d avg</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {pipelinesList.length === 0 && !loading ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center p-8">

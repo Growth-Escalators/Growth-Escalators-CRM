@@ -127,6 +127,24 @@ router.get('/diagnose', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/pipelines/_health — production verification (Phase 2)
+// ---------------------------------------------------------------------------
+router.get('/_health', async (req, res) => {
+  try {
+    const { pool: dbPool } = await import('../db/index');
+    const r = await dbPool.query(`
+      SELECT
+        EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='deals' AND column_name='source') AS has_source,
+        EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='deals' AND column_name='probability') AS has_probability,
+        EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name='deal_activities') AS has_deal_activities,
+        EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='pipelines' AND column_name='stage_config') AS has_stage_config,
+        (SELECT COUNT(*)::int FROM deal_activities) AS activity_count
+    `);
+    res.json({ ok: true, columns: r.rows[0] });
+  } catch (e) { res.status(500).json({ error: String(e) }); }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/pipelines — list all active pipelines for tenant
 // ---------------------------------------------------------------------------
 router.get('/', async (req, res) => {
@@ -288,7 +306,7 @@ router.patch('/:id', async (req, res) => {
   try {
   const { id } = req.params;
   const tenantId = req.user!.tenantId;
-  const { name, stages, color, isActive, sortOrder } = req.body;
+  const { name, stages, color, isActive, sortOrder, stageConfig } = req.body;
 
   const updates: Partial<typeof pipelines.$inferInsert> = {};
   if (name !== undefined) updates.name = name;
@@ -308,10 +326,93 @@ router.patch('/:id', async (req, res) => {
     return;
   }
 
+  if (stageConfig !== undefined) {
+    await pool.query(
+      `UPDATE pipelines SET stage_config = $1::jsonb WHERE id = $2 AND tenant_id = $3`,
+      [JSON.stringify(stageConfig), id, tenantId]
+    );
+  }
+
   res.json(updated[0]);
   } catch (e: unknown) {
     logger.error('[pipelines] PATCH /:id error:', e);
     res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/pipelines/:id/stage-config — fetch stage_config JSONB for a pipeline
+// ---------------------------------------------------------------------------
+router.get('/:id/stage-config', async (req, res) => {
+  const tenantId = req.user!.tenantId;
+  const { id } = req.params;
+  try {
+    const r = await pool.query(
+      `SELECT stage_config FROM pipelines WHERE id = $1 AND tenant_id = $2`,
+      [id, tenantId]
+    );
+    res.json(r.rows[0]?.stage_config ?? {});
+  } catch (e) {
+    logger.error('[pipelines] GET /:id/stage-config error:', e);
+    res.status(500).json({ error: 'internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/pipelines/:id/analytics — funnel metrics + by-stage breakdown
+// ---------------------------------------------------------------------------
+router.get('/:id/analytics', async (req, res) => {
+  const tenantId = req.user!.tenantId;
+  const { id } = req.params;
+  const days = parseInt((req.query.days as string) || '90', 10);
+  try {
+    const cutoff = new Date(Date.now() - days * 86400000).toISOString();
+    const r = await pool.query(`
+      SELECT
+        COALESCE(SUM(CASE WHEN LOWER(stage) NOT IN ('won','lost','abandoned') THEN COALESCE(deal_value,0) * COALESCE(probability,50) / 100.0 ELSE 0 END), 0)::int AS forecast,
+        COUNT(*) FILTER (WHERE LOWER(stage) NOT IN ('won','lost','abandoned')) AS open_count,
+        COUNT(*) FILTER (WHERE LOWER(stage) = 'won') AS won_count,
+        COUNT(*) FILTER (WHERE LOWER(stage) = 'lost') AS lost_count,
+        COUNT(*) FILTER (WHERE LOWER(stage) = 'abandoned') AS abandoned_count,
+        COALESCE(SUM(CASE WHEN LOWER(stage) = 'won' THEN COALESCE(deal_value,0) ELSE 0 END), 0)::int AS total_won_value,
+        ROUND(AVG(CASE WHEN LOWER(stage) = 'won' AND closed_at IS NOT NULL THEN EXTRACT(EPOCH FROM (closed_at - created_at))/86400.0 END)::numeric, 1) AS avg_cycle_days
+      FROM deals
+      WHERE pipeline_id = $1 AND tenant_id = $2
+        AND (closed_at IS NULL OR closed_at >= $3)
+        AND (metadata->>'archived') IS DISTINCT FROM 'true'
+    `, [id, tenantId, cutoff]);
+
+    const byStage = await pool.query(`
+      SELECT stage,
+        COUNT(*)::int AS count,
+        COALESCE(SUM(deal_value),0)::int AS value,
+        ROUND(AVG(EXTRACT(EPOCH FROM (NOW() - created_at))/86400.0)::numeric, 1) AS avg_age_days
+      FROM deals
+      WHERE pipeline_id = $1 AND tenant_id = $2
+        AND LOWER(stage) NOT IN ('won','lost','abandoned')
+        AND (metadata->>'archived') IS DISTINCT FROM 'true'
+      GROUP BY stage ORDER BY count DESC
+    `, [id, tenantId]);
+
+    const s = r.rows[0];
+    const wonCount = Number(s.won_count);
+    const lostCount = Number(s.lost_count);
+    const abandonedCount = Number(s.abandoned_count);
+    const total = wonCount + lostCount + abandonedCount;
+    res.json({
+      forecast: Number(s.forecast),
+      openCount: Number(s.open_count),
+      wonCount,
+      lostCount,
+      abandonedCount,
+      winRate: total > 0 ? Math.round((wonCount / total) * 100) / 100 : 0,
+      avgCycleDays: s.avg_cycle_days ? Number(s.avg_cycle_days) : null,
+      totalWonValue: Number(s.total_won_value),
+      byStage: byStage.rows,
+    });
+  } catch (e) {
+    logger.error('[pipelines] GET /:id/analytics error:', e);
+    res.status(500).json({ error: 'internal server error' });
   }
 });
 
