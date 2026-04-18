@@ -141,6 +141,51 @@ router.get('/content-decay-stats', async (_req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/seo-workflows/backlinks-stats
+// Lightweight stats for the Backlink Monitor admin card
+// ---------------------------------------------------------------------------
+router.get('/backlinks-stats', async (_req: Request, res: Response) => {
+  try {
+    const [totalQ, last7Q, lastAtQ] = await Promise.all([
+      pool.query(`SELECT COUNT(*)::int AS count FROM backlink_data WHERE status = 'active'`),
+      pool.query(`SELECT COUNT(*)::int AS count FROM backlink_data WHERE first_seen >= NOW() - INTERVAL '7 days'`),
+      pool.query(`SELECT MAX(first_seen) AS last_at FROM backlink_data`),
+    ]);
+    res.json({
+      totalBacklinks: Number(totalQ.rows[0].count),
+      newLast7d: Number(last7Q.rows[0].count),
+      lastDiscoveredAt: lastAtQ.rows[0].last_at ?? null,
+    });
+  } catch (e) {
+    logger.error('[seo-workflows] backlinks-stats error:', e);
+    res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/seo-workflows/digest-stats
+// Lightweight stats for the Weekly Digest admin card —
+// shows what the next digest WOULD contain if it ran right now.
+// ---------------------------------------------------------------------------
+router.get('/digest-stats', async (_req: Request, res: Response) => {
+  try {
+    const [oppsQ, alertsQ, rankingsQ] = await Promise.all([
+      pool.query(`SELECT COUNT(*)::int AS count FROM seo_opportunities WHERE status = 'open'`),
+      pool.query(`SELECT COUNT(*)::int AS count FROM seo_alerts_log WHERE created_at > NOW() - INTERVAL '7 days'`),
+      pool.query(`SELECT COUNT(*)::int AS count FROM keyword_rankings WHERE recorded_date >= CURRENT_DATE - INTERVAL '10 days'`),
+    ]);
+    res.json({
+      openOpportunities: Number(oppsQ.rows[0].count),
+      recentAlerts: Number(alertsQ.rows[0].count),
+      keywordRankingsLast10d: Number(rankingsQ.rows[0].count),
+    });
+  } catch (e) {
+    logger.error('[seo-workflows] digest-stats error:', e);
+    res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/seo-workflows/data-health
 // ---------------------------------------------------------------------------
 router.get('/data-health', async (_req: Request, res: Response) => {

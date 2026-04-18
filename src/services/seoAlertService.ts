@@ -11,6 +11,27 @@ import logger from '../utils/logger';
 const CLIENT_DOMAINS = ['aarohaom.com', 'blackpandaenterprises.com', 'ageddentistry.org'];
 
 export async function runSeoAlertChecks(): Promise<{ alerts: number }> {
+  // Pre-flight: if all upstream tables are empty, the "zero alerts" we'd produce
+  // is meaningless — it's indistinguishable from "all pipelines are broken".
+  // Bail loudly so the Railway env / cron health gets checked.
+  const upstreamQ = await pool.query(`
+    SELECT
+      (SELECT COUNT(*) FROM keyword_rankings WHERE recorded_date >= CURRENT_DATE - INTERVAL '10 days')::int AS rankings,
+      (SELECT COUNT(*) FROM site_health_metrics WHERE checked_at >= NOW() - INTERVAL '10 days')::int AS health,
+      (SELECT COUNT(*) FROM seo_weekly_metrics WHERE week_start_date >= CURRENT_DATE - INTERVAL '14 days')::int AS gsc
+  `);
+  const { rankings, health, gsc } = upstreamQ.rows[0] as { rankings: number; health: number; gsc: number };
+  if (Number(rankings) === 0 && Number(health) === 0 && Number(gsc) === 0) {
+    const msg = 'seo-alerts: all 3 upstream tables (keyword_rankings, site_health_metrics, seo_weekly_metrics) are empty for the last 10-14 days — upstream crons are broken, skipping alert generation to avoid false all-clear';
+    logger.error(`[seo-alerts] ${msg}`);
+    try {
+      const { sendSlackMessage } = await import('./slackService');
+      const { SLACK_SEO_CHANNEL } = await import('../config/constants');
+      await sendSlackMessage(SLACK_SEO_CHANNEL, `⚠️ ${msg}`);
+    } catch { /* slack non-critical */ }
+    return { alerts: 0 };
+  }
+
   let alerts = 0;
 
   for (const domain of CLIENT_DOMAINS) {

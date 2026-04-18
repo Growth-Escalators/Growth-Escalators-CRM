@@ -24,8 +24,14 @@ interface SerperResult {
 
 export async function runBacklinkCheck(): Promise<{ found: number; errors: number }> {
   if (!SERPER_API_KEY) {
-    logger.warn('[backlinks] SERPER_API_KEY not set — skipping');
-    return { found: 0, errors: 0 };
+    const msg = 'backlinks: SERPER_API_KEY not set on Railway worker — backlink monitor cannot run';
+    logger.error(`[backlinks] ${msg}`);
+    try {
+      const { sendSlackMessage } = await import('./slackService');
+      const { SLACK_SEO_CHANNEL } = await import('../config/constants');
+      await sendSlackMessage(SLACK_SEO_CHANNEL, `⚠️ ${msg}`);
+    } catch { /* slack non-critical */ }
+    throw new Error(msg);
   }
 
   let found = 0;

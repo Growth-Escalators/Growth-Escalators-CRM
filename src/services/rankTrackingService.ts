@@ -178,8 +178,14 @@ async function getPreviousPosition(projectName: string, keyword: string): Promis
 // ---------------------------------------------------------------------------
 export async function runRankChecks(): Promise<{ checked: number; errors: number }> {
   if (!SERPER_API_KEY) {
-    logger.warn('[rank-tracking] SERPER_API_KEY not set — skipping');
-    return { checked: 0, errors: 0 };
+    const msg = 'rank-tracking: SERPER_API_KEY not set on Railway worker — rank checks cannot run';
+    logger.error(`[rank-tracking] ${msg}`);
+    try {
+      const { sendSlackMessage } = await import('./slackService');
+      const { SLACK_SEO_CHANNEL } = await import('../config/constants');
+      await sendSlackMessage(SLACK_SEO_CHANNEL, `⚠️ ${msg}`);
+    } catch { /* slack non-critical */ }
+    throw new Error(msg);
   }
 
   let checked = 0;

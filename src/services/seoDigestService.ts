@@ -14,6 +14,23 @@ export async function sendWeeklyOpportunityDigest(): Promise<{ sent: boolean }> 
     const { sendSlackMessage } = await import('./slackService');
     const { SLACK_SEO_CHANNEL } = await import('../config/constants');
 
+    // Pre-flight: if every upstream source is empty, don't send a hollow digest
+    // that makes the team think "no news is good news". Send a single health-alert
+    // to #seo instead so the broken pipeline gets fixed.
+    const upstreamQ = await pool.query(`
+      SELECT
+        (SELECT COUNT(*) FROM seo_opportunities WHERE status = 'open')::int AS open_opps,
+        (SELECT COUNT(*) FROM seo_alerts_log WHERE created_at > NOW() - INTERVAL '7 days')::int AS recent_alerts,
+        (SELECT COUNT(*) FROM keyword_rankings WHERE recorded_date >= CURRENT_DATE - INTERVAL '10 days')::int AS rankings
+    `);
+    const { open_opps, recent_alerts, rankings } = upstreamQ.rows[0] as { open_opps: number; recent_alerts: number; rankings: number };
+    if (Number(open_opps) === 0 && Number(recent_alerts) === 0 && Number(rankings) === 0) {
+      const msg = 'seo-digest: skipped — seo_opportunities, seo_alerts_log, and keyword_rankings all empty. Upstream SEO crons are broken, check Railway worker logs and SERPER_API_KEY.';
+      logger.error(`[seo-digest] ${msg}`);
+      await sendSlackMessage(SLACK_SEO_CHANNEL, `⚠️ ${msg}`);
+      return { sent: false };
+    }
+
     // 1. Open opportunities
     const opps = await pool.query(`
       SELECT client_domain, opportunity_type, description, estimated_impact, effort_level

@@ -923,8 +923,12 @@ function WorkflowsTab() {
         </div>
       )}
 
-      {/* Content Decay spotlight — health + run now */}
-      <ContentDecayCard />
+      {/* Spotlight cards — the three workflows most likely to silently break */}
+      <div className="space-y-3">
+        <ContentDecayCard />
+        <BacklinksCard />
+        <DigestCard />
+      </div>
 
       {/* Workflow Trigger Grid */}
       <div className="bg-white rounded-xl border border-slate-200 p-4">
@@ -967,30 +971,33 @@ function WorkflowsTab() {
 }
 
 // ---------------------------------------------------------------------------
-// Content Decay focused card — last run, last result, run-now, link to output
+// SpotlightWorkflowCard — shared card for critical SEO workflows.
+// Shows: last-run status, last-run result count, one domain-specific stat,
+// upstream-staleness banner (when applicable), Run Now, run history.
 // ---------------------------------------------------------------------------
-const CONTENT_DECAY_ID = 'Ss2Bfps5lXBWUUs4';
-
-function ContentDecayCard() {
+function SpotlightWorkflowCard({
+  workflowId,
+  title,
+  description,
+  icon: Icon,
+  accentColor,     // 'rose' | 'indigo' | 'emerald' — drives button & header tint
+  runService,      // path segment for POST /api/seo-workflows/run/:runService
+  statsEndpoint,   // full path, e.g. '/api/seo-workflows/content-decay-stats'
+  recordsLabel,    // e.g. 'opportunities', 'new backlinks'
+  thirdStat,       // { label, value, hint, loading } derived per card
+  staleBanner,     // optional { show, message }
+}) {
   const [logs, setLogs] = useState([]);
-  const [opportunityCount, setOpportunityCount] = useState(null);
   const [running, setRunning] = useState(false);
   const [runResult, setRunResult] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const [keywordRowsRecent, setKeywordRowsRecent] = useState(null);
-
   const refresh = useCallback(async () => {
     setLoading(true);
-    const [logsRes, statsRes] = await Promise.all([
-      apiFetch(`/api/seo-workflows/logs?workflowId=${CONTENT_DECAY_ID}`).catch(() => null),
-      apiFetch(`/api/seo-workflows/content-decay-stats`).catch(() => null),
-    ]);
+    const logsRes = await apiFetch(`/api/seo-workflows/logs?workflowId=${workflowId}`).catch(() => null);
     setLogs(logsRes?.logs ?? []);
-    setOpportunityCount(statsRes?.openOpportunities ?? null);
-    setKeywordRowsRecent(statsRes?.keywordRankingsLast10d ?? null);
     setLoading(false);
-  }, []);
+  }, [workflowId]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -998,7 +1005,7 @@ function ContentDecayCard() {
     setRunning(true);
     setRunResult(null);
     try {
-      const res = await apiFetch('/api/seo-workflows/run/content-decay', { method: 'POST' });
+      const res = await apiFetch(`/api/seo-workflows/run/${runService}`, { method: 'POST' });
       setRunResult({ ok: res?.ok !== false, detail: res?.detail ?? 'Done' });
       refresh();
     } catch (e) {
@@ -1020,19 +1027,25 @@ function ContentDecayCard() {
     : lastStatus === 'error' ? 'text-red-600 bg-red-50 border-red-200'
     : 'text-slate-500 bg-slate-50 border-slate-200';
 
+  const btnTint = {
+    rose:    { bg: 'bg-rose-50',    text: 'text-rose-700',    border: 'border-rose-200',    hover: 'hover:bg-rose-100',    iconColor: 'text-rose-500' },
+    indigo:  { bg: 'bg-indigo-50',  text: 'text-indigo-700',  border: 'border-indigo-200',  hover: 'hover:bg-indigo-100',  iconColor: 'text-indigo-500' },
+    emerald: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', hover: 'hover:bg-emerald-100', iconColor: 'text-emerald-500' },
+  }[accentColor] ?? { bg: 'bg-sky-50', text: 'text-sky-700', border: 'border-sky-200', hover: 'hover:bg-sky-100', iconColor: 'text-sky-500' };
+
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-4">
       <div className="flex items-start justify-between mb-3">
         <div>
           <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
-            <TrendingDown className="w-4 h-4 text-rose-500" /> Content Decay Detection
+            <Icon className={`w-4 h-4 ${btnTint.iconColor}`} /> {title}
           </h3>
-          <p className="text-xs text-slate-400 mt-0.5">Every Monday 9 AM IST · finds keywords that slipped &gt;5 positions or fell out of top 100</p>
+          <p className="text-xs text-slate-400 mt-0.5">{description}</p>
         </div>
         <button
           onClick={runNow}
           disabled={running}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200 rounded-lg hover:bg-rose-100 disabled:opacity-50 flex-shrink-0"
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold ${btnTint.bg} ${btnTint.text} border ${btnTint.border} rounded-lg ${btnTint.hover} disabled:opacity-50 flex-shrink-0`}
         >
           {running ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
           {running ? 'Running...' : 'Run Now'}
@@ -1046,14 +1059,10 @@ function ContentDecayCard() {
         </div>
       )}
 
-      {!loading && keywordRowsRecent === 0 && (
+      {staleBanner?.show && (
         <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800 flex items-start gap-2">
           <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-          <span>
-            <strong>Upstream data is stale.</strong> keyword_rankings has 0 rows in the last 10 days.
-            The rank tracker (Tuesday 9 AM IST) is not writing — check <code>SERPER_API_KEY</code> on the Railway worker.
-            Content Decay cannot produce opportunities until this is fixed.
-          </span>
+          <span>{staleBanner.message}</span>
         </div>
       )}
 
@@ -1068,16 +1077,16 @@ function ContentDecayCard() {
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
           <p className="text-[10px] uppercase tracking-wide text-slate-500">Last result</p>
           <p className="text-sm font-semibold text-slate-700 mt-0.5">
-            {loading ? '…' : lastRecords != null ? `${lastRecords} opportunities` : '—'}
+            {loading ? '…' : lastRecords != null ? `${lastRecords} ${recordsLabel}` : '—'}
           </p>
-          <p className="text-[11px] text-slate-500 mt-0.5">inserted into seo_opportunities</p>
+          <p className="text-[11px] text-slate-500 mt-0.5">from most recent run</p>
         </div>
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-          <p className="text-[10px] uppercase tracking-wide text-slate-500">Open decay opportunities</p>
+          <p className="text-[10px] uppercase tracking-wide text-slate-500">{thirdStat?.label ?? ''}</p>
           <p className="text-sm font-semibold text-slate-700 mt-0.5">
-            {loading ? '…' : opportunityCount != null ? opportunityCount : '—'}
+            {thirdStat?.loading ? '…' : (thirdStat?.value ?? '—')}
           </p>
-          <p className="text-[11px] text-slate-500 mt-0.5">total across all clients</p>
+          <p className="text-[11px] text-slate-500 mt-0.5">{thirdStat?.hint ?? ''}</p>
         </div>
       </div>
 
@@ -1099,7 +1108,7 @@ function ContentDecayCard() {
                 </span>
                 <span className="text-slate-600">{new Date(l.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}</span>
                 <span className="text-slate-400">·</span>
-                <span className="text-slate-500">{l.records_processed != null ? `${l.records_processed} opps` : l.status}</span>
+                <span className="text-slate-500">{l.records_processed != null ? `${l.records_processed} ${recordsLabel}` : l.status}</span>
                 {l.triggered_by && <span className="text-slate-400 ml-auto">{l.triggered_by}</span>}
               </div>
             ))}
@@ -1107,6 +1116,125 @@ function ContentDecayCard() {
         </details>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Content Decay card — wraps SpotlightWorkflowCard with decay-specific stats
+// ---------------------------------------------------------------------------
+function ContentDecayCard() {
+  const [stats, setStats] = useState(null);
+  useEffect(() => {
+    apiFetch('/api/seo-workflows/content-decay-stats').then(setStats).catch(() => setStats(null));
+  }, []);
+  const recent = stats?.keywordRankingsLast10d;
+  return (
+    <SpotlightWorkflowCard
+      workflowId="Ss2Bfps5lXBWUUs4"
+      title="Content Decay Detection"
+      description="Every Monday 9 AM IST · finds keywords that slipped >5 positions or fell out of top 100"
+      icon={TrendingDown}
+      accentColor="rose"
+      runService="content-decay"
+      statsEndpoint="/api/seo-workflows/content-decay-stats"
+      recordsLabel="opportunities"
+      thirdStat={{
+        label: 'Open decay opportunities',
+        value: stats?.openOpportunities,
+        hint: 'total across all clients',
+        loading: stats == null,
+      }}
+      staleBanner={{
+        show: recent === 0,
+        message: (
+          <>
+            <strong>Upstream data is stale.</strong> keyword_rankings has 0 rows in the last 10 days.
+            The rank tracker (Tuesday 9 AM IST) is not writing — check <code>SERPER_API_KEY</code> on the Railway worker.
+            Content Decay cannot produce opportunities until this is fixed.
+          </>
+        ),
+      }}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Backlinks card — shows new backlinks in last 7 days, flags stale discovery
+// ---------------------------------------------------------------------------
+function BacklinksCard() {
+  const [stats, setStats] = useState(null);
+  useEffect(() => {
+    apiFetch('/api/seo-workflows/backlinks-stats').then(setStats).catch(() => setStats(null));
+  }, []);
+  const lastAt = stats?.lastDiscoveredAt ? new Date(stats.lastDiscoveredAt) : null;
+  const daysSinceDiscovery = lastAt ? Math.floor((Date.now() - lastAt.getTime()) / 86400000) : null;
+  const isStale = daysSinceDiscovery != null && daysSinceDiscovery > 14;
+  return (
+    <SpotlightWorkflowCard
+      workflowId="19R3BStSY2S1N9H1"
+      title="Backlink Monitor"
+      description="Every Friday 9 AM IST · finds new pages linking to client domains via Serper.dev"
+      icon={Link2}
+      accentColor="indigo"
+      runService="backlinks"
+      statsEndpoint="/api/seo-workflows/backlinks-stats"
+      recordsLabel="new backlinks"
+      thirdStat={{
+        label: 'Active backlinks · last 7d',
+        value: stats ? `${stats.totalBacklinks ?? 0} · +${stats.newLast7d ?? 0}` : '—',
+        hint: lastAt ? `last discovered ${daysSinceDiscovery === 0 ? 'today' : `${daysSinceDiscovery}d ago`}` : 'none discovered yet',
+        loading: stats == null,
+      }}
+      staleBanner={{
+        show: isStale,
+        message: (
+          <>
+            <strong>No new backlinks discovered in {daysSinceDiscovery}+ days.</strong> Either the
+            Friday cron isn&apos;t running or <code>SERPER_API_KEY</code> is unset on the Railway worker.
+            Click Run Now to diagnose.
+          </>
+        ),
+      }}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Digest card — shows what the NEXT Friday digest would contain right now
+// ---------------------------------------------------------------------------
+function DigestCard() {
+  const [stats, setStats] = useState(null);
+  useEffect(() => {
+    apiFetch('/api/seo-workflows/digest-stats').then(setStats).catch(() => setStats(null));
+  }, []);
+  const allEmpty = stats && stats.openOpportunities === 0 && stats.recentAlerts === 0 && stats.keywordRankingsLast10d === 0;
+  return (
+    <SpotlightWorkflowCard
+      workflowId="M4rbRZL5jh0jJHku"
+      title="Weekly Opportunity Digest"
+      description="Every Friday 5 PM IST · summarizes opportunities, alerts, and rank wins to #seo on Slack"
+      icon={FileText}
+      accentColor="emerald"
+      runService="digest"
+      statsEndpoint="/api/seo-workflows/digest-stats"
+      recordsLabel="sections"
+      thirdStat={{
+        label: 'Next digest would contain',
+        value: stats ? `${stats.openOpportunities ?? 0} opps · ${stats.recentAlerts ?? 0} alerts` : '—',
+        hint: `${stats?.keywordRankingsLast10d ?? 0} ranking rows in last 10d`,
+        loading: stats == null,
+      }}
+      staleBanner={{
+        show: !!allEmpty,
+        message: (
+          <>
+            <strong>All upstream SEO pipelines are empty.</strong> The digest would go out blank.
+            Digest will self-skip and post a health alert to #seo instead — but fix the upstream crons
+            (rank tracker, alerts, content decay) before Friday.
+          </>
+        ),
+      }}
+    />
   );
 }
 

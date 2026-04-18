@@ -61,8 +61,14 @@ function delay(ms: number): Promise<void> { return new Promise(r => setTimeout(r
 // ---------------------------------------------------------------------------
 export async function runContentGapAnalysis(): Promise<{ gaps: number; opportunities: number }> {
   if (!SERPER_API_KEY) {
-    logger.warn('[content-gap] SERPER_API_KEY not set');
-    return { gaps: 0, opportunities: 0 };
+    const msg = 'content-gap: SERPER_API_KEY not set on Railway worker — content gap analysis cannot run';
+    logger.error(`[content-gap] ${msg}`);
+    try {
+      const { sendSlackMessage } = await import('./slackService');
+      const { SLACK_SEO_CHANNEL } = await import('../config/constants');
+      await sendSlackMessage(SLACK_SEO_CHANNEL, `⚠️ ${msg}`);
+    } catch { /* slack non-critical */ }
+    throw new Error(msg);
   }
 
   let gaps = 0, opportunities = 0;
