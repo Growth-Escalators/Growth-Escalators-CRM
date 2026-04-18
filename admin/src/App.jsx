@@ -29,6 +29,7 @@ const LinksPage = lazy(() => import('./pages/LinksPage.jsx'));
 const SocialSchedulingPage = lazy(() => import('./pages/SocialSchedulingPage.jsx'));
 const ClientDetailPage = lazy(() => import('./pages/ClientDetailPage.jsx'));
 const FunnelManagementPage = lazy(() => import('./pages/FunnelManagementPage.jsx'));
+const PostizPage = lazy(() => import('./pages/PostizPage.jsx'));
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -101,6 +102,7 @@ export default function App() {
             <Route path="/social-scheduling" element={<Navigate to="/social" replace />} />
             <Route path="/client/:clientId" element={<PrivateRoute><ClientDetailPage /></PrivateRoute>} />
             <Route path="/funnels" element={<PrivateRoute><FunnelManagementPage /></PrivateRoute>} />
+            <Route path="/postiz" element={<PrivateRoute><PostizPage /></PrivateRoute>} />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>

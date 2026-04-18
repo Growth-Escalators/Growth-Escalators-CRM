@@ -13,9 +13,7 @@ import https from 'https';
 import http from 'http';
 import { URL } from 'url';
 import logger from '../utils/logger';
-
-const SHLINK_BASE_URL = process.env.SHLINK_BASE_URL ?? 'https://shlink-production-eb84.up.railway.app';
-const SHLINK_API_KEY  = process.env.SHLINK_API_KEY  ?? '';
+import { requiredEnv } from '../config/env';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -62,8 +60,13 @@ function shlinkRequest<T = unknown>(
   body?: Record<string, unknown>,
 ): Promise<T> {
   return new Promise((resolve, reject) => {
-    if (!SHLINK_API_KEY) {
-      reject(new Error('SHLINK_API_KEY env var is not set'));
+    let SHLINK_BASE_URL: string;
+    let SHLINK_API_KEY: string;
+    try {
+      SHLINK_BASE_URL = requiredEnv('SHLINK_BASE_URL');
+      SHLINK_API_KEY = requiredEnv('SHLINK_API_KEY');
+    } catch (e) {
+      reject(e instanceof Error ? e : new Error(String(e)));
       return;
     }
     const parsed = new URL(SHLINK_BASE_URL + path);

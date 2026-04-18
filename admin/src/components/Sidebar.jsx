@@ -5,7 +5,7 @@ import {
   Users, BarChart2, Zap, Mail, Receipt, Activity, Lock, Home,
   TrendingUp, FileText, Share2, MessageSquare, Settings, Layout, MapPin,
   Shield, ClipboardList, CreditCard, Kanban, Brain, Target, Link, Calendar,
-  ExternalLink, Wrench, Search, Megaphone
+  ExternalLink, Wrench, Search, Megaphone, Send
 } from 'lucide-react';
 
 const ROLE_BADGE_COLORS = {
@@ -135,6 +135,11 @@ export default function Sidebar() {
             {canSocial && (
               <NavLink to="/social" className={navClass}>
                 <Share2 className="w-4 h-4" /> Social
+              </NavLink>
+            )}
+            {canSocial && (
+              <NavLink to="/postiz" className={navClass}>
+                <Send className="w-4 h-4" /> Social (Postiz)
               </NavLink>
             )}
             {isAdmin && (

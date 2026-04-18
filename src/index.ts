@@ -63,6 +63,7 @@ import intelligenceChatRouter from './routes/intelligenceChat';
 import clientDetailRouter from './routes/clientDetail';
 import selfServiceRouter from './routes/selfService';
 import { requireAuth, optionalAuth } from './middleware/auth';
+import { validateEnv } from './config/env';
 
 const app = express();
 
@@ -570,6 +571,8 @@ async function startServer() {
       }
     } catch (e) { console.error('[startup] Programmatic page generation failed:', e); }
   }, 15000); // 15 seconds after startup
+
+  validateEnv();
 
   httpServer.listen(PORT, () => {
     console.log(`Growth Escalators backend running on port ${PORT}`);

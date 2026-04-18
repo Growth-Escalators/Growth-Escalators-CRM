@@ -13,9 +13,7 @@ import https from 'https';
 import http from 'http';
 import { URL } from 'url';
 import logger from '../utils/logger';
-
-const POSTIZ_BASE_URL = process.env.POSTIZ_BASE_URL ?? 'https://postiz-production-c081.up.railway.app';
-const POSTIZ_API_KEY  = process.env.POSTIZ_API_KEY  ?? '';
+import { requiredEnv } from '../config/env';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -58,8 +56,13 @@ function postizRequest<T = unknown>(
   body?: Record<string, unknown>,
 ): Promise<T> {
   return new Promise((resolve, reject) => {
-    if (!POSTIZ_API_KEY) {
-      reject(new Error('POSTIZ_API_KEY env var is not set'));
+    let POSTIZ_BASE_URL: string;
+    let POSTIZ_API_KEY: string;
+    try {
+      POSTIZ_BASE_URL = requiredEnv('POSTIZ_BASE_URL');
+      POSTIZ_API_KEY = requiredEnv('POSTIZ_API_KEY');
+    } catch (e) {
+      reject(e instanceof Error ? e : new Error(String(e)));
       return;
     }
     const parsed = new URL(POSTIZ_BASE_URL + path);
