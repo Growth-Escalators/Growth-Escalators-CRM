@@ -196,13 +196,16 @@ function AddContactModal({ onClose, onCreated }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Bulk Action Bar
 // ─────────────────────────────────────────────────────────────────────────────
-function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onClear, onDone, onOpenOpportunity }) {
+function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onClear, onDone, onOpenOpportunity, load }) {
   const count = selectedIds.size;
   const [showTagPanel, setShowTagPanel] = useState(false);
   const [tagInput, setTagInput] = useState('');
   const [tagMode, setTagMode] = useState('add');
-  const [showSeqPanel, setShowSeqPanel] = useState(false);
-  const [seqName, setSeqName] = useState('');
+  const [selectedTags, setSelectedTags] = useState(new Set());
+  const [availableTags, setAvailableTags] = useState([]);
+  const [showEmailPanel, setShowEmailPanel] = useState(false);
+  const [emailTemplates, setEmailTemplates] = useState([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [showAssignPanel, setShowAssignPanel] = useState(false);
   const [assignTo, setAssignTo] = useState('jatin');
   const [showMoreMenu, setShowMoreMenu] = useState(false);
@@ -225,7 +228,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
 
   function closeAllPanels() {
     setShowTagPanel(false);
-    setShowSeqPanel(false);
+    setShowEmailPanel(false);
     setShowAssignPanel(false);
     setShowMoreMenu(false);
   }
@@ -278,18 +281,42 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
   }
 
   async function handleBulkTag() {
-    const tags = tagInput.split(',').map((t) => t.trim()).filter(Boolean);
-    if (!tags.length) return;
+    // Combine checkbox-selected tags + any text input tags
+    const textTags = tagInput.split(',').map((t) => t.trim()).filter(Boolean);
+    const allTags = [...new Set([...selectedTags, ...textTags])];
+    if (!allTags.length) return;
     setBusy(true);
     await apiFetch('/contacts/bulk-tag', {
       method: 'POST',
-      body: JSON.stringify({ contactIds: [...selectedIds], tags, mode: tagMode }),
+      body: JSON.stringify({ contactIds: [...selectedIds], tags: allTags, mode: tagMode }),
     });
     setBusy(false);
     setTagInput('');
+    setSelectedTags(new Set());
     setShowTagPanel(false);
-    setToast(`Tags ${tagMode === 'add' ? 'added' : 'removed'} for ${count} contacts`);
+    setToast(`Tags ${tagMode === 'add' ? 'added to' : 'removed from'} ${count} contacts`);
     onDone?.();
+  }
+
+  async function handleBulkEmail() {
+    if (!selectedTemplateId) return;
+    setBusy(true);
+    try {
+      const result = await apiFetch('/contacts/bulk-email', {
+        method: 'POST',
+        body: JSON.stringify({ contactIds: [...selectedIds], templateId: selectedTemplateId }),
+      });
+      if (result?.sent !== undefined) {
+        setToast(`Sent to ${result.sent} contacts${result.skipped ? ` (${result.skipped} without email)` : ''}${result.failed ? ` — ${result.failed} failed` : ''}`);
+      } else {
+        setToast(result?.error ?? 'Email send failed');
+      }
+    } catch (err) {
+      setToast(`Email failed: ${err.message}`);
+    }
+    setBusy(false);
+    setShowEmailPanel(false);
+    setSelectedTemplateId('');
   }
 
   async function handleBulkDelete() {
@@ -301,24 +328,6 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
     });
     setBusy(false);
     setToast(`${count} contact${count > 1 ? 's' : ''} deleted`);
-    onDone?.();
-  }
-
-  async function handleBulkSequence() {
-    if (!seqName.trim()) return;
-    setBusy(true);
-    const result = await apiFetch('/contacts/bulk-sequence', {
-      method: 'POST',
-      body: JSON.stringify({ contactIds: [...selectedIds], sequenceName: seqName }),
-    });
-    setBusy(false);
-    if (result?.enrolled !== undefined) {
-      setToast(`Enrolled ${result.enrolled} contacts (${result.skipped} skipped)`);
-    } else {
-      setToast(result?.error ?? 'Sequence error');
-    }
-    setSeqName('');
-    setShowSeqPanel(false);
     onDone?.();
   }
 
@@ -341,48 +350,72 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
     <div className="fixed top-0 left-0 right-0 z-40 flex flex-col items-stretch pointer-events-none">
       {/* Sub panels */}
       <div className="pointer-events-auto">
-        {/* Tag panel */}
+        {/* Tag panel — checkbox picker + text input for new tags */}
         {showTagPanel && (
-          <div className="bg-white border-b border-slate-200 shadow-md px-6 py-3 flex items-center gap-3 flex-wrap">
-            <div className="flex rounded-lg border border-slate-200 overflow-hidden text-sm">
-              <button onClick={() => setTagMode('add')} className={`px-3 py-1.5 ${tagMode === 'add' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>Add</button>
-              <button onClick={() => setTagMode('remove')} className={`px-3 py-1.5 border-l border-slate-200 ${tagMode === 'remove' ? 'bg-red-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>Remove</button>
+          <div className="bg-white border-b border-slate-200 shadow-md px-6 py-3 space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="flex rounded-lg border border-slate-200 overflow-hidden text-sm">
+                <button onClick={() => setTagMode('add')} className={`px-3 py-1.5 ${tagMode === 'add' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>Add</button>
+                <button onClick={() => setTagMode('remove')} className={`px-3 py-1.5 border-l border-slate-200 ${tagMode === 'remove' ? 'bg-red-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>Remove</button>
+              </div>
+              <span className="text-sm text-slate-500">Select tags or type new ones below</span>
             </div>
-            <input
-              autoFocus
-              type="text"
-              placeholder="Tags (comma-separated)"
-              value={tagInput}
-              onChange={(e) => setTagInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleBulkTag()}
-              className="flex-1 min-w-[200px] border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <button onClick={handleBulkTag} disabled={busy || !tagInput.trim()}
-              className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-1.5 rounded-lg disabled:opacity-50">
-              Apply
-            </button>
-            <button onClick={() => setShowTagPanel(false)} className="text-slate-400 hover:text-slate-600 text-sm">Cancel</button>
+            {availableTags.length > 0 && (
+              <div className="flex flex-wrap gap-2 max-h-[120px] overflow-y-auto">
+                {availableTags.map((tag) => (
+                  <label key={tag} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm cursor-pointer transition-colors ${selectedTags.has(tag) ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                    <input
+                      type="checkbox"
+                      checked={selectedTags.has(tag)}
+                      onChange={(e) => {
+                        const next = new Set(selectedTags);
+                        if (e.target.checked) next.add(tag); else next.delete(tag);
+                        setSelectedTags(next);
+                      }}
+                      className="w-3.5 h-3.5 rounded border-slate-300"
+                    />
+                    {tag}
+                  </label>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-3">
+              <input
+                type="text"
+                placeholder="Or type new tags (comma-separated)"
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleBulkTag()}
+                className="flex-1 min-w-[200px] border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button onClick={handleBulkTag} disabled={busy || (!tagInput.trim() && selectedTags.size === 0)}
+                className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-1.5 rounded-lg disabled:opacity-50">
+                Apply
+              </button>
+              <button onClick={() => { setShowTagPanel(false); setSelectedTags(new Set()); }} className="text-slate-400 hover:text-slate-600 text-sm">Cancel</button>
+            </div>
           </div>
         )}
 
-        {/* Sequence panel */}
-        {showSeqPanel && (
+        {/* Email template panel */}
+        {showEmailPanel && (
           <div className="bg-white border-b border-slate-200 shadow-md px-6 py-3 flex items-center gap-3 flex-wrap">
-            <span className="text-sm font-medium text-slate-700">Sequence name:</span>
-            <input
-              autoFocus
-              type="text"
-              placeholder="e.g. D2C Nurture Sequence"
-              value={seqName}
-              onChange={(e) => setSeqName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleBulkSequence()}
-              className="flex-1 min-w-[240px] border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <button onClick={handleBulkSequence} disabled={busy || !seqName.trim()}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-4 py-1.5 rounded-lg disabled:opacity-50">
-              Enrol
+            <span className="text-sm font-medium text-slate-700">Template:</span>
+            <select
+              value={selectedTemplateId}
+              onChange={(e) => setSelectedTemplateId(e.target.value)}
+              className="flex-1 min-w-[240px] border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Select an email template…</option>
+              {emailTemplates.map((t) => (
+                <option key={t.id} value={t.id}>{t.displayName || t.name} — {t.subject}</option>
+              ))}
+            </select>
+            <button onClick={handleBulkEmail} disabled={busy || !selectedTemplateId}
+              className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-1.5 rounded-lg disabled:opacity-50">
+              Send to {count} contact{count > 1 ? 's' : ''}
             </button>
-            <button onClick={() => setShowSeqPanel(false)} className="text-slate-400 hover:text-slate-600 text-sm">Cancel</button>
+            <button onClick={() => setShowEmailPanel(false)} className="text-slate-400 hover:text-slate-600 text-sm">Cancel</button>
           </div>
         )}
 
@@ -430,16 +463,21 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
               Export
             </span>
           </button>
-          <button onClick={() => { closeAllPanels(); setShowSeqPanel(true); }} className={`${btnBase} bg-emerald-700 hover:bg-emerald-600 text-white`}>
-            Trigger automation
-          </button>
-          <button
-            onClick={() => setToast('Email blast coming soon — use Brevo for bulk sends')}
-            className={`${btnBase} bg-slate-700 hover:bg-slate-600 text-white`}
-          >
+          <button onClick={() => {
+            closeAllPanels();
+            setShowEmailPanel(true);
+            if (emailTemplates.length === 0) {
+              apiFetch('/api/email-templates').then(d => { if (Array.isArray(d)) setEmailTemplates(d); }).catch(() => {});
+            }
+          }} className={`${btnBase} bg-blue-700 hover:bg-blue-600 text-white`}>
             Send email
           </button>
-          <button onClick={() => { closeAllPanels(); setTagMode('add'); setShowTagPanel(true); }} className={`${btnBase} bg-violet-700 hover:bg-violet-600 text-white`}>
+          <button onClick={() => {
+            closeAllPanels(); setTagMode('add'); setShowTagPanel(true);
+            if (availableTags.length === 0) {
+              apiFetch('/contacts/tags').then(d => { if (Array.isArray(d)) setAvailableTags(d); }).catch(() => {});
+            }
+          }} className={`${btnBase} bg-violet-700 hover:bg-violet-600 text-white`}>
             Add tags
           </button>
           <button onClick={handleBulkDelete} disabled={busy} className={`${btnBase} bg-red-700 hover:bg-red-600 text-white`}>
@@ -542,6 +580,10 @@ export default function ContactsPage() {
     if (filterDateFrom) params.set('dateFrom', filterDateFrom);
     // Apply smart list filters
     Object.entries(smartList.filters).forEach(([k, v]) => params.set(k, v));
+    // Exclude discovery/outreach from "All" tab — they have dedicated tabs
+    if (activeList === 'all' && !filterSource) {
+      params.set('excludeSources', 'discovery,outreach,cold_outreach');
+    }
 
     try {
       const data = await apiFetch(`/contacts?${params}`);
@@ -606,14 +648,33 @@ export default function ContactsPage() {
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <label className="cursor-pointer">
-              <span className="sr-only">Import CSV</span>
-              <div className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer">
-                <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
-                Import
-              </div>
-              <input type="file" accept=".csv" className="hidden" onChange={() => alert('CSV import coming soon')} />
-            </label>
+            <button
+              onClick={() => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.csv';
+                input.onchange = async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  try {
+                    const csvText = await file.text();
+                    const data = await apiFetch('/contacts/import', {
+                      method: 'POST',
+                      body: JSON.stringify({ csv: csvText }),
+                    });
+                    alert(`Imported ${data.imported} contact${data.imported !== 1 ? 's' : ''}${data.errors?.length ? ` (${data.errors.length} errors)` : ''}`);
+                    load();
+                  } catch (err) {
+                    alert(`Import failed: ${err.message}`);
+                  }
+                };
+                input.click();
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+            >
+              <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+              Import
+            </button>
             <button
               onClick={() => setShowAddContact(true)}
               className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
@@ -653,13 +714,7 @@ export default function ContactsPage() {
                 )}
               </button>
             ))}
-            <button
-              onClick={() => alert('Smart lists coming soon')}
-              className="flex items-center gap-1 px-4 py-3 text-sm text-slate-400 hover:text-slate-600 whitespace-nowrap border-b-2 border-transparent"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
-              Add smart list
-            </button>
+            {/* Smart list creation removed — preset tabs cover current needs */}
           </div>
         </div>
 
@@ -676,7 +731,7 @@ export default function ContactsPage() {
             />
           </div>
 
-          <select value={filterSource} onChange={(e) => { setFilterSource(e.target.value); setPage(1); }}
+          <select value={filterSource} onChange={(e) => { setFilterSource(e.target.value); setPage(1); setActiveList('all'); }}
             className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
             <option value="">Source</option>
             <option value="facebook">Facebook</option>
@@ -879,6 +934,7 @@ export default function ContactsPage() {
           onClear={() => setSelectedIds(new Set())}
           onDone={() => { load(); setSelectedIds(new Set()); }}
           onOpenOpportunity={() => setShowOpportunityModal(true)}
+          load={load}
         />
       )}
 

@@ -180,9 +180,11 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
   const loadConversation = useCallback(async () => {
     if (!id) return;
     setConvLoading(true);
-    const d = await apiFetch(`/contacts/${id}/conversation`);
-    if (d?.items) setConversation(d.items);
-    setConvLoading(false);
+    try {
+      const d = await apiFetch(`/contacts/${id}/conversation`);
+      if (d?.items) setConversation(d.items);
+    } catch { /* API error — stop spinner */ }
+    finally { setConvLoading(false); }
   }, [id]);
 
   useEffect(() => {
@@ -192,9 +194,11 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
   const loadNotes = useCallback(async () => {
     if (!id) return;
     setNotesLoading(true);
-    const d = await apiFetch(`/contacts/${id}/notes`);
-    if (d?.notes) setNotes(d.notes);
-    setNotesLoading(false);
+    try {
+      const d = await apiFetch(`/contacts/${id}/notes`);
+      if (d?.notes) setNotes(d.notes);
+    } catch { /* API error — stop spinner */ }
+    finally { setNotesLoading(false); }
   }, [id]);
 
   useEffect(() => {
@@ -204,9 +208,11 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
   const loadTasks = useCallback(async () => {
     if (!id) return;
     setTasksLoading(true);
-    const d = await apiFetch(`/api/clickup/tasks/${id}`);
-    if (d?.tasks) setTasks(d.tasks);
-    setTasksLoading(false);
+    try {
+      const d = await apiFetch(`/api/clickup/tasks/${id}`);
+      if (d?.tasks) setTasks(d.tasks);
+    } catch { /* API error — stop spinner */ }
+    finally { setTasksLoading(false); }
   }, [id]);
 
   useEffect(() => {

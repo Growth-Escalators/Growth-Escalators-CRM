@@ -21,12 +21,18 @@ router.get('/', async (req, res) => {
     assignedTo,
     businessType,
     tags,
+    excludeSources,
     limit = '50',
     offset = '0',
   } = req.query as Record<string, string>;
 
   const conditions: ReturnType<typeof eq>[] = [eq(contacts.tenantId, tenantId)];
-  if (status) conditions.push(eq(contacts.status, status));
+  // Always exclude deleted contacts unless explicitly requested
+  if (status) {
+    conditions.push(eq(contacts.status, status));
+  } else {
+    conditions.push(sql`${contacts.status} IS DISTINCT FROM 'deleted'` as ReturnType<typeof eq>);
+  }
   if (source) conditions.push(eq(contacts.source, source));
   if (assignedTo) conditions.push(eq(contacts.assignedTo, assignedTo));
   if (businessType) conditions.push(eq(contacts.businessType, businessType));
@@ -37,6 +43,12 @@ router.get('/', async (req, res) => {
     const tagList = tags.split(',').map((t) => t.trim()).filter(Boolean);
     if (tagList.length > 0) {
       conditions.push(sql`${contacts.tags} && ARRAY[${sql.join(tagList.map((t) => sql`${t}`), sql`, `)}]::text[]` as any);
+    }
+  }
+  if (excludeSources) {
+    const excludeList = excludeSources.split(',').map((s: string) => s.trim()).filter(Boolean);
+    if (excludeList.length > 0) {
+      conditions.push(sql`COALESCE(${contacts.source}, '') NOT IN (${sql.join(excludeList.map(s => sql`${s}`), sql`, `)})` as ReturnType<typeof eq>);
     }
   }
   if (search) {
@@ -114,11 +126,30 @@ router.get('/counts', async (req, res) => {
         COUNT(*) FILTER (WHERE source = 'calcom')    AS consulting,
         COUNT(*) FILTER (WHERE source = 'discovery') AS discover,
         COUNT(*) FILTER (WHERE source IN ('outreach', 'cold_outreach')) AS outreach
-      FROM contacts WHERE tenant_id = ${tenantId}::uuid
+      FROM contacts WHERE tenant_id = ${tenantId}::uuid AND status IS DISTINCT FROM 'deleted'
     `);
     res.json(result.rows[0]);
   } catch (err) {
     logger.error('[contacts] counts error:', err);
+    res.status(500).json({ error: 'internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /contacts/tags — list all unique tags across contacts (must be before /:id)
+// ---------------------------------------------------------------------------
+router.get('/tags', async (req, res) => {
+  try {
+    const tenantId = req.user!.tenantId;
+    const result = await db.execute(sql`
+      SELECT DISTINCT unnest(tags) AS tag
+      FROM contacts
+      WHERE tenant_id = ${tenantId}::uuid AND tags IS NOT NULL AND array_length(tags, 1) > 0
+      ORDER BY 1
+    `);
+    res.json((result.rows as Array<{ tag: string }>).map(r => r.tag));
+  } catch (err) {
+    logger.error('[contacts] tags error:', err);
     res.status(500).json({ error: 'internal server error' });
   }
 });
@@ -511,6 +542,94 @@ router.post('/bulk-delete', async (req, res) => {
   res.json({ deleted: contactIds.length });
   } catch (e: unknown) {
     logger.error('[contacts] POST /bulk-delete error:', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /contacts/bulk-email — send email template to selected contacts
+// ---------------------------------------------------------------------------
+router.post('/bulk-email', async (req, res) => {
+  try {
+    const tenantId = req.user!.tenantId;
+    const { contactIds, templateId } = req.body as { contactIds?: string[]; templateId?: string };
+
+    if (!Array.isArray(contactIds) || contactIds.length === 0 || !templateId) {
+      res.status(400).json({ error: 'contactIds array and templateId are required' });
+      return;
+    }
+    if (contactIds.length > 200) {
+      res.status(400).json({ error: 'maximum 200 contacts per bulk email' });
+      return;
+    }
+
+    const brevoKey = process.env.BREVO_API_KEY;
+    if (!brevoKey) {
+      res.status(500).json({ error: 'BREVO_API_KEY not configured' });
+      return;
+    }
+
+    // Fetch template
+    const { emailTemplates } = await import('../db/index');
+    const tplRows = await db.select().from(emailTemplates)
+      .where(and(eq(emailTemplates.id, templateId), eq(emailTemplates.tenantId, tenantId)))
+      .limit(1);
+    if (tplRows.length === 0) {
+      res.status(404).json({ error: 'template not found' });
+      return;
+    }
+    const template = tplRows[0];
+
+    // Fetch contact emails
+    const emailRows = await db.select({ contactId: contactChannels.contactId, email: contactChannels.channelValue })
+      .from(contactChannels)
+      .where(and(
+        sql`${contactChannels.contactId} = ANY(ARRAY[${sql.join(contactIds.map(id => sql`${id}::uuid`), sql`, `)}])`,
+        eq(contactChannels.channelType, 'email'),
+      ));
+
+    // Fetch contact first names for personalization
+    const contactRows = await db.select({ id: contacts.id, firstName: contacts.firstName })
+      .from(contacts)
+      .where(sql`${contacts.id} = ANY(ARRAY[${sql.join(contactIds.map(id => sql`${id}::uuid`), sql`, `)}])`);
+    const nameMap: Record<string, string> = {};
+    for (const c of contactRows) nameMap[c.id] = c.firstName ?? 'there';
+
+    let sent = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    for (const row of emailRows) {
+      const firstName = nameMap[row.contactId] ?? 'there';
+      const subject = (template.subject ?? '').replace(/\{\{firstName\}\}/g, firstName);
+      const htmlContent = (template.bodyHtml || (template.bodyText ?? '').replace(/\n/g, '<br>')).replace(/\{\{firstName\}\}/g, firstName);
+
+      try {
+        const brevoRes = await fetch('https://api.brevo.com/v3/smtp/email', {
+          method: 'POST',
+          headers: { 'api-key': brevoKey, 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(10000),
+          body: JSON.stringify({
+            sender: { name: template.fromName ?? 'Jatin from Growth Escalators', email: 'jatin@growthescalators.com' },
+            to: [{ email: row.email, name: firstName }],
+            subject,
+            htmlContent,
+          }),
+        });
+        if (brevoRes.ok) sent++;
+        else { failed++; errors.push(`${row.email}: HTTP ${brevoRes.status}`); }
+      } catch (e) {
+        failed++;
+        errors.push(`${row.email}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+
+    // Update template sent count
+    await db.execute(sql`UPDATE email_templates SET sent_count = COALESCE(sent_count, 0) + ${sent} WHERE id = ${templateId}`);
+
+    res.json({ sent, failed, skipped: contactIds.length - emailRows.length, errors: errors.slice(0, 10) });
+  } catch (e: unknown) {
+    logger.error('[contacts] POST /bulk-email error:', e);
     res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });
