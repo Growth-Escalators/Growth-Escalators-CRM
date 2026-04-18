@@ -44,7 +44,87 @@ function ColorPicker({ value, onChange }) {
   );
 }
 
-function StageList({ stages, onChange }) {
+function StageConfigModal({ stageName, pipelineId, currentConfig, emailTemplates, onSave, onClose }) {
+  const [probability, setProbability] = useState(currentConfig?.probability ?? '');
+  const [emailTemplateId, setEmailTemplateId] = useState(currentConfig?.automation?.sendEmailTemplateId ?? '');
+  const [taskTitle, setTaskTitle] = useState(currentConfig?.automation?.createTask?.title ?? '');
+  const [taskDays, setTaskDays] = useState(currentConfig?.automation?.createTask?.dueInDays ?? 3);
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    setSaving(true);
+    const cfg = {};
+    if (probability !== '') cfg.probability = Number(probability);
+    const automation = {};
+    if (emailTemplateId) automation.sendEmailTemplateId = emailTemplateId;
+    if (taskTitle.trim()) automation.createTask = { title: taskTitle.trim(), dueInDays: Number(taskDays) };
+    if (Object.keys(automation).length > 0) cfg.automation = automation;
+    await onSave(stageName, cfg);
+    setSaving(false);
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="px-6 pt-6 pb-4 border-b border-slate-100">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Stage Settings</h2>
+              <p className="text-sm text-slate-400 mt-0.5">{stageName}</p>
+            </div>
+            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              Default Probability (%) <span className="text-slate-400 font-normal">— auto-set when deal enters this stage</span>
+            </label>
+            <input type="number" min="0" max="100" value={probability} onChange={e => setProbability(e.target.value)}
+              placeholder="Leave blank for no default"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Auto-send Email Template</label>
+            <select value={emailTemplateId} onChange={e => setEmailTemplateId(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">None</option>
+              {emailTemplates.map(t => (
+                <option key={t.id} value={t.id}>{t.name || t.subject}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Auto-create ClickUp Task</label>
+            <input type="text" value={taskTitle} onChange={e => setTaskTitle(e.target.value)}
+              placeholder="Task title (leave blank for none)"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2" />
+            {taskTitle && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-500">Due in</span>
+                <input type="number" min="1" value={taskDays} onChange={e => setTaskDays(e.target.value)}
+                  className="w-16 border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <span className="text-sm text-slate-500">days</span>
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl">
+          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-white">Cancel</button>
+          <button onClick={handleSave} disabled={saving}
+            className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50">
+            {saving ? 'Saving…' : 'Save Settings'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StageList({ stages, onChange, stageConfigs, onOpenStageConfig }) {
   const [editingIdx, setEditingIdx] = useState(null);
   const [editVal, setEditVal] = useState('');
   const [newStage, setNewStage] = useState('');
@@ -117,14 +197,31 @@ function StageList({ stages, onChange }) {
                 />
               ) : (
                 <span
-                  className="flex-1 text-sm font-medium text-slate-800 cursor-text"
+                  className="flex-1 text-sm font-medium text-slate-800 cursor-text flex items-center gap-1"
                   onDoubleClick={() => startEdit(idx)}
                   onClick={() => startEdit(idx)}
                 >
                   {stage}
+                  {stageConfigs?.[stage]?.probability !== undefined && (
+                    <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-medium ml-1.5">
+                      {stageConfigs[stage].probability}%
+                    </span>
+                  )}
                 </span>
               )}
               <StageBadge type={type} />
+              {onOpenStageConfig && (
+                <button
+                  onClick={() => onOpenStageConfig(stage)}
+                  title="Stage settings"
+                  className="p-1.5 text-slate-300 hover:text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                  </svg>
+                </button>
+              )}
               <button
                 onClick={() => removeStage(idx)}
                 disabled={stages.length <= 2}
@@ -187,7 +284,7 @@ function KanbanPreview({ stages, color }) {
 }
 
 // Pipeline editor panel
-function PipelineEditor({ pipeline, onSaved, onCancel }) {
+function PipelineEditor({ pipeline, onSaved, onCancel, stageConfigs, onOpenStageConfig }) {
   const [name, setName] = useState(pipeline.name);
   const [color, setColor] = useState(pipeline.color ?? '#F97316');
   const [stages, setStages] = useState(Array.isArray(pipeline.stages) ? pipeline.stages : []);
@@ -251,7 +348,7 @@ function PipelineEditor({ pipeline, onSaved, onCancel }) {
             <h3 className="text-sm font-semibold text-slate-700">Stages</h3>
             <p className="text-xs text-slate-400 mt-0.5">Drag to reorder. Stages with "won"/"lost" in the name trigger special actions.</p>
           </div>
-          <StageList stages={stages} onChange={setStages} />
+          <StageList stages={stages} onChange={setStages} stageConfigs={stageConfigs} onOpenStageConfig={onOpenStageConfig} />
         </div>
 
         <div className="border-t border-slate-100" />
@@ -416,6 +513,9 @@ export default function PipelineManagerPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [toast, setToast] = useState(null);
   const [openMenuId, setOpenMenuId] = useState(null);
+  const [stageConfigModal, setStageConfigModal] = useState(null); // { stageName, pipelineId }
+  const [stageConfigs, setStageConfigs] = useState({}); // { [stageName]: { probability, automation } }
+  const [emailTemplates, setEmailTemplates] = useState([]);
   const dragPipeline = useRef(null);
   const dragOverPipeline = useRef(null);
 
@@ -435,6 +535,18 @@ export default function PipelineManagerPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Load stage configs and email templates when selected pipeline changes
+  useEffect(() => {
+    if (!selectedId) return;
+    Promise.all([
+      apiFetch(`/api/pipelines/${selectedId}/stage-config`),
+      apiFetch('/api/email-templates?limit=50'),
+    ]).then(([cfg, templates]) => {
+      setStageConfigs(cfg ?? {});
+      setEmailTemplates(Array.isArray(templates) ? templates : (templates?.templates ?? []));
+    }).catch(() => {});
+  }, [selectedId]);
 
   // Close menus on outside click
   useEffect(() => {
@@ -477,6 +589,16 @@ export default function PipelineManagerPage() {
     setSelectedId(newPipeline.id);
     setShowNewModal(false);
     showToast(`"${newPipeline.name}" created`);
+  }
+
+  async function handleSaveStageConfig(stageName, cfg) {
+    const newConfigs = { ...stageConfigs, [stageName]: cfg };
+    if (Object.keys(cfg).length === 0) delete newConfigs[stageName];
+    await apiFetch(`/api/pipelines/${selectedId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ stageConfig: newConfigs }),
+    });
+    setStageConfigs(newConfigs);
   }
 
   // Drag reorder pipelines list
@@ -619,6 +741,8 @@ export default function PipelineManagerPage() {
                 pipeline={selectedPipeline}
                 onSaved={handleSaved}
                 onCancel={() => {}}
+                stageConfigs={stageConfigs}
+                onOpenStageConfig={(stageName) => setStageConfigModal({ stageName, pipelineId: selectedId })}
               />
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-center p-8">
@@ -648,6 +772,16 @@ export default function PipelineManagerPage() {
           pipeline={deleteTarget}
           onConfirm={() => handleDelete(deleteTarget)}
           onCancel={() => setDeleteTarget(null)}
+        />
+      )}
+      {stageConfigModal && (
+        <StageConfigModal
+          stageName={stageConfigModal.stageName}
+          pipelineId={stageConfigModal.pipelineId}
+          currentConfig={stageConfigs[stageConfigModal.stageName] ?? {}}
+          emailTemplates={emailTemplates}
+          onSave={handleSaveStageConfig}
+          onClose={() => setStageConfigModal(null)}
         />
       )}
 

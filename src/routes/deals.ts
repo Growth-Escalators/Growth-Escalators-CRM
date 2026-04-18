@@ -121,7 +121,7 @@ router.patch('/:id', async (req, res) => {
   try {
   const { id } = req.params;
   const tenantId = req.user!.tenantId;
-  const { stage, value, dealValue, lostReason, wonNotes, closedAt, metadata, assignedTo, pipelineId, notes, source, probability } = req.body;
+  const { stage, value, dealValue, lostReason, wonNotes, closedAt, metadata, assignedTo, pipelineId, notes, source, probability, expectedCloseDate } = req.body;
 
   // Get current deal to check stage change
   const existing = await db.select().from(deals).where(and(eq(deals.id, id), eq(deals.tenantId, tenantId))).limit(1);
@@ -140,6 +140,7 @@ router.patch('/:id', async (req, res) => {
   if (assignedTo !== undefined) updates.assignedTo = assignedTo;
   if (pipelineId !== undefined) updates.pipelineId = pipelineId;
   if (notes !== undefined) updates.notes = notes;
+  if (expectedCloseDate !== undefined) updates.expectedCloseDate = expectedCloseDate ? String(expectedCloseDate) : null;
 
   // Auto-set closedAt on terminal stages (case-insensitive)
   const stageLC = stage?.toLowerCase();
@@ -197,6 +198,69 @@ router.patch('/:id', async (req, res) => {
         })
         .catch((e: Error) => logger.error('[deals] ClickUp task error:', e.message));
     }
+  }
+
+  // Stage automation: fire email + task if stage_config defines automations
+  if (stage !== undefined && stage !== existing[0].stage && updated[0]?.pipelineId) {
+    const pipelineId = updated[0].pipelineId;
+    pool.query(`SELECT stage_config FROM pipelines WHERE id = $1`, [pipelineId])
+      .then(async (pcRes) => {
+        const stageConfig = pcRes.rows[0]?.stage_config ?? {};
+        const cfg = stageConfig[stage as string] as { probability?: number; automation?: { sendEmailTemplateId?: string; createTask?: { title: string; dueInDays?: number } } } | undefined;
+        if (!cfg) return;
+
+        // Apply default probability if deal has no probability set yet
+        if (cfg.probability !== undefined) {
+          await pool.query(`UPDATE deals SET probability = $1 WHERE id = $2 AND probability IS NULL`, [cfg.probability, id]);
+        }
+
+        // Send email automation
+        if (cfg.automation?.sendEmailTemplateId) {
+          try {
+            // Get contact email
+            const contactRes = await pool.query(
+              `SELECT cc.channel_value AS email, c.first_name
+               FROM contacts c
+               LEFT JOIN contact_channels cc ON cc.contact_id = c.id AND cc.channel_type = 'email' AND cc.is_primary = true
+               WHERE c.id = $1 LIMIT 1`,
+              [existing[0].contactId]
+            );
+            const contactRow = contactRes.rows[0];
+            const templateRes = await pool.query(
+              `SELECT subject, body_html AS body FROM email_templates WHERE id = $1 LIMIT 1`,
+              [cfg.automation.sendEmailTemplateId]
+            );
+            const tpl = templateRes.rows[0];
+            if (contactRow?.email && tpl) {
+              const { sendTransactionalEmail } = await import('../services/emailService');
+              const firstName = contactRow.first_name || 'there';
+              const htmlContent = (tpl.body || '').replace(/\{\{firstName\}\}/g, firstName);
+              await sendTransactionalEmail(contactRow.email, firstName, tpl.subject, htmlContent, htmlContent.replace(/<[^>]+>/g, ''));
+              await pool.query(
+                `INSERT INTO deal_activities (tenant_id, deal_id, contact_id, activity_type, note, created_by)
+                 VALUES ($1, $2, $3, 'automation_email', $4, 'automation')`,
+                [tenantId, id, existing[0].contactId, `Auto-email sent: ${tpl.subject}`]
+              );
+            }
+          } catch (e) { logger.error('[deals] Stage automation email error:', e); }
+        }
+
+        // Create ClickUp task automation
+        if (cfg.automation?.createTask?.title) {
+          try {
+            const { createTask } = await import('../services/clickupService');
+            const dueInDays = cfg.automation.createTask.dueInDays ?? 3;
+            const dueDate = Date.now() + dueInDays * 86400000;
+            await createTask({ name: cfg.automation.createTask.title, dueDate });
+            await pool.query(
+              `INSERT INTO deal_activities (tenant_id, deal_id, contact_id, activity_type, note, created_by)
+               VALUES ($1, $2, $3, 'automation_task', $4, 'automation')`,
+              [tenantId, id, existing[0].contactId, `Auto-task created: ${cfg.automation.createTask.title}`]
+            );
+          } catch (e) { logger.error('[deals] Stage automation task error:', e); }
+        }
+      })
+      .catch(() => {}); // fire-and-forget, never block the main response
   }
 
   res.json(updated[0]);

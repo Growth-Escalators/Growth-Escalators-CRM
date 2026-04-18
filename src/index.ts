@@ -399,6 +399,7 @@ async function startServer() {
     .catch(e => console.error('[startup] SEO tables/seed failed:', e));
   // Bootstrap deal activity columns + table
   pool.query(`
+    ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS stage_config JSONB DEFAULT '{}'::jsonb;
     ALTER TABLE deals ADD COLUMN IF NOT EXISTS source VARCHAR(100);
     ALTER TABLE deals ADD COLUMN IF NOT EXISTS probability INTEGER;
     CREATE TABLE IF NOT EXISTS deal_activities (
