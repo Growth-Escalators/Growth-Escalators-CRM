@@ -314,41 +314,55 @@ router.post('/trigger-all', async (_req: Request, res: Response) => {
 router.post('/run/:service', async (req: Request, res: Response) => {
   const { service } = req.params;
 
+  const startedAt = new Date();
+  const log = async (workflowId: string, workflowName: string, status: 'success' | 'error', records?: number, errMsg?: string) => {
+    try {
+      const { logSeoWorkflowRun } = await import('../services/seoWorkflowHealthService');
+      await logSeoWorkflowRun({ workflowId, workflowName, status, startedAt, triggeredBy: 'manual', recordsProcessed: records, errorMessage: errMsg });
+    } catch { /* logging non-critical */ }
+  };
+
   try {
     switch (service) {
       case 'rank-tracking': {
         const { runRankChecks } = await import('../services/rankTrackingService');
         const r = await runRankChecks();
+        await log('BwO187curjMMA60i', 'Rank Tracking', 'success', r.checked);
         res.json({ ok: true, service, detail: `${r.checked} keywords, ${r.errors} errors` });
         return;
       }
       case 'pagespeed': {
         const { runPageSpeedChecks } = await import('../services/pagespeedService');
         const r = await runPageSpeedChecks();
+        await log('z21W6MDWBF0dukkT', 'PageSpeed Monitor', 'success', r.checked);
         res.json({ ok: true, service, detail: `${r.checked} sites, ${r.errors} errors` });
         return;
       }
       case 'alerts': {
         const { runSeoAlertChecks } = await import('../services/seoAlertService');
         const r = await runSeoAlertChecks();
+        await log('5FVX2kEjuD7vWD0e', 'Alert Triggers', 'success', r.alerts);
         res.json({ ok: true, service, detail: `${r.alerts} alerts` });
         return;
       }
       case 'backlinks': {
         const { runBacklinkCheck } = await import('../services/seoBacklinkService');
         const r = await runBacklinkCheck();
+        await log('19R3BStSY2S1N9H1', 'Backlink Monitor', 'success', r.found);
         res.json({ ok: true, service, detail: `${r.found} new, ${r.errors} errors` });
         return;
       }
       case 'content-decay': {
         const { runContentDecayDetection } = await import('../services/seoContentDecayService');
         const r = await runContentDecayDetection();
+        await log('Ss2Bfps5lXBWUUs4', 'Content Decay Detection', 'success', r.opportunities);
         res.json({ ok: true, service, detail: `${r.opportunities} opportunities` });
         return;
       }
       case 'digest': {
         const { sendWeeklyOpportunityDigest } = await import('../services/seoDigestService');
         const r = await sendWeeklyOpportunityDigest();
+        await log('M4rbRZL5jh0jJHku', 'Weekly Opportunity Digest', r.sent ? 'success' : 'error');
         res.json({ ok: r.sent, service, detail: r.sent ? 'Sent to Slack' : 'Failed' });
         return;
       }

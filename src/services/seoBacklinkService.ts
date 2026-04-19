@@ -63,7 +63,7 @@ export async function runBacklinkCheck(): Promise<{ found: number; errors: numbe
         // Deduplicate: skip if we already have this source_url
         const existing = await pool.query(
           `SELECT id FROM backlink_data
-           WHERE (project_name = $1 OR client_domain = $1)
+           WHERE project_name = $1
              AND source_url = $2
            LIMIT 1`,
           [domain, result.link],
@@ -72,8 +72,8 @@ export async function runBacklinkCheck(): Promise<{ found: number; errors: numbe
 
         await pool.query(
           `INSERT INTO backlink_data
-            (project_name, client_domain, source_url, target_url, anchor_text, link_type, first_seen, status)
-           VALUES ($1, $1, $2, $3, $4, 'dofollow', NOW(), 'active')`,
+            (project_name, source_url, target_url, anchor_text, link_type, first_seen, status)
+           VALUES ($1, $2, $3, $4, 'dofollow', NOW(), 'active')`,
           [domain, result.link, `https://${domain}`, result.title || sourceDomain],
         );
         found++;
