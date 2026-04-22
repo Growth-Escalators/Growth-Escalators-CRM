@@ -73,7 +73,7 @@ export async function runBacklinkCheck(): Promise<{ found: number; errors: numbe
         await pool.query(
           `INSERT INTO backlink_data
             (project_name, source_url, target_url, anchor_text, link_type, first_seen, status)
-           VALUES ($1, $2, $3, $4, 'dofollow', NOW(), 'active')`,
+           VALUES ($1, $2, $3, $4, 'dofollow', CURRENT_DATE, 'active')`,
           [domain, result.link, `https://${domain}`, result.title || sourceDomain],
         );
         found++;
@@ -84,7 +84,7 @@ export async function runBacklinkCheck(): Promise<{ found: number; errors: numbe
       // Rate limit
       await new Promise(r => setTimeout(r, 1500));
     } catch (e) {
-      logger.error(`[backlinks] error for ${domain}:`, e instanceof Error ? e.message : String(e));
+      logger.error({ err: e, domain }, '[backlinks] processing failed');
       errors++;
     }
   }
