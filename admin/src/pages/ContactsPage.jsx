@@ -571,7 +571,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
                 <div className="h-px bg-slate-100 my-1" />
                 <button onClick={() => { setShowMoreMenu(false); onOpenOpportunity?.(); }}
                   className="w-full text-left px-4 py-2.5 text-sm text-blue-700 hover:bg-blue-50 font-medium">
-                  Move to pipeline
+                  Add to pipeline
                 </button>
               </div>
             )}
@@ -977,6 +977,11 @@ export default function ContactsPage() {
                           {(c.tags?.length ?? 0) > 2 && (
                             <span className="text-[10px] text-slate-400">+{c.tags.length - 2}</span>
                           )}
+                          {c.activeDeal && (
+                            <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium border border-blue-200 truncate max-w-[120px]">
+                              {c.activeDeal.pipelineName} · {c.activeDeal.stage}
+                            </span>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1049,7 +1054,7 @@ export default function ContactsPage() {
           contactIds={[...selectedIds]}
           contacts={selectedContactsData}
           onClose={() => setShowOpportunityModal(false)}
-          onDone={() => { setShowOpportunityModal(false); setSelectedIds(new Set()); load(); }}
+          onDone={() => { setShowOpportunityModal(false); setSelectedIds(new Set()); setPage(1); load(); }}
         />
       )}
     </div>
