@@ -98,10 +98,29 @@ router.get('/', async (req, res) => {
     }
   }
 
+  const dealMap: Record<string, { pipelineName: string; stage: string }> = {};
+  if (contactIds.length > 0) {
+    const dealRows = await db.execute(sql`
+      SELECT DISTINCT ON (d.contact_id)
+        d.contact_id::text AS contact_id,
+        p.name AS pipeline_name,
+        d.stage
+      FROM deals d
+      JOIN pipelines p ON p.id = d.pipeline_id
+      WHERE d.contact_id = ANY(ARRAY[${sql.join(contactIds.map((id) => sql`${id}::uuid`), sql`, `)}])
+        AND d.stage NOT IN ('won', 'lost')
+      ORDER BY d.contact_id, d.created_at DESC
+    `);
+    for (const row of dealRows.rows as Array<{ contact_id: string; pipeline_name: string; stage: string }>) {
+      dealMap[row.contact_id] = { pipelineName: row.pipeline_name, stage: row.stage };
+    }
+  }
+
   const enriched = rows.map((r) => ({
     ...r,
     phone: phoneMap[r.id] ?? null,
     email: emailMap[r.id] ?? null,
+    activeDeal: dealMap[r.id] ?? null,
   }));
 
   res.setHeader('X-Total-Count', String(total));
