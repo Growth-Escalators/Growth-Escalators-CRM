@@ -265,6 +265,8 @@ router.patch('/invoices/:id', async (req: Request, res: Response) => {
     const { lineItemsData, ...fields } = req.body;
 
     let updates: Record<string, unknown> = { ...fields, updatedAt: new Date() };
+    if (updates.invoiceDate) updates.invoiceDate = new Date(updates.invoiceDate as string);
+    if (updates.dueDate)     updates.dueDate     = new Date(updates.dueDate as string);
     if (lineItemsData) {
       const items = lineItemsData as Array<{ description: string; sacCode: string; quantity: number; unit: string; rate: number; amount: number }>;
       const subtotal = items.reduce((s: number, i) => s + i.amount, 0);
