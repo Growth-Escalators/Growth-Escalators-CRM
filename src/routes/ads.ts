@@ -458,4 +458,134 @@ router.get('/creative-fatigue', async (_req: Request, res: Response) => {
   }
 });
 
+const CREATE_SETTINGS_TABLE = `
+  CREATE TABLE IF NOT EXISTS ads_settings (
+    tenant_id uuid PRIMARY KEY,
+    roas_thresholds jsonb NOT NULL DEFAULT '{}',
+    slack_automations jsonb NOT NULL DEFAULT '{}',
+    updated_at timestamptz DEFAULT now()
+  )`;
+
+// ---------------------------------------------------------------------------
+// GET /api/ads/settings
+// ---------------------------------------------------------------------------
+router.get('/settings', async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).user?.tenantId;
+    if (!tenantId) { res.json({ roasThresholds: {}, slackAutomations: {} }); return; }
+    await pool.query(CREATE_SETTINGS_TABLE);
+    const result = await pool.query(
+      `SELECT roas_thresholds, slack_automations FROM ads_settings WHERE tenant_id = $1`,
+      [tenantId],
+    );
+    if (result.rows.length === 0) {
+      res.json({ roasThresholds: {}, slackAutomations: {} });
+    } else {
+      res.json({
+        roasThresholds: result.rows[0].roas_thresholds || {},
+        slackAutomations: result.rows[0].slack_automations || {},
+      });
+    }
+  } catch (e) {
+    res.json({ roasThresholds: {}, slackAutomations: {} });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/ads/settings
+// ---------------------------------------------------------------------------
+router.patch('/settings', async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).user?.tenantId;
+    if (!tenantId) { res.json({ ok: false }); return; }
+    const { roasThresholds, slackAutomations } = req.body as { roasThresholds?: unknown; slackAutomations?: unknown };
+    await pool.query(CREATE_SETTINGS_TABLE);
+    await pool.query(
+      `INSERT INTO ads_settings (tenant_id, roas_thresholds, slack_automations)
+       VALUES ($1, COALESCE($2::jsonb, '{}'::jsonb), COALESCE($3::jsonb, '{}'::jsonb))
+       ON CONFLICT (tenant_id) DO UPDATE SET
+         roas_thresholds = COALESCE($2::jsonb, ads_settings.roas_thresholds),
+         slack_automations = COALESCE($3::jsonb, ads_settings.slack_automations),
+         updated_at = now()`,
+      [
+        tenantId,
+        roasThresholds != null ? JSON.stringify(roasThresholds) : null,
+        slackAutomations != null ? JSON.stringify(slackAutomations) : null,
+      ],
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/ads/ai-insights — Claude Sonnet-powered performance analysis
+// ---------------------------------------------------------------------------
+router.post('/ai-insights', async (req: Request, res: Response) => {
+  try {
+    const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+    if (!ANTHROPIC_KEY) { res.json({ insights: [] }); return; }
+
+    const { metrics, dateRange: dr } = req.body as {
+      metrics?: {
+        totalSpend: number;
+        totalPurchases: number;
+        avgRoas: number;
+        avgCtr: number;
+        avgCpc: number;
+        totalImpressions: number;
+        topCampaigns: Array<{ name: string; spend: number; purchases: number; roas: number }>;
+      };
+      dateRange?: string;
+    };
+
+    if (!metrics) { res.json({ insights: [] }); return; }
+
+    const topText = (metrics.topCampaigns || []).slice(0, 5)
+      .map(c => `- ${c.name}: ₹${c.spend} spend, ${c.purchases} purchases, ${Number(c.roas).toFixed(2)}x ROAS`)
+      .join('\n') || '(no campaign data)';
+
+    const userPrompt = `Meta Ads performance (${dr || 'last 7 days'}):
+- Total Spend: ₹${Math.round(metrics.totalSpend).toLocaleString('en-IN')}
+- Total Purchases: ${metrics.totalPurchases}
+- Average ROAS: ${Number(metrics.avgRoas).toFixed(2)}x
+- Average CTR: ${Number(metrics.avgCtr).toFixed(2)}%
+- Average CPC: ₹${Number(metrics.avgCpc).toFixed(2)}
+- Impressions: ${Number(metrics.totalImpressions).toLocaleString('en-IN')}
+Top campaigns:
+${topText}`;
+
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      signal: AbortSignal.timeout(30000),
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 700,
+        system: 'You are a Meta Ads analyst for an Indian digital marketing agency. Given performance data, produce exactly 3 JSON insights. Each: { "title": string, "body": string, "type": "positive"|"warning"|"opportunity" }. Return ONLY the JSON array, no markdown, no other text.',
+        messages: [{ role: 'user', content: userPrompt }],
+      }),
+    });
+
+    if (!resp.ok) { res.json({ insights: [] }); return; }
+
+    const data = await resp.json() as any;
+    const text: string = data?.content?.[0]?.text || '[]';
+    let insights: unknown[] = [];
+    try {
+      const match = text.match(/\[[\s\S]*\]/);
+      insights = match ? JSON.parse(match[0]) : [];
+    } catch { insights = []; }
+
+    res.json({ insights });
+  } catch {
+    res.json({ insights: [] });
+  }
+});
+
 export default router;

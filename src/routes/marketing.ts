@@ -151,6 +151,32 @@ router.post('/accounts/:id/reactivate', requirePermission('ADS_MANAGE'), async (
 });
 
 // ---------------------------------------------------------------------------
+// PATCH /api/marketing/accounts/:id — update client name / notes
+// ---------------------------------------------------------------------------
+router.patch('/accounts/:id', requirePermission('MARKETING_MANAGE'), async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const accountId = req.params.id as string;
+  const { clientName, accountName, notes } = req.body as { clientName?: string; accountName?: string; notes?: string };
+
+  try {
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
+    if (clientName !== undefined) updates.clientName = clientName;
+    if (accountName !== undefined) updates.accountName = accountName;
+    if (notes !== undefined) updates.notes = notes;
+
+    const [updated] = await db.update(marketingAccounts)
+      .set(updates as Partial<typeof marketingAccounts.$inferInsert>)
+      .where(and(eq(marketingAccounts.id, accountId), eq(marketingAccounts.tenantId, tenantId)))
+      .returning();
+
+    if (!updated) { res.status(404).json({ error: 'account not found' }); return; }
+    res.json({ account: updated });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/marketing/accounts/:id/history
 // ---------------------------------------------------------------------------
 router.get('/accounts/:id/history', requirePermission('MARKETING_VIEW'), async (req: Request, res: Response) => {

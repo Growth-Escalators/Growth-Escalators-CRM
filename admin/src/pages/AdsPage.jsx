@@ -173,6 +173,8 @@ function AccountsTab() {
   const [formId, setFormId] = useState('');
   const [formName, setFormName] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editingName, setEditingName] = useState('');
 
   const loadAccounts = useCallback(async () => {
     setLoading(true);
@@ -204,6 +206,18 @@ function AccountsTab() {
       await apiFetch(`/api/marketing/accounts/${id}/request-removal`, { method: 'POST' });
       loadAccounts();
     } catch {}
+  }
+
+  async function handleEditSave(id) {
+    if (!editingName.trim()) { setEditingId(null); return; }
+    try {
+      await apiFetch(`/api/marketing/accounts/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ clientName: editingName.trim(), accountName: editingName.trim() }),
+      });
+      loadAccounts();
+    } catch {}
+    setEditingId(null);
   }
 
   return (
@@ -256,7 +270,29 @@ function AccountsTab() {
               return (
                 <tr key={a.id} className="border-b border-slate-50 hover:bg-slate-50">
                   <td className="px-6 py-3 text-sm font-mono text-slate-700">{metaId}</td>
-                  <td className="px-6 py-3 text-sm text-slate-800 font-medium">{name || '—'}</td>
+                  <td className="px-6 py-3 text-sm text-slate-800 font-medium">
+                    {editingId === a.id ? (
+                      <input
+                        autoFocus
+                        value={editingName}
+                        onChange={e => setEditingName(e.target.value)}
+                        onBlur={() => handleEditSave(a.id)}
+                        onKeyDown={e => { if (e.key === 'Enter') handleEditSave(a.id); if (e.key === 'Escape') setEditingId(null); }}
+                        className="w-full text-sm border border-sky-300 rounded px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                      />
+                    ) : (
+                      <span className="flex items-center gap-2 group">
+                        {name || '—'}
+                        <button
+                          onClick={() => { setEditingId(a.id); setEditingName(name); }}
+                          className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-sky-600 transition-opacity"
+                          title="Edit name"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                        </button>
+                      </span>
+                    )}
+                  </td>
                   <td className="px-6 py-3">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                       status === 'active' ? 'bg-green-100 text-green-700' :
@@ -281,26 +317,36 @@ function AccountsTab() {
 }
 
 function AlertsTab({ adAccounts }) {
-  const STORAGE_KEY = 'ge_roas_alerts';
-  const [thresholds, setThresholds] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; }
-  });
+  const [thresholds, setThresholds] = useState({});
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    apiFetch('/api/ads/settings')
+      .then(d => { if (d?.roasThresholds) setThresholds(d.roasThresholds); })
+      .catch(() => {});
+  }, []);
 
   function handleChange(accountId, value) {
     setThresholds(prev => ({ ...prev, [accountId]: value }));
   }
 
-  function handleSave() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(thresholds));
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await apiFetch('/api/ads/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ roasThresholds: thresholds }),
+      });
+    } catch {} finally { setSaving(false); }
   }
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
       <div className="px-6 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">ROAS Alert Thresholds</p>
-        <button onClick={handleSave}
-          className="px-3 py-1.5 bg-sky-600 text-white rounded-lg text-xs font-medium hover:bg-sky-700">
-          Save All
+        <button onClick={handleSave} disabled={saving}
+          className="px-3 py-1.5 bg-sky-600 text-white rounded-lg text-xs font-medium hover:bg-sky-700 disabled:opacity-50">
+          {saving ? 'Saving…' : 'Save All'}
         </button>
       </div>
       <div className="divide-y divide-slate-100">
@@ -334,14 +380,22 @@ function AlertsTab({ adAccounts }) {
 function SlackAutomationTab({ adAccounts, insights, dateRange }) {
   const [sending, setSending] = useState(false);
   const [toast, setToast] = useState('');
-  const [automations, setAutomations] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('ge_slack_automations') || '{}'); }
-    catch { return {}; }
-  });
+  const [automations, setAutomations] = useState({});
 
-  function saveAutomations(next) {
+  useEffect(() => {
+    apiFetch('/api/ads/settings')
+      .then(d => { if (d?.slackAutomations) setAutomations(d.slackAutomations); })
+      .catch(() => {});
+  }, []);
+
+  async function saveAutomations(next) {
     setAutomations(next);
-    localStorage.setItem('ge_slack_automations', JSON.stringify(next));
+    try {
+      await apiFetch('/api/ads/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ slackAutomations: next }),
+      });
+    } catch {}
   }
 
   function toggleAutomation(key) {
@@ -512,6 +566,8 @@ export default function AdsPage() {
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [activeTab, setActiveTab] = useState('performance');
   const [adAccounts, setAdAccounts] = useState(FALLBACK_ACCOUNTS);
+  const [aiInsights, setAiInsights] = useState([]);
+  const [insightsLoading, setInsightsLoading] = useState(false);
 
   // Load accounts from DB
   useEffect(() => {
@@ -563,6 +619,43 @@ export default function AdsPage() {
   }, [selectedAccount, dateRange]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  const loadInsights = useCallback(async () => {
+    if (insights.length === 0) return;
+    setInsightsLoading(true);
+    try {
+      const spend = insights.reduce((s, i) => s + Number(i.spend || 0), 0);
+      const purchases = insights.reduce((s, i) => s + Number(i.purchases || 0), 0);
+      const impr = insights.reduce((s, i) => s + Number(i.impressions || 0), 0);
+      const clicks = insights.reduce((s, i) => s + Number(i.clicks || 0), 0);
+      const pval = insights.reduce((s, i) => s + Number(i.purchaseValue || 0), 0);
+      const topCampaigns = [...insights]
+        .sort((a, b) => Number(b.spend || 0) - Number(a.spend || 0))
+        .slice(0, 5)
+        .map(i => ({ name: i.campaignName || '', spend: Number(i.spend || 0), purchases: Number(i.purchases || 0), roas: Number(i.roas || 0) }));
+      const data = await apiFetch('/api/ads/ai-insights', {
+        method: 'POST',
+        body: JSON.stringify({
+          metrics: {
+            totalSpend: spend,
+            totalPurchases: purchases,
+            avgRoas: spend > 0 ? pval / spend : 0,
+            avgCtr: impr > 0 ? (clicks / impr) * 100 : 0,
+            avgCpc: clicks > 0 ? spend / clicks : 0,
+            totalImpressions: impr,
+            topCampaigns,
+          },
+          dateRange,
+        }),
+      });
+      setAiInsights(data?.insights || []);
+    } catch { setAiInsights([]); }
+    setInsightsLoading(false);
+  }, [insights, dateRange]);
+
+  useEffect(() => {
+    if (activeTab === 'performance' && insights.length > 0) loadInsights();
+  }, [activeTab, insights]);
 
   // Summary metrics
   const totalSpend = insights.reduce((s, i) => s + Number(i.spend || 0), 0);
@@ -656,6 +749,58 @@ export default function AdsPage() {
                 <MetricCard label="Avg CPC" value={`₹${avgCpc.toFixed(2)}`} />
                 <MetricCard label="Impressions" value={totalImpressions.toLocaleString('en-IN')} />
               </div>
+
+              {/* AI Insights panel */}
+              {(insightsLoading || aiInsights.length > 0) && (
+                <div className="mb-6 bg-white rounded-xl border border-slate-200 overflow-hidden">
+                  <div className="px-6 py-3 border-b border-slate-100 bg-gradient-to-r from-violet-50 to-slate-50 flex items-center gap-2">
+                    <svg className="w-4 h-4 text-violet-500" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>
+                    <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">AI Insights</p>
+                    <span className="text-xs text-slate-400">claude-sonnet · {DATE_RANGES.find(r => r.value === dateRange)?.label || dateRange}</span>
+                    <button onClick={loadInsights} disabled={insightsLoading}
+                      className="ml-auto flex items-center gap-1 text-xs text-violet-600 hover:text-violet-800 disabled:opacity-50 font-medium">
+                      <RefreshCw className={`w-3 h-3 ${insightsLoading ? 'animate-spin' : ''}`} />
+                      Refresh
+                    </button>
+                  </div>
+                  <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {insightsLoading ? (
+                      [1, 2, 3].map(i => (
+                        <div key={i} className="rounded-lg border border-slate-100 p-4 space-y-2">
+                          <div className="h-4 bg-slate-100 rounded animate-pulse w-3/4" />
+                          <div className="h-3 bg-slate-100 rounded animate-pulse w-full" />
+                          <div className="h-3 bg-slate-100 rounded animate-pulse w-5/6" />
+                        </div>
+                      ))
+                    ) : (
+                      aiInsights.map((ins, i) => {
+                        const colors = {
+                          positive: 'bg-green-50 border-green-200',
+                          warning: 'bg-amber-50 border-amber-200',
+                          opportunity: 'bg-blue-50 border-blue-200',
+                        };
+                        const titleColors = {
+                          positive: 'text-green-800',
+                          warning: 'text-amber-800',
+                          opportunity: 'text-blue-800',
+                        };
+                        const bodyColors = {
+                          positive: 'text-green-700',
+                          warning: 'text-amber-700',
+                          opportunity: 'text-blue-700',
+                        };
+                        const t = ins.type || 'opportunity';
+                        return (
+                          <div key={i} className={`rounded-lg border p-4 ${colors[t] || colors.opportunity}`}>
+                            <p className={`text-sm font-semibold mb-1 ${titleColors[t] || titleColors.opportunity}`}>{ins.title}</p>
+                            <p className={`text-xs leading-relaxed ${bodyColors[t] || bodyColors.opportunity}`}>{ins.body}</p>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="flex gap-6">
                 {/* Campaigns table */}
