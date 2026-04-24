@@ -13,6 +13,7 @@ export async function apiFetch(path, options = {}) {
   if (res.status === 401) {
     localStorage.removeItem('ge_crm_token');
     localStorage.removeItem('ge_crm_user');
+    localStorage.removeItem('ge_crm_permissions');
     window.location.href = '/crm/login';
     throw new Error('Session expired');
   }
@@ -34,8 +35,17 @@ export function getUser() {
   }
 }
 
+export function getPermissions() {
+  try {
+    return JSON.parse(localStorage.getItem('ge_crm_permissions') || '{}');
+  } catch {
+    return {};
+  }
+}
+
 export function logout() {
   localStorage.removeItem('ge_crm_token');
   localStorage.removeItem('ge_crm_user');
+  localStorage.removeItem('ge_crm_permissions');
   window.location.href = '/login';
 }

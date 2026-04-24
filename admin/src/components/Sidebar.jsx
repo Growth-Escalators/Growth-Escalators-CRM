@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { logout, getUser, apiFetch } from '../lib/api.js';
+import { logout, getUser, getPermissions, apiFetch } from '../lib/api.js';
 import {
   Users, BarChart2, Zap, Mail, Receipt, Activity, Lock, Home,
   TrendingUp, FileText, Share2, MessageSquare, Settings, Layout, MapPin,
@@ -26,6 +26,7 @@ const ROLE_LABELS = {
 
 export default function Sidebar() {
   const user = getUser();
+  const perms = getPermissions();
   const [unreadCount, setUnreadCount] = useState(0);
   const role = user?.role || 'staff';
 
@@ -40,14 +41,14 @@ export default function Sidebar() {
     return () => clearInterval(interval);
   }, []);
 
-  // Permission checks
+  // Permission checks — role gives default access; module flags extend it per-user
   const isAdmin = role === 'admin';
   const canCRM = ['admin', 'manager_ops', 'sales'].includes(role);
-  const canAds = ['admin', 'manager_ads'].includes(role);
+  const canAds = ['admin', 'manager_ads'].includes(role) || !!perms.reportsMetaAds;
   const canReports = ['admin', 'manager_ops', 'manager_ads'].includes(role);
-  const canSocial = ['admin', 'manager_ops', 'staff'].includes(role);
+  const canSocial = ['admin', 'manager_ops', 'staff'].includes(role) || !!perms.accessSocial;
   const canInbox = ['admin', 'manager_ops', 'sales'].includes(role);
-  const canBilling = isAdmin;
+  const canBilling = isAdmin || !!perms.billingView;
   const canHealth = ['admin', 'manager_ops', 'sales'].includes(role);
   const canSequences = ['admin', 'manager_ops', 'sales'].includes(role);
   const canAutomations = ['admin', 'manager_ops', 'sales'].includes(role);

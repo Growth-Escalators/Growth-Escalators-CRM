@@ -5,8 +5,9 @@ import { eq, sql } from 'drizzle-orm';
 
 const router = Router();
 
-// Ensure is_active column exists (idempotent — safe to run on every cold start)
+// Ensure runtime columns exist (idempotent — safe to run on every cold start)
 db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true`).catch(() => {});
+db.execute(sql`ALTER TABLE user_permissions ADD COLUMN IF NOT EXISTS access_social boolean DEFAULT false`).catch(() => {});
 
 // ---------------------------------------------------------------------------
 // GET /api/permissions/me
@@ -85,6 +86,7 @@ const PERM_KEYS = [
   'reportsView', 'reportsMetaAds',
   'settingsUsers', 'settingsPipelines', 'settingsTemplates', 'settingsBilling',
   'isOwner',
+  'accessSocial',
 ] as const;
 
 type PermKey = typeof PERM_KEYS[number];

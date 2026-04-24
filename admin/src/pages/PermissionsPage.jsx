@@ -69,6 +69,27 @@ const ROLE_OPTIONS = [
   { value: 'staff', label: 'Staff', description: 'Social and basic features only' },
 ];
 
+const MODULE_ACCESS = [
+  {
+    key: 'reportsMetaAds',
+    label: 'Meta Ads',
+    description: 'Can view and use the Meta Ads section',
+    icon: '📊',
+  },
+  {
+    key: 'billingView',
+    label: 'Billing & Finance',
+    description: 'Can access Billing, Expenses, and Funnels',
+    icon: '💳',
+  },
+  {
+    key: 'accessSocial',
+    label: 'Social Posting',
+    description: 'Can use the Social and Postiz scheduling sections',
+    icon: '📱',
+  },
+];
+
 function Toggle({ checked, onChange, disabled }) {
   return (
     <button
@@ -300,6 +321,35 @@ export default function PermissionsPage() {
                           Role controls which pages and API data this user can access. Changes take effect on their next login.
                         </p>
                       </div>
+
+                      {/* Module Access — controls which sidebar sections appear */}
+                      <div>
+                        <div className="flex items-center gap-2 mb-3">
+                          <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">Module Access</h3>
+                          <span className="text-xs text-slate-400 font-normal normal-case tracking-normal">— unlocks sidebar sections regardless of role</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-3">
+                          {MODULE_ACCESS.map(mod => (
+                            <label key={mod.key} className={`flex flex-col gap-2 p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                              perms[mod.key] ? 'border-sky-500 bg-sky-50' : 'border-slate-200 bg-white hover:border-slate-300'
+                            }`}>
+                              <div className="flex items-center justify-between">
+                                <span className="text-xl">{mod.icon}</span>
+                                <Toggle
+                                  checked={!!perms[mod.key]}
+                                  onChange={val => setPerms(prev => ({ ...prev, [mod.key]: val }))}
+                                />
+                              </div>
+                              <div>
+                                <p className="text-sm font-semibold text-slate-800">{mod.label}</p>
+                                <p className="text-xs text-slate-500 mt-0.5">{mod.description}</p>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      <hr className="border-slate-100" />
 
                       {/* Granular permission toggles */}
                       {PERMISSION_GROUPS.map(group => {
