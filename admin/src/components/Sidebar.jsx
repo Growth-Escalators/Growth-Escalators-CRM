@@ -5,7 +5,7 @@ import {
   Users, BarChart2, Zap, Mail, Receipt, Activity, Lock, Home,
   TrendingUp, FileText, Share2, MessageSquare, Settings, Layout, MapPin,
   Shield, ClipboardList, CreditCard, Kanban, Brain, Target, Link, Calendar,
-  ExternalLink, Wrench, Search, Megaphone, Send
+  ExternalLink, Wrench, Search, Megaphone, Send, CheckSquare
 } from 'lucide-react';
 
 const ROLE_BADGE_COLORS = {
@@ -100,6 +100,9 @@ export default function Sidebar() {
             </NavLink>
             <NavLink to="/pipeline" className={navClass}>
               <Kanban className="w-4 h-4" /> Pipeline
+            </NavLink>
+            <NavLink to="/tasks" className={navClass}>
+              <CheckSquare className="w-4 h-4" /> Tasks
             </NavLink>
           </>
         )}
