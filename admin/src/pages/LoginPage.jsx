@@ -26,6 +26,16 @@ export default function LoginPage() {
       if (!res.ok) { setError(data.error || 'Login failed'); return; }
       localStorage.setItem('ge_crm_token', data.token);
       localStorage.setItem('ge_crm_user', JSON.stringify(data.user));
+      // Fetch module permissions so the sidebar can show/hide sections immediately
+      try {
+        const permsRes = await fetch('/api/permissions/me', {
+          headers: { Authorization: `Bearer ${data.token}` },
+        });
+        const permsData = await permsRes.json();
+        localStorage.setItem('ge_crm_permissions', JSON.stringify(permsData?.permissions || {}));
+      } catch {
+        localStorage.setItem('ge_crm_permissions', '{}');
+      }
       navigate('/dashboard');
     } catch {
       setError('Network error. Please try again.');
