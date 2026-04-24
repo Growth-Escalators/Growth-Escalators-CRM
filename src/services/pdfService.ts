@@ -33,6 +33,10 @@ export interface InvoiceData {
   clientState: string | null;
   lineItems: LineItem[];
   subtotal: number;   // paise
+  discountType?: 'fixed' | 'percent' | null;
+  discountPercent?: number;  // only when type='percent'
+  discountAmount?: number;   // paise — the resolved amount deducted
+  discountLabel?: string | null;
   cgstRate: number;
   cgstAmount: number; // paise
   sgstRate: number;
@@ -151,6 +155,17 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<Buffer> {
        .text(`₹${(data.subtotal / 100).toLocaleString('en-IN')}`, valX, totY);
 
     let taxY = totY + 16;
+
+    // Discount row (only if a discount was applied)
+    if (data.discountAmount && data.discountAmount > 0) {
+      const discountLabel = data.discountLabel
+        || (data.discountType === 'percent' ? `Discount (${data.discountPercent}%)` : 'Discount');
+      doc.fillColor(midGray).font('Helvetica')
+         .text(`${discountLabel}:`, labelX, taxY);
+      doc.fillColor(darkGray).font('Helvetica-Bold')
+         .text(`− ₹${(data.discountAmount / 100).toLocaleString('en-IN')}`, valX, taxY);
+      taxY += 16;
+    }
 
     if (data.taxType === 'cgst_sgst') {
       doc.fillColor(midGray).font('Helvetica')

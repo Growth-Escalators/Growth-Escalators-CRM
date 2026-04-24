@@ -26,15 +26,39 @@ async function getPerms(userId: string) {
 // ---------------------------------------------------------------------------
 // Tax calculation
 // ---------------------------------------------------------------------------
-function calcTax(subtotal: number, taxType: string | null) {
-  if (!taxType) return { cgstRate: 0, cgstAmount: 0, sgstRate: 0, sgstAmount: 0, igstRate: 0, igstAmount: 0, total: subtotal };
+function calcTax(subtotal: number, taxType: string | null, discountAmount = 0) {
+  const taxable = Math.max(0, subtotal - (discountAmount || 0));
+  if (!taxType) return { cgstRate: 0, cgstAmount: 0, sgstRate: 0, sgstAmount: 0, igstRate: 0, igstAmount: 0, total: taxable };
   if (taxType === 'cgst_sgst') {
-    const cgst = Math.round(subtotal * 0.09);
-    const sgst = Math.round(subtotal * 0.09);
-    return { cgstRate: 9, cgstAmount: cgst, sgstRate: 9, sgstAmount: sgst, igstRate: 0, igstAmount: 0, total: subtotal + cgst + sgst };
+    const cgst = Math.round(taxable * 0.09);
+    const sgst = Math.round(taxable * 0.09);
+    return { cgstRate: 9, cgstAmount: cgst, sgstRate: 9, sgstAmount: sgst, igstRate: 0, igstAmount: 0, total: taxable + cgst + sgst };
   }
-  const igst = Math.round(subtotal * 0.18);
-  return { cgstRate: 0, cgstAmount: 0, sgstRate: 0, sgstAmount: 0, igstRate: 18, igstAmount: igst, total: subtotal + igst };
+  const igst = Math.round(taxable * 0.18);
+  return { cgstRate: 0, cgstAmount: 0, sgstRate: 0, sgstAmount: 0, igstRate: 18, igstAmount: igst, total: taxable + igst };
+}
+
+// Resolve incoming discount inputs into { discountType, discountPercent, discountAmount, discountLabel }
+// Frontend sends either { discountType:'fixed', discountValue:<rupees>, discountLabel } or
+// { discountType:'percent', discountValue:<percent>, discountLabel }. Returns paise.
+function resolveDiscount(
+  subtotal: number,
+  body: { discountType?: string | null; discountValue?: number | string | null; discountLabel?: string | null },
+): { discountType: string | null; discountPercent: number; discountAmount: number; discountLabel: string | null } {
+  const type = body.discountType === 'fixed' || body.discountType === 'percent' ? body.discountType : null;
+  const label = body.discountLabel?.toString().trim() || null;
+  const rawValue = Number(body.discountValue ?? 0) || 0;
+  if (!type || rawValue <= 0) {
+    return { discountType: null, discountPercent: 0, discountAmount: 0, discountLabel: null };
+  }
+  if (type === 'percent') {
+    const pct = Math.min(100, Math.max(0, rawValue));
+    const amt = Math.round(subtotal * pct / 100);
+    return { discountType: 'percent', discountPercent: pct, discountAmount: amt, discountLabel: label };
+  }
+  // fixed — value is in rupees, convert to paise, cap at subtotal
+  const amt = Math.min(subtotal, Math.max(0, Math.round(rawValue * 100)));
+  return { discountType: 'fixed', discountPercent: 0, discountAmount: amt, discountLabel: label };
 }
 
 // ---------------------------------------------------------------------------
@@ -66,9 +90,11 @@ router.post('/clients', async (req: Request, res: Response) => {
   if (!p?.billingManageClients && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
 
   try {
-    const { name, contactPerson, email, phone, addressLine1, city, state, stateCode, pincode, isGst, gstin, taxType, retainerAmount, serviceDescription, sacCode, invoiceDayOfMonth, notes: clientNotes } = req.body;
+    const { name, contactPerson, email, phone, addressLine1, city, state, stateCode, pincode, isGst, gstin, taxType, retainerAmount, serviceDescription, services, sacCode, invoiceDayOfMonth, notes: clientNotes } = req.body;
     const [client] = await db.insert(billingClients).values({
-      tenantId, name, contactPerson, email, phone, addressLine1, city, state, stateCode, pincode, isGst, gstin, taxType, retainerAmount, serviceDescription, sacCode, invoiceDayOfMonth, notes: clientNotes,
+      tenantId, name, contactPerson, email, phone, addressLine1, city, state, stateCode, pincode, isGst, gstin, taxType, retainerAmount, serviceDescription,
+      services: Array.isArray(services) ? services.map((s: unknown) => String(s).trim()).filter(Boolean) : [],
+      sacCode, invoiceDayOfMonth, notes: clientNotes,
     }).returning();
     res.status(201).json({ client });
   } catch (e: unknown) {
@@ -87,9 +113,16 @@ router.patch('/clients/:id', async (req: Request, res: Response) => {
   if (!p?.billingManageClients && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
 
   try {
-    const { name, contactPerson, email, phone, addressLine1, city, state, stateCode, pincode, isGst, gstin, taxType, retainerAmount, serviceDescription, sacCode, invoiceDayOfMonth, notes: clientNotes, isActive } = req.body;
+    const { name, contactPerson, email, phone, addressLine1, city, state, stateCode, pincode, isGst, gstin, taxType, retainerAmount, serviceDescription, services, sacCode, invoiceDayOfMonth, notes: clientNotes, isActive } = req.body;
+    const normalizedServices = services === undefined
+      ? undefined
+      : (Array.isArray(services) ? services.map((s: unknown) => String(s).trim()).filter(Boolean) : []);
     const [client] = await db.update(billingClients)
-      .set({ name, contactPerson, email, phone, addressLine1, city, state, stateCode, pincode, isGst, gstin, taxType, retainerAmount, serviceDescription, sacCode, invoiceDayOfMonth, notes: clientNotes, isActive, updatedAt: new Date() })
+      .set({
+        name, contactPerson, email, phone, addressLine1, city, state, stateCode, pincode, isGst, gstin, taxType, retainerAmount, serviceDescription,
+        ...(normalizedServices !== undefined ? { services: normalizedServices } : {}),
+        sacCode, invoiceDayOfMonth, notes: clientNotes, isActive, updatedAt: new Date(),
+      })
       .where(and(eq(billingClients.id, clientId), eq(billingClients.tenantId, tenantId)))
       .returning();
     if (!client) { res.status(404).json({ error: 'client not found' }); return; }
@@ -193,15 +226,16 @@ router.post('/invoices', async (req: Request, res: Response) => {
   if (!p?.billingCreate && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
 
   try {
-    const { clientId, invoiceDate, dueDate, invoiceType, taxType, lineItemsData, notes, paymentNote, serviceDescription } = req.body;
+    const { clientId, invoiceDate, dueDate, invoiceType, taxType, lineItemsData, notes, paymentNote, serviceDescription, discountType, discountValue, discountLabel } = req.body;
 
     const [client] = await db.select().from(billingClients).where(eq(billingClients.id, clientId)).limit(1);
     if (!client) { res.status(404).json({ error: 'client not found' }); return; }
 
     const items: Array<{ description: string; sacCode: string; quantity: number; unit: string; rate: number; amount: number; sortOrder: number }> = lineItemsData ?? [];
     const subtotal = items.reduce((s: number, i) => s + i.amount, 0);
+    const discount = resolveDiscount(subtotal, { discountType, discountValue, discountLabel });
     const effectiveTaxType = taxType ?? client.taxType;
-    const tax = calcTax(subtotal, effectiveTaxType);
+    const tax = calcTax(subtotal, effectiveTaxType, discount.discountAmount);
     const effectiveInvoiceType: 'gst' | 'non_gst' = invoiceType ?? (client.isGst ? 'gst' : 'non_gst');
     const { number, series, financialYear } = await getNextInvoiceNumber(tenantId, effectiveInvoiceType);
     const words = amountInWords(tax.total);
@@ -215,6 +249,10 @@ router.post('/invoices', async (req: Request, res: Response) => {
       invoiceDate: new Date(invoiceDate),
       dueDate: new Date(dueDate),
       subtotal,
+      discountType: discount.discountType,
+      discountPercent: discount.discountPercent,
+      discountAmount: discount.discountAmount,
+      discountLabel: discount.discountLabel,
       cgstRate: tax.cgstRate,
       cgstAmount: tax.cgstAmount,
       sgstRate: tax.sgstRate,
@@ -262,20 +300,51 @@ router.patch('/invoices/:id', async (req: Request, res: Response) => {
   if (!p?.billingEdit && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
 
   try {
-    const { lineItemsData, ...fields } = req.body;
+    const { lineItemsData, discountValue, ...fields } = req.body;
 
+    // `discountValue` is a frontend-only shape — strip it out of direct field writes
+    // so it never reaches the DB column names. Actual discount columns are resolved below.
     let updates: Record<string, unknown> = { ...fields, updatedAt: new Date() };
+    delete (updates as Record<string, unknown>).discountValue;
     if (updates.invoiceDate) updates.invoiceDate = new Date(updates.invoiceDate as string);
     if (updates.dueDate)     updates.dueDate     = new Date(updates.dueDate as string);
-    if (lineItemsData) {
-      const items = lineItemsData as Array<{ description: string; sacCode: string; quantity: number; unit: string; rate: number; amount: number }>;
-      const subtotal = items.reduce((s: number, i) => s + i.amount, 0);
+
+    // Always recompute totals if either line items OR discount inputs changed.
+    const discountProvided = 'discountType' in fields || discountValue !== undefined || 'discountLabel' in fields;
+    if (lineItemsData || discountProvided) {
       const [existing] = await db.select().from(invoices).where(eq(invoices.id, invoiceId)).limit(1);
+
+      // Line items: use incoming if provided, else re-fetch existing
+      let items: Array<{ description: string; sacCode: string; quantity: number; unit: string; rate: number; amount: number }>;
+      if (lineItemsData) {
+        items = lineItemsData;
+      } else {
+        const existingItems = await db.select().from(invoiceLineItems).where(eq(invoiceLineItems.invoiceId, invoiceId));
+        items = existingItems.map((li) => ({
+          description: li.description,
+          sacCode: li.sacCode ?? '9983',
+          quantity: li.quantity ?? 1,
+          unit: li.unit ?? 'Month',
+          rate: li.rate,
+          amount: li.amount,
+        }));
+      }
+
+      const subtotal = items.reduce((s: number, i) => s + i.amount, 0);
+      const discount = resolveDiscount(subtotal, {
+        discountType: 'discountType' in fields ? (fields.discountType as string | null) : existing?.discountType,
+        discountValue: discountValue !== undefined ? discountValue : (existing?.discountType === 'percent' ? existing?.discountPercent : (existing?.discountAmount ?? 0) / 100),
+        discountLabel: 'discountLabel' in fields ? (fields.discountLabel as string | null) : existing?.discountLabel,
+      });
       const taxType = (fields.taxType ?? existing?.taxType ?? null) as string | null;
-      const tax = calcTax(subtotal, taxType);
+      const tax = calcTax(subtotal, taxType, discount.discountAmount);
       updates = {
         ...updates,
         subtotal,
+        discountType: discount.discountType,
+        discountPercent: discount.discountPercent,
+        discountAmount: discount.discountAmount,
+        discountLabel: discount.discountLabel,
         cgstRate: tax.cgstRate, cgstAmount: tax.cgstAmount,
         sgstRate: tax.sgstRate, sgstAmount: tax.sgstAmount,
         igstRate: tax.igstRate, igstAmount: tax.igstAmount,
@@ -284,10 +353,12 @@ router.patch('/invoices/:id', async (req: Request, res: Response) => {
         amountInWords: amountInWords(tax.total),
       };
 
-      await db.delete(invoiceLineItems).where(eq(invoiceLineItems.invoiceId, invoiceId));
-      await db.insert(invoiceLineItems).values(
-        items.map((item, idx) => ({ ...item, invoiceId, sortOrder: idx })),
-      );
+      if (lineItemsData) {
+        await db.delete(invoiceLineItems).where(eq(invoiceLineItems.invoiceId, invoiceId));
+        await db.insert(invoiceLineItems).values(
+          items.map((item, idx) => ({ ...item, invoiceId, sortOrder: idx })),
+        );
+      }
     }
 
     const [inv] = await db.update(invoices)
@@ -668,6 +739,10 @@ router.get('/invoices/:id/pdf', async (req: Request, res: Response) => {
         amount: li.amount,
       })),
       subtotal: inv.subtotal,
+      discountType: (inv.discountType as 'fixed' | 'percent' | null) ?? null,
+      discountPercent: inv.discountPercent ?? 0,
+      discountAmount: inv.discountAmount ?? 0,
+      discountLabel: inv.discountLabel ?? null,
       cgstRate: inv.cgstRate ?? 0,
       cgstAmount: inv.cgstAmount ?? 0,
       sgstRate: inv.sgstRate ?? 0,

@@ -54,6 +54,79 @@ const INDIAN_STATES = [
   { code: '38', name: 'Ladakh' },
 ];
 
+// ── Services multi-select ─────────────────────────────────────────────────────
+const SERVICE_PRESETS = [
+  'SEO', 'Meta Ads', 'Google Ads', 'Social Media', 'Performance Marketing',
+  'Website', 'Content', 'Branding', 'Email Marketing', 'WhatsApp', 'CRM', 'Consulting',
+];
+
+function ServicesPicker({ value = [], onChange }) {
+  const [custom, setCustom] = useState('');
+  const selected = Array.isArray(value) ? value : [];
+
+  function toggle(svc) {
+    const next = selected.includes(svc) ? selected.filter(s => s !== svc) : [...selected, svc];
+    onChange(next);
+  }
+
+  function addCustom() {
+    const v = custom.trim();
+    if (!v) return;
+    if (!selected.includes(v)) onChange([...selected, v]);
+    setCustom('');
+  }
+
+  const customSelected = selected.filter(s => !SERVICE_PRESETS.includes(s));
+
+  return (
+    <div>
+      <label className="block text-xs font-medium text-slate-700 mb-1">Services</label>
+      <div className="flex flex-wrap gap-1.5 mb-2">
+        {SERVICE_PRESETS.map(svc => {
+          const active = selected.includes(svc);
+          return (
+            <button
+              key={svc}
+              type="button"
+              onClick={() => toggle(svc)}
+              className={`text-xs px-2 py-1 rounded-full border transition-colors ${
+                active
+                  ? 'bg-sky-600 text-white border-sky-600'
+                  : 'bg-white text-slate-600 border-slate-300 hover:border-sky-400'
+              }`}
+            >{svc}</button>
+          );
+        })}
+        {customSelected.map(svc => (
+          <button
+            key={svc}
+            type="button"
+            onClick={() => toggle(svc)}
+            className="text-xs px-2 py-1 rounded-full bg-purple-600 text-white border border-purple-600"
+            title="Custom service — click to remove"
+          >{svc} ✕</button>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          placeholder="Add custom service (press Enter)"
+          className="flex-1 border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+          value={custom}
+          onChange={e => setCustom(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCustom(); } }}
+        />
+        <button
+          type="button"
+          onClick={addCustom}
+          className="px-3 py-1.5 text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg"
+        >Add</button>
+      </div>
+      <p className="text-[10px] text-slate-400 mt-1">Shown as chips on the Clients list. Used for retainer analytics and invoice line-item prefill.</p>
+    </div>
+  );
+}
+
 // ── Client Modal ──────────────────────────────────────────────────────────────
 function ClientModal({ client, onClose, onSaved }) {
   const [form, setForm] = useState(client ? {
@@ -71,6 +144,10 @@ function ClientModal({ client, onClose, onSaved }) {
     taxType: client.taxType || '',
     retainerAmount: client.retainerAmount ? client.retainerAmount / 100 : '',
     serviceDescription: client.serviceDescription || '',
+    // Seed from structured `services` array if present; else parse legacy comma-separated `serviceDescription`.
+    services: Array.isArray(client.services) && client.services.length > 0
+      ? client.services
+      : String(client.serviceDescription || '').split(',').map(s => s.trim()).filter(Boolean),
     sacCode: client.sacCode || '9983',
     invoiceDayOfMonth: client.invoiceDayOfMonth || 1,
     notes: client.notes || '',
@@ -78,7 +155,7 @@ function ClientModal({ client, onClose, onSaved }) {
     name: '', contactPerson: '', email: '', phone: '',
     addressLine1: '', city: '', state: '', stateCode: '', pincode: '',
     isGst: false, gstin: '', taxType: '',
-    retainerAmount: '', serviceDescription: '', sacCode: '9983',
+    retainerAmount: '', serviceDescription: '', services: [], sacCode: '9983',
     invoiceDayOfMonth: 1, notes: '',
   });
   const [saving, setSaving] = useState(false);
@@ -108,7 +185,8 @@ function ClientModal({ client, onClose, onSaved }) {
         gstin: form.isGst ? form.gstin || null : null,
         taxType: form.isGst ? form.taxType || null : null,
         retainerAmount: form.retainerAmount ? Math.round(parseFloat(String(form.retainerAmount)) * 100) : null,
-        serviceDescription: form.serviceDescription || null,
+        serviceDescription: (form.services?.length ? form.services.join(', ') : form.serviceDescription) || null,
+        services: Array.isArray(form.services) ? form.services : [],
         sacCode: form.sacCode || '9983',
         invoiceDayOfMonth: parseInt(String(form.invoiceDayOfMonth)) || 1,
         notes: form.notes || null,
@@ -217,13 +295,10 @@ function ClientModal({ client, onClose, onSaved }) {
             </div>
           </div>
 
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Services</label>
-            <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
-              placeholder="e.g. SEO, Meta Ads, Social Media"
-              value={form.serviceDescription} onChange={e => setForm(f => ({ ...f, serviceDescription: e.target.value }))} />
-            <p className="text-[10px] text-slate-400 mt-1">Comma-separated. Shown as chips on the Clients list and used to prefill the invoice line item.</p>
-          </div>
+          <ServicesPicker
+            value={form.services}
+            onChange={next => setForm(f => ({ ...f, services: next, serviceDescription: next.join(', ') }))}
+          />
 
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-1">Notes</label>
@@ -269,6 +344,14 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
     serviceDescription: invoice.service_description || '',
     notes: invoice.notes || '',
     paymentNote: invoice.payment_note || '',
+    discountType: invoice.discount_type || '',
+    // For 'percent', value is the % (e.g. 10). For 'fixed', value is rupees (paise ÷ 100).
+    discountValue: invoice.discount_type === 'percent'
+      ? (invoice.discount_percent || 0)
+      : invoice.discount_type === 'fixed'
+        ? ((invoice.discount_amount || 0) / 100)
+        : '',
+    discountLabel: invoice.discount_label || '',
   } : {
     clientId: '',
     invoiceDate: today,
@@ -278,6 +361,9 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
     serviceDescription: '',
     notes: '',
     paymentNote: '',
+    discountType: '',
+    discountValue: '',
+    discountLabel: '',
   });
 
   const [lineItems, setLineItems] = useState(
@@ -334,11 +420,20 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
   }
 
   const subtotal = lineItems.reduce((s, li) => s + (parseFloat(String(li.amount)) || 0), 0);
+  const rawDiscountValue = parseFloat(String(form.discountValue)) || 0;
+  let discount = 0;
+  if (form.discountType === 'percent') {
+    const pct = Math.min(100, Math.max(0, rawDiscountValue));
+    discount = Math.round(subtotal * pct) / 100;
+  } else if (form.discountType === 'fixed') {
+    discount = Math.min(subtotal, Math.max(0, rawDiscountValue));
+  }
+  const taxable = Math.max(0, subtotal - discount);
   let taxAmount = 0;
   let taxLabel = '';
-  if (form.taxType === 'igst') { taxAmount = Math.round(subtotal * 0.18 * 100) / 100; taxLabel = 'IGST 18%'; }
-  else if (form.taxType === 'cgst_sgst') { taxAmount = Math.round(subtotal * 0.18 * 100) / 100; taxLabel = 'CGST 9% + SGST 9%'; }
-  const total = subtotal + taxAmount;
+  if (form.taxType === 'igst') { taxAmount = Math.round(taxable * 0.18 * 100) / 100; taxLabel = 'IGST 18%'; }
+  else if (form.taxType === 'cgst_sgst') { taxAmount = Math.round(taxable * 0.18 * 100) / 100; taxLabel = 'CGST 9% + SGST 9%'; }
+  const total = taxable + taxAmount;
 
   async function handleSave() {
     if (!form.clientId) { setError('Select a client'); return; }
@@ -493,6 +588,56 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
             </div>
           </div>
 
+          {/* Discount */}
+          <div className="border border-slate-200 rounded-lg p-3">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-medium text-slate-700">Discount <span className="text-slate-400 font-normal">(optional)</span></label>
+              {form.discountType && (
+                <button
+                  type="button"
+                  onClick={() => setForm(f => ({ ...f, discountType: '', discountValue: '', discountLabel: '' }))}
+                  className="text-[11px] text-slate-400 hover:text-red-500"
+                >Remove discount</button>
+              )}
+            </div>
+            <div className="grid grid-cols-[140px_1fr_1.5fr] gap-2 items-center">
+              <div className="flex rounded-lg border border-slate-300 overflow-hidden text-xs">
+                {[
+                  { k: '', label: 'None' },
+                  { k: 'fixed', label: '₹' },
+                  { k: 'percent', label: '%' },
+                ].map(({ k, label }) => (
+                  <button
+                    key={k || 'none'}
+                    type="button"
+                    onClick={() => setForm(f => ({ ...f, discountType: k, discountValue: k ? f.discountValue : '' }))}
+                    className={`flex-1 py-1.5 font-medium transition-colors ${
+                      form.discountType === k ? 'bg-sky-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >{label}</button>
+                ))}
+              </div>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                disabled={!form.discountType}
+                placeholder={form.discountType === 'percent' ? '10' : '500'}
+                className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50 disabled:text-slate-400"
+                value={form.discountValue}
+                onChange={e => setForm(f => ({ ...f, discountValue: e.target.value }))}
+              />
+              <input
+                type="text"
+                disabled={!form.discountType}
+                placeholder="Label (e.g. Loyalty discount)"
+                className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50 disabled:text-slate-400"
+                value={form.discountLabel}
+                onChange={e => setForm(f => ({ ...f, discountLabel: e.target.value }))}
+              />
+            </div>
+          </div>
+
           {/* Totals */}
           <div className="flex justify-end">
             <div className="w-64 space-y-1 text-sm">
@@ -500,6 +645,18 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
                 <span>Subtotal</span>
                 <span>₹{subtotal.toLocaleString('en-IN')}</span>
               </div>
+              {discount > 0 && (
+                <div className="flex justify-between text-rose-600">
+                  <span>
+                    {form.discountLabel
+                      ? form.discountLabel
+                      : form.discountType === 'percent'
+                        ? `Discount (${rawDiscountValue}%)`
+                        : 'Discount'}
+                  </span>
+                  <span>− ₹{discount.toLocaleString('en-IN')}</span>
+                </div>
+              )}
               {taxAmount > 0 && (
                 <div className="flex justify-between text-slate-600">
                   <span>{taxLabel}</span>
@@ -1213,10 +1370,12 @@ export default function BillingPage() {
                       <tr><td colSpan={8} className="text-center py-12 text-slate-400">No clients yet</td></tr>
                     )}
                     {clients.map(c => {
-                      const serviceChips = String(c.serviceDescription || '')
-                        .split(',')
-                        .map(s => s.trim())
-                        .filter(Boolean);
+                      const serviceChips = Array.isArray(c.services) && c.services.length > 0
+                        ? c.services
+                        : String(c.serviceDescription || '')
+                            .split(',')
+                            .map(s => s.trim())
+                            .filter(Boolean);
                       return (
                         <tr key={c.id} className="hover:bg-slate-50">
                           <td className="px-4 py-3">

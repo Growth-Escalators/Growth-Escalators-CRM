@@ -538,6 +538,7 @@ export const billingClients = pgTable('billing_clients', {
   taxType: text('tax_type'), // 'igst' | 'cgst_sgst' | null
   retainerAmount: integer('retainer_amount'), // in paise
   serviceDescription: text('service_description'),
+  services: text('services').array().default([]), // ['SEO', 'Meta Ads', ...] — structured tags for filtering/reporting
   sacCode: text('sac_code').default('9983'),
   invoiceDayOfMonth: integer('invoice_day_of_month').default(1),
   currency: text('currency').default('INR'),
@@ -564,6 +565,10 @@ export const invoices = pgTable('invoices', {
   sentAt: timestamp('sent_at'),
   paidAt: timestamp('paid_at'),
   subtotal: integer('subtotal').notNull(), // in paise
+  discountType: text('discount_type'), // 'fixed' | 'percent' | null
+  discountPercent: real('discount_percent').default(0), // only populated when type='percent'
+  discountAmount: integer('discount_amount').default(0), // resolved paise amount deducted from subtotal
+  discountLabel: text('discount_label'),
   cgstRate: real('cgst_rate').default(0),
   cgstAmount: integer('cgst_amount').default(0),
   sgstRate: real('sgst_rate').default(0),
