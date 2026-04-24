@@ -5,6 +5,9 @@ import { eq, sql } from 'drizzle-orm';
 
 const router = Router();
 
+// Ensure is_active column exists (idempotent — safe to run on every cold start)
+db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true`).catch(() => {});
+
 // ---------------------------------------------------------------------------
 // GET /api/permissions/me
 // ---------------------------------------------------------------------------
@@ -38,12 +41,13 @@ router.get('/users', async (req: Request, res: Response) => {
 
   try {
     const allUsers = await db.execute(sql`
-      SELECT u.id, u.name, u.email,
+      SELECT u.id, u.name, u.email, u.role,
              up.id as permissions_id,
              up.is_owner
       FROM users u
       LEFT JOIN user_permissions up ON up.user_id = u.id
       WHERE u.tenant_id = ${tenantId}
+        AND (u.is_active IS NULL OR u.is_active = true)
       ORDER BY u.name
     `);
 
@@ -112,14 +116,45 @@ router.put('/users/:userId', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// DELETE /api/permissions/users/:userId — remove a team member
+// PATCH /api/permissions/users/:userId/role — update a user's role
 // ---------------------------------------------------------------------------
-router.delete('/users:userId', async (req: Request, res: Response) => {
+router.patch('/users/:userId/role', async (req: Request, res: Response) => {
   const myUserId = req.user!.id;
   const tenantId = req.user!.tenantId;
   const targetUserId = req.params.userId as string;
 
-  // Only admins can remove users
+  const [myPerms] = await db.select().from(userPermissions)
+    .where(eq(userPermissions.userId, myUserId)).limit(1);
+  if (!myPerms?.isOwner) { res.status(403).json({ error: 'owner only' }); return; }
+
+  const { role } = req.body as { role: string };
+  const VALID_ROLES = ['admin', 'manager_ops', 'manager_ads', 'sales', 'staff'];
+  if (!role || !VALID_ROLES.includes(role)) {
+    res.status(400).json({ error: `role must be one of: ${VALID_ROLES.join(', ')}` });
+    return;
+  }
+
+  try {
+    await db.execute(sql`
+      UPDATE users
+      SET role = ${role}, token_version = COALESCE(token_version, 1) + 1
+      WHERE id = ${targetUserId} AND tenant_id = ${tenantId}
+    `);
+    res.json({ ok: true });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /api/permissions/users/:userId — remove a team member
+// ---------------------------------------------------------------------------
+router.delete('/users/:userId', async (req: Request, res: Response) => {
+  const myUserId = req.user!.id;
+  const tenantId = req.user!.tenantId;
+  const targetUserId = req.params.userId as string;
+
+  // Only owners can remove users
   const [myPerms] = await db.select().from(userPermissions)
     .where(eq(userPermissions.userId, myUserId)).limit(1);
   if (!myPerms?.isOwner && !(myPerms as Record<string, unknown>)?.isAdmin) {
@@ -140,9 +175,13 @@ router.delete('/users:userId', async (req: Request, res: Response) => {
   }
 
   try {
-    // Deactivate user (soft delete)
-    await db.execute(sql`UPDATE users SET is_active = false WHERE id = ${targetUserId} AND tenant_id = ${tenantId}`);
-    // Remove permissions
+    // Deactivate + invalidate current JWT (token_version increment)
+    await db.execute(sql`
+      UPDATE users
+      SET is_active = false, token_version = COALESCE(token_version, 1) + 1
+      WHERE id = ${targetUserId} AND tenant_id = ${tenantId}
+    `);
+    // Remove granular permissions
     await db.delete(userPermissions).where(eq(userPermissions.userId, targetUserId));
 
     res.json({ removed: true });

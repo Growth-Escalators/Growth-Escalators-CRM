@@ -61,6 +61,14 @@ const PERMISSION_GROUPS = [
   },
 ];
 
+const ROLE_OPTIONS = [
+  { value: 'admin', label: 'Admin', description: 'Full access to everything' },
+  { value: 'manager_ops', label: 'Manager — Ops', description: 'Contacts, deals, automations, reports' },
+  { value: 'manager_ads', label: 'Manager — Ads', description: 'Ads and marketing only' },
+  { value: 'sales', label: 'Sales', description: 'Contacts, deals, pipeline' },
+  { value: 'staff', label: 'Staff', description: 'Social and basic features only' },
+];
+
 function Toggle({ checked, onChange, disabled }) {
   return (
     <button
@@ -81,6 +89,8 @@ export default function PermissionsPage() {
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [perms, setPerms] = useState({});
+  const [selectedRole, setSelectedRole] = useState('staff');
+  const [originalRole, setOriginalRole] = useState('staff');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -102,6 +112,9 @@ export default function PermissionsPage() {
     setSelectedUser(user);
     setSaved(false);
     setError('');
+    const role = user.role || 'staff';
+    setSelectedRole(role);
+    setOriginalRole(role);
     try {
       const data = await apiFetch(`/api/permissions/users/${user.id}`);
       setPerms(data?.permissions || {});
@@ -114,10 +127,24 @@ export default function PermissionsPage() {
     if (!selectedUser) return;
     setSaving(true); setSaved(false); setError('');
     try {
-      await apiFetch(`/api/permissions/users/${selectedUser.id}`, {
-        method: 'PUT',
-        body: JSON.stringify(perms),
-      });
+      const calls = [
+        apiFetch(`/api/permissions/users/${selectedUser.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(perms),
+        }),
+      ];
+      if (selectedRole !== originalRole) {
+        calls.push(
+          apiFetch(`/api/permissions/users/${selectedUser.id}/role`, {
+            method: 'PATCH',
+            body: JSON.stringify({ role: selectedRole }),
+          })
+        );
+      }
+      await Promise.all(calls);
+      setOriginalRole(selectedRole);
+      // Update role in the sidebar list
+      setUsers(prev => prev.map(u => u.id === selectedUser.id ? { ...u, role: selectedRole } : u));
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (e) {
@@ -134,7 +161,6 @@ export default function PermissionsPage() {
   }
 
   const isOwnerUser = perms?.isOwner === true;
-  const myUser = users.find(u => u.id === selectedUser?.id);
 
   return (
     <div className="flex h-screen bg-slate-50">
@@ -216,7 +242,7 @@ export default function PermissionsPage() {
                       )}
                     </div>
                     <div className="flex items-center gap-3">
-                      {saved && <span className="text-sm text-green-600 font-medium">{'\u2713'} Saved</span>}
+                      {saved && <span className="text-sm text-green-600 font-medium">&#x2713; Saved</span>}
                       {error && <span className="text-sm text-red-500">{error}</span>}
                       {!isOwnerUser && (
                         <>
@@ -235,7 +261,7 @@ export default function PermissionsPage() {
                           </button>
                           <button onClick={handleSave} disabled={saving}
                             className="px-4 py-2 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50">
-                            {saving ? 'Saving\u2026' : 'Save Permissions'}
+                            {saving ? 'Saving…' : 'Save Permissions'}
                           </button>
                         </>
                       )}
@@ -254,9 +280,30 @@ export default function PermissionsPage() {
                     </div>
                   ) : (
                     <div className="p-6 space-y-6">
+                      {/* Role selector */}
+                      <div className="p-4 rounded-lg bg-slate-50 border border-slate-200">
+                        <div className="flex items-center gap-4">
+                          <div className="flex-1">
+                            <label className="block text-sm font-semibold text-slate-700 mb-1">Role</label>
+                            <select
+                              value={selectedRole}
+                              onChange={e => setSelectedRole(e.target.value)}
+                              className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-sky-500"
+                            >
+                              {ROLE_OPTIONS.map(r => (
+                                <option key={r.value} value={r.value}>{r.label} — {r.description}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-2">
+                          Role controls which pages and API data this user can access. Changes take effect on their next login.
+                        </p>
+                      </div>
+
+                      {/* Granular permission toggles */}
                       {PERMISSION_GROUPS.map(group => {
                         const allOn = group.perms.every(p => perms[p.key]);
-                        const anyOn = group.perms.some(p => perms[p.key]);
                         return (
                           <div key={group.label}>
                             <div className="flex items-center justify-between mb-3">

@@ -33,7 +33,21 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
   }
 
   try {
-    const [user] = await db.select().from(users).where(eq(users.email, email.toLowerCase())).limit(1);
+    const result = await db.execute(sql`
+      SELECT id, name, email,
+             password_hash AS "passwordHash",
+             role,
+             tenant_id AS "tenantId",
+             token_version AS "tokenVersion"
+      FROM users
+      WHERE email = ${email.toLowerCase()}
+        AND (is_active IS NULL OR is_active = true)
+      LIMIT 1
+    `);
+    const user = result.rows[0] as {
+      id: string; name: string; email: string; passwordHash: string;
+      role: string; tenantId: string; tokenVersion: number;
+    } | undefined;
 
     if (!user) {
       res.status(401).json({ error: 'invalid credentials' });
