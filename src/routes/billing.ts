@@ -193,7 +193,7 @@ router.post('/invoices', async (req: Request, res: Response) => {
   if (!p?.billingCreate && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
 
   try {
-    const { clientId, invoiceDate, dueDate, invoiceType, taxType, lineItemsData, notes, paymentNote } = req.body;
+    const { clientId, invoiceDate, dueDate, invoiceType, taxType, lineItemsData, notes, paymentNote, serviceDescription } = req.body;
 
     const [client] = await db.select().from(billingClients).where(eq(billingClients.id, clientId)).limit(1);
     if (!client) { res.status(404).json({ error: 'client not found' }); return; }
@@ -230,7 +230,7 @@ router.post('/invoices', async (req: Request, res: Response) => {
       clientStateCode: client.stateCode,
       companyGstin: process.env.COMPANY_GSTIN ?? '08DRYPA4899F2ZZ',
       taxType: effectiveTaxType,
-      serviceDescription: client.serviceDescription,
+      serviceDescription: serviceDescription || client.serviceDescription,
       sacCode: client.sacCode ?? '9983',
       notes: notes ?? null,
       paymentNote: paymentNote ?? null,
