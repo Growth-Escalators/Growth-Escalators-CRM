@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from 'express';
+import logger from '../utils/logger';
 import { db } from '../db/index';
 import {
   billingClients,
@@ -390,7 +391,10 @@ router.delete('/invoices/:id', async (req: Request, res: Response) => {
     if (!existing) { res.status(404).json({ error: 'invoice not found' }); return; }
 
     if (existing.status === 'cancelled') {
-      // Hard-delete cancelled invoice + its line items
+      // Hard-delete cancelled invoice + all child rows. Both invoice_line_items and
+      // payments have FK references to invoices.id without onDelete cascade, so we
+      // have to clear them in order before the invoice row itself.
+      await db.delete(payments).where(eq(payments.invoiceId, invoiceId));
       await db.delete(invoiceLineItems).where(eq(invoiceLineItems.invoiceId, invoiceId));
       await db.delete(invoices).where(eq(invoices.id, invoiceId));
       res.json({ success: true, deleted: true });
@@ -402,7 +406,8 @@ router.delete('/invoices/:id', async (req: Request, res: Response) => {
       res.json({ success: true });
     }
   } catch (e: unknown) {
-    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+    logger.error('[billing] DELETE /invoices/:id failed', { invoiceId, err: e });
+    res.status(500).json({ error: 'Failed to delete invoice. Please try again or contact support.' });
   }
 });
 
