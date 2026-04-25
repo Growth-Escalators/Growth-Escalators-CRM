@@ -1107,11 +1107,11 @@ export default function BillingPage() {
   }
 
   async function handleDelete(id) {
-    if (!confirm('Permanently delete this cancelled invoice? This cannot be undone.')) return;
+    if (!confirm('Permanently delete this cancelled invoice? Any recorded payments against it will also be removed and cannot be recovered.')) return;
     try {
       await apiFetch(`/api/billing/invoices/${id}`, { method: 'DELETE' });
       fetchData();
-    } catch (e) { alert(e.message); }
+    } catch (e) { alert('Could not delete invoice: ' + e.message); }
   }
 
   async function handleDeleteClient(id) {
