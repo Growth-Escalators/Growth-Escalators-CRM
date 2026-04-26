@@ -14,7 +14,7 @@ export async function apiFetch(path, options = {}) {
     localStorage.removeItem('ge_crm_token');
     localStorage.removeItem('ge_crm_user');
     localStorage.removeItem('ge_crm_permissions');
-    window.location.href = '/crm/login';
+    window.location.href = '/login';
     throw new Error('Session expired');
   }
 

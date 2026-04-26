@@ -140,7 +140,7 @@ function AddContactModal({ onClose, onCreated }) {
     setError('');
 
     const tagArr = form.tags.split(',').map((t) => t.trim()).filter(Boolean);
-    const contact = await apiFetch('/contacts', {
+    const contact = await apiFetch('/api/contacts', {
       method: 'POST',
       body: JSON.stringify({
         firstName: form.firstName.trim(),
@@ -297,7 +297,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
 
   async function handleExport() {
     setBusy(true);
-    const res = await fetch('/contacts/export', {
+    const res = await fetch('/api/contacts/export', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -328,7 +328,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
       setBusy(true);
       try {
         const csvText = await file.text();
-        const data = await apiFetch('/contacts/import', {
+        const data = await apiFetch('/api/contacts/import', {
           method: 'POST',
           body: JSON.stringify({ csv: csvText }),
         });
@@ -348,7 +348,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
     const allTags = [...new Set([...selectedTags, ...textTags])];
     if (!allTags.length) return;
     setBusy(true);
-    await apiFetch('/contacts/bulk-tag', {
+    await apiFetch('/api/contacts/bulk-tag', {
       method: 'POST',
       body: JSON.stringify({ contactIds: [...selectedIds], tags: allTags, mode: tagMode }),
     });
@@ -364,7 +364,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
     if (!selectedTemplateId) return;
     setBusy(true);
     try {
-      const result = await apiFetch('/contacts/bulk-email', {
+      const result = await apiFetch('/api/contacts/bulk-email', {
         method: 'POST',
         body: JSON.stringify({ contactIds: [...selectedIds], templateId: selectedTemplateId }),
       });
@@ -384,7 +384,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
   async function handleBulkDelete() {
     if (!window.confirm(`Delete ${count} contact${count > 1 ? 's' : ''}? This will mark them as deleted.`)) return;
     setBusy(true);
-    await apiFetch('/contacts/bulk-delete', {
+    await apiFetch('/api/contacts/bulk-delete', {
       method: 'POST',
       body: JSON.stringify({ contactIds: [...selectedIds] }),
     });
@@ -395,7 +395,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
 
   async function handleAssign() {
     setBusy(true);
-    await apiFetch('/contacts/bulk-assign', {
+    await apiFetch('/api/contacts/bulk-assign', {
       method: 'POST',
       body: JSON.stringify({ contactIds: [...selectedIds], assignedTo: assignTo }),
     });
@@ -537,7 +537,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
           <button onClick={() => {
             closeAllPanels(); setTagMode('add'); setShowTagPanel(true);
             if (availableTags.length === 0) {
-              apiFetch('/contacts/tags').then(d => { if (Array.isArray(d)) setAvailableTags(d); }).catch(() => {});
+              apiFetch('/api/contacts/tags').then(d => { if (Array.isArray(d)) setAvailableTags(d); }).catch(() => {});
             }
           }} className={`${btnBase} bg-violet-700 hover:bg-violet-600 text-white`}>
             Add tags
@@ -669,7 +669,7 @@ export default function ContactsPage() {
   // Smart list counts — single query instead of 4 separate calls
   const [listCounts, setListCounts] = useState({});
   useEffect(() => {
-    apiFetch('/contacts/counts')
+    apiFetch('/api/contacts/counts')
       .then((d) => {
         if (d) setListCounts({ hot: +d.hot, uncontacted: +d.uncontacted, ecom: +d.ecom, consulting: +d.consulting, discover: +d.discover, outreach: +d.outreach });
       })
@@ -721,7 +721,7 @@ export default function ContactsPage() {
                   if (!file) return;
                   try {
                     const csvText = await file.text();
-                    const data = await apiFetch('/contacts/import', {
+                    const data = await apiFetch('/api/contacts/import', {
                       method: 'POST',
                       body: JSON.stringify({ csv: csvText }),
                     });

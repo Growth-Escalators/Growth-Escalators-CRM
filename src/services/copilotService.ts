@@ -139,7 +139,7 @@ Brand details:
 function buildFallbackResponse(clientName: string, context: Record<string, unknown>, _message: string): string {
   const health = context.recentHealth as Record<string, unknown> | null;
   if (health) {
-    return `Growth OS Co-Pilot for ${clientName}\n\nLatest health score: ${health.overall_score}/100\nAds: ${health.ads_score}/100 | WhatsApp: ${health.whatsapp_score}/100\n\nI'm having trouble connecting right now. Check /crm/growth-os for full details.`;
+    return `Growth OS Co-Pilot for ${clientName}\n\nLatest health score: ${health.overall_score}/100\nAds: ${health.ads_score}/100 | WhatsApp: ${health.whatsapp_score}/100\n\nI'm having trouble connecting right now. Check /growth-os for full details.`;
   }
   return `Growth OS Co-Pilot for ${clientName}\n\nI'm starting up — no data collected yet. Check back after the next cron run at 8 AM IST.`;
 }

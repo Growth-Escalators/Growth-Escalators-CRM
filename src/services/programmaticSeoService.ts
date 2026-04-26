@@ -237,7 +237,7 @@ export async function generateLocationPages(): Promise<{ generated: number; wpPu
     await sendSlackMessage(SLACK_SEO_CHANNEL,
       `🚀 *SEO*: Generated ${generated} programmatic location pages for Aged Dentistry` +
       (wpPublished > 0 ? ` (${wpPublished} published to WordPress as drafts)` : ' (stored locally — WP credentials needed)') +
-      `. Review at: /crm/seo`,
+      `. Review at: /seo`,
     ).catch(() => {});
   }
 

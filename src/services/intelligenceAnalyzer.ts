@@ -427,7 +427,7 @@ function buildFallbackAnalysis(data: AgencyDailyData): Analysis {
       what_is_broken: `${data.billing.overdueCount} invoices unpaid past due date`,
       business_impact: `₹${Math.round(data.billing.overdueAmount / 100).toLocaleString('en-IN')} locked in unpaid invoices`,
       owner: 'Jatin', deadline: 'today',
-      fix_steps: ['Pull overdue invoice list from /crm/billing', 'Call each client directly', 'Send payment reminder via WhatsApp'],
+      fix_steps: ['Pull overdue invoice list from /billing', 'Call each client directly', 'Send payment reminder via WhatsApp'],
       claude_prompt: null, claude_code_prompt: null, terminal_commands: [],
     });
   }
@@ -440,7 +440,7 @@ function buildFallbackAnalysis(data: AgencyDailyData): Analysis {
       what_is_broken: brokenWfs.map(w => `${w.name} — ${w.daysSince === 999 ? 'never run' : `${w.daysSince}d overdue`}`).join('; '),
       business_impact: 'Client SEO performance is invisible — no data being collected',
       owner: 'Jatin', deadline: 'today',
-      fix_steps: ['Go to /crm/seo → Workflows', 'Click Run Now on each broken workflow', 'Check n8n logs if workflow fails'],
+      fix_steps: ['Go to /seo → Workflows', 'Click Run Now on each broken workflow', 'Check n8n logs if workflow fails'],
       claude_prompt: null,
       claude_code_prompt: `cd ~/repo-comparison/v2\n\nNEVER TOUCH: src/db/schema.ts, src/db/migrations/, src/middleware/auth.ts, src/middleware/rbac.ts, src/routes/cashfree.ts, src/routes/webhooks.ts\n\nPROBLEM: SEO workflows not running. Broken: ${brokenWfs.map(w => w.name).join(', ')}\n\nCheck seoWorkflowHealthService.ts and seoWorkflows.ts route. Diagnose why data is not being populated in SEO tables. Check if the webhook triggers are working. Fix and commit.`,
       terminal_commands: [],

@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
-  base: '/crm/',
+  base: '/',
   build: {
     outDir: '../public/admin',
     emptyOutDir: true,
@@ -13,11 +13,6 @@ export default defineConfig({
     proxy: {
       '/api': { target: 'http://localhost:3000', changeOrigin: true },
       '/auth': { target: 'http://localhost:3000', changeOrigin: true },
-      '/contacts': { target: 'http://localhost:3000', changeOrigin: true },
-      '/deals': { target: 'http://localhost:3000', changeOrigin: true },
-      '/sequences': { target: 'http://localhost:3000', changeOrigin: true },
-      '/bookings': { target: 'http://localhost:3000', changeOrigin: true },
-      '/messages': { target: 'http://localhost:3000', changeOrigin: true },
     },
   },
 });

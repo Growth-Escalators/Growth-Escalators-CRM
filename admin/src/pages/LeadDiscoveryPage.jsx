@@ -402,7 +402,7 @@ export default function LeadDiscoveryPage() {
             <div className="mt-3 flex items-center gap-2 text-green-400 text-sm bg-green-900/20 border border-green-800 rounded-lg px-3 py-2">
               <Zap className="w-4 h-4 flex-shrink-0" />
               {importSuccess}
-              <a href="/crm/contacts" className="text-sm text-sky-600 hover:underline ml-2">View in Contacts &rarr;</a>
+              <a href="/contacts" className="text-sm text-sky-600 hover:underline ml-2">View in Contacts &rarr;</a>
               <button onClick={() => setImportSuccess(null)} className="ml-auto"><X className="w-3.5 h-3.5" /></button>
             </div>
           )}

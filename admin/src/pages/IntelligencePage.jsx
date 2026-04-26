@@ -203,7 +203,7 @@ function SEOWorkflowHealthSection({ wfData }) {
         <span className={`ml-auto text-xs font-semibold px-2 py-0.5 rounded-full ${wfData.n8nAlive ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
           n8n {wfData.n8nAlive ? '🟢 Online' : '🔴 Offline'}
         </span>
-        <a href="/crm/seo" className="flex items-center gap-1 text-xs text-sky-600 hover:underline">
+        <a href="/seo" className="flex items-center gap-1 text-xs text-sky-600 hover:underline">
           Fix <ExternalLink className="w-3 h-3" />
         </a>
       </div>
@@ -545,7 +545,7 @@ function SystemHealthTab() {
           </div>
         </div>
       )}
-      <a href="/crm/settings/audit" className="text-xs text-sky-600 hover:underline flex items-center gap-1 mt-4">
+      <a href="/settings/audit" className="text-xs text-sky-600 hover:underline flex items-center gap-1 mt-4">
         View Audit Trail →
       </a>
     </section>

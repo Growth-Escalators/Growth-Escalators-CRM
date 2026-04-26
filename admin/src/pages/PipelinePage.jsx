@@ -286,7 +286,7 @@ function AddDealModal({ pipelineId, stageName, onAdded, onClose }) {
   async function handleAdd() {
     if (!selectedContact) return;
     setSaving(true);
-    const result = await apiFetch('/deals/add-or-update', {
+    const result = await apiFetch('/api/deals/add-or-update', {
       method: 'POST',
       body: JSON.stringify({
         contactId: selectedContact.id,

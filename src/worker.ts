@@ -200,12 +200,12 @@ cron.schedule('30 3 1 * *', () => safeCron('Monthly Invoice Drafts', async () =>
     const { sendSlackMessage, sendSlackDM } = await import('./services/slackService');
     const month = new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
     await sendSlackMessage(SLACK_SALES_BD_CHANNEL,
-      `🧾 *Invoice Drafts Ready — ${month}*\n\nDrafts generated for all active billing clients.\nReview and approve at: /crm/billing\n\n<@${SLACK_JATIN}> <@${SLACK_SAKCHAM}> — please review before sending to clients.`);
+      `🧾 *Invoice Drafts Ready — ${month}*\n\nDrafts generated for all active billing clients.\nReview and approve at: /billing\n\n<@${SLACK_JATIN}> <@${SLACK_SAKCHAM}> — please review before sending to clients.`);
     // DM Jatin with details
     await sendSlackDM(SLACK_JATIN,
       `🧾 *${result.generated} Invoice Drafts Generated — ${month}*\n\n` +
       `${result.errors.length > 0 ? `⚠️ ${result.errors.length} error(s): ${result.errors.join(', ')}\n\n` : ''}` +
-      `Review and send: https://web-production-311da.up.railway.app/crm/billing`
+      `Review and send: https://crm.growthescalators.com/billing`
     ).catch(() => {});
   }
 }), { timezone: 'UTC' });
@@ -302,7 +302,7 @@ cron.schedule('45 3 * * *', () => safeCron('SEO Workflow Health', async () => {
       `• ${wf.name} — last ran ${wf.daysSince === 999 ? 'NEVER' : `${wf.daysSince} days ago`}`
     ).join('\n');
     const alertMsg = `⚠️ *SEO Workflow Alert*\n\n${health.brokenCritical.length} critical workflow(s) overdue:\n${msg}\n\n` +
-      `Fix: /crm/seo → Workflows → Run Now\n` +
+      `Fix: /seo → Workflows → Run Now\n` +
       `Or check n8n directly: https://primary-production-6c6f5.up.railway.app`;
     await sendSlackMessage(SLACK_SEO_CHANNEL, alertMsg);
     await sendSlackMessage(SLACK_JATIN, alertMsg);
@@ -898,7 +898,7 @@ cron.schedule('30 3 * * *', () => safeCron('Retainer Invoice Generator', async (
   if (result.generated > 0) {
     const { sendSlackMessage } = await import('./services/slackService');
     await sendSlackMessage(SLACK_SOD_EOD_CHANNEL,
-      `🧾 *Auto-generated ${result.generated} retainer invoice(s)*\nReview at: /crm/billing`,
+      `🧾 *Auto-generated ${result.generated} retainer invoice(s)*\nReview at: /billing`,
     ).catch(() => {});
   }
   console.log(`[CRON] Retainer invoices: ${result.generated} generated, ${result.errors.length} errors`);

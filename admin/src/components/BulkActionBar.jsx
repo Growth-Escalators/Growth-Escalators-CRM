@@ -43,7 +43,7 @@ export default function BulkActionBar({ selectedIds, onClear, onDone }) {
       .filter(Boolean);
     if (tags.length === 0) return;
     setTagging(true);
-    await apiFetch('/contacts/bulk-tag', {
+    await apiFetch('/api/contacts/bulk-tag', {
       method: 'POST',
       body: JSON.stringify({ contactIds: [...selectedIds], tags, mode: 'add' }),
     });
@@ -55,7 +55,7 @@ export default function BulkActionBar({ selectedIds, onClear, onDone }) {
 
   async function handleAddToPipeline() {
     setAdding(true);
-    await apiFetch('/deals/bulk-create', {
+    await apiFetch('/api/deals/bulk-create', {
       method: 'POST',
       body: JSON.stringify({
         contactIds: [...selectedIds],

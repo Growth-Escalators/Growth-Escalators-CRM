@@ -322,7 +322,7 @@ async function checkCronJobs(): Promise<CronJobStatus[]> {
 export async function sendCriticalAlerts(report: SystemHealthReport): Promise<void> {
   if (report.overallScore < 50 && canAlert('low_score')) {
     await sendSlackDM(SLACK_JATIN,
-      `🚨 *SYSTEM ALERT*: Overall health score is ${report.overallScore}/100. Check /crm/intelligence immediately.`,
+      `🚨 *SYSTEM ALERT*: Overall health score is ${report.overallScore}/100. Check /intelligence immediately.`,
     ).catch(() => {});
   }
 

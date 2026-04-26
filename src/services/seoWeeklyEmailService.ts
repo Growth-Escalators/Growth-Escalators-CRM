@@ -82,7 +82,7 @@ export async function sendSEOWeeklyEmail(): Promise<void> {
     }
   }
 
-  html += `<p style="margin-top:20px;font-size:12px;color:#94a3b8">Full dashboard: crm.growthescalators.com/crm/seo</p>`;
+  html += `<p style="margin-top:20px;font-size:12px;color:#94a3b8">Full dashboard: crm.growthescalators.com/seo</p>`;
   html += `</div></div>`;
 
   // Send via Brevo

@@ -171,7 +171,7 @@ function ComposeForm({ accounts, onCreated }) {
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">Post to</label>
             {accounts.length === 0 ? (
               <div className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
-                No social accounts connected. <a href="/crm/social" className="text-sky-600 underline">Connect accounts →</a>
+                No social accounts connected. <a href="/social" className="text-sky-600 underline">Connect accounts →</a>
               </div>
             ) : (
               <div className="space-y-1.5">
@@ -326,7 +326,7 @@ export default function SocialSchedulingPage() {
                 className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-500 disabled:opacity-50">
                 <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
               </button>
-              <a href="/crm/social"
+              <a href="/social"
                 className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50">
                 <Settings className="w-3.5 h-3.5" /> Accounts
               </a>
@@ -359,7 +359,7 @@ export default function SocialSchedulingPage() {
                 <p className="text-sm font-semibold text-amber-800">No social accounts connected</p>
                 <p className="text-xs text-amber-700 mt-0.5">Connect your Facebook or Instagram accounts to start scheduling posts.</p>
               </div>
-              <a href="/crm/social" className="flex items-center gap-1 px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700 flex-shrink-0">
+              <a href="/social" className="flex items-center gap-1 px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700 flex-shrink-0">
                 Connect Accounts
               </a>
             </div>

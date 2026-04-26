@@ -43,7 +43,7 @@ export default function AddUpdateOpportunityModal({ contactIds, contacts = [], o
 
     let done = 0;
     for (const contactId of contactIds) {
-      await apiFetch('/deals/add-or-update', {
+      await apiFetch('/api/deals/add-or-update', {
         method: 'POST',
         body: JSON.stringify({
           contactId,

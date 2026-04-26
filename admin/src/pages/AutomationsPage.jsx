@@ -544,7 +544,7 @@ export default function AutomationsPage() {
                 value: blockerCount ?? '—',
                 color: blockerCount > 0 ? 'text-red-600' : 'text-emerald-600',
                 bg: blockerCount > 0 ? 'bg-red-50' : 'bg-emerald-50',
-                href: '/crm/health',
+                href: '/health',
               },
             ].map((card) => {
               const inner = (
@@ -640,9 +640,9 @@ export default function AutomationsPage() {
           {/* SECTION 6 — Quick links */}
           <div className="flex flex-wrap gap-3 pt-2 pb-6">
             {[
-              { label: 'Pipeline automations →', to: '/crm/automations' },
-              { label: 'Pipeline settings →', to: '/crm/pipelines/settings' },
-              { label: 'Contact list →', to: '/crm/contacts' },
+              { label: 'Pipeline automations →', to: '/automations' },
+              { label: 'Pipeline settings →', to: '/pipelines/settings' },
+              { label: 'Contact list →', to: '/contacts' },
             ].map((link) => (
               <Link
                 key={link.label}

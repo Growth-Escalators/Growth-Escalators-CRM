@@ -85,7 +85,7 @@ async function main() {
     const { sendSlackDM, SLACK_MEMBERS } = await import('../services/slackService');
     const credList = credentials.map(c => `• *${c.name}* (${c.role})\n  Email: ${c.email}\n  Password: \`${c.password}\``).join('\n\n');
     await sendSlackDM(SLACK_MEMBERS.jatin,
-      `🔐 *CRM User Accounts Created/Updated*\n\nLogin at: /crm/login\n\n${credList}\n\n⚠️ Share passwords securely and ask users to change them on first login.`);
+      `🔐 *CRM User Accounts Created/Updated*\n\nLogin at: /login\n\n${credList}\n\n⚠️ Share passwords securely and ask users to change them on first login.`);
     console.log('\n✓ Credentials sent to Jatin via Slack DM');
   } catch (e) {
     console.log('\n⚠ Could not send Slack DM:', e instanceof Error ? e.message : e);

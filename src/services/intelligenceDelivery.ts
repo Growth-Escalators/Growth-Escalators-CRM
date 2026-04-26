@@ -75,7 +75,7 @@ export async function deliverDailyIntelligence(analysis: Analysis, data: AgencyD
         msg += `   Quick fix: \`${issue.terminal_commands[0]}\`\n`;
       }
       if (issue.claude_prompt || issue.claude_code_prompt) {
-        msg += `   📋 Fix prompt ready — /crm/intelligence\n`;
+        msg += `   📋 Fix prompt ready — /intelligence\n`;
       }
       msg += '\n';
     }
@@ -101,7 +101,7 @@ export async function deliverDailyIntelligence(analysis: Analysis, data: AgencyD
     for (const e of sysErr) {
       msg += `   • ${e.pattern} (${e.count}×)\n`;
     }
-    msg += `   Fix prompts at /crm/intelligence\n\n`;
+    msg += `   Fix prompts at /intelligence\n\n`;
   }
 
   // Wins (brief, at end)
@@ -143,7 +143,7 @@ export async function deliverDailyIntelligence(analysis: Analysis, data: AgencyD
 
   // Scores summary
   msg += `📊 Ads:${analysis.scores.ads} SEO:${analysis.scores.seo} Sales:${analysis.scores.sales} Ops:${analysis.scores.ops}\n`;
-  msg += `_Full coaching report + fix prompts: crm.growthescalators.com/crm/intelligence_`;
+  msg += `_Full coaching report + fix prompts: crm.growthescalators.com/intelligence_`;
 
   // AI coaching report goes to Jatin DM only — not to #sod-eod channel
   try {

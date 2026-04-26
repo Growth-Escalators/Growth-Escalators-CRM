@@ -616,11 +616,11 @@ export default function SocialPage() {
       setToast({ type: 'success', msg: `${pages} Facebook page(s)${igPart} connected successfully!` });
       setTab('accounts');
       setRefreshKey(k => k + 1);
-      window.history.replaceState({}, '', '/crm/social');
+      window.history.replaceState({}, '', '/social');
     } else if (params.get('error')) {
       setToast({ type: 'error', msg: 'Connection failed. Please try again or add pages manually.' });
       setTab('accounts');
-      window.history.replaceState({}, '', '/crm/social');
+      window.history.replaceState({}, '', '/social');
     }
   }, []);
 

@@ -72,7 +72,7 @@ function PrivateRoute({ children }) {
 export default function App() {
   return (
     <ErrorBoundary>
-      <BrowserRouter basename="/crm">
+      <BrowserRouter>
         <Suspense fallback={<div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh'}}><p>Loading...</p></div>}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />

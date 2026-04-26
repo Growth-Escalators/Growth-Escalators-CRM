@@ -142,13 +142,13 @@ app.use('/api/cashfree', requireAuth, cashfreeAdminRouter); // simulate-webhook 
 // ---------------------------------------------------------------------------
 // Protected CRM routes (require JWT)
 // ---------------------------------------------------------------------------
-app.use('/contacts', requireAuth, contactsRouter);
-app.use('/deals', requireAuth, dealsRouter);
-app.use('/sequences', requireAuth, sequencesRouter);
-app.use('/bookings', requireAuth, bookingsRouter);
-app.use('/jobs', requireAuth, jobsRouter);
-app.use('/messages', requireAuth, messagesRouter);
-app.use('/email', requireAuth, emailRouter);
+app.use('/api/contacts', requireAuth, contactsRouter);
+app.use('/api/deals', requireAuth, dealsRouter);
+app.use('/api/sequences', requireAuth, sequencesRouter);
+app.use('/api/bookings', requireAuth, bookingsRouter);
+app.use('/api/jobs', requireAuth, jobsRouter);
+app.use('/api/messages', requireAuth, messagesRouter);
+app.use('/api/email', requireAuth, emailRouter);
 app.use('/api/pipelines', requireAuth, pipelinesRouter);
 app.use('/api/automations', requireAuth, automationHubRouter);
 app.use('/api/system', systemHealthRouter);
@@ -235,15 +235,12 @@ console.log('Admin dist:', adminDist);
 const CRM_HOSTS = ['crm.growthescalators.com'];
 const CONSULTING_HOSTS = ['consulting.growthescalators.com'];
 const API_PREFIXES = [
-  '/api', '/auth', '/webhooks', '/book', '/contacts', '/deals',
-  '/sequences', '/jobs', '/email', '/bookings', '/messages',
+  '/api', '/auth', '/webhooks', '/book',
   '/health', '/stats', '/consulting',
-  '/api/automations', '/api/system',
 ];
 
-// Admin SPA — two ways to access:
-//   1. crm.growthescalators.com  (custom domain, root path)
-//   2. any-host.railway.app/crm  (path-based, no custom domain needed)
+// Admin SPA — served at root on crm.growthescalators.com.
+// Legacy `/crm/<path>` URLs are 301-redirected to `/<path>` further below.
 if (process.env.CRM_EXTRA_HOST) CRM_HOSTS.push(process.env.CRM_EXTRA_HOST);
 
 // ---------------------------------------------------------------------------
@@ -273,31 +270,15 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 // ---------------------------------------------------------------------------
-// Redirect bare CRM paths to /crm/* prefix (must be BEFORE static handlers)
-const CRM_REDIRECTS = ['/login', '/dashboard', '/contacts', '/pipeline', '/inbox', '/ads', '/seo', '/intelligence', '/billing', '/settings', '/reports', '/outreach-dashboard', '/growth-os', '/links', '/social-scheduling'];
-for (const p of CRM_REDIRECTS) {
-  app.get(p, (req: Request, res: Response, next: NextFunction) => {
-    // Only redirect on non-CRM hosts (Railway domain, ecom domain)
-    // On crm.growthescalators.com, the hostname handler serves admin SPA at root
-    const CRM_HOSTS = ['crm.growthescalators.com'];
-    if (CRM_HOSTS.includes(req.hostname)) return next();
-    res.redirect(301, `/crm${p}`);
-  });
-}
-
-// Redirect exact /crm to /crm/login (no trailing path)
-app.get('/crm', (req: Request, res: Response, next: NextFunction) => {
-  // On CRM hostname, let the SPA handle it (React Router → /dashboard → /login)
-  const CRM_HOSTS_LIST = ['crm.growthescalators.com'];
-  if (CRM_HOSTS_LIST.includes(req.hostname)) return next();
-  res.redirect(302, '/crm/login');
+// Legacy redirect: old `/crm/<path>` URLs (bookmarks, Slack messages, emails)
+// → bare `/<path>`. The CRM is now served at root on crm.growthescalators.com,
+// so the `/crm/` prefix is no longer canonical. Strip it and 301 forever.
+app.get('/crm', (_req: Request, res: Response) => {
+  res.redirect(301, '/');
 });
-
-// ---------------------------------------------------------------------------
-// Path-based: /crm and /crm/* on any host
-app.use('/crm', express.static(adminDist));
-app.get('/crm/{*path}', (_req: Request, res: Response) => {
-  res.sendFile(path.join(adminDist, 'index.html'));
+app.get('/crm/{*path}', (req: Request, res: Response) => {
+  const stripped = req.originalUrl.replace(/^\/crm/, '') || '/';
+  res.redirect(301, stripped);
 });
 
 // Hostname-based: crm.growthescalators.com at root

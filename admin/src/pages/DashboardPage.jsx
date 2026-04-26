@@ -185,8 +185,8 @@ export default function DashboardPage() {
   const loadStats = useCallback(async () => {
     try {
       const [contactData, dealData, billingData, pipelineData] = await Promise.all([
-        apiFetch('/contacts?limit=1').catch(() => null),
-        apiFetch('/deals?limit=1').catch(() => null),
+        apiFetch('/api/contacts?limit=1').catch(() => null),
+        apiFetch('/api/deals?limit=1').catch(() => null),
         apiFetch('/api/billing/stats').catch(() => null),
         apiFetch('/api/deals/pipeline-summary').catch(() => null),
       ]);
@@ -375,7 +375,7 @@ export default function DashboardPage() {
                   </div>
                 )}
                 <div className="mt-3 text-right">
-                  <a href="/crm/intelligence" className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
+                  <a href="/intelligence" className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
                     View full AI Intelligence report →
                   </a>
                 </div>
@@ -417,8 +417,8 @@ export default function DashboardPage() {
                 [1, 2, 3, 4].map(i => <div key={i} className="h-24 bg-white rounded-xl border border-slate-200 animate-pulse" />)
               ) : (
                 <>
-                  <StatCard icon={Users} title="Total Contacts" value={fmtNum(contacts)} color="text-slate-900" onClick={() => window.location.href = '/crm/contacts'} />
-                  <StatCard icon={TrendingUp} title="Active Deals" value={fmtNum(deals)} sub={dealsInProposal > 0 ? `${dealsInProposal} in proposal` : null} color="text-green-600" onClick={() => window.location.href = '/crm/pipeline'} />
+                  <StatCard icon={Users} title="Total Contacts" value={fmtNum(contacts)} color="text-slate-900" onClick={() => window.location.href = '/contacts'} />
+                  <StatCard icon={TrendingUp} title="Active Deals" value={fmtNum(deals)} sub={dealsInProposal > 0 ? `${dealsInProposal} in proposal` : null} color="text-green-600" onClick={() => window.location.href = '/pipeline'} />
                   <StatCard icon={DollarSign} title="Monthly MRR" value={fmtINR(mrr)} color="text-sky-600" />
                   <StatCard icon={Receipt} title="Outstanding" value={fmtINR(outstanding)} sub={overdueCount > 0 ? `${overdueCount} overdue` : 'None overdue'} color="text-amber-600" alert={overdueCount > 0} />
                 </>
@@ -430,11 +430,11 @@ export default function DashboardPage() {
           <section>
             <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Pipeline & Growth</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <StatCard icon={Target} title="Pipeline Value" value={fmtINR(pipelineValue)} color="text-indigo-600" onClick={() => window.location.href = '/crm/pipeline'} />
+              <StatCard icon={Target} title="Pipeline Value" value={fmtINR(pipelineValue)} color="text-indigo-600" onClick={() => window.location.href = '/pipeline'} />
               {isAdmin && (
                 <>
-                  <StatCard icon={Target} title="Outreach Leads" value={fmtNum(outreachTotal)} sub={outreachInterested > 0 ? `${outreachInterested} interested` : null} color="text-purple-600" onClick={() => window.location.href = '/crm/outreach-dashboard'} />
-                  <StatCard icon={Search} title="SEO Clients" value={seoClients} color="text-emerald-600" onClick={() => window.location.href = '/crm/seo'} />
+                  <StatCard icon={Target} title="Outreach Leads" value={fmtNum(outreachTotal)} sub={outreachInterested > 0 ? `${outreachInterested} interested` : null} color="text-purple-600" onClick={() => window.location.href = '/outreach-dashboard'} />
+                  <StatCard icon={Search} title="SEO Clients" value={seoClients} color="text-emerald-600" onClick={() => window.location.href = '/seo'} />
                   <StatCard icon={Activity} title="System Health" value={cronHealth?.overallScore != null ? `${cronHealth.overallScore}/100` : '—'} sub={cronFailedCount > 0 ? `${cronFailedCount}/${cronTotal} crons unhealthy` : `${cronTotal} crons healthy`} color={cronFailedCount > 0 ? 'text-amber-600' : 'text-green-600'} alert={cronFailedCount > 2} />
                 </>
               )}

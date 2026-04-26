@@ -194,7 +194,7 @@ export async function promoteInterestedLead(leadId: number): Promise<void> {
   await sendSlackDM(SLACK_JATIN,
     `🔥 *HOT LEAD: ${lead.company}* from ${lead.country ?? 'Unknown'} replied INTERESTED to white-label outreach.\n` +
     `Email: ${lead.email}\n` +
-    `CRM: https://web-production-311da.up.railway.app/crm/contacts\n` +
+    `CRM: https://crm.growthescalators.com/contacts\n` +
     `Reply within 2 hours for best conversion.`,
   ).catch(() => {});
 }

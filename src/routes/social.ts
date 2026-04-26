@@ -460,7 +460,7 @@ oauthRouter.get('/facebook/callback', async (req: Request, res: Response) => {
   const code = req.query.code as string;
   const state = req.query.state as string;
 
-  if (!code) { res.redirect('/crm/social?error=no_code'); return; }
+  if (!code) { res.redirect('/social?error=no_code'); return; }
 
   try {
     // Decode state
@@ -472,14 +472,14 @@ oauthRouter.get('/facebook/callback', async (req: Request, res: Response) => {
 
     const appId = process.env.META_APP_ID;
     const appSecret = process.env.META_APP_SECRET;
-    if (!appId || !appSecret) { res.redirect('/crm/social?error=config'); return; }
+    if (!appId || !appSecret) { res.redirect('/social?error=config'); return; }
 
     const redirectUri = 'https://web-production-311da.up.railway.app/api/social/oauth/facebook/callback';
 
     // Exchange code for short-lived token
     const tokenRes = await fetch(`https://graph.facebook.com/v19.0/oauth/access_token?client_id=${appId}&client_secret=${appSecret}&redirect_uri=${encodeURIComponent(redirectUri)}&code=${code}`);
     const tokenData = await tokenRes.json() as { access_token?: string; error?: Record<string, string> };
-    if (!tokenData.access_token) { res.redirect('/crm/social?error=token_exchange'); return; }
+    if (!tokenData.access_token) { res.redirect('/social?error=token_exchange'); return; }
 
     // Exchange for long-lived token
     const llRes = await fetch(`https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${tokenData.access_token}`);
@@ -543,7 +543,7 @@ oauthRouter.get('/facebook/callback', async (req: Request, res: Response) => {
       const tenantResult = await db.execute(sql`SELECT id FROM tenants WHERE slug = 'growth-escalators' LIMIT 1`);
       tenantId = (tenantResult.rows[0] as Record<string,string> | undefined)?.id || null;
     }
-    if (!tenantId) { res.redirect('/crm/social?error=no_tenant'); return; }
+    if (!tenantId) { res.redirect('/social?error=no_tenant'); return; }
 
     let fbCount = 0;
     let igCount = 0;
@@ -616,9 +616,9 @@ oauthRouter.get('/facebook/callback', async (req: Request, res: Response) => {
       }
     }
 
-    res.redirect(`/crm/social?connected=true&pages=${fbCount}&instagram=${igCount}`);
+    res.redirect(`/social?connected=true&pages=${fbCount}&instagram=${igCount}`);
   } catch (e) {
     logger.error('[social oauth] callback error:', e);
-    res.redirect('/crm/social?error=callback_failed');
+    res.redirect('/social?error=callback_failed');
   }
 });

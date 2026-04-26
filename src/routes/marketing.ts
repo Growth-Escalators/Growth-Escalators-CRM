@@ -93,7 +93,7 @@ router.post('/accounts/:id/request-removal', requirePermission('MARKETING_VIEW')
 
     // Slack DM to Jatin
     await sendSlackDM(SLACK_MEMBERS.jatin,
-      `⚠️ *Ad account removal requested*\n\n*Account:* ${acct.accountName} (${acct.accountId})\n*Requested by:* ${userName}\n\nApprove at /crm/marketing`);
+      `⚠️ *Ad account removal requested*\n\n*Account:* ${acct.accountName} (${acct.accountId})\n*Requested by:* ${userName}\n\nApprove at /marketing`);
 
     await logAuditEvent(userId, tenantId, 'REQUEST_REMOVAL', 'ad_account', accountId, { accountName: acct.accountName }, req);
     res.json({ success: true });
