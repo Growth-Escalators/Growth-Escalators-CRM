@@ -276,7 +276,7 @@ function AddDealModal({ pipelineId, stageName, onAdded, onClose }) {
     if (search.length < 2) { setContacts([]); return; }
     setSearching(true);
     const t = setTimeout(async () => {
-      const d = await apiFetch(`/contacts?search=${encodeURIComponent(search)}&limit=10`);
+      const d = await apiFetch(`/api/contacts?search=${encodeURIComponent(search)}&limit=10`);
       setContacts(d?.contacts ?? []);
       setSearching(false);
     }, 300);
@@ -427,7 +427,7 @@ function DealDetailSlideIn({ dealId, onClose, onViewContact, onUpdated }) {
   const [editValues, setEditValues] = useState(null); // null = not editing
 
   const loadActivities = useCallback(async () => {
-    const acts = await apiFetch(`/deals/${dealId}/activities`);
+    const acts = await apiFetch(`/api/deals/${dealId}/activities`);
     setActivities(Array.isArray(acts) ? acts : []);
   }, [dealId]);
 
@@ -436,8 +436,8 @@ function DealDetailSlideIn({ dealId, onClose, onViewContact, onUpdated }) {
     setLoading(true);
     setLoadError(null);
     Promise.all([
-      apiFetch(`/deals/${dealId}`),
-      apiFetch(`/deals/${dealId}/activities`),
+      apiFetch(`/api/deals/${dealId}`),
+      apiFetch(`/api/deals/${dealId}/activities`),
     ]).then(([d, acts]) => {
       setDeal(d);
       setActivities(Array.isArray(acts) ? acts : []);
@@ -450,7 +450,7 @@ function DealDetailSlideIn({ dealId, onClose, onViewContact, onUpdated }) {
   async function addNote() {
     if (!noteText.trim()) return;
     setAddingNote(true);
-    await apiFetch(`/deals/${dealId}/activities`, {
+    await apiFetch(`/api/deals/${dealId}/activities`, {
       method: 'POST',
       body: JSON.stringify({ note: noteText, activityType: 'note' }),
     });
@@ -473,7 +473,7 @@ function DealDetailSlideIn({ dealId, onClose, onViewContact, onUpdated }) {
   async function saveEdit() {
     if (!editValues) return;
     setAddingNote(true); // reuse spinner state
-    await apiFetch(`/deals/${dealId}`, {
+    await apiFetch(`/api/deals/${dealId}`, {
       method: 'PATCH',
       body: JSON.stringify({
         ...(editValues.deal_value !== '' ? { dealValue: Number(editValues.deal_value) } : {}),
@@ -486,8 +486,8 @@ function DealDetailSlideIn({ dealId, onClose, onViewContact, onUpdated }) {
     });
     // Re-fetch deal
     const [d, acts] = await Promise.all([
-      apiFetch(`/deals/${dealId}`),
-      apiFetch(`/deals/${dealId}/activities`),
+      apiFetch(`/api/deals/${dealId}`),
+      apiFetch(`/api/deals/${dealId}/activities`),
     ]);
     setDeal(d);
     setActivities(Array.isArray(acts) ? acts : []);
@@ -794,7 +794,7 @@ export default function PipelinePage() {
     let deal = null;
     for (const s of kanbanStages) { deal = s.deals.find((d) => d.id === dealId); if (deal) break; }
     if (!deal) return;
-    await apiFetch(`/deals/${dealId}`, {
+    await apiFetch(`/api/deals/${dealId}`, {
       method: 'PATCH',
       body: JSON.stringify({ metadata: { ...(deal.metadata ?? {}), archived } }),
     });
@@ -833,7 +833,7 @@ export default function PipelinePage() {
       return;
     }
     applyMove(deal, fromStage, toStage, destination.index);
-    await apiFetch(`/deals/${draggableId}`, {
+    await apiFetch(`/api/deals/${draggableId}`, {
       method: 'PATCH',
       body: JSON.stringify({ stage: toStage }),
     });
@@ -844,7 +844,7 @@ export default function PipelinePage() {
     const { deal, fromStage, toStage, destIndex } = wonLostModal;
     setWonLostModal(null);
     applyMove(deal, fromStage, toStage, destIndex ?? 0);
-    await apiFetch(`/deals/${deal.id}`, {
+    await apiFetch(`/api/deals/${deal.id}`, {
       method: 'PATCH',
       body: JSON.stringify({
         stage: toStage,

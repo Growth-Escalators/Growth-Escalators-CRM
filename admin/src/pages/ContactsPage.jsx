@@ -156,13 +156,13 @@ function AddContactModal({ onClose, onCreated }) {
       // Add channels
       const channelPs = [];
       if (form.phone.trim()) {
-        channelPs.push(apiFetch(`/contacts/${contact.id}/channels`, {
+        channelPs.push(apiFetch(`/api/contacts/${contact.id}/channels`, {
           method: 'POST',
           body: JSON.stringify({ channelType: 'whatsapp', channelValue: form.phone.trim(), isPrimary: true }),
         }));
       }
       if (form.email.trim()) {
-        channelPs.push(apiFetch(`/contacts/${contact.id}/channels`, {
+        channelPs.push(apiFetch(`/api/contacts/${contact.id}/channels`, {
           method: 'POST',
           body: JSON.stringify({ channelType: 'email', channelValue: form.email.trim(), isPrimary: true }),
         }));
@@ -649,7 +649,7 @@ export default function ContactsPage() {
     }
 
     try {
-      const data = await apiFetch(`/contacts?${params}`);
+      const data = await apiFetch(`/api/contacts?${params}`);
       if (data) {
         setContacts(data.contacts ?? []);
         setTotal(data.total ?? 0);

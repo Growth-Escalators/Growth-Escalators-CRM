@@ -168,11 +168,11 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
 
   useEffect(() => {
     if (!id) return;
-    apiFetch(`/contacts/${id}`).then((d) => {
+    apiFetch(`/api/contacts/${id}`).then((d) => {
       if (d?.contact) setContact((prev) => ({ ...prev, ...d.contact }));
       if (d?.channels) setChannels(d.channels);
     });
-    apiFetch(`/deals?contactId=${id}&limit=20`).then((d) => {
+    apiFetch(`/api/deals?contactId=${id}&limit=20`).then((d) => {
       if (d?.deals) setDeals(d.deals);
     });
   }, [id]);
@@ -181,7 +181,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
     if (!id) return;
     setConvLoading(true);
     try {
-      const d = await apiFetch(`/contacts/${id}/conversation`);
+      const d = await apiFetch(`/api/contacts/${id}/conversation`);
       if (d?.items) setConversation(d.items);
     } catch { /* API error — stop spinner */ }
     finally { setConvLoading(false); }
@@ -195,7 +195,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
     if (!id) return;
     setNotesLoading(true);
     try {
-      const d = await apiFetch(`/contacts/${id}/notes`);
+      const d = await apiFetch(`/api/contacts/${id}/notes`);
       if (d?.notes) setNotes(d.notes);
     } catch { /* API error — stop spinner */ }
     finally { setNotesLoading(false); }
@@ -226,7 +226,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
   }, [onClose]);
 
   async function patchContact(updates) {
-    const updated = await apiFetch(`/contacts/${id}`, {
+    const updated = await apiFetch(`/api/contacts/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(updates),
     });
@@ -236,7 +236,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
   async function addNote() {
     if (!noteInput.trim()) return;
     setAddingNote(true);
-    await apiFetch(`/contacts/${id}/notes`, {
+    await apiFetch(`/api/contacts/${id}/notes`, {
       method: 'POST',
       body: JSON.stringify({ content: noteInput.trim(), createdBy: 'jatin' }),
     });
@@ -248,7 +248,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
 
   async function saveEditNote() {
     if (!editNoteContent.trim() || !editNoteId) return;
-    await apiFetch(`/contacts/${id}/notes/${editNoteId}`, {
+    await apiFetch(`/api/contacts/${id}/notes/${editNoteId}`, {
       method: 'PATCH',
       body: JSON.stringify({ content: editNoteContent.trim() }),
     });
@@ -258,7 +258,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
   }
 
   async function deleteNote(noteId) {
-    await apiFetch(`/contacts/${id}/notes/${noteId}`, { method: 'DELETE' });
+    await apiFetch(`/api/contacts/${id}/notes/${noteId}`, { method: 'DELETE' });
     loadNotes();
   }
 
