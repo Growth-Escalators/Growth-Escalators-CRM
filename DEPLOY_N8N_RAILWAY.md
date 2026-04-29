@@ -59,9 +59,14 @@ Click **Deploy** on the n8n service to apply the environment variables.
 
 ### Step 7 — Open n8n UI
 Go to: `https://[your-n8n-url]/`
-Login with:
-- Username: `admin`
-- Password: `***REDACTED-ROTATED-2026-07-23***`
+
+> **Note (2026-04-29):** Basic auth was disabled. n8n now uses **user-management mode** (login is email + password against the `user` table in the n8n Postgres). Current owner login:
+> - Email: `jatin@growthescalators.com`
+> - Password: stored in 1Password — not in this repo
+>
+> If locked out: reset via SQL on the `Postgres-vfMc` service — `UPDATE public."user" SET email=..., password=<bcrypt-hash> WHERE "roleSlug"='global:owner'`. Note the column is `roleSlug` (not `role`) in n8n 2.18+.
+>
+> The `N8N_BASIC_AUTH_*` env vars below are kept for reference but are inactive (`N8N_BASIC_AUTH_ACTIVE=false` on the live service).
 
 ### Step 8 — Import Workflows
 1. In n8n, click **Workflows** (left sidebar)
