@@ -58,7 +58,6 @@ import { ensureOutreachLeadsTable } from './services/outreachLeadsService';
 import analyticsRouter from './routes/analytics';
 import whatsappTemplatesRouter from './routes/whatsappTemplates';
 import linksRouter from './routes/links';
-import postizRouter from './routes/postiz';
 import intelligenceChatRouter from './routes/intelligenceChat';
 import clientDetailRouter from './routes/clientDetail';
 import selfServiceRouter from './routes/selfService';
@@ -75,7 +74,7 @@ const app = express();
 // ---------------------------------------------------------------------------
 app.use(helmet({
   contentSecurityPolicy: false, // CRM frontend loads inline scripts
-  crossOriginEmbedderPolicy: false, // Allow embedding (Postiz, n8n iframes)
+  crossOriginEmbedderPolicy: false, // Allow embedding (n8n iframes)
 }));
 
 // ---------------------------------------------------------------------------
@@ -177,7 +176,6 @@ app.use('/api/whatsapp', requireAuth, whatsappTemplatesRouter);
 app.use('/api/outreach/imap', imapRepliesRouter);
 app.use('/api/outreach/leads', optionalAuth, outreachLeadsRouter);
 app.use('/api/links', requireAuth, linksRouter);
-app.use('/api/postiz', requireAuth, postizRouter);
 app.use('/api/intelligence', requireAuth, intelligenceChatRouter);
 app.use('/api/clients', requireAuth, clientDetailRouter);
 app.use('/api/self-service', requireAuth, selfServiceRouter);

@@ -141,11 +141,6 @@ export default function Sidebar() {
                 <Share2 className="w-4 h-4" /> Social
               </NavLink>
             )}
-            {canSocial && (
-              <NavLink to="/postiz" className={navClass}>
-                <Send className="w-4 h-4" /> Social (Postiz)
-              </NavLink>
-            )}
             {isAdmin && (
               <NavLink to="/outreach-dashboard" className={navClass}>
                 <Target className="w-4 h-4" /> Outreach
