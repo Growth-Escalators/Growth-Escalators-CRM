@@ -1,6 +1,6 @@
 # GE Outreach n8n Workflows
 
-Five workflows for the Growth Escalators white-label agency outreach system.
+Six workflows for the Growth Escalators white-label agency outreach system.
 
 ## Workflows
 
@@ -8,11 +8,6 @@ Five workflows for the Growth Escalators white-label agency outreach system.
 **File:** `wf-01-lead-enrichment.json`
 **Trigger:** Every 5 minutes
 Picks up leads with status=`New` from the Active sheet, finds emails via Hunter.io (with Snov.io fallback), generates AI icebreakers via Claude Haiku, deduplicates, adds to Saleshandy sequence, and updates the sheet to `Active`.
-
-### WF-02 — Reply Handler (DEACTIVATED — superseded by WF-02B)
-**File:** `wf-02-reply-handler.json`
-**Trigger:** ~~Webhook POST from Saleshandy~~
-**Status: INACTIVE.** Saleshandy Starter plan does not support webhooks (requires Pro at $99/mo). Replaced by WF-02B. Do not reactivate.
 
 ### WF-02B — Reply Poller (IMAP)
 **File:** `wf-02b-reply-poller.json`
@@ -85,8 +80,8 @@ After importing, open any workflow with a Google Sheets node:
 
 Get passwords from Purelymail dashboard → Domains → each domain → Mailboxes → the password you set when creating each mailbox.
 
-### 4. WF-02B IMAP Setup (replaces WF-02 webhook)
-WF-02B is already imported and **active** in n8n. Old WF-02 is deactivated.
+### 4. WF-02B IMAP Setup
+WF-02B is already imported and **active** in n8n.
 
 To make it work end-to-end:
 1. Set all `PURELYMAIL_PASS_*` env vars in the Railway **web service** (not n8n)
@@ -101,7 +96,7 @@ The backend endpoint (`/api/outreach/imap/fetch-replies`) handles:
 - Marking emails as Seen in IMAP immediately after reading
 
 ### 5. Activate All Workflows
-Toggle each workflow to **Active** in the n8n UI (WF-02B is already active, WF-02 should remain inactive).
+Toggle each workflow to **Active** in the n8n UI (WF-02B is already active).
 
 ---
 
@@ -146,6 +141,5 @@ n8n: Switch → 6 branches
 ## Notes
 - **SALESHANDY_WEBHOOK_SECRET** is no longer needed — remove it from Railway env vars
 - The `outreach_processed_replies` table auto-creates on backend startup
-- WF-02 (old webhook version) is preserved in n8n for reference but deactivated
 - If an inbox has no password set, the backend skips it silently and logs a warning
 - TrulyInbox warm-up emails are identified by the string `Phone_N0:` in the body — these are always marked as seen and skipped
