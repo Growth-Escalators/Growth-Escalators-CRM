@@ -7,6 +7,7 @@
 | `api.growthescalators.com` | REST API (`src/index.ts`) | Railway | `web` service |
 | `crm.growthescalators.com` | Admin CRM SPA (mounted at `/crm`) | Railway | `web` service (same as API) |
 | `ecom.growthescalators.com` | D2C landing pages + Cashfree payments | Vercel | `client/` directory |
+| `content.growthescalators.com` | Content-creation app (Sheets-backed) | Vercel | `ge-content-frontend` repo |
 
 ## Webhook URLs (give these to external services)
 
@@ -32,4 +33,4 @@ Hosted separately on Railway. URL is in `SEO_AUTOMATION_HANDOFF.md` / `docs/seo/
 ## Notes
 
 - `consulting.growthescalators.com` is **not in use** — if you see it in CORS config (`src/index.ts`), it can be removed.
-- The Railway-generated URL `web-production-311da.up.railway.app` may still resolve but custom domains (`api.*`, `crm.*`) are canonical.
+- `web-production-311da.up.railway.app` — Railway-generated URL. Cannot confirm current status (not visible in dashboard); treat `api.*` and `crm.*` as canonical and update any hardcoded references to this URL when found.
