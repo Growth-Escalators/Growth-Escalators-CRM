@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { applyCors } from '../../_lib/cors';
-import { proxyGet } from '../../_lib/proxy';
+import { applyCors } from '../../_lib/cors.js';
+import { proxyGet } from '../../_lib/proxy.js';
 import ecomConfig from '../../../src/data/funnelConfigs/ecom.json';
 import doctorsConfig from '../../../src/data/funnelConfigs/doctors.json';
 import realEstateConfig from '../../../src/data/funnelConfigs/real-estate.json';

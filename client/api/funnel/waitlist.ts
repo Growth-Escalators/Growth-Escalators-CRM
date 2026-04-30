@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { applyCors } from '../_lib/cors';
-import { enqueue } from '../_lib/queue';
+import { applyCors } from '../_lib/cors.js';
+import { enqueue } from '../_lib/queue.js';
 
 interface WaitlistBody {
   name?: string;

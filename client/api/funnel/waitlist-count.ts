@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { applyCors } from '../_lib/cors';
-import { proxyGet } from '../_lib/proxy';
+import { applyCors } from '../_lib/cors.js';
+import { proxyGet } from '../_lib/proxy.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
   if (applyCors(req, res)) return;

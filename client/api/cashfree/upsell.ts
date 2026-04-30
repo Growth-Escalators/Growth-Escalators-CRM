@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { applyCors } from '../_lib/cors';
-import { cashfreeBaseUrl, cashfreeHeaders } from '../_lib/cashfree';
+import { applyCors } from '../_lib/cors.js';
+import { cashfreeBaseUrl, cashfreeHeaders } from '../_lib/cashfree.js';
 
 interface UpsellBody {
   orderId?: string;

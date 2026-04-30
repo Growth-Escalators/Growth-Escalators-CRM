@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { applyCors } from '../_lib/cors';
-import { proxyGet } from '../_lib/proxy';
+import { applyCors } from '../_lib/cors.js';
+import { proxyGet } from '../_lib/proxy.js';
 
 const SIMULATED = [
   { name: 'Rahul', city: 'Bengaluru', minutes_ago: 4 },
