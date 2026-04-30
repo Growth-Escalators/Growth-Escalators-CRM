@@ -1,0 +1,21 @@
+{
+  "slug": "doctors",
+  "name": "Doctors Funnel",
+  "base_price": 9,
+  "bump1_price": 199,
+  "bump2_price": 499,
+  "bump1_label": "Patient Acquisition Playbook",
+  "bump2_label": "30-min Practice Audit Call",
+  "product_name": "Doctor Marketing Breakdown Pack",
+  "main_pdf_url": "https://pub-42526281354a42f3879bd56bed4ad62b.r2.dev/5%20Winning%20D2C%20Brands.pdf",
+  "hero_headline": "How Top Indian Clinics Fill Their Calendar with Patients on Demand",
+  "hero_subheadline": "The exact patient-acquisition framework used by top private clinics across India",
+  "cta_text": "Get Instant Access for ₹9",
+  "accent_color": "#0EA5E9",
+  "segment_options": [
+    { "id": "solo_practice", "label": "Solo Practice", "subtitle": "I run my own clinic", "icon": "🩺" },
+    { "id": "multi_doc", "label": "Multi-doctor Clinic", "subtitle": "I manage marketing for multiple doctors", "icon": "🏥" },
+    { "id": "marketer", "label": "Healthcare Marketer", "subtitle": "I market for clinics professionally", "icon": "📈" }
+  ],
+  "post_purchase_route": "/consulting"
+}

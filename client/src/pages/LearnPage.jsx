@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import PurchaseToast from '../components/PurchaseToast';
+import { apiUrl } from '../services/api';
 
 const CURRICULUM = [
   { week: 'Week 1', title: 'D2C Funnel Fundamentals', desc: 'TOF/MOF/BOF architecture, ad-to-landing synergy, and offer framing' },
@@ -33,12 +34,17 @@ export default function LearnPage() {
     }
   }, []);
 
-  // Fetch current waitlist count on mount
+  // Fetch current waitlist count on mount — non-critical, swallow errors so
+  // the page still functions if the API is unreachable.
   useEffect(() => {
-    fetch('/api/funnel/waitlist-count')
-      .then((r) => r.json())
-      .then((d) => setCount(d.count ?? null))
-      .catch(() => {});
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 5000);
+    fetch(apiUrl('/api/funnel/waitlist-count'), { signal: ctrl.signal })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d) setCount(d.count ?? null); })
+      .catch(() => { /* hide counter on error */ })
+      .finally(() => clearTimeout(t));
+    return () => { clearTimeout(t); ctrl.abort(); };
   }, []);
 
   async function handleSubmit(e) {
@@ -49,7 +55,7 @@ export default function LearnPage() {
 
     setLoading(true);
     try {
-      const res = await fetch('/api/funnel/waitlist', {
+      const res = await fetch(apiUrl('/api/funnel/waitlist'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name.trim(), email: email.trim(), source: 'learn_page' }),

@@ -5,6 +5,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { createServer } from 'http';
 import express, { type Request, type Response, type NextFunction } from 'express';
+import cors from 'cors';
 import helmet from 'helmet';
 import { Server as SocketServer } from 'socket.io';
 // Migrations run via dist/scripts/migrate.js at startup (see railway.json)
@@ -54,6 +55,7 @@ import { ensureFunnelConfigTable, ensureDeliveryLogTable, seedDefaultFunnelConfi
 import { ensurePipelineContactsTable, ensureOutreachPipelines } from './services/pipelineService';
 import outreachLeadsRouter from './routes/outreachLeads';
 import { ensureOutreachLeadsTable } from './services/outreachLeadsService';
+import leadsRouter from './routes/leads';
 // Workers and cron jobs now run via src/worker.ts (see railway.json)
 import analyticsRouter from './routes/analytics';
 import whatsappTemplatesRouter from './routes/whatsappTemplates';
@@ -75,6 +77,31 @@ const app = express();
 app.use(helmet({
   contentSecurityPolicy: false, // CRM frontend loads inline scripts
   crossOriginEmbedderPolicy: false, // Allow embedding (n8n iframes)
+}));
+
+// CORS — landing pages live on a separate host (Vercel: ecom.growthescalators.com)
+// and call this API cross-origin. Edge functions (Vercel /api/*) also call back
+// when forwarding queue events.
+const ALLOWED_ORIGINS = new Set([
+  'https://crm.growthescalators.com',
+  'https://ecom.growthescalators.com',
+  'https://consulting.growthescalators.com',
+  ...(process.env.CORS_EXTRA_ORIGIN ? [process.env.CORS_EXTRA_ORIGIN] : []),
+  ...(process.env.NODE_ENV !== 'production'
+    ? ['http://localhost:5173', 'http://localhost:3000']
+    : []),
+]);
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true); // server-to-server, curl, mobile
+    if (ALLOWED_ORIGINS.has(origin)) return cb(null, true);
+    // Allow Vercel preview deploys (*.vercel.app) so PR previews can hit the API
+    if (/^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin)) return cb(null, true);
+    return cb(new Error(`origin ${origin} not allowed`));
+  },
+  credentials: false,
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'X-Edge-Token'],
 }));
 
 // ---------------------------------------------------------------------------
@@ -183,6 +210,7 @@ app.use('/api/tasks', requireAuth, tasksRouter);
 app.use('/api/task-lists', requireAuth, taskListsRouter);
 app.use('/api/team', requireAuth, teamRouter);
 app.use('/api/funnel', funnelRouter);
+app.use('/api/leads', leadsRouter);
 // Public funnel config endpoint (no auth — used by checkout frontend)
 app.get('/api/funnel-configs/public/:slug', (req, res, next) => { funnelConfigRouter(req, res, next); });
 app.use('/api/funnel-configs', requireAuth, funnelConfigRouter);
@@ -224,10 +252,10 @@ app.post('/api/feedback', requireAuth, async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // Static frontend — hostname-based routing
 // ---------------------------------------------------------------------------
-const clientDist = path.join(__dirname, '..', 'public', 'client');
+// `clientDist` (D2C landing pages) was removed when the SPA moved to Vercel.
+// Admin SPA still ships from this process for crm.growthescalators.com.
 const adminDist  = path.join(__dirname, '..', 'public', 'admin');
 
-console.log('Client dist:', clientDist);
 console.log('Admin dist:', adminDist);
 
 const CRM_HOSTS = ['crm.growthescalators.com'];
@@ -291,12 +319,18 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   }
 });
 
-// D2C client SPA (ecom.growthescalators.com + Railway domain)
-app.use(express.static(clientDist));
-
-app.get('/{*path}', (req: Request, res: Response, next: NextFunction) => {
-  if (API_PREFIXES.some((p) => req.path.startsWith(p))) return next();
-  res.sendFile(path.join(clientDist, 'index.html'));
+// D2C landing pages now live on Vercel at ecom.growthescalators.com — see
+// `client/api/*` and `client/vercel.json`. Express no longer serves the SPA.
+// We keep one fallback route for the bare Railway domain so health probes and
+// stray bookmarks get a clear answer instead of the API 404 handler.
+app.get('/', (_req: Request, res: Response, next: NextFunction) => {
+  if (CRM_HOSTS.includes(_req.hostname) || CONSULTING_HOSTS.includes(_req.hostname)) return next();
+  res.json({
+    service: 'growth-escalators-api',
+    status: 'ok',
+    landing_pages: 'https://ecom.growthescalators.com',
+    crm: 'https://crm.growthescalators.com',
+  });
 });
 
 // ---------------------------------------------------------------------------

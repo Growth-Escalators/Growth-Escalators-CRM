@@ -1,3 +1,5 @@
+import { apiUrl } from './api';
+
 interface PaymentParams {
   name: string;
   email: string;
@@ -20,8 +22,10 @@ export async function initiateCashfreePayment(params: PaymentParams): Promise<vo
   const fbp = getCookie('_fbp');
   const fbc = getCookie('_fbc');
 
-  // 1. Create order on backend
-  const res = await fetch('/api/cashfree/create-order', {
+  // 1. Create order — Vercel edge function calls Cashfree directly so this
+  // stays available even if Railway is dead. Edge fn also queues a
+  // 'pending_order' for the CRM to materialise when it's back online.
+  const res = await fetch(apiUrl('/api/cashfree/create-order'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Check, Star, ArrowRight, ShieldCheck, TrendingUp, Zap, BookOpen, Users, Lock, ChevronDown, ChevronUp, Eye, Target, Lightbulb } from 'lucide-react';
 import StickyFooter from '../components/common/StickyFooter';
+import { apiUrl } from '../services/api';
 
 // Simple hook: calls callback once when ref enters viewport
 function useInView(ref, threshold = 0.2) {
@@ -33,9 +34,10 @@ const LandingPage = () => {
     const navigate = useNavigate();
     const [showSticky, setShowSticky] = useState(false);
 
-    // ── Silent page-view beacon to backend ──
+    // ── Silent page-view beacon. Vercel edge handles this via Upstash queue
+    // so it stays available even if Railway is offline. ──
     useEffect(() => {
-        fetch('/webhooks/tally', {
+        fetch(apiUrl('/webhooks/tally'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

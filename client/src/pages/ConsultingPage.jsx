@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import PurchaseToast from '../components/PurchaseToast';
+import { apiUrl } from '../services/api';
 
 const JATIN_PHOTO_URL = 'https://pub-42526281354a42f3879bd56bed4ad62b.r2.dev/public/jatin-profile.png';
 
@@ -69,7 +70,7 @@ export default function ConsultingPage() {
   async function handleUpsell() {
     setUpsellLoading(true);
     try {
-      const res = await fetch('/api/cashfree/upsell', {
+      const res = await fetch(apiUrl('/api/cashfree/upsell'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ orderId, bumpId: 2, email, phone: '', name }),

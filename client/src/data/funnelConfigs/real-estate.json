@@ -1,0 +1,20 @@
+{
+  "slug": "real-estate",
+  "name": "Real Estate Funnel",
+  "base_price": 9,
+  "bump1_price": 199,
+  "bump2_price": 499,
+  "bump1_label": "Lead-Gen Ad Templates Pack",
+  "bump2_label": "Site-Tour Conversion Audit Call",
+  "product_name": "Real Estate Funnel Breakdown Pack",
+  "hero_headline": "How India's Top Real Estate Brokers Run Their Lead-Gen Funnels",
+  "hero_subheadline": "Get the exact lead capture + nurture sequence that fills site-tour calendars on autopilot",
+  "cta_text": "Get Instant Access for ₹9",
+  "accent_color": "#10B981",
+  "segment_options": [
+    { "id": "broker", "label": "I run a Brokerage", "subtitle": "I sell projects directly to buyers", "icon": "🏢" },
+    { "id": "developer", "label": "I work for a Developer", "subtitle": "I market new launches", "icon": "🏗️" },
+    { "id": "marketer", "label": "Real Estate Marketer", "subtitle": "I market property for clients", "icon": "📣" }
+  ],
+  "post_purchase_route": "/consulting"
+}
