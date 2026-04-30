@@ -22,6 +22,8 @@
 
 ## Cashfree integration gotchas (API v2023-08-01)
 
+When changing any Cashfree code path, invoke the `ge-cashfree-edge` skill — it walks the canonical workflow.
+
 - Webhook event-type field is `body.type` — **NOT** `body.event_type`. The processor and edge `webhook.ts` accept either, but emit `type` going forward.
 - Custom order data (segment, bumps, UTMs, fbp/fbc) **must** go in `order_tags` (Map\<string,string\>, preserved verbatim in webhooks). `order_meta` only preserves standard keys (`return_url`, `notify_url`, `payment_methods`) — anything else is silently dropped. See `client/api/cashfree/create-order.ts`.
 - The processor reads from BOTH `order_tags` (new) and `order_meta` (legacy fallback) so in-flight orders made before this fix still process correctly.
