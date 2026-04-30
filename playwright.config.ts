@@ -10,7 +10,7 @@ export default defineConfig({
   timeout: 30000,
 
   use: {
-    baseURL: process.env.E2E_BASE_URL || 'https://web-production-311da.up.railway.app',
+    baseURL: process.env.E2E_BASE_URL || 'https://crm.growthescalators.com',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
