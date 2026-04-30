@@ -28,7 +28,7 @@ curl https://api.growthescalators.com/stats    # production row counts
 
 ## n8n (SEO automation)
 
-Hosted separately on Railway. URL is in `SEO_AUTOMATION_HANDOFF.md` / `docs/seo/automation-handoff.md`.
+Hosted separately on Railway. URL is in [`docs/seo/automation-handoff.md`](seo/automation-handoff.md).
 
 ## Notes
 
