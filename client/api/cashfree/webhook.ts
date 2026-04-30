@@ -58,8 +58,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
   const data = body.data as { payment?: { cf_payment_id?: string; payment_status?: string }; order?: { order_id?: string } } | undefined;
   const cfPaymentId = data?.payment?.cf_payment_id;
   const orderId = data?.order?.order_id;
-  const eventType = body.event_type as string | undefined;
+  // Cashfree API v2023-08-01 sends `type`; older payloads / our tests use `event_type`.
+  // Accept either; normalize on `type` for the queued payload so the drainer stays happy.
+  const eventType = (body.type as string | undefined) ?? (body.event_type as string | undefined);
   const paymentStatus = data?.payment?.payment_status;
+  if (eventType && !body.event_type) {
+    (body as Record<string, unknown>).event_type = eventType;
+  }
 
   console.log('[edge webhook] received', { eventType, paymentStatus, orderId, cfPaymentId });
 

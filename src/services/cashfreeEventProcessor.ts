@@ -7,8 +7,10 @@ import { getFunnelConfig, stageForAmount, labelForStage, renderTemplate } from '
 import logger from '../utils/logger';
 
 // Shape of the Cashfree webhook body we care about.
+// Cashfree API v2023-08-01 uses `type`; older payloads use `event_type`. Accept both.
 export interface CashfreeWebhookBody {
   event_type?: string;
+  type?: string;
   data?: {
     order?: {
       order_id?: string;
@@ -55,7 +57,8 @@ export async function processCashfreeEvent(
 ): Promise<ProcessResult> {
   const fireSideEffects = opts.fireSideEffects ?? true;
 
-  if (body.event_type !== 'PAYMENT_SUCCESS_WEBHOOK' || body.data?.payment?.payment_status !== 'SUCCESS') {
+  const eventType = body.type ?? body.event_type;
+  if (eventType !== 'PAYMENT_SUCCESS_WEBHOOK' || body.data?.payment?.payment_status !== 'SUCCESS') {
     return { ok: true, status: 'skipped', reason: 'not a success event' };
   }
 
