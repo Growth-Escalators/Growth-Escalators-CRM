@@ -712,7 +712,7 @@ async function countRows(tableName: string): Promise<number> {
 }
 
 async function triggerWebhook(webhookPath: string): Promise<{ status: number; body: string }> {
-  return httpReq(`https://web-production-311da.up.railway.app${webhookPath}`, {
+  return httpReq(`https://api.growthescalators.com${webhookPath}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: '{}',
