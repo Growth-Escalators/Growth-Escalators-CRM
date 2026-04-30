@@ -140,11 +140,17 @@ export async function processCashfreeEvent(
   const existingTags = (existingContact[0]?.tags ?? []) as string[];
   const newTags = [...new Set([...existingTags, 'slo_buyer', `funnel:${funnelSlug}`, segment, ...products])];
 
+  // Bump lastActivityAt so repeat buyers surface at the top of the CRM contact
+  // list (sorted by lastActivityAt DESC). Without this, an existing contact
+  // making a fresh purchase wouldn't visually move — the buy would still
+  // create a new deal + event row, but the contact list ordering would lie.
+  const now = new Date();
   await db.update(contacts).set({
     status: 'prospect',
     tags: newTags,
     metadata: { ...existingMeta, paymentStatus: 'paid', paidAmount: orderAmount, segment, bump1, bump2, products, funnelSlug, ...utmData },
-    updatedAt: new Date(),
+    updatedAt: now,
+    lastActivityAt: now,
   }).where(eq(contacts.id, contact.id));
 
   const serviceType = funnelConfig?.service_type || 'ecom';

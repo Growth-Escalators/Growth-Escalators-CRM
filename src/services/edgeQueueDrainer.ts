@@ -220,18 +220,21 @@ async function dispatch(event: QueueEvent): Promise<void> {
         metadata: { ...(p.metadata || {}), agencyName: p.agencyName, adSpend: p.adSpend },
       });
 
+      // Always bump lastActivityAt so the contact bubbles to the top of the
+      // CRM list on any new lead activity (even a repeat waitlist signup with
+      // no new tags). Tag merging is conditional — but the activity stamp is not.
       const baseTags = event.type === 'agency_lead' ? ['agency_lead', 'whitelabel_inquiry'] : [];
       const userTags = Array.isArray(p.tags) ? p.tags : [];
       const merged = [...new Set([...baseTags, ...userTags])];
-      if (merged.length > 0) {
-        const existing = await db.select().from(contacts).where(eq(contacts.id, contact.id)).limit(1);
-        const existingTags = (existing[0]?.tags ?? []) as string[];
-        await db.update(contacts).set({
-          tags: [...new Set([...existingTags, ...merged])],
-          status: 'lead',
-          updatedAt: new Date(),
-        }).where(eq(contacts.id, contact.id));
-      }
+      const now = new Date();
+      const existing = await db.select().from(contacts).where(eq(contacts.id, contact.id)).limit(1);
+      const existingTags = (existing[0]?.tags ?? []) as string[];
+      await db.update(contacts).set({
+        tags: merged.length > 0 ? [...new Set([...existingTags, ...merged])] : existingTags,
+        status: 'lead',
+        updatedAt: now,
+        lastActivityAt: now,
+      }).where(eq(contacts.id, contact.id));
 
       if (event.type === 'agency_lead') {
         sendSlackMessage(process.env.SLACK_SOD_EOD_CHANNEL || 'C08EMRX2HHN',

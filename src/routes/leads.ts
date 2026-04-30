@@ -60,10 +60,12 @@ router.post('/agency', async (req: Request, res: Response): Promise<void> => {
     const existing = await db.select().from(contacts).where(eq(contacts.id, contact.id)).limit(1);
     const existingTags = (existing[0]?.tags ?? []) as string[];
     const newTags = [...new Set([...existingTags, 'agency_lead', 'whitelabel_inquiry'])];
+    const now = new Date();
     await db.update(contacts).set({
       status: 'lead',
       tags: newTags,
-      updatedAt: new Date(),
+      updatedAt: now,
+      lastActivityAt: now,
     }).where(eq(contacts.id, contact.id));
 
     // Slack ping (fire-and-forget — never block the response)
