@@ -1,0 +1,42 @@
+# Conventions
+
+## Code organisation
+
+- **Routes** (`src/routes/*`) are thin Express handlers: validate → call service → return JSON. No business logic here.
+- **Services** (`src/services/*`) own DB access, third-party calls, and orchestration. Services are testable; routes mostly aren't.
+- When adding a feature: write the service first, write a vitest test, then wire the route handler.
+
+## Constants
+
+**`src/config/constants.ts`** holds Slack channel/user IDs, the default tenant slug (`DEFAULT_TENANT_SLUG`), and all magic-number defaults.
+
+Do not sprinkle string literals in service or route files — pull from constants so changes are one edit.
+
+## Multi-tenancy
+
+Almost every DB query is tenant-scoped. When adding a new table, include `tenant_id` with the matching foreign key. Default slug: `growth-escalators` (`DEFAULT_TENANT_SLUG` in `src/config/constants.ts`).
+
+## Logging
+
+**Pino** structured logs throughout. Do not add `console.log` to production paths — use a Pino child logger.
+
+Worker startup uses `console.log` for boot-ordering visibility. That is the only exception.
+
+## Contact normalisation (invariants)
+
+`findOrCreateContact` does an exact match on `(channel_type, channel_value)`. Always normalise before passing in:
+
+- email → `.trim().toLowerCase()`
+- phone → strip non-digits, then prefix `91` if missing
+
+`lastActivityAt` **must** be bumped on every contact write. The CRM contacts list sorts by `lastActivityAt DESC, createdAt DESC` (`src/routes/contacts.ts:70`); without the bump, repeat buyers stay buried.
+
+Current paths that do this: `cashfreeEventProcessor`, `edgeQueueDrainer` lead handler, `routes/leads.ts`. Add the bump to any new contact-touching path.
+
+## Commit style
+
+Each commit should represent one coherent unit: fix, feature, or refactor — not all three. Message format: `type(scope): short description`.
+
+## Testing
+
+`npm test` runs vitest. Tests must pass before every commit. `npm run build` must exit 0 before pushing (type errors block Railway deploy).
