@@ -8,6 +8,8 @@ import logger from '../utils/logger';
 
 // Shape of the Cashfree webhook body we care about.
 // Cashfree API v2023-08-01 uses `type`; older payloads use `event_type`. Accept both.
+// Custom fields (segment, bumps, UTMs) live in order_tags (preserved by Cashfree)
+// — order_meta is also accepted for backwards compat with in-flight orders.
 export interface CashfreeWebhookBody {
   event_type?: string;
   type?: string;
@@ -16,6 +18,7 @@ export interface CashfreeWebhookBody {
       order_id?: string;
       order_amount?: number;
       order_meta?: Record<string, unknown>;
+      order_tags?: Record<string, unknown>;
     };
     payment?: {
       payment_status?: string;
@@ -66,24 +69,33 @@ export async function processCashfreeEvent(
   if (!cfPaymentId) return { ok: true, status: 'skipped', reason: 'missing cf_payment_id' };
 
   const orderAmount = body.data?.order?.order_amount ?? 0;
+  // Cashfree returns custom fields in order_tags. Older orders / fallback
+  // path uses order_meta. Merge so we read from whichever is populated.
+  const orderTags = (body.data?.order?.order_tags ?? {}) as Record<string, unknown>;
   const orderMeta = (body.data?.order?.order_meta ?? {}) as Record<string, unknown>;
+  const meta: Record<string, unknown> = { ...orderMeta, ...orderTags };
+  const truthy = (v: unknown): boolean => v === true || v === 'true' || v === 1 || v === '1';
+  const str = (v: unknown): string | undefined => {
+    if (v === undefined || v === null || v === '') return undefined;
+    return String(v);
+  };
   const customerDetails = body.data?.customer_details ?? {};
   const phone = customerDetails.customer_id ?? '';
   const email = customerDetails.customer_email ?? '';
   const name = customerDetails.customer_name ?? '';
-  const segment = (orderMeta.segment as string) || 'unknown';
-  const bump1 = Boolean(orderMeta.bump1);
-  const bump2 = Boolean(orderMeta.bump2);
-  const fbpCookie = (orderMeta.fbp as string) || undefined;
-  const fbcCookie = (orderMeta.fbc as string) || undefined;
-  const funnelSlug = (orderMeta.funnelSlug as string) || 'ecom';
+  const segment = str(meta.segment) || 'unknown';
+  const bump1 = truthy(meta.bump1);
+  const bump2 = truthy(meta.bump2);
+  const fbpCookie = str(meta.fbp);
+  const fbcCookie = str(meta.fbc);
+  const funnelSlug = str(meta.funnelSlug) || 'ecom';
 
   const utmData = {
-    utm_source: (orderMeta.utm_source as string) || null,
-    utm_medium: (orderMeta.utm_medium as string) || null,
-    utm_campaign: (orderMeta.utm_campaign as string) || null,
-    utm_content: (orderMeta.utm_content as string) || null,
-    utm_term: (orderMeta.utm_term as string) || null,
+    utm_source: str(meta.utm_source) ?? null,
+    utm_medium: str(meta.utm_medium) ?? null,
+    utm_campaign: str(meta.utm_campaign) ?? null,
+    utm_content: str(meta.utm_content) ?? null,
+    utm_term: str(meta.utm_term) ?? null,
   };
 
   // Idempotency check (before any writes). Wrap in try/catch so a transient DB
@@ -216,13 +228,29 @@ export async function processCashfreeEvent(
   const slackEmoji = funnelConfig?.slack_emoji || '💰';
   const slackLabel = funnelConfig?.slack_label || 'New Purchase';
   const slackChannel = funnelConfig?.slack_channel || process.env.SLACK_SOD_EOD_CHANNEL || 'C08EMRX2HHN';
+
+  // Resolve human-friendly product names from the funnel config so the alert
+  // shows e.g. "D2C Funnel Breakdown Pack + Advanced D2C Growth Kit" instead
+  // of internal slugs like "core_product, growth_kit".
+  const productLabels: string[] = [funnelConfig?.product_name || productLabel];
+  if (bump1 && funnelConfig?.bump1_label) productLabels.push(funnelConfig.bump1_label);
+  if (bump2 && funnelConfig?.bump2_label) productLabels.push(funnelConfig.bump2_label);
+
+  // Resolve segment label (e.g. "I run a D2C Brand") from segment_options.
+  let segmentLabel = segment;
+  const segmentOptions = funnelConfig?.segment_options;
+  if (Array.isArray(segmentOptions)) {
+    const match = segmentOptions.find((o: { id?: string }) => o?.id === segment);
+    if (match?.label) segmentLabel = `${match.label} (${segment})`;
+  }
+
   sendSlackMessage(slackChannel,
     `${slackEmoji} *${slackLabel}!*\n` +
     `• Funnel: ${funnelConfig?.name || funnelSlug}\n` +
     `• Name: ${name}\n` +
     `• Amount: ₹${orderAmount}\n` +
-    `• Segment: ${segment}\n` +
-    `• Products: ${products.join(', ')}\n` +
+    `• Segment: ${segmentLabel}\n` +
+    `• Products: ${productLabels.join(' + ')}\n` +
     `• Phone: ${phone || 'N/A'} | Email: ${email || 'N/A'}`,
   ).catch(() => {});
 

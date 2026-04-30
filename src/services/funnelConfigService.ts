@@ -386,6 +386,12 @@ export interface FunnelConfig {
   slack_emoji: string;
   slack_label: string;
   service_type: string;
+  segment_options?: Array<{ id: string; label: string; subtitle?: string; icon?: string }> | null;
+  brand_names?: string[] | null;
+  hero_headline?: string | null;
+  hero_subheadline?: string | null;
+  cta_text?: string | null;
+  accent_color?: string | null;
   created_at: string;
   updated_at: string;
 }
