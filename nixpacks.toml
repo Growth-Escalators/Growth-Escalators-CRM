@@ -1,0 +1,13 @@
+[phases.setup]
+nixPkgs = ['nodejs_20', 'npm-9_x', 'openssl']
+
+[phases.install]
+# Use `npm install --legacy-peer-deps` instead of the default `npm ci` because
+# our lockfile has occasional cross-platform esbuild variant gaps after
+# regenerating on macOS. `npm install` resolves those at install time; `npm ci`
+# refuses to and exits 1. The downside (slightly slower install + lockfile may
+# drift) is acceptable for this repo's deploy cadence.
+cmds = ['npm install --legacy-peer-deps --include=dev']
+
+[phases.build]
+cmds = ['npm run build']
