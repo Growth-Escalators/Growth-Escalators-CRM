@@ -72,6 +72,26 @@ Tests **must** pass before commit. Type errors in `npm run build` block deploy.
 - API now lives at `api.growthescalators.com` (separate Railway custom domain). CORS is configured in `src/index.ts` to allow `ecom.*`, `crm.*`, `consulting.*`, `localhost:*`, and `*.vercel.app` previews.
 - Full setup runbook: `docs/landing-page-resilience.md`.
 
+### Cashfree integration gotchas (API v2023-08-01)
+- Webhook event-type field is `body.type` — NOT `body.event_type`. The processor and edge `webhook.ts` accept either, but emit `type` going forward.
+- Custom order data (segment, bumps, UTMs, fbp/fbc) MUST go in `order_tags` (Map<string,string>, preserved verbatim in webhooks). `order_meta` only preserves the standard keys (`return_url`, `notify_url`, `payment_methods`) — anything else gets silently dropped. See `client/api/cashfree/create-order.ts`.
+- The processor reads from BOTH `order_tags` (new) and `order_meta` (legacy fallback), so in-flight orders made before this fix still process correctly.
+
+### Contact dedup invariants
+- `findOrCreateContact` does an EXACT match on `(channel_type, channel_value)`. Always normalize before passing in:
+  - email → `.trim().toLowerCase()`
+  - phone → strip non-digits, then prefix `91` if missing
+- `lastActivityAt` MUST be bumped on every contact write. The CRM contacts list sorts by `lastActivityAt DESC, createdAt DESC` (`src/routes/contacts.ts:70`); without the bump, repeat buyers stay buried. All three current paths do this — `cashfreeEventProcessor`, `edgeQueueDrainer` lead handler, `routes/leads.ts`. Don't forget if you add a new contact-touching path.
+
+### Vercel edge function gotchas (`client/api/**`)
+- `client/package.json` has `"type": "module"` (Vite needs this), so Vercel runs edge functions in Node ESM mode. **Relative imports MUST include `.js` extensions** (TypeScript with `moduleResolution: "bundler"` allows this — it resolves to `.ts` at typecheck time but the path matches the runtime `.js`).
+- Importing JSON in edge functions requires `with { type: 'json' }` import attributes that TypeScript strips. Do NOT bundle JSON configs in edge functions — the client SPA already bundles them at build time. Have edge proxies fail soft (`{ ok: false, config: null }`) and let `useFunnelConfig.js` keep its bundled fallback.
+- 10s function timeout on Vercel Hobby. Don't fire-and-forget after sending the response — if the side-effect needs to definitely complete, `await` it before responding. (Known leaky: `pending_order` enqueue in `create-order.ts`. Low impact — the actual contact creation goes through the webhook path which is fully reliable.)
+
+### Railway build gotchas
+- Railway IGNORES the `nixpacksPlan` field embedded in `railway.json` / `railway.worker.json`. Use the root-level `nixpacks.toml` instead — Nixpacks reads it natively and respects it.
+- Nixpacks defaults to `npm ci` with `NODE_ENV=production` which SKIPS devDependencies. Either keep build-time tools (typescript, etc.) in `dependencies`, or override the install phase in `nixpacks.toml` to `npm install --include=dev`. The current setup does both for safety.
+
 ### Multi-tenant
 The system is multi-tenant by `tenants.slug`. The default slug `growth-escalators` lives in `src/config/constants.ts` as `DEFAULT_TENANT_SLUG`. Almost every query is tenant-scoped — when adding new tables, include `tenant_id` and the constraint to match.
 
