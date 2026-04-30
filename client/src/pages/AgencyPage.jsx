@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { apiUrl } from '../services/api';
 
 export default function AgencyPage() {
   const [form, setForm] = useState({ name: '', agencyName: '', email: '', phone: '', adSpend: '' });
@@ -14,7 +15,7 @@ export default function AgencyPage() {
     setError('');
     if (!form.name || !form.email || !form.phone) { setError('Please fill all required fields'); return; }
     try {
-      const res = await fetch('/api/leads/agency', {
+      const res = await fetch(apiUrl('/api/leads/agency'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),

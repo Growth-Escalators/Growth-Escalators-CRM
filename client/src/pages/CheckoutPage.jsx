@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { initiateCashfreePayment } from '../services/cashfree';
 import { useFunnelConfig } from '../hooks/useFunnelConfig';
+import { apiUrl } from '../services/api';
 
 // ---------------------------------------------------------------------------
 // Fallback constants (used if config loading fails)
@@ -61,12 +62,16 @@ export default function CheckoutPage() {
   useEffect(() => {
     const fetchTicker = async () => {
       try {
-        const res = await fetch('/api/funnel/recent-purchase');
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 4000);
+        const res = await fetch(apiUrl('/api/funnel/recent-purchase'), { signal: ctrl.signal });
+        clearTimeout(t);
+        if (!res.ok) return;
         const data = await res.json();
         if (data.name && data.city && data.minutes_ago) {
           setTickerData({ name: data.name, city: data.city, minutesAgo: Math.max(1, Math.round(data.minutes_ago)) });
         }
-      } catch { /* keep current */ }
+      } catch { /* keep current — fall back to TICKER_NAMES rotation */ }
     };
 
     fetchTicker();

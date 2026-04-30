@@ -8,6 +8,7 @@ import { sql } from 'drizzle-orm';
 import { startStuckJobWorker } from './workers/stuckJobWorker';
 import { startSequenceWorker } from './workers/sequenceWorker';
 import { startSocialPostWorker } from './workers/socialPostWorker';
+import { startEdgeQueueDrainer, stopEdgeQueueDrainer } from './services/edgeQueueDrainer';
 import { checkAndAlertBlockers } from './services/blockerAlertService';
 import { generateMonthlyDraftInvoices } from './services/recurringInvoiceService';
 import { sendSODDigest, sendEODSummary, sendSakhamSOD } from './services/sodEodService';
@@ -74,6 +75,9 @@ pool.query(`
 startStuckJobWorker();
 startSequenceWorker();
 startSocialPostWorker();
+// Drain landing-page events queued by Vercel edge functions when Railway was
+// unreachable. No-op if UPSTASH_REDIS_REST_URL/TOKEN are unset.
+startEdgeQueueDrainer().catch(e => console.error('[worker] edge drainer failed to start:', e));
 
 // ---------------------------------------------------------------------------
 // safeCron — wraps cron handlers with error catch, logging, overlap protection
@@ -1267,6 +1271,9 @@ const shutdown = async (signal: string) => {
   // 1. Clear all interval timers
   for (const id of _intervals) clearInterval(id);
   console.log(`[worker-shutdown] cleared ${_intervals.length} interval timer(s)`);
+
+  // Stop the edge queue drainer loop
+  stopEdgeQueueDrainer();
 
   // 2. Wait for in-flight cron jobs to finish (max 30 seconds)
   const runningJobs = [..._cronRunning.entries()].filter(([, v]) => v).map(([k]) => k);

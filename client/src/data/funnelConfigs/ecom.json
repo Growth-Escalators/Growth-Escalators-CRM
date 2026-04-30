@@ -1,0 +1,27 @@
+{
+  "slug": "ecom",
+  "name": "Ecom Funnel",
+  "base_price": 9,
+  "bump1_price": 199,
+  "bump2_price": 499,
+  "bump1_label": "Advanced D2C Growth Kit",
+  "bump2_label": "45-min Meta Ads Audit Call",
+  "product_name": "D2C Funnel Breakdown Pack",
+  "main_pdf_url": "https://pub-42526281354a42f3879bd56bed4ad62b.r2.dev/5%20Winning%20D2C%20Brands.pdf",
+  "bump1_pdf_url": "https://pub-42526281354a42f3879bd56bed4ad62b.r2.dev/Advanced%20D2C%20Growth%20Kit%20Latest.pdf",
+  "bump2_booking_url": "https://cal.com/growth-escalators/discovery-call",
+  "hero_headline": "See Exactly How India's Top 5 D2C Brands Build Their Funnels",
+  "hero_subheadline": "Get the exact funnel breakdown that helps Indian brands scale past ₹10L/month on Meta",
+  "cta_text": "Get Instant Access for ₹9",
+  "accent_color": "#F97316",
+  "segment_options": [
+    { "id": "d2c", "label": "I run a D2C Brand", "subtitle": "I sell products online and run Meta/Google ads", "icon": "🛍️" },
+    { "id": "agency", "label": "I run an Agency", "subtitle": "I manage performance marketing for clients", "icon": "🏢" },
+    { "id": "freelancer", "label": "I am a Freelancer", "subtitle": "I do performance marketing independently", "icon": "💻" }
+  ],
+  "brand_names": ["boAt", "GIVA", "Minimalist", "Libas", "SUGAR"],
+  "post_purchase_route": "/consulting",
+  "main_product_description": "PDF breaking down exactly what 5 winning D2C brands are doing on Meta right now",
+  "bump1_description": "Ad templates, landing page swipe file, Meta ads checklist, WA sequences",
+  "bump2_description": "Live Meta account review with Jatin — 3 specific fixes for your campaigns"
+}

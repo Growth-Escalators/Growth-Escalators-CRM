@@ -1,108 +1,93 @@
 import { useState, useEffect } from 'react';
+import ecomConfig from '../data/funnelConfigs/ecom.json';
+import doctorsConfig from '../data/funnelConfigs/doctors.json';
+import realEstateConfig from '../data/funnelConfigs/real-estate.json';
+import { apiUrl } from '../services/api';
+
+// Bundled configs ship with the build so the page can render immediately,
+// even if the API is unreachable. The hook upgrades to the live API config
+// in the background when available — but never blocks first paint on it.
+const BUNDLED_CONFIGS = {
+  ecom: ecomConfig,
+  doctors: doctorsConfig,
+  'real-estate': realEstateConfig,
+};
 
 /**
  * Hook to fetch and cache funnel configuration.
  * Determines funnel slug from:
- *   1. window.__FUNNEL_SLUG__ (injected by Express via hostname)
+ *   1. window.__FUNNEL_SLUG__ (injected by host platform if any)
  *   2. URL search param ?funnel=xxx
  *   3. Hostname detection (doctors.growthescalators.com → 'doctors')
- *   4. Fallback to 'ecom'
+ *   4. SessionStorage from previous load
+ *   5. Fallback to 'ecom'
  */
 export function useFunnelConfig() {
-  const [config, setConfig] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const slug = detectFunnelSlug();
+  const bundled = BUNDLED_CONFIGS[slug] || BUNDLED_CONFIGS.ecom;
+
+  // Initial state: bundled config + already-cached live config (if any).
+  const [config, setConfig] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem(`funnel_config_${slug}`);
+      const cacheTime = sessionStorage.getItem(`funnel_config_${slug}_ts`);
+      const CACHE_TTL = 30 * 60 * 1000;
+      if (cached && cacheTime && (Date.now() - parseInt(cacheTime)) < CACHE_TTL) {
+        return JSON.parse(cached);
+      }
+    } catch { /* ignore */ }
+    return bundled;
+  });
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const slug = detectFunnelSlug();
+    // Background refresh — non-blocking. If it fails (API down, CORS,
+    // network), we silently keep using the bundled / cached config.
+    let cancelled = false;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 5000);
 
-    // Check sessionStorage cache first (with TTL)
-    const cached = sessionStorage.getItem(`funnel_config_${slug}`);
-    const cacheTime = sessionStorage.getItem(`funnel_config_${slug}_ts`);
-    const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
-
-    if (cached && cacheTime && (Date.now() - parseInt(cacheTime)) < CACHE_TTL) {
-      try {
-        setConfig(JSON.parse(cached));
-        setLoading(false);
-        return;
-      } catch { /* cache corrupt, refetch */ }
-    }
-
-    fetch(`/api/funnel-configs/public/${slug}`)
-      .then(r => {
-        if (!r.ok) throw new Error(`Funnel "${slug}" not found`);
-        return r.json();
-      })
+    fetch(apiUrl(`/api/funnel-configs/public/${slug}`), { signal: ctrl.signal })
+      .then(r => (r.ok ? r.json() : null))
       .then(data => {
-        if (data.config) {
+        if (cancelled) return;
+        if (data && data.config) {
           setConfig(data.config);
-          sessionStorage.setItem(`funnel_config_${slug}`, JSON.stringify(data.config));
-          sessionStorage.setItem(`funnel_config_${slug}_ts`, String(Date.now()));
-          sessionStorage.setItem('ge_funnel_slug', slug);
-        } else {
-          throw new Error('No config returned');
+          try {
+            sessionStorage.setItem(`funnel_config_${slug}`, JSON.stringify(data.config));
+            sessionStorage.setItem(`funnel_config_${slug}_ts`, String(Date.now()));
+            sessionStorage.setItem('ge_funnel_slug', slug);
+          } catch { /* quota / private mode */ }
         }
       })
       .catch(err => {
-        console.warn('[useFunnelConfig] Failed to load config:', err.message);
-        setError(err.message);
-        // Use hardcoded ecom fallback so the page doesn't break
-        setConfig(getEcomFallback());
+        // Silent — bundled config keeps the page functional. Surface in dev only.
+        if (import.meta.env?.DEV) console.warn('[useFunnelConfig] live refresh failed:', err.message);
+        if (!cancelled) setError(err.message);
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; clearTimeout(timer); ctrl.abort(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { config, loading, error, slug: config?.slug || 'ecom' };
+  return { config, loading, error, slug: config?.slug || slug };
 }
 
 function detectFunnelSlug() {
-  // 1. Injected by Express
   if (typeof window !== 'undefined' && window.__FUNNEL_SLUG__) return window.__FUNNEL_SLUG__;
 
-  // 2. URL param
   const params = new URLSearchParams(window.location.search);
   if (params.get('funnel')) return params.get('funnel');
 
-  // 3. Hostname detection
   const hostname = window.location.hostname;
   if (hostname.startsWith('doctors')) return 'doctors';
   if (hostname.startsWith('realestate') || hostname.startsWith('real-estate')) return 'real-estate';
   if (hostname.startsWith('ecom')) return 'ecom';
 
-  // 4. SessionStorage from previous load
   const stored = sessionStorage.getItem('ge_funnel_slug');
   if (stored) return stored;
 
   return 'ecom';
-}
-
-function getEcomFallback() {
-  return {
-    slug: 'ecom',
-    name: 'Ecom Funnel',
-    base_price: 9,
-    bump1_price: 199,
-    bump2_price: 499,
-    bump1_label: 'Advanced D2C Growth Kit',
-    bump2_label: '45-min Meta Ads Audit Call',
-    product_name: 'D2C Funnel Breakdown Pack',
-    main_pdf_url: 'https://pub-42526281354a42f3879bd56bed4ad62b.r2.dev/5%20Winning%20D2C%20Brands.pdf',
-    bump1_pdf_url: 'https://pub-42526281354a42f3879bd56bed4ad62b.r2.dev/Advanced%20D2C%20Growth%20Kit%20Latest.pdf',
-    bump2_booking_url: 'https://cal.com/growth-escalators/discovery-call',
-    hero_headline: 'See Exactly How India\'s Top 5 D2C Brands Build Their Funnels',
-    hero_subheadline: 'Get the exact funnel breakdown that helps Indian brands scale past ₹10L/month on Meta',
-    cta_text: 'Get Instant Access for ₹9',
-    accent_color: '#F97316',
-    segment_options: [
-      { id: 'd2c', label: 'I run a D2C Brand', icon: '🛍️' },
-      { id: 'agency', label: 'I run an Agency', icon: '🏢' },
-      { id: 'freelancer', label: 'I am a Freelancer', icon: '💻' },
-    ],
-    brand_names: ['boAt', 'GIVA', 'Minimalist', 'Libas', 'SUGAR'],
-    post_purchase_route: '/consulting',
-    main_product_description: 'PDF breaking down exactly what 5 winning D2C brands are doing on Meta right now',
-    bump1_description: 'Ad templates, landing page swipe file, Meta ads checklist, WA sequences',
-    bump2_description: 'Live Meta account review with Jatin — 3 specific fixes for your campaigns',
-  };
 }
