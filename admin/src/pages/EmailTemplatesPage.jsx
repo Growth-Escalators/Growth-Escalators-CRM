@@ -132,7 +132,7 @@ function SendTestModal({ template, onClose }) {
   const vars = detectVariables((template.bodyText || '') + ' ' + (template.subject || ''));
   const [toEmail, setToEmail] = useState('jatin@growthescalators.com');
   const [varValues, setVarValues] = useState(() => {
-    const defaults = { firstName: 'Rahul', email: 'rahul@example.com', bookingUrl: 'https://web-production-311da.up.railway.app/book/d2c-strategy', appointmentTime: '10:00 AM IST, March 25', meetingLink: 'https://meet.google.com/example', companyName: 'Test Brand', followupNotes: 'We discussed Meta ads strategy' };
+    const defaults = { firstName: 'Rahul', email: 'rahul@example.com', bookingUrl: 'https://api.growthescalators.com/book/d2c-strategy', appointmentTime: '10:00 AM IST, March 25', meetingLink: 'https://meet.google.com/example', companyName: 'Test Brand', followupNotes: 'We discussed Meta ads strategy' };
     const obj = {};
     vars.forEach((v) => { obj[v] = defaults[v] || `sample_${v}`; });
     return obj;
