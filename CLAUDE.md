@@ -72,3 +72,4 @@ When the user mentions "content frontend" or "rendering workflow", work in the r
 2. `src/db/schema.ts` — every table
 3. `src/config/constants.ts` — magic numbers, channel IDs, tenant slug
 4. `CRM_SYSTEM_DOCS.md` — full narrative architecture overview
+5. `.claude/skills/` — workflow skills (`ge-add-route`, `ge-cashfree-edge`, etc.) — load by name when starting related work
