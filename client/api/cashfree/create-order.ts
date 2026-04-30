@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { applyCors } from '../_lib/cors';
-import { cashfreeBaseUrl, cashfreeHeaders } from '../_lib/cashfree';
-import { enqueue } from '../_lib/queue';
+import { applyCors } from '../_lib/cors.js';
+import { cashfreeBaseUrl, cashfreeHeaders } from '../_lib/cashfree.js';
+import { enqueue } from '../_lib/queue.js';
 
 interface CreateOrderBody {
   name?: string;

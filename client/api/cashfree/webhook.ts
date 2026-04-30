@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { applyCors } from '../_lib/cors';
-import { verifyCashfreeWebhook } from '../_lib/cashfree';
-import { enqueue, tryClaimWebhook, deadLetter } from '../_lib/queue';
+import { applyCors } from '../_lib/cors.js';
+import { verifyCashfreeWebhook } from '../_lib/cashfree.js';
+import { enqueue, tryClaimWebhook, deadLetter } from '../_lib/queue.js';
 
 // We need the raw body to verify Cashfree's signature. Vercel parses JSON by
 // default; opting out lets us read the original bytes.
