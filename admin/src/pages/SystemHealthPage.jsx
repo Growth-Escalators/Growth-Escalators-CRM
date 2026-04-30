@@ -220,7 +220,7 @@ export default function SystemHealthPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <ServiceCard
               name="Railway Backend"
-              url="web-production-311da.up.railway.app"
+              url="api.growthescalators.com"
               status={backend.status}
               metrics={[
                 { label: 'Uptime', value: backend.uptimeFormatted, color: 'green' },
