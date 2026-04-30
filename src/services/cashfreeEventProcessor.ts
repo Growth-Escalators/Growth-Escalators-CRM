@@ -134,10 +134,15 @@ export async function processCashfreeEvent(
   if (bump1 && (funnelConfig?.bump1_price || !funnelConfig)) products.push('growth_kit');
   if (bump2 && (funnelConfig?.bump2_price || !funnelConfig)) products.push('audit_call');
 
+  // Normalize for dedup: emails are case-insensitive (RFC 5321 §2.3.11 — local
+  // part is technically case-sensitive but in practice every mail server
+  // lowercases). Phones strip non-digits then prefix 91 if missing. Without
+  // this, "Jatin@x.com" and "jatin@x.com" become two separate contacts.
   const channels: { channelType: 'email' | 'whatsapp'; channelValue: string; isPrimary?: boolean }[] = [];
-  const normalizedPhone = phone ? (phone.startsWith('91') ? phone : `91${phone.replace(/\D/g, '')}`) : '';
+  const normalizedPhone = phone ? (phone.startsWith('91') ? phone.replace(/\D/g, '') : `91${phone.replace(/\D/g, '')}`) : '';
+  const normalizedEmail = email ? email.trim().toLowerCase() : '';
   if (normalizedPhone) channels.push({ channelType: 'whatsapp', channelValue: normalizedPhone });
-  if (email) channels.push({ channelType: 'email', channelValue: email, isPrimary: true });
+  if (normalizedEmail) channels.push({ channelType: 'email', channelValue: normalizedEmail, isPrimary: true });
   const parts = name.trim().split(' ');
   const firstName = parts[0] ?? name;
   const lastName = parts.slice(1).join(' ') || undefined;
