@@ -85,7 +85,6 @@ app.use(helmet({
 const ALLOWED_ORIGINS = new Set([
   'https://crm.growthescalators.com',
   'https://ecom.growthescalators.com',
-  'https://consulting.growthescalators.com',
   ...(process.env.CORS_EXTRA_ORIGIN ? [process.env.CORS_EXTRA_ORIGIN] : []),
   ...(process.env.NODE_ENV !== 'production'
     ? ['http://localhost:5173', 'http://localhost:3000']

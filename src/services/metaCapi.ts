@@ -209,7 +209,7 @@ export async function sendLeadEvent(params: {
     currency: 'INR',
     contentName: 'D2C Strategy Call',
     contentCategory: 'consultation',
-    eventSourceUrl: 'https://web-production-311da.up.railway.app/consulting',
+    eventSourceUrl: 'https://api.growthescalators.com/consulting',
   });
 }
 
