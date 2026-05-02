@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Bell, MessageSquarePlus, X, Send, Bug, Lightbulb, HelpCircle, CheckCircle } from 'lucide-react';
+import { Search, Bell, MessageSquarePlus, X, Send, Bug, Lightbulb, HelpCircle, CheckCircle, Menu } from 'lucide-react';
 import Breadcrumbs from './Breadcrumbs.jsx';
 import { getUser, apiFetch } from '../lib/api.js';
 
@@ -140,16 +140,27 @@ export default function TopBar({ onSearchOpen }) {
   const user = getUser();
 
   return (
-    <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-6 py-2.5 flex items-center gap-4">
-      {/* Left: breadcrumbs */}
-      <div className="flex-1 min-w-0">
+    <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-3 sm:px-6 py-2.5 flex items-center gap-2 sm:gap-4">
+      {/* Mobile hamburger */}
+      <button
+        onClick={() => window.dispatchEvent(new CustomEvent('toggleMobileSidebar'))}
+        className="md:hidden -ml-1 p-2 text-slate-600 hover:bg-slate-100 rounded-lg"
+        aria-label="Open menu"
+      >
+        <Menu className="w-5 h-5" />
+      </button>
+
+      {/* Left: breadcrumbs (hidden on small screens to save space) */}
+      <div className="hidden sm:block flex-1 min-w-0">
         <Breadcrumbs />
       </div>
+      <div className="flex-1 sm:hidden" />
 
       {/* Center: search trigger */}
       <button
         onClick={onSearchOpen}
-        className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 rounded-lg text-sm text-slate-500 hover:bg-slate-200 transition-colors"
+        className="flex items-center gap-2 px-2 sm:px-3 py-1.5 bg-slate-100 rounded-lg text-sm text-slate-500 hover:bg-slate-200 transition-colors"
+        aria-label="Search"
       >
         <Search className="w-4 h-4" />
         <span className="hidden sm:inline">Search…</span>
@@ -159,9 +170,9 @@ export default function TopBar({ onSearchOpen }) {
       </button>
 
       {/* Right: feedback + notifications + user */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1 sm:gap-2">
         <FeedbackWidget />
-        <button className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors">
+        <button className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors" aria-label="Notifications">
           <Bell className="w-4.5 h-4.5" />
         </button>
         <div className="flex items-center gap-2">

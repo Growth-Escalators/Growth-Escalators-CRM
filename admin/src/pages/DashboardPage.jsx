@@ -284,7 +284,7 @@ export default function DashboardPage() {
         <TopBar onSearchOpen={() => setSearchOpen(true)} />
         <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
 
-        <div className="p-6 space-y-6">
+        <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
           {/* Welcome + refresh */}
           <div className="flex items-center justify-between">
             <div>
@@ -342,14 +342,14 @@ export default function DashboardPage() {
                 AI Coaching Score
               </h2>
               <div className="bg-white rounded-xl border border-slate-200 p-5">
-                <div className="flex items-center gap-6 mb-4">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6 mb-4">
                   <div className="text-center">
                     <p className={`text-4xl font-black ${intelScore >= 70 ? 'text-emerald-600' : intelScore >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
                       {intelScore ?? '—'}
                     </p>
                     <p className="text-xs text-slate-500 mt-1">Overall</p>
                   </div>
-                  <div className="flex-1 grid grid-cols-4 gap-3">
+                  <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
                     {[
                       { label: 'Ads', score: coachingScore.ads, icon: BarChart2 },
                       { label: 'SEO', score: coachingScore.seo, icon: Search },
