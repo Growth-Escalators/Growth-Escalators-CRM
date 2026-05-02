@@ -149,6 +149,30 @@ async function safeCron(name: string, fn: () => Promise<unknown>, useAdvisoryLoc
 }
 
 // ---------------------------------------------------------------------------
+// seoCron — guard wrapper for SEO crons. SEO is paused unless the
+// SEO_ENABLED env var is set to 'true'. This keeps the code in place so we
+// can flip a single Railway env var to bring SEO back to life. See
+// SEO_PAUSED.md for the full inventory.
+// ---------------------------------------------------------------------------
+function isSeoEnabled(): boolean {
+  return process.env.SEO_ENABLED === 'true';
+}
+
+let _seoPausedLogged = false;
+function seoCron(name: string, fn: () => Promise<unknown>): () => Promise<void> {
+  return async () => {
+    if (!isSeoEnabled()) {
+      if (!_seoPausedLogged) {
+        console.log('[CRON] SEO crons paused — set SEO_ENABLED=true to re-enable');
+        _seoPausedLogged = true;
+      }
+      return;
+    }
+    return safeCron(name, fn);
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Cron jobs
 // ---------------------------------------------------------------------------
 
@@ -284,7 +308,8 @@ cron.schedule('0 3 * * *', () => safeCron('Daily Intelligence Report', async () 
 console.log('[cron] AI intelligence report scheduled — daily 8:30 AM IST');
 
 // SEO Workflow health check — daily 9:15 AM IST (3:45 UTC)
-cron.schedule('45 3 * * *', () => safeCron('SEO Workflow Health', async () => {
+// PAUSED unless SEO_ENABLED=true
+cron.schedule('45 3 * * *', seoCron('SEO Workflow Health', async () => {
   const { sendSlackMessage } = await import('./services/slackService');
   const health = await (await import('./services/intelligenceDataCollector')).collectSEOWorkflowHealth();
 
@@ -322,7 +347,7 @@ cron.schedule('45 3 * * *', () => safeCron('SEO Workflow Health', async () => {
 
   console.log(`[CRON] SEO health: ${health.healthyCount}/${health.totalCount} healthy`);
 }), { timezone: 'UTC' });
-console.log('[cron] SEO workflow health check scheduled — daily 9:15 AM IST');
+console.log('[cron] SEO workflow health check scheduled — daily 9:15 AM IST (gated on SEO_ENABLED)');
 
 // SEO Workflow Self-Healing — every 30 min, auto-retry failed n8n executions
 cron.schedule('*/30 * * * *', () => safeCron('Workflow Self-Healing', async () => {
@@ -909,11 +934,12 @@ console.log('[cron] Retainer invoice generator scheduled — daily 9:00 AM IST')
 // ---------------------------------------------------------------------------
 // SEO Weekly Email — Thursday 10:30 AM IST (5:00 UTC)
 // ---------------------------------------------------------------------------
-cron.schedule('0 5 * * 4', () => safeCron('SEO Weekly Email', async () => {
+// PAUSED unless SEO_ENABLED=true
+cron.schedule('0 5 * * 4', seoCron('SEO Weekly Email', async () => {
   const { sendSEOWeeklyEmail } = await import('./services/seoWeeklyEmailService');
   await sendSEOWeeklyEmail();
 }), { timezone: 'UTC' });
-console.log('[cron] SEO weekly email scheduled — Thursdays 10:30 AM IST');
+console.log('[cron] SEO weekly email scheduled — Thursdays 10:30 AM IST (gated on SEO_ENABLED)');
 
 // ---------------------------------------------------------------------------
 // Task 7: Weekly Outreach Performance Summary — Monday 8:00 AM IST (2:30 UTC)
@@ -929,7 +955,8 @@ console.log('[cron] Weekly outreach summary scheduled — Mondays 8:00 AM IST (2
 // Backend PageSpeed Monitor — Sunday 7:30 AM IST (2:00 UTC)
 // Bypasses n8n WF-SEO-05 which has a connection issue
 // ---------------------------------------------------------------------------
-cron.schedule('0 2 * * 0', () => safeCron('PageSpeed Monitor', async () => {
+// PAUSED unless SEO_ENABLED=true
+cron.schedule('0 2 * * 0', seoCron('PageSpeed Monitor', async () => {
   const startedAt = new Date();
   const { runPageSpeedChecks } = await import('./services/pagespeedService');
   const { logSeoWorkflowRun } = await import('./services/seoWorkflowHealthService');
@@ -951,7 +978,8 @@ cron.schedule('0 2 * * 0', () => safeCron('PageSpeed Monitor', async () => {
 console.log('[cron] PageSpeed monitor scheduled — Sundays 7:30 AM IST');
 
 // Rank Tracking via Serper.dev — Tuesday 9:00 AM IST (3:30 UTC)
-cron.schedule('30 3 * * 2', () => safeCron('Rank Tracking', async () => {
+// PAUSED unless SEO_ENABLED=true
+cron.schedule('30 3 * * 2', seoCron('Rank Tracking', async () => {
   const startedAt = new Date();
   const { runRankChecks } = await import('./services/rankTrackingService');
   const { logSeoWorkflowRun } = await import('./services/seoWorkflowHealthService');
@@ -973,7 +1001,8 @@ cron.schedule('30 3 * * 2', () => safeCron('Rank Tracking', async () => {
 console.log('[cron] Rank tracking scheduled — Tuesdays 9:00 AM IST (Serper.dev)');
 
 // SEO Alert Triggers — Daily 9 AM IST (3:30 UTC) — runs directly (no n8n dependency)
-cron.schedule('30 3 * * *', () => safeCron('SEO Alert Triggers', async () => {
+// PAUSED unless SEO_ENABLED=true
+cron.schedule('30 3 * * *', seoCron('SEO Alert Triggers', async () => {
   const startedAt = new Date();
   const { runSeoAlertChecks } = await import('./services/seoAlertService');
   const { logSeoWorkflowRun } = await import('./services/seoWorkflowHealthService');
@@ -995,7 +1024,8 @@ cron.schedule('30 3 * * *', () => safeCron('SEO Alert Triggers', async () => {
 console.log('[cron] SEO alert triggers scheduled — daily 9:00 AM IST (backend-native)');
 
 // SEO Backlink Monitor — Friday 9 AM IST (3:30 UTC) — runs directly via Serper.dev
-cron.schedule('30 3 * * 5', () => safeCron('SEO Backlink Monitor', async () => {
+// PAUSED unless SEO_ENABLED=true
+cron.schedule('30 3 * * 5', seoCron('SEO Backlink Monitor', async () => {
   const startedAt = new Date();
   const { runBacklinkCheck } = await import('./services/seoBacklinkService');
   const { logSeoWorkflowRun } = await import('./services/seoWorkflowHealthService');
@@ -1017,7 +1047,8 @@ cron.schedule('30 3 * * 5', () => safeCron('SEO Backlink Monitor', async () => {
 console.log('[cron] SEO backlink monitor scheduled — Fridays 9:00 AM IST (backend-native)');
 
 // SEO Content Decay Detection — Every Monday 9 AM IST (3:30 UTC) — runs directly
-cron.schedule('30 3 * * 1', () => safeCron('SEO Content Decay', async () => {
+// PAUSED unless SEO_ENABLED=true
+cron.schedule('30 3 * * 1', seoCron('SEO Content Decay', async () => {
   const startedAt = new Date();
   const { runContentDecayDetection } = await import('./services/seoContentDecayService');
   const { logSeoWorkflowRun } = await import('./services/seoWorkflowHealthService');
@@ -1039,7 +1070,8 @@ cron.schedule('30 3 * * 1', () => safeCron('SEO Content Decay', async () => {
 console.log('[cron] SEO content decay scheduled — Every Monday 9:00 AM IST (backend-native)');
 
 // SEO Weekly Opportunity Digest — Friday 5 PM IST (11:30 UTC) — sends via Slack directly
-cron.schedule('30 11 * * 5', () => safeCron('SEO Weekly Digest', async () => {
+// PAUSED unless SEO_ENABLED=true
+cron.schedule('30 11 * * 5', seoCron('SEO Weekly Digest', async () => {
   const startedAt = new Date();
   const { sendWeeklyOpportunityDigest } = await import('./services/seoDigestService');
   const { logSeoWorkflowRun } = await import('./services/seoWorkflowHealthService');
@@ -1062,7 +1094,8 @@ cron.schedule('30 11 * * 5', () => safeCron('SEO Weekly Digest', async () => {
 console.log('[cron] SEO weekly digest scheduled — Fridays 5:00 PM IST (backend-native)');
 
 // Competitor Content Analysis — 1st and 15th of each month at 9:00 AM IST (3:30 UTC)
-cron.schedule('30 3 1,15 * *', () => safeCron('Competitor Content Analysis', async () => {
+// PAUSED unless SEO_ENABLED=true (uses Claude API + scrapes competitor URLs)
+cron.schedule('30 3 1,15 * *', seoCron('Competitor Content Analysis', async () => {
   const { runCompetitorContentAnalysis } = await import('./services/competitorContentService');
   const result = await runCompetitorContentAnalysis();
   console.log(`[CRON] Competitor content: ${result.analyzed} keywords analyzed, ${result.errors} errors`);
@@ -1070,7 +1103,8 @@ cron.schedule('30 3 1,15 * *', () => safeCron('Competitor Content Analysis', asy
 console.log('[cron] Competitor content analysis scheduled — 1st & 15th of month at 9:00 AM IST');
 
 // SEO Content Gap Analysis — 15th of each month at 10 AM IST (4:30 UTC)
-cron.schedule('30 4 15 * *', () => safeCron('SEO Content Gap Analysis', async () => {
+// PAUSED unless SEO_ENABLED=true
+cron.schedule('30 4 15 * *', seoCron('SEO Content Gap Analysis', async () => {
   const { runContentGapAnalysis } = await import('./services/seoContentGapService');
   const result = await runContentGapAnalysis();
   console.log(`[CRON] Content gap analysis: ${result.gaps} gaps, ${result.opportunities} opportunities`);
