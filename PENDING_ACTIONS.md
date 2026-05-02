@@ -3,7 +3,7 @@
 Running checklist of things that **only Jatin can do** (require Railway
 dashboard, n8n UI, or a real laptop). Update this file after each session.
 
-Last updated: 2026-05-02
+Last updated: 2026-05-03
 
 ---
 
@@ -77,7 +77,40 @@ Everything done in these sessions sits on
 
 ---
 
-## 5. Optional — Railway hard usage cap
+## 5. Outreach — Phase 0 pause (in progress)
+
+Code changes shipped on `claude/railway-cost-analysis-EcW4z`. The 3 outbound
+crons (Daily Lead Discovery, Outreach Enrichment, Saleshandy Auto-Upload) are
+gated behind `OUTREACH_PAUSED` and will no-op once deployed. Reporting,
+funnel snapshot, CRM sync of late replies, and the n8n WF-02B reply poller
+all keep running. Still need to:
+
+- [ ] Set `OUTREACH_PAUSED=true` on the `GE-Worker` Railway service Variables
+      tab. Trigger redeploy. Verify with the log line
+      `[CRON] Outreach pipeline paused — unset OUTREACH_PAUSED to resume`.
+- [ ] Set `MAX_DAILY_UPLOADS=0` on the `GE-Worker` service as a belt-and-
+      braces second guard. (`OUTREACH_PAUSED=true` alone is enough; this is
+      a no-cost extra safety net.)
+- [ ] Pause **n8n WF-01 Lead Enrichment** on
+      `https://primary-production-6c6f5.up.railway.app`. WF-01 has its own
+      Saleshandy upload path independent of the worker. Open workflow →
+      toggle Active → Inactive. **Don't delete.**
+- [ ] In Saleshandy → Settings → Sender Accounts, for each of the 6
+      Purelymail inboxes: keep **Warmup ON**, set **Daily limit = 0**.
+      Inboxes stay warm without consuming capacity on bad copy.
+- [ ] Verify Saleshandy → Sequences → main sequence → Settings:
+      "Stop sending on reply" = ON (no change, just confirm).
+
+To resume after offer rewrite (Phase 3 of the plan):
+- Unset `OUTREACH_PAUSED` on Railway.
+- Set `MAX_DAILY_UPLOADS=50` (small pilot volume).
+- Re-activate n8n WF-01 only after deciding whether to keep it or fold its
+  path into the backend.
+- Bump Saleshandy daily limit per inbox back to 25 (then ramp per runbook).
+
+---
+
+## 6. Optional — Railway hard usage cap
 
 - [ ] Railway → Account → Usage → "Set limits" — set hard cap to ~$30/mo.
       Acts as a safety net while the side-tool deletions and SEO pause

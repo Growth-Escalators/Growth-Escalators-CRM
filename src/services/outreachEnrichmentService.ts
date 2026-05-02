@@ -209,8 +209,12 @@ export async function uploadToSaleshandy(): Promise<{ uploaded: number; errors: 
 
   // Daily cap safety-net: prevents a runaway enrichment surge from blowing
   // through a week of warmup capacity in one afternoon. Default 200/day;
-  // override via env MAX_DAILY_UPLOADS.
-  const maxDaily = Math.max(1, parseInt(process.env.MAX_DAILY_UPLOADS || '200', 10));
+  // override via env MAX_DAILY_UPLOADS. Setting to 0 fully halts uploads.
+  const maxDaily = Math.max(0, parseInt(process.env.MAX_DAILY_UPLOADS || '200', 10));
+  if (maxDaily === 0) {
+    logger.info('[saleshandy] MAX_DAILY_UPLOADS=0 — uploads halted');
+    return { uploaded: 0, errors: 0 };
+  }
   const todayRow = await pool.query(
     `SELECT leads_uploaded FROM outreach_funnel_daily WHERE snapshot_date = CURRENT_DATE LIMIT 1`,
   ).catch(() => ({ rows: [] as Array<{ leads_uploaded: number }> }));

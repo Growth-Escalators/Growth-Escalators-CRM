@@ -173,6 +173,31 @@ function seoCron(name: string, fn: () => Promise<unknown>): () => Promise<void> 
 }
 
 // ---------------------------------------------------------------------------
+// outreachCron — guard wrapper for outbound-pipeline crons (lead discovery,
+// enrichment, Saleshandy upload). Pause the whole pipeline by setting
+// OUTREACH_PAUSED=true. Reporting/cleanup crons (digest, funnel snapshot,
+// stuck-lead reset, CRM sync of late replies) keep running. The n8n
+// WF-02B reply poller is also unaffected. See PENDING_ACTIONS.md.
+// ---------------------------------------------------------------------------
+function isOutreachPaused(): boolean {
+  return process.env.OUTREACH_PAUSED === 'true';
+}
+
+let _outreachPausedLogged = false;
+function outreachCron(name: string, fn: () => Promise<unknown>): () => Promise<void> {
+  return async () => {
+    if (isOutreachPaused()) {
+      if (!_outreachPausedLogged) {
+        console.log('[CRON] Outreach pipeline paused — unset OUTREACH_PAUSED to resume');
+        _outreachPausedLogged = true;
+      }
+      return;
+    }
+    return safeCron(name, fn);
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Cron jobs
 // ---------------------------------------------------------------------------
 
@@ -617,7 +642,7 @@ console.log('[cron] Outreach daily digest — disabled (folded into evening summ
 // Outreach: backend enrichment — every 10 minutes
 // Bypasses n8n WF-01 and enriches leads directly from backend
 // ---------------------------------------------------------------------------
-const ENRICHMENT_INTERVAL = setInterval(() => safeCron('Outreach Enrichment', async () => {
+const ENRICHMENT_INTERVAL = setInterval(outreachCron('Outreach Enrichment', async () => {
   const { enrichStuckLeads } = await import('./services/outreachEnrichmentService');
   await enrichStuckLeads();
   // Task 6: check for INTERESTED leads unanswered >90 minutes
@@ -663,7 +688,7 @@ console.log('[cron] Audit booking follow-up scheduled — every 6 hours');
 // ---------------------------------------------------------------------------
 // Saleshandy auto-upload — every 15 minutes
 // ---------------------------------------------------------------------------
-const SALESHANDY_INTERVAL = setInterval(() => safeCron('Saleshandy Auto-Upload', async () => {
+const SALESHANDY_INTERVAL = setInterval(outreachCron('Saleshandy Auto-Upload', async () => {
   const { uploadToSaleshandy } = await import('./services/outreachEnrichmentService');
   await uploadToSaleshandy();
 }), 15 * 60_000);
@@ -806,7 +831,7 @@ const DISCOVERY_QUERIES = [
   { query: 'TikTok ads agency', location: 'Vancouver', country: 'CA' },
 ];
 
-cron.schedule('30 1 * * *', () => safeCron('Daily Lead Discovery', async () => {
+cron.schedule('30 1 * * *', outreachCron('Daily Lead Discovery', async () => {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) { console.log('[CRON] Discovery: GOOGLE_PLACES_API_KEY not set'); return; }
 
