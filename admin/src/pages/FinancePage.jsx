@@ -368,34 +368,34 @@ export default function FinancePage() {
   return (
     <div className="flex h-screen bg-slate-50">
       <Sidebar />
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto min-w-0">
         {/* Header */}
-        <div className="bg-white border-b border-slate-200 px-6 py-4">
-          <div className="flex items-center gap-4 flex-wrap">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-sky-500 flex items-center justify-center shadow-md">
+        <div className="bg-white border-b border-slate-200 px-3 sm:px-6 py-3 sm:py-4">
+          <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-sky-500 flex items-center justify-center shadow-md shrink-0">
                 <DollarSign className="w-4 h-4 text-white" />
               </div>
-              <div>
-                <h1 className="text-lg font-bold text-slate-900">Finance</h1>
-                <p className="text-xs text-slate-500">Expenses, income & P&L</p>
+              <div className="min-w-0">
+                <h1 className="text-base sm:text-lg font-bold text-slate-900">Finance</h1>
+                <p className="text-xs text-slate-500 truncate hidden sm:block">Expenses, income & P&L</p>
               </div>
             </div>
 
             {/* Month selector */}
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ml-auto flex items-center gap-1 sm:gap-2 shrink-0">
               <button onClick={prevMonth} className="p-1 hover:bg-slate-100 rounded"><ChevronLeft className="w-4 h-4 text-slate-500" /></button>
-              <span className="text-sm font-semibold text-slate-800 min-w-[120px] text-center">{monthLabel}</span>
+              <span className="text-xs sm:text-sm font-semibold text-slate-800 min-w-[90px] sm:min-w-[120px] text-center">{monthLabel}</span>
               <button onClick={nextMonth} className="p-1 hover:bg-slate-100 rounded"><ChevronRight className="w-4 h-4 text-slate-500" /></button>
             </div>
 
-            <button onClick={loadData} disabled={loading} className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50">
+            <button onClick={loadData} disabled={loading} className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50 shrink-0">
               <RefreshCw className={`w-4 h-4 text-slate-500 ${loading ? 'animate-spin' : ''}`} />
             </button>
           </div>
 
           {/* Tabs */}
-          <div className="flex gap-1 mt-3">
+          <div className="flex gap-1 mt-3 overflow-x-auto -mx-3 sm:mx-0 px-3 sm:px-0">
             {[
               { id: 'overview', label: 'Overview', icon: PieChart },
               { id: 'expenses', label: 'Expenses', icon: Receipt },
@@ -405,7 +405,7 @@ export default function FinancePage() {
               { id: 'categories', label: 'Categories', icon: Settings },
             ].map(t => (
               <button key={t.id} onClick={() => setActiveTab(t.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap shrink-0 ${
                   activeTab === t.id ? 'bg-sky-600 text-white' : 'text-slate-500 hover:bg-slate-100'
                 }`}>
                 <t.icon className="w-3.5 h-3.5" /> {t.label}
@@ -414,7 +414,7 @@ export default function FinancePage() {
           </div>
         </div>
 
-        <div className="p-6">
+        <div className="p-3 sm:p-6">
           {/* ── OVERVIEW TAB ── */}
           {activeTab === 'overview' && dashboard && (
             <div className="space-y-6">
@@ -433,14 +433,14 @@ export default function FinancePage() {
                     {dashboard.expensesByCategory.map((c, i) => {
                       const pct = dashboard.expenses > 0 ? Math.round((c.amount / dashboard.expenses) * 100) : 0;
                       return (
-                        <div key={i} className="flex items-center gap-3">
+                        <div key={i} className="flex items-center gap-2 sm:gap-3">
                           <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: c.color }} />
-                          <p className="text-sm text-slate-700 flex-1">{c.category}</p>
-                          <p className="text-sm font-semibold text-slate-800">INR {fmtINR(c.amount)}</p>
-                          <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
+                          <p className="text-sm text-slate-700 flex-1 min-w-0 truncate">{c.category}</p>
+                          <p className="text-sm font-semibold text-slate-800 whitespace-nowrap">INR {fmtINR(c.amount)}</p>
+                          <div className="hidden sm:block w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
                             <div className="h-full rounded-full" style={{ width: `${pct}%`, background: c.color }} />
                           </div>
-                          <span className="text-xs text-slate-400 w-8 text-right">{pct}%</span>
+                          <span className="text-xs text-slate-400 w-8 text-right shrink-0">{pct}%</span>
                         </div>
                       );
                     })}
@@ -452,7 +452,7 @@ export default function FinancePage() {
               {pnlHistory.length > 0 && (
                 <div className="bg-white rounded-xl border border-slate-200 p-5">
                   <h3 className="text-sm font-bold text-slate-800 mb-4">6-Month P&L Trend</h3>
-                  <div className="grid grid-cols-6 gap-2">
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                     {pnlHistory.map((p, i) => {
                       const maxVal = Math.max(...pnlHistory.map(x => Math.max(x.revenue, x.expenses)), 1);
                       return (
@@ -495,8 +495,8 @@ export default function FinancePage() {
                     <span className="text-sm font-semibold text-slate-800">Total: INR {fmtINR(expenses.reduce((s, e) => s + Number(e.amount), 0))}</span>
                   </div>
                 </div>
-                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                  <table className="w-full text-sm">
+                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden overflow-x-auto">
+                  <table className="w-full text-sm min-w-[640px]">
                     <thead>
                       <tr className="bg-slate-50 border-b">
                         <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Date</th>
@@ -550,11 +550,12 @@ export default function FinancePage() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2">
                 <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                  <div className="px-6 py-3 border-b bg-slate-50 flex items-center justify-between">
+                  <div className="px-3 sm:px-6 py-3 border-b bg-slate-50 flex items-center justify-between gap-2">
                     <p className="text-xs font-semibold text-slate-500 uppercase">Income — {monthLabel}</p>
-                    <p className="text-sm font-semibold text-emerald-600">Total: INR {fmtINR(income.reduce((s, i) => s + Number(i.amount), 0))}</p>
+                    <p className="text-xs sm:text-sm font-semibold text-emerald-600 whitespace-nowrap">Total: INR {fmtINR(income.reduce((s, i) => s + Number(i.amount), 0))}</p>
                   </div>
-                  <table className="w-full text-sm">
+                  <div className="overflow-x-auto">
+                  <table className="w-full text-sm min-w-[720px]">
                     <thead>
                       <tr className="border-b">
                         <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Date</th>
@@ -586,6 +587,7 @@ export default function FinancePage() {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 </div>
               </div>
               {/* Add Income Form */}
@@ -599,10 +601,11 @@ export default function FinancePage() {
           {activeTab === 'team' && (
             <div className="space-y-6">
               <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                <div className="px-6 py-3 border-b bg-slate-50">
+                <div className="px-3 sm:px-6 py-3 border-b bg-slate-50">
                   <p className="text-xs font-semibold text-slate-500 uppercase">Team Payroll</p>
                 </div>
-                <table className="w-full text-sm">
+                <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[560px]">
                   <thead>
                     <tr className="border-b">
                       <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Name</th>
@@ -632,9 +635,10 @@ export default function FinancePage() {
                     </tr>
                   </tbody>
                 </table>
+                </div>
               </div>
               {/* Add team member */}
-              <form onSubmit={addTeamMember} className="bg-white rounded-xl border border-slate-200 p-5 flex items-end gap-3">
+              <form onSubmit={addTeamMember} className="bg-white rounded-xl border border-slate-200 p-3 sm:p-5 flex flex-col sm:flex-row sm:items-end gap-3">
                 <div className="flex-1">
                   <label className="text-xs text-slate-500 font-medium">Name</label>
                   <input type="text" value={newMember.name} onChange={e => setNewMember({ ...newMember, name: e.target.value })} placeholder="Team member name"
@@ -645,7 +649,7 @@ export default function FinancePage() {
                   <input type="text" value={newMember.role} onChange={e => setNewMember({ ...newMember, role: e.target.value })} placeholder="e.g. Sales, Ops"
                     className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
                 </div>
-                <div className="w-32">
+                <div className="w-full sm:w-32">
                   <label className="text-xs text-slate-500 font-medium">Base Salary</label>
                   <input type="number" value={newMember.baseSalary} onChange={e => setNewMember({ ...newMember, baseSalary: e.target.value })} placeholder="25000"
                     className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
@@ -729,10 +733,11 @@ export default function FinancePage() {
               {/* Monthly summary */}
               {(attendance.summary || []).length > 0 && (
                 <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                  <div className="px-6 py-3 border-b bg-slate-50">
+                  <div className="px-3 sm:px-6 py-3 border-b bg-slate-50">
                     <p className="text-xs font-semibold text-slate-500 uppercase">Monthly Summary — {monthLabel}</p>
                   </div>
-                  <table className="w-full text-sm">
+                  <div className="overflow-x-auto">
+                  <table className="w-full text-sm min-w-[640px]">
                     <thead>
                       <tr className="border-b">
                         <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Team Member</th>
@@ -756,18 +761,20 @@ export default function FinancePage() {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 </div>
               )}
 
               {/* Leaves section */}
               <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                <div className="px-6 py-3 border-b bg-slate-50 flex items-center justify-between">
+                <div className="px-3 sm:px-6 py-3 border-b bg-slate-50 flex items-center justify-between">
                   <p className="text-xs font-semibold text-slate-500 uppercase">Leave Requests</p>
                 </div>
                 {leaves.length === 0 ? (
                   <div className="p-8 text-center text-sm text-slate-400">No leave requests for {monthLabel}</div>
                 ) : (
-                  <table className="w-full text-sm">
+                  <div className="overflow-x-auto">
+                  <table className="w-full text-sm min-w-[680px]">
                     <thead>
                       <tr className="border-b">
                         <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Member</th>
@@ -804,6 +811,7 @@ export default function FinancePage() {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 )}
               </div>
             </div>
@@ -813,12 +821,12 @@ export default function FinancePage() {
           {activeTab === 'categories' && (
             <div className="space-y-6">
               <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                <div className="px-6 py-3 border-b bg-slate-50">
+                <div className="px-3 sm:px-6 py-3 border-b bg-slate-50">
                   <p className="text-xs font-semibold text-slate-500 uppercase">Expense Categories</p>
                 </div>
                 <div className="divide-y divide-slate-50">
                   {categories.map(c => (
-                    <div key={c.id} className="px-6 py-3 flex items-center gap-3">
+                    <div key={c.id} className="px-3 sm:px-6 py-3 flex items-center gap-3">
                       <span className="w-4 h-4 rounded-full flex-shrink-0" style={{ background: c.color }} />
                       <p className="text-sm font-medium text-slate-800 flex-1">{c.name}</p>
                       <button onClick={async () => { if (!window.confirm(`Delete "${c.name}" category? Existing expenses will show as uncategorized.`)) return; await apiFetch(`/api/finance/categories/${c.id}`, { method: 'DELETE' }); loadData(); }}
