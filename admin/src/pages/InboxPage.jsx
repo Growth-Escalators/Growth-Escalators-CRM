@@ -343,7 +343,7 @@ export default function InboxPage() {
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-6 py-4 bg-slate-50">
+            <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-3 sm:py-4 bg-slate-50">
               {msgLoading && <p className="text-center text-sm text-slate-400 py-8">Loading messages…</p>}
               {!msgLoading && messages.length === 0 && (
                 <p className="text-center text-sm text-slate-400 py-8">No messages yet. Send the first message!</p>

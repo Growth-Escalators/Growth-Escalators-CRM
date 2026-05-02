@@ -880,17 +880,17 @@ export default function PipelinePage() {
       <Sidebar />
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Header */}
-        <div className="bg-white border-b px-6 py-4 shrink-0">
-          <div className="flex items-center gap-4 flex-wrap">
+        <div className="bg-white border-b px-3 sm:px-6 py-3 sm:py-4 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
             {/* Pipeline dropdown */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm font-medium text-slate-500 shrink-0">Pipeline:</span>
               <div className="relative">
                 <select
                   value={activePipelineId ?? ''}
                   onChange={(e) => setActivePipelineId(e.target.value)}
-                  className="appearance-none border border-slate-200 rounded-xl pl-3 pr-8 py-2 text-sm font-semibold text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-orange-400 cursor-pointer"
-                  style={{ minWidth: 180 }}
+                  className="appearance-none border border-slate-200 rounded-xl pl-3 pr-8 py-2 text-sm font-semibold text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-orange-400 cursor-pointer w-[160px] sm:w-auto"
+                  style={{}}
                 >
                   {pipelinesList.map((p) => (
                     <option key={p.id} value={p.id}>{p.name}</option>
@@ -982,8 +982,8 @@ export default function PipelinePage() {
         </div>
 
         {showAnalytics && analytics && (
-          <div className="bg-white border-b border-slate-100 px-6 py-3 shrink-0">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="bg-white border-b border-slate-100 px-3 sm:px-6 py-3 shrink-0">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
               {[
                 { label: 'Weighted Forecast', value: analytics.forecast > 0 ? fmtInr(analytics.forecast) : '₹0', color: 'text-green-600' },
                 { label: 'Win Rate', value: `${Math.round(analytics.winRate * 100)}%`, color: 'text-blue-600' },
