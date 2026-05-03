@@ -27,7 +27,6 @@ const TRACKED_ENV_VARS = [
   'SHLINK_BASE_URL',
   'SHLINK_API_KEY',
   'REACHER_URL',
-  'GOTENBERG_URL',
 ] as const;
 
 function isMissing(name: string): boolean {
