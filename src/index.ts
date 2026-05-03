@@ -258,41 +258,14 @@ const adminDist  = path.join(__dirname, '..', 'public', 'admin');
 console.log('Admin dist:', adminDist);
 
 const CRM_HOSTS = ['crm.growthescalators.com'];
-const CONSULTING_HOSTS = ['consulting.growthescalators.com'];
 const API_PREFIXES = [
   '/api', '/auth', '/webhooks', '/book',
-  '/health', '/stats', '/consulting',
+  '/health', '/stats',
 ];
 
 // Admin SPA — served at root on crm.growthescalators.com.
 // Legacy `/crm/<path>` URLs are 301-redirected to `/<path>` further below.
 if (process.env.CRM_EXTRA_HOST) CRM_HOSTS.push(process.env.CRM_EXTRA_HOST);
-
-// ---------------------------------------------------------------------------
-// Consulting landing page — path-based (/consulting) + subdomain-based
-// ---------------------------------------------------------------------------
-const consultingDist = path.join(__dirname, '..', 'consulting');
-
-// Path-based: /consulting and /consulting/* on any host
-app.get('/consulting', (_req: Request, res: Response) => {
-  res.sendFile(path.join(consultingDist, 'index.html'));
-});
-app.use('/consulting', express.static(consultingDist));
-app.get('/consulting/{*path}', (_req: Request, res: Response) => {
-  res.sendFile(path.join(consultingDist, 'index.html'));
-});
-
-// Subdomain-based: consulting.growthescalators.com at root
-app.use((req: Request, res: Response, next: NextFunction) => {
-  if (CONSULTING_HOSTS.includes(req.hostname)) {
-    express.static(consultingDist)(req, res, () => {
-      if (API_PREFIXES.some((p) => req.path.startsWith(p))) return next();
-      res.sendFile(path.join(consultingDist, 'index.html'));
-    });
-  } else {
-    next();
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Legacy redirect: old `/crm/<path>` URLs (bookmarks, Slack messages, emails)
@@ -323,7 +296,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // We keep one fallback route for the bare Railway domain so health probes and
 // stray bookmarks get a clear answer instead of the API 404 handler.
 app.get('/', (_req: Request, res: Response, next: NextFunction) => {
-  if (CRM_HOSTS.includes(_req.hostname) || CONSULTING_HOSTS.includes(_req.hostname)) return next();
+  if (CRM_HOSTS.includes(_req.hostname)) return next();
   res.json({
     service: 'growth-escalators-api',
     status: 'ok',
