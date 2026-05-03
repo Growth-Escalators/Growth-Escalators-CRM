@@ -1,5 +1,16 @@
 # n8n Workflow Files
 
+> ## Status: PAUSED (2026-05-03)
+>
+> These workflow JSONs are import templates. **None are currently deployed
+> to the live n8n instance** (`primary-production-6c6f5.up.railway.app`) —
+> that instance only runs an unrelated content pipeline (workflows 00–07).
+>
+> To re-deploy: open n8n UI → Settings → Workflows → Import → upload the
+> JSON, then toggle the workflow active. The Express endpoints these
+> workflows call (e.g. `/api/outreach/imap/fetch-replies`,
+> `/api/seo-workflows/trigger-all`) still exist and are ready.
+
 Import these into n8n **in order** after deploying n8n on Railway.
 See `DEPLOY_N8N_RAILWAY.md` for deployment steps.
 
