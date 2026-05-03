@@ -16,12 +16,40 @@
 
 import { Pool } from 'pg';
 
-const DATABASE_URL = process.env.DATABASE_URL;
+// Prefer public URL when running externally (laptop, CI). Fall back to the
+// internal DATABASE_URL when running inside Railway.
+const DATABASE_URL = process.env.DATABASE_PUBLIC_URL || process.env.DATABASE_URL;
+
+const isInternalUrl = DATABASE_URL?.includes('railway.internal') ?? false;
+const looksLikeLaptop = !process.env.RAILWAY_ENVIRONMENT && !process.env.RAILWAY_PROJECT_ID;
 
 if (!DATABASE_URL) {
-  console.error('❌ DATABASE_URL not set.');
-  console.error('   Local: source .env or set DATABASE_URL=postgresql://...');
-  console.error('   Prod:  railway run --service web npm run db:sizes');
+  console.error('❌ DATABASE_URL (or DATABASE_PUBLIC_URL) not set.');
+  console.error('');
+  console.error('   Local laptop:');
+  console.error('     cd ~/repo-comparison/v2');
+  console.error('     railway variables --service Postgres | grep -i public');
+  console.error("     DATABASE_PUBLIC_URL='postgresql://...' npm run db:sizes");
+  console.error('');
+  console.error('   No-code alternative:');
+  console.error('     railway connect Postgres');
+  console.error('     # then paste the SELECT from this script');
+  process.exit(1);
+}
+
+if (isInternalUrl && looksLikeLaptop) {
+  console.error('❌ DATABASE_URL points at postgres.railway.internal — only resolvable');
+  console.error('   inside Railway\'s private network. Running from a laptop fails.');
+  console.error('');
+  console.error('   Fix — use the Postgres service\'s PUBLIC URL:');
+  console.error('     cd ~/repo-comparison/v2');
+  console.error('     railway variables --service Postgres | grep -i public');
+  console.error("     DATABASE_PUBLIC_URL='postgresql://...@...rlwy.net:NNNN/railway' \\");
+  console.error('       npm run db:sizes');
+  console.error('');
+  console.error('   No-code alternative:');
+  console.error('     railway connect Postgres');
+  console.error('     # then paste the SELECT from scripts/db-table-sizes.ts');
   process.exit(1);
 }
 
