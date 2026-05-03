@@ -54,11 +54,9 @@ if (_missingPurelymailSlots.length > 0) {
 if (_missingEnvVars.length > 0) {
   console.warn('[worker] ⚠️ MISSING ENV VARS:');
   for (const v of _missingEnvVars) console.warn(`  • ${v}`);
-  // Fire-and-forget Slack DM to Jatin so we notice during boot
-  import('./services/slackService').then(async ({ sendSlackDM }) => {
-    const body = ['⚠️ *Worker startup — missing env vars*', ...(_missingEnvVars.map(v => `• ${v}`))].join('\n');
-    await sendSlackDM(SLACK_JATIN, body).catch(() => {});
-  }).catch(() => {});
+  // Slack DM removed 2026-05-03 — fired on every deploy and was producing
+  // ~24 DMs/day on heavy-deploy days. Console output above is sufficient
+  // since Railway logs are searchable and env vars rarely change silently.
 }
 
 // Track all setInterval timers for graceful shutdown
@@ -307,7 +305,11 @@ console.log('[cron] AI intelligence report scheduled — daily 8:30 AM IST');
 */
 console.log('[cron] AI intelligence report — PAUSED 2026-05-03');
 
-// SEO Workflow health check — daily 9:15 AM IST (3:45 UTC)
+// PAUSED 2026-05-03 — SEO Workflow Health. The SEO workflows it monitors
+// no longer exist in n8n (only the unrelated content pipeline remains),
+// so this fired "n8n is DOWN" alerts daily for a thing that's intentionally
+// not running. Re-enable by uncommenting after redeploying SEO workflows.
+/*
 cron.schedule('45 3 * * *', () => safeCron('SEO Workflow Health', async () => {
   const { sendSlackMessage } = await import('./services/slackService');
   const health = await (await import('./services/intelligenceDataCollector')).collectSEOWorkflowHealth();
@@ -347,13 +349,23 @@ cron.schedule('45 3 * * *', () => safeCron('SEO Workflow Health', async () => {
   console.log(`[CRON] SEO health: ${health.healthyCount}/${health.totalCount} healthy`);
 }), { timezone: 'UTC' });
 console.log('[cron] SEO workflow health check scheduled — daily 9:15 AM IST');
+*/
+console.log('[cron] SEO workflow health check — PAUSED 2026-05-03');
 
-// SEO Workflow Self-Healing — every 30 min, auto-retry failed n8n executions
-cron.schedule('*/30 * * * *', () => safeCron('Workflow Self-Healing', async () => {
-  const { runSelfHealingCycle } = await import('./services/workflowSelfHealingService');
-  await runSelfHealingCycle();
-}), { timezone: 'UTC' });
-console.log('[cron] workflow self-healing scheduled — every 30 minutes');
+// PAUSED 2026-05-03 — Workflow Self-Healing. Polls n8n for failed SEO
+// executions every 30 min — but the workflows it heals don't exist in n8n
+// anymore (only content pipeline runs there), and the N8N_API_KEY for this
+// service is currently rejecting with 401 anyway. Re-enable after
+// redeploying SEO workflows + refreshing the API key.
+// (Using //-comments here instead of /* */ because the cron expression
+// '*/30 * * * *' contains */ which terminates a block comment early.)
+//
+// cron.schedule('*/30 * * * *', () => safeCron('Workflow Self-Healing', async () => {
+//   const { runSelfHealingCycle } = await import('./services/workflowSelfHealingService');
+//   await runSelfHealingCycle();
+// }), { timezone: 'UTC' });
+// console.log('[cron] workflow self-healing scheduled — every 30 minutes');
+console.log('[cron] workflow self-healing — PAUSED 2026-05-03');
 
 // ---------------------------------------------------------------------------
 // Growth OS — Brand Health Score — Daily 8:00 AM IST (2:30 UTC)
