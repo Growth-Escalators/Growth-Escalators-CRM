@@ -192,6 +192,16 @@ export default function Sidebar() {
                 <Search className="w-4 h-4" /> SEO
               </NavLink>
             )}
+            <a
+              href="https://content.growthescalators.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
+            >
+              <FileText className="w-4 h-4" />
+              <span className="flex-1">Content</span>
+              <ExternalLink className="w-3 h-3 text-slate-500" />
+            </a>
           </>
         )}
 
