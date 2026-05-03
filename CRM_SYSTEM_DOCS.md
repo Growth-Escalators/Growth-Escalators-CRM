@@ -130,11 +130,11 @@ All routes under `/api/*` are JWT-protected (except `/api/auth/*` and webhooks).
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/webhooks/meta-wa` | Meta webhook verification challenge |
-| POST | `/api/webhooks/meta-wa` | Inbound WhatsApp messages → queued as jobs |
-| POST | `/api/webhooks/calcom` | Cal.com booking → immediate processing (contact + deal creation + qualification) |
-| POST | `/api/webhooks/tally` | Tally form submission → queued as job |
-| POST | `/api/webhooks/chatwoot` | Chatwoot conversation events → queued |
+| GET | `/webhooks/meta-wa` | Meta webhook verification challenge |
+| POST | `/webhooks/meta-wa` | Inbound WhatsApp messages → queued as jobs |
+| POST | `/webhooks/calcom` | Cal.com booking → immediate processing (contact + deal creation + qualification) |
+| POST | `/webhooks/tally` | Tally form submission → queued as job |
+| POST | `/webhooks/chatwoot` | Chatwoot conversation events → queued |
 
 ### Cashfree Payments — `/api/cashfree`
 

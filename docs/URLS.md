@@ -5,7 +5,7 @@
 | Subdomain | What it serves | Platform | Service |
 |---|---|---|---|
 | `api.growthescalators.com` | REST API (`src/index.ts`) | Railway | `web` service |
-| `crm.growthescalators.com` | Admin CRM SPA (mounted at `/crm`) | Railway | `web` service (same as API) |
+| `crm.growthescalators.com` | Admin CRM SPA (served at root; legacy `/crm/*` URLs 301 to root) | Railway | `web` service (same as API) |
 | `ecom.growthescalators.com` | D2C landing pages + Cashfree payments | Vercel | `client/` directory |
 | `content.growthescalators.com` | Content-creation app (Sheets-backed) | Vercel | `ge-content-frontend` repo |
 
@@ -13,11 +13,17 @@
 
 | Service | URL |
 |---|---|
-| Meta WhatsApp | `https://api.growthescalators.com/api/webhooks/meta-wa` |
-| Cal.com | `https://api.growthescalators.com/api/webhooks/calcom` |
-| Tally | `https://api.growthescalators.com/api/webhooks/tally` |
-| Chatwoot | `https://api.growthescalators.com/api/webhooks/chatwoot` |
+| Meta WhatsApp | `https://api.growthescalators.com/webhooks/meta-wa` |
+| Cal.com | `https://api.growthescalators.com/webhooks/calcom` |
+| Tally | `https://api.growthescalators.com/webhooks/tally` |
+| Chatwoot | `https://api.growthescalators.com/webhooks/chatwoot` |
 | Cashfree payment webhook | `https://api.growthescalators.com/api/cashfree/webhook` |
+
+> **Note**: the four cross-platform webhooks are mounted at `/webhooks/*`
+> (no `/api/` prefix). Only Cashfree lives under `/api/cashfree/webhook`
+> because it's part of the cashfree router family. Verify against
+> `src/index.ts` (`app.use('/webhooks', ...)`) before updating any
+> external service config.
 
 ## Health / diagnostics
 
