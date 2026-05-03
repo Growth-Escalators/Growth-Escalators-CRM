@@ -129,6 +129,12 @@ export default function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-2 overflow-y-auto">
+        {/* Personal — visible to every authenticated user */}
+        <SectionLabel>Personal</SectionLabel>
+        <NavLink to="/my-attendance" className={navClass}>
+          <Calendar className="w-4 h-4" /> My Attendance
+        </NavLink>
+
         {/* CRM */}
         <SectionLabel>CRM</SectionLabel>
         <NavLink to="/dashboard" className={navClass}>
