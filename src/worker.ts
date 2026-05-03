@@ -166,13 +166,13 @@ async function safeCron(name: string, fn: () => Promise<unknown>, useAdvisoryLoc
 // cron.schedule('45 4 * * 1-6', () => safeCron('Blocker Alerts', checkAndAlertBlockers), { timezone: 'UTC' });
 console.log('[cron] blocker alerts — disabled (folded into morning briefing)');
 
-// Morning Briefing — 9:00 AM IST (03:30 UTC), Mon-Sat — personalized DM per team member
-cron.schedule('30 3 * * 1-6', () => safeCron('Morning Briefing', async () => {
+// Morning Briefing — 9:30 AM IST (04:00 UTC), Mon-Sat — personalized DM per team member
+cron.schedule('0 4 * * 1-6', () => safeCron('Morning Briefing', async () => {
   const { sendMorningBriefings } = await import('./services/morningBriefingService');
   const result = await sendMorningBriefings();
   console.log(`[CRON] Morning Briefing: ${result.sent} sent, ${result.errors.length} errors`);
 }), { timezone: 'UTC' });
-console.log('[cron] morning briefing scheduled — 9:00 AM IST Mon-Sat');
+console.log('[cron] morning briefing scheduled — 9:30 AM IST Mon-Sat');
 
 // PAUSED 2026-05-03 — SOD Digest + Sakcham Priority SOD. Re-enable by uncommenting.
 /*
@@ -191,13 +191,13 @@ console.log('[cron] EOD summary scheduled — 7:15 PM IST Mon-Sat');
 */
 console.log('[cron] EOD summary — PAUSED 2026-05-03');
 
-// Evening Summary — 7:30 PM IST (14:00 UTC), Mon-Sat — personalized DM per team member
-cron.schedule('0 14 * * 1-6', () => safeCron('Evening Summary', async () => {
+// Evening Summary — 7:15 PM IST (13:45 UTC), Mon-Sat — personalized DM per team member
+cron.schedule('45 13 * * 1-6', () => safeCron('Evening Summary', async () => {
   const { sendEveningSummaries } = await import('./services/eveningSummaryService');
   const result = await sendEveningSummaries();
   console.log(`[CRON] Evening Summary: ${result.sent} sent, ${result.errors.length} errors`);
 }), { timezone: 'UTC' });
-console.log('[cron] evening summary scheduled — 7:30 PM IST Mon-Sat');
+console.log('[cron] evening summary scheduled — 7:15 PM IST Mon-Sat');
 
 // Spend alert check — DISABLED (folded into Morning Briefing)
 // cron.schedule('0 * * * *', () => safeCron('Spend Alert Check', checkSpendAlerts), { timezone: 'UTC' });
@@ -420,7 +420,8 @@ cron.schedule('0 4 * * 1-6', () => safeCron('Meta Ads Daily Report', async () =>
 }), { timezone: 'UTC' });
 console.log('[cron] Meta Ads daily report scheduled — 9:30 AM IST Mon-Sat');
 
-// Growth OS — Money on Table — Every Monday 8:30 AM IST (3:00 UTC)
+// PAUSED 2026-05-03 — Money on Table. Re-enable by uncommenting.
+/*
 cron.schedule('0 3 * * 1', () => safeCron('Money on Table', async () => {
   const { getActiveGrowthOSClients } = await import('./services/growthOSSetup');
   const { calculateMoneyOnTable } = await import('./services/opportunityService');
@@ -432,6 +433,8 @@ cron.schedule('0 3 * * 1', () => safeCron('Money on Table', async () => {
   console.log('[CRON] Money on table done');
 }), { timezone: 'UTC' });
 console.log('[cron] Money on table scheduled — Mondays 8:30 AM IST');
+*/
+console.log('[cron] Money on table — PAUSED 2026-05-03');
 
 // Growth OS — Creative Intelligence — Every 6 hours
 cron.schedule('0 */6 * * *', () => safeCron('Creative Intelligence', async () => {
@@ -1290,9 +1293,11 @@ cron.schedule('0 4 * * 1', () => safeCron('Meta Token Check', async () => {
 }), { timezone: 'UTC' });
 console.log('[cron] Meta token check scheduled — Mondays 9:30 AM IST');
 
-// ---------------------------------------------------------------------------
-// Late attendance check — 10:30 AM IST (5:00 UTC) Mon-Sat
-// ---------------------------------------------------------------------------
+// PAUSED 2026-05-03 — Late Attendance Check. Replaced by the self-service
+// attendance flow at /my-attendance — late-detection now happens at check-in
+// time (is_late + late_minutes columns) and admins see the data in the
+// finance/attendance view rather than via daily Slack DM.
+/*
 cron.schedule('0 5 * * 1-6', () => safeCron('Late Attendance Check', async () => {
   const { sendSlackDM } = await import('./services/slackService');
   const today = new Date().toISOString().split('T')[0];
@@ -1315,6 +1320,8 @@ cron.schedule('0 5 * * 1-6', () => safeCron('Late Attendance Check', async () =>
   }
 }), { timezone: 'UTC' });
 console.log('[cron] Late attendance check scheduled — Mon-Sat 10:30 AM IST');
+*/
+console.log('[cron] Late attendance check — PAUSED 2026-05-03 (replaced by self-service /my-attendance)');
 
 // ---------------------------------------------------------------------------
 // Monthly client benchmarks — 1st of month, 11:00 AM IST (5:30 UTC)
