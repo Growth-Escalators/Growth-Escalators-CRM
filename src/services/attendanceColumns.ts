@@ -24,7 +24,8 @@ export async function ensureAttendanceColumns(): Promise<void> {
         ADD COLUMN IF NOT EXISTS late_minutes integer,
         ADD COLUMN IF NOT EXISTS admin_overridden_by text,
         ADD COLUMN IF NOT EXISTS admin_override_reason text,
-        ADD COLUMN IF NOT EXISTS admin_overridden_at timestamp
+        ADD COLUMN IF NOT EXISTS admin_overridden_at timestamp,
+        ADD COLUMN IF NOT EXISTS work_location text DEFAULT 'office'
     `);
     await pool.query(`
       ALTER TABLE team_payroll

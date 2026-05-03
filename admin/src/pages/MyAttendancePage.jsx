@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import TopBar from '../components/TopBar.jsx';
 import { apiFetch, logout } from '../lib/api.js';
-import { Clock, LogIn, LogOut, AlertTriangle, CheckCircle2, Calendar } from 'lucide-react';
+import { Clock, LogIn, LogOut, AlertTriangle, CheckCircle2, Calendar, Home, Building2 } from 'lucide-react';
 
 function StatBadge({ label, value, color = 'slate' }) {
   const colors = {
@@ -47,6 +47,7 @@ export default function MyAttendancePage() {
   const [actioning, setActioning] = useState(false);
   const [error, setError] = useState('');
   const [banner, setBanner] = useState(null); // { kind: 'success' | 'late' | 'error', text: string }
+  const [workLocation, setWorkLocation] = useState('office'); // 'office' | 'home'
 
   const month = new Date().toISOString().slice(0, 7);
 
@@ -76,14 +77,18 @@ export default function MyAttendancePage() {
     setActioning(true);
     setBanner(null);
     try {
-      const res = await apiFetch('/api/self-service/check-in', { method: 'POST' });
+      const res = await apiFetch('/api/self-service/check-in', {
+        method: 'POST',
+        body: JSON.stringify({ workLocation }),
+      });
+      const locLabel = res.workLocation === 'home' ? ' (working from home)' : '';
       if (res.isLate) {
         setBanner({
           kind: 'late',
-          text: `Checked in at ${res.time} — late by ${res.lateMinutes} min (expected ${res.expectedStart}).`,
+          text: `Checked in at ${res.time}${locLabel} — late by ${res.lateMinutes} min (expected ${res.expectedStart}).`,
         });
       } else {
-        setBanner({ kind: 'success', text: `Checked in at ${res.time}. Have a good one ✓` });
+        setBanner({ kind: 'success', text: `Checked in at ${res.time}${locLabel}. Have a good one ✓` });
       }
       await loadAll();
     } catch (e) {
@@ -199,14 +204,43 @@ export default function MyAttendancePage() {
 
                 <div className="flex flex-col justify-center gap-3">
                   {!today.checkedIn && (
-                    <button
-                      onClick={handleCheckIn}
-                      disabled={actioning}
-                      className="flex items-center justify-center gap-2 px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl shadow-sm disabled:opacity-50 transition-colors"
-                    >
-                      <LogIn className="w-4 h-4" />
-                      {actioning ? 'Checking in…' : 'Check In'}
-                    </button>
+                    <>
+                      {/* WFH toggle — purely metadata, doesn't affect late detection */}
+                      <div className="flex items-center bg-slate-100 rounded-lg p-1 gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setWorkLocation('office')}
+                          className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                            workLocation === 'office'
+                              ? 'bg-white text-slate-900 shadow-sm'
+                              : 'text-slate-500 hover:text-slate-700'
+                          }`}
+                        >
+                          <Building2 className="w-3.5 h-3.5" />
+                          Office
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setWorkLocation('home')}
+                          className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                            workLocation === 'home'
+                              ? 'bg-white text-slate-900 shadow-sm'
+                              : 'text-slate-500 hover:text-slate-700'
+                          }`}
+                        >
+                          <Home className="w-3.5 h-3.5" />
+                          WFH
+                        </button>
+                      </div>
+                      <button
+                        onClick={handleCheckIn}
+                        disabled={actioning}
+                        className="flex items-center justify-center gap-2 px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl shadow-sm disabled:opacity-50 transition-colors"
+                      >
+                        <LogIn className="w-4 h-4" />
+                        {actioning ? 'Checking in…' : `Check In ${workLocation === 'home' ? '(WFH)' : ''}`}
+                      </button>
+                    </>
                   )}
                   {today.checkedIn && !today.checkedOut && (
                     <button
@@ -306,6 +340,16 @@ export default function MyAttendancePage() {
                             {r.is_late && (
                               <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700">
                                 Late {r.late_minutes ?? '?'}m
+                              </span>
+                            )}
+                            {r.work_location === 'home' && (
+                              <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-sky-100 text-sky-700 flex items-center gap-1">
+                                <Home className="w-3 h-3" /> WFH
+                              </span>
+                            )}
+                            {r.work_location === 'client' && (
+                              <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-violet-100 text-violet-700">
+                                Client site
                               </span>
                             )}
                             {r.admin_overridden_by && (

@@ -46,7 +46,7 @@ function minutesBetween(start: string, end: string): number {
 // ---------------------------------------------------------------------------
 router.post('/check-in', async (req: Request, res: Response) => {
   try {
-    const userId = (req as unknown as { userId: string }).userId;
+    const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
     const member = await pool.query(
@@ -83,12 +83,18 @@ router.post('/check-in', async (req: Request, res: Response) => {
     const lateMinutes = minutesBetween(expected, now);
     const isLate = lateMinutes > 0;
 
+    // Work location — accepts 'office' | 'home' | 'client'. Default office.
+    // Stored on the row as metadata so admins can see WFH days at a glance.
+    // Does NOT affect late detection — late is purely a clock-time check.
+    const rawLoc = (req.body?.workLocation as string | undefined)?.toLowerCase();
+    const workLocation = ['office', 'home', 'client'].includes(rawLoc ?? '') ? rawLoc! : 'office';
+
     const result = await pool.query(`
       INSERT INTO team_attendance (
         tenant_id, member_id, attendance_date, check_in, status,
-        check_in_ip, check_in_user_agent, is_late, late_minutes
+        check_in_ip, check_in_user_agent, is_late, late_minutes, work_location
       )
-      VALUES ($1, $2, $3, $4, 'present', $5, $6, $7, $8)
+      VALUES ($1, $2, $3, $4, 'present', $5, $6, $7, $8, $9)
       ON CONFLICT (member_id, attendance_date)
       DO UPDATE SET
         check_in = COALESCE(team_attendance.check_in, $4),
@@ -97,9 +103,10 @@ router.post('/check-in', async (req: Request, res: Response) => {
         check_in_user_agent = COALESCE(team_attendance.check_in_user_agent, $6),
         is_late = COALESCE(team_attendance.is_late, $7),
         late_minutes = COALESCE(team_attendance.late_minutes, $8),
+        work_location = COALESCE(team_attendance.work_location, $9),
         updated_at = NOW()
       RETURNING *
-    `, [DEFAULT_TENANT_ID, memberId, today, now, ip, ua, isLate, isLate ? lateMinutes : null]);
+    `, [DEFAULT_TENANT_ID, memberId, today, now, ip, ua, isLate, isLate ? lateMinutes : null, workLocation]);
 
     const row = result.rows[0] as { check_in: string; is_late: boolean; late_minutes: number | null };
     logger.info(
@@ -112,6 +119,7 @@ router.post('/check-in', async (req: Request, res: Response) => {
       time: row.check_in,
       isLate: row.is_late,
       lateMinutes: row.late_minutes,
+      workLocation,
       expectedStart: expected,
       record: result.rows[0],
     });
@@ -129,7 +137,7 @@ router.post('/check-in', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 router.post('/check-out', async (req: Request, res: Response) => {
   try {
-    const userId = (req as unknown as { userId: string }).userId;
+    const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
     const member = await pool.query(
@@ -178,7 +186,7 @@ router.post('/check-out', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 router.get('/my-attendance', async (req: Request, res: Response) => {
   try {
-    const userId = (req as unknown as { userId: string }).userId;
+    const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
     const member = await pool.query(
@@ -193,7 +201,8 @@ router.get('/my-attendance', async (req: Request, res: Response) => {
 
     const records = await pool.query(`
       SELECT attendance_date, check_in, check_out, status, hours_worked,
-             is_late, late_minutes, admin_overridden_by, admin_override_reason, notes
+             is_late, late_minutes, work_location,
+             admin_overridden_by, admin_override_reason, notes
       FROM team_attendance
       WHERE member_id = $1
         AND to_char(attendance_date, 'YYYY-MM') = $2
@@ -230,7 +239,7 @@ router.get('/my-attendance', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 router.get('/today', async (req: Request, res: Response) => {
   try {
-    const userId = (req as unknown as { userId: string }).userId;
+    const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
     const member = await pool.query(
@@ -291,7 +300,7 @@ router.get('/today', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 router.post('/leave-request', async (req: Request, res: Response) => {
   try {
-    const userId = (req as unknown as { userId: string }).userId;
+    const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
     const member = await pool.query(
@@ -328,7 +337,7 @@ router.post('/leave-request', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 router.get('/my-leaves', async (req: Request, res: Response) => {
   try {
-    const userId = (req as unknown as { userId: string }).userId;
+    const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
     const member = await pool.query(
