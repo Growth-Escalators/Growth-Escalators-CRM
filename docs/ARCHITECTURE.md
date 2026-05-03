@@ -25,7 +25,7 @@ The two processes share the codebase but **must not import each other's entry po
 - `ecom.growthescalators.com` is on **Vercel**, fully decoupled from Railway. Pages render from bundled funnel configs (`client/src/data/funnelConfigs/*.json`) so first paint never depends on the API.
 - Payments hit Vercel edge functions (`client/api/cashfree/*`) → write to an **Upstash Redis Stream** (`crm:events`). The drainer in `src/services/edgeQueueDrainer.ts` reads that stream into Postgres when Railway is healthy.
 - `processCashfreeEvent()` in `src/services/cashfreeEventProcessor.ts` is the single canonical handler — used by both the legacy `/api/cashfree/webhook` route and the queue drainer. Do not duplicate this logic.
-- API lives at `api.growthescalators.com` (separate Railway custom domain). CORS allows `ecom.*`, `crm.*`, `consulting.*`, `localhost:*`, and `*.vercel.app` previews.
+- API lives at `api.growthescalators.com` (separate Railway custom domain). CORS allows `ecom.*`, `crm.*`, `localhost:*`, and `*.vercel.app` previews.
 
 Full setup runbook: [`docs/landing-page-resilience.md`](landing-page-resilience.md).
 

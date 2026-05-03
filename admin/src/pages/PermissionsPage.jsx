@@ -85,7 +85,7 @@ const MODULE_ACCESS = [
   {
     key: 'accessSocial',
     label: 'Social Posting',
-    description: 'Can use the Social and Postiz scheduling sections',
+    description: 'Can use the Social posting and scheduling sections',
     icon: '📱',
   },
 ];
