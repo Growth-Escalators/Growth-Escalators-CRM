@@ -168,16 +168,22 @@ cron.schedule('30 3 * * 1-6', () => safeCron('Morning Briefing', async () => {
 }), { timezone: 'UTC' });
 console.log('[cron] morning briefing scheduled — 9:00 AM IST Mon-Sat');
 
-// SOD Digest — 10:15 AM IST (04:45 UTC), Mon-Sat
+// PAUSED 2026-05-03 — SOD Digest + Sakcham Priority SOD. Re-enable by uncommenting.
+/*
 cron.schedule('45 4 * * 1-6', async () => {
   await safeCron('SOD Digest', sendSODDigest);
   await safeCron('Sakcham Priority SOD', sendSakhamSOD);
 }, { timezone: 'UTC' });
 console.log('[cron] SOD digest scheduled — 10:15 AM IST Mon-Sat');
+*/
+console.log('[cron] SOD digest — PAUSED 2026-05-03');
 
-// EOD Summary — 7:15 PM IST (13:45 UTC), Mon-Sat
+// PAUSED 2026-05-03 — EOD Summary. Re-enable by uncommenting.
+/*
 cron.schedule('45 13 * * 1-6', () => safeCron('EOD Summary', sendEODSummary), { timezone: 'UTC' });
 console.log('[cron] EOD summary scheduled — 7:15 PM IST Mon-Sat');
+*/
+console.log('[cron] EOD summary — PAUSED 2026-05-03');
 
 // Evening Summary — 7:30 PM IST (14:00 UTC), Mon-Sat — personalized DM per team member
 cron.schedule('0 14 * * 1-6', () => safeCron('Evening Summary', async () => {
@@ -191,7 +197,8 @@ console.log('[cron] evening summary scheduled — 7:30 PM IST Mon-Sat');
 // cron.schedule('0 * * * *', () => safeCron('Spend Alert Check', checkSpendAlerts), { timezone: 'UTC' });
 console.log('[cron] spend alert check — disabled (folded into morning briefing)');
 
-// Generate monthly draft invoices on the 1st of every month at 9 AM IST (3:30 AM UTC)
+// PAUSED 2026-05-03 — Monthly Invoice Drafts. Re-enable by uncommenting.
+/*
 cron.schedule('30 3 1 * *', () => safeCron('Monthly Invoice Drafts', async () => {
   const tenantResult = await db.execute(sql`SELECT id FROM tenants WHERE slug = ${DEFAULT_TENANT_SLUG} LIMIT 1`);
   const tenantId = (tenantResult.rows[0] as { id: string } | undefined)?.id;
@@ -214,6 +221,8 @@ cron.schedule('30 3 1 * *', () => safeCron('Monthly Invoice Drafts', async () =>
   }
 }), { timezone: 'UTC' });
 console.log('[cron] monthly invoice drafts scheduled — 1st of month at 9 AM IST');
+*/
+console.log('[cron] monthly invoice drafts — PAUSED 2026-05-03');
 
 // Overdue invoice detection — daily at 10 AM IST (4:30 AM UTC)
 cron.schedule('30 4 * * *', () => safeCron('Overdue Invoice Check', async () => {
@@ -244,7 +253,8 @@ cron.schedule('30 4 * * *', () => safeCron('Overdue Invoice Check', async () => 
 }), { timezone: 'UTC' });
 console.log('[cron] overdue invoice check scheduled — daily at 10 AM IST');
 
-// Daily AI Intelligence Report — 8:30 AM IST (3:00 UTC)
+// PAUSED 2026-05-03 — Daily Intelligence Report (Anthropic). Re-enable by uncommenting.
+/*
 cron.schedule('0 3 * * *', () => safeCron('Daily Intelligence Report', async () => {
   // Insert placeholder row so failures are visible in history
   let reportId: string | null = null;
@@ -286,6 +296,8 @@ cron.schedule('0 3 * * *', () => safeCron('Daily Intelligence Report', async () 
   }
 }), { timezone: 'UTC' });
 console.log('[cron] AI intelligence report scheduled — daily 8:30 AM IST');
+*/
+console.log('[cron] AI intelligence report — PAUSED 2026-05-03');
 
 // SEO Workflow health check — daily 9:15 AM IST (3:45 UTC)
 cron.schedule('45 3 * * *', () => safeCron('SEO Workflow Health', async () => {
@@ -596,6 +608,8 @@ console.log('[cron] Outreach daily digest — disabled (folded into evening summ
 // Outreach: backend enrichment — every 10 minutes
 // Bypasses n8n WF-01 and enriches leads directly from backend
 // ---------------------------------------------------------------------------
+// PAUSED 2026-05-03 — Outreach Enrichment (Hunter+Snov+Apollo+reacher). Re-enable by uncommenting.
+/*
 const ENRICHMENT_INTERVAL = setInterval(() => safeCron('Outreach Enrichment', async () => {
   const { enrichStuckLeads } = await import('./services/outreachEnrichmentService');
   await enrichStuckLeads();
@@ -605,6 +619,8 @@ const ENRICHMENT_INTERVAL = setInterval(() => safeCron('Outreach Enrichment', as
 }), 5 * 60_000); // every 5 minutes
 _intervals.push(ENRICHMENT_INTERVAL);
 console.log('[cron] Outreach enrichment scheduled — every 5 minutes');
+*/
+console.log('[cron] Outreach enrichment — PAUSED 2026-05-03');
 
 // ---------------------------------------------------------------------------
 // Outreach: reset stuck Enriching leads — every 2 hours
@@ -785,6 +801,8 @@ const DISCOVERY_QUERIES = [
   { query: 'TikTok ads agency', location: 'Vancouver', country: 'CA' },
 ];
 
+// PAUSED 2026-05-03 — Daily Lead Discovery (Google Places). Re-enable by uncommenting.
+/*
 cron.schedule('30 1 * * *', () => safeCron('Daily Lead Discovery', async () => {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) { console.log('[CRON] Discovery: GOOGLE_PLACES_API_KEY not set'); return; }
@@ -865,6 +883,8 @@ cron.schedule('30 1 * * *', () => safeCron('Daily Lead Discovery', async () => {
   console.log(`[CRON] Daily discovery: ${totalInserted} new leads, ${totalApiCalls} Places calls`);
 }), { timezone: 'UTC' });
 console.log('[cron] Daily lead discovery scheduled — 7:00 AM IST');
+*/
+console.log('[cron] Daily lead discovery — PAUSED 2026-05-03');
 
 // ---------------------------------------------------------------------------
 // Outreach Funnel Snapshot — 23:55 IST (18:25 UTC)
@@ -891,6 +911,8 @@ console.log('[cron] Saleshandy stats poll scheduled — 23:50 IST');
 // Retainer Invoice Generator — daily 9:00 AM IST (3:30 UTC)
 // ---------------------------------------------------------------------------
 import('./services/retainerService').then(m => m.ensureRetainerTables()).catch(() => {});
+// PAUSED 2026-05-03 — Retainer Invoice Generator. Re-enable by uncommenting.
+/*
 cron.schedule('30 3 * * *', () => safeCron('Retainer Invoice Generator', async () => {
   const tenantResult = await db.execute(sql`SELECT id FROM tenants WHERE slug = ${DEFAULT_TENANT_SLUG} LIMIT 1`);
   const tenantId = (tenantResult.rows[0] as { id: string } | undefined)?.id;
@@ -908,6 +930,8 @@ cron.schedule('30 3 * * *', () => safeCron('Retainer Invoice Generator', async (
   console.log(`[CRON] Retainer invoices: ${result.generated} generated, ${result.errors.length} errors`);
 }), { timezone: 'UTC' });
 console.log('[cron] Retainer invoice generator scheduled — daily 9:00 AM IST');
+*/
+console.log('[cron] Retainer invoice generator — PAUSED 2026-05-03');
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
@@ -954,7 +978,8 @@ cron.schedule('0 2 * * 0', () => safeCron('PageSpeed Monitor', async () => {
 }), { timezone: 'UTC' });
 console.log('[cron] PageSpeed monitor scheduled — Sundays 7:30 AM IST');
 
-// Rank Tracking via Serper.dev — Tuesday 9:00 AM IST (3:30 UTC)
+// PAUSED 2026-05-03 — Rank Tracking (Serper.dev). Re-enable by uncommenting.
+/*
 cron.schedule('30 3 * * 2', () => safeCron('Rank Tracking', async () => {
   const startedAt = new Date();
   const { runRankChecks } = await import('./services/rankTrackingService');
@@ -975,6 +1000,8 @@ cron.schedule('30 3 * * 2', () => safeCron('Rank Tracking', async () => {
   }
 }), { timezone: 'UTC' });
 console.log('[cron] Rank tracking scheduled — Tuesdays 9:00 AM IST (Serper.dev)');
+*/
+console.log('[cron] Rank tracking — PAUSED 2026-05-03');
 
 // SEO Alert Triggers — Daily 9 AM IST (3:30 UTC) — runs directly (no n8n dependency)
 cron.schedule('30 3 * * *', () => safeCron('SEO Alert Triggers', async () => {
@@ -998,7 +1025,8 @@ cron.schedule('30 3 * * *', () => safeCron('SEO Alert Triggers', async () => {
 }), { timezone: 'UTC' });
 console.log('[cron] SEO alert triggers scheduled — daily 9:00 AM IST (backend-native)');
 
-// SEO Backlink Monitor — Friday 9 AM IST (3:30 UTC) — runs directly via Serper.dev
+// PAUSED 2026-05-03 — SEO Backlink Monitor (Serper.dev). Re-enable by uncommenting.
+/*
 cron.schedule('30 3 * * 5', () => safeCron('SEO Backlink Monitor', async () => {
   const startedAt = new Date();
   const { runBacklinkCheck } = await import('./services/seoBacklinkService');
@@ -1019,8 +1047,11 @@ cron.schedule('30 3 * * 5', () => safeCron('SEO Backlink Monitor', async () => {
   }
 }), { timezone: 'UTC' });
 console.log('[cron] SEO backlink monitor scheduled — Fridays 9:00 AM IST (backend-native)');
+*/
+console.log('[cron] SEO backlink monitor — PAUSED 2026-05-03');
 
-// SEO Content Decay Detection — Every Monday 9 AM IST (3:30 UTC) — runs directly
+// PAUSED 2026-05-03 — SEO Content Decay Detection (Serper.dev). Re-enable by uncommenting.
+/*
 cron.schedule('30 3 * * 1', () => safeCron('SEO Content Decay', async () => {
   const startedAt = new Date();
   const { runContentDecayDetection } = await import('./services/seoContentDecayService');
@@ -1041,6 +1072,8 @@ cron.schedule('30 3 * * 1', () => safeCron('SEO Content Decay', async () => {
   }
 }), { timezone: 'UTC' });
 console.log('[cron] SEO content decay scheduled — Every Monday 9:00 AM IST (backend-native)');
+*/
+console.log('[cron] SEO content decay — PAUSED 2026-05-03');
 
 // SEO Weekly Opportunity Digest — Friday 5 PM IST (11:30 UTC) — sends via Slack directly
 cron.schedule('30 11 * * 5', () => safeCron('SEO Weekly Digest', async () => {
@@ -1073,13 +1106,16 @@ cron.schedule('30 3 1,15 * *', () => safeCron('Competitor Content Analysis', asy
 }), { timezone: 'UTC' });
 console.log('[cron] Competitor content analysis scheduled — 1st & 15th of month at 9:00 AM IST');
 
-// SEO Content Gap Analysis — 15th of each month at 10 AM IST (4:30 UTC)
+// PAUSED 2026-05-03 — SEO Content Gap Analysis (Serper.dev). Re-enable by uncommenting.
+/*
 cron.schedule('30 4 15 * *', () => safeCron('SEO Content Gap Analysis', async () => {
   const { runContentGapAnalysis } = await import('./services/seoContentGapService');
   const result = await runContentGapAnalysis();
   console.log(`[CRON] Content gap analysis: ${result.gaps} gaps, ${result.opportunities} opportunities`);
 }), { timezone: 'UTC' });
 console.log('[cron] SEO content gap analysis scheduled — 15th of month at 10:00 AM IST');
+*/
+console.log('[cron] SEO content gap analysis — PAUSED 2026-05-03');
 
 // Directory Scrapers — Daily 11 AM IST (5:30 UTC) — Clutch, GoodFirms, Upwork, LinkedIn
 cron.schedule('30 5 * * *', () => safeCron('Directory Scrapers', async () => {
@@ -1089,7 +1125,8 @@ cron.schedule('30 5 * * *', () => safeCron('Directory Scrapers', async () => {
 }), { timezone: 'UTC' });
 console.log('[cron] Directory scrapers scheduled — daily 11:00 AM IST');
 
-// Finance: Auto-generate recurring expenses + team salaries — 1st of each month 9 AM IST (3:30 UTC)
+// PAUSED 2026-05-03 — Finance Monthly Generation (recurring expenses). Re-enable by uncommenting.
+/*
 cron.schedule('30 3 1 * *', () => safeCron('Finance Monthly Generation', async () => {
   const { generateMonthlyExpenses } = await import('./services/financeService');
   const tenantResult = await pool.query(`SELECT id FROM tenants WHERE slug = 'growth-escalators' LIMIT 1`);
@@ -1099,6 +1136,8 @@ cron.schedule('30 3 1 * *', () => safeCron('Finance Monthly Generation', async (
   }
 }), { timezone: 'UTC' });
 console.log('[cron] Finance monthly generation scheduled — 1st of month 9:00 AM IST');
+*/
+console.log('[cron] Finance monthly generation — PAUSED 2026-05-03');
 
 // Weekly Data Cleanup — Sunday 2:00 AM IST (Saturday 20:30 UTC)
 // ---------------------------------------------------------------------------
