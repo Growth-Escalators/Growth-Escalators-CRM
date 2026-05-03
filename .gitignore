@@ -5,3 +5,9 @@ dist/
 *.log
 .DS_Store
 .claude/handoffs/
+
+# Generated / regenerated artifacts — should not be committed
+.swarm/
+.claude-flow/
+playwright-report/
+test-results/
