@@ -68,6 +68,7 @@ import('./services/outreachAlertService').then(m => m.ensureOutreachAlertColumns
 import('./services/workflowSelfHealingService').then(m => m.ensureSelfHealingColumns()).catch(() => {});
 import('./services/outreachFunnelMetrics').then(m => m.ensureOutreachFunnelTable()).catch(() => {});
 import('./services/websiteCacheService').then(m => m.ensureWebsiteCacheTable()).catch(() => {});
+import('./services/attendanceColumns').then(m => m.ensureAttendanceColumns()).catch(() => {});
 pool.query(`
   UPDATE outreach_leads SET status = 'New', updated_at = NOW()
   WHERE status = 'Enriching' AND updated_at < NOW() - INTERVAL '30 minutes'

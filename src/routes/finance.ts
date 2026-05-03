@@ -408,7 +408,11 @@ router.get('/attendance', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 router.post('/attendance', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const { memberId, memberIds, date, status, checkIn, checkOut, notes } = req.body;
+  const adminUserId = req.user!.id;
+  const { memberId, memberIds, date, status, checkIn, checkOut, notes, overrideReason } = req.body as {
+    memberId?: string; memberIds?: string[]; date?: string; status?: string;
+    checkIn?: string; checkOut?: string; notes?: string; overrideReason?: string;
+  };
 
   const targetDate = date || new Date().toISOString().split('T')[0];
   const ids = memberIds || (memberId ? [memberId] : []);
@@ -426,13 +430,25 @@ router.post('/attendance', async (req: Request, res: Response) => {
         hours = Math.round(((h2 * 60 + m2) - (h1 * 60 + m1)) / 60 * 100) / 100;
       }
 
+      // Admin overrides record who did it + (optionally) why, so the audit
+      // trail makes manual edits visible in the user's My Attendance view.
       await pool.query(
-        `INSERT INTO team_attendance (tenant_id, member_id, attendance_date, status, check_in, check_out, hours_worked, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `INSERT INTO team_attendance (
+           tenant_id, member_id, attendance_date, status, check_in, check_out,
+           hours_worked, notes, admin_overridden_by, admin_override_reason, admin_overridden_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
          ON CONFLICT (member_id, attendance_date) DO UPDATE SET
-           status = EXCLUDED.status, check_in = EXCLUDED.check_in, check_out = EXCLUDED.check_out,
-           hours_worked = EXCLUDED.hours_worked, notes = EXCLUDED.notes`,
-        [tenantId, id, targetDate, status || 'present', checkIn || null, checkOut || null, hours, notes || null],
+           status = EXCLUDED.status,
+           check_in = EXCLUDED.check_in,
+           check_out = EXCLUDED.check_out,
+           hours_worked = EXCLUDED.hours_worked,
+           notes = EXCLUDED.notes,
+           admin_overridden_by = EXCLUDED.admin_overridden_by,
+           admin_override_reason = EXCLUDED.admin_override_reason,
+           admin_overridden_at = NOW()`,
+        [tenantId, id, targetDate, status || 'present', checkIn || null, checkOut || null,
+         hours, notes || null, adminUserId, overrideReason || null],
       );
       marked++;
     }
