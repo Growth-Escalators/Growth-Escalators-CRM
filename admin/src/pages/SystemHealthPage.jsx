@@ -76,10 +76,10 @@ function Skeleton() {
       <Sidebar />
       <main className="flex-1 px-8 py-6 space-y-6 max-w-6xl">
         <div className="h-8 bg-slate-200 rounded-xl w-64 animate-pulse" />
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[1,2,3,4].map(n => <div key={n} className="h-24 bg-slate-200 rounded-2xl animate-pulse" />)}
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {[1,2,3,4,5,6,7,8].map(n => <div key={n} className="h-40 bg-slate-200 rounded-2xl animate-pulse" />)}
         </div>
       </main>

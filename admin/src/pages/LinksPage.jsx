@@ -74,7 +74,7 @@ function StatsModal({ link, onClose }) {
           ) : (
             <div className="space-y-4">
               {/* Total clicks */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {[
                   { label: 'Total Clicks', value: stats.visitsSummary?.total ?? stats.visits ?? 0 },
                   { label: 'Unique Visitors', value: stats.visitsSummary?.nonBots ?? '—' },

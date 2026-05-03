@@ -111,7 +111,7 @@ export default function ClientDetailPage() {
         {!loading && !error && data && (
           <div className="p-6 space-y-6">
             {/* Row 1: Client Info + Billing Summary */}
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="bg-white rounded-xl border border-slate-200 p-5">
                 <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
                   <User className="w-4 h-4 text-slate-400" /> Client Information
@@ -142,7 +142,7 @@ export default function ClientDetailPage() {
                   <Receipt className="w-4 h-4 text-slate-400" /> Billing Summary
                 </h3>
                 {billing ? (
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <StatCard label="Invoiced" value={inr(billing.invoiced)} />
                     <StatCard label="Paid" value={inr(billing.paid)} color="text-green-600" />
                     <StatCard label="Outstanding" value={inr(billing.outstanding)} color={billing.outstanding > 0 ? 'text-red-600' : 'text-slate-900'} />
@@ -160,7 +160,7 @@ export default function ClientDetailPage() {
                 <TrendingUp className="w-4 h-4 text-slate-400" /> Meta Ads Metrics
               </h3>
               {ads && !ads.error ? (
-                <div className="grid grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                   <StatCard label="Spend" value={`\u20B9${Number(ads.spend || 0).toLocaleString('en-IN')}`} />
                   <StatCard label="ROAS" value={`${ads.roas || 0}x`} color={Number(ads.roas) >= 2 ? 'text-green-600' : 'text-red-500'} />
                   <StatCard label="Clicks" value={Number(ads.clicks || 0).toLocaleString('en-IN')} />
@@ -177,7 +177,7 @@ export default function ClientDetailPage() {
                 <Search className="w-4 h-4 text-slate-400" /> SEO Summary
               </h3>
               {seo ? (
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <StatCard label="PageSpeed (Mobile)" value={seo.pageSpeedMobile ?? 'N/A'} color={Number(seo.pageSpeedMobile) >= 80 ? 'text-green-600' : 'text-amber-600'} />
                   <StatCard label="PageSpeed (Desktop)" value={seo.pageSpeedDesktop ?? 'N/A'} color={Number(seo.pageSpeedDesktop) >= 80 ? 'text-green-600' : 'text-amber-600'} />
                   <StatCard label="Keywords Tracked" value={seo.keywordCount || 0} />
@@ -221,7 +221,7 @@ export default function ClientDetailPage() {
             </div>
 
             {/* Row 5: Invoices + Payments side by side */}
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Recent Invoices */}
               <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                 <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">

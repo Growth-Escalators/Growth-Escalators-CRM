@@ -254,7 +254,7 @@ export default function LeadDiscoveryPage() {
         {/* Stats */}
         {stats && (
           <div className="px-4 py-3 border-b border-slate-800 space-y-2">
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div className="bg-slate-800 rounded-lg p-2.5">
                 <p className="text-slate-400 text-xs">Discovered</p>
                 <p className="text-white font-bold">{stats.totalDiscovered ?? 0}</p>
@@ -464,7 +464,7 @@ export default function LeadDiscoveryPage() {
               <p className="text-slate-500 text-sm max-w-md">
                 Search for businesses by type and location. We'll score each result by website, phone, rating, and reviews to help you identify the best prospects.
               </p>
-              <div className="mt-6 grid grid-cols-3 gap-4 text-left max-w-lg">
+              <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4 text-left max-w-lg">
                 <div className="bg-slate-800 rounded-xl p-3">
                   <Globe className="w-5 h-5 text-sky-400 mb-2" />
                   <p className="text-white text-xs font-medium">Website</p>

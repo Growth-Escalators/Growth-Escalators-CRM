@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { logout, getUser, getPermissions, apiFetch } from '../lib/api.js';
 import {
   Users, BarChart2, Zap, Mail, Receipt, Activity, Lock, Home,
   TrendingUp, FileText, Share2, MessageSquare, Settings, Layout, MapPin,
   Shield, ClipboardList, CreditCard, Kanban, Brain, Target, Link, Calendar,
-  ExternalLink, Wrench, Search, Megaphone, Send, CheckSquare
+  ExternalLink, Wrench, Search, Megaphone, Send, CheckSquare, Menu, X
 } from 'lucide-react';
 
 const ROLE_BADGE_COLORS = {
@@ -28,6 +28,8 @@ export default function Sidebar() {
   const user = getUser();
   const perms = getPermissions();
   const [unreadCount, setUnreadCount] = useState(0);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const location = useLocation();
   const role = user?.role || 'staff';
 
   useEffect(() => {
@@ -40,6 +42,10 @@ export default function Sidebar() {
     const interval = setInterval(fetchUnread, 30_000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname]);
 
   // Permission checks — role gives default access; module flags extend it per-user
   const isAdmin = role === 'admin';
@@ -72,7 +78,42 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="w-56 min-h-screen bg-slate-900 text-slate-300 flex flex-col">
+    <>
+      {/* Mobile hamburger — visible below md, fixed top-left */}
+      <button
+        type="button"
+        onClick={() => setMobileOpen(true)}
+        aria-label="Open navigation"
+        className="md:hidden fixed top-2 left-2 z-30 p-2 bg-white border border-slate-200 rounded-lg shadow-sm text-slate-600 hover:text-slate-900"
+      >
+        <Menu className="w-5 h-5" />
+      </button>
+
+      {/* Backdrop on mobile when drawer open */}
+      {mobileOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-black/40 z-40"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      <aside
+        className={`bg-slate-900 text-slate-300 flex flex-col flex-shrink-0
+          md:static md:w-56 md:min-h-screen md:translate-x-0
+          fixed inset-y-0 left-0 z-50 w-64 h-screen
+          transform transition-transform duration-200 ease-out
+          ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}
+      >
+        {/* Mobile close button */}
+        <button
+          type="button"
+          onClick={() => setMobileOpen(false)}
+          aria-label="Close navigation"
+          className="md:hidden absolute top-3 right-3 text-slate-400 hover:text-white"
+        >
+          <X className="w-5 h-5" />
+        </button>
+
       {/* Logo */}
       <div className="px-5 py-5 border-b border-slate-700/60">
         <div className="flex items-center gap-3">
@@ -248,6 +289,7 @@ export default function Sidebar() {
           Sign out
         </button>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }

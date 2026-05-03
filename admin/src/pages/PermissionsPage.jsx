@@ -328,7 +328,7 @@ export default function PermissionsPage() {
                           <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">Module Access</h3>
                           <span className="text-xs text-slate-400 font-normal normal-case tracking-normal">— unlocks sidebar sections regardless of role</span>
                         </div>
-                        <div className="grid grid-cols-3 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                           {MODULE_ACCESS.map(mod => (
                             <label key={mod.key} className={`flex flex-col gap-2 p-4 rounded-xl border-2 cursor-pointer transition-all ${
                               perms[mod.key] ? 'border-sky-500 bg-sky-50' : 'border-slate-200 bg-white hover:border-slate-300'
@@ -366,7 +366,7 @@ export default function PermissionsPage() {
                                   className="text-slate-400 hover:underline">All off</button>
                               </div>
                             </div>
-                            <div className="grid grid-cols-2 gap-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                               {group.perms.map(p => (
                                 <label key={p.key} className="flex items-center justify-between p-3 rounded-lg border border-slate-100 hover:border-slate-200 hover:bg-slate-50 cursor-pointer">
                                   <span className="text-sm text-slate-700">{p.label}</span>

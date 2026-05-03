@@ -101,7 +101,7 @@ function AddExpenseForm({ categories, onAdded, editing, onCancelEdit, vendors = 
         )}
       </div>
       {error && <p className="text-xs text-red-600 bg-red-50 px-3 py-1.5 rounded-lg">{error}</p>}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <input type="text" placeholder="Description *" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
           className="col-span-2 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500" required />
         <div className="relative">
@@ -210,7 +210,7 @@ function AddIncomeForm({ onAdded, editing, onCancelEdit }) {
         className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" required />
       <input type="text" placeholder="Description (optional)" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
         className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="relative">
           <span className="absolute left-3 top-2.5 text-slate-400 text-sm">INR</span>
           <input type="number" placeholder="Amount *" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })}

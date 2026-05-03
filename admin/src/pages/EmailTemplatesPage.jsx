@@ -75,7 +75,7 @@ function NewTemplateModal({ onClose, onCreate }) {
         </div>
         <div className="px-6 py-5 space-y-4">
           {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">Slug name *</label>
               <input value={form.name} onChange={set('name')} placeholder="welcome_d2c"
@@ -87,7 +87,7 @@ function NewTemplateModal({ onClose, onCreate }) {
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">Type</label>
               <select value={form.type} onChange={set('type')}
@@ -342,7 +342,7 @@ export default function EmailTemplatesPage() {
             <p className="text-sm text-slate-500 mt-0.5">Manage and sync email templates with Brevo</p>
           </div>
         </div>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard label="Total Templates" value={templates.length} color="#1e293b" />
           <StatCard label="Synced to Brevo" value={totalSynced} color="#16a34a" />
           <StatCard label="Total Sent" value={totalSent} color="#2563eb" />
@@ -464,7 +464,7 @@ export default function EmailTemplatesPage() {
 
               {/* Form */}
               <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">Slug name</label>
                     <input value={form.name} onChange={setField('name')} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />

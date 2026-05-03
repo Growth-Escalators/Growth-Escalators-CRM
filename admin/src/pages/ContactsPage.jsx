@@ -198,14 +198,14 @@ function AddContactModal({ onClose, onCreated }) {
           </button>
         </div>
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {field('firstName', 'First Name', 'text', true)}
             {field('lastName', 'Last Name')}
           </div>
           {field('phone', 'Phone / WhatsApp')}
           {field('email', 'Email', 'email')}
           {field('companyName', 'Company Name')}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Source</label>
               <select value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })}

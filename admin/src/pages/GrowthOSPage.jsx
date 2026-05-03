@@ -149,7 +149,7 @@ function OverviewTab({ clients, selectedClient, setSelectedClient }) {
                 </p>
               )}
             </div>
-            <div className="flex-1 grid grid-cols-2 gap-3">
+            <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
               {[
                 { label: 'Ads', value: latest.ads_score, icon: '📊' },
                 { label: 'SEO', value: latest.seo_score, icon: '🔍' },
@@ -360,7 +360,7 @@ function CreativesTab({ clients, selectedClient }) {
               </div>
               {expanded === c.id && (
                 <div className="bg-slate-900 border border-slate-700 border-t-0 rounded-b-xl p-4 text-sm">
-                  <div className="grid grid-cols-3 gap-3 mb-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
                     <div><p className="text-slate-500 text-xs">Peak ROAS</p><p className="text-white">{Number(c.peak_roas ?? 0).toFixed(2)}x</p></div>
                     <div><p className="text-slate-500 text-xs">Peak CTR</p><p className="text-white">{Number(c.peak_ctr ?? 0).toFixed(2)}%</p></div>
                     <div><p className="text-slate-500 text-xs">Frequency</p><p className={Number(c.latest_frequency) >= 3.5 ? 'text-red-400' : 'text-white'}>{Number(c.latest_frequency ?? 0).toFixed(1)}</p></div>
@@ -438,7 +438,7 @@ function CompetitorTab({ clients, selectedClient }) {
 
       {!loading && latest && (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3 mb-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-2">
             <div className="bg-slate-800 rounded-xl p-4 border border-slate-700">
               <p className="text-slate-400 text-xs mb-1">Competitor</p>
               <p className="text-white font-medium">{latest.competitor_name ?? 'Multiple'}</p>

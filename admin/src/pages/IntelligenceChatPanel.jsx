@@ -342,7 +342,7 @@ export default function IntelligenceChatPanel() {
       {showStarters && (
         <div className="px-4 pb-3">
           <p className="text-xs text-slate-400 mb-2 font-medium">Quick questions</p>
-          <div className="grid grid-cols-2 gap-1.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
             {STARTER_PROMPTS.map(({ icon: Icon, label, q }) => (
               <button
                 key={label}
