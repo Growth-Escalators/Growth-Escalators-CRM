@@ -457,9 +457,13 @@ function HistoryTable({ reports }) {
 // ---------------------------------------------------------------------------
 // System Health Tab
 // ---------------------------------------------------------------------------
+const RUNNABLE_CRONS = new Set(['Directory Scrapers', 'Monthly Client Benchmarks']);
+
 function SystemHealthTab() {
   const [health, setHealth] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [runningCron, setRunningCron] = useState(null);
+  const [runResult, setRunResult] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -467,6 +471,20 @@ function SystemHealthTab() {
     setHealth(d);
     setLoading(false);
   }, []);
+
+  const runCron = useCallback(async (name) => {
+    setRunningCron(name);
+    setRunResult(null);
+    try {
+      const res = await apiFetch(`/api/intelligence/run-cron/${encodeURIComponent(name)}`, { method: 'POST' });
+      setRunResult({ name, ok: res?.ok === true, body: res });
+    } catch (e) {
+      setRunResult({ name, ok: false, body: { error: e?.message || 'Request failed' } });
+    } finally {
+      setRunningCron(null);
+      load();
+    }
+  }, [load]);
 
   useEffect(() => { load(); const id = setInterval(load, 5 * 60_000); return () => clearInterval(id); }, [load]);
 
@@ -535,6 +553,7 @@ function SystemHealthTab() {
                 <th className="text-left py-1 px-2">Last Run</th>
                 <th className="text-left py-1 px-2">Duration</th>
                 <th className="text-left py-1 px-2">Records</th>
+                <th className="text-left py-1 px-2"></th>
               </tr></thead>
               <tbody>
                 {health.cronJobs.map(c => (
@@ -547,11 +566,29 @@ function SystemHealthTab() {
                       <td className="py-1 px-2 text-slate-500">{c.lastRun ? new Date(c.lastRun).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' }) : 'Never'}</td>
                       <td className="py-1 px-2 text-slate-500">{c.durationMs ? `${(c.durationMs / 1000).toFixed(1)}s` : '—'}</td>
                       <td className="py-1 px-2 text-slate-500">{c.recordsProcessed || '—'}</td>
+                      <td className="py-1 px-2">
+                        {RUNNABLE_CRONS.has(c.name) && (
+                          <button
+                            onClick={() => runCron(c.name)}
+                            disabled={runningCron === c.name}
+                            className="text-[10px] px-2 py-0.5 rounded bg-sky-50 text-sky-700 hover:bg-sky-100 disabled:opacity-50"
+                          >
+                            {runningCron === c.name ? 'Running…' : 'Run now'}
+                          </button>
+                        )}
+                      </td>
                     </tr>
                     {!c.healthy && c.errorMessage && (
                       <tr className="border-b border-slate-50 bg-red-50/40">
-                        <td colSpan={5} className="py-1 px-2 text-[11px] text-red-700 font-mono whitespace-pre-wrap break-all">
+                        <td colSpan={6} className="py-1 px-2 text-[11px] text-red-700 font-mono whitespace-pre-wrap break-all">
                           ↳ {c.errorMessage}
+                        </td>
+                      </tr>
+                    )}
+                    {runResult?.name === c.name && (
+                      <tr className={`border-b border-slate-50 ${runResult.ok ? 'bg-green-50/40' : 'bg-red-50/40'}`}>
+                        <td colSpan={6} className={`py-1 px-2 text-[11px] font-mono whitespace-pre-wrap break-all ${runResult.ok ? 'text-green-700' : 'text-red-700'}`}>
+                          ↳ manual run {runResult.ok ? 'succeeded' : 'failed'}: {JSON.stringify(runResult.body, null, 2)}
                         </td>
                       </tr>
                     )}

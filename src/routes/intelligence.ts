@@ -124,6 +124,57 @@ router.get('/system-health', async (_req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/intelligence/run-cron/:name — manually trigger a whitelisted cron.
+// Admin-only. Logs to cron_job_logs via the same wrapper the scheduled run uses,
+// so success/failure shows up on the System Health page within seconds.
+// Add jobs to RUN_CRON_WHITELIST as needed — keep the list small (each entry
+// is a 'run anything now' surface).
+// ---------------------------------------------------------------------------
+const RUN_CRON_WHITELIST: Record<string, () => Promise<unknown>> = {
+  'Directory Scrapers': async () => {
+    const { runAllScrapers } = await import('../services/directoryScraperService');
+    return runAllScrapers();
+  },
+  'Monthly Client Benchmarks': async () => {
+    const { calculateMonthlyBenchmarks } = await import('../services/metaAdsService');
+    await calculateMonthlyBenchmarks();
+    return { ok: true };
+  },
+};
+
+router.post('/run-cron/:name', async (req: Request, res: Response) => {
+  const user = (req as Request & { user?: { role: string } }).user;
+  if (user?.role !== 'admin') {
+    res.status(403).json({ error: 'Admin only' });
+    return;
+  }
+
+  const rawName = req.params.name;
+  const name = Array.isArray(rawName) ? rawName[0] : rawName;
+  const fn = name ? RUN_CRON_WHITELIST[name] : undefined;
+  if (!fn) {
+    res.status(404).json({ error: `Cron "${name}" not whitelisted for manual run`, allowed: Object.keys(RUN_CRON_WHITELIST) });
+    return;
+  }
+
+  const { logCronStart, logCronSuccess, logCronFailure } = await import('../services/systemHealthMonitor');
+  const logId = await logCronStart(name!).catch(() => null);
+  const startedAt = Date.now();
+  try {
+    const result = await fn();
+    const durationMs = Date.now() - startedAt;
+    if (logId !== null) await logCronSuccess(logId, durationMs, 0);
+    res.json({ ok: true, name, durationMs, result });
+  } catch (e) {
+    const durationMs = Date.now() - startedAt;
+    const errMsg = e instanceof Error ? `${e.message}\n${e.stack ?? ''}` : String(e);
+    if (logId !== null) await logCronFailure(logId, durationMs, errMsg);
+    logger.error(`[intelligence] manual run of "${name}" failed:`, e);
+    res.status(500).json({ ok: false, name, durationMs, error: errMsg.slice(0, 2000) });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/intelligence/status/:id — poll generation status
 // ---------------------------------------------------------------------------
 router.get('/status/:id', async (req: Request, res: Response) => {
