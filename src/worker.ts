@@ -18,6 +18,7 @@ import { collectDailyData } from './services/intelligenceDataCollector';
 import { analyzeWithClaude } from './services/intelligenceAnalyzer';
 import { deliverDailyIntelligence } from './services/intelligenceDelivery';
 import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_PERF_MARKETING_CHANNEL, SLACK_SEO_CHANNEL, SLACK_OUTREACH_CHANNEL, SLACK_SOD_EOD_CHANNEL, DEFAULT_TENANT_SLUG } from './config/constants';
+import { isPaused } from './config/featureFlags';
 
 // True when this file is run directly (`node dist/worker.js`).
 // False when imported by `src/index.ts` so background jobs run inside `web`.
@@ -962,6 +963,7 @@ console.log('[cron] Retainer invoice generator — PAUSED 2026-05-03');
 // SEO Weekly Email — Thursday 10:30 AM IST (5:00 UTC)
 // ---------------------------------------------------------------------------
 cron.schedule('0 5 * * 4', () => safeCron('SEO Weekly Email', async () => {
+  if (isPaused('seo')) return;
   const { sendSEOWeeklyEmail } = await import('./services/seoWeeklyEmailService');
   await sendSEOWeeklyEmail();
 }), { timezone: 'UTC' });
@@ -982,6 +984,7 @@ console.log('[cron] Weekly outreach summary scheduled — Mondays 8:00 AM IST (2
 // Bypasses n8n WF-SEO-05 which has a connection issue
 // ---------------------------------------------------------------------------
 cron.schedule('0 2 * * 0', () => safeCron('PageSpeed Monitor', async () => {
+  if (isPaused('seo')) return;
   const startedAt = new Date();
   const { runPageSpeedChecks } = await import('./services/pagespeedService');
   const { logSeoWorkflowRun } = await import('./services/seoWorkflowHealthService');
@@ -1029,6 +1032,7 @@ console.log('[cron] Rank tracking — PAUSED 2026-05-03');
 
 // SEO Alert Triggers — Daily 9 AM IST (3:30 UTC) — runs directly (no n8n dependency)
 cron.schedule('30 3 * * *', () => safeCron('SEO Alert Triggers', async () => {
+  if (isPaused('seo')) return;
   const startedAt = new Date();
   const { runSeoAlertChecks } = await import('./services/seoAlertService');
   const { logSeoWorkflowRun } = await import('./services/seoWorkflowHealthService');
@@ -1101,6 +1105,7 @@ console.log('[cron] SEO content decay — PAUSED 2026-05-03');
 
 // SEO Weekly Opportunity Digest — Friday 5 PM IST (11:30 UTC) — sends via Slack directly
 cron.schedule('30 11 * * 5', () => safeCron('SEO Weekly Digest', async () => {
+  if (isPaused('seo')) return;
   const startedAt = new Date();
   const { sendWeeklyOpportunityDigest } = await import('./services/seoDigestService');
   const { logSeoWorkflowRun } = await import('./services/seoWorkflowHealthService');
@@ -1124,6 +1129,7 @@ console.log('[cron] SEO weekly digest scheduled — Fridays 5:00 PM IST (backend
 
 // Competitor Content Analysis — 1st and 15th of each month at 9:00 AM IST (3:30 UTC)
 cron.schedule('30 3 1,15 * *', () => safeCron('Competitor Content Analysis', async () => {
+  if (isPaused('seo')) return;
   const { runCompetitorContentAnalysis } = await import('./services/competitorContentService');
   const result = await runCompetitorContentAnalysis();
   console.log(`[CRON] Competitor content: ${result.analyzed} keywords analyzed, ${result.errors} errors`);

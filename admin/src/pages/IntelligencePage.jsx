@@ -474,7 +474,11 @@ function SystemHealthTab() {
   if (!health) return <div className="text-center py-12 text-red-500 text-sm">Health check failed</div>;
 
   const scoreColor = health.overallScore >= 80 ? 'text-green-600' : health.overallScore >= 50 ? 'text-amber-600' : 'text-red-600';
-  const statusBadge = (s) => s === 'HEALTHY' ? 'bg-green-100 text-green-700' : s === 'WARNING' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700';
+  const statusBadge = (s) =>
+    s === 'HEALTHY' ? 'bg-green-100 text-green-700'
+    : s === 'WARNING' ? 'bg-amber-100 text-amber-700'
+    : s === 'PAUSED' ? 'bg-slate-200 text-slate-600'
+    : 'bg-red-100 text-red-700';
 
   return (
     <section className="space-y-4">
@@ -503,14 +507,18 @@ function SystemHealthTab() {
               <span className="text-xs font-semibold text-slate-700">{sub.name}</span>
               <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${statusBadge(sub.data.status)}`}>{sub.data.status}</span>
             </div>
-            <div className="space-y-0.5 text-[11px] text-slate-500">
-              {Object.entries(sub.data.metrics || {}).slice(0, 4).map(([k, v]) => (
-                <div key={k} className="flex justify-between">
-                  <span>{k.replace(/([A-Z])/g, ' $1').toLowerCase()}</span>
-                  <span className="font-medium text-slate-700">{String(v)}</span>
-                </div>
-              ))}
-            </div>
+            {sub.data.status === 'PAUSED' ? (
+              <p className="text-[11px] text-slate-400 italic">Paused — excluded from overall score</p>
+            ) : (
+              <div className="space-y-0.5 text-[11px] text-slate-500">
+                {Object.entries(sub.data.metrics || {}).slice(0, 4).map(([k, v]) => (
+                  <div key={k} className="flex justify-between">
+                    <span>{k.replace(/([A-Z])/g, ' $1').toLowerCase()}</span>
+                    <span className="font-medium text-slate-700">{String(v)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>

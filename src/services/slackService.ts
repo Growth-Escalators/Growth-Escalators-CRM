@@ -1,7 +1,14 @@
 import logger from '../utils/logger';
 import https from 'https';
+import { SLACK_NOTIFICATIONS_PAUSED } from '../config/featureFlags';
 
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
+
+export interface SlackSendOpts {
+  // Set true on calls that must fire even while SLACK_NOTIFICATIONS_PAUSED is on
+  // (e.g. Cashfree funnel purchase notifications — the only "real sale" signal).
+  allowDuringPause?: boolean;
+}
 
 // Member ID mapping — ClickUp ID to Slack ID
 export const MEMBER_MAP: Record<string, { slackId: string; name: string; role: string }> = {
@@ -28,7 +35,16 @@ export const CHANNELS = {
 };
 
 // Send a message to a Slack channel
-export async function sendSlackMessage(channel: string, text: string, blocks?: unknown[]): Promise<boolean> {
+export async function sendSlackMessage(
+  channel: string,
+  text: string,
+  blocks?: unknown[],
+  opts: SlackSendOpts = {},
+): Promise<boolean> {
+  if (SLACK_NOTIFICATIONS_PAUSED && !opts.allowDuringPause) {
+    logger.info(`[Slack] suppressed (paused): #${channel} — ${text.slice(0, 80)}`);
+    return false;
+  }
   if (!SLACK_BOT_TOKEN) {
     logger.error('[Slack] SLACK_BOT_TOKEN not set — cannot send message');
     return false;
@@ -85,7 +101,16 @@ export async function sendSlackMessage(channel: string, text: string, blocks?: u
 }
 
 // Send a direct message to a specific Slack user by their ID
-export async function sendSlackDM(userId: string, text: string, blocks?: unknown[]): Promise<boolean> {
+export async function sendSlackDM(
+  userId: string,
+  text: string,
+  blocks?: unknown[],
+  opts: SlackSendOpts = {},
+): Promise<boolean> {
+  if (SLACK_NOTIFICATIONS_PAUSED && !opts.allowDuringPause) {
+    logger.info(`[Slack] suppressed (paused) DM to ${userId} — ${text.slice(0, 80)}`);
+    return false;
+  }
   if (!SLACK_BOT_TOKEN) {
     logger.error('[Slack] SLACK_BOT_TOKEN not set — cannot send DM');
     return false;
@@ -94,7 +119,7 @@ export async function sendSlackDM(userId: string, text: string, blocks?: unknown
   const dmChannel = await openDMChannel(userId);
   if (!dmChannel) return false;
 
-  return sendSlackMessage(dmChannel, text, blocks);
+  return sendSlackMessage(dmChannel, text, blocks, opts);
 }
 
 // Open a DM channel with a user, returns channel ID

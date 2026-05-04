@@ -2,12 +2,15 @@ import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { sendSlackDM } from './slackService';
 import { SLACK_JATIN } from '../config/constants';
+import { isPaused } from '../config/featureFlags';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+export type SubsystemStatus = 'HEALTHY' | 'WARNING' | 'CRITICAL' | 'PAUSED';
+
 export interface SubsystemHealth {
-  status: 'HEALTHY' | 'WARNING' | 'CRITICAL';
+  status: SubsystemStatus;
   metrics: Record<string, unknown>;
 }
 
@@ -30,33 +33,28 @@ export interface SystemHealthReport {
   checkedAt: string;
 }
 
-// Cron expected windows in minutes
+// Cron expected windows in minutes.
+// ONLY currently-scheduled, non-paused jobs go here. Paused jobs (see featureFlags.ts)
+// are excluded so the System Health page shows what's actually running.
 const CRON_WINDOWS: Record<string, number> = {
-  // Alerts & digests (Blocker Alerts & Spend Alert Check removed — disabled in worker.ts)
-  'SOD Digest': 1500, 'Sakcham Priority SOD': 1500, 'EOD Summary': 1500,
+  // Daily digests
+  'Morning Briefing': 1500, 'Evening Summary': 1500,
   // Finance
-  'Monthly Invoice Drafts': 44640,
-  'Overdue Invoice Check': 1500, 'Retainer Invoice Generator': 1500,
+  'Overdue Invoice Check': 1500,
   // Intelligence & reporting
-  'Daily Intelligence Report': 1500,
   'Meta Ads Daily Report': 1500, 'Meta Token Check': 10080,
-  'SEO Workflow Health': 1500, 'Growth OS Health Scores': 1500,
-  'Money on Table': 10080, 'Creative Intelligence': 360,
-  'Competitor Pulse': 10080, 'SEO Weekly Email': 10080,
-  'PageSpeed Monitor': 10080, 'Daily Archive': 1500,
+  'Growth OS Health Scores': 1500, 'Creative Intelligence': 360,
+  'Competitor Pulse': 10080, 'Daily Archive': 1500,
+  'Monthly Client Benchmarks': 44640,
   // Outreach
-  'Outreach Enrichment': 10, 'Outreach CRM Sync': 60,
-  'Daily Lead Discovery': 1500,
-  'Reset Stuck Enriching Leads': 120, 'Weekly Outreach Summary': 10080,
-  'Saleshandy Auto-Upload': 15,
+  'Outreach CRM Sync': 60, 'Reset Stuck Enriching Leads': 120,
+  'Weekly Outreach Summary': 10080, 'Saleshandy Auto-Upload': 60,
+  'Outreach Funnel Snapshot': 1500, 'Saleshandy Stats Poll': 1500,
   // Ops
   'Audit Booking Follow-up': 360, 'Weekly Data Cleanup': 10080,
   'Co-Pilot Poller': 5, 'Pipeline Placement': 1,
-  'System Health Check': 60, 'Workflow Self-Healing': 60, 'Rank Tracking': 10080,
-  'Morning Briefing': 1500, 'Evening Summary': 1500,
-  'Competitor Content Analysis': 21600,
-  'SEO Alert Triggers': 1500, 'SEO Backlink Monitor': 10080,
-  'SEO Content Decay': 10080, 'SEO Weekly Digest': 10080,
+  'System Health Check': 60, 'Late Attendance Check': 1500,
+  'Directory Scrapers': 1500,
 };
 
 // Alert rate limiting — 12h cooldown + 5-minute startup grace period
@@ -133,20 +131,29 @@ export async function checkAllSystems(): Promise<SystemHealthReport> {
     checkCronJobs().catch(() => []),
   ]);
 
-  // Calculate score
-  let score = 0;
-  if (infra.status === 'HEALTHY') score += 30;
-  else if (infra.status === 'WARNING') score += 15;
-  if (outreach.status === 'HEALTHY') score += 20;
-  else if (outreach.status === 'WARNING') score += 10;
-  if (seo.status === 'HEALTHY') score += 20;
-  else if (seo.status === 'WARNING') score += 10;
-  if (crm.status === 'HEALTHY') score += 15;
-  else if (crm.status === 'WARNING') score += 8;
+  // Score weights — PAUSED subsystems are excluded from the average so a paused
+  // SEO doesn't drag the score below 50 and trigger a low_score alert.
+  const weights: Array<{ status: SubsystemStatus; full: number }> = [
+    { status: infra.status,    full: 30 },
+    { status: outreach.status, full: 20 },
+    { status: seo.status,      full: 20 },
+    { status: crm.status,      full: 15 },
+  ];
+  const earnable = weights.filter(w => w.status !== 'PAUSED').reduce((s, w) => s + w.full, 0);
+  let earned = 0;
+  for (const w of weights) {
+    if (w.status === 'HEALTHY') earned += w.full;
+    else if (w.status === 'WARNING') earned += Math.round(w.full / 2);
+    // PAUSED and CRITICAL contribute 0 — PAUSED is also subtracted from earnable
+  }
+  // Normalise so the subsystem portion is out of 85 (cron portion is +15 below)
+  const subsystemScore = earnable > 0 ? Math.round((earned / earnable) * 85) : 85;
+
   const cronHealthy = cronJobs.filter(c => c.healthy).length;
   const cronTotal = Math.max(cronJobs.length, 1);
-  score += Math.round((cronHealthy / cronTotal) * 15);
+  const cronScore = Math.round((cronHealthy / cronTotal) * 15);
 
+  let score = subsystemScore + cronScore;
   if (infra.status === 'CRITICAL') score = Math.min(score, 29);
 
   return { overallScore: score, outreach, seo, crm, infrastructure: infra, cronJobs, checkedAt: new Date().toISOString() };
@@ -172,19 +179,30 @@ async function checkOutreach(): Promise<SubsystemHealth> {
   const lastDiscovery = m.last_discovery ? new Date(m.last_discovery) : null;
   const hoursSinceDiscovery = lastDiscovery ? (Date.now() - lastDiscovery.getTime()) / 3600000 : 999;
 
-  let status: 'HEALTHY' | 'WARNING' | 'CRITICAL' = 'HEALTHY';
-  if (stuck > 0) status = 'WARNING';
-  if (hoursSinceDiscovery > 48) status = 'CRITICAL';
-
-  // Auto-heal: reset stuck leads
+  // Auto-heal: reset stuck leads regardless of pause state.
   if (stuck > 0) {
     await pool.query(`UPDATE outreach_leads SET status='New', retry_count=0, updated_at=NOW() WHERE status='Enriching' AND updated_at < NOW() - INTERVAL '60 minutes'`).catch(() => {});
   }
 
-  return { status, metrics: { discoveredToday, stuck, active: parseInt(m.active ?? '0'), uploaded: parseInt(m.uploaded ?? '0'), repliesToday: parseInt(m.replies_today ?? '0'), hoursSinceDiscovery: Math.round(hoursSinceDiscovery) } };
+  // When discovery/enrichment is paused, ignore the discovery freshness signal —
+  // those crons aren't running by design. Score only on the bits still active
+  // (CRM Sync, Saleshandy Auto-Upload, Audit Booking, Reset Stuck).
+  let status: SubsystemStatus = 'HEALTHY';
+  if (isPaused('outreachEnrichment')) {
+    if (stuck > 0) status = 'WARNING';
+  } else {
+    if (stuck > 0) status = 'WARNING';
+    if (hoursSinceDiscovery > 48) status = 'CRITICAL';
+  }
+
+  return { status, metrics: { discoveredToday, stuck, active: parseInt(m.active ?? '0'), uploaded: parseInt(m.uploaded ?? '0'), repliesToday: parseInt(m.replies_today ?? '0'), hoursSinceDiscovery: Math.round(hoursSinceDiscovery), enrichmentPaused: isPaused('outreachEnrichment') } };
 }
 
 async function checkSeo(): Promise<SubsystemHealth> {
+  if (isPaused('seo')) {
+    return { status: 'PAUSED', metrics: { paused: true } };
+  }
+
   let recentMetrics = 0;
   let recentRankings = 0;
 
@@ -208,7 +226,7 @@ async function checkSeo(): Promise<SubsystemHealth> {
     };
   }
 
-  let status: 'HEALTHY' | 'WARNING' | 'CRITICAL' = 'HEALTHY';
+  let status: SubsystemStatus = 'HEALTHY';
   if (recentMetrics === 0 && recentRankings === 0) status = 'CRITICAL';
   else if (recentMetrics === 0 || recentRankings === 0) status = 'WARNING';
 
@@ -225,7 +243,7 @@ async function checkCrm(): Promise<SubsystemHealth> {
   `);
   const m = r.rows[0] as Record<string, string>;
   const overdueCount = parseInt(m.invoices_overdue ?? '0');
-  let status: 'HEALTHY' | 'WARNING' | 'CRITICAL' = 'HEALTHY';
+  let status: SubsystemStatus = 'HEALTHY';
   if (overdueCount > 3) status = 'WARNING';
 
   return { status, metrics: { contactsToday: parseInt(m.contacts_today ?? '0'), dealsActive: parseInt(m.deals_active ?? '0'), pipelineValue: parseInt(m.pipeline_value ?? '0'), invoicesOverdue: overdueCount } };
@@ -280,7 +298,7 @@ async function checkInfrastructure(): Promise<SubsystemHealth> {
   checks.metaTokenSet = !!(process.env.META_ACCESS_TOKEN || process.env.META_ADS_TOKEN);
   checks.whatsappConfigured = !!process.env.WHATSAPP_PHONE_NUMBER_ID;
 
-  let status: 'HEALTHY' | 'WARNING' | 'CRITICAL' = 'HEALTHY';
+  let status: SubsystemStatus = 'HEALTHY';
   if (!checks.webUp) status = 'CRITICAL';
   else if ((checks.n8nUp !== null && !checks.n8nUp) || !checks.metaTokenSet) status = 'WARNING';
 

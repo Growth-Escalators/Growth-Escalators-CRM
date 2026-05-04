@@ -257,6 +257,8 @@ export async function processCashfreeEvent(
     `• Segment: ${segmentLabel}\n` +
     `• Products: ${productLabels.join(' + ')}\n` +
     `• Phone: ${phone || 'N/A'} | Email: ${email || 'N/A'}`,
+    undefined,
+    { allowDuringPause: true }, // funnel sale — must fire even when SLACK_NOTIFICATIONS_PAUSED
   ).catch(() => {});
 
   if (email) {
