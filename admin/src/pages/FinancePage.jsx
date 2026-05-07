@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { Fragment, useEffect, useMemo, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import { apiFetch } from '../lib/api.js';
 import {
@@ -237,6 +237,138 @@ function AddIncomeForm({ onAdded, editing, onCancelEdit }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Daily attendance grid — member × day matrix for the selected month.
+// Reads attendance.attendance (already returned by /api/finance/attendance)
+// and renders one cell per (member, day) pair, color-coded by status.
+// ---------------------------------------------------------------------------
+const STATUS_STYLE = {
+  present:  { bg: 'bg-green-100',  text: 'text-green-700',  letter: 'P' },
+  absent:   { bg: 'bg-red-100',    text: 'text-red-700',    letter: 'A' },
+  half_day: { bg: 'bg-amber-100',  text: 'text-amber-700',  letter: 'H' },
+  leave:    { bg: 'bg-blue-100',   text: 'text-blue-700',   letter: 'L' },
+  wfh:      { bg: 'bg-purple-100', text: 'text-purple-700', letter: 'W' },
+};
+
+function fmtTime(t) {
+  if (!t) return '—';
+  // Postgres TIME returns "HH:MM:SS"; fall back to raw string otherwise.
+  const m = String(t).match(/^(\d{2}):(\d{2})/);
+  return m ? `${m[1]}:${m[2]}` : String(t);
+}
+
+function DailyAttendanceGrid({ team, attendance, month, onCellClick }) {
+  const [yyyy, mm] = month.split('-').map(Number);
+  const daysInMonth = new Date(yyyy, mm, 0).getDate();
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  // Build lookup: `${memberId}|YYYY-MM-DD` -> record
+  const byKey = useMemo(() => {
+    const map = new Map();
+    for (const a of attendance || []) {
+      const date = (a.attendance_date || '').slice(0, 10);
+      if (!date) continue;
+      map.set(`${a.member_id}|${date}`, a);
+    }
+    return map;
+  }, [attendance]);
+
+  if (!team || team.length === 0) {
+    return <p className="text-xs text-slate-400 italic">No team members configured.</p>;
+  }
+
+  const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+  const dowLetter = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="text-[11px] border-separate" style={{ borderSpacing: 2 }}>
+        <thead>
+          <tr>
+            <th className="sticky left-0 bg-white z-10 text-left px-2 py-1 text-xs font-semibold text-slate-500 min-w-[140px]">
+              Team Member
+            </th>
+            {days.map(d => {
+              const date = new Date(yyyy, mm - 1, d);
+              const dow = date.getDay(); // 0=Sun
+              const isWeekend = dow === 0 || dow === 6;
+              const dStr = `${month}-${String(d).padStart(2, '0')}`;
+              const isToday = dStr === todayStr;
+              return (
+                <th key={d} className={`px-1 py-0.5 text-center font-medium ${isWeekend ? 'text-slate-300' : 'text-slate-500'} ${isToday ? 'underline decoration-sky-500' : ''}`}>
+                  <div>{d}</div>
+                  <div className="text-[9px] font-normal opacity-70">{dowLetter[dow]}</div>
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {team.map(m => (
+            <tr key={m.id}>
+              <td className="sticky left-0 bg-white z-10 px-2 py-1 font-medium text-slate-700 truncate">{m.name}</td>
+              {days.map(d => {
+                const dStr = `${month}-${String(d).padStart(2, '0')}`;
+                const rec = byKey.get(`${m.id}|${dStr}`);
+                const date = new Date(yyyy, mm - 1, d);
+                const dow = date.getDay();
+                const isWeekend = dow === 0 || dow === 6;
+                const isFuture = dStr > todayStr;
+                const style = rec ? STATUS_STYLE[rec.status] : null;
+
+                let title = `${m.name} — ${dStr}`;
+                if (rec) {
+                  title += `\nStatus: ${rec.status?.replace('_', ' ')}`;
+                  if (rec.check_in)  title += `\nCheck-in:  ${fmtTime(rec.check_in)}`;
+                  if (rec.check_out) title += `\nCheck-out: ${fmtTime(rec.check_out)}`;
+                  if (rec.hours_worked != null) title += `\nHours: ${Number(rec.hours_worked).toFixed(1)}h`;
+                  if (rec.is_late) title += `\nLate by ${rec.late_minutes ?? '?'}m`;
+                  if (rec.work_location && rec.work_location !== 'office') title += `\nLocation: ${rec.work_location}`;
+                  if (rec.notes) title += `\nNote: ${rec.notes}`;
+                  if (rec.admin_overridden_by) title += `\nOverridden by ${rec.admin_overridden_by}`;
+                } else if (isWeekend) {
+                  title += '\n(weekend)';
+                } else if (isFuture) {
+                  title += '\n(future)';
+                } else {
+                  title += '\n(no record)';
+                }
+
+                return (
+                  <td key={d} className="p-0">
+                    <button
+                      type="button"
+                      onClick={() => onCellClick?.(m, dStr, rec)}
+                      title={title}
+                      className={`w-6 h-6 flex items-center justify-center rounded text-[10px] font-bold relative
+                        ${style ? `${style.bg} ${style.text}` : isWeekend ? 'bg-slate-50 text-slate-300' : isFuture ? 'bg-slate-50 text-slate-200' : 'bg-slate-100 text-slate-300 hover:bg-slate-200'}
+                      `}
+                    >
+                      {style?.letter ?? (isWeekend ? '·' : isFuture ? '' : '–')}
+                      {rec?.is_late && <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-amber-500" />}
+                    </button>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="mt-3 flex flex-wrap gap-3 text-[11px] text-slate-500">
+        {Object.entries(STATUS_STYLE).map(([k, v]) => (
+          <span key={k} className="flex items-center gap-1">
+            <span className={`w-3 h-3 rounded ${v.bg} ${v.text} flex items-center justify-center text-[9px] font-bold`}>{v.letter}</span>
+            {k.replace('_', ' ')}
+          </span>
+        ))}
+        <span className="flex items-center gap-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> late check-in
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export default function FinancePage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
@@ -263,6 +395,7 @@ export default function FinancePage() {
   // Attendance form
   const [attDate, setAttDate] = useState(new Date().toISOString().split('T')[0]);
   const [attStatus, setAttStatus] = useState('present');
+  const [expandedMember, setExpandedMember] = useState(null); // member_id whose daily detail is open
 
   const loadData = useCallback(async (toastMsg) => {
     setLoading(true);
@@ -726,7 +859,35 @@ export default function FinancePage() {
                 )}
               </div>
 
-              {/* Monthly summary */}
+              {/* Daily grid — bird's-eye view of the whole month */}
+              {(attendance.team || []).length > 0 && (
+                <div className="bg-white rounded-xl border border-slate-200 p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-sky-500" /> Daily Attendance — {monthLabel}
+                    </h3>
+                    <p className="text-[11px] text-slate-400">click a cell to mark / edit</p>
+                  </div>
+                  <DailyAttendanceGrid
+                    team={attendance.team || []}
+                    attendance={attendance.attendance || []}
+                    month={month}
+                    onCellClick={async (member, dStr, rec) => {
+                      // Cycle status: nothing → present → absent → half_day → leave → wfh → unset
+                      const cycle = ['present', 'absent', 'half_day', 'leave', 'wfh'];
+                      const next = !rec ? 'present' : cycle[(cycle.indexOf(rec.status) + 1) % cycle.length];
+                      await apiFetch('/api/finance/attendance', {
+                        method: 'POST',
+                        body: JSON.stringify({ memberId: member.id, date: dStr, status: next }),
+                      });
+                      setToast(`${member.name} • ${dStr} → ${next.replace('_', ' ')}`);
+                      loadData();
+                    }}
+                  />
+                </div>
+              )}
+
+              {/* Monthly summary — click a row to expand the per-member daily timeline */}
               {(attendance.summary || []).length > 0 && (
                 <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                   <div className="px-6 py-3 border-b bg-slate-50">
@@ -744,16 +905,80 @@ export default function FinancePage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {(attendance.summary || []).map((s, i) => (
-                        <tr key={i} className="border-b border-slate-50 hover:bg-slate-50">
-                          <td className="px-4 py-2.5 font-medium text-slate-800">{s.member_name}</td>
-                          <td className="px-4 py-2.5 text-center"><span className="bg-green-50 text-green-700 px-2 py-0.5 rounded-full text-xs font-semibold">{s.present}</span></td>
-                          <td className="px-4 py-2.5 text-center"><span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${Number(s.absent) > 0 ? 'bg-red-50 text-red-700' : 'bg-slate-50 text-slate-400'}`}>{s.absent}</span></td>
-                          <td className="px-4 py-2.5 text-center"><span className="bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full text-xs font-semibold">{s.half_days}</span></td>
-                          <td className="px-4 py-2.5 text-center"><span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full text-xs font-semibold">{s.leaves}</span></td>
-                          <td className="px-4 py-2.5 text-center text-slate-600">{Number(s.total_hours).toFixed(1)}h</td>
-                        </tr>
-                      ))}
+                      {(attendance.summary || []).map((s, i) => {
+                        const isOpen = expandedMember === s.member_id;
+                        const memberDays = (attendance.attendance || [])
+                          .filter(a => a.member_id === s.member_id)
+                          .slice()
+                          .sort((a, b) => (b.attendance_date || '').localeCompare(a.attendance_date || ''));
+                        return (
+                          <Fragment key={i}>
+                            <tr
+                              className="border-b border-slate-50 hover:bg-slate-50 cursor-pointer"
+                              onClick={() => setExpandedMember(isOpen ? null : s.member_id)}
+                            >
+                              <td className="px-4 py-2.5 font-medium text-slate-800 flex items-center gap-1">
+                                <ChevronRight className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+                                {s.member_name}
+                              </td>
+                              <td className="px-4 py-2.5 text-center"><span className="bg-green-50 text-green-700 px-2 py-0.5 rounded-full text-xs font-semibold">{s.present}</span></td>
+                              <td className="px-4 py-2.5 text-center"><span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${Number(s.absent) > 0 ? 'bg-red-50 text-red-700' : 'bg-slate-50 text-slate-400'}`}>{s.absent}</span></td>
+                              <td className="px-4 py-2.5 text-center"><span className="bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full text-xs font-semibold">{s.half_days}</span></td>
+                              <td className="px-4 py-2.5 text-center"><span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full text-xs font-semibold">{s.leaves}</span></td>
+                              <td className="px-4 py-2.5 text-center text-slate-600">{Number(s.total_hours).toFixed(1)}h</td>
+                            </tr>
+                            {isOpen && (
+                              <tr className="bg-slate-50/50">
+                                <td colSpan={6} className="px-6 py-3">
+                                  {memberDays.length === 0 ? (
+                                    <p className="text-xs text-slate-400 italic">No daily records for {monthLabel}.</p>
+                                  ) : (
+                                    <table className="w-full text-xs">
+                                      <thead>
+                                        <tr className="text-slate-400 border-b">
+                                          <th className="text-left py-1 px-2">Date</th>
+                                          <th className="text-left py-1 px-2">Status</th>
+                                          <th className="text-left py-1 px-2">Check-in</th>
+                                          <th className="text-left py-1 px-2">Check-out</th>
+                                          <th className="text-left py-1 px-2">Hours</th>
+                                          <th className="text-left py-1 px-2">Late</th>
+                                          <th className="text-left py-1 px-2">Location</th>
+                                          <th className="text-left py-1 px-2">Notes</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {memberDays.map(a => {
+                                          const d = (a.attendance_date || '').slice(0, 10);
+                                          const day = new Date(d).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' });
+                                          const style = STATUS_STYLE[a.status];
+                                          return (
+                                            <tr key={a.id} className="border-b border-slate-100">
+                                              <td className="py-1 px-2 text-slate-700 font-medium">{day}</td>
+                                              <td className="py-1 px-2">
+                                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${style?.bg ?? 'bg-slate-100'} ${style?.text ?? 'text-slate-500'}`}>
+                                                  {(a.status || '—').replace('_', ' ')}
+                                                </span>
+                                              </td>
+                                              <td className="py-1 px-2 text-slate-600">{fmtTime(a.check_in)}</td>
+                                              <td className="py-1 px-2 text-slate-600">{fmtTime(a.check_out)}</td>
+                                              <td className="py-1 px-2 text-slate-600">{a.hours_worked != null ? `${Number(a.hours_worked).toFixed(1)}h` : '—'}</td>
+                                              <td className="py-1 px-2">
+                                                {a.is_late ? <span className="text-amber-600 font-medium">+{a.late_minutes ?? '?'}m</span> : <span className="text-slate-300">—</span>}
+                                              </td>
+                                              <td className="py-1 px-2 text-slate-600 capitalize">{a.work_location || 'office'}</td>
+                                              <td className="py-1 px-2 text-slate-500 truncate max-w-[200px]" title={a.notes || ''}>{a.notes || '—'}</td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
