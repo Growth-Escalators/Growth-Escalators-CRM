@@ -60,6 +60,7 @@ import leadsRouter from './routes/leads';
 import analyticsRouter from './routes/analytics';
 import whatsappTemplatesRouter from './routes/whatsappTemplates';
 import linksRouter from './routes/links';
+import shortLinksRouter, { linksHostMiddleware } from './routes/shortLinks';
 import intelligenceChatRouter from './routes/intelligenceChat';
 import clientDetailRouter from './routes/clientDetail';
 import selfServiceRouter from './routes/selfService';
@@ -156,6 +157,11 @@ app.use(generalLimiter);
 // ---------------------------------------------------------------------------
 // Public routes (no auth required)
 // ---------------------------------------------------------------------------
+// Public short-link redirect — covers /s/:slug AND bare-slug paths on
+// links.growthescalators.com once that DNS re-points to web.
+app.use(linksHostMiddleware);
+app.use(shortLinksRouter);
+
 app.use('/', healthRouter);
 app.use('/api', healthRouter); // alias: /api/health matches the /api/* convention used by external monitors
 app.use('/auth', authRouter);
