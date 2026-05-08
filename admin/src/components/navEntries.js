@@ -1,0 +1,198 @@
+import {
+  Calendar, Home, Users, Kanban, CheckSquare, MessageSquare, TrendingUp,
+  Megaphone, Share2, Target, Search, FileText, Brain, MapPin, Zap, Mail,
+  Link as LinkIcon, CreditCard, Receipt, Shield, ClipboardList, Settings,
+} from 'lucide-react';
+
+// Permission flag bag — derived from user role + per-user permission overrides.
+// Matches the gating that lived inline in Sidebar.jsx pre-refactor.
+export function computeFlags(role, perms = {}) {
+  const isAdmin = role === 'admin';
+  return {
+    isAdmin,
+    canCRM:        ['admin', 'manager_ops', 'sales'].includes(role),
+    canAds:        ['admin', 'manager_ads'].includes(role) || !!perms.reportsMetaAds,
+    canReports:    ['admin', 'manager_ops', 'manager_ads'].includes(role),
+    canSocial:     ['admin', 'manager_ops', 'staff'].includes(role) || !!perms.accessSocial,
+    canInbox:      ['admin', 'manager_ops', 'sales'].includes(role),
+    canBilling:    isAdmin || !!perms.billingView,
+    canSequences:  ['admin', 'manager_ops', 'sales'].includes(role),
+    canDiscovery:  ['admin', 'manager_ops', 'sales'].includes(role),
+    canMarketing:  ['admin', 'manager_ads'].includes(role),
+    canSEO:        ['admin', 'manager_ops', 'manager_ads'].includes(role),
+  };
+}
+
+// Shape of a nav entry:
+//   id        — stable key
+//   label     — display text + Cmd+K search target
+//   to        — internal route (NavLink target)
+//   href      — external URL (only when external: true)
+//   icon      — lucide-react component
+//   section   — 'Personal' | 'CRM' | 'Marketing' | 'AI & Automation' | 'Tools' | 'Finance' | 'Settings'
+//   group     — null (always-visible section) | 'tools' | 'finance' | 'settings' (collapsible)
+//   external  — opens in new tab
+//   newTab    — internal route but opens via target="_blank" (Tools entries)
+//   badge     — 'inbox-unread' | undefined (Sidebar-only, palette ignores)
+//   visible   — (flags) => boolean
+export const NAV_ENTRIES = [
+  // ── PERSONAL ──────────────────────────────────────────────────
+  {
+    id: 'my-attendance', label: 'My Attendance', to: '/my-attendance',
+    icon: Calendar, section: 'Personal', group: null,
+    visible: () => true,
+  },
+
+  // ── CRM ───────────────────────────────────────────────────────
+  {
+    id: 'dashboard', label: 'Dashboard', to: '/dashboard',
+    icon: Home, section: 'CRM', group: null,
+    visible: () => true,
+  },
+  {
+    id: 'contacts', label: 'Contacts', to: '/contacts',
+    icon: Users, section: 'CRM', group: null,
+    visible: f => f.canCRM,
+  },
+  {
+    id: 'pipeline', label: 'Pipeline', to: '/pipeline',
+    icon: Kanban, section: 'CRM', group: null,
+    visible: f => f.canCRM,
+  },
+  {
+    id: 'tasks', label: 'Tasks', to: '/tasks',
+    icon: CheckSquare, section: 'CRM', group: null,
+    visible: f => f.canCRM,
+  },
+  {
+    id: 'inbox', label: 'Inbox', to: '/inbox',
+    icon: MessageSquare, section: 'CRM', group: null,
+    badge: 'inbox-unread',
+    visible: f => f.canInbox,
+  },
+
+  // ── MARKETING ─────────────────────────────────────────────────
+  {
+    id: 'ads', label: 'Meta Ads', to: '/ads',
+    icon: Megaphone, section: 'Marketing', group: null,
+    visible: f => f.canAds,
+  },
+  {
+    id: 'social', label: 'Social', to: '/social',
+    icon: Share2, section: 'Marketing', group: null,
+    visible: f => f.canSocial,
+  },
+  {
+    id: 'outreach', label: 'Outreach', to: '/outreach-dashboard',
+    icon: Target, section: 'Marketing', group: null,
+    visible: f => f.isAdmin,
+  },
+  {
+    id: 'content', label: 'Content', href: 'https://content.growthescalators.com',
+    icon: FileText, section: 'Marketing', group: null, external: true,
+    visible: () => true,
+  },
+
+  // ── AI & AUTOMATION ───────────────────────────────────────────
+  {
+    id: 'intelligence', label: 'AI Intelligence', to: '/intelligence',
+    icon: Brain, section: 'AI & Automation', group: null,
+    visible: f => f.isAdmin,
+  },
+
+  // ── TOOLS (collapsible) ───────────────────────────────────────
+  {
+    id: 'discover', label: 'Lead Discovery', to: '/discover',
+    icon: MapPin, section: 'Tools', group: 'tools', newTab: true,
+    visible: f => f.canDiscovery,
+  },
+  {
+    id: 'growth-os', label: 'Growth OS', to: '/growth-os',
+    icon: Zap, section: 'Tools', group: 'tools', newTab: true,
+    visible: f => f.isAdmin,
+  },
+  {
+    id: 'emails', label: 'Email Templates', to: '/emails',
+    icon: Mail, section: 'Tools', group: 'tools', newTab: true,
+    visible: f => f.canSequences,
+  },
+  {
+    id: 'wa-templates', label: 'WA Templates', to: '/whatsapp-templates',
+    icon: MessageSquare, section: 'Tools', group: 'tools', newTab: true,
+    visible: f => f.canSequences,
+  },
+  {
+    id: 'links', label: 'Short Links', to: '/links',
+    icon: LinkIcon, section: 'Tools', group: 'tools',
+    visible: f => f.canCRM,
+  },
+
+  // ── FINANCE (collapsible) ─────────────────────────────────────
+  {
+    id: 'billing', label: 'Billing', to: '/billing',
+    icon: CreditCard, section: 'Finance', group: 'finance',
+    visible: f => f.canBilling,
+  },
+  {
+    id: 'expenses', label: 'Expenses', to: '/finance',
+    icon: Receipt, section: 'Finance', group: 'finance',
+    visible: f => f.canBilling,
+  },
+  {
+    id: 'funnels', label: 'Funnels', to: '/funnels',
+    icon: Zap, section: 'Finance', group: 'finance',
+    visible: f => f.canBilling,
+  },
+
+  // ── SETTINGS (collapsible, pinned to bottom) ──────────────────
+  {
+    id: 'permissions', label: 'Permissions', to: '/settings/permissions',
+    icon: Shield, section: 'Settings', group: 'settings',
+    visible: f => f.isAdmin,
+  },
+  {
+    id: 'audit', label: 'Audit Log', to: '/settings/audit',
+    icon: ClipboardList, section: 'Settings', group: 'settings',
+    visible: f => f.isAdmin,
+  },
+  {
+    id: 'analytics', label: 'Analytics', to: '/analytics',
+    icon: TrendingUp, section: 'Settings', group: 'settings',
+    visible: f => f.canReports,
+  },
+  {
+    id: 'seo', label: 'SEO', to: '/seo',
+    icon: Search, section: 'Settings', group: 'settings',
+    visible: f => f.canSEO,
+  },
+  {
+    id: 'pipeline-manager', label: 'Pipeline Manager', to: '/pipelines/settings',
+    icon: Settings, section: 'Settings', group: 'settings',
+    visible: f => f.isAdmin,
+  },
+];
+
+export function getVisibleEntries(role, perms) {
+  const flags = computeFlags(role, perms);
+  return NAV_ENTRIES.filter(e => e.visible(flags));
+}
+
+// Map collapsible group name → entry's section label (for palette breadcrumbs)
+export const GROUP_LABELS = {
+  tools: 'Tools',
+  finance: 'Finance',
+  settings: 'Settings',
+};
+
+// Find which collapsible group (if any) owns a given pathname.
+// Used by Sidebar's auto-expand-on-route logic.
+export function groupForPath(pathname, role, perms) {
+  const entries = getVisibleEntries(role, perms);
+  // Match longest "to" first so /settings/permissions wins over /settings.
+  const sorted = [...entries].sort((a, b) => (b.to?.length || 0) - (a.to?.length || 0));
+  for (const e of sorted) {
+    if (!e.to || !e.group) continue;
+    if (pathname === e.to || pathname.startsWith(e.to + '/')) return e.group;
+  }
+  return null;
+}

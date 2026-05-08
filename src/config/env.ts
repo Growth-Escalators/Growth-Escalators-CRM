@@ -24,7 +24,6 @@ import logger from '../utils/logger';
 const TRACKED_ENV_VARS = [
   'DATABASE_URL',
   'REDIS_URL',
-  'REACHER_URL',
 ] as const;
 
 function isMissing(name: string): boolean {
