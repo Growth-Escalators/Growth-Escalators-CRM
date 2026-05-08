@@ -10,8 +10,8 @@
  *    can still serve traffic. Warns at boot in every environment.
  *
  * `requiredEnv(name)` is the per-call helper used by service wrappers
- * (shlinkService) — it throws on the request that needs the
- * var, so the failure is local to the feature instead of taking down boot.
+ * — it throws on the request that needs the var, so the failure is local
+ * to the feature instead of taking down boot.
  */
 
 import logger from '../utils/logger';
@@ -19,13 +19,11 @@ import logger from '../utils/logger';
 // All tracked vars. validateEnv() only logs — it never throws, so a missing
 // integration URL cannot take down the whole web server on boot.
 // Per-feature enforcement happens at call time via requiredEnv() inside
-// service wrappers (shlinkService) — that turns a missing
-// var into a 500/503 on the specific request instead of a crash loop.
+// service wrappers — that turns a missing var into a 500/503 on the specific
+// request instead of a crash loop.
 const TRACKED_ENV_VARS = [
   'DATABASE_URL',
   'REDIS_URL',
-  'SHLINK_BASE_URL',
-  'SHLINK_API_KEY',
   'REACHER_URL',
 ] as const;
 
