@@ -1,6 +1,6 @@
 /**
- * Public /s/:slug redirect — replaces the external shlink Railway service.
- * Source of truth: src/config/shortLinks.ts
+ * Public /s/:slug redirect — backed by the short_links table in main Postgres.
+ * Replaces the external shlink Railway service.
  *
  * Mounted at:
  *   - GET /s/:slug                    (always works, no DNS dependency)
@@ -9,26 +9,27 @@
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
-import { lookupShortLink } from '../config/shortLinks';
+import { lookupShortLinkDb, incrementClickCount } from '../services/shortLinksDb';
 import logger from '../utils/logger';
 
 const router = Router();
 
-function redirect(req: Request, res: Response, slug: string): void {
-  const hit = lookupShortLink(slug);
+async function redirect(req: Request, res: Response, slug: string): Promise<void> {
+  const hit = await lookupShortLinkDb(slug).catch(() => null);
   if (!hit) {
     logger.info({ slug, ip: req.ip }, '[short-links] slug not found');
     res.status(404).type('text/plain').send(`Short link "${slug}" not found.`);
     return;
   }
+  // Fire-and-forget click increment — don't block the redirect on it.
+  void incrementClickCount(slug);
   logger.info({ slug, dest: hit.destination, ip: req.ip }, '[short-links] redirect');
-  // 302 = temporary; lets us rewrite destinations without browsers caching forever.
   res.redirect(302, hit.destination);
 }
 
 // Primary path — works on any host. Always available.
 router.get('/s/:slug', (req: Request, res: Response) => {
-  redirect(req, res, String(req.params.slug || ''));
+  void redirect(req, res, String(req.params.slug || ''));
 });
 
 // Drop-in compatibility for `links.growthescalators.com/<slug>` once DNS
@@ -54,7 +55,7 @@ export function linksHostMiddleware(req: Request, res: Response, next: NextFunct
   if (req.method === 'GET' && req.path.startsWith('/') && !req.path.startsWith('/api/')) {
     const slug = req.path.slice(1).split('/')[0];
     if (slug) {
-      redirect(req, res, slug);
+      void redirect(req, res, slug);
       return;
     }
   }

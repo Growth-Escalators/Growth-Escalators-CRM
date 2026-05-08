@@ -1,0 +1,127 @@
+{
+  "name": "WF-SEO-12: Weekly Opportunity Digest",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 11 * * 5"
+            }
+          ]
+        }
+      },
+      "id": "seo12-cron",
+      "name": "Schedule: Friday 11:30AM UTC",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  (SELECT json_agg(cga ORDER BY priority_score DESC) FROM (\n    SELECT project_name, target_keyword, our_position, priority_score, topics_missing\n    FROM content_gap_analysis\n    WHERE status = 'pending'\n    ORDER BY priority_score DESC\n    LIMIT 5\n  ) cga) AS top_content_gaps,\n\n  (SELECT json_agg(so ORDER BY identified_at DESC) FROM (\n    SELECT project_name, keyword, current_pos, pos_90_days_ago\n    FROM (\n      SELECT\n        c.project_name,\n        c.keyword,\n        c.current_position AS current_pos,\n        o.current_position AS pos_90_days_ago\n      FROM keyword_rankings c\n      JOIN keyword_rankings o ON c.project_name=o.project_name AND c.keyword=o.keyword\n        AND o.recorded_date BETWEEN CURRENT_DATE-97 AND CURRENT_DATE-83\n      WHERE c.recorded_date >= CURRENT_DATE-7\n        AND (o.current_position - c.current_position) >= 5\n      ORDER BY (o.current_position - c.current_position) DESC\n      LIMIT 3\n    ) decay_sub\n  ) so) AS decaying_pages,\n\n  (SELECT json_agg(kr ORDER BY search_volume DESC) FROM (\n    SELECT DISTINCT ON (project_name, keyword)\n      project_name, keyword, current_position, search_volume, url_ranking\n    FROM keyword_rankings\n    WHERE current_position BETWEEN 6 AND 10\n      AND recorded_date >= CURRENT_DATE - 7\n    ORDER BY project_name, keyword, recorded_date DESC\n    LIMIT 5\n  ) kr) AS quick_win_rankings,\n\n  (SELECT json_agg(op ORDER BY identified_at DESC) FROM (\n    SELECT project_name, opportunity_type, description, estimated_impact\n    FROM seo_opportunities\n    WHERE status = 'open'\n    ORDER BY identified_at DESC\n    LIMIT 5\n  ) op) AS open_opportunities;",
+        "options": {}
+      },
+      "id": "seo12-gather-data",
+      "name": "Gather All SEO Data",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [450, 300],
+      "credentials": {
+        "postgres": {
+          "id": "N7nIyQgdtKFT9Ye8",
+          "name": "Growth Escalators Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.item.json;\n\nconst contentGaps = data.top_content_gaps || [];\nconst decayingPages = data.decaying_pages || [];\nconst quickWins = data.quick_win_rankings || [];\nconst openOpps = data.open_opportunities || [];\n\nconst prompt = `You are an SEO strategist for a digital marketing agency. Here is this week's SEO data across 3 client sites:\n\nTOP CONTENT GAPS (by priority score):\n${JSON.stringify(contentGaps, null, 2)}\n\nDECAYING PAGES (dropped 5+ positions in 90 days):\n${JSON.stringify(decayingPages, null, 2)}\n\nQUICK WIN RANKINGS (positions 6-10, needs a push to top 5):\n${JSON.stringify(quickWins, null, 2)}\n\nOPEN OPPORTUNITIES:\n${JSON.stringify(openOpps, null, 2)}\n\nGenerate a prioritised action list of EXACTLY 5 items ranked by expected traffic impact.\n\nFor each action include:\n- what_to_do: specific action (1 sentence)\n- why: data-based reason (1 sentence)  \n- expected_result: what improvement to expect\n- time_to_implement: \"30 min\" / \"2 hours\" / \"1 day\"\n- client: which client this is for\n\nReturn ONLY valid JSON:\n{\n  \"week_summary\": \"one sentence summary of this week\",\n  \"actions\": [\n    {\"rank\": 1, \"what_to_do\": \"...\", \"why\": \"...\", \"expected_result\": \"...\", \"time_to_implement\": \"...\", \"client\": \"...\"}\n  ]\n}`;\n\nreturn [{ json: { prompt, rawData: data } }];"
+      },
+      "id": "seo12-build-prompt",
+      "name": "Build Digest Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key", "value": "={{ $env.CLAUDE_API_KEY }}" },
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\"model\":\"claude-sonnet-4-6\",\"max_tokens\":2048,\"messages\":[{\"role\":\"user\",\"content\":{{ $json.prompt | toJsonString }}}]}",
+        "options": {}
+      },
+      "id": "seo12-claude",
+      "name": "Claude Weekly Digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const claudeData = $input.item.json;\n\nlet digest = { week_summary: '', actions: [] };\ntry {\n  const rawText = claudeData.content?.[0]?.text || '{}';\n  const jsonMatch = rawText.match(/\\{[\\s\\S]*\\}/);\n  digest = jsonMatch ? JSON.parse(jsonMatch[0]) : digest;\n} catch(e) {\n  digest.week_summary = 'Unable to generate AI summary this week';\n}\n\n// Format for Slack\nlet msg = `*🎯 SEO Weekly Opportunity Digest — ${new Date().toDateString()}*\\n`;\nmsg += `_${digest.week_summary}_\\n\\n`;\nmsg += `*Top 5 Actions This Week:*\\n`;\n\n(digest.actions || []).forEach((action, i) => {\n  const emoji = i === 0 ? '🔥' : i === 1 ? '⭐' : i === 2 ? '✅' : '📋';\n  msg += `\\n${emoji} *${i+1}. ${action.what_to_do}*`;\n  msg += `\\n   Client: ${action.client} | Time: ${action.time_to_implement}`;\n  msg += `\\n   Why: ${action.why}`;\n  msg += `\\n   Expected: ${action.expected_result}`;\n});\n\nmsg += `\\n\\n_Generated by Growth Escalators SEO Automation_`;\n\nreturn [{ json: { slackMessage: msg } }];"
+      },
+      "id": "seo12-format",
+      "name": "Format for Slack",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C08EMRX2HHN",
+          "mode": "id"
+        },
+        "text": "={{ $json.slackMessage }}",
+        "otherOptions": {}
+      },
+      "id": "seo12-slack",
+      "name": "Post Weekly Digest",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1250, 300],
+      "credentials": {
+        "slackApi": {
+          "id": "VaNm8cr89lLAGlpJ",
+          "name": "Slack Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule: Friday 11:30AM UTC": {
+      "main": [[{ "node": "Gather All SEO Data", "type": "main", "index": 0 }]]
+    },
+    "Gather All SEO Data": {
+      "main": [[{ "node": "Build Digest Prompt", "type": "main", "index": 0 }]]
+    },
+    "Build Digest Prompt": {
+      "main": [[{ "node": "Claude Weekly Digest", "type": "main", "index": 0 }]]
+    },
+    "Claude Weekly Digest": {
+      "main": [[{ "node": "Format for Slack", "type": "main", "index": 0 }]]
+    },
+    "Format for Slack": {
+      "main": [[{ "node": "Post Weekly Digest", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [{ "name": "SEO" }]
+}

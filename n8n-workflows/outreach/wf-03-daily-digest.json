@@ -1,0 +1,865 @@
+{
+  "id": "rZBXdH2pHc0qnp0A",
+  "name": "WF-03 \u2014 Daily Digest with Reconciliation",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 14 * * *"
+            }
+          ]
+        }
+      },
+      "id": "c1b2c3d4-0001-0001-0001-000000000001",
+      "name": "Schedule: 8PM IST (14:30 UTC)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "id": "c1b2c3d4-0002-0002-0002-000000000002",
+      "name": "Read Active Sheet",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        460,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT *, date_added::text AS date_added, updated_at::text AS updated_at FROM outreach_leads ORDER BY created_at ASC",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "tEi1y3q2RyS0OOgV",
+          "name": "GE Outreach Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(r => r.json);\nconst today = new Date().toISOString().split('T')[0];\n\n// Count by status\nconst statusCounts = {};\nconst statuses = ['New','Enriching','Active','Replied','Not_Found','Duplicate','Closed'];\nstatuses.forEach(s => { statusCounts[s] = 0; });\nrows.forEach(r => {\n  const s = r.status || 'Unknown';\n  statusCounts[s] = (statusCounts[s] || 0) + 1;\n});\n\n// Count by assigned_to\nlet jatinCount = 0, sakshamCount = 0;\nrows.forEach(r => {\n  if ((r.assigned_to || '').toLowerCase() === 'jatin') jatinCount++;\n  else if ((r.assigned_to || '').toLowerCase() === 'saksham') sakshamCount++;\n});\n\n// Leads added today\nconst leadsToday = rows.filter(r => (r.date_added || '').startsWith(today)).length;\n\n// Replies with category set today \u2014 approximate by status=Replied\nconst repliesToday = rows.filter(r => r.status === 'Replied' && (r.date_added || '').startsWith(today)).length;\n\nreturn [{\n  json: {\n    statusCounts,\n    jatinCount,\n    sakshamCount,\n    leadsToday,\n    repliesToday,\n    today,\n    allRows: rows\n  }\n}];"
+      },
+      "id": "c1b2c3d4-0003-0003-0003-000000000003",
+      "name": "Calculate Sheet Stats",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.saleshandy.com/api/v1/sequences/{{ $env.SALESHANDY_SEQUENCE_ID }}/analytics",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Auth-Token",
+              "value": "={{ $env.SALESHANDY_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "c1b2c3d4-0004-0004-0004-000000000004",
+      "name": "Saleshandy: Campaign Stats",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        300
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const shStats = $input.first().json;\nconst sheetStats = $('Calculate Sheet Stats').first().json;\n\nlet sent = 0, opened = 0, replied = 0, bounced = 0;\nlet openRate = 'N/A', replyRate = 'N/A', bounceRate = 'N/A';\nlet saleshandyAvailable = true;\n\ntry {\n  // Try to extract from various possible response shapes\n  const data = shStats.data || shStats.analytics || shStats;\n  sent = data.sent || data.emailsSent || 0;\n  opened = data.opened || data.emailsOpened || 0;\n  replied = data.replied || data.emailsReplied || 0;\n  bounced = data.bounced || data.emailsBounced || 0;\n\n  if (sent > 0) {\n    openRate = ((opened / sent) * 100).toFixed(1) + '%';\n    replyRate = ((replied / sent) * 100).toFixed(1) + '%';\n    bounceRate = ((bounced / sent) * 100).toFixed(1) + '%';\n  }\n  \n  // If no meaningful data, mark as unavailable\n  if (!shStats.data && !shStats.analytics && sent === 0) {\n    saleshandyAvailable = false;\n  }\n} catch (e) {\n  saleshandyAvailable = false;\n}\n\nreturn [{\n  json: {\n    ...sheetStats,\n    saleshandyStats: { sent, opened, replied, bounced, openRate, replyRate, bounceRate },\n    saleshandyAvailable\n  }\n}];"
+      },
+      "id": "c1b2c3d4-0005-0005-0005-000000000005",
+      "name": "Parse Campaign Stats",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.saleshandy.com/api/v1/sequences/{{ $env.SALESHANDY_SEQUENCE_ID }}/replies",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Auth-Token",
+              "value": "={{ $env.SALESHANDY_API_KEY }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "since",
+              "value": "={{ new Date(Date.now() - 86400000).toISOString() }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "c1b2c3d4-0006-0006-0006-000000000006",
+      "name": "Saleshandy: Get Replies 24h",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1340,
+        300
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const repliesResponse = $input.first().json;\nconst statsData = $('Parse Campaign Stats').first().json;\n\nlet reconciled = 0;\nlet reconciliationSkipped = false;\nconst missedReplies = [];\n\ntry {\n  const shReplies = repliesResponse.data || repliesResponse.replies || [];\n  if (!Array.isArray(shReplies)) {\n    reconciliationSkipped = true;\n  } else {\n    const allRows = statsData.allRows || [];\n    \n    for (const shReply of shReplies) {\n      const shEmail = (shReply.prospect?.email || shReply.email || '').toLowerCase().trim();\n      if (!shEmail) continue;\n      \n      // Check if this reply is in Sheet with status=Replied\n      const alreadyRecorded = allRows.some(row => {\n        return (row.email || '').toLowerCase().trim() === shEmail && row.status === 'Replied';\n      });\n      \n      if (!alreadyRecorded) {\n        missedReplies.push(shReply);\n        reconciled++;\n      }\n    }\n  }\n} catch (e) {\n  reconciliationSkipped = true;\n}\n\nreturn [{\n  json: {\n    ...statsData,\n    reconciled,\n    reconciliationSkipped,\n    missedReplies\n  }\n}];"
+      },
+      "id": "c1b2c3d4-0007-0007-0007-000000000007",
+      "name": "Reconcile Missed Replies",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "cond-recon-001",
+              "leftValue": "={{ $json.missedReplies.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c1b2c3d4-0008-0008-0008-000000000008",
+      "name": "Has Missed Replies?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process missed replies through same logic as WF-02\nconst data = $input.first().json;\nconst missedReplies = data.missedReplies || [];\n\n// For each missed reply, mark in sheet with default category INTERESTED\n// (Full Claude classification would require separate API calls \u2014 we flag for manual review)\nreturn missedReplies.map(reply => ({\n  json: {\n    email: reply.prospect?.email || reply.email || '',\n    firstName: reply.prospect?.firstName || reply.firstName || '',\n    company: reply.prospect?.company || reply.company || '',\n    needsManualReview: true\n  }\n}));"
+      },
+      "id": "c1b2c3d4-0009-0009-0009-000000000009",
+      "name": "Process Missed Replies",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        200
+      ]
+    },
+    {
+      "id": "c1b2c3d4-0010-0010-0010-000000000010",
+      "name": "Update Reconciled in Sheet",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2220,
+        200
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE outreach_leads SET status = 'Replied', reply_category = '{{ ($json.classification || '').replace(/'/g, \"''\") }}', notes = 'Auto-reconciled from Saleshandy', updated_at = NOW() WHERE email = '{{ ($json.email || '').replace(/'/g, \"''\") }}' RETURNING id",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "tEi1y3q2RyS0OOgV",
+          "name": "GE Outreach Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Reconcile Missed Replies').first().json;\nconst sc = data.statusCounts || {};\nconst sh = data.saleshandyStats || {};\nconst today = data.today || new Date().toISOString().split('T')[0];\n\nlet campaignLine = '';\nif (!data.saleshandyAvailable) {\n  campaignLine = '\u2502 Saleshandy API unavailable\\n';\n} else {\n  campaignLine = `\u2502 Sent: ${sh.sent} | Opened: ${sh.opened} | Replied: ${sh.replied} | Bounced: ${sh.bounced}\\n\u2502 Open rate: ${sh.openRate} | Reply rate: ${sh.replyRate} | Bounce rate: ${sh.bounceRate}\\n`;\n}\n\nlet reconciledLine = '';\nif (data.reconciliationSkipped) {\n  reconciledLine = '\u2502 Reconciliation skipped due to error\\n';\n} else {\n  reconciledLine = `\u2502 Reconciled (missed replies recovered): ${data.reconciled}\\n`;\n}\n\nconst digest = [\n  '\u250c\u2500 GE Outreach Daily Digest \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500',\n  '\u2502 Today\\'s Activity',\n  campaignLine.trimEnd(),\n  '\u2502',\n  '\u2502 Pipeline Status',\n  `\u2502 New: ${sc.New || 0} | Enriching: ${sc.Enriching || 0} | Active: ${sc.Active || 0} | Replied: ${sc.Replied || 0}`,\n  `\u2502 Closed: ${sc.Closed || 0} | Not Found: ${sc.Not_Found || 0} | Duplicate: ${sc.Duplicate || 0}`,\n  '\u2502',\n  '\u2502 By Owner',\n  `\u2502 Jatin: ${data.jatinCount || 0} active | Saksham: ${data.sakshamCount || 0} active`,\n  '\u2502',\n  `\u2502 Leads added today: ${data.leadsToday || 0}`,\n  reconciledLine.trimEnd(),\n  '\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500'\n].join('\\n');\n\nreturn [{ json: { digest } }];"
+      },
+      "id": "c1b2c3d4-0011-0011-0011-000000000011",
+      "name": "Format Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SLACK_OUTREACH_WEBHOOK }}",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "string",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "body": "=JSON.stringify({\"text\": \"```\" + $json.digest + \"```\"})"
+      },
+      "id": "c1b2c3d4-0012-0012-0012-000000000012",
+      "name": "Slack: Post Digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2220,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule: 8PM IST (14:30 UTC)": {
+      "main": [
+        [
+          {
+            "node": "Read Active Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Active Sheet": {
+      "main": [
+        [
+          {
+            "node": "Calculate Sheet Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Sheet Stats": {
+      "main": [
+        [
+          {
+            "node": "Saleshandy: Campaign Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Saleshandy: Campaign Stats": {
+      "main": [
+        [
+          {
+            "node": "Parse Campaign Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Campaign Stats": {
+      "main": [
+        [
+          {
+            "node": "Saleshandy: Get Replies 24h",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Saleshandy: Get Replies 24h": {
+      "main": [
+        [
+          {
+            "node": "Reconcile Missed Replies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reconcile Missed Replies": {
+      "main": [
+        [
+          {
+            "node": "Has Missed Replies?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Missed Replies?": {
+      "main": [
+        [
+          {
+            "node": "Process Missed Replies",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Missed Replies": {
+      "main": [
+        [
+          {
+            "node": "Update Reconciled in Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Reconciled in Sheet": {
+      "main": [
+        [
+          {
+            "node": "Format Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Digest": {
+      "main": [
+        [
+          {
+            "node": "Slack: Post Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": {
+    "node:Schedule: 8PM IST (14:30 UTC)": {
+      "recurrenceRules": []
+    }
+  },
+  "meta": null,
+  "pinData": {},
+  "activeVersionId": "ecb5ed00-b4ef-4e3b-ad03-5bece0e82102",
+  "versionCounter": 54,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-03-23T15:55:58.407Z",
+      "createdAt": "2026-03-23T15:55:58.407Z",
+      "role": "workflow:owner",
+      "workflowId": "rZBXdH2pHc0qnp0A",
+      "projectId": "p6CktwzYe014OMO4",
+      "project": {
+        "updatedAt": "2026-03-18T02:32:32.132Z",
+        "createdAt": "2026-03-18T02:28:16.439Z",
+        "id": "p6CktwzYe014OMO4",
+        "name": "Jatin Agrawal <jatin@growthescalators.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "885eaafd-e163-477f-b37c-5d5ea216f1c4"
+      }
+    }
+  ],
+  "tags": [],
+  "parentFolder": null,
+  "activeVersion": {
+    "updatedAt": "2026-03-25T19:51:16.229Z",
+    "createdAt": "2026-03-25T19:51:16.229Z",
+    "versionId": "ecb5ed00-b4ef-4e3b-ad03-5bece0e82102",
+    "workflowId": "rZBXdH2pHc0qnp0A",
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "cronExpression",
+                "expression": "30 14 * * *"
+              }
+            ]
+          }
+        },
+        "id": "c1b2c3d4-0001-0001-0001-000000000001",
+        "name": "Schedule: 8PM IST (14:30 UTC)",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          240,
+          300
+        ]
+      },
+      {
+        "id": "c1b2c3d4-0002-0002-0002-000000000002",
+        "name": "Read Active Sheet",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          460,
+          300
+        ],
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT *, date_added::text AS date_added, updated_at::text AS updated_at FROM outreach_leads ORDER BY created_at ASC",
+          "options": {}
+        },
+        "credentials": {
+          "postgres": {
+            "id": "tEi1y3q2RyS0OOgV",
+            "name": "GE Outreach Postgres"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const rows = $input.all().map(r => r.json);\nconst today = new Date().toISOString().split('T')[0];\n\n// Count by status\nconst statusCounts = {};\nconst statuses = ['New','Enriching','Active','Replied','Not_Found','Duplicate','Closed'];\nstatuses.forEach(s => { statusCounts[s] = 0; });\nrows.forEach(r => {\n  const s = r.status || 'Unknown';\n  statusCounts[s] = (statusCounts[s] || 0) + 1;\n});\n\n// Count by assigned_to\nlet jatinCount = 0, sakshamCount = 0;\nrows.forEach(r => {\n  if ((r.assigned_to || '').toLowerCase() === 'jatin') jatinCount++;\n  else if ((r.assigned_to || '').toLowerCase() === 'saksham') sakshamCount++;\n});\n\n// Leads added today\nconst leadsToday = rows.filter(r => (r.date_added || '').startsWith(today)).length;\n\n// Replies with category set today \u2014 approximate by status=Replied\nconst repliesToday = rows.filter(r => r.status === 'Replied' && (r.date_added || '').startsWith(today)).length;\n\nreturn [{\n  json: {\n    statusCounts,\n    jatinCount,\n    sakshamCount,\n    leadsToday,\n    repliesToday,\n    today,\n    allRows: rows\n  }\n}];"
+        },
+        "id": "c1b2c3d4-0003-0003-0003-000000000003",
+        "name": "Calculate Sheet Stats",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          680,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "url": "=https://api.saleshandy.com/api/v1/sequences/{{ $env.SALESHANDY_SEQUENCE_ID }}/analytics",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Auth-Token",
+                "value": "={{ $env.SALESHANDY_API_KEY }}"
+              }
+            ]
+          },
+          "options": {
+            "response": {
+              "response": {
+                "neverError": true
+              }
+            },
+            "timeout": 15000
+          }
+        },
+        "id": "c1b2c3d4-0004-0004-0004-000000000004",
+        "name": "Saleshandy: Campaign Stats",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          900,
+          300
+        ],
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "jsCode": "const shStats = $input.first().json;\nconst sheetStats = $('Calculate Sheet Stats').first().json;\n\nlet sent = 0, opened = 0, replied = 0, bounced = 0;\nlet openRate = 'N/A', replyRate = 'N/A', bounceRate = 'N/A';\nlet saleshandyAvailable = true;\n\ntry {\n  // Try to extract from various possible response shapes\n  const data = shStats.data || shStats.analytics || shStats;\n  sent = data.sent || data.emailsSent || 0;\n  opened = data.opened || data.emailsOpened || 0;\n  replied = data.replied || data.emailsReplied || 0;\n  bounced = data.bounced || data.emailsBounced || 0;\n\n  if (sent > 0) {\n    openRate = ((opened / sent) * 100).toFixed(1) + '%';\n    replyRate = ((replied / sent) * 100).toFixed(1) + '%';\n    bounceRate = ((bounced / sent) * 100).toFixed(1) + '%';\n  }\n  \n  // If no meaningful data, mark as unavailable\n  if (!shStats.data && !shStats.analytics && sent === 0) {\n    saleshandyAvailable = false;\n  }\n} catch (e) {\n  saleshandyAvailable = false;\n}\n\nreturn [{\n  json: {\n    ...sheetStats,\n    saleshandyStats: { sent, opened, replied, bounced, openRate, replyRate, bounceRate },\n    saleshandyAvailable\n  }\n}];"
+        },
+        "id": "c1b2c3d4-0005-0005-0005-000000000005",
+        "name": "Parse Campaign Stats",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1120,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "url": "=https://api.saleshandy.com/api/v1/sequences/{{ $env.SALESHANDY_SEQUENCE_ID }}/replies",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Auth-Token",
+                "value": "={{ $env.SALESHANDY_API_KEY }}"
+              }
+            ]
+          },
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "since",
+                "value": "={{ new Date(Date.now() - 86400000).toISOString() }}"
+              }
+            ]
+          },
+          "options": {
+            "response": {
+              "response": {
+                "neverError": true
+              }
+            },
+            "timeout": 15000
+          }
+        },
+        "id": "c1b2c3d4-0006-0006-0006-000000000006",
+        "name": "Saleshandy: Get Replies 24h",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1340,
+          300
+        ],
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "jsCode": "const repliesResponse = $input.first().json;\nconst statsData = $('Parse Campaign Stats').first().json;\n\nlet reconciled = 0;\nlet reconciliationSkipped = false;\nconst missedReplies = [];\n\ntry {\n  const shReplies = repliesResponse.data || repliesResponse.replies || [];\n  if (!Array.isArray(shReplies)) {\n    reconciliationSkipped = true;\n  } else {\n    const allRows = statsData.allRows || [];\n    \n    for (const shReply of shReplies) {\n      const shEmail = (shReply.prospect?.email || shReply.email || '').toLowerCase().trim();\n      if (!shEmail) continue;\n      \n      // Check if this reply is in Sheet with status=Replied\n      const alreadyRecorded = allRows.some(row => {\n        return (row.email || '').toLowerCase().trim() === shEmail && row.status === 'Replied';\n      });\n      \n      if (!alreadyRecorded) {\n        missedReplies.push(shReply);\n        reconciled++;\n      }\n    }\n  }\n} catch (e) {\n  reconciliationSkipped = true;\n}\n\nreturn [{\n  json: {\n    ...statsData,\n    reconciled,\n    reconciliationSkipped,\n    missedReplies\n  }\n}];"
+        },
+        "id": "c1b2c3d4-0007-0007-0007-000000000007",
+        "name": "Reconcile Missed Replies",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1560,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true
+            },
+            "conditions": [
+              {
+                "id": "cond-recon-001",
+                "leftValue": "={{ $json.missedReplies.length }}",
+                "rightValue": 0,
+                "operator": {
+                  "type": "number",
+                  "operation": "gt"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "c1b2c3d4-0008-0008-0008-000000000008",
+        "name": "Has Missed Replies?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          1780,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Process missed replies through same logic as WF-02\nconst data = $input.first().json;\nconst missedReplies = data.missedReplies || [];\n\n// For each missed reply, mark in sheet with default category INTERESTED\n// (Full Claude classification would require separate API calls \u2014 we flag for manual review)\nreturn missedReplies.map(reply => ({\n  json: {\n    email: reply.prospect?.email || reply.email || '',\n    firstName: reply.prospect?.firstName || reply.firstName || '',\n    company: reply.prospect?.company || reply.company || '',\n    needsManualReview: true\n  }\n}));"
+        },
+        "id": "c1b2c3d4-0009-0009-0009-000000000009",
+        "name": "Process Missed Replies",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2000,
+          200
+        ]
+      },
+      {
+        "id": "c1b2c3d4-0010-0010-0010-000000000010",
+        "name": "Update Reconciled in Sheet",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          2220,
+          200
+        ],
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "UPDATE outreach_leads SET status = 'Replied', reply_category = '{{ ($json.classification || '').replace(/'/g, \"''\") }}', notes = 'Auto-reconciled from Saleshandy', updated_at = NOW() WHERE email = '{{ ($json.email || '').replace(/'/g, \"''\") }}' RETURNING id",
+          "options": {}
+        },
+        "credentials": {
+          "postgres": {
+            "id": "tEi1y3q2RyS0OOgV",
+            "name": "GE Outreach Postgres"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const data = $('Reconcile Missed Replies').first().json;\nconst sc = data.statusCounts || {};\nconst sh = data.saleshandyStats || {};\nconst today = data.today || new Date().toISOString().split('T')[0];\n\nlet campaignLine = '';\nif (!data.saleshandyAvailable) {\n  campaignLine = '\u2502 Saleshandy API unavailable\\n';\n} else {\n  campaignLine = `\u2502 Sent: ${sh.sent} | Opened: ${sh.opened} | Replied: ${sh.replied} | Bounced: ${sh.bounced}\\n\u2502 Open rate: ${sh.openRate} | Reply rate: ${sh.replyRate} | Bounce rate: ${sh.bounceRate}\\n`;\n}\n\nlet reconciledLine = '';\nif (data.reconciliationSkipped) {\n  reconciledLine = '\u2502 Reconciliation skipped due to error\\n';\n} else {\n  reconciledLine = `\u2502 Reconciled (missed replies recovered): ${data.reconciled}\\n`;\n}\n\nconst digest = [\n  '\u250c\u2500 GE Outreach Daily Digest \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500',\n  '\u2502 Today\\'s Activity',\n  campaignLine.trimEnd(),\n  '\u2502',\n  '\u2502 Pipeline Status',\n  `\u2502 New: ${sc.New || 0} | Enriching: ${sc.Enriching || 0} | Active: ${sc.Active || 0} | Replied: ${sc.Replied || 0}`,\n  `\u2502 Closed: ${sc.Closed || 0} | Not Found: ${sc.Not_Found || 0} | Duplicate: ${sc.Duplicate || 0}`,\n  '\u2502',\n  '\u2502 By Owner',\n  `\u2502 Jatin: ${data.jatinCount || 0} active | Saksham: ${data.sakshamCount || 0} active`,\n  '\u2502',\n  `\u2502 Leads added today: ${data.leadsToday || 0}`,\n  reconciledLine.trimEnd(),\n  '\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500'\n].join('\\n');\n\nreturn [{ json: { digest } }];"
+        },
+        "id": "c1b2c3d4-0011-0011-0011-000000000011",
+        "name": "Format Digest",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2000,
+          400
+        ]
+      },
+      {
+        "parameters": {
+          "url": "={{ $env.SLACK_OUTREACH_WEBHOOK }}",
+          "method": "POST",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "string",
+          "options": {
+            "response": {
+              "response": {
+                "neverError": true
+              }
+            }
+          },
+          "body": "=JSON.stringify({\"text\": \"```\" + $json.digest + \"```\"})"
+        },
+        "id": "c1b2c3d4-0012-0012-0012-000000000012",
+        "name": "Slack: Post Digest",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2220,
+          400
+        ]
+      }
+    ],
+    "connections": {
+      "Schedule: 8PM IST (14:30 UTC)": {
+        "main": [
+          [
+            {
+              "node": "Read Active Sheet",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Read Active Sheet": {
+        "main": [
+          [
+            {
+              "node": "Calculate Sheet Stats",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Calculate Sheet Stats": {
+        "main": [
+          [
+            {
+              "node": "Saleshandy: Campaign Stats",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Saleshandy: Campaign Stats": {
+        "main": [
+          [
+            {
+              "node": "Parse Campaign Stats",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse Campaign Stats": {
+        "main": [
+          [
+            {
+              "node": "Saleshandy: Get Replies 24h",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Saleshandy: Get Replies 24h": {
+        "main": [
+          [
+            {
+              "node": "Reconcile Missed Replies",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Reconcile Missed Replies": {
+        "main": [
+          [
+            {
+              "node": "Has Missed Replies?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Has Missed Replies?": {
+        "main": [
+          [
+            {
+              "node": "Process Missed Replies",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Format Digest",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Process Missed Replies": {
+        "main": [
+          [
+            {
+              "node": "Update Reconciled in Sheet",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Update Reconciled in Sheet": {
+        "main": [
+          [
+            {
+              "node": "Format Digest",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Format Digest": {
+        "main": [
+          [
+            {
+              "node": "Slack: Post Digest",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "Jatin Agrawal",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-03-25T19:51:17.369Z",
+        "id": 107,
+        "workflowId": "rZBXdH2pHc0qnp0A",
+        "versionId": "ecb5ed00-b4ef-4e3b-ad03-5bece0e82102",
+        "event": "activated",
+        "userId": "885eaafd-e163-477f-b37c-5d5ea216f1c4"
+      }
+    ]
+  },
+  "scopes": [
+    "workflow:create",
+    "workflow:delete",
+    "workflow:execute",
+    "workflow:execute-chat",
+    "workflow:list",
+    "workflow:move",
+    "workflow:publish",
+    "workflow:read",
+    "workflow:share",
+    "workflow:unpublish",
+    "workflow:unshare",
+    "workflow:update",
+    "workflow:updateRedactionSetting"
+  ],
+  "checksum": "1f789b8d3dfeda2909d1604e4e253594189fe4c4b89734b8689d997f2c0d020b"
+}

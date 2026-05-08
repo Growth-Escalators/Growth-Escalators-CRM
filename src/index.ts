@@ -379,6 +379,8 @@ async function startServer() {
   ensureOutreachPipelines().catch(e => console.error('[startup] Outreach pipelines bootstrap failed:', e));
   // Bootstrap outreach_leads table for WF-01 enrichment pipeline
   ensureOutreachLeadsTable().catch(e => console.error('[startup] outreach_leads table bootstrap failed:', e));
+  // Bootstrap short_links table (replaces external shlink Railway service)
+  import('./services/shortLinksDb').then(m => m.ensureShortLinksTable()).catch(e => console.error('[startup] short_links table bootstrap failed:', e));
   // Bootstrap finance tables
   import('./services/financeService').then(m => m.ensureFinanceTables()).catch(e => console.error('[startup] Finance tables bootstrap failed:', e));
   // Bootstrap funnel_configs + purchase_delivery_log tables, then seed defaults
