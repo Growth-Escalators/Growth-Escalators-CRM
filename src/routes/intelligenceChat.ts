@@ -212,29 +212,26 @@ async function fetchSEOWorkflows(): Promise<Record<string, unknown>> {
   }
 }
 
-async function fetchClickUp(): Promise<Record<string, unknown>> {
-  const cached = getCached('clickup');
+async function fetchTasksOverview(): Promise<Record<string, unknown>> {
+  const cached = getCached('tasks');
   if (cached) return cached as Record<string, unknown>;
 
   try {
-    const CLICKUP_TOKEN = process.env.CLICKUP_API_TOKEN;
-    const TEAM_ID = '9016403868';
-    if (!CLICKUP_TOKEN) return { note: 'ClickUp not configured' };
-
-    const res = await fetch(
-      `https://api.clickup.com/api/v2/team/${TEAM_ID}/task?statuses[]=open&due_date_lt=${Date.now()}&limit=20`,
-      { headers: { Authorization: CLICKUP_TOKEN }, signal: AbortSignal.timeout(8000) },
+    const { pool } = await import('../db/index');
+    const r = await pool.query(
+      `SELECT id, title FROM tasks
+       WHERE status != 'done' AND due_at IS NOT NULL AND due_at < NOW()
+       ORDER BY due_at ASC LIMIT 20`,
     );
-    if (!res.ok) return { note: 'ClickUp API error' };
-    const data = await res.json() as { tasks?: Array<{ name: string; status: { status: string } }> };
+    const tasks = r.rows as Array<{ id: string; title: string }>;
     const result = {
-      overdue_tasks: data.tasks?.length ?? 0,
-      sample_overdue: data.tasks?.slice(0, 3).map(t => t.name) ?? [],
+      overdue_tasks: tasks.length,
+      sample_overdue: tasks.slice(0, 3).map(t => t.title),
     };
-    setCache('clickup', result);
+    setCache('tasks', result);
     return result;
   } catch {
-    return { note: 'ClickUp data unavailable' };
+    return { note: 'Tasks data unavailable' };
   }
 }
 
@@ -272,7 +269,7 @@ const TOOLS = [
       properties: {
         category: {
           type: 'string',
-          enum: ['meta_ads', 'seo', 'pipeline', 'clickup', 'billing', 'cron_health', 'seo_workflows'],
+          enum: ['meta_ads', 'seo', 'pipeline', 'tasks', 'billing', 'cron_health', 'seo_workflows'],
           description: 'The data category to fetch',
         },
       },
@@ -354,7 +351,7 @@ async function executeTool(
           case 'meta_ads': data = await fetchMetaAds(); break;
           case 'seo': data = await fetchSEO(); break;
           case 'pipeline': data = await fetchPipeline(); break;
-          case 'clickup': data = await fetchClickUp(); break;
+          case 'tasks': data = await fetchTasksOverview(); break;
           case 'billing': data = await fetchBilling(); break;
           case 'cron_health': data = await fetchCronHealth(); break;
           case 'seo_workflows': data = await fetchSEOWorkflows(); break;
@@ -500,7 +497,7 @@ router.post('/chat', async (req: Request, res: Response) => {
 You have access to live business data and can take real actions via tools.
 
 BUSINESS: Performance marketing agency, Jaipur, India.
-TEAM: Jatin (founder/admin), Sakcham (sales/ads manager), Nimisha (designer), Keshav (video editor).
+TEAM: Jatin (founder/admin), Sakcham (sales/ads manager), Keshav (video editor).
 CLIENTS: SEO — aarohaom.com, blackpandaenterprises.com, ageddentistry.org.
 
 PERSONALITY: Direct. Concise. Metric-focused. No filler words. Lead with numbers.

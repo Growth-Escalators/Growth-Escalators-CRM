@@ -135,7 +135,7 @@ Agency context:
 - Core service: Meta Ads + CRO for D2C brands
 - SEO clients: aarohaom.com, blackpandaenterprises.com, ageddentistry.org
 - White label: Meta Ads for UK/AU/CA agencies at $900/month
-- Team: Jatin (founder/admin), Sakcham (sales/ads), Nimisha (designer), Keshav (video editor)
+- Team: Jatin (founder/admin), Sakcham (sales/ads), Keshav (video editor)
 - Production repo: ~/repo-comparison/v2 on Railway (GE-Backend-Server)
 - n8n SEO workflows: primary-production-6c6f5.up.railway.app
 - CRM: web-production-311da.up.railway.app/crm
@@ -164,7 +164,7 @@ Respond ONLY with valid JSON in this exact format:
       "severity": "critical|high|medium",
       "what_is_broken": "exactly what is wrong",
       "business_impact": "what this costs in revenue/clients/time",
-      "owner": "Jatin|Sakcham|Nimisha|Keshav",
+      "owner": "Jatin|Sakcham|Keshav",
       "deadline": "today|tomorrow|this week",
       "fix_steps": ["step 1", "step 2", "step 3"],
       "claude_prompt": "If this needs Claude chat to fix: exact ready-to-paste prompt with full context. Otherwise null.",
@@ -455,7 +455,7 @@ function buildFallbackAnalysis(data: AgencyDailyData): Analysis {
       what_is_broken: `Team has ${totalOverdue} tasks past deadline`,
       business_impact: 'Client deliverables delayed, team velocity down',
       owner: 'Jatin', deadline: 'today',
-      fix_steps: ['Review ClickUp board', 'Identify blockers', 'Reassign or defer non-critical tasks'],
+      fix_steps: ['Review CRM tasks', 'Identify blockers', 'Reassign or defer non-critical tasks'],
       claude_prompt: null, claude_code_prompt: null, terminal_commands: [],
     });
   }

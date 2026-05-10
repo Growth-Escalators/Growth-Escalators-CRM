@@ -52,21 +52,7 @@ export async function runSeoAlertChecks(): Promise<{ alerts: number }> {
           `Keyword "${row.keyword}" dropped ${Math.abs(Number(row.position_change))} positions (now #${row.current_position})`,
           'warning');
         alerts++;
-        // Create ClickUp task for high-impact rank drops
-        if (Math.abs(Number(row.position_change ?? 0)) >= 10) {
-          try {
-            const { createOpportunityTask } = await import('./seoClickupService');
-            await createOpportunityTask({
-              id: undefined,  // alert is in seo_alerts_log, not seo_opportunities — skip UPDATE
-              client_domain: domain,
-              opportunity_type: 'rank_drop',
-              description: String(row.keyword ? `Keyword "${row.keyword}" dropped ${Math.abs(Number(row.position_change))} positions` : 'Rank drop detected'),
-              estimated_impact: Math.abs(Number(row.position_change ?? 0)) >= 20 ? 'high' : 'medium',
-              keyword: String(row.keyword ?? ''),
-              priority_score: Math.abs(Number(row.position_change ?? 0)) * 2,
-            });
-          } catch { /* clickup non-critical */ }
-        }
+        // (ClickUp opportunity task creation removed — ClickUp dropped 2026-05-09)
       }
 
       // 2. PageSpeed score drop alerts

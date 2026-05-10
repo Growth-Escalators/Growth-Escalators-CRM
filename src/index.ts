@@ -29,7 +29,6 @@ import automationHubRouter from './routes/automationHub';
 import systemHealthRouter from './routes/systemHealth';
 import emailTemplatesRouter from './routes/emailTemplates';
 import capiRouter from './routes/capi';
-import clickupRouter from './routes/clickup';
 import blockersRouter from './routes/blockers';
 import billingRouter from './routes/billing';
 import permissionsRouter from './routes/permissions';
@@ -65,6 +64,7 @@ import intelligenceChatRouter from './routes/intelligenceChat';
 import clientDetailRouter from './routes/clientDetail';
 import selfServiceRouter from './routes/selfService';
 import tasksRouter from './routes/tasks';
+import taskAttachmentsRouter from './routes/taskAttachments';
 import taskListsRouter from './routes/task-lists';
 import teamRouter from './routes/team';
 import { requireAuth, optionalAuth } from './middleware/auth';
@@ -185,7 +185,6 @@ app.use('/api/automations', requireAuth, automationHubRouter);
 app.use('/api/system', systemHealthRouter);
 app.use('/api/email-templates', requireAuth, emailTemplatesRouter);
 app.use('/api/capi', requireAuth, capiRouter);
-app.use('/api/clickup', requireAuth, clickupRouter);
 app.use('/api/blockers', requireAuth, blockersRouter);
 app.use('/api/billing', requireAuth, billingRouter);
 app.use('/api/permissions', requireAuth, permissionsRouter);
@@ -212,6 +211,7 @@ app.use('/api/intelligence', requireAuth, intelligenceChatRouter);
 app.use('/api/clients', requireAuth, clientDetailRouter);
 app.use('/api/self-service', requireAuth, selfServiceRouter);
 app.use('/api/tasks', requireAuth, tasksRouter);
+app.use('/api/tasks', requireAuth, taskAttachmentsRouter);
 app.use('/api/task-lists', requireAuth, taskListsRouter);
 app.use('/api/team', requireAuth, teamRouter);
 app.use('/api/funnel', funnelRouter);
@@ -383,6 +383,8 @@ async function startServer() {
   import('./services/shortLinksDb').then(m => m.ensureShortLinksTable()).catch(e => console.error('[startup] short_links table bootstrap failed:', e));
   // Bootstrap finance tables
   import('./services/financeService').then(m => m.ensureFinanceTables()).catch(e => console.error('[startup] Finance tables bootstrap failed:', e));
+  // Bootstrap Tasks v1 tables (priority col, task_comments, task_attachments)
+  import('./services/tasksDb').then(m => m.ensureTasksV1Tables()).catch(e => console.error('[startup] tasks v1 bootstrap failed:', e));
   // Bootstrap funnel_configs + purchase_delivery_log tables, then seed defaults
   ensureFunnelConfigTable()
     .then(() => ensureDeliveryLogTable())

@@ -201,33 +201,31 @@ describe('CRM Path Redirects', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 6. Team member list validation
+// 6. Team member list validation (post-ClickUp / post-offboarding)
 // ---------------------------------------------------------------------------
 const TEAM_MEMBERS = [
-  { name: 'Jatin',   clickupId: 88911769 },
-  { name: 'Sakcham', clickupId: 242618940 },
-  { name: 'Nimisha', clickupId: 100972807 },
-  { name: 'Keshav',  clickupId: 4800274   },
+  { name: 'Jatin',   email: 'jatin@growthescalators.com'        },
+  { name: 'Sakcham', email: 'sakcham@growthescalators.com'      },
+  { name: 'Keshav',  email: 'keshav.growthescalators@gmail.com' },
 ];
 
 describe('Team Members Configuration', () => {
-  it('has 4 members', () => {
-    expect(TEAM_MEMBERS).toHaveLength(4);
+  it('has 3 active members (post Vishal+Nimisha offboarding)', () => {
+    expect(TEAM_MEMBERS).toHaveLength(3);
   });
 
-  it('all members have unique clickupIds', () => {
-    const ids = TEAM_MEMBERS.map(m => m.clickupId);
-    expect(new Set(ids).size).toBe(ids.length);
+  it('all members have unique emails', () => {
+    const emails = TEAM_MEMBERS.map(m => m.email);
+    expect(new Set(emails).size).toBe(emails.length);
   });
 
   it('includes Jatin as admin', () => {
     expect(TEAM_MEMBERS.find(m => m.name === 'Jatin')).toBeDefined();
   });
 
-  it('all clickupIds are positive numbers', () => {
-    for (const m of TEAM_MEMBERS) {
-      expect(m.clickupId).toBeGreaterThan(0);
-    }
+  it('Vishal and Nimisha are not in the active team', () => {
+    expect(TEAM_MEMBERS.find(m => m.name === 'Vishal')).toBeUndefined();
+    expect(TEAM_MEMBERS.find(m => m.name === 'Nimisha')).toBeUndefined();
   });
 });
 

@@ -1,18 +1,37 @@
 import logger from '../utils/logger';
-import { fetchTasksForMember } from '../utils/clickupTasks';
+import { fetchTasksForMember } from './sodEodService';
 import { sendSlackDM } from './slackService';
 import { pool } from '../db/index';
 import {
-  SLACK_JATIN, SLACK_SAKCHAM, SLACK_NIMISHA, SLACK_KESHAV,
-  CLICKUP_JATIN, CLICKUP_SAKCHAM, CLICKUP_NIMISHA, CLICKUP_KESHAV,
+  SLACK_JATIN, SLACK_SAKCHAM, SLACK_KESHAV,
 } from '../config/constants';
 
-const TEAM = [
-  { name: 'Jatin',   clickupId: String(CLICKUP_JATIN),   slackId: SLACK_JATIN,   showTeamOverview: true  },
-  { name: 'Sakcham', clickupId: String(CLICKUP_SAKCHAM),  slackId: SLACK_SAKCHAM,  showTeamOverview: true  },
-  { name: 'Nimisha', clickupId: String(CLICKUP_NIMISHA),  slackId: SLACK_NIMISHA,  showTeamOverview: false },
-  { name: 'Keshav',  clickupId: String(CLICKUP_KESHAV),   slackId: SLACK_KESHAV,   showTeamOverview: false },
+interface TeamMember {
+  name: string;
+  email: string;
+  slackId: string;
+  showTeamOverview: boolean;
+  userId: string | null;
+}
+
+const TEAM_BASE: Omit<TeamMember, 'userId'>[] = [
+  { name: 'Jatin',   email: 'jatin@growthescalators.com',           slackId: SLACK_JATIN,   showTeamOverview: true  },
+  { name: 'Sakcham', email: 'sakcham@growthescalators.com',         slackId: SLACK_SAKCHAM, showTeamOverview: true  },
+  { name: 'Keshav',  email: 'keshav.growthescalators@gmail.com',    slackId: SLACK_KESHAV,  showTeamOverview: false },
 ];
+
+async function loadTeam(): Promise<TeamMember[]> {
+  const team: TeamMember[] = [];
+  for (const m of TEAM_BASE) {
+    let userId: string | null = null;
+    try {
+      const r = await pool.query(`SELECT id FROM users WHERE email = $1 LIMIT 1`, [m.email]);
+      userId = (r.rows[0] as { id: string } | undefined)?.id ?? null;
+    } catch { /* ignore */ }
+    team.push({ ...m, userId });
+  }
+  return team;
+}
 
 function delay(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
@@ -24,6 +43,8 @@ export async function sendMorningBriefings(): Promise<{ sent: number; errors: st
   const now = new Date();
   const dayName = now.toLocaleDateString('en-IN', { weekday: 'long' });
   const dateStr = now.toLocaleDateString('en-IN', { day: 'numeric', month: 'long' });
+
+  const team = await loadTeam();
 
   // ── Shared data (only needed for showTeamOverview members) ──
   const [
@@ -75,15 +96,15 @@ export async function sendMorningBriefings(): Promise<{ sent: number; errors: st
     }
   } catch { /* ignore parse errors */ }
 
-  // ── Fetch ClickUp tasks for all members in parallel ──
-  const clickupResults = await Promise.all(
-    TEAM.map(async (m) => {
+  // ── Fetch CRM tasks for all members in parallel ──
+  const taskResults = await Promise.all(
+    team.map(async (m) => {
       try {
-        const data = await fetchTasksForMember(m.clickupId);
+        const data = await fetchTasksForMember(m.userId ?? '');
         return { member: m, ...data };
       } catch (e) {
-        logger.error(`[MorningBriefing] ClickUp fetch failed for ${m.name}:`, e);
-        errors.push(`clickup: ${m.name}`);
+        logger.error(`[MorningBriefing] CRM tasks fetch failed for ${m.name}:`, e);
+        errors.push(`tasks: ${m.name}`);
         return { member: m, overdue: [], dueToday: [], upcoming: [], all: [] };
       }
     })
@@ -91,13 +112,12 @@ export async function sendMorningBriefings(): Promise<{ sent: number; errors: st
 
   let sent = 0;
 
-  for (const cr of clickupResults) {
+  for (const cr of taskResults) {
     try {
       const m = cr.member;
       let msg = `*:sunny: Morning Briefing — ${m.name} | ${dayName} ${dateStr}*\n\n`;
 
       if (m.showTeamOverview) {
-        // Numbers section
         msg += `*:bar_chart: YOUR NUMBERS*\n`;
         msg += `• Pipeline: ₹${Number(pipeline.total).toLocaleString('en-IN')} active (${proposals} in proposal)\n`;
         msg += `• Ads: ₹${Number(ads.spend).toLocaleString('en-IN')} spent, ${ads.roas}x ROAS\n`;
@@ -105,7 +125,6 @@ export async function sendMorningBriefings(): Promise<{ sent: number; errors: st
         msg += `• Outreach: ${outreach.enriched} enriched, ${outreach.replied} replied\n`;
         msg += `• Discovery budget: ${discoveryRemaining}/${discoveryTotal}\n\n`;
 
-        // Actions section
         const ownerActions = actionItems.filter(a =>
           a.toLowerCase().includes(m.name.toLowerCase())
         ).slice(0, 3);
@@ -115,15 +134,14 @@ export async function sendMorningBriefings(): Promise<{ sent: number; errors: st
         }
       }
 
-      // ClickUp tasks section (all members)
-      msg += `*:clipboard: YOUR TASKS (ClickUp)*\n`;
+      // CRM tasks section (all members)
+      msg += `*:clipboard: YOUR TASKS*\n`;
       msg += `• ${cr.dueToday.length} due today, ${cr.overdue.length} overdue\n`;
       if (cr.overdue.length > 0) {
         const top = cr.overdue[0];
         msg += `  _Top overdue: ${top.name} (${top.daysOverdue}d)_\n`;
       }
 
-      // System section (only if crons failed, only for showTeamOverview)
       if (m.showTeamOverview && failedCrons.length > 0) {
         msg += `\n*:warning: SYSTEM*\n`;
         msg += `${failedCrons.length} cron(s) failed in last 24h: ${failedCrons.map(c => c.job_name).join(', ')}\n`;
@@ -138,6 +156,6 @@ export async function sendMorningBriefings(): Promise<{ sent: number; errors: st
     await delay(2000);
   }
 
-  console.log(`[MorningBriefing] complete — sent: ${sent}/${TEAM.length}, errors: ${errors.length}`);
+  console.log(`[MorningBriefing] complete — sent: ${sent}/${team.length}, errors: ${errors.length}`);
   return { sent, errors };
 }

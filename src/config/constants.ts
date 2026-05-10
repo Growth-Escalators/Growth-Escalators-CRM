@@ -13,17 +13,7 @@ export const SLACK_OUTREACH_CHANNEL = process.env.SLACK_OUTREACH_CHANNEL ?? 'C0A
 // -- Slack User IDs ----------------------------------------------------------
 export const SLACK_JATIN = process.env.SLACK_JATIN ?? 'U073Y677JBB';
 export const SLACK_SAKCHAM = process.env.SLACK_SAKCHAM ?? 'U09TY8RGN30';
-export const SLACK_NIMISHA = process.env.SLACK_NIMISHA ?? 'U0ALMKD2XFB';
 export const SLACK_KESHAV = process.env.SLACK_KESHAV ?? 'U073Y6S4K4H';
-
-// -- ClickUp User IDs -------------------------------------------------------
-export const CLICKUP_JATIN = Number(process.env.CLICKUP_JATIN ?? '88911769');
-export const CLICKUP_SAKCHAM = Number(process.env.CLICKUP_SAKCHAM ?? '242618940');
-export const CLICKUP_NIMISHA = Number(process.env.CLICKUP_NIMISHA ?? '100972807');
-export const CLICKUP_KESHAV = Number(process.env.CLICKUP_KESHAV ?? '4800274');
-
-// -- ClickUp Config ----------------------------------------------------------
-export const CLICKUP_TEAM_ID = process.env.CLICKUP_TEAM_ID ?? '9016403868';
 
 // -- Meta Graph API ----------------------------------------------------------
 export const META_API_BASE = process.env.META_API_BASE ?? 'https://graph.facebook.com/v19.0';

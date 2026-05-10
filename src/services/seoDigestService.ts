@@ -110,7 +110,7 @@ export async function sendWeeklyOpportunityDigest(): Promise<{ sent: boolean }> 
 
         // Top 3 opportunities by priority_score
         const topOpps = await pool.query(`
-          SELECT opportunity_type, description, estimated_impact, priority_score, clickup_task_url, keyword
+          SELECT opportunity_type, description, estimated_impact, priority_score, keyword
           FROM seo_opportunities
           WHERE (client_domain = $1 OR project_name ILIKE '%' || split_part($1, '.', 1) || '%')
             AND status = 'open'
@@ -151,14 +151,13 @@ export async function sendWeeklyOpportunityDigest(): Promise<{ sent: boolean }> 
           lines.push('');
         }
 
-        const oppRows = topOpps.rows as Array<{ opportunity_type: string; description: string; estimated_impact: string; priority_score: number; clickup_task_url: string; keyword: string }>;
+        const oppRows = topOpps.rows as Array<{ opportunity_type: string; description: string; estimated_impact: string; priority_score: number; keyword: string }>;
         if (oppRows.length > 0) {
           lines.push('*Top priorities this week:*');
           for (const o of oppRows) {
             const dot = o.estimated_impact === 'high' ? '🔴' : o.estimated_impact === 'medium' ? '🟡' : '🟢';
-            const taskLink = o.clickup_task_url ? ` → <${o.clickup_task_url}|ClickUp>` : '';
             const kw = o.keyword ? ` "${o.keyword}"` : '';
-            lines.push(`${dot} [${o.opportunity_type}]${kw} — ${o.description.slice(0, 80)} (score: ${o.priority_score ?? 0})${taskLink}`);
+            lines.push(`${dot} [${o.opportunity_type}]${kw} — ${o.description.slice(0, 80)} (score: ${o.priority_score ?? 0})`);
           }
           lines.push('');
         }

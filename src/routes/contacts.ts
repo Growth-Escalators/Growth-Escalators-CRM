@@ -2,7 +2,6 @@ import logger from '../utils/logger';
 import { Router } from 'express';
 import { eq, and, desc, ilike, or, gte, sql } from 'drizzle-orm';
 import { db, contacts, contactChannels, sequences, sequenceEnrolments, contactNotes } from '../db/index';
-import { createInitialOutreachTask } from '../services/clickupService';
 
 const router = Router();
 
@@ -352,13 +351,8 @@ router.post('/', async (req, res) => {
     .values({ tenantId, firstName, lastName, companyName, source, sourceDetail, assignedTo, metadata, tags })
     .returning();
 
-  // Fire ClickUp outreach task (fire-and-forget)
+  // ClickUp outreach task hook removed — ClickUp dropped 2026-05-09
   const contact = inserted[0];
-  createInitialOutreachTask({
-    contactName: [contact.firstName, contact.lastName].filter(Boolean).join(' '),
-    contactId: contact.id,
-    source: contact.source || undefined,
-  }).catch(e => logger.error('[contacts] ClickUp outreach task error:', e));
 
   res.status(201).json(contact);
   } catch (e: unknown) {
