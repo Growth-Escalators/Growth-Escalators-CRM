@@ -6,7 +6,6 @@ import { enrolContact } from './sequenceService';
 import { insertJob } from './jobQueue';
 import { scoreBooking, determineSequence, buildDealTitle } from './qualificationService';
 import { sendLeadEvent, sendScheduleEvent } from './metaCapi';
-import { createCallPrepTask } from './clickupService';
 
 type Answers = Record<string, unknown>;
 
@@ -203,7 +202,8 @@ export async function processBooking(payload: Record<string, unknown>) {
   }
 
   // -------------------------------------------------------------------------
-  // 13. CAPI Lead + Schedule events + ClickUp call prep (fire-and-forget)
+  // 13. CAPI Lead + Schedule events (fire-and-forget)
+  // ClickUp call-prep task creation removed — ClickUp dropped 2026-05-09
   // -------------------------------------------------------------------------
   const estimatedValue = tier === 'hot' ? 25000 : tier === 'warm' ? 10000 : 5000;
 
@@ -215,16 +215,6 @@ export async function processBooking(payload: Record<string, unknown>) {
   sendScheduleEvent({
     contact: { id: contact.id, email: attendeeEmail, phone: attendeePhone, firstName, lastName },
   }).catch((e: Error) => logger.error('[booking] CAPI schedule error:', e.message));
-
-  if (score.totalScore >= 50) {
-    createCallPrepTask({
-      contactName,
-      contactId: contact.id,
-      score: score.totalScore,
-      tier,
-      scheduledAt: scheduledAt.toISOString(),
-    }).catch((e: Error) => logger.error('[booking] ClickUp call prep error:', e.message));
-  }
 
   // -------------------------------------------------------------------------
   // 14. Return result

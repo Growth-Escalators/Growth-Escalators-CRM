@@ -1,18 +1,37 @@
 import logger from '../utils/logger';
-import { fetchTasksForMember, fetchCompletedTodayForMember } from '../utils/clickupTasks';
+import { fetchTasksForMember, fetchCompletedTodayForMember } from './sodEodService';
 import { sendSlackDM } from './slackService';
 import { pool } from '../db/index';
 import {
-  SLACK_JATIN, SLACK_SAKCHAM, SLACK_NIMISHA, SLACK_KESHAV,
-  CLICKUP_JATIN, CLICKUP_SAKCHAM, CLICKUP_NIMISHA, CLICKUP_KESHAV,
+  SLACK_JATIN, SLACK_SAKCHAM, SLACK_KESHAV,
 } from '../config/constants';
 
-const TEAM = [
-  { name: 'Jatin',   clickupId: String(CLICKUP_JATIN),   slackId: SLACK_JATIN,   showTeamOverview: true  },
-  { name: 'Sakcham', clickupId: String(CLICKUP_SAKCHAM),  slackId: SLACK_SAKCHAM,  showTeamOverview: true  },
-  { name: 'Nimisha', clickupId: String(CLICKUP_NIMISHA),  slackId: SLACK_NIMISHA,  showTeamOverview: false },
-  { name: 'Keshav',  clickupId: String(CLICKUP_KESHAV),   slackId: SLACK_KESHAV,   showTeamOverview: false },
+interface TeamMember {
+  name: string;
+  email: string;
+  slackId: string;
+  showTeamOverview: boolean;
+  userId: string | null;
+}
+
+const TEAM_BASE: Omit<TeamMember, 'userId'>[] = [
+  { name: 'Jatin',   email: 'jatin@growthescalators.com',           slackId: SLACK_JATIN,   showTeamOverview: true  },
+  { name: 'Sakcham', email: 'sakcham@growthescalators.com',         slackId: SLACK_SAKCHAM, showTeamOverview: true  },
+  { name: 'Keshav',  email: 'keshav.growthescalators@gmail.com',    slackId: SLACK_KESHAV,  showTeamOverview: false },
 ];
+
+async function loadTeam(): Promise<TeamMember[]> {
+  const team: TeamMember[] = [];
+  for (const m of TEAM_BASE) {
+    let userId: string | null = null;
+    try {
+      const r = await pool.query(`SELECT id FROM users WHERE email = $1 LIMIT 1`, [m.email]);
+      userId = (r.rows[0] as { id: string } | undefined)?.id ?? null;
+    } catch { /* ignore */ }
+    team.push({ ...m, userId });
+  }
+  return team;
+}
 
 function delay(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
@@ -32,18 +51,20 @@ export async function sendEveningSummaries(): Promise<{ sent: number; errors: st
   const dayName = now.toLocaleDateString('en-IN', { weekday: 'long' });
   const dateStr = now.toLocaleDateString('en-IN', { day: 'numeric', month: 'long' });
 
-  // ── Fetch per-member ClickUp data in parallel ──
+  const team = await loadTeam();
+
+  // ── Fetch per-member CRM tasks data in parallel ──
   const memberData = await Promise.all(
-    TEAM.map(async (m) => {
+    team.map(async (m) => {
       try {
         const [tasks, completed] = await Promise.all([
-          fetchTasksForMember(m.clickupId),
-          fetchCompletedTodayForMember(m.clickupId),
+          fetchTasksForMember(m.userId ?? ''),
+          fetchCompletedTodayForMember(m.userId ?? ''),
         ]);
         return { member: m, tasks, completed };
       } catch (e) {
-        logger.error(`[EveningSummary] ClickUp fetch failed for ${m.name}:`, e);
-        errors.push(`clickup: ${m.name}`);
+        logger.error(`[EveningSummary] CRM tasks fetch failed for ${m.name}:`, e);
+        errors.push(`tasks: ${m.name}`);
         return {
           member: m,
           tasks: { overdue: [], dueToday: [], upcoming: [], all: [] },
@@ -95,6 +116,6 @@ export async function sendEveningSummaries(): Promise<{ sent: number; errors: st
     await delay(2000);
   }
 
-  console.log(`[EveningSummary] complete — sent: ${sent}/${TEAM.length}, errors: ${errors.length}`);
+  console.log(`[EveningSummary] complete — sent: ${sent}/${team.length}, errors: ${errors.length}`);
   return { sent, errors };
 }

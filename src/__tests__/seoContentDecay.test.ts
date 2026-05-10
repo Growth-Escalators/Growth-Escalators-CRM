@@ -11,10 +11,6 @@ vi.mock('../services/slackService', () => ({
   sendSlackMessage: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../services/seoClickupService', () => ({
-  createOpportunityTask: vi.fn().mockResolvedValue(undefined),
-}));
-
 vi.mock('../config/constants', () => ({
   SLACK_SEO_CHANNEL: 'C_SEO_TEST',
 }));

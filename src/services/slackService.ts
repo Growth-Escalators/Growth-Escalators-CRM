@@ -10,20 +10,20 @@ export interface SlackSendOpts {
   allowDuringPause?: boolean;
 }
 
-// Member ID mapping — ClickUp ID to Slack ID
+// Member ID mapping — keyed by user-id-like string for cross-system lookups
+// (used by routes/tasks.ts to resolve assignedTo → Slack DM target).
+// Only current active team members.
 export const MEMBER_MAP: Record<string, { slackId: string; name: string; role: string }> = {
-  '88911769':  { slackId: 'U073Y677JBB', name: 'Jatin',   role: 'founder' },
-  '242618940': { slackId: 'U09TY8RGN30', name: 'Sakcham', role: 'sales' },
-  '4800274':   { slackId: 'U073Y6S4K4H', name: 'Keshav',  role: 'ops' },
-  '100972807': { slackId: 'U0ALMKD2XFB', name: 'Nimisha', role: 'ops' },
+  jatin:   { slackId: 'U073Y677JBB', name: 'Jatin',   role: 'founder' },
+  sakcham: { slackId: 'U09TY8RGN30', name: 'Sakcham', role: 'sales' },
+  keshav:  { slackId: 'U073Y6S4K4H', name: 'Keshav',  role: 'ops' },
 };
 
+// Slack member name → Slack ID mapping (current team)
 export const SLACK_MEMBERS = {
   jatin:   'U073Y677JBB',
   sakcham: 'U09TY8RGN30',
   keshav:  'U073Y6S4K4H',
-  nimisha: 'U0ALMKD2XFB',
-  vishal:  'U0ALC9Z09RA',
 };
 
 // Channel mapping

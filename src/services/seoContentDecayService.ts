@@ -103,19 +103,8 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
       );
       opportunities++;
 
-      const newId = (insertResult.rows[0] as { id: string }).id;
-      try {
-        const { createOpportunityTask } = await import('./seoClickupService');
-        await createOpportunityTask({
-          id: newId,
-          client_domain: domain,
-          opportunity_type: 'content_decay',
-          description: `"${keyword}" dropped ${drop} positions (was #${oldPos}, now #${currentPos})`,
-          estimated_impact: impact,
-          keyword,
-          priority_score: priorityScore,
-        });
-      } catch { /* clickup non-critical */ }
+      // newId not used since ClickUp opportunity task creation removed (2026-05-09)
+      void (insertResult.rows[0] as { id: string }).id;
     }
 
     // Also detect pages that fell out of top 100
@@ -166,19 +155,8 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
       );
       opportunities++;
 
-      const lostNewId = (lostInsertResult.rows[0] as { id: string }).id;
-      try {
-        const { createOpportunityTask } = await import('./seoClickupService');
-        await createOpportunityTask({
-          id: lostNewId,
-          client_domain: domain,
-          opportunity_type: 'lost_ranking',
-          description: `"${keyword}" lost ranking entirely (was #${row.current_position})`,
-          estimated_impact: 'high',
-          keyword,
-          priority_score: priorityScore,
-        });
-      } catch { /* clickup non-critical */ }
+      // lostNewId not used since ClickUp opportunity task creation removed (2026-05-09)
+      void (lostInsertResult.rows[0] as { id: string }).id;
     }
   } catch (e) {
     logger.error('[content-decay] error:', e instanceof Error ? e.message : String(e));

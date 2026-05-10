@@ -78,32 +78,28 @@ async function fetchWeeklyAdMetrics(adAccountId: string, weekOf: string) {
   };
 }
 
-async function fetchClickUpTasks(weekOf: string) {
-  const listId = process.env.CLICKUP_LIST_ID;
-  const apiToken = process.env.CLICKUP_API_TOKEN;
-  if (!listId || !apiToken) return [];
-
+async function fetchCompletedTasksForWeek(weekOf: string): Promise<Array<{ id: unknown; name: unknown; status: string; completedAt: unknown; url: string }>> {
   const { start, end } = weekRange(weekOf);
-
-  const params = new URLSearchParams({
-    statuses: 'complete',
-    date_updated_gt: String(start.getTime()),
-    date_updated_lt: String(end.getTime()),
-    include_closed: 'true',
-  });
-
-  const url = `https://api.clickup.com/api/v2/list/${listId}/task?${params.toString()}`;
-  const r = await fetch(url, { headers: { Authorization: apiToken } });
-  if (!r.ok) return [];
-  const data = await r.json() as Record<string, unknown>;
-  const tasks = (data.tasks as Array<Record<string,unknown>>) || [];
-  return tasks.map(t => ({
-    id: t.id,
-    name: t.name,
-    status: (t.status as Record<string,string>)?.status || 'complete',
-    completedAt: t.date_updated,
-    url: t.url,
-  }));
+  try {
+    const { pool } = await import('../db/index');
+    const r = await pool.query(
+      `SELECT id, title, status, updated_at
+       FROM tasks
+       WHERE status = 'done'
+         AND updated_at >= $1 AND updated_at <= $2
+       ORDER BY updated_at DESC`,
+      [start, end],
+    );
+    return (r.rows as Array<{ id: string; title: string; status: string; updated_at: Date }>).map(t => ({
+      id: t.id,
+      name: t.title,
+      status: t.status || 'done',
+      completedAt: t.updated_at?.getTime?.() ?? null,
+      url: '',
+    }));
+  } catch {
+    return [];
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -147,7 +143,7 @@ router.get('/generate', async (req: Request, res: Response) => {
 
     const [adMetrics, completedTasks] = await Promise.all([
       client.metaAdAccountId ? fetchWeeklyAdMetrics(client.metaAdAccountId, weekOf) : Promise.resolve(null),
-      fetchClickUpTasks(weekOf),
+      fetchCompletedTasksForWeek(weekOf),
     ]);
 
     // --- Benchmark comparisons ---
@@ -288,7 +284,7 @@ router.post('/send-pdf', async (req: Request, res: Response) => {
     const { start, end } = weekRange(weekOf);
     const [adMetrics, completedTasks] = await Promise.all([
       client.metaAdAccountId ? fetchWeeklyAdMetrics(client.metaAdAccountId, weekOf) : Promise.resolve(null),
-      fetchClickUpTasks(weekOf),
+      fetchCompletedTasksForWeek(weekOf),
     ]);
 
     // Fetch benchmark + agency avg + trends for PDF
@@ -381,7 +377,7 @@ router.get('/pdf', async (req: Request, res: Response) => {
     const { start, end } = weekRange(weekOf);
     const [adMetrics, completedTasks] = await Promise.all([
       client.metaAdAccountId ? fetchWeeklyAdMetrics(client.metaAdAccountId, weekOf) : Promise.resolve(null),
-      fetchClickUpTasks(weekOf),
+      fetchCompletedTasksForWeek(weekOf),
     ]);
 
     // Fetch benchmark + agency avg + trends for PDF

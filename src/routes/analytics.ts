@@ -181,7 +181,7 @@ router.get('/mrr-trend', requirePermission('REPORTS_VIEW'), async (req: Request,
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/analytics/team-performance — ClickUp task metrics per team member
+// GET /api/analytics/team-performance — CRM-tasks-backed metrics per team member
 // ---------------------------------------------------------------------------
 router.get('/team-performance', requirePermission('REPORTS_VIEW'), async (_req: Request, res: Response) => {
   try {

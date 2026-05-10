@@ -7,7 +7,6 @@ import type { AgencyDailyData } from './intelligenceDataCollector';
 const SLACK_IDS: Record<string, string> = {
   Jatin:   'U073Y677JBB',
   Sakcham: 'U09TY8RGN30',
-  Nimisha: 'U0ALMKD2XFB',
   Keshav:  'U073Y6S4K4H',
 };
 

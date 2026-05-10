@@ -318,7 +318,7 @@ async function sendFatigueSlackAlert(params: {
     `CTR: ${params.peakCtr.toFixed(2)}% → ${params.latestCtr.toFixed(2)}% (${ctrDrop}% drop)\n` +
     `ROAS: ${params.peakRoas.toFixed(2)}x → ${params.latestRoas.toFixed(2)}x\n\n` +
     `*Creative Brief Generated:*\n${params.creativeBrief ?? 'N/A'}\n\n` +
-    `<@${SLACK_SAKCHAM}> — please brief Nimisha/Keshav on replacement.`;
+    `<@${SLACK_SAKCHAM}> — please brief Keshav on replacement.`;
 
   await sendSlackMessage(SLACK_PERF_MARKETING_CHANNEL, msg).catch(() => {});
 }

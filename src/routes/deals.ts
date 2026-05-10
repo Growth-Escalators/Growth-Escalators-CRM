@@ -2,7 +2,6 @@ import logger from '../utils/logger';
 import { Router } from 'express';
 import { eq, and, sql } from 'drizzle-orm';
 import { db, pool, deals, contacts, pipelines } from '../db/index';
-import { createOnboardingTask, createFollowUpTask, createLostDealAnalysisTask } from '../services/clickupService';
 
 const router = Router();
 
@@ -177,27 +176,7 @@ router.patch('/:id', async (req, res) => {
     await db.update(contacts).set({ lastActivityAt: new Date(), updatedAt: new Date() })
       .where(eq(contacts.id, existing[0].contactId));
 
-    // Fire ClickUp tasks on key stage transitions (fire-and-forget)
-    const stageLC = stage.toLowerCase();
-    if (stageLC === 'won' || stageLC === 'proposal' || stageLC === 'lost') {
-      const deal = updated[0];
-      db.select({ firstName: contacts.firstName, lastName: contacts.lastName })
-        .from(contacts)
-        .where(eq(contacts.id, deal.contactId))
-        .limit(1)
-        .then(([c]) => {
-          const contactName = [c?.firstName, c?.lastName].filter(Boolean).join(' ') || 'Contact';
-          const dealValue = deal.dealValue ?? undefined;
-          if (stageLC === 'won') {
-            return createOnboardingTask({ contactName, contactId: deal.contactId, dealValue: dealValue ?? undefined });
-          } else if (stageLC === 'proposal') {
-            return createFollowUpTask({ contactName, contactId: deal.contactId, dealValue: dealValue ?? undefined });
-          } else {
-            return createLostDealAnalysisTask({ contactName, contactId: deal.contactId, lostReason: deal.lostReason ?? 'Not specified', dealValue: dealValue ?? undefined });
-          }
-        })
-        .catch((e: Error) => logger.error('[deals] ClickUp task error:', e.message));
-    }
+    // ClickUp stage-transition tasks removed — ClickUp dropped 2026-05-09
   }
 
   // Stage automation: fire email + task if stage_config defines automations
@@ -245,13 +224,16 @@ router.patch('/:id', async (req, res) => {
           } catch (e) { logger.error('[deals] Stage automation email error:', e); }
         }
 
-        // Create ClickUp task automation
+        // Create CRM task automation (dropped ClickUp — write to internal tasks table)
         if (cfg.automation?.createTask?.title) {
           try {
-            const { createTask } = await import('../services/clickupService');
             const dueInDays = cfg.automation.createTask.dueInDays ?? 3;
-            const dueDate = Date.now() + dueInDays * 86400000;
-            await createTask({ name: cfg.automation.createTask.title, dueDate });
+            const dueAt = new Date(Date.now() + dueInDays * 86400000);
+            await pool.query(
+              `INSERT INTO tasks (tenant_id, contact_id, deal_id, title, due_at, status, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, 'open', NOW(), NOW())`,
+              [tenantId, existing[0].contactId, id, cfg.automation.createTask.title, dueAt]
+            );
             await pool.query(
               `INSERT INTO deal_activities (tenant_id, deal_id, contact_id, activity_type, note, created_by)
                VALUES ($1, $2, $3, 'automation_task', $4, 'automation')`,

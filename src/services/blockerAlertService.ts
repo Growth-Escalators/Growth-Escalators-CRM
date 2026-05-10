@@ -1,12 +1,10 @@
 import logger from '../utils/logger';
-import { db, events } from '../db/index';
-import { and, gte, sql } from 'drizzle-orm';
+import { db, events, pool } from '../db/index';
+import { sql } from 'drizzle-orm';
 import { sendSlackMessage, sendSlackDM } from './slackService';
-import { fetchTasksForMember, type Task } from '../utils/clickupTasks';
 import {
-  SLACK_GENERAL_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_NIMISHA, SLACK_KESHAV,
+  SLACK_GENERAL_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_KESHAV,
   BLOCKER_THRESHOLD_DAYS as BT_DAYS, CRITICAL_THRESHOLD_DAYS as CT_DAYS,
-  CLICKUP_JATIN, CLICKUP_SAKCHAM, CLICKUP_NIMISHA, CLICKUP_KESHAV,
 } from '../config/constants';
 
 const GENERAL_CHANNEL = SLACK_GENERAL_CHANNEL;
@@ -14,12 +12,66 @@ const BLOCKER_THRESHOLD_DAYS = BT_DAYS;
 const CRITICAL_THRESHOLD_DAYS = CT_DAYS;
 const JATIN_SLACK = SLACK_JATIN;
 
-const TEAM = [
-  { name: 'Jatin',   clickupId: String(CLICKUP_JATIN),   slackId: SLACK_JATIN },
-  { name: 'Sakcham', clickupId: String(CLICKUP_SAKCHAM),  slackId: SLACK_SAKCHAM },
-  { name: 'Nimisha', clickupId: String(CLICKUP_NIMISHA),  slackId: SLACK_NIMISHA },
-  { name: 'Keshav',  clickupId: String(CLICKUP_KESHAV),   slackId: SLACK_KESHAV },
-];
+// CRM-tasks-backed blocker check (replaces ClickUp). Each entry maps a
+// users.id to a Slack ID for tagging.
+interface TeamMember { name: string; userId: string | null; slackId: string }
+
+async function getTeamMembers(): Promise<TeamMember[]> {
+  // Resolve current team-member user IDs by email. Anyone not in the users
+  // table is silently skipped — keeps this resilient as people are added/removed.
+  const emails: Array<{ name: string; email: string; slackId: string }> = [
+    { name: 'Jatin',   email: 'jatin@growthescalators.com',           slackId: SLACK_JATIN },
+    { name: 'Sakcham', email: 'sakcham@growthescalators.com',         slackId: SLACK_SAKCHAM },
+    { name: 'Keshav',  email: 'keshav.growthescalators@gmail.com',    slackId: SLACK_KESHAV },
+  ];
+
+  const result: TeamMember[] = [];
+  for (const e of emails) {
+    try {
+      const r = await pool.query(`SELECT id FROM users WHERE email = $1 LIMIT 1`, [e.email]);
+      const userId = (r.rows[0] as { id: string } | undefined)?.id ?? null;
+      result.push({ name: e.name, userId, slackId: e.slackId });
+    } catch {
+      result.push({ name: e.name, userId: null, slackId: e.slackId });
+    }
+  }
+  return result;
+}
+
+interface OverdueTask {
+  id: string;
+  name: string;
+  daysOverdue: number;
+  dueDateFormatted: string;
+  listName: string;
+}
+
+async function fetchOverdueTasksForUser(userId: string): Promise<OverdueTask[]> {
+  if (!userId) return [];
+  try {
+    const r = await pool.query(
+      `SELECT id, title, due_at,
+              FLOOR(EXTRACT(EPOCH FROM (NOW() - due_at)) / 86400)::int AS days_overdue
+       FROM tasks
+       WHERE assigned_to = $1
+         AND status != 'done'
+         AND due_at IS NOT NULL
+         AND due_at < NOW()
+       ORDER BY due_at ASC`,
+      [userId],
+    );
+    return (r.rows as Array<{ id: string; title: string; due_at: Date; days_overdue: number }>).map(row => ({
+      id: row.id,
+      name: row.title || 'Untitled',
+      daysOverdue: Number(row.days_overdue ?? 0),
+      dueDateFormatted: new Date(row.due_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }),
+      listName: '',
+    }));
+  } catch (e) {
+    logger.error(`[blockers] CRM tasks fetch failed for user ${userId}:`, e);
+    return [];
+  }
+}
 
 // In-memory daily dedup: taskId+date → true
 const alertedToday = new Map<string, boolean>();
@@ -61,11 +113,13 @@ export async function checkAndAlertBlockers(): Promise<{ checked: number; alerte
   console.log('[blockers] starting check…');
   resetIfNewDay();
 
-  const allOverdue: Array<{ task: Task; member: typeof TEAM[0] }> = [];
+  const team = await getTeamMembers();
+  const allOverdue: Array<{ task: OverdueTask; member: TeamMember }> = [];
 
-  for (const member of TEAM) {
+  for (const member of team) {
+    if (!member.userId) continue;
     try {
-      const { overdue } = await fetchTasksForMember(member.clickupId);
+      const overdue = await fetchOverdueTasksForUser(member.userId);
       for (const t of overdue) {
         if (t.daysOverdue >= BLOCKER_THRESHOLD_DAYS) {
           allOverdue.push({ task: t, member });
@@ -93,7 +147,7 @@ export async function checkAndAlertBlockers(): Promise<{ checked: number; alerte
     const msg = `⚠️ *Blocker Alert* — ${tagLine}\n\n` +
       `Task overdue by *${task.daysOverdue} day${task.daysOverdue === 1 ? '' : 's'}:*\n` +
       `*"${task.name}"*\n` +
-      `List: ${task.listName || 'Unknown'} · Due: ${task.dueDateFormatted}\n\n` +
+      `Due: ${task.dueDateFormatted}\n\n` +
       `Please update task status or flag if blocked.`;
 
     await sendSlackMessage(GENERAL_CHANNEL, msg);
@@ -103,7 +157,7 @@ export async function checkAndAlertBlockers(): Promise<{ checked: number; alerte
       const dmMsg = `🚨 *Critical Blocker — Needs Your Attention*\n\n` +
         `<@${member.slackId}>'s task is overdue by *${task.daysOverdue} days:*\n` +
         `*"${task.name}"*\n` +
-        `List: ${task.listName || 'Unknown'} · Due: ${task.dueDateFormatted}\n\n` +
+        `Due: ${task.dueDateFormatted}\n\n` +
         `This has been overdue for ${task.daysOverdue} days and needs immediate action.`;
       await sendSlackDM(JATIN_SLACK, dmMsg);
     }
