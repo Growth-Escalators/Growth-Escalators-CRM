@@ -17,7 +17,9 @@ if (!JWT_SECRET) {
   console.error('FATAL: JWT_SECRET environment variable is required');
   if (process.env.NODE_ENV === 'production') process.exit(1);
 }
-const JWT_EXPIRES = '8h';
+// 7-day session — small trusted team. Forced logout still works via
+// tokenVersion bump in DB (used by removeUser scripts and password resets).
+const JWT_EXPIRES = '7d';
 
 // Rate limiters
 const loginLimiter = rateLimit({ windowMs: 60_000, max: 5, message: { error: 'Too many login attempts. Try again in 1 minute.' }, standardHeaders: true, legacyHeaders: false });
