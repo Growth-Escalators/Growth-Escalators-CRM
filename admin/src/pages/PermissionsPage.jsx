@@ -106,6 +106,131 @@ function Toggle({ checked, onChange, disabled }) {
   );
 }
 
+function AddUserModal({ onClose, onCreated }) {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [role, setRole] = useState('staff');
+  const [password, setPassword] = useState('');
+  const [autoPassword, setAutoPassword] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState('');
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setErr('');
+    setSubmitting(true);
+    try {
+      const body = { name: name.trim(), email: email.trim().toLowerCase(), role };
+      if (!autoPassword && password) body.password = password;
+      const res = await apiFetch('/api/permissions/users', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      onCreated(res);
+    } catch (e) {
+      setErr(e.message || 'Failed to create user');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-slate-100">
+          <h2 className="font-bold text-slate-900">Add User</h2>
+          <p className="text-xs text-slate-500 mt-0.5">They'll be able to change their password later via Forgot Password.</p>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Full name *</label>
+            <input value={name} onChange={e => setName(e.target.value)} required
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Email *</label>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} required
+              placeholder="sneha.joshi@growthescalators.com"
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Role</label>
+            <select value={role} onChange={e => setRole(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-sky-500">
+              <option value="staff">Staff</option>
+              <option value="sales">Sales</option>
+              <option value="manager_ops">Manager (Ops)</option>
+              <option value="manager_ads">Manager (Ads)</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          <div>
+            <label className="flex items-center gap-2 text-xs text-slate-700 mb-1.5">
+              <input type="checkbox" checked={autoPassword} onChange={e => setAutoPassword(e.target.checked)} />
+              Auto-generate temporary password
+            </label>
+            {!autoPassword && (
+              <input type="text" value={password} onChange={e => setPassword(e.target.value)} minLength={8}
+                placeholder="At least 8 characters"
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500" />
+            )}
+          </div>
+          {err && <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{err}</p>}
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose}
+              className="flex-1 px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+            <button type="submit" disabled={submitting}
+              className="flex-1 px-4 py-2 bg-sky-600 text-white rounded-lg text-sm font-medium hover:bg-sky-700 disabled:opacity-50">
+              {submitting ? 'Creating…' : 'Create User'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function CredsModal({ creds, onClose }) {
+  const [copied, setCopied] = useState(false);
+  function copyAll() {
+    const text = `Email: ${creds.user.email}\nTemporary password: ${creds.temporaryPassword}\n\nLog in at https://crm.growthescalators.com and use "Forgot password" any time to change it.`;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    }).catch(() => {});
+  }
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-emerald-100 bg-emerald-50 rounded-t-2xl">
+          <h2 className="font-bold text-emerald-900">User created ✓</h2>
+          <p className="text-xs text-emerald-700 mt-0.5">Copy and share these credentials securely. This password will not be shown again.</p>
+        </div>
+        <div className="p-6 space-y-3">
+          <div className="text-sm"><span className="font-semibold text-slate-700">Name:</span> <span className="text-slate-900">{creds.user.name}</span></div>
+          <div className="text-sm"><span className="font-semibold text-slate-700">Email:</span> <span className="text-slate-900 font-mono">{creds.user.email}</span></div>
+          <div className="text-sm"><span className="font-semibold text-slate-700">Role:</span> <span className="text-slate-900">{creds.user.role}</span></div>
+          <div className="text-sm">
+            <p className="font-semibold text-slate-700 mb-1">Temporary password:</p>
+            <code className="block bg-slate-100 border border-slate-200 px-3 py-2 rounded text-slate-900 font-mono text-sm break-all">
+              {creds.temporaryPassword}
+            </code>
+          </div>
+          {creds.note && <p className="text-xs text-slate-500">{creds.note}</p>}
+        </div>
+        <div className="px-6 pb-4 flex justify-end gap-2">
+          <button onClick={copyAll}
+            className="px-4 py-2 bg-sky-600 text-white rounded-lg text-sm font-medium hover:bg-sky-700">
+            {copied ? 'Copied!' : 'Copy credentials'}
+          </button>
+          <button onClick={onClose}
+            className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm hover:bg-slate-200">Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function PermissionsPage() {
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -116,17 +241,17 @@ export default function PermissionsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
+  const [showAddUser, setShowAddUser] = useState(false);
+  const [createdCreds, setCreatedCreds] = useState(null); // { user, temporaryPassword }
+
+  function loadUsers() {
+    return apiFetch('/api/permissions/users')
+      .then(data => { setUsers(data?.users || []); })
+      .catch(e => setError(e.message));
+  }
 
   useEffect(() => {
-    apiFetch('/api/permissions/users')
-      .then(data => {
-        setUsers(data?.users || []);
-        setLoading(false);
-      })
-      .catch(e => {
-        setError(e.message);
-        setLoading(false);
-      });
+    loadUsers().finally(() => setLoading(false));
   }, []);
 
   async function selectUser(user) {
@@ -187,10 +312,33 @@ export default function PermissionsPage() {
     <div className="flex h-screen bg-slate-50">
       <Sidebar />
       <main className="flex-1 overflow-y-auto p-8">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-slate-900">User Permissions</h1>
-          <p className="text-slate-500 mt-1 text-sm">Control what each team member can access in the CRM</p>
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">User Permissions</h1>
+            <p className="text-slate-500 mt-1 text-sm">Control what each team member can access in the CRM</p>
+          </div>
+          <button
+            onClick={() => setShowAddUser(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-sky-600 text-white rounded-lg text-sm font-medium hover:bg-sky-700 transition-colors"
+          >
+            + Add User
+          </button>
         </div>
+
+        {showAddUser && (
+          <AddUserModal
+            onClose={() => setShowAddUser(false)}
+            onCreated={(payload) => {
+              setShowAddUser(false);
+              setCreatedCreds(payload);
+              loadUsers();
+            }}
+          />
+        )}
+
+        {createdCreds && (
+          <CredsModal creds={createdCreds} onClose={() => setCreatedCreds(null)} />
+        )}
 
         {loading ? (
           <div className="text-center py-16 text-slate-400">Loading…</div>

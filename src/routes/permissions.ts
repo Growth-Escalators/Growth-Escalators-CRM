@@ -1,9 +1,20 @@
 import { Router, type Request, type Response } from 'express';
 import { db } from '../db/index';
-import { userPermissions } from '../db/schema';
+import { userPermissions, users } from '../db/schema';
 import { eq, sql } from 'drizzle-orm';
+import { hash } from '@node-rs/argon2';
+import crypto from 'crypto';
 
 const router = Router();
+
+const VALID_ROLES = ['admin', 'manager_ops', 'manager_ads', 'sales', 'staff'];
+
+function generatePassword(): string {
+  // 12 chars: mixed case + digits — readable but reasonable entropy.
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  return Array.from(crypto.randomFillSync(new Uint8Array(12)))
+    .map(b => alphabet[b % alphabet.length]).join('');
+}
 
 // Ensure runtime columns exist (idempotent — safe to run on every cold start)
 db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true`).catch(() => {});
@@ -134,6 +145,74 @@ router.put('/users/:userId', async (req: Request, res: Response) => {
     }
 
     res.json({ permissions: result });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/permissions/users — create a new team member (admin/owner only)
+// Body: { name, email, role, password? } — password auto-generated if omitted
+// Returns the new user + the plaintext password ONCE (so admin can share it).
+// User can change their password later via /auth/forgot-password.
+// ---------------------------------------------------------------------------
+router.post('/users', async (req: Request, res: Response) => {
+  const myUserId = req.user!.id;
+  const tenantId = req.user!.tenantId;
+
+  const [myPerms] = await db.select().from(userPermissions)
+    .where(eq(userPermissions.userId, myUserId)).limit(1);
+  const meIsAdmin = myPerms?.isOwner || req.user!.role === 'admin';
+  if (!meIsAdmin) { res.status(403).json({ error: 'admin only' }); return; }
+
+  const { name, email, role, password: rawPassword } = req.body as {
+    name?: string; email?: string; role?: string; password?: string;
+  };
+
+  if (!name || !email) { res.status(400).json({ error: 'name and email are required' }); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    res.status(400).json({ error: 'invalid email' }); return;
+  }
+  const newRole = role || 'staff';
+  if (!VALID_ROLES.includes(newRole)) {
+    res.status(400).json({ error: `role must be one of: ${VALID_ROLES.join(', ')}` });
+    return;
+  }
+  if (rawPassword && rawPassword.length < 8) {
+    res.status(400).json({ error: 'password must be at least 8 characters' });
+    return;
+  }
+
+  const normalisedEmail = email.toLowerCase().trim();
+  const existing = await db.select().from(users).where(eq(users.email, normalisedEmail)).limit(1);
+  if (existing.length > 0) {
+    res.status(409).json({ error: `a user with email ${normalisedEmail} already exists` });
+    return;
+  }
+
+  try {
+    const plaintextPassword = rawPassword || generatePassword();
+    const passwordHash = await hash(plaintextPassword);
+
+    const [inserted] = await db.execute(sql`
+      INSERT INTO users (tenant_id, name, email, password_hash, role, token_version)
+      VALUES (${tenantId}, ${name.trim()}, ${normalisedEmail}, ${passwordHash}, ${newRole}, 1)
+      RETURNING id, name, email, role, created_at
+    `) as unknown as Array<{ id: string; name: string; email: string; role: string; created_at: string }>;
+
+    // Seed an empty user_permissions row so the user shows up in /users list filters
+    await db.execute(sql`
+      INSERT INTO user_permissions (user_id, is_owner)
+      VALUES (${inserted.id}, false)
+      ON CONFLICT (user_id) DO NOTHING
+    `).catch(() => { /* table may not have unique constraint; ignore */ });
+
+    res.json({
+      ok: true,
+      user: inserted,
+      temporaryPassword: plaintextPassword,
+      note: 'Share this password securely with the user. They can change it any time via the "Forgot password" flow on the login page.',
+    });
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
