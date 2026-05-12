@@ -3,6 +3,7 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import {
   Plus, X, Trash2, Calendar, User, ChevronDown, MessageSquare, Paperclip,
   Image as ImageIcon, FileText, File as FileIcon, Link as LinkIcon, Upload, Reply, Edit2,
+  Tag, Filter, Search,
 } from 'lucide-react';
 import Sidebar from '../components/Sidebar.jsx';
 import TodoSidebar from '../components/TodoSidebar.jsx';
@@ -95,6 +96,94 @@ function mimeIcon(att) {
 }
 
 // ---------------------------------------------------------------------------
+// Tag palette — auto-assigned per tag-name (Trello-style consistent colours).
+// 10 distinct hues, hashed by tag name so the same tag always picks the same.
+// ---------------------------------------------------------------------------
+const TAG_PALETTE = [
+  { bg: 'bg-rose-100',    fg: 'text-rose-700',    ring: 'ring-rose-200' },
+  { bg: 'bg-orange-100',  fg: 'text-orange-700',  ring: 'ring-orange-200' },
+  { bg: 'bg-amber-100',   fg: 'text-amber-800',   ring: 'ring-amber-200' },
+  { bg: 'bg-lime-100',    fg: 'text-lime-800',    ring: 'ring-lime-200' },
+  { bg: 'bg-emerald-100', fg: 'text-emerald-700', ring: 'ring-emerald-200' },
+  { bg: 'bg-teal-100',    fg: 'text-teal-700',    ring: 'ring-teal-200' },
+  { bg: 'bg-sky-100',     fg: 'text-sky-700',     ring: 'ring-sky-200' },
+  { bg: 'bg-indigo-100',  fg: 'text-indigo-700',  ring: 'ring-indigo-200' },
+  { bg: 'bg-purple-100',  fg: 'text-purple-700',  ring: 'ring-purple-200' },
+  { bg: 'bg-pink-100',    fg: 'text-pink-700',    ring: 'ring-pink-200' },
+];
+function tagColor(tag) {
+  const t = String(tag || '').toLowerCase();
+  let h = 0;
+  for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) >>> 0;
+  return TAG_PALETTE[h % TAG_PALETTE.length];
+}
+
+function TagChip({ tag, onRemove, small = true }) {
+  const c = tagColor(tag);
+  return (
+    <span className={`inline-flex items-center gap-1 ${small ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-0.5 text-xs'} rounded font-medium ${c.bg} ${c.fg}`}>
+      {tag}
+      {onRemove && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onRemove(tag); }}
+          className="opacity-60 hover:opacity-100"
+          aria-label={`Remove ${tag}`}
+        >
+          <X className="w-2.5 h-2.5" />
+        </button>
+      )}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Due-date pill — colour-coded by aging.
+//   past  → red, today/tomorrow → amber, within-7d → sky, later → slate
+// ---------------------------------------------------------------------------
+function dueAtPill(task) {
+  if (!task.dueAt) return null;
+  const d = new Date(task.dueAt);
+  if (isNaN(d.getTime())) return null;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const dueDay = new Date(d); dueDay.setHours(0, 0, 0, 0);
+  const days = Math.floor((dueDay - today) / (24 * 3600 * 1000));
+  const isDone = task.status === 'done';
+  let style = 'bg-slate-100 text-slate-600';
+  if (!isDone) {
+    if (days < 0) style = 'bg-red-50 text-red-700';
+    else if (days <= 1) style = 'bg-amber-50 text-amber-700';
+    else if (days <= 7) style = 'bg-sky-50 text-sky-700';
+  }
+  return { style, label: fmtDueAt(task.dueAt) };
+}
+
+// ---------------------------------------------------------------------------
+// Avatar — initials in a colour-hashed circle.
+// ---------------------------------------------------------------------------
+const AVATAR_PALETTE = [
+  'bg-rose-500', 'bg-orange-500', 'bg-amber-500', 'bg-lime-600', 'bg-emerald-500',
+  'bg-teal-500', 'bg-sky-500', 'bg-indigo-500', 'bg-purple-500', 'bg-pink-500',
+];
+function avatarColor(name) {
+  const t = String(name || '').toLowerCase();
+  let h = 0;
+  for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) >>> 0;
+  return AVATAR_PALETTE[h % AVATAR_PALETTE.length];
+}
+function Avatar({ name, size = 'sm', title }) {
+  const px = size === 'lg' ? 'w-7 h-7 text-[11px]' : 'w-5 h-5 text-[9px]';
+  return (
+    <span
+      className={`inline-flex items-center justify-center rounded-full font-semibold text-white ${px} ${avatarColor(name)}`}
+      title={title || name || 'Unassigned'}
+    >
+      {initials(name)}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // AssigneeMenu — small inline dropdown used on Kanban cards.
 // ---------------------------------------------------------------------------
 function AssigneeMenu({ task, team, onAssigned }) {
@@ -178,8 +267,26 @@ function PriorityChip({ priority }) {
 // ---------------------------------------------------------------------------
 // TaskCard
 // ---------------------------------------------------------------------------
-function TaskCard({ task, index, team, onOpen, onAssigned, selected, onToggleSelect }) {
-  const overdue = isOverdue(task);
+function TaskCard({ task, index, team, onOpen, onAssigned, selected, onToggleSelect, onRename }) {
+  const pill = dueAtPill(task);
+  const assigneeName = displayAssignee(task.assignedTo, team);
+  const tags = Array.isArray(task.tags) ? task.tags : [];
+  const visibleTags = tags.slice(0, 3);
+  const hiddenTagCount = tags.length - visibleTags.length;
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(task.title || '');
+
+  useEffect(() => { setTitleDraft(task.title || ''); }, [task.title]);
+
+  async function saveTitle() {
+    const next = titleDraft.trim();
+    setEditingTitle(false);
+    if (!next || next === task.title) return;
+    try {
+      await onRename(task.id, next);
+    } catch { /* parent handles error display */ }
+  }
+
   return (
     <Draggable draggableId={task.id} index={index}>
       {(provided, snapshot) => (
@@ -187,7 +294,7 @@ function TaskCard({ task, index, team, onOpen, onAssigned, selected, onToggleSel
           ref={provided.innerRef}
           {...provided.draggableProps}
           {...provided.dragHandleProps}
-          onClick={onOpen}
+          onClick={editingTitle ? undefined : onOpen}
           className={`bg-white border rounded-lg p-2.5 cursor-pointer transition-all select-none ${
             snapshot.isDragging
               ? 'shadow-lg ring-2 ring-sky-200 border-sky-300'
@@ -196,7 +303,7 @@ function TaskCard({ task, index, team, onOpen, onAssigned, selected, onToggleSel
                 : 'border-slate-200 hover:border-slate-300 hover:shadow-sm'
           }`}
         >
-          <div className="flex items-start gap-2 mb-1">
+          <div className="flex items-start gap-2 mb-1.5">
             <input
               type="checkbox"
               checked={!!selected}
@@ -206,31 +313,61 @@ function TaskCard({ task, index, team, onOpen, onAssigned, selected, onToggleSel
               aria-label="Select task"
             />
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+              {/* Tags row — sits above the title in Trello style */}
+              {visibleTags.length > 0 && (
+                <div className="flex items-center gap-1 flex-wrap mb-1">
+                  {visibleTags.map(t => <TagChip key={t} tag={t} />)}
+                  {hiddenTagCount > 0 && (
+                    <span className="text-[10px] text-slate-400 font-medium">+{hiddenTagCount}</span>
+                  )}
+                </div>
+              )}
+              {/* Title + priority */}
+              <div className="flex items-start gap-1.5 mb-0.5">
                 <PriorityChip priority={task.priority} />
-                <p className="text-sm font-medium text-slate-800 leading-tight">{task.title}</p>
+                {editingTitle ? (
+                  <input
+                    autoFocus
+                    value={titleDraft}
+                    onChange={(e) => setTitleDraft(e.target.value)}
+                    onBlur={saveTitle}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') { e.preventDefault(); saveTitle(); }
+                      if (e.key === 'Escape') { e.preventDefault(); setEditingTitle(false); setTitleDraft(task.title || ''); }
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex-1 min-w-0 text-sm font-medium text-slate-800 border-b border-sky-300 focus:outline-none bg-transparent"
+                  />
+                ) : (
+                  <p
+                    className="text-sm font-medium text-slate-800 leading-tight flex-1 min-w-0"
+                    onClick={(e) => { e.stopPropagation(); setEditingTitle(true); }}
+                    title="Click to rename"
+                  >
+                    {task.title}
+                  </p>
+                )}
               </div>
               {task.description && (
                 <p className="text-[11px] text-slate-500 line-clamp-2 mb-1.5">{task.description}</p>
               )}
             </div>
           </div>
+          {/* Footer row: avatar + due pill + counts */}
           <div className="flex items-center gap-2 flex-wrap text-[10px] pl-6">
-            {task.dueAt && (
-              <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-medium ${
-                overdue ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-600'
-              }`}>
-                <Calendar className="w-3 h-3" /> {fmtDueAt(task.dueAt)}
+            <Avatar name={assigneeName} />
+            {pill && (
+              <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-medium ${pill.style}`}>
+                <Calendar className="w-3 h-3" /> {pill.label}
               </span>
             )}
-            <AssigneeMenu task={task} team={team} onAssigned={onAssigned} />
             {task.contactName && (
               <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 font-medium">
                 {task.contactName}
               </span>
             )}
             {(task.commentCount > 0 || task.attachmentCount > 0) && (
-              <span className="inline-flex items-center gap-1 text-slate-400">
+              <span className="inline-flex items-center gap-1.5 text-slate-400 ml-auto">
                 {task.commentCount > 0 && (
                   <span className="inline-flex items-center gap-0.5">
                     <MessageSquare className="w-3 h-3" /> {task.commentCount}
@@ -861,7 +998,7 @@ function AttachmentsTab({ taskId, currentUser }) {
 // ---------------------------------------------------------------------------
 // Add / Edit modal
 // ---------------------------------------------------------------------------
-function TaskModal({ task, team, currentUser, onClose, onSaved, onDeleted }) {
+function TaskModal({ task, team, currentUser, onClose, onSaved, onDeleted, allTags = [] }) {
   const isEdit = !!task?.id;
   const [tab, setTab] = useState('details');
   const [title, setTitle] = useState(task?.title ?? '');
@@ -870,8 +1007,30 @@ function TaskModal({ task, team, currentUser, onClose, onSaved, onDeleted }) {
   const [dueAt, setDueAt] = useState(toDateInput(task?.dueAt));
   const [status, setStatus] = useState(task?.status ?? 'not_started');
   const [priority, setPriority] = useState(task?.priority ?? 'medium');
+  const [tags, setTags] = useState(Array.isArray(task?.tags) ? task.tags : []);
+  const [tagDraft, setTagDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  function normaliseTag(s) {
+    return String(s || '').trim().toLowerCase().slice(0, 32);
+  }
+  function addTag(raw) {
+    const t = normaliseTag(raw);
+    if (!t) return;
+    if (tags.includes(t)) { setTagDraft(''); return; }
+    setTags([...tags, t]);
+    setTagDraft('');
+  }
+  function removeTag(t) {
+    setTags(tags.filter(x => x !== t));
+  }
+  const tagSuggestions = tagDraft
+    ? allTags
+        .map(a => a.tag || a)
+        .filter(a => a.includes(tagDraft.toLowerCase()) && !tags.includes(a))
+        .slice(0, 5)
+    : [];
 
   async function save(e) {
     e?.preventDefault?.();
@@ -889,6 +1048,7 @@ function TaskModal({ task, team, currentUser, onClose, onSaved, onDeleted }) {
         dueAt: dueAt ? new Date(dueAt).toISOString() : null,
         status,
         priority,
+        tags,
       };
       const resp = isEdit
         ? await apiFetch(`/api/tasks/${task.id}`, { method: 'PATCH', body: JSON.stringify(body) })
@@ -1024,6 +1184,40 @@ function TaskModal({ task, team, currentUser, onClose, onSaved, onDeleted }) {
                       <option value={assignedTo}>{assignedTo}</option>
                     )}
                   </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1 flex items-center gap-1.5">
+                    <Tag className="w-3 h-3" /> Tags
+                  </label>
+                  <div className="border border-slate-200 rounded-lg px-2 py-2 bg-white focus-within:ring-2 focus-within:ring-sky-200">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {tags.map(t => <TagChip key={t} tag={t} onRemove={removeTag} small={false} />)}
+                      <input
+                        value={tagDraft}
+                        onChange={(e) => setTagDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(tagDraft); }
+                          if (e.key === 'Backspace' && !tagDraft && tags.length) removeTag(tags[tags.length - 1]);
+                        }}
+                        placeholder={tags.length ? 'Add another…' : 'Add a tag and press Enter'}
+                        className="flex-1 min-w-[120px] text-sm bg-transparent outline-none px-1 py-0.5"
+                      />
+                    </div>
+                    {tagSuggestions.length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {tagSuggestions.map(s => (
+                          <button
+                            key={s}
+                            type="button"
+                            onClick={() => addTag(s)}
+                            className="text-[11px] px-2 py-0.5 rounded border border-slate-200 hover:border-sky-300 hover:bg-sky-50 text-slate-600"
+                          >
+                            + {s}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 {error && <p className="text-xs text-red-600">{error}</p>}
                 {!isEdit && assignedTo && (
@@ -1413,6 +1607,13 @@ export default function TasksBoardPage() {
   const [error, setError] = useState('');
   const [modalTask, setModalTask] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
+  const [allTags, setAllTags] = useState([]); // [{tag, count}]
+  const [filterAssignee, setFilterAssignee] = useState(''); // user id or ''
+  const [filterTag, setFilterTag] = useState('');
+  const [filterPriority, setFilterPriority] = useState(''); // '' | 'low' | 'medium' | 'high'
+  const [filterDue, setFilterDue] = useState(''); // '' | 'overdue' | 'today' | 'week'
+  const [quickAddOpen, setQuickAddOpen] = useState({}); // { [colKey]: bool }
+  const [quickAddText, setQuickAddText] = useState('');
   const [view, setView] = useState(() => {
     try {
       const saved = localStorage.getItem(VIEW_KEY);
@@ -1423,6 +1624,11 @@ export default function TasksBoardPage() {
 
   const currentUser = getUser();
   const isAdmin = currentUser?.role === 'admin';
+
+  const hasFilters = filterAssignee || filterTag || filterPriority || filterDue;
+  function clearFilters() {
+    setFilterAssignee(''); setFilterTag(''); setFilterPriority(''); setFilterDue('');
+  }
 
   useEffect(() => {
     try { localStorage.setItem(VIEW_KEY, view); } catch {}
@@ -1436,12 +1642,14 @@ export default function TasksBoardPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [tasksResp, teamResp] = await Promise.all([
+      const [tasksResp, teamResp, tagsResp] = await Promise.all([
         apiFetch('/api/tasks'),
         apiFetch('/api/team').catch(() => ({ team: [] })),
+        apiFetch('/api/tasks/tag-counts').catch(() => ({ tags: [] })),
       ]);
       setTasks(tasksResp.tasks ?? []);
       setTeam(teamResp.team ?? []);
+      setAllTags(tagsResp.tags ?? []);
       setError('');
     } catch (e) {
       setError(e.message || 'Failed to load tasks');
@@ -1449,6 +1657,38 @@ export default function TasksBoardPage() {
       setLoading(false);
     }
   }, []);
+
+  async function renameTask(taskId, newTitle) {
+    // Optimistic
+    setTasks((ts) => ts.map((t) => t.id === taskId ? { ...t, title: newTitle } : t));
+    try {
+      const { task: updated } = await apiFetch(`/api/tasks/${taskId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ title: newTitle }),
+      });
+      if (updated) upsertTask(updated);
+    } catch (e) {
+      setError(e.message || 'Rename failed');
+      // Best-effort reload to undo optimism on failure
+      load();
+    }
+  }
+
+  async function quickAddSubmit(colKey) {
+    const text = quickAddText.trim();
+    if (!text) return;
+    try {
+      const { task: created } = await apiFetch('/api/tasks', {
+        method: 'POST',
+        body: JSON.stringify({ title: text, status: colKey }),
+      });
+      if (created) upsertTask(created);
+      setQuickAddText('');
+      // keep input open for fast multi-add
+    } catch (e) {
+      setError(e.message || 'Quick add failed');
+    }
+  }
 
   useEffect(() => { load(); }, [load]);
 
@@ -1488,16 +1728,40 @@ export default function TasksBoardPage() {
     }
   }
 
-  // Filter: My Tasks vs All Team
+  // Filter: My Tasks vs All Team + advanced filter bar
   const visibleTasks = useMemo(() => {
+    let out = tasks;
     if (view === 'mine' && currentUser?.id) {
-      return tasks.filter((t) =>
+      out = out.filter((t) =>
         t.assignedTo === currentUser.id
         || t.assignedTo === currentUser.email
       );
     }
-    return tasks;
-  }, [tasks, view, currentUser]);
+    if (filterAssignee) {
+      out = out.filter((t) => t.assignedTo === filterAssignee);
+    }
+    if (filterTag) {
+      out = out.filter((t) => Array.isArray(t.tags) && t.tags.includes(filterTag));
+    }
+    if (filterPriority) {
+      out = out.filter((t) => (t.priority || 'medium') === filterPriority);
+    }
+    if (filterDue) {
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+      const weekEnd = new Date(today); weekEnd.setDate(today.getDate() + 7);
+      out = out.filter((t) => {
+        if (!t.dueAt) return false;
+        const d = new Date(t.dueAt);
+        if (isNaN(d.getTime())) return false;
+        if (filterDue === 'overdue') return d < today && t.status !== 'done';
+        if (filterDue === 'today') return d >= today && d < tomorrow;
+        if (filterDue === 'week') return d >= today && d < weekEnd;
+        return true;
+      });
+    }
+    return out;
+  }, [tasks, view, currentUser, filterAssignee, filterTag, filterPriority, filterDue]);
 
   // Group visible tasks by status, sorted by priority -> dueAt -> createdAt.
   const tasksByColumn = useMemo(() => {
@@ -1599,6 +1863,64 @@ export default function TasksBoardPage() {
           </div>
         )}
 
+        {/* Filter bar — hidden on Team Performance view */}
+        {view !== 'perf' && (
+          <div className="bg-white border-b border-slate-100 px-6 py-2 flex items-center gap-2 flex-wrap shrink-0">
+            <Filter className="w-3.5 h-3.5 text-slate-400" />
+            <select
+              value={filterAssignee}
+              onChange={(e) => setFilterAssignee(e.target.value)}
+              className="text-xs border border-slate-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-sky-200"
+              aria-label="Filter by assignee"
+            >
+              <option value="">Anyone</option>
+              {team.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+            <select
+              value={filterTag}
+              onChange={(e) => setFilterTag(e.target.value)}
+              className="text-xs border border-slate-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-sky-200"
+              aria-label="Filter by tag"
+            >
+              <option value="">Any tag</option>
+              {allTags.map((t) => <option key={t.tag} value={t.tag}>{t.tag} ({t.count})</option>)}
+            </select>
+            <select
+              value={filterPriority}
+              onChange={(e) => setFilterPriority(e.target.value)}
+              className="text-xs border border-slate-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-sky-200"
+              aria-label="Filter by priority"
+            >
+              <option value="">Any priority</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+            <select
+              value={filterDue}
+              onChange={(e) => setFilterDue(e.target.value)}
+              className="text-xs border border-slate-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-sky-200"
+              aria-label="Filter by due window"
+            >
+              <option value="">Any due date</option>
+              <option value="overdue">Overdue</option>
+              <option value="today">Due today</option>
+              <option value="week">Due this week</option>
+            </select>
+            {hasFilters && (
+              <button
+                onClick={clearFilters}
+                className="text-xs text-sky-600 hover:text-sky-700 font-medium ml-1"
+              >
+                Clear
+              </button>
+            )}
+            <span className="text-xs text-slate-400 ml-auto">
+              {visibleTasks.length} match{visibleTasks.length === 1 ? '' : 'es'}
+            </span>
+          </div>
+        )}
+
         {/* Body */}
         {view === 'perf' ? (
           <div className="flex-1 min-h-0">
@@ -1644,24 +1966,74 @@ export default function TasksBoardPage() {
                                   team={team}
                                   onOpen={() => setModalTask(t)}
                                   onAssigned={(updated) => upsertTask(updated)}
+                                  onRename={renameTask}
                                   selected={selectedIds.includes(t.id)}
                                   onToggleSelect={toggleSelect}
                                 />
                               ))}
                               {provided.placeholder}
                               {list.length === 0 && !snapshot.isDraggingOver && (
-                                <p className="text-center text-xs text-slate-400 py-3">Drop tasks here</p>
+                                <p className="text-center text-xs text-slate-400 py-3 italic">
+                                  {hasFilters ? 'No matches in this column' : 'No tasks here yet — click + below'}
+                                </p>
                               )}
                             </div>
                           )}
                         </Droppable>
                         <div className="px-2 pb-2 shrink-0">
-                          <button
-                            onClick={() => setModalTask({ status: col.key })}
-                            className="w-full text-xs text-slate-400 hover:text-slate-600 hover:bg-white border border-dashed border-slate-200 hover:border-slate-300 rounded-lg py-1.5 transition-colors"
-                          >
-                            + Add task
-                          </button>
+                          {quickAddOpen[col.key] ? (
+                            <form
+                              onSubmit={(e) => { e.preventDefault(); quickAddSubmit(col.key); }}
+                              className="bg-white border border-sky-300 ring-2 ring-sky-100 rounded-lg p-1.5"
+                            >
+                              <input
+                                autoFocus
+                                value={quickAddText}
+                                onChange={(e) => setQuickAddText(e.target.value)}
+                                onBlur={() => {
+                                  if (!quickAddText.trim()) {
+                                    setQuickAddOpen((s) => ({ ...s, [col.key]: false }));
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Escape') {
+                                    e.preventDefault();
+                                    setQuickAddText('');
+                                    setQuickAddOpen((s) => ({ ...s, [col.key]: false }));
+                                  }
+                                }}
+                                placeholder="Task title…"
+                                className="w-full text-sm px-2 py-1 outline-none"
+                              />
+                              <div className="flex items-center gap-1.5 mt-1.5">
+                                <button
+                                  type="submit"
+                                  disabled={!quickAddText.trim()}
+                                  className="text-xs bg-sky-600 hover:bg-sky-700 text-white font-medium px-2.5 py-1 rounded disabled:opacity-50"
+                                >
+                                  Add task
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setQuickAddText('');
+                                    setQuickAddOpen((s) => ({ ...s, [col.key]: false }));
+                                  }}
+                                  className="text-xs text-slate-500 hover:text-slate-700 px-1"
+                                >
+                                  Cancel
+                                </button>
+                                <span className="text-[10px] text-slate-400 ml-auto">Enter ↵ to add · Esc to close</span>
+                              </div>
+                            </form>
+                          ) : (
+                            <button
+                              onClick={() => setQuickAddOpen((s) => ({ ...s, [col.key]: true }))}
+                              className="w-full text-xs text-slate-400 hover:text-slate-600 hover:bg-white border border-dashed border-slate-200 hover:border-slate-300 rounded-lg py-1.5 transition-colors"
+                            >
+                              + Add task
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
@@ -1696,6 +2068,7 @@ export default function TasksBoardPage() {
           task={modalTask}
           team={team}
           currentUser={currentUser}
+          allTags={allTags}
           onClose={() => setModalTask(null)}
           onSaved={(t) => { upsertTask(t); setModalTask(null); }}
           onDeleted={(id) => { removeTask(id); setModalTask(null); }}

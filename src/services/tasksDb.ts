@@ -34,6 +34,10 @@ export async function ensureTasksV1Tables(): Promise<void> {
     `CREATE INDEX IF NOT EXISTS tasks_assigned_to_idx ON tasks(assigned_to)`,
     `CREATE INDEX IF NOT EXISTS tasks_status_idx ON tasks(status)`,
 
+    // Tasks v2: tags array for Trello-style labels
+    `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}'`,
+    `CREATE INDEX IF NOT EXISTS tasks_tags_gin_idx ON tasks USING GIN (tags)`,
+
     // 2. Comments + threading
     `CREATE TABLE IF NOT EXISTS task_comments (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

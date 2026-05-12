@@ -109,7 +109,7 @@ function normalizeStatus(raw: string | null | undefined): ColumnStatus {
 // ---------------------------------------------------------------------------
 router.get('/', async (req, res) => {
   const tenantId = req.user!.tenantId;
-  const { status, assignedTo, listId, limit = '500' } = req.query as Record<string, string>;
+  const { status, assignedTo, listId, limit = '500', tag } = req.query as Record<string, string>;
 
   const conditions = [eq(tasks.tenantId, tenantId)];
   if (status && isColumnStatus(status)) conditions.push(eq(tasks.status, status));
@@ -132,7 +132,20 @@ router.get('/', async (req, res) => {
       .orderBy(desc(tasks.updatedAt))
       .limit(Math.min(parseInt(limit, 10) || 500, 2000));
 
-    const out = rows.map((r) => {
+    // Fetch tags (out-of-schema column) for the returned ids, merge in.
+    const ids = rows.map(r => r.task.id);
+    const tagsById = new Map<string, string[]>();
+    if (ids.length > 0) {
+      const tagRows = await pool.query(
+        `SELECT id, tags FROM tasks WHERE id = ANY($1::uuid[])`,
+        [ids],
+      );
+      for (const tr of tagRows.rows as Array<{ id: string; tags: string[] | null }>) {
+        tagsById.set(tr.id, tr.tags ?? []);
+      }
+    }
+
+    let out = rows.map((r) => {
       const contactName = [r.contactFirstName, r.contactLastName]
         .filter(Boolean)
         .join(' ')
@@ -140,14 +153,42 @@ router.get('/', async (req, res) => {
       return {
         ...r.task,
         status: normalizeStatus(r.task.status),
+        tags: tagsById.get(r.task.id) ?? [],
         contactName,
         dealTitle: r.dealTitle ?? null,
       };
     });
 
+    // Optional tag filter (post-merge; cheap given typical task counts < 2000)
+    if (tag) {
+      const wanted = tag.toLowerCase().trim();
+      out = out.filter(t => Array.isArray(t.tags) && t.tags.includes(wanted));
+    }
+
     res.json({ tasks: out, total: out.length });
   } catch (err) {
     logger.error('[tasks] GET / error:', err);
+    res.status(500).json({ error: 'internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/tasks/tag-counts — distinct tags + counts for the filter dropdown
+// ---------------------------------------------------------------------------
+router.get('/tag-counts', async (req, res) => {
+  const tenantId = req.user!.tenantId;
+  try {
+    const r = await pool.query(
+      `SELECT tag, COUNT(*)::int AS count
+       FROM (SELECT unnest(tags) AS tag FROM tasks WHERE tenant_id = $1) t
+       WHERE tag IS NOT NULL AND tag <> ''
+       GROUP BY tag
+       ORDER BY count DESC, tag ASC`,
+      [tenantId],
+    );
+    res.json({ tags: r.rows });
+  } catch (err) {
+    logger.error('[tasks] GET /tag-counts error:', err);
     res.status(500).json({ error: 'internal server error' });
   }
 });
@@ -158,7 +199,7 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const tenantId = req.user!.tenantId;
-    const { title, description, assignedTo, dueAt, status, contactId, dealId, listId, priority } = req.body ?? {};
+    const { title, description, assignedTo, dueAt, status, contactId, dealId, listId, priority, tags } = req.body ?? {};
 
     if (!title || typeof title !== 'string' || !title.trim()) {
       res.status(400).json({ error: 'title is required' });
@@ -173,11 +214,14 @@ router.post('/', async (req, res) => {
     }
 
     const startPriority: Priority = isPriority(priority) ? priority : 'medium';
+    const startTags: string[] = Array.isArray(tags)
+      ? Array.from(new Set(tags.filter(t => typeof t === 'string' && t.trim()).map(t => t.trim().toLowerCase().slice(0, 32))))
+      : [];
 
     const insertResult = await pool.query(
       `INSERT INTO tasks
-         (tenant_id, title, description, assigned_to, due_at, status, contact_id, deal_id, list_id, priority)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         (tenant_id, title, description, assigned_to, due_at, status, contact_id, deal_id, list_id, priority, tags)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING *`,
       [
         tenantId,
@@ -190,6 +234,7 @@ router.post('/', async (req, res) => {
         dealId || null,
         listId || null,
         startPriority,
+        startTags,
       ],
     );
     const inserted = insertResult.rows[0] as Record<string, unknown>;
@@ -223,7 +268,7 @@ router.patch('/:id', async (req, res) => {
   try {
     const tenantId = req.user!.tenantId;
     const { id } = req.params;
-    const { title, description, assignedTo, dueAt, status, contactId, dealId, listId, priority } = req.body ?? {};
+    const { title, description, assignedTo, dueAt, status, contactId, dealId, listId, priority, tags } = req.body ?? {};
 
     // Load existing assignedTo first so we can detect reassignment.
     const [existing] = await db
@@ -279,6 +324,19 @@ router.patch('/:id', async (req, res) => {
       priorityForSql = priority;
     }
 
+    // tags — also out-of-schema (text[]). Validate and normalise.
+    let tagsForSql: string[] | null = null;
+    if (tags !== undefined) {
+      if (!Array.isArray(tags)) {
+        res.status(400).json({ error: 'tags must be an array of strings' });
+        return;
+      }
+      tagsForSql = Array.from(new Set(
+        tags.filter(t => typeof t === 'string' && t.trim())
+            .map(t => t.trim().toLowerCase().slice(0, 32))
+      ));
+    }
+
     const [updated] = await db
       .update(tasks)
       .set(patch)
@@ -296,13 +354,20 @@ router.patch('/:id', async (req, res) => {
         [priorityForSql, id, tenantId],
       );
     }
+    if (tagsForSql !== null) {
+      await pool.query(
+        `UPDATE tasks SET tags = $1 WHERE id = $2 AND tenant_id = $3`,
+        [tagsForSql, id, tenantId],
+      );
+    }
 
-    // Read priority back so the response is honest.
+    // Read priority + tags back so the response is honest.
     const finalRow = await pool.query(
-      `SELECT priority FROM tasks WHERE id = $1`,
+      `SELECT priority, tags FROM tasks WHERE id = $1`,
       [id],
     );
     const finalPriority = (finalRow.rows[0]?.priority as string | null) ?? null;
+    const finalTags = (finalRow.rows[0]?.tags as string[] | null) ?? [];
 
     // Slack DM on reassignment (assignedTo changed and is non-null).
     if (assignedTo !== undefined && assignedTo && assignedTo !== existing.assignedTo) {
@@ -315,7 +380,7 @@ router.patch('/:id', async (req, res) => {
     }
 
     res.json({
-      task: { ...updated, priority: finalPriority, status: normalizeStatus(updated.status) },
+      task: { ...updated, priority: finalPriority, tags: finalTags, status: normalizeStatus(updated.status) },
     });
   } catch (err) {
     logger.error('[tasks] PATCH /:id error:', err);
