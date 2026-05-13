@@ -1,112 +1,244 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import TopBar from '../components/TopBar.jsx';
 import GlobalSearch from '../components/GlobalSearch.jsx';
-import { SkeletonCard, SkeletonTable } from '../components/SkeletonLoader.jsx';
-import { apiFetch } from '../lib/api.js';
-import { TrendingUp, ArrowRight, Users, DollarSign, BarChart3 } from 'lucide-react';
 import TeamPerformanceSection from '../components/TeamPerformanceSection.jsx';
+import KpiTile from '../components/charts/KpiTile.jsx';
+import LineChart from '../components/charts/LineChart.jsx';
+import FunnelChart from '../components/charts/FunnelChart.jsx';
+import StackedBars from '../components/charts/StackedBars.jsx';
+import { apiFetch } from '../lib/api.js';
+import { formatINRFromPaise, formatNumber } from '../lib/format.js';
+import { TrendingUp, Users, AlertCircle, RefreshCw } from 'lucide-react';
 
-function FunnelStage({ name, count, conversionRate, isFirst, color }) {
+const PERIODS = [
+  { id: '30d',  label: '30 days',    days: 30,  months: 2 },
+  { id: '90d',  label: '90 days',    days: 90,  months: 4 },
+  { id: 'ytd',  label: 'Year-to-date', days: 365, months: 12 },
+  { id: 'custom', label: 'Custom',   days: 180, months: 12 },
+];
+
+const PERIOD_KEY = 'ge-analytics-period';
+
+// Stable colour palette for lead-source segments in the stacked-bar chart.
+const SOURCE_PALETTE = [
+  '#0ea5e9', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444',
+  '#06b6d4', '#84cc16', '#ec4899', '#6366f1', '#94a3b8',
+];
+
+function loadInitialPeriod() {
+  try {
+    const stored = localStorage.getItem(PERIOD_KEY);
+    if (stored && PERIODS.some(p => p.id === stored)) return stored;
+  } catch {}
+  return '30d';
+}
+
+function ErrorBanner({ error, onRetry }) {
   return (
-    <div className="flex items-center gap-2">
-      {!isFirst && (
-        <div className="flex flex-col items-center">
-          <ArrowRight className="w-5 h-5 text-slate-400" />
-          {conversionRate != null && (
-            <span className="text-xs text-slate-400">{conversionRate}%</span>
-          )}
+    <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 flex items-center justify-between gap-4">
+      <div className="flex items-center gap-2 text-rose-700">
+        <AlertCircle className="w-5 h-5" />
+        <div>
+          <p className="text-sm font-semibold">Failed to load analytics</p>
+          <p className="text-xs text-rose-600 mt-0.5">{error}</p>
         </div>
-      )}
-      <div className={`flex-1 rounded-xl border p-4 text-center ${color}`}>
-        <p className="text-2xl font-bold">{count.toLocaleString('en-IN')}</p>
-        <p className="text-xs text-slate-500 mt-1">{name}</p>
+      </div>
+      <button
+        onClick={onRetry}
+        className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-rose-200 rounded-md text-sm font-medium text-rose-700 hover:bg-rose-50"
+      >
+        <RefreshCw className="w-3.5 h-3.5" /> Retry
+      </button>
+    </div>
+  );
+}
+
+function SkeletonTile() {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-4 min-h-[120px] animate-pulse space-y-3">
+      <div className="h-3 bg-slate-100 rounded w-24" />
+      <div className="h-7 bg-slate-200 rounded w-32" />
+      <div className="h-8 bg-slate-100 rounded mt-auto" />
+    </div>
+  );
+}
+
+function SkeletonChart({ height = 240 }) {
+  return (
+    <div
+      className="bg-white rounded-xl border border-slate-200 p-4 animate-pulse"
+      style={{ height: height + 32 }}
+    >
+      <div className="flex items-end gap-2 h-full pb-6">
+        {Array.from({ length: 12 }).map((_, i) => (
+          <div
+            key={i}
+            className="flex-1 bg-slate-100 rounded"
+            style={{ height: `${30 + Math.random() * 60}%` }}
+          />
+        ))}
       </div>
     </div>
   );
 }
 
-function inr(paise) {
-  return `\u20B9${(Number(paise || 0) / 100).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+// ---------------------------------------------------------------------------
+// Data shaping helpers
+// ---------------------------------------------------------------------------
+
+// Revenue trend endpoint returns monthly buckets. Trim to the selected period
+// (the backend defaults to 12 months; we'll request the period's month count).
+function shapeRevenueSeries(payload) {
+  const data = payload?.data || [];
+  return data.map(d => ({
+    date: d.month,
+    value: Number(d.totalPaise || 0) / 100, // rupees for nicer axis labels
+  }));
 }
 
+function shapeMrrSeries(payload) {
+  const trend = payload?.trend || [];
+  return trend.map(d => ({
+    date: d.month,
+    value: Number(d.mrrPaise || 0) / 100,
+  }));
+}
+
+// Convert lead-sources + trends into stacked bars: x = day bucket, segments = source.
+// The /trends endpoint doesn't return source breakdown per day, so we use
+// lead-sources totals split into a single column when no time-series is available.
+// As a useful approximation we render one stacked column per source totals,
+// grouped into a single "Period" bar — but a richer breakdown is preferable.
+// The endpoint best-suited for monthly source data is /lead-sources (aggregate);
+// we render it as one column per source group instead to keep the chart honest.
+function shapeSourceStacks(sources) {
+  if (!Array.isArray(sources) || sources.length === 0) return [];
+  // Render a single column per source ("Leads by source"), with one segment each.
+  return sources
+    .slice()
+    .sort((a, b) => (b.totalLeads || 0) - (a.totalLeads || 0))
+    .slice(0, 10) // keep chart legible
+    .map((s, i) => ({
+      label: String(s.source || 'unknown').replace(/_/g, ' '),
+      segments: [
+        {
+          name: 'Leads',
+          value: Number(s.totalLeads) || 0,
+          color: SOURCE_PALETTE[i % SOURCE_PALETTE.length],
+        },
+        {
+          name: 'Won',
+          value: Number(s.wonCount) || 0,
+          color: '#0f766e', // dark teal for won overlay
+        },
+      ],
+    }));
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
 export default function AnalyticsPage() {
-  const [sources, setSources] = useState([]);
-  const [funnel, setFunnel] = useState([]);
-  const [trends, setTrends] = useState([]);
-  const [trendDays, setTrendDays] = useState(30);
-  const [loading, setLoading] = useState(true);
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [periodId, setPeriodId] = useState(loadInitialPeriod);
   const [activeTab, setActiveTab] = useState('leads');
-  const [revenue, setRevenue] = useState([]);
-  const [revenueLoading, setRevenueLoading] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  // Server payloads
+  const [funnel, setFunnel] = useState(null);
+  const [sources, setSources] = useState(null);
+  const [revenue, setRevenue] = useState(null);
   const [mrr, setMrr] = useState(null);
-  const [mrrLoading, setMrrLoading] = useState(false);
+  const [deals, setDeals] = useState(null);
 
-  useEffect(() => {
-    Promise.all([
-      apiFetch('/api/analytics/lead-sources').catch(() => ({ sources: [] })),
-      apiFetch('/api/analytics/funnel').catch(() => ({ stages: [] })),
-      apiFetch(`/api/analytics/trends?days=${trendDays}`).catch(() => ({ data: [] })),
-    ]).then(([src, fun, trd]) => {
-      setSources(src?.sources || []);
-      setFunnel(fun?.stages || []);
-      setTrends(trd?.data || []);
-      setLoading(false);
-    });
-  }, [trendDays]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Fetch revenue and MRR when leads tab is active
-  useEffect(() => {
-    if (activeTab !== 'leads') return;
-    setRevenueLoading(true);
-    setMrrLoading(true);
-    apiFetch('/api/analytics/revenue-trend?months=12')
-      .then(d => setRevenue(d?.data || d?.months || []))
-      .catch(() => setRevenue([]))
-      .finally(() => setRevenueLoading(false));
-    apiFetch('/api/analytics/mrr-trend?months=6')
-      .then(d => setMrr(d))
-      .catch(() => setMrr(null))
-      .finally(() => setMrrLoading(false));
-  }, [activeTab]);
+  const period = PERIODS.find(p => p.id === periodId) || PERIODS[0];
 
+  // Persist period selection
   useEffect(() => {
-    const h = (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setSearchOpen(true); } };
+    try { localStorage.setItem(PERIOD_KEY, periodId); } catch {}
+  }, [periodId]);
+
+  // Global search shortcut
+  useEffect(() => {
+    const h = e => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, []);
 
-  const funnelColors = [
-    'bg-sky-50 border-sky-200 text-sky-900',
-    'bg-blue-50 border-blue-200 text-blue-900',
-    'bg-indigo-50 border-indigo-200 text-indigo-900',
-    'bg-purple-50 border-purple-200 text-purple-900',
-    'bg-green-50 border-green-200 text-green-900',
-  ];
+  const fetchAll = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      apiFetch('/api/analytics/funnel'),
+      apiFetch('/api/analytics/lead-sources'),
+      apiFetch(`/api/analytics/revenue-trend?months=${period.months}`),
+      apiFetch(`/api/analytics/mrr-trend?months=${Math.min(period.months, 12)}`),
+      apiFetch('/api/deals?limit=1000').catch(() => ({ deals: [] })),
+    ])
+      .then(([f, s, r, m, d]) => {
+        setFunnel(f);
+        setSources(s);
+        setRevenue(r);
+        setMrr(m);
+        setDeals(d);
+      })
+      .catch(e => setError(e?.message || 'Unknown error'))
+      .finally(() => setLoading(false));
+  }, [period.months]);
 
-  const bestSource = sources.length > 0 ? sources.reduce((a, b) => b.conversionRate > a.conversionRate ? b : a, sources[0]) : null;
+  useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // Simple sparkline SVG from trends
-  const maxCount = Math.max(...trends.map(t => Number(t.count) || 0), 1);
-  const sparkPoints = trends.map((t, i) => {
-    const x = (i / Math.max(trends.length - 1, 1)) * 280;
-    const y = 50 - ((Number(t.count) || 0) / maxCount) * 45;
-    return `${x},${y}`;
-  }).join(' ');
+  // ---- Derived KPIs ----
+  const revenueSeries = useMemo(() => shapeRevenueSeries(revenue), [revenue]);
+  const mrrSeries = useMemo(() => shapeMrrSeries(mrr), [mrr]);
 
-  // Revenue bar chart helpers
-  const maxRevenue = Math.max(...revenue.map(r => Number(r.amount || 0)), 1);
+  const currentMrr = Number(mrr?.currentMrrPaise || 0) / 100;
+  const lastMrrMonth = mrrSeries.length > 0 ? mrrSeries[mrrSeries.length - 1].value : 0;
+  const prevMrrMonth = mrrSeries.length > 1 ? mrrSeries[mrrSeries.length - 2].value : 0;
+  const mrrDelta = prevMrrMonth > 0
+    ? ((lastMrrMonth - prevMrrMonth) / prevMrrMonth) * 100
+    : null;
 
-  // MRR trend line
-  const mrrData = mrr?.data || mrr?.months || [];
-  const maxMrr = Math.max(...mrrData.map(m => Number(m.mrr || m.amount || 0)), 1);
-  const mrrPoints = mrrData.map((m, i) => {
-    const x = (i / Math.max(mrrData.length - 1, 1)) * 280;
-    const y = 50 - ((Number(m.mrr || m.amount || 0) / maxMrr) * 45);
-    return `${x},${y}`;
-  }).join(' ');
+  const revenueTotal = revenueSeries.reduce((acc, d) => acc + d.value, 0);
+  const halfIdx = Math.floor(revenueSeries.length / 2);
+  const recent = revenueSeries.slice(halfIdx).reduce((a, d) => a + d.value, 0);
+  const older = revenueSeries.slice(0, halfIdx).reduce((a, d) => a + d.value, 0);
+  const revenueDelta = older > 0 ? ((recent - older) / older) * 100 : null;
 
+  const wonStage = funnel?.stages?.find(s => s.name === 'Won');
+  const wonCount = wonStage?.count || 0;
+
+  // Pipeline value: sum(value * probability/100) over open stages (not won/lost).
+  const openDeals = (deals?.deals || []).filter(d => {
+    const st = String(d.stage || '').toLowerCase();
+    return st && st !== 'won' && st !== 'lost' && st !== 'closed_lost';
+  });
+  const pipelineValuePaise = openDeals.reduce((acc, d) => {
+    const v = Number(d.value || d.dealValue || 0);
+    const p = Number(d.probability != null ? d.probability : 50);
+    return acc + (v * p) / 100;
+  }, 0);
+  const wonDealsValue = (deals?.deals || [])
+    .filter(d => String(d.stage || '').toLowerCase() === 'won')
+    .reduce((acc, d) => acc + Number(d.value || d.dealValue || 0), 0);
+
+  // Sparkline values for tiles
+  const revenueSpark = revenueSeries.map(d => d.value);
+  const mrrSpark = mrrSeries.map(d => d.value);
+  const wonSpark = funnel?.stages ? funnel.stages.map(s => s.count) : [];
+
+  const sourceStacks = useMemo(() => shapeSourceStacks(sources?.sources || []), [sources]);
+
+  // ---- Render ----
   return (
     <div className="flex h-screen bg-slate-50">
       <Sidebar />
@@ -114,220 +246,200 @@ export default function AnalyticsPage() {
         <TopBar onSearchOpen={() => setSearchOpen(true)} />
         <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
 
-        <div className="p-6 space-y-8">
-          <div className="flex items-center justify-between">
+        <div className="p-6 space-y-6">
+          {/* Header */}
+          <div className="flex items-start justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-3">
               <TrendingUp className="w-6 h-6 text-sky-600" />
               <div>
                 <h1 className="text-xl font-bold text-slate-900">Analytics</h1>
-                <p className="text-sm text-slate-500">Performance metrics and insights</p>
+                <p className="text-sm text-slate-500">KPIs, funnel, revenue, MRR</p>
               </div>
             </div>
 
-            {/* Tab toggle */}
-            <div className="flex bg-slate-100 rounded-lg p-1">
-              <button
-                onClick={() => setActiveTab('leads')}
-                className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${activeTab === 'leads' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                <TrendingUp className="w-4 h-4" />
-                Lead Analytics
-              </button>
-              <button
-                onClick={() => setActiveTab('team')}
-                className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${activeTab === 'team' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                <Users className="w-4 h-4" />
-                Team Performance
-              </button>
+            <div className="flex items-center gap-2">
+              {/* Tab toggle */}
+              <div className="flex bg-slate-100 rounded-lg p-1">
+                <button
+                  onClick={() => setActiveTab('leads')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${activeTab === 'leads' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  <TrendingUp className="w-4 h-4" /> Dashboard
+                </button>
+                <button
+                  onClick={() => setActiveTab('team')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${activeTab === 'team' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  <Users className="w-4 h-4" /> Team
+                </button>
+              </div>
+
+              {/* Period selector */}
+              {activeTab === 'leads' && (
+                <div className="flex bg-slate-100 rounded-lg p-1">
+                  {PERIODS.map(p => (
+                    <button
+                      key={p.id}
+                      onClick={() => setPeriodId(p.id)}
+                      className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${periodId === p.id ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Lead Analytics Tab */}
+          {error && activeTab === 'leads' && (
+            <ErrorBanner error={error} onRetry={fetchAll} />
+          )}
+
           {activeTab === 'leads' && (
             <>
-              {/* Section 1: Lead Sources */}
-              <div>
-                <h2 className="text-sm font-semibold text-slate-700 mb-3">Lead Sources</h2>
-                {loading ? <SkeletonTable rows={5} cols={7} /> : (
+              {/* KPI tiles row */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {loading ? (
+                  Array.from({ length: 4 }).map((_, i) => <SkeletonTile key={i} />)
+                ) : (
+                  <>
+                    <KpiTile
+                      label="MRR"
+                      value={currentMrr}
+                      valueFormat="currency"
+                      delta={mrrDelta}
+                      sparklineValues={mrrSpark}
+                      sparklineColor="#10b981"
+                      hint="Active retainers"
+                    />
+                    <KpiTile
+                      label="Revenue (period)"
+                      value={revenueTotal}
+                      valueFormat="currency"
+                      delta={revenueDelta}
+                      sparklineValues={revenueSpark}
+                      sparklineColor="#0ea5e9"
+                      hint={`${revenueSeries.length} month buckets`}
+                    />
+                    <KpiTile
+                      label="Won deals"
+                      value={wonCount}
+                      valueFormat="number"
+                      sparklineValues={wonSpark}
+                      sparklineColor="#8b5cf6"
+                      hint={wonDealsValue > 0 ? `${formatINRFromPaise(wonDealsValue)} closed value` : 'All-time'}
+                    />
+                    <KpiTile
+                      label="Pipeline value"
+                      value={pipelineValuePaise / 100}
+                      valueFormat="currency"
+                      sparklineValues={openDeals.map(d => Number(d.value || 0) / 100)}
+                      sparklineColor="#f59e0b"
+                      hint={`${openDeals.length} open deals (weighted)`}
+                    />
+                  </>
+                )}
+              </div>
+
+              {/* Revenue chart */}
+              <section>
+                <div className="flex items-baseline justify-between mb-2">
+                  <h2 className="text-sm font-semibold text-slate-700">Revenue Trend</h2>
+                  <span className="text-xs text-slate-400">Monthly (paise from /payments)</span>
+                </div>
+                {loading ? (
+                  <SkeletonChart />
+                ) : revenueSeries.length > 0 ? (
+                  <LineChart data={revenueSeries} color="#0ea5e9" valueFormat="currency" height={240} />
+                ) : (
+                  <div className="bg-white rounded-xl border border-slate-200 h-40 flex items-center justify-center text-sm text-slate-400">
+                    No revenue recorded yet
+                  </div>
+                )}
+              </section>
+
+              {/* MRR chart */}
+              <section>
+                <div className="flex items-baseline justify-between mb-2">
+                  <h2 className="text-sm font-semibold text-slate-700">MRR Trend</h2>
+                  <span className="text-xs text-slate-400">From invoices</span>
+                </div>
+                {loading ? (
+                  <SkeletonChart />
+                ) : mrrSeries.length > 0 ? (
+                  <LineChart data={mrrSeries} color="#10b981" valueFormat="currency" height={220} />
+                ) : (
+                  <div className="bg-white rounded-xl border border-slate-200 h-40 flex items-center justify-center text-sm text-slate-400">
+                    No invoices yet
+                  </div>
+                )}
+              </section>
+
+              {/* Two-column row: Funnel + Lead sources */}
+              <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div>
+                  <h2 className="text-sm font-semibold text-slate-700 mb-2">Conversion Funnel</h2>
+                  {loading ? (
+                    <SkeletonChart height={280} />
+                  ) : (
+                    <FunnelChart stages={funnel?.stages || []} />
+                  )}
+                </div>
+                <div>
+                  <h2 className="text-sm font-semibold text-slate-700 mb-2">Lead Sources</h2>
+                  {loading ? (
+                    <SkeletonChart height={280} />
+                  ) : sourceStacks.length > 0 ? (
+                    <StackedBars data={sourceStacks} height={240} />
+                  ) : (
+                    <div className="bg-white rounded-xl border border-slate-200 h-40 flex items-center justify-center text-sm text-slate-400">
+                      No lead-source data yet
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              {/* Source breakdown table — keeps the most-actionable detail */}
+              {!loading && (sources?.sources || []).length > 0 && (
+                <section>
+                  <h2 className="text-sm font-semibold text-slate-700 mb-2">Source Performance</h2>
                   <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                     <table className="w-full text-left">
                       <thead>
                         <tr className="border-b border-slate-100 bg-slate-50">
-                          <th className="px-4 py-3 text-xs font-semibold text-slate-500">Source</th>
-                          <th className="px-4 py-3 text-xs font-semibold text-slate-500 text-right">Leads</th>
-                          <th className="px-4 py-3 text-xs font-semibold text-slate-500 text-right">Avg Score</th>
-                          <th className="px-4 py-3 text-xs font-semibold text-slate-500 text-right">Booking Rate</th>
-                          <th className="px-4 py-3 text-xs font-semibold text-slate-500 text-right">Conversion</th>
-                          <th className="px-4 py-3 text-xs font-semibold text-slate-500 text-right">Hot Lead %</th>
+                          <th className="px-4 py-2 text-xs font-semibold text-slate-500">Source</th>
+                          <th className="px-4 py-2 text-xs font-semibold text-slate-500 text-right">Leads</th>
+                          <th className="px-4 py-2 text-xs font-semibold text-slate-500 text-right">Avg Score</th>
+                          <th className="px-4 py-2 text-xs font-semibold text-slate-500 text-right">Booking %</th>
+                          <th className="px-4 py-2 text-xs font-semibold text-slate-500 text-right">Conversion %</th>
+                          <th className="px-4 py-2 text-xs font-semibold text-slate-500 text-right">Hot %</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {sources.map(s => (
-                          <tr key={s.source} className={`border-b border-slate-50 hover:bg-slate-50 ${bestSource?.source === s.source ? 'bg-green-50' : ''}`}>
-                            <td className="px-4 py-3 text-sm font-medium text-slate-800 capitalize">{s.source.replace(/_/g, ' ')}</td>
-                            <td className="px-4 py-3 text-sm text-slate-700 text-right">{s.totalLeads}</td>
-                            <td className="px-4 py-3 text-sm text-slate-700 text-right">{s.avgScore}</td>
-                            <td className="px-4 py-3 text-sm text-slate-700 text-right">{s.bookingRate}%</td>
-                            <td className="px-4 py-3 text-sm text-right">
-                              <span className={`font-semibold ${s.conversionRate > 0 ? 'text-green-600' : 'text-slate-400'}`}>{s.conversionRate}%</span>
+                        {sources.sources.map(s => (
+                          <tr key={s.source} className="border-b border-slate-50 hover:bg-slate-50">
+                            <td className="px-4 py-2 text-sm font-medium text-slate-800 capitalize">
+                              {String(s.source || 'unknown').replace(/_/g, ' ')}
                             </td>
-                            <td className="px-4 py-3 text-sm text-slate-700 text-right">{s.hotLeadRate}%</td>
+                            <td className="px-4 py-2 text-sm text-slate-700 text-right">{formatNumber(s.totalLeads)}</td>
+                            <td className="px-4 py-2 text-sm text-slate-700 text-right">{s.avgScore}</td>
+                            <td className="px-4 py-2 text-sm text-slate-700 text-right">{s.bookingRate}%</td>
+                            <td className="px-4 py-2 text-sm text-right">
+                              <span className={`font-semibold ${s.conversionRate > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                {s.conversionRate}%
+                              </span>
+                            </td>
+                            <td className="px-4 py-2 text-sm text-slate-700 text-right">{s.hotLeadRate}%</td>
                           </tr>
                         ))}
-                        {sources.length === 0 && (
-                          <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400 text-sm">No lead data yet</td></tr>
-                        )}
                       </tbody>
                     </table>
                   </div>
-                )}
-              </div>
-
-              {/* Section 2: Funnel */}
-              <div>
-                <h2 className="text-sm font-semibold text-slate-700 mb-3">Funnel Conversion</h2>
-                {loading ? (
-                  <div className="flex gap-4">{[1,2,3,4,5].map(i => <SkeletonCard key={i} className="flex-1" />)}</div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    {funnel.map((stage, i) => (
-                      <FunnelStage
-                        key={stage.name}
-                        name={stage.name}
-                        count={stage.count}
-                        conversionRate={stage.conversionRate}
-                        isFirst={i === 0}
-                        color={funnelColors[i] || funnelColors[0]}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Section 3: Trends */}
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-sm font-semibold text-slate-700">Daily Lead Trend</h2>
-                  <div className="flex bg-slate-100 rounded-lg p-1">
-                    {[7, 30, 90].map(d => (
-                      <button key={d} onClick={() => { setTrendDays(d); setLoading(true); }}
-                        className={`px-3 py-1 rounded-md text-xs font-medium ${trendDays === d ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500'}`}>
-                        {d}d
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="bg-white rounded-xl border border-slate-200 p-6">
-                  {trends.length > 1 ? (
-                    <svg viewBox="0 0 280 55" className="w-full h-20">
-                      <polyline fill="none" stroke="#0ea5e9" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" points={sparkPoints} />
-                    </svg>
-                  ) : (
-                    <p className="text-sm text-slate-400 text-center py-6">Not enough data for trend chart</p>
-                  )}
-                  <div className="flex justify-between text-xs text-slate-400 mt-2">
-                    <span>{trends[0]?.day || ''}</span>
-                    <span>{trends[trends.length - 1]?.day || ''}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Section 4: Revenue Chart */}
-              <div>
-                <h2 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-                  <DollarSign className="w-4 h-4 text-slate-400" /> Revenue Trend (12 Months)
-                </h2>
-                <div className="bg-white rounded-xl border border-slate-200 p-6">
-                  {revenueLoading ? (
-                    <div className="flex items-end gap-2 h-40">
-                      {[...Array(12)].map((_, i) => (
-                        <div key={i} className="flex-1 bg-slate-100 rounded-t animate-pulse" style={{ height: `${20 + Math.random() * 60}%` }} />
-                      ))}
-                    </div>
-                  ) : revenue.length > 0 ? (
-                    <>
-                      <div className="flex items-end gap-2 h-40">
-                        {revenue.map((r, i) => {
-                          const h = maxRevenue > 0 ? (Number(r.amount || 0) / maxRevenue) * 100 : 0;
-                          return (
-                            <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                              <span className="text-[10px] text-slate-500 font-medium">
-                                {inr(r.amount)}
-                              </span>
-                              <div
-                                className="w-full bg-sky-500 rounded-t transition-all hover:bg-sky-600"
-                                style={{ height: `${Math.max(h, 2)}%` }}
-                                title={`${r.month || r.name}: ${inr(r.amount)}`}
-                              />
-                            </div>
-                          );
-                        })}
-                      </div>
-                      <div className="flex gap-2 mt-2">
-                        {revenue.map((r, i) => (
-                          <div key={i} className="flex-1 text-center">
-                            <span className="text-[10px] text-slate-400">{r.month || r.name || ''}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  ) : (
-                    <p className="text-sm text-slate-400 text-center py-8">No revenue data available</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Section 5: MRR Trend */}
-              <div>
-                <h2 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-                  <BarChart3 className="w-4 h-4 text-slate-400" /> Monthly Recurring Revenue (MRR)
-                </h2>
-                <div className="bg-white rounded-xl border border-slate-200 p-6">
-                  {mrrLoading ? (
-                    <div className="animate-pulse">
-                      <div className="h-10 bg-slate-200 rounded w-40 mb-4" />
-                      <div className="h-20 bg-slate-100 rounded" />
-                    </div>
-                  ) : mrr && mrrData.length > 0 ? (
-                    <>
-                      <div className="mb-4">
-                        <p className="text-xs text-slate-500 uppercase tracking-wide font-medium">Current MRR</p>
-                        <p className="text-3xl font-bold text-slate-900 mt-1">
-                          {inr(mrr.currentMrr || mrrData[mrrData.length - 1]?.mrr || mrrData[mrrData.length - 1]?.amount || 0)}
-                        </p>
-                      </div>
-                      <svg viewBox="0 0 280 55" className="w-full h-20">
-                        <defs>
-                          <linearGradient id="mrrGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#10b981" stopOpacity="0.2" />
-                            <stop offset="100%" stopColor="#10b981" stopOpacity="0" />
-                          </linearGradient>
-                        </defs>
-                        {mrrData.length > 1 && (
-                          <>
-                            <polygon
-                              fill="url(#mrrGrad)"
-                              points={`0,55 ${mrrPoints} 280,55`}
-                            />
-                            <polyline fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" points={mrrPoints} />
-                          </>
-                        )}
-                      </svg>
-                      <div className="flex justify-between text-xs text-slate-400 mt-2">
-                        <span>{mrrData[0]?.month || mrrData[0]?.name || ''}</span>
-                        <span>{mrrData[mrrData.length - 1]?.month || mrrData[mrrData.length - 1]?.name || ''}</span>
-                      </div>
-                    </>
-                  ) : (
-                    <p className="text-sm text-slate-400 text-center py-8">No MRR data available</p>
-                  )}
-                </div>
-              </div>
+                </section>
+              )}
             </>
           )}
 
-          {/* Team Performance Tab */}
           {activeTab === 'team' && <TeamPerformanceSection />}
         </div>
       </main>
