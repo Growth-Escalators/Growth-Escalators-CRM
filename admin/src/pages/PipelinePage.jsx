@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { Settings } from 'lucide-react';
+import { Settings, Archive, X } from 'lucide-react';
 import Sidebar from '../components/Sidebar.jsx';
 import ContactSlideIn from '../components/ContactSlideIn.jsx';
 import { apiFetch } from '../lib/api.js';
@@ -59,7 +59,7 @@ const ASSIGNEE_COLORS = { jatin: '#F97316', saksham: '#3B82F6' };
 // ---------------------------------------------------------------------------
 // DealCard
 // ---------------------------------------------------------------------------
-function DealCard({ deal, index, onClick, onArchive, onUnarchive }) {
+function DealCard({ deal, index, onClick, onArchive, onUnarchive, selected = false, onToggleSelect, selectionMode = false }) {
   const days = daysAgo(deal.updatedAt || deal.createdAt);
   const isArchived = deal.metadata?.archived === true;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -87,12 +87,26 @@ function DealCard({ deal, index, onClick, onArchive, onUnarchive }) {
           ref={provided.innerRef}
           {...provided.draggableProps}
           {...provided.dragHandleProps}
-          onClick={onClick}
-          className={`bg-white rounded-xl border border-slate-200 p-3 shadow-sm hover:shadow-md cursor-pointer transition-all relative select-none ${snapshot.isDragging ? 'shadow-xl rotate-1 scale-105' : ''} ${isArchived ? 'opacity-60' : ''}`}
+          onClick={(e) => {
+            // In selection mode, clicks toggle selection instead of opening detail.
+            if (selectionMode && onToggleSelect) { onToggleSelect(); return; }
+            onClick?.(e);
+          }}
+          className={`bg-white rounded-xl border p-3 shadow-sm hover:shadow-md cursor-pointer transition-all relative select-none ${selected ? 'border-blue-400 ring-2 ring-blue-200' : 'border-slate-200'} ${snapshot.isDragging ? 'shadow-xl rotate-1 scale-105' : ''} ${isArchived ? 'opacity-60' : ''}`}
           style={{ width: 220, ...provided.draggableProps.style }}
         >
           {/* Row 1: name + days + menu */}
           <div className="flex items-start justify-between gap-1 mb-0.5">
+            {onToggleSelect && (
+              <input
+                type="checkbox"
+                checked={selected}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => { e.stopPropagation(); onToggleSelect(); }}
+                className="mt-0.5 mr-1 rounded border-slate-300 text-blue-500 focus:ring-blue-400 cursor-pointer"
+                aria-label="Select deal"
+              />
+            )}
             <p className="text-sm font-bold text-slate-900 leading-tight line-clamp-1 flex-1">
               {deal.contactName ?? 'Unknown'}
             </p>
@@ -750,6 +764,9 @@ export default function PipelinePage() {
   const [filterAge, setFilterAge] = useState('');
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [analytics, setAnalytics] = useState(null);
+  // Bulk-selection state — Set of deal ids currently checked. Empty Set = selection mode off.
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   useEffect(() => {
     apiFetch('/api/pipelines').then((data) => {
@@ -772,6 +789,44 @@ export default function PipelinePage() {
   }, [activePipelineId, showArchived]);
 
   useEffect(() => { loadDeals(); }, [loadDeals]);
+
+  // Clear bulk selection when switching pipelines or toggling archived view
+  useEffect(() => { setSelectedIds(new Set()); }, [activePipelineId, showArchived]);
+
+  function toggleSelect(dealId) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(dealId)) next.delete(dealId); else next.add(dealId);
+      return next;
+    });
+  }
+
+  async function bulkArchive() {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (!window.confirm(`Archive ${ids.length} deal${ids.length === 1 ? '' : 's'}? They'll disappear from the board.`)) return;
+    setBulkBusy(true);
+    try {
+      const res = await apiFetch('/api/deals/bulk-update', {
+        method: 'POST',
+        body: JSON.stringify({ dealIds: ids, updates: { archived: true } }),
+      });
+      if (!res || res.error) throw new Error(res?.error || 'bulk archive failed');
+      // Optimistic: drop the archived deals from local state if we're not showing archived
+      if (!showArchived) {
+        const idSet = new Set(ids);
+        setKanbanStages((prev) => prev.map((s) => ({ ...s, deals: s.deals.filter((d) => !idSet.has(d.id)) })));
+      } else {
+        loadDeals();
+      }
+      setSelectedIds(new Set());
+    } catch (err) {
+      window.alert('Failed to archive deals. Reloading the board.');
+      loadDeals();
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!showAnalytics || !activePipelineId) return;
@@ -1089,6 +1144,9 @@ export default function PipelinePage() {
                               onClick={() => openDeal(deal)}
                               onArchive={() => archiveDeal(deal.id, true)}
                               onUnarchive={() => archiveDeal(deal.id, false)}
+                              selected={selectedIds.has(deal.id)}
+                              onToggleSelect={() => toggleSelect(deal.id)}
+                              selectionMode={selectedIds.size > 0}
                             />
                           ))}
                           {provided.placeholder}
@@ -1115,6 +1173,33 @@ export default function PipelinePage() {
           </DragDropContext>
         )}
       </main>
+
+      {/* Floating bulk-action bar — visible whenever at least one deal is selected */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 bg-white border border-slate-200 shadow-xl rounded-2xl px-4 py-2.5 flex items-center gap-3">
+          <span className="text-sm font-medium text-slate-700">
+            {selectedIds.size} selected
+          </span>
+          <div className="w-px h-5 bg-slate-200" />
+          <button
+            onClick={bulkArchive}
+            disabled={bulkBusy}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+            title="Archive selected deals"
+          >
+            <Archive className="w-4 h-4" />
+            {bulkBusy ? 'Archiving…' : 'Archive'}
+          </button>
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            disabled={bulkBusy}
+            className="flex items-center gap-1 px-2 py-1.5 text-sm text-slate-400 hover:text-slate-700 rounded-lg transition-colors disabled:opacity-50"
+            title="Clear selection"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {wonLostModal && (
         <WonLostModal
