@@ -315,15 +315,19 @@ router.post('/bulk-create', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /deals/bulk-update — update stage/assignedTo/pipelineId for multiple deals
-// Body: { dealIds: string[], updates: { stage?, assignedTo?, pipelineId? } }
+// POST /deals/bulk-update — update stage/assignedTo/pipelineId/archived for multiple deals
+// Body: { dealIds: string[], updates: { stage?, assignedTo?, pipelineId?, archived? } }
+//
+// `archived: true` sets metadata.archived = true (and clears it on false). Uses
+// jsonb_set so other metadata keys are preserved. Runs as a separate SQL pass
+// because Drizzle's set-builder doesn't support partial jsonb mutation.
 // ---------------------------------------------------------------------------
 router.post('/bulk-update', async (req, res) => {
   try {
   const tenantId = req.user!.tenantId;
   const { dealIds, updates: upd } = req.body as {
     dealIds?: string[];
-    updates?: { stage?: string; assignedTo?: string; pipelineId?: string };
+    updates?: { stage?: string; assignedTo?: string; pipelineId?: string; archived?: boolean };
   };
 
   if (!Array.isArray(dealIds) || dealIds.length === 0) {
@@ -340,12 +344,28 @@ router.post('/bulk-update', async (req, res) => {
   if (upd.assignedTo !== undefined) updates.assignedTo = upd.assignedTo;
   if (upd.pipelineId !== undefined) updates.pipelineId = upd.pipelineId;
 
-  await db.update(deals).set(updates).where(
-    and(
-      eq(deals.tenantId, tenantId),
-      sql`${deals.id} = ANY(ARRAY[${sql.join(dealIds.map((id) => sql`${id}::uuid`), sql`, `)}])`,
-    ),
-  );
+  // Only run the column update if we have something to set beyond updatedAt.
+  // (archived alone hits the jsonb_set pass below.)
+  const hasColumnUpdate = upd.stage !== undefined || upd.assignedTo !== undefined || upd.pipelineId !== undefined;
+  if (hasColumnUpdate) {
+    await db.update(deals).set(updates).where(
+      and(
+        eq(deals.tenantId, tenantId),
+        sql`${deals.id} = ANY(ARRAY[${sql.join(dealIds.map((id) => sql`${id}::uuid`), sql`, `)}])`,
+      ),
+    );
+  }
+
+  // Archive flag → patch metadata.archived without clobbering other keys
+  if (upd.archived !== undefined) {
+    await pool.query(
+      `UPDATE deals
+         SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{archived}', to_jsonb($1::boolean), true),
+             updated_at = NOW()
+       WHERE tenant_id = $2 AND id = ANY($3::uuid[])`,
+      [upd.archived, tenantId, dealIds],
+    );
+  }
 
   res.json({ updated: dealIds.length });
   } catch (e: unknown) {
