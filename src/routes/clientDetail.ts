@@ -9,6 +9,190 @@ const router = Router();
 const META_API_BASE = 'https://graph.facebook.com/v19.0';
 
 // ---------------------------------------------------------------------------
+// GET /api/clients — list every billing client with retainer/billing rollups
+// Used by the CRM Clients list view. Returns small, denormalized cards built
+// from one query plus three grouped subqueries (no N+1).
+// ---------------------------------------------------------------------------
+router.get('/', requirePermission('CONTACTS_VIEW'), async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const statusFilter = typeof req.query.status === 'string' ? req.query.status : '';
+
+  try {
+    const { pool } = await import('../db/index');
+
+    // Translate the user-facing status filter onto billing_clients.is_active.
+    // We support 'active' | 'churned' | 'paused' but only 'active'/'churned'
+    // map cleanly today; 'paused' falls back to is_active=false same as churned.
+    let isActiveCondition = sql``;
+    if (statusFilter === 'active') {
+      isActiveCondition = sql`AND bc.is_active = true`;
+    } else if (statusFilter === 'churned' || statusFilter === 'paused') {
+      isActiveCondition = sql`AND bc.is_active = false`;
+    }
+
+    // Base list — one row per billing_client, primary contact name resolved
+    // either from billing_clients.contact_person or the linked CRM contact.
+    const baseRes = await db.execute(sql`
+      SELECT
+        bc.id,
+        bc.name,
+        bc.is_active,
+        bc.crm_contact_id,
+        bc.updated_at,
+        COALESCE(
+          NULLIF(TRIM(bc.contact_person), ''),
+          NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), '')
+        ) AS primary_contact_name
+      FROM billing_clients bc
+      LEFT JOIN contacts c ON c.id = bc.crm_contact_id
+      WHERE bc.tenant_id = ${tenantId}
+      ${isActiveCondition}
+      ORDER BY bc.is_active DESC, bc.updated_at DESC
+    `);
+
+    const baseRows = baseRes.rows as Array<{
+      id: string;
+      name: string;
+      is_active: boolean | null;
+      crm_contact_id: string | null;
+      updated_at: string | Date | null;
+      primary_contact_name: string | null;
+    }>;
+
+    if (baseRows.length === 0) {
+      res.json({ clients: [], total: 0 });
+      return;
+    }
+
+    const clientIds = baseRows.map(r => r.id);
+    const contactIds = baseRows.map(r => r.crm_contact_id).filter((x): x is string => !!x);
+
+    // Parallel grouped rollups: invoices (MRR + lifetime + open + last-paid)
+    // and deals (won count + last won timestamp).
+    const [invRes, dealRes] = await Promise.all([
+      pool.query(
+        `SELECT
+           client_id,
+           COALESCE(SUM(CASE
+             WHEN status = 'paid' AND paid_at >= NOW() - INTERVAL '30 days'
+             THEN amount_paid ELSE 0 END), 0)::bigint AS mrr,
+           COALESCE(SUM(CASE WHEN status = 'paid' THEN amount_paid ELSE 0 END), 0)::bigint AS lifetime_value,
+           COUNT(*) FILTER (WHERE status IN ('sent', 'overdue', 'partially_paid'))::int AS open_invoice_count,
+           COALESCE(SUM(CASE WHEN status IN ('sent', 'overdue', 'partially_paid') THEN amount_due ELSE 0 END), 0)::bigint AS open_invoice_amount,
+           MAX(paid_at) AS last_invoice_paid_at
+         FROM invoices
+         WHERE tenant_id = $1 AND client_id = ANY($2::uuid[])
+         GROUP BY client_id`,
+        [tenantId, clientIds],
+      ),
+      contactIds.length > 0
+        ? pool.query(
+            `SELECT
+               contact_id,
+               COUNT(*)::int AS total_deals_won,
+               MAX(COALESCE(closed_at, updated_at)) AS last_deal_won_at
+             FROM deals
+             WHERE tenant_id = $1 AND contact_id = ANY($2::uuid[]) AND stage = 'won'
+             GROUP BY contact_id`,
+            [tenantId, contactIds],
+          )
+        : Promise.resolve({ rows: [] as Array<Record<string, unknown>> }),
+    ]);
+
+    const invByClient = new Map<string, {
+      mrr: number;
+      lifetime_value: number;
+      open_invoice_count: number;
+      open_invoice_amount: number;
+      last_invoice_paid_at: string | Date | null;
+    }>();
+    for (const row of invRes.rows as Array<{
+      client_id: string;
+      mrr: string | number;
+      lifetime_value: string | number;
+      open_invoice_count: number;
+      open_invoice_amount: string | number;
+      last_invoice_paid_at: string | Date | null;
+    }>) {
+      invByClient.set(row.client_id, {
+        mrr: Number(row.mrr ?? 0),
+        lifetime_value: Number(row.lifetime_value ?? 0),
+        open_invoice_count: Number(row.open_invoice_count ?? 0),
+        open_invoice_amount: Number(row.open_invoice_amount ?? 0),
+        last_invoice_paid_at: row.last_invoice_paid_at,
+      });
+    }
+
+    const dealsByContact = new Map<string, {
+      total_deals_won: number;
+      last_deal_won_at: string | Date | null;
+    }>();
+    for (const row of dealRes.rows as Array<{
+      contact_id: string;
+      total_deals_won: number;
+      last_deal_won_at: string | Date | null;
+    }>) {
+      dealsByContact.set(row.contact_id, {
+        total_deals_won: Number(row.total_deals_won ?? 0),
+        last_deal_won_at: row.last_deal_won_at,
+      });
+    }
+
+    const toIso = (value: string | Date | null | undefined): string | null => {
+      if (!value) return null;
+      try {
+        const d = value instanceof Date ? value : new Date(value);
+        return Number.isNaN(d.getTime()) ? null : d.toISOString();
+      } catch {
+        return null;
+      }
+    };
+
+    const maxIso = (...values: Array<string | null>): string | null => {
+      let best: number | null = null;
+      let bestIso: string | null = null;
+      for (const v of values) {
+        if (!v) continue;
+        const t = new Date(v).getTime();
+        if (Number.isNaN(t)) continue;
+        if (best === null || t > best) {
+          best = t;
+          bestIso = v;
+        }
+      }
+      return bestIso;
+    };
+
+    const clientsOut = baseRows.map((row) => {
+      const inv = invByClient.get(row.id);
+      const dealsAgg = row.crm_contact_id ? dealsByContact.get(row.crm_contact_id) : undefined;
+      const lastInvoicePaidAt = toIso(inv?.last_invoice_paid_at ?? null);
+      const lastDealWonAt = toIso(dealsAgg?.last_deal_won_at ?? null);
+      const updatedAt = toIso(row.updated_at);
+
+      return {
+        id: row.id,
+        name: row.name,
+        status: row.is_active ? 'active' : 'churned',
+        primaryContactName: row.primary_contact_name ?? null,
+        mrr: inv?.mrr ?? 0,
+        lifetimeValue: inv?.lifetime_value ?? 0,
+        openInvoiceCount: inv?.open_invoice_count ?? 0,
+        openInvoiceAmount: inv?.open_invoice_amount ?? 0,
+        lastInvoicePaidAt,
+        totalDealsWon: dealsAgg?.total_deals_won ?? 0,
+        lastActivityAt: maxIso(lastInvoicePaidAt, lastDealWonAt, updatedAt),
+      };
+    });
+
+    res.json({ clients: clientsOut, total: clientsOut.length });
+  } catch (e) {
+    logger.error('[clients-list] error:', e);
+    res.status(500).json({ error: 'Failed to fetch clients' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/clients/:clientId/360 — aggregated client view
 // ---------------------------------------------------------------------------
 router.get('/:clientId/360', requirePermission('REPORTS_VIEW'), async (req: Request, res: Response) => {

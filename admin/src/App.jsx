@@ -24,6 +24,7 @@ const WhatsAppTemplatesPage = lazy(() => import('./pages/WhatsAppTemplatesPage.j
 const OutreachDashboard = lazy(() => import('./pages/OutreachDashboard.jsx'));
 const LinksPage = lazy(() => import('./pages/LinksPage.jsx'));
 const ClientDetailPage = lazy(() => import('./pages/ClientDetailPage.jsx'));
+const ClientsPage = lazy(() => import('./pages/ClientsPage.jsx'));
 const FunnelManagementPage = lazy(() => import('./pages/FunnelManagementPage.jsx'));
 const TasksBoardPage = lazy(() => import('./pages/TasksBoardPage.jsx'));
 const MyAttendancePage = lazy(() => import('./pages/MyAttendancePage.jsx'));
@@ -97,6 +98,7 @@ export default function App() {
             <Route path="/outreach-dashboard" element={<PrivateRoute><OutreachDashboard /></PrivateRoute>} />
             <Route path="/links" element={<PrivateRoute><LinksPage /></PrivateRoute>} />
             <Route path="/social-scheduling" element={<Navigate to="/social" replace />} />
+            <Route path="/clients" element={<PrivateRoute><ClientsPage /></PrivateRoute>} />
             <Route path="/client/:clientId" element={<PrivateRoute><ClientDetailPage /></PrivateRoute>} />
             <Route path="/funnels" element={<PrivateRoute><FunnelManagementPage /></PrivateRoute>} />
             <Route path="/tasks" element={<PrivateRoute><TasksBoardPage /></PrivateRoute>} />

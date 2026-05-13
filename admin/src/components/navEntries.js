@@ -2,6 +2,7 @@ import {
   Calendar, Home, Users, Kanban, CheckSquare, MessageSquare, TrendingUp,
   Megaphone, Share2, Target, Search, FileText, Brain, MapPin, Zap, Mail,
   Link as LinkIcon, CreditCard, Receipt, Shield, ClipboardList, Settings,
+  Briefcase,
 } from 'lucide-react';
 
 // Permission flag bag — derived from user role + per-user permission overrides.
@@ -66,6 +67,11 @@ export const NAV_ENTRIES = [
   {
     id: 'pipeline', label: 'Pipeline', to: '/pipeline',
     icon: Kanban, section: 'CRM', group: null,
+    visible: f => f.canCRM,
+  },
+  {
+    id: 'clients', label: 'Clients', to: '/clients',
+    icon: Briefcase, section: 'CRM', group: null,
     visible: f => f.canCRM,
   },
   {
