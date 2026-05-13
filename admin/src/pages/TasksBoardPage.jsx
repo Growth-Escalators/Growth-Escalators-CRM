@@ -8,7 +8,6 @@ import {
   ChevronLeft, ChevronRight, ChevronUp,
 } from 'lucide-react';
 import Sidebar from '../components/Sidebar.jsx';
-import TodoSidebar from '../components/TodoSidebar.jsx';
 import { apiFetch, getUser } from '../lib/api.js';
 
 const COLUMNS = [
@@ -2978,14 +2977,6 @@ export default function TasksBoardPage() {
                 </div>
               </DragDropContext>
             </div>
-
-            {/* Right: To-Do workspace (lists + checklist subitems) */}
-            <TodoSidebar
-              tasks={tasks}
-              onTaskCreated={(t) => upsertTask(t)}
-              onTaskUpdated={(t) => upsertTask(t)}
-              onTaskDeleted={(id) => removeTask(id)}
-            />
           </div>
         )}
 
