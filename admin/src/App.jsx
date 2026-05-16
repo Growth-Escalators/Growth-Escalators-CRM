@@ -27,6 +27,7 @@ const ClientDetailPage = lazy(() => import('./pages/ClientDetailPage.jsx'));
 const ClientsPage = lazy(() => import('./pages/ClientsPage.jsx'));
 const FunnelManagementPage = lazy(() => import('./pages/FunnelManagementPage.jsx'));
 const TasksBoardPage = lazy(() => import('./pages/TasksBoardPage.jsx'));
+const TasksV2Page = lazy(() => import('./pages/tasks/TasksPage.jsx'));
 const MyAttendancePage = lazy(() => import('./pages/MyAttendancePage.jsx'));
 
 class ErrorBoundary extends React.Component {
@@ -102,6 +103,7 @@ export default function App() {
             <Route path="/client/:clientId" element={<PrivateRoute><ClientDetailPage /></PrivateRoute>} />
             <Route path="/funnels" element={<PrivateRoute><FunnelManagementPage /></PrivateRoute>} />
             <Route path="/tasks" element={<PrivateRoute><TasksBoardPage /></PrivateRoute>} />
+            <Route path="/tasks/v2" element={<PrivateRoute><TasksV2Page /></PrivateRoute>} />
             <Route path="/my-attendance" element={<PrivateRoute><MyAttendancePage /></PrivateRoute>} />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
