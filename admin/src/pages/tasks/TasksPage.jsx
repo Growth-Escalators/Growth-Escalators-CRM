@@ -10,6 +10,7 @@ import Sidebar from '../../components/Sidebar.jsx';
 import { apiFetch, getUser } from '../../lib/api.js';
 import Header from './Header.jsx';
 import Board from './Board.jsx';
+import FocusView from './FocusView.jsx';
 import { applyFilters } from './lib/filterPipeline.js';
 
 // LocalStorage keys, exact per the redesign spec
@@ -229,11 +230,21 @@ export default function TasksPage() {
               onToggleCollapse={onToggleCollapse}
             />
           )
+        ) : subView === 'focus' ? (
+          <FocusView
+            tasks={tasks}
+            team={team}
+            currentUserId={currentUser?.id}
+            onOpenTask={onOpenTask}
+            onToggleDone={onToggleDone}
+            onPatchTask={patchTask}
+            smartSort={smartSort}
+          />
         ) : (
           <div className="flex-1 flex items-center justify-center bg-slate-50/60">
             <div className="text-center max-w-sm px-6">
               <p className="text-sm font-medium text-slate-700">
-                {subView === 'focus' ? 'Focus view' : subView === 'list' ? 'List view' : 'Calendar view'}
+                {subView === 'list' ? 'List view' : 'Calendar view'}
               </p>
               <p className="text-xs text-slate-500 mt-1">
                 Ships in a later layer. Switch back to Board to keep working.
