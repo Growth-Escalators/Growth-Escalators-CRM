@@ -26,12 +26,27 @@ const SOURCE_PALETTE = [
   '#06b6d4', '#84cc16', '#ec4899', '#6366f1', '#94a3b8',
 ];
 
+const CUSTOM_KEY = 'ge-analytics-custom-range';
+const todayIso = () => new Date().toISOString().split('T')[0];
+
 function loadInitialPeriod() {
   try {
     const stored = localStorage.getItem(PERIOD_KEY);
     if (stored && PERIODS.some(p => p.id === stored)) return stored;
   } catch {}
   return '30d';
+}
+
+function loadInitialCustomRange() {
+  try {
+    const raw = localStorage.getItem(CUSTOM_KEY);
+    if (!raw) return { since: '', until: '' };
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      return { since: parsed.since || '', until: parsed.until || '' };
+    }
+  } catch {}
+  return { since: '', until: '' };
 }
 
 function ErrorBanner({ error, onRetry }) {
@@ -157,10 +172,24 @@ export default function AnalyticsPage() {
 
   const period = PERIODS.find(p => p.id === periodId) || PERIODS[0];
 
+  // Custom-range state — hydrated from localStorage; "applied" gates fetches
+  // so we don't refetch on every keystroke while the user picks dates.
+  const initialCustom = loadInitialCustomRange();
+  const [customSince, setCustomSince] = useState(initialCustom.since);
+  const [customUntil, setCustomUntil] = useState(initialCustom.until);
+  const [customApplied, setCustomApplied] = useState(
+    periodId === 'custom' && !!initialCustom.since && !!initialCustom.until,
+  );
+
   // Persist period selection
   useEffect(() => {
     try { localStorage.setItem(PERIOD_KEY, periodId); } catch {}
   }, [periodId]);
+
+  // Persist custom dates
+  useEffect(() => {
+    try { localStorage.setItem(CUSTOM_KEY, JSON.stringify({ since: customSince, until: customUntil })); } catch {}
+  }, [customSince, customUntil]);
 
   // Global search shortcut
   useEffect(() => {
@@ -174,14 +203,34 @@ export default function AnalyticsPage() {
     return () => window.removeEventListener('keydown', h);
   }, []);
 
+  // Build the time-window query suffix for revenue/MRR endpoints. Custom mode
+  // sends since/until; presets fall back to months count.
+  const trendQS = useMemo(() => {
+    if (periodId === 'custom') {
+      if (!customApplied || !customSince || !customUntil) return null;
+      return `since=${customSince}&until=${customUntil}`;
+    }
+    return `months=${period.months}`;
+  }, [periodId, customApplied, customSince, customUntil, period.months]);
+
+  const mrrQS = useMemo(() => {
+    if (periodId === 'custom') {
+      if (!customApplied || !customSince || !customUntil) return null;
+      return `since=${customSince}&until=${customUntil}`;
+    }
+    return `months=${Math.min(period.months, 12)}`;
+  }, [periodId, customApplied, customSince, customUntil, period.months]);
+
   const fetchAll = useCallback(() => {
+    // In custom mode wait for Apply before firing requests
+    if (!trendQS || !mrrQS) return;
     setLoading(true);
     setError(null);
     Promise.all([
       apiFetch('/api/analytics/funnel'),
       apiFetch('/api/analytics/lead-sources'),
-      apiFetch(`/api/analytics/revenue-trend?months=${period.months}`),
-      apiFetch(`/api/analytics/mrr-trend?months=${Math.min(period.months, 12)}`),
+      apiFetch(`/api/analytics/revenue-trend?${trendQS}`),
+      apiFetch(`/api/analytics/mrr-trend?${mrrQS}`),
       apiFetch('/api/deals?limit=1000').catch(() => ({ deals: [] })),
     ])
       .then(([f, s, r, m, d]) => {
@@ -193,7 +242,7 @@ export default function AnalyticsPage() {
       })
       .catch(e => setError(e?.message || 'Unknown error'))
       .finally(() => setLoading(false));
-  }, [period.months]);
+  }, [trendQS, mrrQS]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
@@ -276,16 +325,58 @@ export default function AnalyticsPage() {
 
               {/* Period selector */}
               {activeTab === 'leads' && (
-                <div className="flex bg-slate-100 rounded-lg p-1">
-                  {PERIODS.map(p => (
-                    <button
-                      key={p.id}
-                      onClick={() => setPeriodId(p.id)}
-                      className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${periodId === p.id ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex bg-slate-100 rounded-lg p-1">
+                    {PERIODS.map(p => (
+                      <button
+                        key={p.id}
+                        onClick={() => {
+                          setPeriodId(p.id);
+                          if (p.id !== 'custom') setCustomApplied(false);
+                        }}
+                        className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${periodId === p.id ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {periodId === 'custom' && (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="date"
+                        value={customSince}
+                        max={customUntil || todayIso()}
+                        onChange={e => { setCustomSince(e.target.value); setCustomApplied(false); }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && customSince && customUntil) setCustomApplied(true);
+                        }}
+                        className="text-xs border border-slate-200 rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                        aria-label="Start date"
+                      />
+                      <span className="text-xs text-slate-400">→</span>
+                      <input
+                        type="date"
+                        value={customUntil}
+                        min={customSince || undefined}
+                        max={todayIso()}
+                        onChange={e => { setCustomUntil(e.target.value); setCustomApplied(false); }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && customSince && customUntil) setCustomApplied(true);
+                        }}
+                        className="text-xs border border-slate-200 rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                        aria-label="End date"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setCustomApplied(true)}
+                        disabled={!customSince || !customUntil || customApplied}
+                        className="text-xs bg-sky-600 hover:bg-sky-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-3 py-1.5 rounded-md"
+                      >
+                        {customApplied ? 'Applied' : 'Apply'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -293,6 +384,12 @@ export default function AnalyticsPage() {
 
           {error && activeTab === 'leads' && (
             <ErrorBanner error={error} onRetry={fetchAll} />
+          )}
+
+          {activeTab === 'leads' && periodId === 'custom' && !customApplied && (
+            <div className="bg-sky-50 border border-sky-200 rounded-lg px-4 py-2 text-xs text-sky-700">
+              Pick a start and end date above, then click <strong>Apply</strong> to load the dashboard for that window.
+            </div>
           )}
 
           {activeTab === 'leads' && (

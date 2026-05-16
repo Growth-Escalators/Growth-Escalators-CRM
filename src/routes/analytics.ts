@@ -111,23 +111,40 @@ router.get('/trends', requirePermission('REPORTS_VIEW'), async (req: Request, re
 // ---------------------------------------------------------------------------
 router.get('/revenue-trend', requirePermission('REPORTS_VIEW'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
+  const since = (req.query.since as string) || '';
+  const until = (req.query.until as string) || '';
+  const useCustom = /^\d{4}-\d{2}-\d{2}$/.test(since) && /^\d{4}-\d{2}-\d{2}$/.test(until);
   const months = Math.min(Number(req.query.months) || 12, 24);
 
   try {
-    const result = await db.execute(sql`
-      SELECT
-        TO_CHAR(DATE_TRUNC('month', payment_date), 'YYYY-MM') AS month,
-        SUM(amount) AS total_paise,
-        COUNT(*) AS payment_count
-      FROM payments
-      WHERE tenant_id = ${tenantId}
-        AND payment_date >= NOW() - make_interval(months => ${months})
-      GROUP BY DATE_TRUNC('month', payment_date)
-      ORDER BY month ASC
-    `);
+    const result = useCustom
+      ? await db.execute(sql`
+          SELECT
+            TO_CHAR(DATE_TRUNC('month', payment_date), 'YYYY-MM') AS month,
+            SUM(amount) AS total_paise,
+            COUNT(*) AS payment_count
+          FROM payments
+          WHERE tenant_id = ${tenantId}
+            AND payment_date >= ${since}::date
+            AND payment_date <  (${until}::date + INTERVAL '1 day')
+          GROUP BY DATE_TRUNC('month', payment_date)
+          ORDER BY month ASC
+        `)
+      : await db.execute(sql`
+          SELECT
+            TO_CHAR(DATE_TRUNC('month', payment_date), 'YYYY-MM') AS month,
+            SUM(amount) AS total_paise,
+            COUNT(*) AS payment_count
+          FROM payments
+          WHERE tenant_id = ${tenantId}
+            AND payment_date >= NOW() - make_interval(months => ${months})
+          GROUP BY DATE_TRUNC('month', payment_date)
+          ORDER BY month ASC
+        `);
 
     res.json({
-      months,
+      months: useCustom ? null : months,
+      range: useCustom ? { since, until } : null,
       data: (result.rows as Array<Record<string, unknown>>).map(r => ({
         month: r.month,
         totalPaise: Number(r.total_paise) || 0,
@@ -144,16 +161,27 @@ router.get('/revenue-trend', requirePermission('REPORTS_VIEW'), async (req: Requ
 // ---------------------------------------------------------------------------
 router.get('/mrr-trend', requirePermission('REPORTS_VIEW'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
+  const since = (req.query.since as string) || '';
+  const until = (req.query.until as string) || '';
+  const useCustom = /^\d{4}-\d{2}-\d{2}$/.test(since) && /^\d{4}-\d{2}-\d{2}$/.test(until);
   const months = Math.min(Number(req.query.months) || 6, 12);
 
   try {
-    const [currentMrrRes, trendRes] = await Promise.all([
-      db.execute(sql`
-        SELECT COALESCE(SUM(retainer_amount), 0) AS current_mrr
-        FROM billing_clients
-        WHERE tenant_id = ${tenantId} AND is_active = true
-      `),
-      db.execute(sql`
+    const trendQuery = useCustom
+      ? sql`
+        SELECT
+          TO_CHAR(DATE_TRUNC('month', invoice_date), 'YYYY-MM') AS month,
+          SUM(total_amount) AS total_paise,
+          COUNT(*) AS invoice_count
+        FROM invoices
+        WHERE tenant_id = ${tenantId}
+          AND status NOT IN ('cancelled', 'draft')
+          AND invoice_date >= ${since}::date
+          AND invoice_date <  (${until}::date + INTERVAL '1 day')
+        GROUP BY DATE_TRUNC('month', invoice_date)
+        ORDER BY month ASC
+      `
+      : sql`
         SELECT
           TO_CHAR(DATE_TRUNC('month', invoice_date), 'YYYY-MM') AS month,
           SUM(total_amount) AS total_paise,
@@ -164,11 +192,20 @@ router.get('/mrr-trend', requirePermission('REPORTS_VIEW'), async (req: Request,
           AND invoice_date >= NOW() - make_interval(months => ${months})
         GROUP BY DATE_TRUNC('month', invoice_date)
         ORDER BY month ASC
+      `;
+
+    const [currentMrrRes, trendRes] = await Promise.all([
+      db.execute(sql`
+        SELECT COALESCE(SUM(retainer_amount), 0) AS current_mrr
+        FROM billing_clients
+        WHERE tenant_id = ${tenantId} AND is_active = true
       `),
+      db.execute(trendQuery),
     ]);
 
     res.json({
       currentMrrPaise: Number((currentMrrRes.rows[0] as Record<string, unknown>)?.current_mrr) || 0,
+      range: useCustom ? { since, until } : null,
       trend: (trendRes.rows as Array<Record<string, unknown>>).map(r => ({
         month: r.month,
         mrrPaise: Number(r.total_paise) || 0,
