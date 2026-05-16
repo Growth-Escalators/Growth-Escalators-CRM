@@ -5,7 +5,7 @@
 // Layer A: shell only.
 // Layer B: Board + atoms + DnD + quick-add + column collapse wired in.
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Sidebar from '../../components/Sidebar.jsx';
 import { apiFetch, getUser } from '../../lib/api.js';
 import Header from './Header.jsx';
@@ -13,15 +13,18 @@ import Board from './Board.jsx';
 import DetailPanel from './DetailPanel.jsx';
 import FocusView from './FocusView.jsx';
 import { applyFilters } from './lib/filterPipeline.js';
+import { withSmartRanks } from './lib/smartRank.js';
 
 // LocalStorage keys, exact per the redesign spec
 const VIEW_KEY = 'ge-crm-tasks-view';              // mine | all | today
 const SUBVIEW_KEY = 'ge-crm-tasks-subview';        // board | focus | list | calendar
 const SMART_SORT_KEY = 'ge-crm-tasks-smart-sort';
 const COLLAPSED_KEY = 'ge-crm-tasks-collapsed-cols';
+const DENSITY_KEY = 'ge-crm-tasks-density';        // compact | default | cozy
 
 const VALID_SCOPES = ['mine', 'all', 'today'];
 const VALID_SUBVIEWS = ['board', 'focus', 'list', 'calendar'];
+const VALID_DENSITIES = ['compact', 'default', 'cozy'];
 
 function loadString(key, fallback, valid) {
   try {
@@ -60,6 +63,7 @@ export default function TasksPage() {
     const v = loadJson(COLLAPSED_KEY, []);
     return Array.isArray(v) ? v : [];
   });
+  const [density, setDensity] = useState(() => loadString(DENSITY_KEY, 'default', VALID_DENSITIES));
 
   // Data
   const [tasks, setTasks] = useState([]);
@@ -77,6 +81,7 @@ export default function TasksPage() {
   useEffect(() => {
     try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify(collapsedCols)); } catch {}
   }, [collapsedCols]);
+  useEffect(() => { try { localStorage.setItem(DENSITY_KEY, density); } catch {} }, [density]);
 
   // Load tasks + team in parallel
   const loadAll = useCallback(async () => {
@@ -102,8 +107,14 @@ export default function TasksPage() {
     () => applyFilters(tasks, { scope, filters, listFilter, currentUserId: currentUser?.id }),
     [tasks, scope, filters, listFilter, currentUser]
   );
-  const activeCount = visible.filter((t) => t.status !== 'done').length;
-  const doneCount = visible.filter((t) => t.status === 'done').length;
+  // Annotate the top 5 tasks with `smartRank` so SmartBadge has data to show
+  // and Board's sortTasks can prioritise them when smart-sort is on.
+  const visibleRanked = useMemo(
+    () => withSmartRanks(visible, currentUser?.id),
+    [visible, currentUser]
+  );
+  const activeCount = visibleRanked.filter((t) => t.status !== 'done').length;
+  const doneCount = visibleRanked.filter((t) => t.status === 'done').length;
 
   // ── mutations ─────────────────────────────────────────────────────────
   const patchTask = useCallback(async (id, patch) => {
@@ -184,9 +195,34 @@ export default function TasksPage() {
     setCollapsedCols((c) => (c.includes(k) ? c.filter((x) => x !== k) : [...c, k]));
   }, []);
 
-  // Detail panel (Layer C): clicking a card opens the right-side slide-in.
-  const onOpenTask = useCallback((t) => setOpenTaskId(t.id), []);
-  const closeDetailPanel = useCallback(() => setOpenTaskId(null), []);
+  // Detail panel: clicking a card opens the right-side slide-in. We also
+  // remember the last-opened task id so we can restore focus to its card
+  // when the panel closes (a11y — Layer E focus-management). The card
+  // identifies itself via `data-task-id`.
+  const lastOpenedTaskIdRef = useRef(null);
+
+  const onOpenTask = useCallback((t) => {
+    lastOpenedTaskIdRef.current = t?.id ?? null;
+    setOpenTaskId(t.id);
+  }, []);
+
+  // Restores focus to the originating card. Runs after the panel unmounts so
+  // the focus target is in the DOM.
+  const restoreFocusToLastTask = useCallback(() => {
+    const id = lastOpenedTaskIdRef.current;
+    if (!id) return;
+    requestAnimationFrame(() => {
+      try {
+        const el = document.querySelector(`[data-task-id="${CSS.escape(String(id))}"]`);
+        if (el && typeof el.focus === 'function') el.focus();
+      } catch { /* noop */ }
+    });
+  }, []);
+
+  const closeDetailPanel = useCallback(() => {
+    setOpenTaskId(null);
+    restoreFocusToLastTask();
+  }, [restoreFocusToLastTask]);
 
   // Resolve the openTask off the live `tasks` array so optimistic edits
   // performed inside the panel re-render with fresh data.
@@ -198,10 +234,10 @@ export default function TasksPage() {
   // ESC closes the panel — only listen while it's open.
   useEffect(() => {
     if (!openTaskId) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') setOpenTaskId(null); };
+    const onKey = (e) => { if (e.key === 'Escape') closeDetailPanel(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [openTaskId]);
+  }, [openTaskId, closeDetailPanel]);
 
   // Re-bind patchTask to the open task so the panel can call onPatch(patch).
   const patchOpenTask = useCallback(
@@ -228,6 +264,8 @@ export default function TasksPage() {
           doneCount={doneCount}
           team={team}
           currentUser={currentUser}
+          density={density}
+          onDensityChange={setDensity}
         />
 
         {error && (
@@ -241,10 +279,10 @@ export default function TasksPage() {
             <BoardSkeleton />
           ) : (
             <Board
-              tasks={visible}
+              tasks={visibleRanked}
               onOpenTask={onOpenTask}
               onQuickAdd={onQuickAdd}
-              density="default"
+              density={density}
               smartSort={smartSort}
               onMoveTask={onMoveTask}
               onToggleDone={onToggleDone}

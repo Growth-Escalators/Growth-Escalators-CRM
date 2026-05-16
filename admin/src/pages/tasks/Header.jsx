@@ -10,6 +10,7 @@ import React from 'react';
 import { Sun, LayoutGrid, List as ListIcon, Calendar, Plus } from 'lucide-react';
 import FilterBar from './FilterBar.jsx';
 import QuickCapture from './QuickCapture.jsx';
+import DensityMenu from './DensityMenu.jsx';
 
 const VIEW_TABS = [
   { k: 'board',    label: 'Board',    Icon: LayoutGrid },
@@ -58,6 +59,7 @@ export default function Header({
   onCreate,
   count, doneCount,
   team, currentUser,
+  density, onDensityChange,
 }) {
   return (
     <header className="bg-white shrink-0 border-b border-slate-200">
@@ -77,10 +79,12 @@ export default function Header({
 
         <div className="ml-auto flex items-center gap-2">
           <ViewSwitcher value={subView} onChange={onSubView} />
+          <DensityMenu value={density} onChange={onDensityChange} />
           <button
             type="button"
             className="inline-flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium px-3 py-1.5 rounded-lg"
             aria-label="Create new task"
+            title="Create new task"
           >
             <Plus className="w-3.5 h-3.5" aria-hidden /> New task
           </button>
