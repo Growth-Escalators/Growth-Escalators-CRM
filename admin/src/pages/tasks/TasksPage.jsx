@@ -5,21 +5,24 @@
 // Layer A: shell only.
 // Layer B: Board + atoms + DnD + quick-add + column collapse wired in.
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Sidebar from '../../components/Sidebar.jsx';
 import { apiFetch, getUser } from '../../lib/api.js';
 import Header from './Header.jsx';
 import Board from './Board.jsx';
 import { applyFilters } from './lib/filterPipeline.js';
+import { withSmartRanks } from './lib/smartRank.js';
 
 // LocalStorage keys, exact per the redesign spec
 const VIEW_KEY = 'ge-crm-tasks-view';              // mine | all | today
 const SUBVIEW_KEY = 'ge-crm-tasks-subview';        // board | focus | list | calendar
 const SMART_SORT_KEY = 'ge-crm-tasks-smart-sort';
 const COLLAPSED_KEY = 'ge-crm-tasks-collapsed-cols';
+const DENSITY_KEY = 'ge-crm-tasks-density';        // compact | default | cozy
 
 const VALID_SCOPES = ['mine', 'all', 'today'];
 const VALID_SUBVIEWS = ['board', 'focus', 'list', 'calendar'];
+const VALID_DENSITIES = ['compact', 'default', 'cozy'];
 
 function loadString(key, fallback, valid) {
   try {
@@ -58,6 +61,7 @@ export default function TasksPage() {
     const v = loadJson(COLLAPSED_KEY, []);
     return Array.isArray(v) ? v : [];
   });
+  const [density, setDensity] = useState(() => loadString(DENSITY_KEY, 'default', VALID_DENSITIES));
 
   // Data
   const [tasks, setTasks] = useState([]);
@@ -72,6 +76,7 @@ export default function TasksPage() {
   useEffect(() => {
     try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify(collapsedCols)); } catch {}
   }, [collapsedCols]);
+  useEffect(() => { try { localStorage.setItem(DENSITY_KEY, density); } catch {} }, [density]);
 
   // Load tasks + team in parallel
   const loadAll = useCallback(async () => {
@@ -97,8 +102,14 @@ export default function TasksPage() {
     () => applyFilters(tasks, { scope, filters, listFilter, currentUserId: currentUser?.id }),
     [tasks, scope, filters, listFilter, currentUser]
   );
-  const activeCount = visible.filter((t) => t.status !== 'done').length;
-  const doneCount = visible.filter((t) => t.status === 'done').length;
+  // Annotate the top 5 tasks with `smartRank` so SmartBadge has data to show
+  // and Board's sortTasks can prioritise them when smart-sort is on.
+  const visibleRanked = useMemo(
+    () => withSmartRanks(visible, currentUser?.id),
+    [visible, currentUser]
+  );
+  const activeCount = visibleRanked.filter((t) => t.status !== 'done').length;
+  const doneCount = visibleRanked.filter((t) => t.status === 'done').length;
 
   // ── mutations ─────────────────────────────────────────────────────────
   const patchTask = useCallback(async (id, patch) => {
@@ -180,10 +191,31 @@ export default function TasksPage() {
   }, []);
 
   // Detail panel comes in Layer C; for now clicking a card is a no-op (logs)
+  // We also stash the last-opened task id so the DetailPanel close handler can
+  // restore focus to the originating card (a11y). The card is identified by a
+  // `data-task-id` attribute — DetailPanel's onClose should call
+  // `restoreFocusToLastTask()` and we'll query the DOM for the matching card.
+  const lastOpenedTaskIdRef = useRef(null);
+
   const onOpenTask = useCallback((t) => {
+    lastOpenedTaskIdRef.current = t?.id ?? null;
     // eslint-disable-next-line no-console
     console.log('[tasks/v2] open task', t.id, '(detail panel ships in Layer C)');
   }, []);
+
+  // Exposed to a future DetailPanel via props. Returns focus to the card the
+  // user clicked, using the `data-task-id` attribute Layer C will add on the
+  // card root. Falls back to a no-op if the card is no longer in the DOM.
+  const restoreFocusToLastTask = useCallback(() => {
+    const id = lastOpenedTaskIdRef.current;
+    if (!id) return;
+    try {
+      const el = document.querySelector(`[data-task-id="${CSS.escape(String(id))}"]`);
+      if (el && typeof el.focus === 'function') el.focus();
+    } catch { /* noop */ }
+  }, []);
+  // Silence unused-warn for the layer-bridge helper until DetailPanel lands.
+  void restoreFocusToLastTask;
 
   // ── render ────────────────────────────────────────────────────────────
   return (
@@ -204,6 +236,8 @@ export default function TasksPage() {
           doneCount={doneCount}
           team={team}
           currentUser={currentUser}
+          density={density}
+          onDensityChange={setDensity}
         />
 
         {error && (
@@ -217,10 +251,10 @@ export default function TasksPage() {
             <BoardSkeleton />
           ) : (
             <Board
-              tasks={visible}
+              tasks={visibleRanked}
               onOpenTask={onOpenTask}
               onQuickAdd={onQuickAdd}
-              density="default"
+              density={density}
               smartSort={smartSort}
               onMoveTask={onMoveTask}
               onToggleDone={onToggleDone}
