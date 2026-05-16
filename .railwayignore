@@ -5,3 +5,9 @@ dist/
 .env
 *.log
 .DS_Store
+.claude/
+.git/
+e2e/
+playwright-report/
+test-results/
+*.code-workspace
