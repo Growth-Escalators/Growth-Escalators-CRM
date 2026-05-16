@@ -385,9 +385,16 @@ export default function FinancePage() {
   const [vendors, setVendors] = useState([]);
   const [editingExpense, setEditingExpense] = useState(null);
   const [editingIncome, setEditingIncome] = useState(null);
+  const [editingMember, setEditingMember] = useState(null);
 
   // New team member form
-  const [newMember, setNewMember] = useState({ name: '', role: '', baseSalary: '' });
+  const [newMember, setNewMember] = useState({
+    name: '', role: '', baseSalary: '',
+    expectedStartTime: '09:30',
+    casualLeaveBalance: '12',
+    sickLeaveBalance: '6',
+    earnedLeaveBalance: '15',
+  });
 
   // New category form
   const [newCat, setNewCat] = useState({ name: '', color: '#3b82f6' });
@@ -482,8 +489,22 @@ export default function FinancePage() {
   async function addTeamMember(e) {
     e.preventDefault();
     if (!newMember.name) return;
-    await apiFetch('/api/finance/team-payroll', { method: 'POST', body: JSON.stringify({ name: newMember.name, role: newMember.role, baseSalary: Number(newMember.baseSalary || 0) }) });
-    setNewMember({ name: '', role: '', baseSalary: '' });
+    await apiFetch('/api/finance/team-payroll', { method: 'POST', body: JSON.stringify({
+      name: newMember.name,
+      role: newMember.role,
+      baseSalary: Number(newMember.baseSalary || 0),
+      expectedStartTime: newMember.expectedStartTime || null,
+      casualLeaveBalance: newMember.casualLeaveBalance === '' ? null : Number(newMember.casualLeaveBalance),
+      sickLeaveBalance: newMember.sickLeaveBalance === '' ? null : Number(newMember.sickLeaveBalance),
+      earnedLeaveBalance: newMember.earnedLeaveBalance === '' ? null : Number(newMember.earnedLeaveBalance),
+    }) });
+    setNewMember({
+      name: '', role: '', baseSalary: '',
+      expectedStartTime: '09:30',
+      casualLeaveBalance: '12',
+      sickLeaveBalance: '6',
+      earnedLeaveBalance: '15',
+    });
     loadData();
   }
 
@@ -740,50 +761,94 @@ export default function FinancePage() {
                     <tr className="border-b">
                       <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Name</th>
                       <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Role</th>
+                      <th className="px-4 py-2 text-center text-xs font-semibold text-slate-500">Expected Start</th>
+                      <th className="px-4 py-2 text-center text-xs font-semibold text-slate-500" title="Casual / Sick / Earned">Leaves (C/S/E)</th>
                       <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500">Base Salary</th>
-                      <th className="px-4 py-2 w-10"></th>
+                      <th className="px-4 py-2 w-20"></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {team.length === 0 && <tr><td colSpan={4} className="px-4 py-8 text-center text-slate-400">No team members added</td></tr>}
+                    {team.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">No team members added</td></tr>}
                     {team.map(m => (
                       <tr key={m.id} className="border-b border-slate-50 hover:bg-slate-50">
                         <td className="px-4 py-2.5 text-slate-800 font-medium">{m.name}</td>
                         <td className="px-4 py-2.5 text-slate-600">{m.role || '—'}</td>
+                        <td className="px-4 py-2.5 text-center text-slate-600 tabular-nums">{(m.expected_start_time || '09:30:00').slice(0, 5)}</td>
+                        <td className="px-4 py-2.5 text-center text-slate-600 tabular-nums text-xs">{m.casual_leave_balance ?? 12} / {m.sick_leave_balance ?? 6} / {m.earned_leave_balance ?? 15}</td>
                         <td className="px-4 py-2.5 text-right font-semibold text-slate-800">INR {Number(m.base_salary).toLocaleString('en-IN')}</td>
                         <td className="px-4 py-2.5 text-right">
-                          <button onClick={() => deleteTeamMember(m.id, m.name)} className="text-red-400 hover:text-red-600 p-1"><Trash2 className="w-3.5 h-3.5" /></button>
+                          <div className="flex gap-1 justify-end">
+                            <button onClick={() => setEditingMember({
+                              id: m.id,
+                              name: m.name || '',
+                              role: m.role || '',
+                              baseSalary: String(m.base_salary || ''),
+                              expectedStartTime: (m.expected_start_time || '09:30:00').slice(0, 5),
+                              casualLeaveBalance: String(m.casual_leave_balance ?? 12),
+                              sickLeaveBalance: String(m.sick_leave_balance ?? 6),
+                              earnedLeaveBalance: String(m.earned_leave_balance ?? 15),
+                            })} className="text-slate-400 hover:text-sky-600 p-1" title="Edit"><Edit2 className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => deleteTeamMember(m.id, m.name)} className="text-red-400 hover:text-red-600 p-1" title="Remove"><Trash2 className="w-3.5 h-3.5" /></button>
+                          </div>
                         </td>
                       </tr>
                     ))}
                     <tr className="bg-slate-50 border-t">
-                      <td colSpan={2} className="px-4 py-2.5 text-sm font-semibold text-slate-700">
+                      <td colSpan={4} className="px-4 py-2.5 text-sm font-semibold text-slate-700">
                         Total Monthly Payroll
                         <span className="text-xs font-normal text-slate-400 ml-2">(already included in Expenses total)</span>
                       </td>
                       <td className="px-4 py-2.5 text-right font-bold text-slate-900">INR {fmtINR(team.reduce((s, m) => s + Number(m.base_salary || 0), 0))}</td>
+                      <td></td>
                     </tr>
                   </tbody>
                 </table>
               </div>
               {/* Add team member */}
-              <form onSubmit={addTeamMember} className="bg-white rounded-xl border border-slate-200 p-5 flex items-end gap-3">
-                <div className="flex-1">
-                  <label className="text-xs text-slate-500 font-medium">Name</label>
-                  <input type="text" value={newMember.name} onChange={e => setNewMember({ ...newMember, name: e.target.value })} placeholder="Team member name"
-                    className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" required />
+              <form onSubmit={addTeamMember} className="bg-white rounded-xl border border-slate-200 p-5 space-y-3">
+                <p className="text-xs font-semibold text-slate-500 uppercase">Add Team Member</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-xs text-slate-500 font-medium">Name</label>
+                    <input type="text" value={newMember.name} onChange={e => setNewMember({ ...newMember, name: e.target.value })} placeholder="Team member name"
+                      className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" required />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 font-medium">Role</label>
+                    <input type="text" value={newMember.role} onChange={e => setNewMember({ ...newMember, role: e.target.value })} placeholder="e.g. Sales, Ops"
+                      className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 font-medium">Base Salary (INR)</label>
+                    <input type="number" min="0" value={newMember.baseSalary} onChange={e => setNewMember({ ...newMember, baseSalary: e.target.value })} placeholder="25000"
+                      className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+                  </div>
                 </div>
-                <div className="flex-1">
-                  <label className="text-xs text-slate-500 font-medium">Role</label>
-                  <input type="text" value={newMember.role} onChange={e => setNewMember({ ...newMember, role: e.target.value })} placeholder="e.g. Sales, Ops"
-                    className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div>
+                    <label className="text-xs text-slate-500 font-medium">Expected Start</label>
+                    <input type="time" value={newMember.expectedStartTime} onChange={e => setNewMember({ ...newMember, expectedStartTime: e.target.value })}
+                      className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 font-medium">Casual leaves</label>
+                    <input type="number" min="0" value={newMember.casualLeaveBalance} onChange={e => setNewMember({ ...newMember, casualLeaveBalance: e.target.value })}
+                      className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 font-medium">Sick leaves</label>
+                    <input type="number" min="0" value={newMember.sickLeaveBalance} onChange={e => setNewMember({ ...newMember, sickLeaveBalance: e.target.value })}
+                      className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 font-medium">Earned leaves</label>
+                    <input type="number" min="0" value={newMember.earnedLeaveBalance} onChange={e => setNewMember({ ...newMember, earnedLeaveBalance: e.target.value })}
+                      className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+                  </div>
                 </div>
-                <div className="w-32">
-                  <label className="text-xs text-slate-500 font-medium">Base Salary</label>
-                  <input type="number" value={newMember.baseSalary} onChange={e => setNewMember({ ...newMember, baseSalary: e.target.value })} placeholder="25000"
-                    className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+                <div className="flex justify-end">
+                  <button type="submit" className="px-5 py-2 bg-sky-600 text-white rounded-lg text-sm font-medium hover:bg-sky-700">Add Member</button>
                 </div>
-                <button type="submit" className="px-4 py-2 bg-sky-600 text-white rounded-lg text-sm font-medium hover:bg-sky-700">Add</button>
               </form>
             </div>
           )}
@@ -1068,6 +1133,83 @@ export default function FinancePage() {
             </div>
           )}
         </div>
+
+        {editingMember && (
+          <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setEditingMember(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="text-base font-bold text-slate-900">Edit team member</h3>
+                <button onClick={() => setEditingMember(null)} className="text-slate-400 hover:text-slate-600">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                const body = {
+                  id: editingMember.id,
+                  name: editingMember.name,
+                  role: editingMember.role,
+                  baseSalary: Number(editingMember.baseSalary || 0),
+                  expectedStartTime: editingMember.expectedStartTime || null,
+                  casualLeaveBalance: editingMember.casualLeaveBalance === '' ? null : Number(editingMember.casualLeaveBalance),
+                  sickLeaveBalance: editingMember.sickLeaveBalance === '' ? null : Number(editingMember.sickLeaveBalance),
+                  earnedLeaveBalance: editingMember.earnedLeaveBalance === '' ? null : Number(editingMember.earnedLeaveBalance),
+                };
+                await apiFetch('/api/finance/team-payroll', { method: 'POST', body: JSON.stringify(body) });
+                setEditingMember(null);
+                loadData('Member updated');
+              }} className="space-y-3">
+                <div>
+                  <label className="text-xs text-slate-500 font-medium">Name</label>
+                  <input type="text" value={editingMember.name} onChange={e => setEditingMember({ ...editingMember, name: e.target.value })}
+                    className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" required />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-slate-500 font-medium">Role</label>
+                    <input type="text" value={editingMember.role} onChange={e => setEditingMember({ ...editingMember, role: e.target.value })}
+                      className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 font-medium">Base Salary (INR)</label>
+                    <input type="number" min="0" value={editingMember.baseSalary} onChange={e => setEditingMember({ ...editingMember, baseSalary: e.target.value })}
+                      className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500 font-medium">Expected Start Time</label>
+                  <input type="time" value={editingMember.expectedStartTime} onChange={e => setEditingMember({ ...editingMember, expectedStartTime: e.target.value })}
+                    className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+                  <p className="text-[11px] text-slate-400 mt-1">Late detection compares check-in clock to this time.</p>
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500 font-medium">Annual leave balances</label>
+                  <div className="grid grid-cols-3 gap-2 mt-1">
+                    <div>
+                      <input type="number" min="0" value={editingMember.casualLeaveBalance} onChange={e => setEditingMember({ ...editingMember, casualLeaveBalance: e.target.value })}
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" placeholder="Casual" />
+                      <p className="text-[11px] text-slate-400 mt-0.5 text-center">Casual</p>
+                    </div>
+                    <div>
+                      <input type="number" min="0" value={editingMember.sickLeaveBalance} onChange={e => setEditingMember({ ...editingMember, sickLeaveBalance: e.target.value })}
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" placeholder="Sick" />
+                      <p className="text-[11px] text-slate-400 mt-0.5 text-center">Sick</p>
+                    </div>
+                    <div>
+                      <input type="number" min="0" value={editingMember.earnedLeaveBalance} onChange={e => setEditingMember({ ...editingMember, earnedLeaveBalance: e.target.value })}
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" placeholder="Earned" />
+                      <p className="text-[11px] text-slate-400 mt-0.5 text-center">Earned</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <button type="button" onClick={() => setEditingMember(null)} className="flex-1 px-4 py-2 border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50">Cancel</button>
+                  <button type="submit" className="flex-1 px-4 py-2 bg-sky-600 text-white rounded-lg text-sm font-medium hover:bg-sky-700">Save</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
         {toast && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-sm font-medium px-5 py-3 rounded-2xl shadow-2xl">{toast}</div>

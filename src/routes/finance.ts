@@ -210,20 +210,51 @@ router.get('/team-payroll', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 router.post('/team-payroll', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const { id, name, role, baseSalary } = req.body;
+  const {
+    id, name, role, baseSalary,
+    expectedStartTime, casualLeaveBalance, sickLeaveBalance, earnedLeaveBalance,
+  } = req.body;
   if (!name) { res.status(400).json({ error: 'name required' }); return; }
+
+  // Normalise expectedStartTime to HH:MM:SS. Accept '09:30', '09:30:00', or null.
+  const start = expectedStartTime
+    ? (String(expectedStartTime).length === 5 ? `${expectedStartTime}:00` : String(expectedStartTime))
+    : null;
+
+  // Leave balances: clamp to >= 0 and coerce to int; null means "don't change".
+  const clamp = (v: unknown) => v == null || v === '' ? null : Math.max(0, Math.round(Number(v)));
+  const casual = clamp(casualLeaveBalance);
+  const sick   = clamp(sickLeaveBalance);
+  const earned = clamp(earnedLeaveBalance);
 
   try {
     if (id) {
       await pool.query(
-        `UPDATE team_payroll SET name = $3, role = $4, base_salary = $5 WHERE id = $1 AND tenant_id = $2`,
-        [id, tenantId, name, role || null, Math.round(baseSalary || 0)],
+        `UPDATE team_payroll SET
+           name = $3,
+           role = $4,
+           base_salary = $5,
+           expected_start_time = COALESCE($6::time, expected_start_time),
+           casual_leave_balance = COALESCE($7, casual_leave_balance),
+           sick_leave_balance   = COALESCE($8, sick_leave_balance),
+           earned_leave_balance = COALESCE($9, earned_leave_balance)
+         WHERE id = $1 AND tenant_id = $2`,
+        [id, tenantId, name, role || null, Math.round(baseSalary || 0), start, casual, sick, earned],
       );
       res.json({ success: true });
     } else {
       const result = await pool.query(
-        `INSERT INTO team_payroll (tenant_id, name, role, base_salary) VALUES ($1, $2, $3, $4) RETURNING *`,
-        [tenantId, name, role || null, Math.round(baseSalary || 0)],
+        `INSERT INTO team_payroll (
+           tenant_id, name, role, base_salary,
+           expected_start_time, casual_leave_balance, sick_leave_balance, earned_leave_balance
+         ) VALUES (
+           $1, $2, $3, $4,
+           COALESCE($5::time, '09:30:00'::time),
+           COALESCE($6, 12),
+           COALESCE($7, 6),
+           COALESCE($8, 15)
+         ) RETURNING *`,
+        [tenantId, name, role || null, Math.round(baseSalary || 0), start, casual, sick, earned],
       );
       res.json({ member: result.rows[0] });
     }
