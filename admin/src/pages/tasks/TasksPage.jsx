@@ -10,6 +10,7 @@ import Sidebar from '../../components/Sidebar.jsx';
 import { apiFetch, getUser } from '../../lib/api.js';
 import Header from './Header.jsx';
 import Board from './Board.jsx';
+import DetailPanel from './DetailPanel.jsx';
 import { applyFilters } from './lib/filterPipeline.js';
 
 // LocalStorage keys, exact per the redesign spec
@@ -64,6 +65,9 @@ export default function TasksPage() {
   const [team, setTeam] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Detail panel (Layer C) — id of the task the user has open in the side panel
+  const [openTaskId, setOpenTaskId] = useState(null);
 
   // Persist
   useEffect(() => { try { localStorage.setItem(VIEW_KEY, scope); } catch {} }, [scope]);
@@ -179,11 +183,30 @@ export default function TasksPage() {
     setCollapsedCols((c) => (c.includes(k) ? c.filter((x) => x !== k) : [...c, k]));
   }, []);
 
-  // Detail panel comes in Layer C; for now clicking a card is a no-op (logs)
-  const onOpenTask = useCallback((t) => {
-    // eslint-disable-next-line no-console
-    console.log('[tasks/v2] open task', t.id, '(detail panel ships in Layer C)');
-  }, []);
+  // Detail panel (Layer C): clicking a card opens the right-side slide-in.
+  const onOpenTask = useCallback((t) => setOpenTaskId(t.id), []);
+  const closeDetailPanel = useCallback(() => setOpenTaskId(null), []);
+
+  // Resolve the openTask off the live `tasks` array so optimistic edits
+  // performed inside the panel re-render with fresh data.
+  const openTask = useMemo(
+    () => (openTaskId ? tasks.find((t) => t.id === openTaskId) || null : null),
+    [tasks, openTaskId],
+  );
+
+  // ESC closes the panel — only listen while it's open.
+  useEffect(() => {
+    if (!openTaskId) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setOpenTaskId(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [openTaskId]);
+
+  // Re-bind patchTask to the open task so the panel can call onPatch(patch).
+  const patchOpenTask = useCallback(
+    (patch) => { if (openTaskId) patchTask(openTaskId, patch); },
+    [openTaskId, patchTask],
+  );
 
   // ── render ────────────────────────────────────────────────────────────
   return (
@@ -240,6 +263,17 @@ export default function TasksPage() {
               </p>
             </div>
           </div>
+        )}
+
+        {openTask && (
+          <DetailPanel
+            task={openTask}
+            team={team}
+            visibleTasks={visible}
+            onPatch={patchOpenTask}
+            onNavigate={(t) => setOpenTaskId(t.id)}
+            onClose={closeDetailPanel}
+          />
         )}
       </div>
     </div>
