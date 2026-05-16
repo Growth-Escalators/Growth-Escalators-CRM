@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import { apiFetch } from '../lib/api.js';
 import { BarChart2, RefreshCw, TrendingUp, TrendingDown, ChevronDown, ChevronRight, AlertCircle, Settings, Bell, Plus, Trash2, MessageSquare, Send, CheckCircle, Clock, Zap } from 'lucide-react';
@@ -15,7 +15,11 @@ const DATE_RANGES = [
   { value: 'last_30d', label: 'Last 30 Days' },
   { value: 'this_month', label: 'This Month' },
   { value: 'last_month', label: 'Last Month' },
+  { value: 'custom', label: 'Custom range…' },
 ];
+
+const ADS_RANGE_KEY = 'ge-crm-ads-date-range';
+const todayIso = () => new Date().toISOString().split('T')[0];
 
 function fmt(n, prefix = '', suffix = '') {
   if (n === null || n === undefined) return '—';
@@ -74,7 +78,7 @@ function TokenMissingBanner({ onDismiss }) {
   );
 }
 
-function CampaignRow({ campaign, insights, accountId, dateRange }) {
+function CampaignRow({ campaign, insights, accountId, dateQS }) {
   const [expanded, setExpanded] = useState(false);
   const [adsets, setAdsets] = useState([]);
   const [loadingAdsets, setLoadingAdsets] = useState(false);
@@ -85,10 +89,11 @@ function CampaignRow({ campaign, insights, accountId, dateRange }) {
 
   async function loadAdsets() {
     if (adsets.length > 0) { setExpanded(e => !e); return; }
+    if (!dateQS) return;
     setExpanded(true);
     setLoadingAdsets(true);
     try {
-      const data = await apiFetch(`/api/ads/adsets?accountId=${accountId}&campaignId=${campaign.id}&dateRange=${dateRange}`);
+      const data = await apiFetch(`/api/ads/adsets?accountId=${accountId}&campaignId=${campaign.id}&${dateQS}`);
       setAdsets(data?.insights || []);
     } finally {
       setLoadingAdsets(false);
@@ -98,9 +103,9 @@ function CampaignRow({ campaign, insights, accountId, dateRange }) {
   async function loadAds(adsetId) {
     if (expandedAdset === adsetId) { setExpandedAdset(null); return; }
     setExpandedAdset(adsetId);
-    if (adsetAds[adsetId]) return;
+    if (adsetAds[adsetId] || !dateQS) return;
     try {
-      const data = await apiFetch(`/api/ads/ads?accountId=${accountId}&adsetId=${adsetId}&dateRange=${dateRange}`);
+      const data = await apiFetch(`/api/ads/ads?accountId=${accountId}&adsetId=${adsetId}&${dateQS}`);
       setAdsetAds(prev => ({ ...prev, [adsetId]: data?.insights || [] }));
     } catch {}
   }
@@ -377,7 +382,14 @@ function AlertsTab({ adAccounts }) {
   );
 }
 
-function SlackAutomationTab({ adAccounts, insights, dateRange }) {
+function SlackAutomationTab({ adAccounts, insights, dateRange, customSince, customUntil }) {
+  // Build the Slack request body that the backend resolveDateRange() expects.
+  function rangePayload() {
+    if (dateRange === 'custom' && customSince && customUntil) {
+      return { dateRange: 'custom', since: customSince, until: customUntil };
+    }
+    return { dateRange };
+  }
   const [sending, setSending] = useState(false);
   const [toast, setToast] = useState('');
   const [automations, setAutomations] = useState({});
@@ -407,7 +419,7 @@ function SlackAutomationTab({ adAccounts, insights, dateRange }) {
     try {
       const data = await apiFetch('/api/ads/slack-digest', {
         method: 'POST',
-        body: JSON.stringify({ dateRange }),
+        body: JSON.stringify(rangePayload()),
       });
       setToast(data?.sent ? 'Digest sent to Slack!' : (data?.error || 'Failed to send'));
     } catch (e) {
@@ -421,7 +433,7 @@ function SlackAutomationTab({ adAccounts, insights, dateRange }) {
     try {
       const data = await apiFetch('/api/ads/slack-alert', {
         method: 'POST',
-        body: JSON.stringify({ type, dateRange }),
+        body: JSON.stringify({ type, ...rangePayload() }),
       });
       setToast(data?.sent ? `${type} alert sent!` : (data?.error || 'Failed'));
     } catch (e) {
@@ -557,7 +569,23 @@ function SlackAutomationTab({ adAccounts, insights, dateRange }) {
 
 export default function AdsPage() {
   const [selectedAccount, setSelectedAccount] = useState('all');
-  const [dateRange, setDateRange] = useState('last_7d');
+  // Hydrate dateRange + custom dates from localStorage so refresh keeps the
+  // user's window. Persisted shape: { preset, since, until, applied }.
+  const persisted = (() => {
+    try {
+      const raw = localStorage.getItem(ADS_RANGE_KEY);
+      if (!raw) return null;
+      const p = JSON.parse(raw);
+      if (p && typeof p === 'object' && DATE_RANGES.some(r => r.value === p.preset)) return p;
+    } catch { /* ignore */ }
+    return null;
+  })();
+  const [dateRange, setDateRange] = useState(persisted?.preset || 'last_7d');
+  const [customSince, setCustomSince] = useState(persisted?.since || '');
+  const [customUntil, setCustomUntil] = useState(persisted?.until || '');
+  const [customApplied, setCustomApplied] = useState(
+    persisted?.preset === 'custom' && !!persisted?.since && !!persisted?.until,
+  );
   const [loading, setLoading] = useState(false);
   const [insights, setInsights] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
@@ -592,15 +620,37 @@ export default function AdsPage() {
 
   const accountsToFetch = selectedAccount === 'all' ? adAccounts.map(a => a.id) : [selectedAccount];
 
+  // Single source of truth for the date-range query string. Re-fetches whenever
+  // the preset changes OR the user clicks "Apply" in custom mode.
+  const dateQS = useMemo(() => {
+    if (dateRange === 'custom') {
+      if (!customApplied || !customSince || !customUntil) return null; // gate fetch
+      return `dateRange=custom&since=${customSince}&until=${customUntil}`;
+    }
+    return `dateRange=${dateRange}`;
+  }, [dateRange, customApplied, customSince, customUntil]);
+
+  // Persist preset + custom dates so refresh keeps the window.
+  useEffect(() => {
+    try {
+      localStorage.setItem(ADS_RANGE_KEY, JSON.stringify({
+        preset: dateRange,
+        since: customSince,
+        until: customUntil,
+      }));
+    } catch { /* ignore */ }
+  }, [dateRange, customSince, customUntil]);
+
   const loadData = useCallback(async () => {
+    if (!dateQS) return; // custom mode without applied dates → wait
     setLoading(true);
     setError(null);
     try {
       const results = await Promise.all(
         accountsToFetch.map(async accountId => {
           const [ins, camps] = await Promise.all([
-            apiFetch(`/api/ads/insights?accountId=${accountId}&dateRange=${dateRange}&level=campaign`),
-            apiFetch(`/api/ads/campaigns?accountId=${accountId}&dateRange=${dateRange}`),
+            apiFetch(`/api/ads/insights?accountId=${accountId}&${dateQS}&level=campaign`),
+            apiFetch(`/api/ads/campaigns?accountId=${accountId}&${dateQS}`),
           ]);
           if (ins?.error === 'token_missing') setTokenMissing(true);
           return {
@@ -616,7 +666,7 @@ export default function AdsPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedAccount, dateRange]);
+  }, [selectedAccount, dateQS]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -633,25 +683,29 @@ export default function AdsPage() {
         .sort((a, b) => Number(b.spend || 0) - Number(a.spend || 0))
         .slice(0, 5)
         .map(i => ({ name: i.campaignName || '', spend: Number(i.spend || 0), purchases: Number(i.purchases || 0), roas: Number(i.roas || 0) }));
+      const body = {
+        metrics: {
+          totalSpend: spend,
+          totalPurchases: purchases,
+          avgRoas: spend > 0 ? pval / spend : 0,
+          avgCtr: impr > 0 ? (clicks / impr) * 100 : 0,
+          avgCpc: clicks > 0 ? spend / clicks : 0,
+          totalImpressions: impr,
+          topCampaigns,
+        },
+        dateRange,
+        ...(dateRange === 'custom' && customSince && customUntil
+          ? { since: customSince, until: customUntil }
+          : {}),
+      };
       const data = await apiFetch('/api/ads/ai-insights', {
         method: 'POST',
-        body: JSON.stringify({
-          metrics: {
-            totalSpend: spend,
-            totalPurchases: purchases,
-            avgRoas: spend > 0 ? pval / spend : 0,
-            avgCtr: impr > 0 ? (clicks / impr) * 100 : 0,
-            avgCpc: clicks > 0 ? spend / clicks : 0,
-            totalImpressions: impr,
-            topCampaigns,
-          },
-          dateRange,
-        }),
+        body: JSON.stringify(body),
       });
       setAiInsights(data?.insights || []);
     } catch { setAiInsights([]); }
     setInsightsLoading(false);
-  }, [insights, dateRange]);
+  }, [insights, dateRange, customSince, customUntil]);
 
   useEffect(() => {
     if (activeTab === 'performance' && insights.length > 0) loadInsights();
@@ -694,11 +748,53 @@ export default function AdsPage() {
             {/* Date range */}
             <select
               value={dateRange}
-              onChange={e => setDateRange(e.target.value)}
+              onChange={e => {
+                setDateRange(e.target.value);
+                // Switching off custom resets the applied flag so the next
+                // fetch uses the new preset immediately.
+                if (e.target.value !== 'custom') setCustomApplied(false);
+              }}
               className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-sky-500"
             >
               {DATE_RANGES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
+
+            {dateRange === 'custom' && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={customSince}
+                  max={customUntil || todayIso()}
+                  onChange={e => { setCustomSince(e.target.value); setCustomApplied(false); }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && customSince && customUntil) setCustomApplied(true);
+                  }}
+                  className="text-sm border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  aria-label="Start date"
+                />
+                <span className="text-xs text-slate-400">→</span>
+                <input
+                  type="date"
+                  value={customUntil}
+                  min={customSince || undefined}
+                  max={todayIso()}
+                  onChange={e => { setCustomUntil(e.target.value); setCustomApplied(false); }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && customSince && customUntil) setCustomApplied(true);
+                  }}
+                  className="text-sm border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  aria-label="End date"
+                />
+                <button
+                  type="button"
+                  onClick={() => setCustomApplied(true)}
+                  disabled={!customSince || !customUntil || customApplied}
+                  className="text-sm bg-sky-600 hover:bg-sky-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-3 py-1.5 rounded-lg"
+                >
+                  {customApplied ? 'Applied' : 'Apply'}
+                </button>
+              </div>
+            )}
 
             <button
               onClick={loadData}
@@ -756,7 +852,11 @@ export default function AdsPage() {
                   <div className="px-6 py-3 border-b border-slate-100 bg-gradient-to-r from-violet-50 to-slate-50 flex items-center gap-2">
                     <svg className="w-4 h-4 text-violet-500" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>
                     <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">AI Insights</p>
-                    <span className="text-xs text-slate-400">claude-sonnet · {DATE_RANGES.find(r => r.value === dateRange)?.label || dateRange}</span>
+                    <span className="text-xs text-slate-400">claude-sonnet · {
+                      dateRange === 'custom' && customSince && customUntil
+                        ? `${customSince} → ${customUntil}`
+                        : DATE_RANGES.find(r => r.value === dateRange)?.label || dateRange
+                    }</span>
                     <button onClick={loadInsights} disabled={insightsLoading}
                       className="ml-auto flex items-center gap-1 text-xs text-violet-600 hover:text-violet-800 disabled:opacity-50 font-medium">
                       <RefreshCw className={`w-3 h-3 ${insightsLoading ? 'animate-spin' : ''}`} />
@@ -836,7 +936,7 @@ export default function AdsPage() {
                             campaign={c}
                             insights={insights}
                             accountId={accountsToFetch[0] || selectedAccount}
-                            dateRange={dateRange}
+                            dateQS={dateQS}
                           />
                         ))}
                       </tbody>
@@ -890,7 +990,7 @@ export default function AdsPage() {
 
           {activeTab === 'alerts' && <AlertsTab adAccounts={adAccounts} />}
 
-          {activeTab === 'slack' && <SlackAutomationTab adAccounts={adAccounts} insights={insights} dateRange={dateRange} />}
+          {activeTab === 'slack' && <SlackAutomationTab adAccounts={adAccounts} insights={insights} dateRange={dateRange} customSince={customSince} customUntil={customUntil} />}
         </div>
       </main>
     </div>

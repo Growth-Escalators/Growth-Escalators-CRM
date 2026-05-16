@@ -28,7 +28,11 @@ function getToken(): string | null {
   return process.env.META_ADS_TOKEN || process.env.META_ACCESS_TOKEN || null;
 }
 
-function dateRangeToParams(range: string): Record<string, string> {
+function dateRangeToParams(
+  range: string,
+  customSince?: string,
+  customUntil?: string,
+): Record<string, string> {
   const today = new Date();
   const fmt = (d: Date) => d.toISOString().split('T')[0];
 
@@ -56,10 +60,59 @@ function dateRangeToParams(range: string): Record<string, string> {
       const last = new Date(today.getFullYear(), today.getMonth(), 0);
       return { time_range: JSON.stringify({ since: fmt(first), until: fmt(last) }) };
     }
+    case 'custom': {
+      if (!customSince || !customUntil) {
+        throw new Error('custom range requires since and until in YYYY-MM-DD');
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(customSince) || !/^\d{4}-\d{2}-\d{2}$/.test(customUntil)) {
+        throw new Error('invalid date format — expected YYYY-MM-DD');
+      }
+      const sinceD = new Date(customSince);
+      const untilD = new Date(customUntil);
+      if (isNaN(sinceD.getTime()) || isNaN(untilD.getTime())) {
+        throw new Error('invalid date');
+      }
+      if (sinceD > untilD) {
+        throw new Error('since must be on or before until');
+      }
+      // Meta caps ad-insights lookback at ~37 months
+      const maxLookback = new Date();
+      maxLookback.setMonth(maxLookback.getMonth() - 37);
+      if (sinceD < maxLookback) {
+        throw new Error('since cannot be more than 37 months ago');
+      }
+      return { time_range: JSON.stringify({ since: customSince, until: customUntil }) };
+    }
     default:
       since.setDate(today.getDate() - 7);
       return { time_range: JSON.stringify({ since: fmt(since), until: fmt(until) }) };
   }
+}
+
+// Shared helper — pulls dateRange + optional since/until from either query or body
+// and returns the Meta time_range params, or throws a 400-able error.
+function resolveDateRange(
+  req: Request,
+  source: 'query' | 'body' = 'query',
+): Record<string, string> {
+  const src = (source === 'body' ? req.body : req.query) as Record<string, unknown> | undefined;
+  const range = (src?.dateRange as string) || 'last_7d';
+  const since = src?.since as string | undefined;
+  const until = src?.until as string | undefined;
+  return dateRangeToParams(range, since, until);
+}
+
+// Format a date range for human display (used in Slack message labels).
+function dateRangeLabel(req: Request, source: 'query' | 'body' = 'query'): string {
+  const src = (source === 'body' ? req.body : req.query) as Record<string, unknown> | undefined;
+  const range = (src?.dateRange as string) || 'last_7d';
+  if (range === 'custom') {
+    const since = src?.since as string | undefined;
+    const until = src?.until as string | undefined;
+    if (since && until) return `${since} → ${until}`;
+    return 'Custom range';
+  }
+  return range.replace(/_/g, ' ').replace('last ', 'Last ');
 }
 
 function parseInsightRow(row: Record<string, unknown>) {
@@ -171,12 +224,14 @@ router.get('/insights', async (req: Request, res: Response) => {
   if (!token) { res.json({ insights: [], error: 'token_missing' }); return; }
 
   const accountId = req.query.accountId as string;
-  const dateRange = (req.query.dateRange as string) || 'last_7d';
   const level = (req.query.level as string) || 'campaign';
   if (!accountId) { res.status(400).json({ error: 'accountId required' }); return; }
 
+  let timeParams: Record<string, string>;
+  try { timeParams = resolveDateRange(req, 'query'); }
+  catch (e) { res.status(400).json({ insights: [], error: e instanceof Error ? e.message : String(e) }); return; }
+
   try {
-    const timeParams = dateRangeToParams(dateRange);
     const fields = [
       'campaign_id', 'campaign_name', 'adset_id', 'adset_name',
       'ad_id', 'ad_name', 'spend', 'impressions', 'clicks',
@@ -216,11 +271,13 @@ router.get('/adsets', async (req: Request, res: Response) => {
 
   const accountId = req.query.accountId as string;
   const campaignId = req.query.campaignId as string;
-  const dateRange = (req.query.dateRange as string) || 'last_7d';
   if (!accountId) { res.status(400).json({ error: 'accountId required' }); return; }
 
+  let timeParams: Record<string, string>;
+  try { timeParams = resolveDateRange(req, 'query'); }
+  catch (e) { res.status(400).json({ insights: [], error: e instanceof Error ? e.message : String(e) }); return; }
+
   try {
-    const timeParams = dateRangeToParams(dateRange);
     const fields = [
       'campaign_id', 'campaign_name', 'adset_id', 'adset_name',
       'spend', 'impressions', 'clicks', 'ctr', 'cpm', 'cpc',
@@ -261,11 +318,13 @@ router.get('/ads', async (req: Request, res: Response) => {
 
   const accountId = req.query.accountId as string;
   const adsetId = req.query.adsetId as string;
-  const dateRange = (req.query.dateRange as string) || 'last_7d';
   if (!accountId) { res.status(400).json({ error: 'accountId required' }); return; }
 
+  let timeParams: Record<string, string>;
+  try { timeParams = resolveDateRange(req, 'query'); }
+  catch (e) { res.status(400).json({ insights: [], error: e instanceof Error ? e.message : String(e) }); return; }
+
   try {
-    const timeParams = dateRangeToParams(dateRange);
     const fields = [
       'campaign_id', 'campaign_name', 'adset_id', 'adset_name',
       'ad_id', 'ad_name', 'spend', 'impressions', 'clicks',
@@ -304,7 +363,9 @@ router.post('/slack-digest', async (req: Request, res: Response) => {
   const token = getToken();
   if (!token) { res.json({ sent: false, error: 'Meta Ads token not configured' }); return; }
 
-  const dateRange = (req.body?.dateRange as string) || 'last_7d';
+  let timeParams: Record<string, string>;
+  try { timeParams = resolveDateRange(req, 'body'); }
+  catch (e) { res.status(400).json({ sent: false, error: e instanceof Error ? e.message : String(e) }); return; }
 
   try {
     const { sendSlackMessage, CHANNELS } = await import('../services/slackService');
@@ -313,7 +374,6 @@ router.post('/slack-digest', async (req: Request, res: Response) => {
     const allInsights: Array<{ accountName: string; spend: number; purchases: number; roas: number; impressions: number }> = [];
 
     for (const acct of adAccounts) {
-      const timeParams = dateRangeToParams(dateRange);
       const fields = 'spend,impressions,clicks,actions,action_values';
       const params = new URLSearchParams({ fields, level: 'account', time_range: timeParams.time_range, limit: '1', access_token: token });
       const url = `${META_API_BASE}/${acct.id}/insights?${params.toString()}`;
@@ -333,7 +393,7 @@ router.post('/slack-digest', async (req: Request, res: Response) => {
     const totalPurchases = allInsights.reduce((s, i) => s + i.purchases, 0);
     const totalImpressions = allInsights.reduce((s, i) => s + i.impressions, 0);
 
-    const dateLabel = dateRange.replace(/_/g, ' ').replace('last ', 'Last ');
+    const dateLabel = dateRangeLabel(req, 'body');
 
     const lines = [
       `*Meta Ads Performance Digest* (${dateLabel})`,
@@ -365,7 +425,12 @@ router.post('/slack-alert', async (req: Request, res: Response) => {
   if (!token) { res.json({ sent: false, error: 'Meta Ads token not configured' }); return; }
 
   const alertType = (req.body?.type as string) || 'roas_check';
-  const dateRange = (req.body?.dateRange as string) || 'today';
+
+  // For slack-alert the default range is 'today' if not provided.
+  if (!req.body?.dateRange) (req.body ??= {}).dateRange = 'today';
+  let timeParams: Record<string, string>;
+  try { timeParams = resolveDateRange(req, 'body'); }
+  catch (e) { res.status(400).json({ sent: false, error: e instanceof Error ? e.message : String(e) }); return; }
 
   try {
     const { sendSlackDM, SLACK_MEMBERS } = await import('../services/slackService');
@@ -373,7 +438,6 @@ router.post('/slack-alert', async (req: Request, res: Response) => {
     const alerts: string[] = [];
 
     for (const acct of adAccounts) {
-      const timeParams = dateRangeToParams(dateRange);
       const fields = 'spend,impressions,clicks,actions,action_values';
       const params = new URLSearchParams({ fields, level: 'account', time_range: timeParams.time_range, limit: '1', access_token: token });
       const url = `${META_API_BASE}/${acct.id}/insights?${params.toString()}`;
@@ -401,7 +465,7 @@ router.post('/slack-alert', async (req: Request, res: Response) => {
         ? `*🔴 ROAS Alert Check*\n\n${alerts.join('\n')}\n\n_Action needed: review campaigns with ROAS < 2.0x_`
         : `*✅ ROAS Check — All Clear*\n\nAll accounts above 2.0x ROAS threshold.`;
     } else {
-      message = `*📊 Spend Summary (${dateRange.replace(/_/g, ' ')})*\n\n${alerts.length > 0 ? alerts.join('\n') : '_No spend data available_'}`;
+      message = `*📊 Spend Summary (${dateRangeLabel(req, 'body')})*\n\n${alerts.length > 0 ? alerts.join('\n') : '_No spend data available_'}`;
     }
 
     const sent = await sendSlackDM(SLACK_MEMBERS.jatin, message);
@@ -546,7 +610,8 @@ router.post('/ai-insights', async (req: Request, res: Response) => {
       .map(c => `- ${c.name}: ₹${c.spend} spend, ${c.purchases} purchases, ${Number(c.roas).toFixed(2)}x ROAS`)
       .join('\n') || '(no campaign data)';
 
-    const userPrompt = `Meta Ads performance (${dr || 'last 7 days'}):
+    const periodLabel = dateRangeLabel(req, 'body') || dr || 'last 7 days';
+    const userPrompt = `Meta Ads performance (${periodLabel}):
 - Total Spend: ₹${Math.round(metrics.totalSpend).toLocaleString('en-IN')}
 - Total Purchases: ${metrics.totalPurchases}
 - Average ROAS: ${Number(metrics.avgRoas).toFixed(2)}x
