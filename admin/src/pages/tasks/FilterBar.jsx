@@ -4,41 +4,10 @@
 // Surfaces: scope segmented (My/All/Today), assignee avatar chips (first 5
 // teammates, current user pinned first), priority pill group, due select,
 // Clear link, and the Smart-sort toggle.
-//
-// Layer A: avatar atom is inlined here as a stop-gap. Layer B extracts it
-// to ./atoms/Avatar.jsx and the rest of the redesign reuses that.
 
 import React from 'react';
 import { Sparkles, Sun } from 'lucide-react';
-
-// ---- inline atoms (will move to ./atoms/ in Layer B) -----------------------
-
-const AVATAR_TONES = ['bg-sky-500', 'bg-rose-500', 'bg-emerald-500', 'bg-amber-500', 'bg-violet-500', 'bg-teal-500'];
-
-function avatarTone(seed) {
-  const s = String(seed || '');
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return AVATAR_TONES[h % AVATAR_TONES.length];
-}
-
-function initials(name) {
-  if (!name) return '?';
-  const parts = String(name).trim().split(/\s+/);
-  return (parts.length === 1 ? parts[0].slice(0, 2) : parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-function Avatar({ name, size = 'sm' }) {
-  const sz = size === 'lg' ? 'w-8 h-8 text-[11px]' : size === 'md' ? 'w-6 h-6 text-[10px]' : 'w-5 h-5 text-[9px]';
-  return (
-    <span
-      className={`inline-flex items-center justify-center rounded-full font-semibold text-white ${sz} ${avatarTone(name)}`}
-      title={name || 'Unassigned'}
-    >
-      {initials(name)}
-    </span>
-  );
-}
+import Avatar from './atoms/Avatar.jsx';
 
 // ---- scope segmented -------------------------------------------------------
 
