@@ -69,7 +69,7 @@ function ExternalChevron() {
   );
 }
 
-function NavEntry({ entry, unreadCount, nested = false }) {
+function NavEntry({ entry, unreadCount, pendingLeavesCount, nested = false }) {
   const Icon = entry.icon;
   const cls = nested ? navClassNested : navClass;
 
@@ -95,6 +95,11 @@ function NavEntry({ entry, unreadCount, nested = false }) {
       {entry.badge === 'inbox-unread' && unreadCount > 0 && (
         <span className="bg-emerald-500 text-white text-xs rounded-full px-1.5 py-0.5 min-w-5 text-center font-semibold leading-none">
           {unreadCount > 99 ? '99+' : unreadCount}
+        </span>
+      )}
+      {entry.badge === 'pending-leaves' && pendingLeavesCount > 0 && (
+        <span className="bg-amber-500 text-white text-xs rounded-full px-1.5 py-0.5 min-w-5 text-center font-semibold leading-none">
+          {pendingLeavesCount > 99 ? '99+' : pendingLeavesCount}
         </span>
       )}
       {entry.newTab && <ExternalChevron />}
@@ -125,6 +130,7 @@ export default function Sidebar() {
   const location = useLocation();
 
   const [unreadCount, setUnreadCount] = useState(0);
+  const [pendingLeavesCount, setPendingLeavesCount] = useState(0);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [openGroups, setOpenGroups] = useState(readStoredGroups);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -138,6 +144,19 @@ export default function Sidebar() {
     }
     fetchUnread();
     const interval = setInterval(fetchUnread, 30_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Pending leaves badge — poll every 60s. The Expenses entry (route /finance)
+  // shows this; approval UI lives there in the Attendance tab.
+  useEffect(() => {
+    function fetchPending() {
+      apiFetch('/api/finance/leaves/pending-count')
+        .then(d => setPendingLeavesCount(d?.count ?? 0))
+        .catch(() => {});
+    }
+    fetchPending();
+    const interval = setInterval(fetchPending, 60_000);
     return () => clearInterval(interval);
   }, []);
 
@@ -266,7 +285,7 @@ export default function Sidebar() {
               <React.Fragment key={section}>
                 <SectionLabel>{section}</SectionLabel>
                 {entries.map(e => (
-                  <NavEntry key={e.id} entry={e} unreadCount={unreadCount} />
+                  <NavEntry key={e.id} entry={e} unreadCount={unreadCount} pendingLeavesCount={pendingLeavesCount} />
                 ))}
               </React.Fragment>
             );
@@ -278,7 +297,7 @@ export default function Sidebar() {
               <div className="pt-3" />
               <GroupHeader id="tools" label={GROUP_LABELS.tools} isOpen={openGroups.tools} onToggle={() => toggleGroup('tools')} />
               {openGroups.tools && grouped.tools.map(e => (
-                <NavEntry key={e.id} entry={e} unreadCount={unreadCount} nested />
+                <NavEntry key={e.id} entry={e} unreadCount={unreadCount} pendingLeavesCount={pendingLeavesCount} nested />
               ))}
             </>
           )}
@@ -289,7 +308,7 @@ export default function Sidebar() {
               <div className="pt-2" />
               <GroupHeader id="finance" label={GROUP_LABELS.finance} isOpen={openGroups.finance} onToggle={() => toggleGroup('finance')} />
               {openGroups.finance && grouped.finance.map(e => (
-                <NavEntry key={e.id} entry={e} unreadCount={unreadCount} nested />
+                <NavEntry key={e.id} entry={e} unreadCount={unreadCount} pendingLeavesCount={pendingLeavesCount} nested />
               ))}
             </>
           )}
@@ -299,7 +318,7 @@ export default function Sidebar() {
             <div className="mt-auto pt-2">
               <GroupHeader id="settings" label={GROUP_LABELS.settings} isOpen={openGroups.settings} onToggle={() => toggleGroup('settings')} />
               {openGroups.settings && grouped.settings.map(e => (
-                <NavEntry key={e.id} entry={e} unreadCount={unreadCount} nested />
+                <NavEntry key={e.id} entry={e} unreadCount={unreadCount} pendingLeavesCount={pendingLeavesCount} nested />
               ))}
             </div>
           )}

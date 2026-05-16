@@ -516,6 +516,25 @@ router.get('/attendance/calendar', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/finance/leaves/pending-count
+// Lightweight count of pending leave requests for the tenant. Drives the
+// Sidebar badge and Dashboard banner so admins notice approvals without
+// having to drill into Finance → Attendance → scroll-to-bottom.
+// ---------------------------------------------------------------------------
+router.get('/leaves/pending-count', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  try {
+    const r = await pool.query(
+      `SELECT COUNT(*)::int AS count FROM team_leaves WHERE tenant_id = $1 AND status = 'pending'`,
+      [tenantId],
+    );
+    res.json({ count: (r.rows[0] as { count: number } | undefined)?.count ?? 0 });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/finance/leaves?month=2026-04
 // ---------------------------------------------------------------------------
 router.get('/leaves', async (req: Request, res: Response) => {

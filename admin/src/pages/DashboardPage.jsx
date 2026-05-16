@@ -174,6 +174,7 @@ export default function DashboardPage() {
   const [seoOverview, setSeoOverview] = useState([]);
   const [outreach, setOutreach] = useState(null);
   const [cronHealth, setCronHealth] = useState(null);
+  const [pendingLeaves, setPendingLeaves] = useState(0);
 
   // Parsed AI data
   const [myActions, setMyActions] = useState([]);
@@ -196,17 +197,19 @@ export default function DashboardPage() {
       setPipelineSummary(pipelineData);
 
       if (isAdmin) {
-        const [intelData, seoData, outreachData, cronData] = await Promise.all([
+        const [intelData, seoData, outreachData, cronData, pendingLeaveData] = await Promise.all([
           apiFetch('/api/intelligence/today').catch(() => null),
           apiFetch('/api/seo/overview').catch(() => null),
           apiFetch('/api/outreach/leads/dashboard').catch(() => null),
           apiFetch('/api/intelligence/system-health').catch(() => null),
+          apiFetch('/api/finance/leaves/pending-count').catch(() => null),
         ]);
         const report = intelData?.report ?? null;
         setIntelligence(report);
         setSeoOverview(seoData?.clients ?? []);
         setOutreach(outreachData);
         setCronHealth(cronData);
+        setPendingLeaves(pendingLeaveData?.count ?? 0);
 
         // Parse AI coaching data
         if (report) {
@@ -317,6 +320,18 @@ export default function DashboardPage() {
             <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
               Could not load some dashboard data. Try refreshing.
             </div>
+          )}
+
+          {isAdmin && pendingLeaves > 0 && (
+            <a href="/finance" className="block bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 hover:bg-amber-100 transition-colors">
+              <div className="flex items-center gap-3">
+                <Clock className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                <p className="text-sm text-amber-900 flex-1">
+                  <span className="font-semibold">{pendingLeaves} leave request{pendingLeaves === 1 ? '' : 's'}</span> pending your approval
+                </p>
+                <ChevronRight className="w-4 h-4 text-amber-600" />
+              </div>
+            </a>
           )}
 
           {/* ── YOUR PRIORITY ACTIONS (personalized) ── */}

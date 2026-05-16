@@ -151,6 +151,7 @@ export const NAV_ENTRIES = [
   {
     id: 'expenses', label: 'Expenses', to: '/finance',
     icon: Receipt, section: 'Finance', group: 'finance',
+    badge: 'pending-leaves',
     visible: f => f.canBilling,
   },
   {
