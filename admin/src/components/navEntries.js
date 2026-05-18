@@ -21,6 +21,7 @@ export function computeFlags(role, perms = {}) {
     isTeamLead,
     isAdminTier,
     canCRM:        ['admin', 'manager_ops', 'team_lead', 'sales'].includes(role),
+    canTasks:      ['admin', 'manager_ops', 'team_lead', 'sales', 'staff'].includes(role),
     canAds:        ['admin', 'manager_ads', 'team_lead'].includes(role) || !!perms.reportsMetaAds,
     canReports:    ['admin', 'manager_ops', 'manager_ads'].includes(role),
     canSocial:     ['admin', 'manager_ops', 'team_lead', 'staff'].includes(role) || !!perms.accessSocial,
@@ -77,7 +78,7 @@ export const NAV_ENTRIES = [
   {
     id: 'tasks', label: 'Tasks', to: '/tasks',
     icon: CheckSquare, section: 'CRM', group: null,
-    visible: f => f.canCRM,
+    visible: f => f.canTasks,
   },
   {
     id: 'inbox', label: 'Inbox', to: '/inbox',
