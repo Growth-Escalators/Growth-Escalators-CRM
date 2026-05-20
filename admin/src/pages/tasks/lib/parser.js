@@ -54,7 +54,7 @@ export function resolveDueAt(label, now = new Date()) {
 // to have `id` + `name` (optionally `email`). Pass `now` for tests.
 export function parseQuickCapture(text, team = [], now = new Date()) {
   if (!text || !text.trim()) {
-    return { title: '', priority: null, assignee: null, tags: [], dueLabel: null, dueAt: null };
+    return { title: '', priority: null, assignee: null, assigneeAmbiguous: false, tags: [], dueLabel: null, dueAt: null };
   }
   let t = text;
 
@@ -65,17 +65,34 @@ export function parseQuickCapture(text, team = [], now = new Date()) {
     t = t.replace(prio[0], '');
   }
 
+  // Assignee: substring match on team[].name. If the fragment matches more
+  // than one team member ("@sara" → "Sara" + "Sarah"), refuse to guess —
+  // leave assignee null and strip the token so it doesn't pollute the title.
+  // The UI can surface "@sara — ambiguous" in the preview chip.
   let assignee = null;
+  let assigneeAmbiguous = false;
   const a = t.match(ASSIGNEE_RE);
   if (a) {
     const frag = a[1].toLowerCase();
-    const member = Array.isArray(team)
-      ? team.find((tm) => (tm?.name || '').toLowerCase().includes(frag))
-      : null;
-    if (member) {
-      assignee = member.id;
+    const matches = Array.isArray(team)
+      ? team.filter((tm) => (tm?.name || '').toLowerCase().includes(frag))
+      : [];
+    // Prefer an exact (case-insensitive) name match if one exists — that lets
+    // typing "@sarah" find Sarah unambiguously even when "Sara" is also on
+    // the team.
+    const exact = matches.find((tm) => (tm?.name || '').toLowerCase() === frag);
+    if (exact) {
+      assignee = exact.id;
+      t = t.replace(a[0], '');
+    } else if (matches.length === 1) {
+      assignee = matches[0].id;
+      t = t.replace(a[0], '');
+    } else if (matches.length > 1) {
+      assigneeAmbiguous = true;
+      // Strip the token so the title is clean; the chip will show "ambiguous".
       t = t.replace(a[0], '');
     }
+    // else: no match — leave the token in the title (user typo)
   }
 
   const tags = [];
@@ -99,5 +116,5 @@ export function parseQuickCapture(text, team = [], now = new Date()) {
   // Also clean up dangling "due" prefixes (people write "due tomorrow", we want "tomorrow" stripped + no stray "due").
   const title = t.replace(/\bdue\b/gi, '').trim().replace(/\s+/g, ' ');
 
-  return { title, priority, assignee, tags, dueLabel, dueAt };
+  return { title, priority, assignee, assigneeAmbiguous, tags, dueLabel, dueAt };
 }

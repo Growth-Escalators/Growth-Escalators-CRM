@@ -70,7 +70,7 @@ export default function QuickCapture({ onCreate, team = [] }) {
   }
 
   const hasPreviewTokens = Boolean(
-    parsed && (parsed.priority || parsed.assignee || parsed.dueLabel || (parsed.tags && parsed.tags.length))
+    parsed && (parsed.priority || parsed.assignee || parsed.assigneeAmbiguous || parsed.dueLabel || (parsed.tags && parsed.tags.length))
   );
 
   return (
@@ -105,6 +105,11 @@ export default function QuickCapture({ onCreate, team = [] }) {
             <span className="font-medium text-slate-700">"{parsed.title || '…'}"</span>
             {parsed.priority && <PriorityChip priority={parsed.priority} />}
             {parsed.assignee && <AssigneeChip assigneeId={parsed.assignee} team={team} />}
+            {parsed.assigneeAmbiguous && (
+              <span className="px-1.5 py-px rounded bg-rose-50 text-rose-700" title="More than one team member matched — type more characters">
+                @? ambiguous
+              </span>
+            )}
             {parsed.dueLabel && (
               <span className="px-1.5 py-px rounded bg-amber-50 text-amber-700 capitalize">Due {parsed.dueLabel}</span>
             )}
