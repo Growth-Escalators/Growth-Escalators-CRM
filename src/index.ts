@@ -110,9 +110,12 @@ app.use(cors({
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 // ---------------------------------------------------------------------------
-// JSON body parser
+// JSON body parser. 2mb cap protects against malicious / runaway uploads;
+// the legitimate biggest payloads are intelligence/analytics exports which
+// fit comfortably under this. Bulk-import routes that need more should
+// mount their own larger parser at the route level.
 // ---------------------------------------------------------------------------
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 
 // ---------------------------------------------------------------------------
 // Request ID middleware
