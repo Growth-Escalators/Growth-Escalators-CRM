@@ -75,8 +75,12 @@ export function requireStrictAuth(req: Request, res: Response, next: NextFunctio
         return;
       }
       next();
-    } catch {
-      next(); // DB error — allow through rather than blocking
+    } catch (e) {
+      // Fail closed on DB error. A transient blip will log the user out, but
+      // letting requests through without a tokenVersion check is a security
+      // hole — a revoked session could be re-used until the DB comes back.
+      console.error('[auth] requireStrictAuth DB lookup failed:', e instanceof Error ? e.message : e);
+      res.status(401).json({ error: 'session check unavailable — please retry' });
     }
   });
 }
