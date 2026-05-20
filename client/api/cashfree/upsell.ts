@@ -44,7 +44,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
           customer_email: email,
           customer_phone: phone,
         },
-        order_meta: { upsell: true, bumpId, originalOrderId: orderId ?? null },
+        // Custom fields must go in order_tags (Map<string,string> preserved verbatim
+        // in webhooks). order_meta silently drops anything outside return_url /
+        // notify_url / payment_methods. Stringify everything — order_tags values
+        // must be strings. See docs/DEPLOYMENT.md "Cashfree integration gotchas".
+        order_tags: {
+          upsell: 'true',
+          bumpId: String(bumpId),
+          originalOrderId: String(orderId ?? ''),
+        },
       }),
     });
 
