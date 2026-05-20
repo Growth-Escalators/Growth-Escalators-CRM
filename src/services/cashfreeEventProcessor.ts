@@ -220,6 +220,8 @@ export async function processCashfreeEvent(
   const waTemplateName = funnelConfig?.wa_template_name || 'ge_welcome_d2c';
   if (phone && process.env.META_PHONE_NUMBER_ID && process.env.META_ACCESS_TOKEN) {
     const cleanPhone = phone.replace(/\D/g, '');
+    // 5s timeout so a hung Graph API call can't pin the worker's event loop —
+    // this fetch is fire-and-forget and other cron jobs queue behind it.
     fetch(`https://graph.facebook.com/v19.0/${process.env.META_PHONE_NUMBER_ID}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.META_ACCESS_TOKEN}` },
@@ -227,6 +229,7 @@ export async function processCashfreeEvent(
         messaging_product: 'whatsapp', to: cleanPhone, type: 'template',
         template: { name: waTemplateName, language: { code: 'en' } },
       }),
+      signal: AbortSignal.timeout(5000),
     }).catch(e => logger.error('[cashfree] WhatsApp template error:', e));
   }
 
