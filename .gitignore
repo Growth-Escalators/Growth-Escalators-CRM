@@ -11,3 +11,6 @@ dist/
 .claude-flow/
 playwright-report/
 test-results/
+
+# Meta App Review — reviewer credentials must never be committed
+scripts/meta-app-review/REVIEWER_CREDENTIALS.md
