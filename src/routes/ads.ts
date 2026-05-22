@@ -357,6 +357,53 @@ router.get('/ads', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/ads/campaigns/:id/status — pause or activate a campaign on Meta
+// Body: { status: 'ACTIVE' | 'PAUSED' }
+// Required for Meta App Review (ads_management permission).
+// ---------------------------------------------------------------------------
+router.post('/campaigns/:id/status', async (req: Request, res: Response) => {
+  const token = getToken();
+  if (!token) { res.status(400).json({ error: { message: 'Meta Ads token not configured' } }); return; }
+
+  const campaignId = String(req.params.id || '');
+  if (!campaignId || !/^\d+$/.test(campaignId)) {
+    res.status(400).json({ error: { message: 'invalid campaign id' } });
+    return;
+  }
+
+  const status = (req.body?.status as string | undefined)?.toUpperCase();
+  if (status !== 'ACTIVE' && status !== 'PAUSED') {
+    res.status(400).json({ error: { message: 'status must be ACTIVE or PAUSED' } });
+    return;
+  }
+
+  try {
+    const url = `${META_API_BASE.replace('/v19.0', '/v21.0')}/${campaignId}`;
+    const body = new URLSearchParams({ status });
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: body.toString(),
+    });
+    const data = await r.json() as Record<string, unknown>;
+
+    if (data && (data as Record<string, unknown>).error) {
+      const err = (data as Record<string, Record<string, string>>).error;
+      const code = r.status >= 400 && r.status < 600 ? r.status : 400;
+      res.status(code).json({ error: { message: err.message || 'Meta API error' } });
+      return;
+    }
+
+    res.json({ ok: true, id: campaignId, status });
+  } catch (e: unknown) {
+    res.status(500).json({ error: { message: e instanceof Error ? e.message : String(e) } });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/ads/slack-digest — send performance summary to Slack
 // ---------------------------------------------------------------------------
 router.post('/slack-digest', async (req: Request, res: Response) => {
