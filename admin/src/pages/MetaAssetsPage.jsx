@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
+import PagePostsSection from '../components/PagePostsSection.jsx';
 import { apiFetch } from '../lib/api.js';
 import { Building2, FileText, RefreshCw, AlertCircle, ShieldCheck } from 'lucide-react';
 
@@ -200,7 +201,8 @@ export default function MetaAssetsPage() {
             </div>
           </SectionCard>
 
-          {/* WORKER_D_PAGE_POSTS_SECTION */}
+          {/* ── Page Posts ────────────────────────────────────────── */}
+          <PagePostsSection />
         </div>
       </main>
     </div>
