@@ -78,14 +78,37 @@ function TokenMissingBanner({ onDismiss }) {
   );
 }
 
-function CampaignRow({ campaign, insights, accountId, dateQS }) {
+function CampaignRow({ campaign, insights, accountId, dateQS, onStatusChange }) {
   const [expanded, setExpanded] = useState(false);
   const [adsets, setAdsets] = useState([]);
   const [loadingAdsets, setLoadingAdsets] = useState(false);
   const [expandedAdset, setExpandedAdset] = useState(null);
   const [adsetAds, setAdsetAds] = useState({});
+  const [toggling, setToggling] = useState(false);
 
   const ins = insights.find(i => i.campaignId === campaign.id) || {};
+  const currentStatus = (campaign.effective_status || campaign.status || '').toUpperCase();
+  const canToggle = currentStatus === 'ACTIVE' || currentStatus === 'PAUSED';
+  const nextStatus = currentStatus === 'ACTIVE' ? 'PAUSED' : 'ACTIVE';
+  const toggleLabel = currentStatus === 'ACTIVE' ? 'Pause' : 'Activate';
+
+  async function handleToggleStatus(e) {
+    e.stopPropagation();
+    if (!canToggle || toggling) return;
+    setToggling(true);
+    try {
+      await apiFetch(`/api/ads/campaigns/${campaign.id}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      if (onStatusChange) onStatusChange();
+    } catch (err) {
+      alert(err?.message || 'Failed to update campaign status');
+    } finally {
+      setToggling(false);
+    }
+  }
 
   async function loadAdsets() {
     if (adsets.length > 0) { setExpanded(e => !e); return; }
@@ -120,7 +143,25 @@ function CampaignRow({ campaign, insights, accountId, dateQS }) {
           <span className="text-slate-400">{expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}</span>
           {campaign.name}
         </td>
-        <td className="px-4 py-3"><StatusBadge status={campaign.effective_status || campaign.status} /></td>
+        <td className="px-4 py-3">
+          <div className="flex items-center gap-2">
+            <StatusBadge status={campaign.effective_status || campaign.status} />
+            {canToggle && (
+              <button
+                onClick={handleToggleStatus}
+                disabled={toggling}
+                className={`px-2 py-0.5 rounded-full text-xs font-medium border transition-colors disabled:opacity-50 ${
+                  currentStatus === 'ACTIVE'
+                    ? 'border-yellow-300 text-yellow-700 hover:bg-yellow-50'
+                    : 'border-green-300 text-green-700 hover:bg-green-50'
+                }`}
+                title={`${toggleLabel} campaign on Meta Ads Manager`}
+              >
+                {toggling ? '…' : toggleLabel}
+              </button>
+            )}
+          </div>
+        </td>
         <td className="px-4 py-3 text-sm text-slate-700 text-right">{ins.spend != null ? `₹${fmt(ins.spend)}` : '—'}</td>
         <td className="px-4 py-3 text-sm text-slate-700 text-right">{ins.purchases ?? '—'}</td>
         <td className="px-4 py-3 text-sm text-slate-700 text-right">{ins.roas != null ? `${ins.roas}x` : '—'}</td>
@@ -937,6 +978,7 @@ export default function AdsPage() {
                             insights={insights}
                             accountId={accountsToFetch[0] || selectedAccount}
                             dateQS={dateQS}
+                            onStatusChange={loadData}
                           />
                         ))}
                       </tbody>
