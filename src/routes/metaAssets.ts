@@ -1,66 +1,69 @@
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
+import { fetchWithRetry } from '../utils/fetchWithRetry';
 
 const router = Router();
 
-// WORKER_D_PAGE_POSTS_ROUTE
-// GET /pages/:pageId/posts — returns last 10 posts (id, message, created_time)
-// for a Page that the connected system user manages. Uses the PAGE access token
-// from /me/accounts because the user/system-user token alone does not authorize
-// /<page>/posts reads.
-//
-// Plain fields only — insights.metric(...) was rejected during App Review
-// warm-up (see scripts/meta-app-review/STATUS.md).
-router.get('/pages/:pageId/posts', async (req, res) => {
-  const token = process.env.META_ACCESS_TOKEN || process.env.META_ADS_TOKEN;
-  if (!token) {
-    return res.status(503).json({
-      error: { message: 'META_ACCESS_TOKEN not configured' },
-    });
-  }
+const META_API_BASE = 'https://graph.facebook.com/v21.0';
 
-  const pageId = String(req.params.pageId || '').trim();
-  if (!pageId) {
-    return res.status(400).json({ error: { message: 'pageId is required' } });
+function getToken(): string | null {
+  return process.env.META_ACCESS_TOKEN || process.env.META_ADS_TOKEN || null;
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/meta/pages — lists Facebook Pages the user manages.
+// Backs the Meta Assets admin page for the App Review `pages_show_list` flow.
+// ---------------------------------------------------------------------------
+router.get('/pages', async (_req: Request, res: Response) => {
+  const token = getToken();
+  if (!token) {
+    res.json({ data: [], error: 'token_missing' });
+    return;
   }
 
   try {
-    const accountsUrl = `https://graph.facebook.com/v21.0/me/accounts?fields=id,name,access_token&access_token=${encodeURIComponent(token)}`;
-    const accountsResp = await globalThis.fetch(accountsUrl);
-    const accountsBody: any = await accountsResp.json().catch(() => ({}));
-
-    if (!accountsResp.ok) {
-      const msg = accountsBody?.error?.message || 'Failed to enumerate Pages';
-      return res.status(accountsResp.status >= 400 && accountsResp.status < 500 ? accountsResp.status : 502).json({
-        error: { message: msg },
+    const url = `${META_API_BASE}/me/accounts?access_token=${encodeURIComponent(token)}`;
+    const r = await fetchWithRetry(url);
+    const data = await r.json() as Record<string, unknown>;
+    if ((data as Record<string, unknown>).error) {
+      res.status(400).json({
+        data: [],
+        error: ((data as Record<string, Record<string, string>>).error).message,
       });
+      return;
     }
-
-    const pages: Array<{ id: string; name?: string; access_token?: string }> =
-      Array.isArray(accountsBody?.data) ? accountsBody.data : [];
-    const match = pages.find((p) => p.id === pageId);
-    if (!match || !match.access_token) {
-      return res.status(404).json({
-        error: { message: 'Page not connected to system user' },
-      });
-    }
-
-    const postsUrl = `https://graph.facebook.com/v21.0/${encodeURIComponent(pageId)}/posts?fields=id,message,created_time&limit=10&access_token=${encodeURIComponent(match.access_token)}`;
-    const postsResp = await globalThis.fetch(postsUrl);
-    const postsBody: any = await postsResp.json().catch(() => ({}));
-
-    if (!postsResp.ok) {
-      const msg = postsBody?.error?.message || 'Failed to fetch Page posts';
-      return res.status(postsResp.status >= 400 && postsResp.status < 500 ? postsResp.status : 502).json({
-        error: { message: msg },
-      });
-    }
-
-    return res.json(postsBody);
-  } catch (err: any) {
-    return res.status(502).json({
-      error: { message: err?.message || 'Upstream Graph API error' },
-    });
+    res.json({ data: (data as { data: unknown[] }).data || [] });
+  } catch (e: unknown) {
+    res.status(500).json({ data: [], error: e instanceof Error ? e.message : String(e) });
   }
 });
 
+// ---------------------------------------------------------------------------
+// GET /api/meta/businesses — lists Business Manager assets for the user.
+// Backs the Meta Assets admin page for the App Review `business_management` flow.
+// ---------------------------------------------------------------------------
+router.get('/businesses', async (_req: Request, res: Response) => {
+  const token = getToken();
+  if (!token) {
+    res.json({ data: [], error: 'token_missing' });
+    return;
+  }
+
+  try {
+    const url = `${META_API_BASE}/me/businesses?fields=id,name,verification_status&access_token=${encodeURIComponent(token)}`;
+    const r = await fetchWithRetry(url);
+    const data = await r.json() as Record<string, unknown>;
+    if ((data as Record<string, unknown>).error) {
+      res.status(400).json({
+        data: [],
+        error: ((data as Record<string, Record<string, string>>).error).message,
+      });
+      return;
+    }
+    res.json({ data: (data as { data: unknown[] }).data || [] });
+  } catch (e: unknown) {
+    res.status(500).json({ data: [], error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// WORKER_D_PAGE_POSTS_ROUTE
 export const metaAssetsRouter = router;

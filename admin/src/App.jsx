@@ -10,6 +10,7 @@ const BillingPage = lazy(() => import('./pages/BillingPage.jsx'));
 const FinancePage = lazy(() => import('./pages/FinancePage.jsx'));
 const PermissionsPage = lazy(() => import('./pages/PermissionsPage.jsx'));
 const AdsPage = lazy(() => import('./pages/AdsPage.jsx'));
+const MetaAssetsPage = lazy(() => import('./pages/MetaAssetsPage.jsx'));
 const SocialPage = lazy(() => import('./pages/SocialPage.jsx'));
 const InboxPage = lazy(() => import('./pages/InboxPage.jsx'));
 const LeadDiscoveryPage = lazy(() => import('./pages/LeadDiscoveryPage.jsx'));
@@ -85,6 +86,7 @@ export default function App() {
             <Route path="/settings/permissions" element={<PrivateRoute><PermissionsPage /></PrivateRoute>} />
             <Route path="/settings/audit" element={<PrivateRoute><AuditPage /></PrivateRoute>} />
             <Route path="/ads" element={<PrivateRoute><AdsPage /></PrivateRoute>} />
+            <Route path="/meta-assets" element={<PrivateRoute><MetaAssetsPage /></PrivateRoute>} />
             <Route path="/reports" element={<Navigate to="/dashboard" replace />} />
             <Route path="/social" element={<PrivateRoute><SocialPage /></PrivateRoute>} />
             <Route path="/inbox" element={<PrivateRoute><InboxPage /></PrivateRoute>} />
