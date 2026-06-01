@@ -70,11 +70,6 @@ export const NAV_ENTRIES = [
     visible: f => f.canCRM,
   },
   {
-    id: 'clients', label: 'Clients', to: '/clients',
-    icon: Briefcase, section: 'CRM', group: null,
-    visible: f => f.canCRM,
-  },
-  {
     id: 'tasks', label: 'Tasks', to: '/tasks',
     icon: CheckSquare, section: 'CRM', group: null,
     visible: f => f.canCRM,

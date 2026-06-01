@@ -449,7 +449,6 @@ export default function DashboardPage() {
               {isAdmin && (
                 <>
                   <StatCard icon={Target} title="Outreach Leads" value={fmtNum(outreachTotal)} sub={outreachInterested > 0 ? `${outreachInterested} interested` : null} color="text-purple-600" onClick={() => window.location.href = '/outreach-dashboard'} />
-                  <StatCard icon={Search} title="SEO Clients" value={seoClients} color="text-emerald-600" onClick={() => window.location.href = '/seo'} />
                   <StatCard icon={Activity} title="System Health" value={cronHealth?.overallScore != null ? `${cronHealth.overallScore}/100` : '—'} sub={cronFailedCount > 0 ? `${cronFailedCount}/${cronTotal} crons unhealthy` : `${cronTotal} crons healthy`} color={cronFailedCount > 0 ? 'text-amber-600' : 'text-green-600'} alert={cronFailedCount > 2} />
                 </>
               )}
