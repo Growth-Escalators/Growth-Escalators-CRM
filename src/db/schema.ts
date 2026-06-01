@@ -1062,6 +1062,9 @@ export const prospects = pgTable(
     status: text('status').notNull().default('new'),
     channel: text('channel'),
     source: text('source'),
+    // CRM bridge — filled when a prospect is converted to a CRM contact + deal.
+    crmContactId: uuid('crm_contact_id'),
+    crmDealId: uuid('crm_deal_id'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
@@ -1069,6 +1072,7 @@ export const prospects = pgTable(
     statusIdx: index('prospects_status_idx').on(t.status),
     icpSegmentIdx: index('prospects_icp_segment_idx').on(t.icpSegment),
     createdAtIdx: index('prospects_created_at_idx').on(t.createdAt),
+    crmContactIdx: index('prospects_crm_contact_idx').on(t.crmContactId),
   }),
 );
 
