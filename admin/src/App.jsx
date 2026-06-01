@@ -23,6 +23,7 @@ const IntelligencePage = lazy(() => import('./pages/IntelligencePage.jsx'));
 const GrowthOSPage = lazy(() => import('./pages/GrowthOSPage.jsx'));
 const WhatsAppTemplatesPage = lazy(() => import('./pages/WhatsAppTemplatesPage.jsx'));
 const OutreachDashboard = lazy(() => import('./pages/OutreachDashboard.jsx'));
+const OutboundPage = lazy(() => import('./pages/OutboundPage.jsx'));
 const LinksPage = lazy(() => import('./pages/LinksPage.jsx'));
 const ClientDetailPage = lazy(() => import('./pages/ClientDetailPage.jsx'));
 const ClientsPage = lazy(() => import('./pages/ClientsPage.jsx'));
@@ -98,6 +99,7 @@ export default function App() {
             <Route path="/growth-os" element={<PrivateRoute><GrowthOSPage /></PrivateRoute>} />
             <Route path="/whatsapp-templates" element={<PrivateRoute><WhatsAppTemplatesPage /></PrivateRoute>} />
             <Route path="/outreach-dashboard" element={<PrivateRoute><OutreachDashboard /></PrivateRoute>} />
+            <Route path="/outbound" element={<PrivateRoute><OutboundPage /></PrivateRoute>} />
             <Route path="/links" element={<PrivateRoute><LinksPage /></PrivateRoute>} />
             <Route path="/social-scheduling" element={<Navigate to="/social" replace />} />
             <Route path="/clients" element={<PrivateRoute><ClientsPage /></PrivateRoute>} />
