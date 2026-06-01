@@ -54,6 +54,7 @@ import { ensureFunnelConfigTable, ensureDeliveryLogTable, seedDefaultFunnelConfi
 import { ensurePipelineContactsTable, ensureOutreachPipelines } from './services/pipelineService';
 import outreachLeadsRouter from './routes/outreachLeads';
 import { ensureOutreachLeadsTable } from './services/outreachLeadsService';
+import outboundRouter from './routes/outbound';
 import leadsRouter from './routes/leads';
 // Workers and cron jobs now run via src/worker.ts (see railway.json)
 import analyticsRouter from './routes/analytics';
@@ -68,6 +69,7 @@ import taskAttachmentsRouter from './routes/taskAttachments';
 import taskListsRouter from './routes/task-lists';
 import teamRouter from './routes/team';
 import { requireAuth, optionalAuth } from './middleware/auth';
+import { requireRole } from './middleware/rbac';
 import { validateEnv } from './config/env';
 
 const app = express();
@@ -209,6 +211,7 @@ app.use('/api/growth-os', requireAuth, growthOSRouter);
 app.use('/api/whatsapp', requireAuth, whatsappTemplatesRouter);
 app.use('/api/outreach/imap', imapRepliesRouter);
 app.use('/api/outreach/leads', optionalAuth, outreachLeadsRouter);
+app.use('/api/outbound', requireAuth, requireRole('admin', 'team_lead'), outboundRouter);
 app.use('/api/links', requireAuth, linksRouter);
 app.use('/api/intelligence', requireAuth, intelligenceChatRouter);
 app.use('/api/clients', requireAuth, clientDetailRouter);
