@@ -1,7 +1,8 @@
 import {
   Calendar, Home, Users, Kanban, CheckSquare, MessageSquare, TrendingUp,
   Megaphone, Share2, Target, Search, FileText, Brain, MapPin, Zap, Mail,
-  Link as LinkIcon, CreditCard, Receipt, Shield, ClipboardList, Settings,
+  Link as LinkIcon, CreditCard, Receipt, Shield, ShieldCheck, ClipboardList, Settings,
+  Briefcase,
 } from 'lucide-react';
 
 // Permission flag bag — derived from user role + per-user permission overrides.
@@ -84,6 +85,11 @@ export const NAV_ENTRIES = [
   {
     id: 'ads', label: 'Meta Ads', to: '/ads',
     icon: Megaphone, section: 'Marketing', group: null,
+    visible: f => f.canAds,
+  },
+  {
+    id: 'meta-assets', label: 'Meta Assets', to: '/meta-assets',
+    icon: ShieldCheck, section: 'Marketing', group: null,
     visible: f => f.canAds,
   },
   {

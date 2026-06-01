@@ -38,6 +38,7 @@ import socialRouter, { oauthRouter as socialOAuthRouter } from './routes/social'
 import inboxRouter, { setSocketIO } from './routes/inbox';
 import discoverRouter from './routes/discover';
 import marketingRouter from './routes/marketing';
+import { metaAssetsRouter } from './routes/metaAssets';
 import searchRouter from './routes/search';
 import auditRouter from './routes/audit';
 import seoRouter from './routes/seo';
@@ -200,6 +201,7 @@ app.use('/api/social', requireAuth, socialRouter);
 app.use('/api/inbox', requireAuth, inboxRouter);
 app.use('/api/outreach/discover', requireAuth, discoverRouter);
 app.use('/api/marketing', requireAuth, marketingRouter);
+app.use('/api/meta', requireAuth, metaAssetsRouter);
 app.use('/api/search', requireAuth, searchRouter);
 app.use('/api/audit', requireAuth, auditRouter);
 app.use('/api/analytics', requireAuth, analyticsRouter);

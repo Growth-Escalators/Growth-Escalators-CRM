@@ -89,29 +89,135 @@ router.get('/templates', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// Ensure columns needed for Meta Graph round-trip exist
+// ---------------------------------------------------------------------------
+let metaColumnsEnsured = false;
+async function ensureMetaColumns(): Promise<void> {
+  if (metaColumnsEnsured) return;
+  try {
+    await pool.query(`ALTER TABLE wa_templates ADD COLUMN IF NOT EXISTS meta_template_id TEXT`);
+    await pool.query(`ALTER TABLE wa_templates ADD COLUMN IF NOT EXISTS error_message TEXT`);
+    await pool.query(`ALTER TABLE wa_templates ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`);
+    metaColumnsEnsured = true;
+  } catch (e) {
+    logger.warn('[wa-templates] ensureMetaColumns failed (may already exist):', e);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // POST /api/whatsapp/templates — create a new template
+// Flow: INSERT local row (status=pending) → POST to Meta Graph → UPDATE row
+// with meta_template_id + status from Graph; on Graph error, mark row status
+// 'error' with error_message and return 4xx/502.
 // ---------------------------------------------------------------------------
 router.post('/templates', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   try {
-    const { templateName, category, body } = req.body;
+    await ensureMetaColumns();
+
+    const { templateName, category, body, language, components } = req.body;
 
     if (!templateName || !category) {
       res.status(400).json({ error: 'templateName and category are required' });
       return;
     }
 
+    const lang = language || 'en';
     const vars = body ? [...body.matchAll(/\{\{(\w+)\}\}/g)] : [];
     const variableCount = new Set(vars.map((m: RegExpMatchArray) => m[1])).size;
 
+    // 1) Local INSERT (status=pending). Keeps a row even if Graph fails so the
+    // admin UI can show the failure state.
     const result = await pool.query(
       `INSERT INTO wa_templates (tenant_id, template_name, category, language, variable_count, status, submitted_at, body, description)
-       VALUES ($1, $2, $3, 'en', $4, 'pending', NOW(), $5, $6)
+       VALUES ($1, $2, $3, $4, $5, 'pending', NOW(), $6, $7)
        RETURNING *`,
-      [tenantId, templateName, category, variableCount, body ?? null, `Custom template — ${category}`],
+      [tenantId, templateName, category, lang, variableCount, body ?? null, `Custom template — ${category}`],
+    );
+    const localRow = result.rows[0];
+
+    // 2) Build Meta Graph body. Prefer explicit `components` from the request,
+    // else synthesize a single BODY component from `body`.
+    const wabaId = process.env.META_WABA_ID;
+    const accessToken = process.env.META_ACCESS_TOKEN;
+
+    if (!wabaId || !accessToken) {
+      // Mark the local row so the UI knows what happened, then surface 502.
+      const errMsg = 'META_WABA_ID and META_ACCESS_TOKEN must be set';
+      await pool.query(
+        `UPDATE wa_templates SET status = 'error', error_message = $1, updated_at = NOW() WHERE id = $2`,
+        [errMsg, localRow.id],
+      );
+      res.status(502).json({ error: { message: errMsg, meta: null } });
+      return;
+    }
+
+    const graphComponents = Array.isArray(components) && components.length > 0
+      ? components
+      : (body ? [{ type: 'BODY', text: body }] : []);
+
+    const graphBody = {
+      name: templateName,
+      language: lang,
+      category: String(category).toUpperCase(),
+      components: graphComponents,
+    };
+
+    // 3) Call Meta Graph
+    let graphJson: any = null;
+    try {
+      const url = `https://graph.facebook.com/v21.0/${wabaId}/message_templates`;
+      const fetchRes = await globalThis.fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(graphBody),
+      });
+      try {
+        graphJson = await fetchRes.json();
+      } catch {
+        graphJson = null;
+      }
+
+      if (!fetchRes.ok || (graphJson && graphJson.error)) {
+        const metaErr = graphJson?.error ?? { message: `Meta returned HTTP ${fetchRes.status}` };
+        const errMsg = metaErr?.message || `Meta returned HTTP ${fetchRes.status}`;
+        await pool.query(
+          `UPDATE wa_templates SET status = 'error', error_message = $1, updated_at = NOW() WHERE id = $2`,
+          [errMsg, localRow.id],
+        );
+        const statusCode = fetchRes.status >= 400 && fetchRes.status < 500 ? fetchRes.status : 502;
+        res.status(statusCode).json({ error: { message: errMsg, meta: graphJson?.error ?? graphJson } });
+        return;
+      }
+    } catch (fetchErr: unknown) {
+      const errMsg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+      logger.error('[wa-templates] Meta Graph fetch threw:', fetchErr);
+      await pool.query(
+        `UPDATE wa_templates SET status = 'error', error_message = $1, updated_at = NOW() WHERE id = $2`,
+        [errMsg, localRow.id],
+      );
+      res.status(502).json({ error: { message: errMsg, meta: null } });
+      return;
+    }
+
+    // 4) Graph success — propagate id + status to the local row
+    const metaTemplateId = graphJson?.id ? String(graphJson.id) : null;
+    const metaStatus = graphJson?.status ? String(graphJson.status).toLowerCase() : 'pending';
+
+    const updated = await pool.query(
+      `UPDATE wa_templates
+         SET meta_template_id = $1,
+             status = $2,
+             updated_at = NOW()
+       WHERE id = $3
+       RETURNING *`,
+      [metaTemplateId, metaStatus, localRow.id],
     );
 
-    res.status(201).json({ template: result.rows[0] });
+    res.status(201).json({ template: updated.rows[0] });
   } catch (e: unknown) {
     logger.error('[wa-templates] create failed:', e);
     const msg = e instanceof Error ? e.message : String(e);
