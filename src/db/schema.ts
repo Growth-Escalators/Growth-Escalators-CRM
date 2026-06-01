@@ -1042,3 +1042,94 @@ export const brandMentions = pgTable(
     projectIdx: index('brand_mentions_project_idx').on(t.projectName),
   }),
 );
+
+// ---------------------------------------------------------------------------
+// TABLE 44 — prospects  (outbound lead-gen, Phase 1)
+// ---------------------------------------------------------------------------
+export const prospects = pgTable(
+  'prospects',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    firstName: text('first_name'),
+    lastName: text('last_name'),
+    title: text('title'),
+    company: text('company'),
+    companySize: text('company_size'),
+    linkedinUrl: text('linkedin_url'),
+    email: text('email'),
+    emailStatus: text('email_status').notNull().default('unverified'),
+    icpSegment: text('icp_segment'),
+    status: text('status').notNull().default('new'),
+    channel: text('channel'),
+    source: text('source'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    statusIdx: index('prospects_status_idx').on(t.status),
+    icpSegmentIdx: index('prospects_icp_segment_idx').on(t.icpSegment),
+    createdAtIdx: index('prospects_created_at_idx').on(t.createdAt),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE 45 — signals
+// ---------------------------------------------------------------------------
+export const signals = pgTable(
+  'signals',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    prospectId: uuid('prospect_id').notNull().references(() => prospects.id, { onDelete: 'cascade' }),
+    signalType: text('signal_type').notNull(),
+    signalDetail: text('signal_detail'),
+    signalDate: timestamp('signal_date'),
+    isFresh: boolean('is_fresh').notNull().default(true),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    prospectIdx: index('signals_prospect_id_idx').on(t.prospectId),
+    signalTypeIdx: index('signals_signal_type_idx').on(t.signalType),
+    isFreshIdx: index('signals_is_fresh_idx').on(t.isFresh),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE 46 — replies
+// ---------------------------------------------------------------------------
+export const replies = pgTable(
+  'replies',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    prospectId: uuid('prospect_id').notNull().references(() => prospects.id, { onDelete: 'cascade' }),
+    channel: text('channel'),
+    body: text('body'),
+    classification: text('classification'),
+    receivedAt: timestamp('received_at'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    prospectIdx: index('replies_prospect_id_idx').on(t.prospectId),
+    receivedAtIdx: index('replies_received_at_idx').on(t.receivedAt),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE 47 — outbound_events  (status-transition audit trail; separate from
+// `events` above which is for CRM contact/deal channel activity)
+// ---------------------------------------------------------------------------
+export const outboundEvents = pgTable(
+  'outbound_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    prospectId: uuid('prospect_id').notNull().references(() => prospects.id, { onDelete: 'cascade' }),
+    eventType: text('event_type').notNull(),
+    fromStatus: text('from_status'),
+    toStatus: text('to_status'),
+    note: text('note'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    prospectIdx: index('outbound_events_prospect_id_idx').on(t.prospectId),
+    createdAtIdx: index('outbound_events_created_at_idx').on(t.createdAt),
+  }),
+);
