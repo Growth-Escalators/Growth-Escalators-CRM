@@ -3,7 +3,7 @@ import Sidebar from '../components/Sidebar.jsx';
 import { apiFetch } from '../lib/api.js';
 import {
   Upload, RefreshCw, Filter, X, Target, AlertCircle, CheckCircle2,
-  Mail, Link2, Building2, ShieldQuestion, Briefcase,
+  Mail, Link2, Building2, ShieldQuestion, Briefcase, TrendingUp, UserPlus,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -42,6 +42,24 @@ function Badge({ children, kind }) {
   const map = kind === 'status' ? STATUS_COLOURS : EMAIL_STATUS_COLOURS;
   const cls = map[children] || 'bg-slate-100 text-slate-500';
   return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>{children || 'unknown'}</span>;
+}
+
+function StatCard({ label, value, icon: Icon, colour }) {
+  const colourMap = {
+    sky:     'bg-sky-50 text-sky-700 border-sky-100',
+    slate:   'bg-slate-50 text-slate-700 border-slate-200',
+    violet:  'bg-violet-50 text-violet-700 border-violet-100',
+    emerald: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+  };
+  return (
+    <div className={`rounded-xl border p-3 ${colourMap[colour] || colourMap.slate}`}>
+      <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide opacity-80">
+        {Icon && <Icon className="w-3.5 h-3.5" />}
+        {label}
+      </div>
+      <p className="text-2xl font-bold mt-1">{value ?? 0}</p>
+    </div>
+  );
 }
 
 function fmt(date) {
@@ -121,6 +139,25 @@ function ProspectDrawer({ id, onClose, onMutated }) {
     }
   };
 
+  const [converting, setConverting] = useState(false);
+  const convertToCrm = async () => {
+    if (!confirm('Create a CRM contact + deal from this prospect?')) return;
+    setConverting(true);
+    try {
+      const r = await apiFetch(`/api/outbound/prospects/${id}/convert`, {
+        method: 'POST',
+        body: JSON.stringify({ note: 'manual convert via admin UI' }),
+      });
+      await load();
+      onMutated?.();
+      alert(`Created CRM contact ${r.crm_contact_id} + deal ${r.crm_deal_id}.`);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setConverting(false);
+    }
+  };
+
   if (!id) return null;
   return (
     <div className="fixed inset-y-0 right-0 w-[480px] bg-white border-l border-slate-200 shadow-xl z-30 overflow-y-auto">
@@ -185,6 +222,33 @@ function ProspectDrawer({ id, onClose, onMutated }) {
             <div>
               <p className="text-xs uppercase tracking-wide text-slate-400">Company size</p>
               <p className="text-slate-700">{data.prospect.company_size || '—'}</p>
+            </div>
+            <div className="col-span-2">
+              <p className="text-xs uppercase tracking-wide text-slate-400">CRM link</p>
+              {data.prospect.crm_contact_id ? (
+                <div className="flex items-center gap-2 text-xs text-emerald-700 mt-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Linked</span>
+                  <a href={`/contacts?focus=${data.prospect.crm_contact_id}`}
+                     className="text-sky-600 hover:underline">contact</a>
+                  {data.prospect.crm_deal_id && (
+                    <>
+                      <span className="text-slate-400">·</span>
+                      <a href={`/pipeline?deal=${data.prospect.crm_deal_id}`}
+                         className="text-sky-600 hover:underline">deal</a>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <button
+                  onClick={convertToCrm}
+                  disabled={converting}
+                  className="mt-1 inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-600 text-white text-xs rounded hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  {converting ? 'Converting…' : 'Convert to CRM'}
+                </button>
+              )}
             </div>
           </div>
 
@@ -275,6 +339,7 @@ export default function OutboundPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [icpFilter, setIcpFilter] = useState('');
   const [openId, setOpenId] = useState(null);
+  const [stats, setStats] = useState(null);
 
   const [importBusy, setImportBusy] = useState(false);
   const [importResult, setImportResult] = useState(null);
@@ -286,9 +351,13 @@ export default function OutboundPage() {
       const params = new URLSearchParams({ limit: '100' });
       if (statusFilter) params.set('status', statusFilter);
       if (icpFilter)    params.set('icp_segment', icpFilter);
-      const d = await apiFetch(`/api/outbound/prospects?${params.toString()}`);
-      setProspects(d.prospects || []);
-      setTotal(d.total || 0);
+      const [list, st] = await Promise.all([
+        apiFetch(`/api/outbound/prospects?${params.toString()}`),
+        apiFetch('/api/outbound/stats').catch(() => null),
+      ]);
+      setProspects(list.prospects || []);
+      setTotal(list.total || 0);
+      if (st) setStats(st);
     } catch (e) {
       setErr(e.message); setProspects([]); setTotal(0);
     } finally {
@@ -374,6 +443,15 @@ export default function OutboundPage() {
         </div>
 
         <div className="p-6 space-y-4">
+          {stats && (
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <StatCard label="Total" value={stats.total} icon={Target} colour="sky" />
+              <StatCard label="New" value={stats.by_status?.new ?? 0} icon={Filter} colour="slate" />
+              <StatCard label="Contacted" value={stats.by_status?.contacted ?? 0} icon={Mail} colour="sky" />
+              <StatCard label="Replied" value={stats.by_status?.replied ?? 0} icon={CheckCircle2} colour="violet" />
+              <StatCard label="Converted → CRM" value={stats.converted_to_crm} icon={UserPlus} colour="emerald" />
+            </div>
+          )}
           {importResult && (
             <div className={`p-3 rounded-lg border text-sm ${importResult.error ? 'bg-red-50 border-red-200 text-red-700' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
               {importResult.error ? (
