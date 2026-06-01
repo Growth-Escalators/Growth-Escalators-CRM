@@ -6,6 +6,7 @@ import {
   isValidIcpSegment,
   isValidStatus,
   mapHeaderIndices,
+  validateEmailAddress,
   ICP_SEGMENTS,
   STATUSES,
 } from '../routes/outbound';
@@ -168,4 +169,59 @@ describe('mapHeaderIndices', () => {
       first_name: 0, last_name: 1, title: 2, company: 3, linkedin_url: 4, email: 5,
     });
   });
+});
+
+// ---------------------------------------------------------------------------
+// validateEmailAddress — verdicts that don't require DNS lookup.
+// MX-lookup cases would hit the live resolver; we skip those in unit tests
+// and rely on the live smoke-test instead.
+// ---------------------------------------------------------------------------
+describe('validateEmailAddress', () => {
+  it('returns unverified for null', async () => {
+    expect(await validateEmailAddress(null)).toBe('unverified');
+  });
+
+  it('returns invalid for empty-shape strings', async () => {
+    expect(await validateEmailAddress('not-an-email')).toBe('invalid');
+    expect(await validateEmailAddress('@nodomain')).toBe('invalid');
+    expect(await validateEmailAddress('nolocal@.com')).toBe('invalid');
+  });
+
+  it('flags disposable provider domains', async () => {
+    expect(await validateEmailAddress('foo@mailinator.com')).toBe('disposable');
+    expect(await validateEmailAddress('foo@yopmail.com')).toBe('disposable');
+    // Case-insensitive on the domain
+    expect(await validateEmailAddress('foo@MAILINATOR.COM')).toBe('disposable');
+  });
+
+  it(
+    'returns valid for a real domain with MX records',
+    async () => {
+      // google.com is one of the most stable MX records on the internet —
+      // safe to lean on for a CI smoke. If this ever flakes, swap for a
+      // mock-only test.
+      const verdict = await validateEmailAddress('hello@google.com', { mxTimeoutMs: 4000 });
+      expect(['valid', 'risky']).toContain(verdict);
+    },
+    10_000,
+  );
+
+  it(
+    'downgrades role addresses to risky even on a valid domain',
+    async () => {
+      const verdict = await validateEmailAddress('info@google.com', { mxTimeoutMs: 4000 });
+      expect(verdict).toBe('risky');
+    },
+    10_000,
+  );
+
+  it(
+    'returns invalid for a domain with no MX record',
+    async () => {
+      // A reserved TLD that won't resolve to MX. RFC 2606 reserves .invalid.
+      const verdict = await validateEmailAddress('foo@example.invalid', { mxTimeoutMs: 4000 });
+      expect(['invalid', 'unknown']).toContain(verdict);
+    },
+    10_000,
+  );
 });
