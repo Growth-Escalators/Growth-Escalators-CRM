@@ -127,6 +127,13 @@
       "when": 1780254280909,
       "tag": "0017_left_war_machine",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1780311708320,
+      "tag": "0018_long_zodiak",
+      "breakpoints": true
     }
   ]
 }

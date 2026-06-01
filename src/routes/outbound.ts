@@ -17,15 +17,27 @@
  *                                            (vendor-agnostic; for n8n)
  *   POST   /prospects/:id/replies            log an inbound reply, classify
  *                                            via Claude Haiku if a key is set
+ *   GET    /stats                             funnel + ICP breakdown + 7d trend
+ *   POST   /prospects/:id/convert             promote a prospect to a CRM
+ *                                            contact + deal; idempotent on
+ *                                            crm_contact_id
  */
 
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
 import { promises as dns } from 'dns';
+import { eq, and } from 'drizzle-orm';
 
-import { pool } from '../db/index';
+import { db, pool, deals, pipelines } from '../db/index';
 import logger from '../utils/logger';
+import { findOrCreateContact } from '../services/contactService';
 import { classifyReplyWithAI } from '../services/outreachEnrichmentService';
+
+type OutboundChannelInput = {
+  channelType: 'email' | 'phone' | 'whatsapp' | 'instagram' | 'linkedin';
+  channelValue: string;
+  isPrimary?: boolean;
+};
 
 const router = Router();
 
@@ -763,6 +775,21 @@ router.post('/prospects/:id/replies', async (req: Request, res: Response): Promi
              VALUES ($1, 'status_change', $2, 'replied', 'auto-promoted: reply classified INTERESTED')`,
             [id, currentStatus],
           );
+
+          // Phase 5: auto-convert to CRM. Best-effort — failures here are
+          // logged but don't roll back the reply. Opt out by setting
+          // OUTBOUND_AUTO_CONVERT_INTERESTED=false in env.
+          const autoConvert = process.env.OUTBOUND_AUTO_CONVERT_INTERESTED !== 'false';
+          const tenantId = req.user?.tenantId;
+          if (autoConvert && tenantId) {
+            try {
+              await convertProspectToCrm(id, tenantId, {
+                note: 'auto-converted from INTERESTED reply',
+              });
+            } catch (e) {
+              logger.warn({ err: e, id }, '[outbound] auto-convert failed (reply was still recorded)');
+            }
+          }
         }
       } catch (e) {
         logger.warn({ err: e, replyId, id }, '[outbound] reply classification failed');
@@ -782,5 +809,200 @@ router.post('/prospects/:id/replies', async (req: Request, res: Response): Promi
     client.release();
   }
 });
+
+// ---------------------------------------------------------------------------
+// GET /stats — funnel breakdown for the dashboard
+//
+// Counts per status + ICP segment + a 7-day daily trend of new prospects.
+// Everything in one round-trip so the SPA doesn't fan out.
+// ---------------------------------------------------------------------------
+router.get('/stats', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const [statusR, icpR, trendR, totalR, convertedR] = await Promise.all([
+      pool.query(`SELECT status, COUNT(*)::int AS count FROM prospects GROUP BY status`),
+      pool.query(`SELECT icp_segment, COUNT(*)::int AS count FROM prospects WHERE icp_segment IS NOT NULL GROUP BY icp_segment`),
+      pool.query(`
+        SELECT created_at::date AS date, COUNT(*)::int AS count
+          FROM prospects
+         WHERE created_at >= NOW() - INTERVAL '7 days'
+         GROUP BY created_at::date
+         ORDER BY date
+      `),
+      pool.query(`SELECT COUNT(*)::int AS total FROM prospects`),
+      pool.query(`SELECT COUNT(*)::int AS count FROM prospects WHERE crm_contact_id IS NOT NULL`),
+    ]);
+
+    const byStatus: Record<string, number> = {};
+    for (const r of statusR.rows as Array<{ status: string; count: number }>) byStatus[r.status] = r.count;
+    const byIcp: Record<string, number> = {};
+    for (const r of icpR.rows as Array<{ icp_segment: string; count: number }>) byIcp[r.icp_segment] = r.count;
+
+    res.json({
+      total: (totalR.rows[0] as { total: number }).total,
+      converted_to_crm: (convertedR.rows[0] as { count: number }).count,
+      by_status: byStatus,
+      by_icp_segment: byIcp,
+      trend_7d: trendR.rows.map((r: { date: string | Date; count: number }) => ({
+        date: typeof r.date === 'string' ? r.date : r.date.toISOString().slice(0, 10),
+        count: r.count,
+      })),
+    });
+  } catch (err) {
+    logger.error({ err }, '[outbound] stats error');
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5 — POST /prospects/:id/convert
+//
+// Promotes a prospect to a CRM contact + deal, then back-links the IDs on
+// the prospects row. Idempotent: a prospect with crm_contact_id already set
+// just returns the existing link. Pipeline resolution:
+//   1) explicit pipelineId in body
+//   2) env OUTBOUND_DEFAULT_PIPELINE_ID
+//   3) first active pipeline for the tenant
+//   4) 400 if none exists
+//
+// Used both by this endpoint (manual UI click) and by the reply auto-promote
+// path when classification = INTERESTED.
+// ---------------------------------------------------------------------------
+async function convertProspectToCrm(
+  prospectId: string,
+  tenantId: string,
+  opts: { pipelineId?: string | null; note?: string | null } = {},
+): Promise<{
+  prospect_id: string;
+  crm_contact_id: string;
+  crm_deal_id: string;
+  created: boolean;
+}> {
+  const found = await pool.query(
+    `SELECT id, first_name, last_name, title, company, email, linkedin_url, source,
+            crm_contact_id, crm_deal_id
+       FROM prospects WHERE id=$1`,
+    [prospectId],
+  );
+  if (found.rowCount === 0) throw new Error('prospect not found');
+  const p = found.rows[0] as {
+    id: string; first_name: string | null; last_name: string | null;
+    title: string | null; company: string | null;
+    email: string | null; linkedin_url: string | null; source: string | null;
+    crm_contact_id: string | null; crm_deal_id: string | null;
+  };
+
+  // Idempotent short-circuit — both IDs present means we've already done this.
+  if (p.crm_contact_id && p.crm_deal_id) {
+    return {
+      prospect_id: p.id,
+      crm_contact_id: p.crm_contact_id,
+      crm_deal_id: p.crm_deal_id,
+      created: false,
+    };
+  }
+
+  // Build channels — at least one of email/linkedin must exist for a sensible
+  // contact row, but Phase 1's import already enforces that.
+  const channels: OutboundChannelInput[] = [];
+  if (p.email)        channels.push({ channelType: 'email',    channelValue: p.email,        isPrimary: true });
+  if (p.linkedin_url) channels.push({ channelType: 'linkedin', channelValue: p.linkedin_url, isPrimary: !p.email });
+  if (channels.length === 0) throw new Error('prospect has no email or linkedin_url to anchor a contact');
+
+  // Resolve target pipeline
+  let pipelineId: string | null = opts.pipelineId ?? null;
+  if (!pipelineId) {
+    const envDefault = process.env.OUTBOUND_DEFAULT_PIPELINE_ID;
+    if (envDefault) pipelineId = envDefault;
+  }
+  if (!pipelineId) {
+    const fallback = await db
+      .select({ id: pipelines.id })
+      .from(pipelines)
+      .where(and(eq(pipelines.tenantId, tenantId), eq(pipelines.isActive, true)))
+      .limit(1);
+    if (fallback[0]) pipelineId = fallback[0].id;
+  }
+  if (!pipelineId) {
+    throw new Error('no pipeline available — pass pipelineId or set OUTBOUND_DEFAULT_PIPELINE_ID');
+  }
+
+  // Reuse the CRM's findOrCreateContact so dedupe semantics match the
+  // rest of the system. Already-existing contacts (matched by email or
+  // linkedin) get reused; new ones are created.
+  const { contact, created: contactCreated } = await findOrCreateContact(tenantId, {
+    firstName: p.first_name ?? p.company ?? 'Unknown',
+    lastName: p.last_name ?? undefined,
+    source: 'outbound',
+    sourceDetail: p.source ?? 'prospect-convert',
+    channels,
+  });
+
+  // Create the deal in the resolved pipeline. We don't try to dedupe deals —
+  // if the operator converts the same prospect twice (after we cleared the
+  // back-link), they intentionally wanted a fresh deal.
+  const [deal] = await db.insert(deals).values({
+    tenantId,
+    contactId: contact.id,
+    pipelineId,
+    title: p.company ? `${p.company} — Outbound` : `${p.first_name ?? 'Outbound'} ${p.last_name ?? ''}`.trim(),
+    stage: 'lead',
+    notes: `Auto-created from outbound. Prospect ${p.id}.${p.title ? ` Title: ${p.title}.` : ''}${opts.note ? ` Note: ${opts.note}.` : ''}`,
+  }).returning();
+
+  // Back-link onto the prospect + audit
+  await pool.query(
+    `UPDATE prospects SET crm_contact_id=$1, crm_deal_id=$2, updated_at=NOW() WHERE id=$3`,
+    [contact.id, deal.id, p.id],
+  );
+  await pool.query(
+    `INSERT INTO outbound_events (prospect_id, event_type, note)
+     VALUES ($1, 'convert_crm', $2)`,
+    [p.id, `contact=${contact.id} deal=${deal.id} pipeline=${pipelineId}${opts.note ? ` note=${opts.note}` : ''}`],
+  ).catch((e) => logger.warn({ err: e, prospectId: p.id }, '[outbound] convert audit insert failed'));
+
+  return {
+    prospect_id: p.id,
+    crm_contact_id: contact.id,
+    crm_deal_id: deal.id,
+    created: contactCreated,
+  };
+}
+
+router.post('/prospects/:id/convert', async (req: Request, res: Response): Promise<void> => {
+  const id = String(req.params.id ?? '');
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    res.status(400).json({ error: 'invalid prospect id (uuid)' });
+    return;
+  }
+  const tenantId = req.user?.tenantId;
+  if (!tenantId) {
+    res.status(401).json({ error: 'missing tenant context' });
+    return;
+  }
+
+  const body = (req.body ?? {}) as { pipelineId?: string; note?: string };
+
+  try {
+    const result = await convertProspectToCrm(id, tenantId, {
+      pipelineId: body.pipelineId ?? null,
+      note: body.note ?? null,
+    });
+    res.json(result);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg === 'prospect not found') {
+      res.status(404).json({ error: msg });
+      return;
+    }
+    if (msg.startsWith('prospect has no') || msg.startsWith('no pipeline')) {
+      res.status(400).json({ error: msg });
+      return;
+    }
+    logger.error({ err, id }, '[outbound] convert error');
+    res.status(500).json({ error: msg });
+  }
+});
+
+export { convertProspectToCrm };
 
 export default router;
