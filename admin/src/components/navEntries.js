@@ -103,6 +103,11 @@ export const NAV_ENTRIES = [
     visible: f => f.isAdminTier,
   },
   {
+    id: 'outbound', label: 'Outbound', to: '/outbound',
+    icon: Briefcase, section: 'Marketing', group: null,
+    visible: f => f.isAdminTier,
+  },
+  {
     id: 'content', label: 'Content', href: 'https://content.growthescalators.com',
     icon: FileText, section: 'Marketing', group: null, external: true,
     visible: () => true,
