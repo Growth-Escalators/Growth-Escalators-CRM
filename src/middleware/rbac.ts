@@ -7,6 +7,10 @@ import { eq } from 'drizzle-orm';
 // Pipeline, Tasks, Meta Ads, Outreach, AI Intelligence, Growth OS, Templates,
 // Lead Discovery, Short Links) but NOT financial/security tools (Billing,
 // Permissions, Audit, Pipeline Manager, SEO, Analytics).
+// `creative_assistant` is the narrowest non-staff role: Tasks (no perm needed —
+// gated only by requireAuth on /api/tasks) + Inbox + Meta Ads (view & manage) +
+// Social (view & post) + the external Content link. Explicitly excluded from
+// Contacts/Deals/Reports/Billing/Sequences/Discovery/Marketing/Health/etc.
 const PERMISSION_MAP: Record<string, string[]> = {
   CONTACTS_VIEW:       ['admin', 'manager_ops', 'team_lead', 'sales'],
   CONTACTS_EXPORT:     ['admin'],
@@ -18,12 +22,12 @@ const PERMISSION_MAP: Record<string, string[]> = {
   SEQUENCES_EDIT:      ['admin', 'manager_ops', 'team_lead'],
   AUTOMATIONS_VIEW:    ['admin', 'manager_ops', 'team_lead', 'sales'],
   AUTOMATIONS_EDIT:    ['admin', 'manager_ops', 'team_lead'],
-  ADS_VIEW:            ['admin', 'manager_ads', 'team_lead'],
-  ADS_MANAGE:          ['admin', 'manager_ads', 'team_lead'],
+  ADS_VIEW:            ['admin', 'manager_ads', 'team_lead', 'creative_assistant'],
+  ADS_MANAGE:          ['admin', 'manager_ads', 'team_lead', 'creative_assistant'],
   REPORTS_VIEW:        ['admin', 'manager_ops', 'manager_ads'],
-  SOCIAL_VIEW:         ['admin', 'manager_ops', 'team_lead', 'staff'],
-  SOCIAL_POST:         ['admin', 'manager_ops', 'team_lead', 'staff'],
-  INBOX_VIEW:          ['admin', 'manager_ops', 'team_lead', 'sales'],
+  SOCIAL_VIEW:         ['admin', 'manager_ops', 'team_lead', 'staff', 'creative_assistant'],
+  SOCIAL_POST:         ['admin', 'manager_ops', 'team_lead', 'staff', 'creative_assistant'],
+  INBOX_VIEW:          ['admin', 'manager_ops', 'team_lead', 'sales', 'creative_assistant'],
   BILLING_VIEW:        ['admin'],
   HEALTH_VIEW:         ['admin', 'manager_ops', 'team_lead', 'sales'],
   PERMISSIONS_VIEW:    ['admin'],

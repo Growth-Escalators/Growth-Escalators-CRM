@@ -68,6 +68,7 @@ const ROLE_OPTIONS = [
   { value: 'team_lead', label: 'Team Lead', description: 'Operational tools (Outreach, Intelligence, Growth OS, Ads) but no Billing/Permissions' },
   { value: 'sales', label: 'Sales', description: 'Contacts, deals, pipeline' },
   { value: 'staff', label: 'Staff', description: 'Social and basic features only' },
+  { value: 'creative_assistant', label: 'Creative Assistant', description: 'Tasks, Inbox, Meta Ads, Social, Content — everything else blocked' },
 ];
 
 const MODULE_ACCESS = [
@@ -159,6 +160,7 @@ function AddUserModal({ onClose, onCreated }) {
             <select value={role} onChange={e => setRole(e.target.value)}
               className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-sky-500">
               <option value="staff">Staff</option>
+              <option value="creative_assistant">Creative Assistant</option>
               <option value="sales">Sales</option>
               <option value="team_lead">Team Lead</option>
               <option value="manager_ops">Manager (Ops)</option>

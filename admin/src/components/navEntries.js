@@ -16,15 +16,22 @@ export function computeFlags(role, perms = {}) {
   const isAdmin = role === 'admin';
   const isTeamLead = role === 'team_lead';
   const isAdminTier = isAdmin || isTeamLead;
+  // Narrow-scope role: only Tasks + Inbox + Meta Ads + Social + (always-on)
+  // Content link and My Attendance. Everything else (Contacts, Pipeline,
+  // Clients, Billing, Sequences, Discovery, Outreach, Growth OS, Intelligence,
+  // SEO, Analytics, Reports, etc.) stays hidden.
+  const isCreativeAssistant = role === 'creative_assistant';
   return {
     isAdmin,
     isTeamLead,
     isAdminTier,
+    isCreativeAssistant,
     canCRM:        ['admin', 'manager_ops', 'team_lead', 'sales'].includes(role),
-    canAds:        ['admin', 'manager_ads', 'team_lead'].includes(role) || !!perms.reportsMetaAds,
+    canTasks:      ['admin', 'manager_ops', 'team_lead', 'sales'].includes(role) || isCreativeAssistant,
+    canAds:        ['admin', 'manager_ads', 'team_lead', 'creative_assistant'].includes(role) || !!perms.reportsMetaAds,
     canReports:    ['admin', 'manager_ops', 'manager_ads'].includes(role),
-    canSocial:     ['admin', 'manager_ops', 'team_lead', 'staff'].includes(role) || !!perms.accessSocial,
-    canInbox:      ['admin', 'manager_ops', 'team_lead', 'sales'].includes(role),
+    canSocial:     ['admin', 'manager_ops', 'team_lead', 'staff', 'creative_assistant'].includes(role) || !!perms.accessSocial,
+    canInbox:      ['admin', 'manager_ops', 'team_lead', 'sales', 'creative_assistant'].includes(role),
     canBilling:    isAdmin || !!perms.billingView,
     canSequences:  ['admin', 'manager_ops', 'team_lead', 'sales'].includes(role),
     canDiscovery:  ['admin', 'manager_ops', 'team_lead', 'sales'].includes(role),
@@ -72,7 +79,7 @@ export const NAV_ENTRIES = [
   {
     id: 'tasks', label: 'Tasks', to: '/tasks',
     icon: CheckSquare, section: 'CRM', group: null,
-    visible: f => f.canCRM,
+    visible: f => f.canTasks,
   },
   {
     id: 'inbox', label: 'Inbox', to: '/inbox',
