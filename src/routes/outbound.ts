@@ -378,7 +378,8 @@ router.get('/prospects', async (req: Request, res: Response): Promise<void> => {
     const result = await pool.query(
       `SELECT id, first_name, last_name, title, company, company_size,
               linkedin_url, email, email_status, icp_segment, status,
-              channel, source, created_at, updated_at
+              channel, source, crm_contact_id, crm_deal_id,
+              created_at, updated_at
          FROM prospects ${where}
          ORDER BY created_at DESC
          LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
@@ -416,7 +417,8 @@ router.get('/prospects/:id', async (req: Request, res: Response): Promise<void> 
       pool.query(
         `SELECT id, first_name, last_name, title, company, company_size,
                 linkedin_url, email, email_status, icp_segment, status,
-                channel, source, created_at, updated_at
+                channel, source, crm_contact_id, crm_deal_id,
+                created_at, updated_at
            FROM prospects WHERE id = $1`,
         [id],
       ),
