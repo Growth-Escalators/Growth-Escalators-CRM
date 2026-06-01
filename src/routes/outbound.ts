@@ -1,23 +1,31 @@
 /**
- * /api/outbound — outbound lead-gen module (Phase 1: data layer)
+ * /api/outbound — outbound lead-gen module
  *
  * Endpoints (all require admin-tier JWT — gated at mount in src/index.ts):
- *   POST   /prospects/import-csv            multipart CSV upload, dedupes by
- *                                           lower(email) + lower(linkedin_url)
- *   GET    /prospects                       ?status=&icp_segment=&limit=&offset=
- *   GET    /prospects/:id                   prospect + signals + replies
- *   PATCH  /prospects/:id/status            updates status, writes an
- *                                           outbound_events audit row
- *
- * Enrichment / validation / reply scoring belong to later phases — this file
- * only handles ingest + status tracking.
+ *   POST   /prospects/import-csv             multipart CSV upload, dedupes by
+ *                                            lower(email) + lower(linkedin_url),
+ *                                            best-effort MX validation per row
+ *   GET    /prospects                        ?status=&icp_segment=&limit=&offset=
+ *   GET    /prospects/:id                    prospect + signals + replies
+ *   PATCH  /prospects/:id/status             updates status, writes an
+ *                                            outbound_events audit row
+ *   POST   /prospects/:id/validate-email     re-runs MX validation, updates
+ *                                            email_status
+ *   POST   /prospects/:id/enrich             merge vendor enrichment payload
+ *                                            into a single prospect
+ *   POST   /prospects/bulk-enrich            same shape, by linkedin_url|email
+ *                                            (vendor-agnostic; for n8n)
+ *   POST   /prospects/:id/replies            log an inbound reply, classify
+ *                                            via Claude Haiku if a key is set
  */
 
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
+import { promises as dns } from 'dns';
 
 import { pool } from '../db/index';
 import logger from '../utils/logger';
+import { classifyReplyWithAI } from '../services/outreachEnrichmentService';
 
 const router = Router();
 
@@ -95,6 +103,61 @@ export function isValidIcpSegment(v: string | null): v is IcpSegment {
 
 export function isValidStatus(v: string | null): v is ProspectStatus {
   return v != null && (STATUSES as readonly string[]).includes(v);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3 — email validation. Two layers:
+//   1) Regex shape check (RFC5322-lite — good enough for "looks like an email")
+//   2) MX lookup on the domain (catches typos like gmal.com, fake TLDs)
+//
+// Disposable-provider blocklist is a small curated set — keep it short so the
+// "disposable" verdict stays believable. Anything not blocked + with an MX
+// record returns 'valid'. Network errors collapse to 'unknown'.
+//
+// Returns one of: valid | invalid | risky | disposable | unknown
+//
+// Best-effort by design: the import path passes through an `unverified`
+// default if the lookup throws, so a flaky resolver never blocks ingest.
+// ---------------------------------------------------------------------------
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const DISPOSABLE_DOMAINS = new Set([
+  'mailinator.com', 'tempmail.com', 'temp-mail.org', '10minutemail.com',
+  'guerrillamail.com', 'trashmail.com', 'sharklasers.com', 'yopmail.com',
+  'getnada.com', 'dispostable.com',
+]);
+const ROLE_LOCALPARTS = new Set([
+  'info', 'admin', 'support', 'sales', 'contact', 'hello', 'help',
+  'noreply', 'no-reply', 'team', 'office', 'enquiries', 'inquiries',
+]);
+
+export type EmailStatus = 'valid' | 'invalid' | 'risky' | 'disposable' | 'unknown' | 'unverified';
+
+export async function validateEmailAddress(
+  email: string | null,
+  { mxTimeoutMs = 2500 }: { mxTimeoutMs?: number } = {},
+): Promise<EmailStatus> {
+  if (!email) return 'unverified';
+  if (!EMAIL_SHAPE.test(email)) return 'invalid';
+  const [localPart, domain] = email.split('@');
+  if (!domain) return 'invalid';
+  const dom = domain.toLowerCase();
+  if (DISPOSABLE_DOMAINS.has(dom)) return 'disposable';
+
+  try {
+    const mx = await Promise.race([
+      dns.resolveMx(dom),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('mx_timeout')), mxTimeoutMs)),
+    ]);
+    if (!mx || mx.length === 0) return 'invalid';
+    // role addresses get downgraded to 'risky' even with a valid MX, since
+    // outbound replies from info@ are rarely worth chasing.
+    if (ROLE_LOCALPARTS.has(localPart.toLowerCase())) return 'risky';
+    return 'valid';
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('ENOTFOUND') || msg.includes('NODATA') || msg.includes('ENODATA')) return 'invalid';
+    return 'unknown';
+  }
 }
 
 // Header aliases for forgiving CSV column names. Map of canonical → accepted.
@@ -214,9 +277,16 @@ router.post('/prospects/import-csv', upload.single('file'), async (req: Request,
     const title       = s(get(r, 'title'));
     const company     = s(get(r, 'company'));
     const companySize = s(get(r, 'company_size'));
-    const emailStatus = s(get(r, 'email_status')) ?? 'unverified';
     const channel     = s(get(r, 'channel'));
     const source      = s(get(r, 'source'));
+
+    // Phase 3: MX-validate before insert. Trust an explicit "verified" from
+    // the CSV (e.g. exported from a vendor that already validated); otherwise
+    // run our own check. Best-effort — never crashes the row.
+    const explicitEmailStatus = s(get(r, 'email_status'));
+    const emailStatus: string = explicitEmailStatus
+      ? explicitEmailStatus
+      : await validateEmailAddress(email).catch(() => 'unverified' as EmailStatus);
 
     try {
       const result = await pool.query(
@@ -418,6 +488,295 @@ router.patch('/prospects/:id/status', async (req: Request, res: Response): Promi
   } catch (err) {
     await client.query('ROLLBACK').catch(() => { /* ignore — already errored */ });
     logger.error({ err, id }, '[outbound] status update error');
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  } finally {
+    client.release();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3 — POST /prospects/:id/validate-email
+// Re-runs the MX check against the prospect's current email and updates
+// email_status + writes an audit row. Useful after a CSV ingest that was
+// imported `unverified`, or after the user has corrected an email.
+// ---------------------------------------------------------------------------
+router.post('/prospects/:id/validate-email', async (req: Request, res: Response): Promise<void> => {
+  const id = String(req.params.id ?? '');
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    res.status(400).json({ error: 'invalid prospect id (uuid)' });
+    return;
+  }
+
+  try {
+    const found = await pool.query(`SELECT email, email_status FROM prospects WHERE id=$1`, [id]);
+    if (found.rowCount === 0) {
+      res.status(404).json({ error: 'prospect not found' });
+      return;
+    }
+    const { email, email_status: prevStatus } = found.rows[0] as { email: string | null; email_status: string };
+    const newStatus = await validateEmailAddress(email);
+
+    await pool.query(
+      `UPDATE prospects SET email_status=$1, updated_at=NOW() WHERE id=$2`,
+      [newStatus, id],
+    );
+    await pool.query(
+      `INSERT INTO outbound_events (prospect_id, event_type, note)
+       VALUES ($1, 'validate_email', $2)`,
+      [id, `${prevStatus} → ${newStatus}`],
+    ).catch((e) => logger.warn({ err: e, id }, '[outbound] validate-email audit insert failed'));
+
+    res.json({ id, email, prev_status: prevStatus, email_status: newStatus });
+  } catch (err) {
+    logger.error({ err, id }, '[outbound] validate-email error');
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2 — enrichment ingest
+//
+// Vendor-agnostic: accepts a payload from any source (manual paste, n8n flow
+// pulling from Apollo/Clay, a future internal scraper). Merges allow-listed
+// columns into the existing prospects row and records the source.
+//
+// Allow-list is deliberately strict — we don't want a noisy webhook payload
+// blowing through into the row. Status, channel, and email_status are
+// NOT enrichable here (they're managed by status routes + validate-email).
+// ---------------------------------------------------------------------------
+const ENRICHABLE_FIELDS = [
+  'first_name', 'last_name', 'title', 'company', 'company_size', 'linkedin_url',
+] as const;
+type EnrichableField = typeof ENRICHABLE_FIELDS[number];
+
+type EnrichmentPayload = Partial<Record<EnrichableField, string | null>> & {
+  source?: string;
+  signals?: Array<{ type: string; detail?: string; date?: string }>;
+};
+
+const SIGNAL_TYPES_SET = new Set(['open_roles','funding','new_exec','tech_match','content_post','agency_growth']);
+
+async function applyEnrichment(prospectId: string, payload: EnrichmentPayload): Promise<{ updated: number; signals_inserted: number }> {
+  const sets: string[] = [];
+  const args: unknown[] = [];
+  for (const f of ENRICHABLE_FIELDS) {
+    const v = payload[f];
+    if (v === undefined) continue;
+    args.push(v === null || v === '' ? null : String(v).trim());
+    sets.push(`${f} = COALESCE($${args.length}, ${f})`); // only overwrite when caller passed a value
+  }
+
+  let updated = 0;
+  if (sets.length > 0) {
+    args.push(prospectId);
+    const result = await pool.query(
+      `UPDATE prospects SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${args.length} RETURNING id`,
+      args,
+    );
+    updated = result.rowCount ?? 0;
+  }
+
+  let signalsInserted = 0;
+  if (Array.isArray(payload.signals)) {
+    for (const sig of payload.signals) {
+      if (!SIGNAL_TYPES_SET.has(sig.type)) continue;
+      const r = await pool.query(
+        `INSERT INTO signals (prospect_id, signal_type, signal_detail, signal_date, is_fresh)
+         VALUES ($1, $2, $3, $4, true) RETURNING id`,
+        [prospectId, sig.type, sig.detail ?? null, sig.date ? new Date(sig.date) : null],
+      );
+      signalsInserted += r.rowCount ?? 0;
+    }
+  }
+
+  await pool.query(
+    `INSERT INTO outbound_events (prospect_id, event_type, note)
+     VALUES ($1, 'enrichment', $2)`,
+    [prospectId, payload.source ? `source=${payload.source}` : 'manual'],
+  ).catch((e) => logger.warn({ err: e, prospectId }, '[outbound] enrichment audit insert failed'));
+
+  return { updated, signals_inserted: signalsInserted };
+}
+
+// POST /prospects/:id/enrich — single-prospect enrichment
+router.post('/prospects/:id/enrich', async (req: Request, res: Response): Promise<void> => {
+  const id = String(req.params.id ?? '');
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    res.status(400).json({ error: 'invalid prospect id (uuid)' });
+    return;
+  }
+
+  const payload = (req.body ?? {}) as EnrichmentPayload;
+  try {
+    const exists = await pool.query(`SELECT id FROM prospects WHERE id=$1`, [id]);
+    if (exists.rowCount === 0) {
+      res.status(404).json({ error: 'prospect not found' });
+      return;
+    }
+    const result = await applyEnrichment(id, payload);
+    res.json({ id, ...result });
+  } catch (err) {
+    logger.error({ err, id }, '[outbound] enrich error');
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// POST /prospects/bulk-enrich — accepts { rows: [{ key: {email|linkedin_url}, ...payload }] }
+// Resolves each row to a prospect via email or linkedin_url, then enriches.
+router.post('/prospects/bulk-enrich', async (req: Request, res: Response): Promise<void> => {
+  const body = (req.body ?? {}) as { rows?: Array<EnrichmentPayload & { email?: string; linkedin_url?: string }> };
+  const rows = Array.isArray(body.rows) ? body.rows : [];
+  if (rows.length === 0) {
+    res.status(400).json({ error: 'rows[] required' });
+    return;
+  }
+  if (rows.length > 500) {
+    res.status(400).json({ error: 'max 500 rows per call' });
+    return;
+  }
+
+  const summary = {
+    received: rows.length,
+    matched: 0,
+    unmatched: 0,
+    signals_inserted: 0,
+    errors: [] as Array<{ index: number; reason: string }>,
+  };
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const r = rows[i];
+    try {
+      let prospectId: string | null = null;
+      const emailKey = normaliseEmail(r.email);
+      const liKey = s(r.linkedin_url);
+      if (emailKey) {
+        const m = await pool.query(`SELECT id FROM prospects WHERE lower(email)=$1 LIMIT 1`, [emailKey]);
+        if (m.rowCount && m.rowCount > 0) prospectId = (m.rows[0] as { id: string }).id;
+      }
+      if (!prospectId && liKey) {
+        const m = await pool.query(`SELECT id FROM prospects WHERE lower(linkedin_url)=lower($1) LIMIT 1`, [liKey]);
+        if (m.rowCount && m.rowCount > 0) prospectId = (m.rows[0] as { id: string }).id;
+      }
+      if (!prospectId) {
+        summary.unmatched += 1;
+        continue;
+      }
+
+      const result = await applyEnrichment(prospectId, r);
+      summary.matched += 1;
+      summary.signals_inserted += result.signals_inserted;
+    } catch (err) {
+      summary.errors.push({ index: i, reason: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  logger.info(summary, '[outbound/bulk-enrich] done');
+  res.json(summary);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 4 — POST /prospects/:id/replies
+//
+// Logs an inbound reply against a prospect, optionally auto-classifies it
+// via Claude Haiku (reuses the same service the outreach_leads pipeline
+// uses), and — when category=INTERESTED — promotes the prospect to status
+// 'replied'. Idempotent only by (prospect_id, body) — callers should not
+// re-POST the same body if they want to avoid duplicate rows.
+// ---------------------------------------------------------------------------
+router.post('/prospects/:id/replies', async (req: Request, res: Response): Promise<void> => {
+  const id = String(req.params.id ?? '');
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    res.status(400).json({ error: 'invalid prospect id (uuid)' });
+    return;
+  }
+
+  const body = (req.body ?? {}) as {
+    channel?: string;
+    body?: string;
+    received_at?: string;
+    classify?: boolean; // default true
+  };
+
+  const replyText = s(body.body);
+  if (!replyText) {
+    res.status(400).json({ error: 'body (reply text) is required' });
+    return;
+  }
+  const channel = s(body.channel);
+  const receivedAt = body.received_at ? new Date(body.received_at) : new Date();
+  const shouldClassify = body.classify !== false;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const prospect = await client.query(
+      `SELECT id, status, company FROM prospects WHERE id=$1 FOR UPDATE`,
+      [id],
+    );
+    if (prospect.rowCount === 0) {
+      await client.query('ROLLBACK');
+      res.status(404).json({ error: 'prospect not found' });
+      return;
+    }
+    const { status: currentStatus, company } = prospect.rows[0] as { status: string; company: string | null };
+
+    const reply = await client.query(
+      `INSERT INTO replies (prospect_id, channel, body, received_at)
+       VALUES ($1, $2, $3, $4) RETURNING id`,
+      [id, channel, replyText, receivedAt],
+    );
+    const replyId = (reply.rows[0] as { id: string }).id;
+
+    // Always log the reply event; classification + status promotion are best-effort.
+    await client.query(
+      `INSERT INTO outbound_events (prospect_id, event_type, note)
+       VALUES ($1, 'reply_received', $2)`,
+      [id, channel ? `channel=${channel}` : 'reply'],
+    );
+
+    await client.query('COMMIT');
+
+    // Classify outside the tx — we don't want a 10s Claude call holding a
+    // row-level lock. Failures are reported but don't fail the request.
+    let classification: { category: string; confidence: number; summary: string; draftReply: string | null } | null = null;
+    if (shouldClassify) {
+      try {
+        classification = await classifyReplyWithAI(replyText, '', company ?? '');
+        await pool.query(
+          `UPDATE replies SET classification=$1 WHERE id=$2`,
+          [classification.category, replyId],
+        );
+
+        // Auto-promote on INTERESTED — anything else just records the
+        // classification. Don't downgrade from a hotter status either
+        // (a prospect already in 'meeting' shouldn't fall back to 'replied').
+        const HOTTER = ['replied', 'meeting', 'pilot', 'client'];
+        const isHotter = HOTTER.indexOf(currentStatus) >= HOTTER.indexOf('replied');
+        if (classification.category === 'INTERESTED' && !isHotter) {
+          await pool.query(
+            `UPDATE prospects SET status='replied', updated_at=NOW() WHERE id=$1`,
+            [id],
+          );
+          await pool.query(
+            `INSERT INTO outbound_events (prospect_id, event_type, from_status, to_status, note)
+             VALUES ($1, 'status_change', $2, 'replied', 'auto-promoted: reply classified INTERESTED')`,
+            [id, currentStatus],
+          );
+        }
+      } catch (e) {
+        logger.warn({ err: e, replyId, id }, '[outbound] reply classification failed');
+      }
+    }
+
+    res.json({
+      id: replyId,
+      prospect_id: id,
+      classification,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => { /* already errored */ });
+    logger.error({ err, id }, '[outbound] reply insert error');
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   } finally {
     client.release();
