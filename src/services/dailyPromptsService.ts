@@ -44,7 +44,7 @@ export async function sendTeamSODPrompt(): Promise<boolean> {
     `${mentions(TEAM_SOD_EOD)}\n\n` +
     `_Drop the top 3 things you're shipping today + anything blocked._`;
 
-  const ok = await sendSlackMessage(SLACK_SOD_EOD_CHANNEL, msg).catch((e) => {
+  const ok = await sendSlackMessage(SLACK_SOD_EOD_CHANNEL, msg, undefined, { allowDuringPause: true }).catch((e) => {
     console.error('[daily-prompts] SOD prompt failed:', e);
     return false;
   });
@@ -60,7 +60,7 @@ export async function sendTeamEODPrompt(): Promise<boolean> {
     `${mentions(TEAM_SOD_EOD)}\n\n` +
     `_What shipped today · what's blocked · what's queued for tomorrow._`;
 
-  const ok = await sendSlackMessage(SLACK_SOD_EOD_CHANNEL, msg).catch((e) => {
+  const ok = await sendSlackMessage(SLACK_SOD_EOD_CHANNEL, msg, undefined, { allowDuringPause: true }).catch((e) => {
     console.error('[daily-prompts] EOD prompt failed:', e);
     return false;
   });
@@ -76,7 +76,7 @@ export async function sendSocialMediaPrompt(): Promise<boolean> {
     `${mentions(TEAM_SOCIAL)} — which brands need posting today?\n\n` +
     `Share the list + any creative briefs in this thread by *11 AM IST* 👇`;
 
-  const ok = await sendSlackMessage(SLACK_SOCIAL_MEDIA_CHANNEL, msg).catch((e) => {
+  const ok = await sendSlackMessage(SLACK_SOCIAL_MEDIA_CHANNEL, msg, undefined, { allowDuringPause: true }).catch((e) => {
     console.error('[daily-prompts] Social prompt failed:', e);
     return false;
   });
