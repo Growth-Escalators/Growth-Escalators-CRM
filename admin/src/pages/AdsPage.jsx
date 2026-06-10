@@ -254,6 +254,17 @@ function AccountsTab() {
     } catch {}
   }
 
+  async function handleToggleSlack(id, currentlyOn) {
+    try {
+      await apiFetch(`/api/marketing/accounts/${id}/notify-slack`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notifySlack: !currentlyOn }),
+      });
+      loadAccounts();
+    } catch {}
+  }
+
   async function handleEditSave(id) {
     if (!editingName.trim()) { setEditingId(null); return; }
     try {
@@ -299,15 +310,16 @@ function AccountsTab() {
               <th className="px-6 py-2 text-xs font-semibold text-slate-500">Account ID</th>
               <th className="px-6 py-2 text-xs font-semibold text-slate-500">Client Name</th>
               <th className="px-6 py-2 text-xs font-semibold text-slate-500">Status</th>
+              <th className="px-6 py-2 text-xs font-semibold text-slate-500">Slack Daily Report</th>
               <th className="px-6 py-2 text-xs font-semibold text-slate-500 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading && (
-              <tr><td colSpan={4} className="px-6 py-8 text-center text-sm text-slate-400">Loading accounts…</td></tr>
+              <tr><td colSpan={5} className="px-6 py-8 text-center text-sm text-slate-400">Loading accounts…</td></tr>
             )}
             {!loading && accounts.length === 0 && (
-              <tr><td colSpan={4} className="px-6 py-8 text-center text-sm text-slate-400">No accounts found</td></tr>
+              <tr><td colSpan={5} className="px-6 py-8 text-center text-sm text-slate-400">No accounts found</td></tr>
             )}
             {accounts.map(a => {
               const metaId = a.accountId || a.account_id || '';
@@ -345,6 +357,25 @@ function AccountsTab() {
                       status === 'pending_removal' ? 'bg-amber-100 text-amber-700' :
                       'bg-slate-100 text-slate-500'
                     }`}>{status}</span>
+                  </td>
+                  <td className="px-6 py-3">
+                    {(() => {
+                      const slackOn = a.notifySlack !== false;
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => handleToggleSlack(a.id, slackOn)}
+                          className={`px-2.5 py-1 text-xs font-semibold border rounded-full transition-colors ${
+                            slackOn
+                              ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                              : 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                          }`}
+                          title={slackOn ? 'Click to PAUSE Slack daily notifications for this account' : 'Click to RESUME Slack daily notifications for this account'}
+                        >
+                          {slackOn ? '● Active' : '⏸ Paused'}
+                        </button>
+                      );
+                    })()}
                   </td>
                   <td className="px-6 py-3 text-right">
                     <button onClick={() => handleRemove(a.id)}
@@ -1145,7 +1176,6 @@ export default function AdsPage() {
             {[
               { id: 'performance', label: 'Performance', icon: BarChart2 },
               { id: 'accounts', label: 'Accounts', icon: Settings },
-              { id: 'slack-daily-report', label: 'Slack Daily Report', icon: MessageSquare },
               { id: 'alerts', label: 'ROAS Alerts', icon: Bell },
               { id: 'slack', label: 'Slack Automation', icon: MessageSquare },
             ].map(t => (
@@ -1325,8 +1355,6 @@ export default function AdsPage() {
           {activeTab === 'accounts' && <AccountsTab />}
 
           {activeTab === 'alerts' && <AlertsTab adAccounts={adAccounts} />}
-
-          {activeTab === 'slack-daily-report' && <SlackDailyReportTab />}
 
           {activeTab === 'slack' && <SlackAutomationTab adAccounts={adAccounts} insights={insights} dateRange={dateRange} customSince={customSince} customUntil={customUntil} />}
         </div>

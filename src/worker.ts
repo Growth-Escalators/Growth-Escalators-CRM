@@ -409,6 +409,7 @@ console.log('[cron] Growth OS health scores scheduled — daily 8:00 AM IST');
 // Uses dedicated Meta Ads service with circuit breaker + proper API parsing
 // ---------------------------------------------------------------------------
 import('./services/metaAdsService').then(m => m.ensureAdAccountsTable()).catch(() => {});
+import('./services/metaAdsService').then(m => m.ensureMarketingAccountsNotifySlackColumn()).catch(() => {});
 cron.schedule('0 4 * * 1-6', () => safeCron('Meta Ads Daily Report', async () => {
   const { sendSlackMessage } = await import('./services/slackService');
   const { fetchAccountInsights, buildAccountReport, sortAccountsForReport } = await import('./services/metaAdsService');
@@ -419,16 +420,24 @@ cron.schedule('0 4 * * 1-6', () => safeCron('Meta Ads Daily Report', async () =>
     return;
   }
 
-  // Active accounts only — paused (is_active=false) rows stay in the table
-  // but skip the report. Controlled via the new Slack-Daily-Report tab on
-  // the /ads page (managed-accounts CRUD endpoints in routes/ads.ts).
-  const accounts = await pool.query(`SELECT account_id, client_name, currency, exchange_rate FROM ad_accounts WHERE is_active = true`);
+  // Source of truth: marketing_accounts (same table the /ads Accounts tab
+  // reads). An account is included in the daily report only if it is
+  //   is_active = true       — not pending-removed
+  //   notify_slack = true     — admin hasn't paused Slack notifications
+  // Both are flippable from the Accounts tab Actions column.
+  const accounts = await pool.query(
+    `SELECT
+       CASE WHEN account_id LIKE 'act_%' THEN account_id ELSE 'act_' || account_id END AS account_id,
+       COALESCE(client_name, account_name) AS client_name,
+       currency,
+       COALESCE(exchange_rate, 1) AS exchange_rate
+     FROM marketing_accounts
+     WHERE is_active = true AND COALESCE(notify_slack, true) = true
+     ORDER BY account_name`,
+  );
   if (accounts.rows.length === 0) {
-    const clients = await pool.query(`SELECT ad_account_id AS account_id, client_name FROM growth_os_clients WHERE is_active = true`);
-    if (clients.rows.length === 0) { console.log('[CRON] Meta Ads: no active accounts'); return; }
-    for (const c of clients.rows as Array<{ account_id: string; client_name: string }>) {
-      accounts.rows.push({ account_id: c.account_id, client_name: c.client_name, currency: 'INR', exchange_rate: 1 });
-    }
+    console.log('[CRON] Meta Ads: no active accounts with notify_slack=true');
+    return;
   }
 
   const insights = [];

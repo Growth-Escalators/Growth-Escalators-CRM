@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { db, marketingAccounts, users } from '../db/index';
+import { db, pool, marketingAccounts, users } from '../db/index';
 import { eq, and, sql } from 'drizzle-orm';
 import { requirePermission } from '../middleware/rbac';
 import { logAuditEvent } from '../utils/audit';
@@ -17,6 +17,15 @@ router.get('/accounts', requirePermission('MARKETING_VIEW'), async (req: Request
       .where(eq(marketingAccounts.tenantId, tenantId))
       .orderBy(sql`created_at DESC`);
 
+    // notify_slack column is added at runtime via ensureMarketingAccountsNotifySlackColumn
+    // (Drizzle schema doesn't know about it). Pull it via raw SQL so the
+    // Accounts tab can render the Pause/Activate toggle without a migration.
+    const notifyRows = await pool.query<{ id: string; notify_slack: boolean }>(
+      `SELECT id, COALESCE(notify_slack, true) AS notify_slack FROM marketing_accounts WHERE tenant_id = $1`,
+      [tenantId],
+    );
+    const notifyMap = new Map(notifyRows.rows.map(r => [r.id, r.notify_slack]));
+
     // Enrich with requester name for pending removals
     const enriched = await Promise.all(rows.map(async (acct) => {
       let requestedByName: string | null = null;
@@ -25,11 +34,37 @@ router.get('/accounts', requirePermission('MARKETING_VIEW'), async (req: Request
           .where(eq(users.id, acct.removalRequestedBy)).limit(1);
         requestedByName = u?.name || null;
       }
-      return { ...acct, requestedByName };
+      return { ...acct, requestedByName, notifySlack: notifyMap.get(acct.id) ?? true };
     }));
 
     res.json({ accounts: enriched });
   } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/marketing/accounts/:id/notify-slack — flip the Slack-daily-report
+// inclusion flag. Active = sends daily report, Paused = skipped.
+// ---------------------------------------------------------------------------
+router.patch('/accounts/:id/notify-slack', requirePermission('MARKETING_MANAGE'), async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const accountId = req.params.id as string;
+  const { notifySlack } = req.body as { notifySlack?: boolean };
+  if (typeof notifySlack !== 'boolean') {
+    res.status(400).json({ error: 'notifySlack (boolean) required' });
+    return;
+  }
+  try {
+    const result = await pool.query(
+      `UPDATE marketing_accounts SET notify_slack = $1, updated_at = NOW()
+       WHERE id = $2 AND tenant_id = $3
+       RETURNING id, client_name, notify_slack`,
+      [notifySlack, accountId, tenantId],
+    );
+    if (result.rows.length === 0) { res.status(404).json({ error: 'account not found' }); return; }
+    res.json({ ok: true, account: result.rows[0] });
+  } catch (e) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });

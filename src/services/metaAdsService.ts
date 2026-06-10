@@ -267,6 +267,18 @@ export async function ensureClientBenchmarksTable(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Ensure marketing_accounts has a notify_slack column (default true). This is
+// the flag the team toggles via the Accounts tab Pause/Activate button — the
+// 9:30 AM daily report only fires for rows where is_active=true AND
+// notify_slack=true. Idempotent ALTER TABLE so it runs safely on every boot.
+// ---------------------------------------------------------------------------
+export async function ensureMarketingAccountsNotifySlackColumn(): Promise<void> {
+  await pool.query(
+    `ALTER TABLE marketing_accounts ADD COLUMN IF NOT EXISTS notify_slack BOOLEAN DEFAULT true`,
+  ).catch(() => {});
+}
+
+// ---------------------------------------------------------------------------
 // Calculate monthly benchmarks for all active accounts
 // ---------------------------------------------------------------------------
 export async function calculateMonthlyBenchmarks(): Promise<void> {
