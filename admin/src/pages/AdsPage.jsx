@@ -608,204 +608,6 @@ function SlackAutomationTab({ adAccounts, insights, dateRange, customSince, cust
   );
 }
 
-// SlackDailyReportTab — manages the ad_accounts table (which feeds the
-// 9:30 AM IST daily Meta Ads digest posted to #perf-marketing). Add new
-// accounts, toggle Active/Pause, or delete a row entirely. Only Active
-// accounts are included in the daily Slack post.
-function SlackDailyReportTab() {
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState(null);
-  const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ account_id: '', client_name: '', currency: 'INR' });
-  const [busyId, setBusyId] = useState(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setErr(null);
-    try {
-      const r = await apiFetch('/api/ads/managed-accounts');
-      setRows(r?.accounts || []);
-    } catch (e) {
-      setErr(e.message || 'Failed to load');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  async function setActive(accountId, isActive) {
-    setBusyId(accountId);
-    try {
-      await apiFetch(`/api/ads/managed-accounts/${encodeURIComponent(accountId)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ is_active: isActive }),
-      });
-      await load();
-    } catch (e) {
-      setErr(e.message || 'Update failed');
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function removeRow(accountId, clientName) {
-    if (!window.confirm(`Permanently delete "${clientName}" from the daily report?\n\nThis removes the row from ad_accounts entirely. The Meta ad account itself is untouched.`)) return;
-    setBusyId(accountId);
-    try {
-      await apiFetch(`/api/ads/managed-accounts/${encodeURIComponent(accountId)}`, { method: 'DELETE' });
-      await load();
-    } catch (e) {
-      setErr(e.message || 'Delete failed');
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function submitAdd(e) {
-    e.preventDefault();
-    if (!form.account_id.trim() || !form.client_name.trim()) {
-      setErr('account_id and client_name are required');
-      return;
-    }
-    try {
-      await apiFetch('/api/ads/managed-accounts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      });
-      setForm({ account_id: '', client_name: '', currency: 'INR' });
-      setShowAdd(false);
-      await load();
-    } catch (e) {
-      setErr(e.message || 'Add failed');
-    }
-  }
-
-  const activeCount = rows.filter(r => r.is_active).length;
-
-  return (
-    <div className="space-y-4">
-      <div className="bg-sky-50 border border-sky-200 rounded-lg p-4 text-sm text-sky-900">
-        <p className="font-semibold mb-1">📊 Daily Meta Ads report — #perf-marketing</p>
-        <p className="text-sky-800">
-          Active accounts are posted to <code className="bg-sky-100 px-1 rounded">#perf-marketing</code> at <strong>9:30 AM IST</strong> Mon–Sat
-          (one Slack message per account, highest yesterday-spend first).
-          Paused accounts stay in the table but skip the report.
-          Deleting removes the row entirely.
-        </p>
-      </div>
-
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-slate-600">
-          <span className="font-semibold text-slate-900">{activeCount}</span> active
-          {' · '}
-          <span className="font-semibold text-slate-900">{rows.length - activeCount}</span> paused
-          {' · '}
-          <span className="font-semibold text-slate-900">{rows.length}</span> total
-        </div>
-        <button onClick={() => setShowAdd(s => !s)} className="px-3 py-1.5 bg-sky-600 text-white text-sm font-medium rounded-lg hover:bg-sky-700">
-          {showAdd ? 'Cancel' : '+ Add account'}
-        </button>
-      </div>
-
-      {showAdd && (
-        <form onSubmit={submitAdd} className="bg-white border border-slate-200 rounded-lg p-4 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-          <div className="md:col-span-1">
-            <label className="block text-xs font-semibold text-slate-600 mb-1">Meta ad account ID</label>
-            <input type="text" value={form.account_id} onChange={e => setForm({ ...form, account_id: e.target.value })}
-              placeholder="act_1234567890" className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm" />
-            <p className="text-[10px] text-slate-400 mt-0.5">act_ prefix added if missing</p>
-          </div>
-          <div className="md:col-span-2">
-            <label className="block text-xs font-semibold text-slate-600 mb-1">Client / display name</label>
-            <input type="text" value={form.client_name} onChange={e => setForm({ ...form, client_name: e.target.value })}
-              placeholder="Paraiso" className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm" />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">Currency</label>
-            <select value={form.currency} onChange={e => setForm({ ...form, currency: e.target.value })}
-              className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm">
-              <option value="INR">INR</option>
-              <option value="USD">USD</option>
-            </select>
-          </div>
-          <div className="md:col-span-4">
-            <button type="submit" className="px-3 py-1.5 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700">
-              Add account
-            </button>
-          </div>
-        </form>
-      )}
-
-      {err && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">{err}</div>
-      )}
-
-      {loading ? (
-        <div className="text-sm text-slate-500 py-8 text-center">Loading…</div>
-      ) : rows.length === 0 ? (
-        <div className="text-sm text-slate-500 py-8 text-center">No accounts yet — add one above.</div>
-      ) : (
-        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b border-slate-200">
-              <tr>
-                <th className="text-left px-4 py-2 font-semibold text-slate-600">Status</th>
-                <th className="text-left px-4 py-2 font-semibold text-slate-600">Client</th>
-                <th className="text-left px-4 py-2 font-semibold text-slate-600">Account ID</th>
-                <th className="text-left px-4 py-2 font-semibold text-slate-600">Currency</th>
-                <th className="text-right px-4 py-2 font-semibold text-slate-600">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(r => (
-                <tr key={r.account_id} className="border-b border-slate-100 last:border-0">
-                  <td className="px-4 py-2.5">
-                    {r.is_active ? (
-                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-full">
-                        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />Active
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-slate-100 text-slate-600 text-xs font-semibold rounded-full">
-                        <span className="w-1.5 h-1.5 bg-slate-400 rounded-full" />Paused
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2.5 font-medium text-slate-900">{r.client_name}</td>
-                  <td className="px-4 py-2.5 font-mono text-xs text-slate-500">{r.account_id}</td>
-                  <td className="px-4 py-2.5 text-slate-600">{r.currency}</td>
-                  <td className="px-4 py-2.5 text-right">
-                    <div className="inline-flex gap-1.5">
-                      {r.is_active ? (
-                        <button onClick={() => setActive(r.account_id, false)} disabled={busyId === r.account_id}
-                          className="px-2.5 py-1 text-xs font-medium border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 rounded disabled:opacity-50">
-                          Pause
-                        </button>
-                      ) : (
-                        <button onClick={() => setActive(r.account_id, true)} disabled={busyId === r.account_id}
-                          className="px-2.5 py-1 text-xs font-medium border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded disabled:opacity-50">
-                          Activate
-                        </button>
-                      )}
-                      <button onClick={() => removeRow(r.account_id, r.client_name)} disabled={busyId === r.account_id}
-                        className="px-2.5 py-1 text-xs font-medium border border-red-300 text-red-700 bg-red-50 hover:bg-red-100 rounded disabled:opacity-50">
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function AdsPage() {
   const [selectedAccount, setSelectedAccount] = useState('all');
   // Hydrate dateRange + custom dates from localStorage so refresh keeps the
@@ -854,7 +656,7 @@ export default function AdsPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab');
-    if (tab && ['performance', 'accounts', 'alerts', 'slack', 'slack-accounts'].includes(tab)) setActiveTab(tab);
+    if (tab && ['performance', 'accounts', 'alerts', 'slack'].includes(tab)) setActiveTab(tab);
   }, []);
 
   const accountsToFetch = selectedAccount === 'all' ? adAccounts.map(a => a.id) : [selectedAccount];
@@ -1050,7 +852,6 @@ export default function AdsPage() {
             {[
               { id: 'performance', label: 'Performance', icon: BarChart2 },
               { id: 'accounts', label: 'Accounts', icon: Settings },
-              { id: 'slack-accounts', label: 'Slack Daily Report', icon: MessageSquare },
               { id: 'alerts', label: 'ROAS Alerts', icon: Bell },
               { id: 'slack', label: 'Slack Automation', icon: MessageSquare },
             ].map(t => (
@@ -1230,8 +1031,6 @@ export default function AdsPage() {
           {activeTab === 'accounts' && <AccountsTab />}
 
           {activeTab === 'alerts' && <AlertsTab adAccounts={adAccounts} />}
-
-          {activeTab === 'slack-accounts' && <SlackDailyReportTab />}
 
           {activeTab === 'slack' && <SlackAutomationTab adAccounts={adAccounts} insights={insights} dateRange={dateRange} customSince={customSince} customUntil={customUntil} />}
         </div>

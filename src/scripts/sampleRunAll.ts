@@ -113,7 +113,7 @@ async function main(): Promise<void> {
       yesterday: { spend: 24500, purchases: 38, roas: 3.42, revenue: 83790, impressions: 124000, clicks: 1820, ctr: 1.47 },
       last7days: { spend: 168400, purchases: 251, roas: 3.18, revenue: 535512, impressions: 882000, clicks: 13104, ctr: 1.49 },
       thisMonth: { spend: 392150, purchases: 612, roas: 3.05, revenue: 1196057, impressions: 2010000, clicks: 30420, ctr: 1.51 },
-      bestCampaign: { name: 'Comfortwear Retargeting — UGC', roas: 4.91, spend: 8500 },
+      bestCampaign: { name: 'Comfortwear Retargeting — UGC', roas: 4.91 },
     },
     {
       clientName: 'Odra',
@@ -121,7 +121,7 @@ async function main(): Promise<void> {
       yesterday: { spend: 8200, purchases: 11, roas: 2.18, revenue: 17876, impressions: 41000, clicks: 580, ctr: 1.41 },
       last7days: { spend: 54300, purchases: 78, roas: 2.31, revenue: 125433, impressions: 285000, clicks: 4180, ctr: 1.46 },
       thisMonth: { spend: 126400, purchases: 189, roas: 2.27, revenue: 286928, impressions: 638000, clicks: 9540, ctr: 1.49 },
-      bestCampaign: { name: 'Organics Cold — Story Set 3', roas: 3.12, spend: 8500 },
+      bestCampaign: { name: 'Organics Cold — Story Set 3', roas: 3.12 },
     },
     {
       clientName: 'GE Agency',
@@ -129,7 +129,7 @@ async function main(): Promise<void> {
       yesterday: { spend: 14200, purchases: 4, roas: 0.62, revenue: 8804, impressions: 67000, clicks: 920, ctr: 1.37 },
       last7days: { spend: 91400, purchases: 47, roas: 1.18, revenue: 107852, impressions: 471000, clicks: 6510, ctr: 1.38 },
       thisMonth: { spend: 218200, purchases: 132, roas: 1.32, revenue: 288024, impressions: 1043000, clicks: 14820, ctr: 1.42 },
-      bestCampaign: { name: 'Brand Awareness — Founder Reels', roas: 1.91, spend: 8500 },
+      bestCampaign: { name: 'Brand Awareness — Founder Reels', roas: 1.91 },
     },
   ];
   const report = buildDailyReport(sampleInsights);
