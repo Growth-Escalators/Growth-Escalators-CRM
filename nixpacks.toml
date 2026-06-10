@@ -10,4 +10,13 @@ nixPkgs = ['nodejs_20', 'npm-9_x', 'openssl']
 cmds = ['npm install --legacy-peer-deps --include=dev']
 
 [phases.build]
-cmds = ['npm run build']
+# Backend (tsc → dist/) + admin SPA (vite → public/admin/). The admin
+# assets are gitignored — Railway must rebuild them on every deploy or
+# the browser hits stale-asset 404s and falls through to the SPA index
+# handler, which returns HTML with a text/html MIME on every /assets/*
+# URL and the browser refuses to apply it as JS/CSS (white screen).
+cmds = [
+  'npm install --legacy-peer-deps --prefix admin',
+  'npm run admin:build',
+  'npm run build',
+]
