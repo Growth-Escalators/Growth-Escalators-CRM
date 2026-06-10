@@ -21,10 +21,7 @@ export interface AccountInsights {
   yesterday: PeriodData | null;
   last7days: PeriodData | null;
   thisMonth: PeriodData | null;
-  // bestCampaign now carries spend too so we can suppress the line when the
-  // top campaign had negligible spend (which makes ROAS divide-by-near-zero
-  // and produce nonsense numbers like 244,200x).
-  bestCampaign: { name: string; roas: number; spend: number } | null;
+  bestCampaign: { name: string; roas: number } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -93,28 +90,21 @@ export async function fetchAccountInsights(
     fetchPeriod('this_month'),
   ]);
 
-  // Best campaign — fetch top 5 by ROAS, then filter out any with negligible
-  // spend so we don't surface a misleading "Best: X — 488,400.00x ROAS" when
-  // the underlying spend was ₹0.01. A campaign needs at least
-  // META_BEST_CAMPAIGN_MIN_SPEND of spend (default ₹100) to be eligible.
-  let bestCampaign: { name: string; roas: number; spend: number } | null = null;
+  // Best campaign
+  let bestCampaign: { name: string; roas: number } | null = null;
   try {
-    const campUrl = `${base}?fields=campaign_name,spend,purchase_roas&date_preset=yesterday&level=campaign&sort=purchase_roas_descending&limit=5&access_token=${accessToken}`;
+    const campUrl = `${base}?fields=campaign_name,spend,purchase_roas&date_preset=yesterday&level=campaign&sort=purchase_roas_descending&limit=1&access_token=${accessToken}`;
     const campRes = await fetch(campUrl, { signal: AbortSignal.timeout(10000) });
     if (campRes.ok) {
       const campData = await campRes.json() as { data?: Array<Record<string, unknown>> };
-      const minSpend = Number(process.env.META_BEST_CAMPAIGN_MIN_SPEND ?? '100');
-      const candidates = (campData.data ?? [])
-        .map((c) => {
-          const roasArr = c.purchase_roas as Array<{ value: string }> | undefined;
-          return {
-            name:  String(c.campaign_name ?? 'Unknown'),
-            roas:  roasArr?.[0] ? parseFloat(roasArr[0].value) : 0,
-            spend: parseFloat(String(c.spend ?? 0)) * rate,
-          };
-        })
-        .filter((c) => c.spend >= minSpend);
-      bestCampaign = candidates[0] ?? null;
+      if (campData.data && campData.data.length > 0) {
+        const c = campData.data[0];
+        const roasArr = c.purchase_roas as Array<{ value: string }> | undefined;
+        bestCampaign = {
+          name: String(c.campaign_name ?? 'Unknown'),
+          roas: roasArr?.[0] ? parseFloat(roasArr[0].value) : 0,
+        };
+      }
     }
   } catch { /* non-critical */ }
 
@@ -124,64 +114,73 @@ export async function fetchAccountInsights(
 // ---------------------------------------------------------------------------
 // Build formatted Slack report
 // ---------------------------------------------------------------------------
-// Spend below which we treat a period's spend as "effectively zero" and
-// suppress the ROAS figure for that period. ROAS = revenue/spend is
-// arithmetic-correct even at ₹0.01 spend, but the resulting "488,400.00x"
-// is meaningless noise to a reader and obscures the genuinely useful
-// 7-day / monthly ROAS in the same line.
-const ROAS_MIN_SPEND_FOR_DISPLAY = Number(process.env.META_REPORT_ROAS_MIN_SPEND ?? '100');
+// Spend threshold above which a low ROAS account gets a ⚠️ flag in the
+// daily report. Tuned for the typical D2C ad-spend ranges we manage; raise
+// via env if the team is consistently scaling above this and the flag
+// becomes noise.
+const LOW_ROAS_FLAG_SPEND_THRESHOLD = Number(process.env.META_REPORT_LOW_ROAS_SPEND_THRESHOLD ?? '10000');
+const LOW_ROAS_FLAG_ROAS_THRESHOLD = Number(process.env.META_REPORT_LOW_ROAS_THRESHOLD ?? '1');
 
-function roasOrDash(period: PeriodData | null): string {
-  if (!period) return '—';
-  if (period.spend < ROAS_MIN_SPEND_FOR_DISPLAY) return '—';
-  return formatROAS(period.roas);
-}
-
-// Build the per-account Slack message block. Used by the daily Meta Ads
-// cron — one message per active account so they don't get mashed together.
-// Matches the exact template the team requested (no top-line summary,
-// no spend-share badges, no warning flags).
-export function buildAccountReport(a: AccountInsights): string {
-  const y = a.yesterday;
-  const w = a.last7days;
-  const m = a.thisMonth;
-
-  let msg = `👜 *${a.clientName}*\n`;
-  msg += `━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-  msg += `💰 Spend: ${y ? formatINR(y.spend) : '—'} (yday) | ${w ? formatINR(w.spend) : '—'} (7d) | ${m ? formatINR(m.spend) : '—'} (month)\n`;
-  msg += `🛒 Purchases: ${y?.purchases ?? '—'} | ${w?.purchases ?? '—'} | ${m?.purchases ?? '—'}\n`;
-  // ROAS suppressed for any period whose spend is below the display
-  // threshold (default ₹100) — see roasOrDash for the rationale.
-  msg += `📈 ROAS: ${roasOrDash(y)} | ${roasOrDash(w)} | ${roasOrDash(m)}\n`;
-  msg += `💵 Revenue: ${y ? formatINR(y.revenue) : '—'} | ${w ? formatINR(w.revenue) : '—'} | ${m ? formatINR(m.revenue) : '—'}\n`;
-
-  // Best campaign filter happens in fetchAccountInsights — only campaigns
-  // with ≥ META_BEST_CAMPAIGN_MIN_SPEND get through. If nothing qualifies,
-  // we omit the line rather than show a misleading high-ROAS-tiny-spend row.
-  if (a.bestCampaign && a.bestCampaign.spend >= ROAS_MIN_SPEND_FOR_DISPLAY) {
-    msg += `🔥 Best yesterday: ${a.bestCampaign.name} — ${formatROAS(a.bestCampaign.roas)} ROAS\n`;
-  }
-  return msg;
-}
-
-// Sort helper — accounts with higher yesterday spend post first, so the most
-// active accounts surface at the top of the channel timeline.
-export function sortAccountsForReport(accounts: AccountInsights[]): AccountInsights[] {
-  return [...accounts].sort((a, b) => (b.yesterday?.spend ?? 0) - (a.yesterday?.spend ?? 0));
-}
-
-// Legacy single-message report — kept for callers that still want a combined
-// digest (sample scripts, ad-hoc tooling). The 9:30 AM cron now sends one
-// message per active account via buildAccountReport().
 export function buildDailyReport(accounts: AccountInsights[]): string {
   const dateStr = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
-  const activeAccounts = accounts.filter(a => a.last7days && a.last7days.spend > 0);
-  if (activeAccounts.length === 0) return `📊 *Meta Ads Daily Report — ${dateStr}*\n\n_No active campaigns with spend in the last 7 days._`;
-
   let msg = `📊 *Meta Ads Daily Report — ${dateStr}*\n\n`;
-  for (const a of sortAccountsForReport(activeAccounts)) {
-    msg += buildAccountReport(a) + '\n';
+
+  const activeAccounts = accounts.filter(a => a.last7days && a.last7days.spend > 0);
+
+  if (activeAccounts.length === 0) {
+    msg += `_No active campaigns with spend in the last 7 days._`;
+    return msg;
   }
+
+  // ── Top-line summary across all active accounts (yesterday) ──────────────
+  // Gives the team a one-glance "how did we do yesterday in aggregate" before
+  // they read the per-account breakdown.
+  const yTotal = activeAccounts.reduce((acc, a) => {
+    if (!a.yesterday) return acc;
+    acc.spend     += a.yesterday.spend;
+    acc.purchases += a.yesterday.purchases;
+    acc.revenue   += a.yesterday.revenue;
+    return acc;
+  }, { spend: 0, purchases: 0, revenue: 0 });
+  const yTotalRoas = yTotal.spend > 0 ? yTotal.revenue / yTotal.spend : 0;
+  const accountsWithYData = activeAccounts.filter(a => a.yesterday).length;
+
+  msg += `*Yesterday across ${accountsWithYData} ${accountsWithYData === 1 ? 'account' : 'accounts'}:*\n`;
+  msg += `💰 ${formatINR(yTotal.spend)} spend · 🛒 ${yTotal.purchases.toFixed(0)} purchases · 💵 ${formatINR(yTotal.revenue)} revenue · 📈 ${formatROAS(yTotalRoas)} blended ROAS\n\n`;
+
+  // Sort: highest spend first so the most impactful accounts surface at the top
+  const sorted = [...activeAccounts].sort((a, b) => (b.yesterday?.spend ?? 0) - (a.yesterday?.spend ?? 0));
+
+  for (const a of sorted) {
+    const y = a.yesterday;
+    const w = a.last7days;
+    const m = a.thisMonth;
+
+    // Spend-share badge: what % of yesterday's TOTAL spend came from this
+    // account. Helps the team see which accounts are pulling the most weight.
+    const spendShare = (y && yTotal.spend > 0) ? Math.round((y.spend / yTotal.spend) * 100) : 0;
+    const shareBadge = (y && y.spend > 0) ? ` _(${spendShare}% of yday spend)_` : '';
+
+    // High-spend / low-ROAS warning. Skip the flag entirely when yesterday
+    // had zero spend (no signal to act on yet).
+    const flag = (y && y.spend >= LOW_ROAS_FLAG_SPEND_THRESHOLD && y.roas < LOW_ROAS_FLAG_ROAS_THRESHOLD)
+      ? ' ⚠️ *low ROAS at scale*'
+      : '';
+
+    msg += `👜 *${a.clientName}*${shareBadge}${flag}\n`;
+    msg += `━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+
+    msg += `💰 Spend: ${y ? formatINR(y.spend) : '—'} (yday) | ${w ? formatINR(w.spend) : '—'} (7d) | ${m ? formatINR(m.spend) : '—'} (month)\n`;
+    msg += `🛒 Purchases: ${y?.purchases ?? '—'} | ${w?.purchases ?? '—'} | ${m?.purchases ?? '—'}\n`;
+    msg += `📈 ROAS: ${y ? formatROAS(y.roas) : '—'} | ${w ? formatROAS(w.roas) : '—'} | ${m ? formatROAS(m.roas) : '—'}\n`;
+    msg += `💵 Revenue: ${y ? formatINR(y.revenue) : '—'} | ${w ? formatINR(w.revenue) : '—'} | ${m ? formatINR(m.revenue) : '—'}\n`;
+
+    if (a.bestCampaign && a.bestCampaign.roas > 0) {
+      msg += `🔥 Best yesterday: ${a.bestCampaign.name} — ${formatROAS(a.bestCampaign.roas)} ROAS\n`;
+    }
+    msg += '\n';
+  }
+
   msg += `_Powered by Growth Escalators · ${new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}_`;
   return msg;
 }
