@@ -356,15 +356,21 @@ router.get('/calendar', async (req: Request, res: Response) => {
     const start = new Date(year, mon - 1, 1);
     const end = new Date(year, mon, 0, 23, 59, 59);
 
+    // The calendar should bucket posts by when they're *meant to publish*, not
+    // when they were created. COALESCE picks the right date per status:
+    //   - 'published'  → published_at (when it actually went out)
+    //   - 'scheduled'  → scheduled_at (when it WILL go out)
+    //   - 'draft'/etc. → created_at (fallback)
+    // Keep using Drizzle's select() so columns map to camelCase for the frontend.
     const rows = await db.select().from(socialPosts)
       .where(
         and(
           eq(socialPosts.tenantId, tenantId),
-          gte(socialPosts.createdAt, start),
-          lte(socialPosts.createdAt, end)
+          sql`COALESCE(published_at, scheduled_at, created_at) >= ${start}`,
+          sql`COALESCE(published_at, scheduled_at, created_at) <= ${end}`,
         )
       )
-      .orderBy(sql`created_at ASC`)
+      .orderBy(sql`COALESCE(published_at, scheduled_at, created_at) ASC`)
       .limit(500);
 
     res.json({ posts: rows });
@@ -447,7 +453,37 @@ oauthRouter.get('/facebook/start', async (req: Request, res: Response) => {
   }
 
   const redirectUri = 'https://web-production-311da.up.railway.app/api/social/oauth/facebook/callback';
-  const scope = 'pages_manage_posts,pages_read_engagement,instagram_basic,instagram_content_publish,business_management';
+  // Full scope set requested during Meta App Review. The OAuth dialog will
+  // list every permission below; each must be matched by a corresponding
+  // screencast in the App Review portal showing the permission being
+  // exercised. Order is informational only — Facebook deduplicates.
+  //
+  //   pages_show_list              → CRM lists FB Pages the user administers
+  //   pages_read_engagement        → CRM reads organic post engagement
+  //   pages_manage_posts           → CRM publishes posts to the Page
+  //   business_management          → CRM lists Business Manager + ad accounts
+  //   ads_read                     → CRM reads ad-account performance
+  //   ads_management               → CRM pauses/activates ad campaigns
+  //   instagram_basic              → CRM reads connected IG profile metadata
+  //   instagram_content_publish    → CRM publishes IG posts
+  //
+  // WhatsApp scopes (whatsapp_business_messaging,
+  // whatsapp_business_management) are NOT requested through this Facebook
+  // Login flow — they're granted via the WhatsApp Embedded Signup flow that
+  // attaches them to the system-user token already in env. The reviewer
+  // verifies them by sending/receiving messages in the Inbox and creating
+  // a template in the WA Templates page — those features already use the
+  // server-side token from META_ACCESS_TOKEN.
+  const scope = [
+    'pages_show_list',
+    'pages_read_engagement',
+    'pages_manage_posts',
+    'business_management',
+    'ads_read',
+    'ads_management',
+    'instagram_basic',
+    'instagram_content_publish',
+  ].join(',');
   const state = Buffer.from(JSON.stringify({ userId, ts: Date.now() })).toString('base64url');
 
   const oauthUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scope}&state=${state}&response_type=code`;
