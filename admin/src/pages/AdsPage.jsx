@@ -86,6 +86,7 @@ function CampaignRow({ campaign, insights, accountId, dateQS, onStatusChange }) 
   const [adsetAds, setAdsetAds] = useState({});
   const [toggling, setToggling] = useState(false);
 
+  const [adsetsError, setAdsetsError] = useState(null);
   const ins = insights.find(i => i.campaignId === campaign.id) || {};
   const currentStatus = (campaign.effective_status || campaign.status || '').toUpperCase();
   const canToggle = currentStatus === 'ACTIVE' || currentStatus === 'PAUSED';
@@ -111,13 +112,33 @@ function CampaignRow({ campaign, insights, accountId, dateQS, onStatusChange }) 
   }
 
   async function loadAdsets() {
+    // If we already have adsets cached for this row, just toggle the
+    // expanded state — avoids re-hitting Meta on every click.
     if (adsets.length > 0) { setExpanded(e => !e); return; }
-    if (!dateQS) return;
+    // ALWAYS open the section on click so the user gets visual feedback
+    // (loading spinner / error / empty state) — previously this returned
+    // silently when dateQS was null and the click looked like it did
+    // nothing.
     setExpanded(true);
+    setAdsetsError(null);
+    if (!dateQS) { setAdsetsError('Pick a date range first.'); return; }
+    if (!accountId) { setAdsetsError('Missing accountId for this campaign — try refreshing.'); return; }
     setLoadingAdsets(true);
     try {
       const data = await apiFetch(`/api/ads/adsets?accountId=${accountId}&campaignId=${campaign.id}&${dateQS}`);
-      setAdsets(data?.insights || []);
+      // Surface the Meta-side error if present (e.g. token_missing,
+      // permission denied). Backend returns it in data.error.
+      if (data?.error) {
+        const msg = typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error));
+        setAdsetsError(`Meta API: ${msg}`);
+        setAdsets([]);
+      } else {
+        setAdsets(data?.insights || []);
+      }
+    } catch (e) {
+      console.error('[ads] loadAdsets failed:', e);
+      setAdsetsError(e?.message || 'Failed to load ad sets.');
+      setAdsets([]);
     } finally {
       setLoadingAdsets(false);
     }
@@ -173,6 +194,12 @@ function CampaignRow({ campaign, insights, accountId, dateQS, onStatusChange }) 
         <>
           {loadingAdsets && (
             <tr><td colSpan={8} className="px-4 py-3 text-center text-sm text-slate-400">Loading ad sets…</td></tr>
+          )}
+          {!loadingAdsets && adsetsError && (
+            <tr><td colSpan={8} className="px-4 py-3 text-center text-sm text-red-600 bg-red-50">⚠ {adsetsError}</td></tr>
+          )}
+          {!loadingAdsets && !adsetsError && adsets.length === 0 && (
+            <tr><td colSpan={8} className="px-4 py-3 text-center text-sm text-slate-400 bg-slate-50">No ad sets returned for this campaign in the selected date range.</td></tr>
           )}
           {adsets.map(adset => (
             <React.Fragment key={adset.adsetId}>
