@@ -425,12 +425,18 @@ cron.schedule('0 4 * * 1-6', () => safeCron('Meta Ads Daily Report', async () =>
   //   is_active = true       — not pending-removed
   //   notify_slack = true     — admin hasn't paused Slack notifications
   // Both are flippable from the Accounts tab Actions column.
+  //
+  // marketing_accounts has no `currency` or `exchange_rate` columns (unlike
+  // ad_accounts). All clients in this CRM run INR ad accounts, so we
+  // hardcode the defaults in SQL — fetchAccountInsights treats currency=INR
+  // / rate=1 as no-conversion. If a USD client is ever added, we'll need
+  // to either alter the table or move conversion to a per-account override.
   const accounts = await pool.query(
     `SELECT
        CASE WHEN account_id LIKE 'act_%' THEN account_id ELSE 'act_' || account_id END AS account_id,
        COALESCE(client_name, account_name) AS client_name,
-       currency,
-       COALESCE(exchange_rate, 1) AS exchange_rate
+       'INR' AS currency,
+       1 AS exchange_rate
      FROM marketing_accounts
      WHERE is_active = true AND COALESCE(notify_slack, true) = true
      ORDER BY account_name`,
