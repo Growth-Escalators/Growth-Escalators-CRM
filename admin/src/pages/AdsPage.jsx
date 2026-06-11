@@ -1018,9 +1018,15 @@ export default function AdsPage() {
             apiFetch(`/api/ads/campaigns?accountId=${accountId}&${dateQS}`),
           ]);
           if (ins?.error === 'token_missing') setTokenMissing(true);
+          // Tag each campaign + insight row with its source accountId so the
+          // CampaignRow can call /api/ads/adsets?accountId=<correct one>...
+          // when the user expands a row. Without this, in "All Accounts"
+          // mode every row would use accountsToFetch[0] (the first account)
+          // and Meta would return empty insights for campaigns belonging to
+          // any of the other accounts in the dropdown.
           return {
-            insights: ins?.insights || [],
-            campaigns: camps?.campaigns || [],
+            insights:  (ins?.insights  || []).map(i => ({ ...i, accountId })),
+            campaigns: (camps?.campaigns || []).map(c => ({ ...c, accountId })),
           };
         })
       );
@@ -1300,7 +1306,7 @@ export default function AdsPage() {
                             key={c.id}
                             campaign={c}
                             insights={insights}
-                            accountId={accountsToFetch[0] || selectedAccount}
+                            accountId={c.accountId || accountsToFetch[0] || selectedAccount}
                             dateQS={dateQS}
                             onStatusChange={loadData}
                           />
