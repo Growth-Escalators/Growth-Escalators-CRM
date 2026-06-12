@@ -1,6 +1,14 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { apiFetch } from '../lib/api.js';
-import { RefreshCw, AlertCircle, FileText } from 'lucide-react';
+import { RefreshCw, AlertCircle, FileText, Heart, MessageCircle, Share2 } from 'lucide-react';
+
+function fmtN(n) {
+  if (n == null) return '—';
+  const num = Number(n);
+  if (Number.isNaN(num)) return '—';
+  if (num >= 1000) return `${(num / 1000).toFixed(num >= 10_000 ? 0 : 1)}k`;
+  return String(num);
+}
 
 function truncate(str, n = 120) {
   if (!str) return '';
@@ -130,17 +138,21 @@ export default function PagePostsSection() {
           <table className="min-w-full text-sm">
             <thead>
               <tr className="text-left text-xs font-medium text-slate-500 uppercase tracking-wide border-b border-slate-200">
-                <th className="px-3 py-2">Post ID</th>
                 <th className="px-3 py-2">Message</th>
+                <th className="px-3 py-2 text-right"><span className="inline-flex items-center gap-1"><Heart className="w-3.5 h-3.5 text-pink-500" /> Reactions</span></th>
+                <th className="px-3 py-2 text-right"><span className="inline-flex items-center gap-1"><MessageCircle className="w-3.5 h-3.5 text-blue-500" /> Comments</span></th>
+                <th className="px-3 py-2 text-right"><span className="inline-flex items-center gap-1"><Share2 className="w-3.5 h-3.5 text-green-500" /> Shares</span></th>
                 <th className="px-3 py-2">Created</th>
               </tr>
             </thead>
             <tbody>
               {posts.map((post) => (
-                <tr key={post.id} className="border-b border-slate-100">
-                  <td className="px-3 py-2 font-mono text-xs text-slate-600 align-top">{post.id}</td>
-                  <td className="px-3 py-2 text-slate-800 align-top">{truncate(post.message, 120) || <span className="text-slate-400">(no message)</span>}</td>
-                  <td className="px-3 py-2 text-slate-600 align-top whitespace-nowrap">{fmtDate(post.created_time)}</td>
+                <tr key={post.id} className="border-b border-slate-100 hover:bg-slate-50">
+                  <td className="px-3 py-2 text-slate-800 align-top max-w-md">{truncate(post.message, 140) || <span className="text-slate-400">(no message — image/video only)</span>}</td>
+                  <td className="px-3 py-2 text-slate-700 align-top text-right font-medium tabular-nums">{fmtN(post.reactions_count)}</td>
+                  <td className="px-3 py-2 text-slate-700 align-top text-right font-medium tabular-nums">{fmtN(post.comments_count)}</td>
+                  <td className="px-3 py-2 text-slate-700 align-top text-right font-medium tabular-nums">{fmtN(post.shares_count)}</td>
+                  <td className="px-3 py-2 text-slate-500 align-top whitespace-nowrap text-xs">{fmtDate(post.created_time)}</td>
                 </tr>
               ))}
             </tbody>
