@@ -224,9 +224,17 @@ app.use('/api/task-lists', requireAuth, taskListsRouter);
 app.use('/api/team', requireAuth, teamRouter);
 app.use('/api/funnel', funnelRouter);
 app.use('/api/leads', leadsRouter);
-// Public funnel config endpoint (no auth — used by checkout frontend)
-app.get('/api/funnel-configs/public/:slug', (req, res, next) => { funnelConfigRouter(req, res, next); });
-app.use('/api/funnel-configs', requireAuth, funnelConfigRouter);
+// Funnel-configs: /public/* needs no auth (checkout frontend hits it
+// unauthenticated from ecom.growthescalators.com); everything else is
+// behind requireAuth. The previous hoisted app.get wrapper was a no-op —
+// the router's own /public/:slug route never matched the unstripped URL,
+// so the public request always fell through to the auth-protected mount
+// and 401'd. Landing pages worked anyway by silently using their bundled
+// config fallback in useFunnelConfig.js — so this bug hid in plain sight.
+app.use('/api/funnel-configs', (req, res, next) => {
+  if (req.path.startsWith('/public/')) return next();
+  return requireAuth(req, res, next);
+}, funnelConfigRouter);
 
 // ---------------------------------------------------------------------------
 // POST /api/feedback — Receive user feedback from CRM, send to Slack + store
