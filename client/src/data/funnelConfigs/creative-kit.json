@@ -1,0 +1,37 @@
+{
+  "slug": "creative-kit",
+  "name": "Creative Kit Funnel",
+  "base_price": 49,
+  "bump1_price": 199,
+  "bump2_price": 499,
+  "bump1_label": "Creative Kit — Pro",
+  "bump2_label": "30-min Creative Strategy Call",
+  "product_name": "D2C Creative Kit",
+  "product_labels": {
+    "base": "D2C Creative Kit",
+    "bump1": "Creative Kit + Pro",
+    "bump2": "Creative Kit + Strategy Call",
+    "all": "Creative Kit Complete"
+  },
+  "hero_headline": "The D2C Creative Kit — TBD",
+  "hero_subheadline": "Hook + ad scripts + landing page templates — TBD",
+  "cta_text": "Get Instant Access for ₹49",
+  "accent_color": "#F97316",
+  "segment_options": [
+    { "id": "d2c", "label": "I run a D2C Brand", "subtitle": "I sell products online and run Meta/Google ads", "icon": "🛍️" },
+    { "id": "agency", "label": "I run an Agency", "subtitle": "I manage performance marketing for clients", "icon": "🏢" },
+    { "id": "freelancer", "label": "I am a Freelancer", "subtitle": "I do performance marketing independently", "icon": "💻" }
+  ],
+  "brand_names": ["boAt", "GIVA", "Minimalist", "Libas", "SUGAR"],
+  "post_purchase_route": "/creative-kit/thank-you",
+  "main_product_description": "Creative kit for D2C brands — TBD",
+  "bump1_description": "Pro upgrade with extra templates — TBD",
+  "bump2_description": "30-min creative review call — TBD",
+  "bonus_products": [
+    { "label": "Bonus 1 — TBD", "description": "", "image_url": "", "pdf_url": "" },
+    { "label": "Bonus 2 — TBD", "description": "", "image_url": "", "pdf_url": "" },
+    { "label": "Bonus 3 — TBD", "description": "", "image_url": "", "pdf_url": "" },
+    { "label": "Bonus 4 — TBD", "description": "", "image_url": "", "pdf_url": "" },
+    { "label": "Bonus 5 — TBD", "description": "", "image_url": "", "pdf_url": "" }
+  ]
+}

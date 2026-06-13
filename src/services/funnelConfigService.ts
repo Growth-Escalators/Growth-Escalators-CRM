@@ -263,6 +263,45 @@ export async function seedDefaultFunnelConfigs(tenantId: string): Promise<void> 
       slack_emoji: '🏠',
       slack_label: 'New Real Estate Purchase',
       service_type: 'real_estate',
+      bonus_products: '[]',
+    },
+    {
+      slug: 'creative-kit',
+      name: 'Creative Kit Funnel',
+      base_price: 49,
+      bump1_price: 199,
+      bump2_price: 499,
+      bump1_label: 'Creative Kit — Pro',
+      bump2_label: '30-min Creative Strategy Call',
+      product_name: 'D2C Creative Kit',
+      product_labels: JSON.stringify({
+        base: 'D2C Creative Kit',
+        bump1: 'Creative Kit + Pro',
+        bump2: 'Creative Kit + Strategy Call',
+        all: 'Creative Kit Complete',
+      }),
+      main_pdf_url: null,
+      bump1_pdf_url: null,
+      bump2_booking_url: 'https://cal.com/growth-escalators/discovery-call',
+      wa_template_name: 'ge_welcome_creative_kit',
+      wa_msg1_template: 'Hi {firstName}! 🎉 Your {productName} is on its way. Download it here: {mainPdfUrl}\n\nThis kit gives you the exact creative templates, hooks, and frameworks that scale on Meta. Start with the hook bank — most brands find their next winner in there.\n\nReply if you have questions. — Jatin from Growth Escalators',
+      wa_msg2_template: 'Your {bump1Label} is ready! 📦 Download: {bump1PdfUrl}\n\nThe Pro upgrade unlocks the full template library. Open the Index PDF first — that maps everything to your funnel stage.',
+      wa_msg3_template: 'Your {bump2Label} is confirmed! 🎯\n\nBook your slot: {bump2BookingUrl}\n\nCome prepared with:\n- 2-3 ads currently running\n- Your CPM / CTR / hook rate\n- Your biggest creative challenge\n\nJatin will review your creative and give you 3 specific things to test this week.',
+      email_subject: 'Your {productName} is ready, {firstName} 🎯',
+      email_body: 'Hi {firstName},\n\nYour purchase is confirmed! Here is everything you have access to:\n\n📄 {productName}:\n{mainPdfUrl}\n\n{bump1Section}{bump2Section}Start with the hook bank — that\'s the highest-leverage page in the kit.\n\nReply to this email if you have any questions.\n\n— Jatin Agrawal\nFounder, Growth Escalators',
+      pipeline_name: 'D2C Prospects',
+      pipeline_stages: JSON.stringify(['Paid ₹49', 'Paid ₹248', 'Paid ₹548', 'Paid ₹747', 'Appointment Booked', 'No Show', 'Converted', 'Lost']),
+      sequence_name: 'D2C Lead Nurture',
+      slack_emoji: '🎨',
+      slack_label: 'New Creative Kit Purchase',
+      service_type: 'ecom',
+      bonus_products: JSON.stringify([
+        { label: 'Bonus 1 — TBD', description: '', image_url: '', pdf_url: '' },
+        { label: 'Bonus 2 — TBD', description: '', image_url: '', pdf_url: '' },
+        { label: 'Bonus 3 — TBD', description: '', image_url: '', pdf_url: '' },
+        { label: 'Bonus 4 — TBD', description: '', image_url: '', pdf_url: '' },
+        { label: 'Bonus 5 — TBD', description: '', image_url: '', pdf_url: '' },
+      ]),
     },
   ];
 
@@ -271,23 +310,29 @@ export async function seedDefaultFunnelConfigs(tenantId: string): Promise<void> 
       `INSERT INTO funnel_configs (tenant_id, slug, name, is_active, base_price, bump1_price, bump2_price, bump1_label, bump2_label,
         product_name, product_labels, main_pdf_url, bump1_pdf_url, bump2_booking_url,
         wa_template_name, wa_msg1_template, wa_msg2_template, wa_msg3_template, email_subject, email_body,
-        pipeline_name, pipeline_stages, sequence_name, slack_emoji, slack_label, service_type)
-       VALUES ($1,$2,$3,TRUE,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
+        pipeline_name, pipeline_stages, sequence_name, slack_emoji, slack_label, service_type,
+        bonus_products)
+       VALUES ($1,$2,$3,TRUE,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26::jsonb)
        ON CONFLICT (tenant_id, slug) DO NOTHING`,
       [tenantId, c.slug, c.name, c.base_price, c.bump1_price, c.bump2_price, c.bump1_label, c.bump2_label,
        c.product_name, c.product_labels, c.main_pdf_url, c.bump1_pdf_url, c.bump2_booking_url,
        c.wa_template_name, c.wa_msg1_template, c.wa_msg2_template, c.wa_msg3_template, c.email_subject, c.email_body,
-       c.pipeline_name, c.pipeline_stages, c.sequence_name, c.slack_emoji, c.slack_label, c.service_type],
+       c.pipeline_name, c.pipeline_stages, c.sequence_name, c.slack_emoji, c.slack_label, c.service_type,
+       c.bonus_products ?? '[]'],
     );
   }
 
-  logger.info('[funnel-config] Default funnel configs seeded (ecom, doctors, real-estate)');
+  logger.info('[funnel-config] Default funnel configs seeded (ecom, doctors, real-estate, creative-kit)');
 
   // Seed frontend fields for existing configs (idempotent — only fills NULL fields)
   const frontendSeeds = [
     { slug: 'ecom', hero_headline: 'See Exactly How India\'s Top 5 D2C Brands Build Their Funnels', hero_subheadline: 'Get the exact funnel breakdown that helps Indian brands scale past ₹10L/month on Meta', cta_text: 'Get Instant Access for ₹9', accent_color: '#F97316', segment_options: JSON.stringify([{id:'d2c',label:'I run a D2C Brand',icon:'🛍️'},{id:'agency',label:'I run an Agency',icon:'🏢'},{id:'freelancer',label:'I am a Freelancer',icon:'💻'}]), brand_names: JSON.stringify(['boAt','GIVA','Minimalist','Libas','SUGAR']), post_purchase_route: '/consulting', main_product_description: 'PDF breaking down exactly what 5 winning D2C brands are doing on Meta right now', bump1_description: 'Ad templates, landing page swipe file, Meta ads checklist, WA sequences', bump2_description: 'Live Meta account review with Jatin — 3 specific fixes for your campaigns' },
     { slug: 'doctors', hero_headline: 'How Top Doctors Get 50+ New Patients Every Month', hero_subheadline: 'The exact digital marketing playbook used by India\'s leading clinics', cta_text: 'Get Your Blueprint for ₹49', accent_color: '#10B981', segment_options: JSON.stringify([{id:'clinic_owner',label:'I own a Clinic/Hospital',icon:'🏥'},{id:'solo_practitioner',label:'I am a Solo Practitioner',icon:'👨‍⚕️'},{id:'dental',label:'I run a Dental Practice',icon:'🦷'}]), brand_names: JSON.stringify(['Apollo','Practo','PharmEasy','1mg','Pristyn Care']), post_purchase_route: '/doctors-welcome', main_product_description: 'Guide showing how top clinics acquire 50+ patients per month using digital marketing', bump1_description: 'Patient communication templates, Google review automation, social media calendar for clinics', bump2_description: 'Live review of your online presence with Jatin — 3 fixes to double your patient walk-ins' },
     { slug: 'real-estate', hero_headline: 'Generate 100+ Qualified Property Leads Every Month', hero_subheadline: 'The lead generation playbook used by India\'s top real estate agents', cta_text: 'Get Your Playbook for ₹29', accent_color: '#3B82F6', segment_options: JSON.stringify([{id:'agent',label:'I am a Real Estate Agent',icon:'🏠'},{id:'builder',label:'I am a Builder/Developer',icon:'🏗️'},{id:'broker',label:'I run a Brokerage Firm',icon:'🏢'}]), brand_names: JSON.stringify(['MagicBricks','99acres','Housing.com','NoBroker','Square Yards']), post_purchase_route: '/realestate-welcome', main_product_description: 'Playbook showing how top agents generate 100+ qualified leads per month', bump1_description: 'Property listing templates, lead nurture sequences, site visit booking automation', bump2_description: 'Custom funnel strategy session for your market — we build the plan together' },
+    // creative-kit: placeholder copy — Jatin will replace via admin UI once
+    // the page is live. COALESCE means any UI edits made between deploys
+    // survive a re-seed.
+    { slug: 'creative-kit', hero_headline: 'The D2C Creative Kit — TBD', hero_subheadline: 'Hook + ad scripts + landing page templates — TBD', cta_text: 'Get Instant Access for ₹49', accent_color: '#F97316', segment_options: JSON.stringify([{id:'d2c',label:'I run a D2C Brand',icon:'🛍️'},{id:'agency',label:'I run an Agency',icon:'🏢'},{id:'freelancer',label:'I am a Freelancer',icon:'💻'}]), brand_names: JSON.stringify(['boAt','GIVA','Minimalist','Libas','SUGAR']), post_purchase_route: '/creative-kit/thank-you', main_product_description: 'Creative kit for D2C brands — TBD', bump1_description: 'Pro upgrade with extra templates — TBD', bump2_description: '30-min creative review call — TBD' },
   ];
   for (const s of frontendSeeds) {
     await pool.query(
