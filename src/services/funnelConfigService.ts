@@ -73,6 +73,10 @@ export async function ensureFunnelConfigTable(): Promise<void> {
     `ALTER TABLE funnel_configs ADD COLUMN IF NOT EXISTS bump1_description TEXT`,
     `ALTER TABLE funnel_configs ADD COLUMN IF NOT EXISTS bump2_description TEXT`,
     `ALTER TABLE funnel_configs ADD COLUMN IF NOT EXISTS main_product_description TEXT`,
+    // Bonus products — extras shipped alongside the main purchase. Stored as
+    // an ordered JSONB array of { label, description?, image_url?, pdf_url? }.
+    // Renders as its own section on the landing page below the bumps.
+    `ALTER TABLE funnel_configs ADD COLUMN IF NOT EXISTS bonus_products JSONB DEFAULT '[]'::jsonb`,
   ];
   for (const s of alterStmts) {
     await pool.query(s).catch(() => {});

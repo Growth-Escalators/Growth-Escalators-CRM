@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
+import StatCard from '../components/StatCard.jsx';
 import { apiFetch } from '../lib/api.js';
 import {
   Upload, RefreshCw, Filter, X, Target, AlertCircle, CheckCircle2,
@@ -42,24 +43,6 @@ function Badge({ children, kind }) {
   const map = kind === 'status' ? STATUS_COLOURS : EMAIL_STATUS_COLOURS;
   const cls = map[children] || 'bg-slate-100 text-slate-500';
   return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>{children || 'unknown'}</span>;
-}
-
-function StatCard({ label, value, icon: Icon, colour }) {
-  const colourMap = {
-    sky:     'bg-sky-50 text-sky-700 border-sky-100',
-    slate:   'bg-slate-50 text-slate-700 border-slate-200',
-    violet:  'bg-violet-50 text-violet-700 border-violet-100',
-    emerald: 'bg-emerald-50 text-emerald-700 border-emerald-100',
-  };
-  return (
-    <div className={`rounded-xl border p-3 ${colourMap[colour] || colourMap.slate}`}>
-      <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide opacity-80">
-        {Icon && <Icon className="w-3.5 h-3.5" />}
-        {label}
-      </div>
-      <p className="text-2xl font-bold mt-1">{value ?? 0}</p>
-    </div>
-  );
 }
 
 function fmt(date) {
