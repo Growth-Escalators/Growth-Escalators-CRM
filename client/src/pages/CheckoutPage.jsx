@@ -296,6 +296,41 @@ export default function CheckoutPage() {
               </div>
             </div>
 
+            {/* BONUS PRODUCTS — extras shipped with the purchase. Hidden if
+                the funnel config doesn't declare any. */}
+            {Array.isArray(funnelConfig?.bonus_products) && funnelConfig.bonus_products.length > 0 && (
+              <div className="rounded-xl overflow-hidden shadow-sm">
+                <div className="px-4 py-2 flex items-center gap-2" style={{ backgroundColor: '#fdf2f8' }}>
+                  <span className="text-lg">🎁</span>
+                  <h3 className="font-bold text-xs" style={{ color: '#9d174d' }}>
+                    Bonuses included with your purchase
+                  </h3>
+                </div>
+                <div className="bg-white px-4 py-3 space-y-2.5">
+                  {funnelConfig.bonus_products.map((b, i) => (
+                    <div key={i} className="flex items-start gap-2.5">
+                      {b.image_url ? (
+                        <img src={b.image_url} alt=""
+                          className="w-10 h-10 rounded object-cover flex-shrink-0 bg-slate-100" />
+                      ) : (
+                        <div className="w-10 h-10 rounded flex-shrink-0 flex items-center justify-center text-base"
+                          style={{ backgroundColor: '#fdf2f8' }}>🎁</div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-xs text-gray-800">{b.label || 'Bonus'}</div>
+                        {b.description && (
+                          <div className="text-[11px] text-gray-600 leading-snug mt-0.5">{b.description}</div>
+                        )}
+                      </div>
+                      <div className="text-[10px] font-bold uppercase tracking-wide text-pink-700 flex-shrink-0 mt-1">
+                        Free
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* GUARANTEE — FIX 7: compact */}
             <div className="rounded-xl p-3 flex items-center gap-2.5" style={{ backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' }}>
               <div className="text-xl">🛡️</div>
