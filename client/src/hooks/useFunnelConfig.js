@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import ecomConfig from '../data/funnelConfigs/ecom.json';
 import doctorsConfig from '../data/funnelConfigs/doctors.json';
 import realEstateConfig from '../data/funnelConfigs/real-estate.json';
+import creativeKitConfig from '../data/funnelConfigs/creative-kit.json';
 import { apiUrl } from '../services/api';
 
 // Bundled configs ship with the build so the page can render immediately,
@@ -11,7 +12,14 @@ const BUNDLED_CONFIGS = {
   ecom: ecomConfig,
   doctors: doctorsConfig,
   'real-estate': realEstateConfig,
+  'creative-kit': creativeKitConfig,
 };
+
+// Funnels that route via URL path (e.g. ecom.growthescalators.com/creative-kit).
+// Allow-list rather than regex so existing pages (/checkout, /thank-you,
+// /consulting, /whitelabel, /learn, /agency, /community) never accidentally
+// get interpreted as a funnel slug.
+const PATH_FUNNEL_SLUGS = new Set(['creative-kit']);
 
 /**
  * Hook to fetch and cache funnel configuration.
@@ -77,6 +85,12 @@ export function useFunnelConfig() {
 
 function detectFunnelSlug() {
   if (typeof window !== 'undefined' && window.__FUNNEL_SLUG__) return window.__FUNNEL_SLUG__;
+
+  // Path-based funnel: ecom.growthescalators.com/creative-kit and
+  // /creative-kit/checkout both resolve to 'creative-kit'. Allow-listed
+  // so /whitelabel, /learn etc. don't get mistaken for funnel slugs.
+  const firstSeg = window.location.pathname.split('/').filter(Boolean)[0];
+  if (firstSeg && PATH_FUNNEL_SLUGS.has(firstSeg)) return firstSeg;
 
   const params = new URLSearchParams(window.location.search);
   if (params.get('funnel')) return params.get('funnel');
