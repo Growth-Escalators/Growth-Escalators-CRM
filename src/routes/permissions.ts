@@ -194,11 +194,21 @@ router.post('/users', async (req: Request, res: Response) => {
     const plaintextPassword = rawPassword || generatePassword();
     const passwordHash = await hash(plaintextPassword);
 
-    const [inserted] = await db.execute(sql`
+    // db.execute() on node-postgres returns { rows, rowCount } (pg shape) — NOT
+    // an iterable. The previous `const [inserted] = await db.execute(...)`
+    // tried to destructure index 0 of the result object, which threw
+    // "(intermediate value) is not iterable" and made admin user creation
+    // completely broken in prod. Pull .rows[0] explicitly.
+    const insertRes = await db.execute(sql`
       INSERT INTO users (tenant_id, name, email, password_hash, role, token_version)
       VALUES (${tenantId}, ${name.trim()}, ${normalisedEmail}, ${passwordHash}, ${newRole}, 1)
       RETURNING id, name, email, role, created_at
-    `) as unknown as Array<{ id: string; name: string; email: string; role: string; created_at: string }>;
+    `);
+    const inserted = (insertRes.rows as Array<{ id: string; name: string; email: string; role: string; created_at: string }>)[0];
+    if (!inserted) {
+      res.status(500).json({ error: 'INSERT returned no rows' });
+      return;
+    }
 
     // Seed an empty user_permissions row so the user shows up in /users list filters
     await db.execute(sql`
