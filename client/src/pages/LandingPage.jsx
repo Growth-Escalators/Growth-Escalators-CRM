@@ -315,8 +315,7 @@ const LandingPage = () => {
                                 key={i}
                                 className="flex items-start gap-4 p-4 bg-red-500/10 rounded-xl"
                                 style={{
-                                    transition: `opacity 0.5s ease ${i * 0.1}s, transform 0.5s ease ${i * 0.1}s`,
-                                    opacity: painInView ? 1 : 0,
+                                    transition: `transform 0.5s ease ${i * 0.1}s`,
                                     transform: painInView ? 'translateX(0)' : 'translateX(-20px)',
                                 }}
                             >
@@ -355,8 +354,7 @@ const LandingPage = () => {
                                     key={i}
                                     className="w-6 h-6 text-yellow-500 fill-current"
                                     style={{
-                                        transition: `opacity 0.3s ease ${i * 0.12}s, transform 0.3s ease ${i * 0.12}s`,
-                                        opacity: starsInView ? 1 : 0,
+                                        transition: `transform 0.3s ease ${i * 0.12}s`,
                                         transform: starsInView ? 'scale(1)' : 'scale(0.3)',
                                     }}
                                 />
@@ -430,8 +428,7 @@ const LandingPage = () => {
                             key={i}
                             className={`${i === 1 ? 'bg-orange-600' : 'bg-orange-500'} text-white font-bold py-3 px-6 rounded-full shadow-[0_0_15px_rgba(249,115,22,0.4)] text-base md:text-lg select-none max-w-md`}
                             style={{
-                                transition: `opacity 0.55s ease ${i * 0.45}s, transform 0.55s ease ${i * 0.45}s`,
-                                opacity: pillsInView ? 1 : 0,
+                                transition: `transform 0.55s ease ${i * 0.45}s`,
                                 transform: pillsInView ? 'translateY(0)' : 'translateY(16px)',
                             }}
                         >

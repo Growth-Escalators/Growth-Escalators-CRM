@@ -79,6 +79,7 @@ export default function ConsultingPage() {
   const [upsellDone, setUpsellDone]     = useState(false);
   const [upsellLoading, setUpsellLoading] = useState(false);
   const [showToast, setShowToast]       = useState(false);
+  const [videoPlaying, setVideoPlaying] = useState(false);
 
   useEffect(() => {
     if (sessionStorage.getItem('ge_purchased') === 'true') {
@@ -174,24 +175,31 @@ export default function ConsultingPage() {
         <section className="herovid">
           <div className="wrap">
             <div className="frame reveal in">
-              <div className="vbadges">
-                <span className="vbadge"><span className="lvdot" /> LIVE WALKTHROUGH</span>
-                <span className="vbadge">▶ Watch before your next campaign</span>
-              </div>
-              <div className="yt-wrap">
-                <iframe
-                  src="https://www.youtube.com/embed/lk8RYlChTnI?rel=0&modestbranding=1"
-                  title="Growth Escalators D2C Growth Strategy"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                  allowFullScreen
-                />
-              </div>
-              <div className="voverlay">
-                <div>
-                  <h2>See exactly how India's top D2C brands build their funnels.</h2>
-                  <p className="vsub">A short look at what we cover on your free strategy call.</p>
+              {videoPlaying ? (
+                <div className="yt-wrap">
+                  <iframe
+                    src="https://www.youtube.com/embed/lk8RYlChTnI?rel=0&modestbranding=1&autoplay=1"
+                    title="Growth Escalators D2C Growth Strategy"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                  />
                 </div>
-              </div>
+              ) : (
+                <button type="button" className="yt-poster" onClick={() => setVideoPlaying(true)} aria-label="Play video">
+                  <img className="yt-poster-img" src="https://img.youtube.com/vi/lk8RYlChTnI/maxresdefault.jpg" alt="" />
+                  <div className="vbadges">
+                    <span className="vbadge"><span className="lvdot" /> LIVE WALKTHROUGH</span>
+                    <span className="vbadge">▶ Watch before your next campaign</span>
+                  </div>
+                  <span className="play-btn" aria-hidden="true">▶</span>
+                  <div className="voverlay">
+                    <div>
+                      <h2>See exactly how India's top D2C brands build their funnels.</h2>
+                      <p className="vsub">A short look at what we cover on your free strategy call.</p>
+                    </div>
+                  </div>
+                </button>
+              )}
             </div>
           </div>
         </section>
@@ -462,7 +470,10 @@ const CS_CSS = `
 .cs-page .herovid .frame::before{content:"";position:absolute;inset:0;z-index:3;pointer-events:none;border-radius:26px;box-shadow:inset 0 0 100px var(--accent-glow);opacity:.5}
 .cs-page .yt-wrap{position:relative;width:100%;aspect-ratio:21/9;background:#000}
 .cs-page .yt-wrap iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
-@media(max-width:760px){.cs-page .yt-wrap{aspect-ratio:16/10}}
+.cs-page .yt-poster{position:relative;display:block;width:100%;aspect-ratio:21/9;background:#000;border:0;padding:0;margin:0;cursor:pointer;overflow:hidden}
+.cs-page .yt-poster-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.82}
+.cs-page .play-btn{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:5;width:72px;height:72px;border-radius:50%;background:var(--accent);color:#1a0c02;display:grid;place-items:center;font-size:22px;box-shadow:0 12px 32px -8px var(--accent-glow);transition:transform .2s}
+.cs-page .yt-poster:hover .play-btn{transform:translate(-50%,-50%) scale(1.08)}
 .cs-page .vbadges{position:absolute;left:22px;top:20px;z-index:4;display:flex;gap:9px;flex-wrap:wrap}
 .cs-page .vbadge{display:inline-flex;align-items:center;gap:8px;background:rgba(0,0,0,.5);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.16);color:#fff;font-size:12px;font-weight:600;letter-spacing:.03em;padding:7px 13px;border-radius:999px}
 .cs-page .lvdot{width:7px;height:7px;border-radius:50%;background:#ff4d4d;box-shadow:0 0 10px #ff4d4d;animation:cs-pulse 1.5s infinite}
@@ -470,6 +481,7 @@ const CS_CSS = `
 .cs-page .voverlay{position:absolute;left:0;right:0;bottom:0;z-index:4;padding:38px 40px;pointer-events:none}
 .cs-page .voverlay h2{font-family:var(--display);font-weight:600;font-size:clamp(22px,3.4vw,40px);color:#fff;letter-spacing:-.02em;line-height:1.08;max-width:18ch;text-shadow:0 4px 30px rgba(0,0,0,.6)}
 .cs-page .voverlay .vsub{color:#d7dbe6;font-size:14.5px;margin-top:8px;max-width:42ch}
+@media(max-width:760px){.cs-page .yt-wrap{aspect-ratio:16/10}.cs-page .yt-poster{aspect-ratio:4/5}.cs-page .vbadges{display:none}.cs-page .voverlay{padding:22px}}
 .cs-page .hero{padding:54px 0 30px;position:relative}
 .cs-page .hero-grid{display:grid;grid-template-columns:1.2fr .85fr;gap:54px;align-items:center}
 .cs-page .eyebrow{display:inline-flex;align-items:center;gap:9px;font-size:12.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--accent-soft);background:rgba(255,122,24,.09);border:1px solid rgba(255,122,24,.24);padding:7px 14px;border-radius:999px;margin-bottom:24px}
@@ -589,8 +601,8 @@ const CS_CSS = `
 .cs-page footer .wrap{display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap}
 .cs-page footer .tag{color:var(--faint);font-size:13.5px;max-width:46ch;margin-top:6px}
 .cs-page footer a.mail{color:var(--accent-soft);font-size:14px}
-.cs-page .reveal{opacity:0;transform:translateY(24px);transition:opacity .7s ease,transform .7s ease}
-.cs-page .reveal.in{opacity:1;transform:none}
+.cs-page .reveal{opacity:1;transform:translateY(24px);transition:transform .5s ease}
+.cs-page .reveal.in{transform:none}
 @media(max-width:900px){
   .cs-page .hero-grid{grid-template-columns:1fr;gap:36px}
   .cs-page .cards,.cs-page .tcards,.cs-page .steps{grid-template-columns:1fr}

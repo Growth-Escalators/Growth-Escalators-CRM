@@ -38,6 +38,7 @@ export default function WhitelabelPage() {
   const justPurchased = !!(name || email || bump1 || bump2);
 
   const [showToast, setShowToast] = useState(false);
+  const [videoPlaying, setVideoPlaying] = useState(false);
 
   useEffect(() => {
     if (sessionStorage.getItem('ge_purchased') === 'true') {
@@ -102,24 +103,31 @@ export default function WhitelabelPage() {
       <section className="herovid">
         <div className="wrap">
           <div className="frame reveal in">
-            <div className="vbadges">
-              <span className="vbadge"><span className="lvdot" /> PARTNER PROGRAM</span>
-              <span className="vbadge">▶ Watch how it works</span>
-            </div>
-            <div className="yt-wrap">
-              <iframe
-                src="https://www.youtube.com/embed/hTlmBJkjS_I?rel=0&modestbranding=1"
-                title="Growth Escalators White-Label Partner Program"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                allowFullScreen
-              />
-            </div>
-            <div className="voverlay">
-              <div>
-                <h2>Your brand on the front. Our team on the back.</h2>
-                <p className="vsub">See how agencies deliver agency-grade Meta Ads — without hiring a single person.</p>
+            {videoPlaying ? (
+              <div className="yt-wrap">
+                <iframe
+                  src="https://www.youtube.com/embed/hTlmBJkjS_I?rel=0&modestbranding=1&autoplay=1"
+                  title="Growth Escalators White-Label Partner Program"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                />
               </div>
-            </div>
+            ) : (
+              <button type="button" className="yt-poster" onClick={() => setVideoPlaying(true)} aria-label="Play video">
+                <img className="yt-poster-img" src="https://img.youtube.com/vi/hTlmBJkjS_I/maxresdefault.jpg" alt="" />
+                <div className="vbadges">
+                  <span className="vbadge"><span className="lvdot" /> PARTNER PROGRAM</span>
+                  <span className="vbadge">▶ Watch how it works</span>
+                </div>
+                <span className="play-btn" aria-hidden="true">▶</span>
+                <div className="voverlay">
+                  <div>
+                    <h2>Your brand on the front. Our team on the back.</h2>
+                    <p className="vsub">See how agencies deliver agency-grade Meta Ads — without hiring a single person.</p>
+                  </div>
+                </div>
+              </button>
+            )}
           </div>
         </div>
       </section>
@@ -344,13 +352,17 @@ const WL_CSS = `
 .wl-page .herovid .frame::before{content:"";position:absolute;inset:0;z-index:3;pointer-events:none;border-radius:26px;box-shadow:inset 0 0 100px var(--glow);opacity:.5}
 .wl-page .yt-wrap{position:relative;width:100%;aspect-ratio:21/9;background:#000}
 .wl-page .yt-wrap iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
-@media(max-width:760px){.wl-page .yt-wrap{aspect-ratio:16/10}}
+.wl-page .yt-poster{position:relative;display:block;width:100%;aspect-ratio:21/9;background:#000;border:0;padding:0;margin:0;cursor:pointer;overflow:hidden}
+.wl-page .yt-poster-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.82}
+.wl-page .play-btn{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:5;width:72px;height:72px;border-radius:50%;background:linear-gradient(120deg,var(--accent),var(--accent2));color:#fff;display:grid;place-items:center;font-size:22px;box-shadow:0 12px 34px -10px var(--glow);transition:transform .2s}
+.wl-page .yt-poster:hover .play-btn{transform:translate(-50%,-50%) scale(1.08)}
 .wl-page .vbadges{position:absolute;left:22px;top:20px;z-index:4;display:flex;gap:9px;flex-wrap:wrap}
 .wl-page .vbadge{display:inline-flex;align-items:center;gap:8px;background:rgba(0,0,0,.5);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.16);color:#fff;font-size:12px;font-weight:600;letter-spacing:.03em;padding:7px 13px;border-radius:999px}
 .wl-page .lvdot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent);animation:wl-pulse 1.5s infinite}
 @keyframes wl-pulse{0%,100%{opacity:1}50%{opacity:.25}}
 .wl-page .voverlay{position:absolute;left:0;right:0;bottom:0;z-index:4;padding:38px 40px;pointer-events:none}
 .wl-page .voverlay h2{font-family:var(--display);font-weight:500;font-style:italic;font-size:clamp(22px,3.4vw,40px);color:#fff;letter-spacing:-.02em;line-height:1.12;max-width:20ch;text-shadow:0 4px 30px rgba(0,0,0,.6)}
+@media(max-width:760px){.wl-page .yt-wrap{aspect-ratio:16/10}.wl-page .yt-poster{aspect-ratio:4/5}.wl-page .vbadges{display:none}.wl-page .voverlay{padding:22px}}
 .wl-page .voverlay .vsub{color:#cdd6ea;font-size:14.5px;margin-top:8px;max-width:44ch;font-family:var(--sans)}
 .wl-page .hero{padding:54px 0 26px;text-align:center;position:relative}
 .wl-page .eyebrow{display:inline-flex;align-items:center;gap:9px;font-size:12px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-soft);background:rgba(91,140,255,.09);border:1px solid rgba(91,140,255,.26);padding:8px 16px;border-radius:999px;margin-bottom:26px}
@@ -440,8 +452,8 @@ const WL_CSS = `
 .wl-page footer .wrap{display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap}
 .wl-page footer .tag{color:var(--faint);font-size:13.5px;max-width:46ch;margin-top:6px}
 .wl-page footer a.mail{color:var(--accent-soft);font-size:14px}
-.wl-page .reveal{opacity:0;transform:translateY(24px);transition:opacity .7s,transform .7s}
-.wl-page .reveal.in{opacity:1;transform:none}
+.wl-page .reveal{opacity:1;transform:translateY(24px);transition:transform .5s}
+.wl-page .reveal.in{transform:none}
 @media(max-width:900px){
   .wl-page .econ-row{grid-template-columns:1fr}.wl-page .econ-op{padding:6px 0;font-size:26px}
   .wl-page .features,.wl-page .flow{grid-template-columns:1fr}

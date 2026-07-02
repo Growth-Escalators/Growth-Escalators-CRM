@@ -10,21 +10,22 @@ const ASSETS = {
 };
 
 const PERSONAS = [
-  { emoji: '🧑‍💻', h: 'The performance freelancer', p: 'Running ads solo and ready to charge what agencies do.' },
-  { emoji: '✍️',  h: 'The content / design freelancer', p: 'Wanting to add funnel strategy and own more of the result.' },
-  { emoji: '🚀', h: 'The future agency owner', p: 'Learning the playbook now to build your own shop next.' },
+  { emoji: '🎯', h: 'The freelancer chasing bigger clients', p: 'Ready to pitch with proof instead of promises, and win retainers that match your skill.' },
+  { emoji: '📈', h: 'The marketer who needs to prove ROI', p: 'You have clients — now you need the frameworks that make results easy to show and easy to trust.' },
+  { emoji: '🚀', h: 'The future agency owner', p: 'Learning the playbook now — both landing clients and delivering for them — to build your own shop next.' },
 ];
 
 const LEARN_CARDS = [
-  { ic: '🧩', h: 'Build client funnels', p: 'Assemble the full landing-page → checkout → retention funnel using structures already winning for top D2C brands.' },
   { ic: '🎯', h: 'Pitch with proof', p: 'Walk into client calls with real teardowns and frameworks instead of vague promises — and close higher.' },
-  { ic: '💸', h: 'Price your retainers', p: 'Stop charging per task. Learn to package and price work so clients happily pay monthly.' },
-  { ic: '🔁', h: 'Deliver & retain', p: 'The reporting and communication rhythm that keeps clients paying month after month.' },
+  { ic: '🧲', h: 'Fill your pipeline', p: 'The outreach and positioning that gets D2C founders to say yes — so you\'re not always starting from zero.' },
+  { ic: '🧩', h: 'Build funnels that convert', p: 'Assemble the full landing-page → checkout → retention funnel using structures already winning for top D2C brands.' },
+  { ic: '🔁', h: 'Prove it and get renewed', p: 'The reporting and results rhythm that makes clients see the win — and keeps them paying month after month.' },
 ];
 
 const PERKS = [
   'Lifetime access to every cohort lesson & update',
   'The full D2C funnel swipe file & teardown library',
+  'Client-pitch scripts and results-reporting templates',
   'Founding-member pricing — locked forever',
   'Private community of freelancers & operators',
   'Early-access feedback that shapes the curriculum',
@@ -123,10 +124,10 @@ export default function LearnPage() {
 
       <nav>
         <div className="wrap">
-          <a className="logo"><span className="mk">GE</span><span>Growth Escalators<small>Freelancer Cohort</small></span></a>
+          <a className="logo"><span className="mk">GE</span><span>Growth Escalators<small>Client Growth Cohort</small></span></a>
           <div className="nav-right">
             <span className="nav-spots"><b>{spotsLeft} spots</b> left before launch</span>
-            <button className="btn btn-primary" onClick={() => document.getElementById('email1')?.focus()}>Join Waitlist</button>
+            <button className="btn btn-primary" onClick={() => document.getElementById('name1')?.focus()}>Join Waitlist</button>
           </div>
         </div>
       </nav>
@@ -152,13 +153,19 @@ export default function LearnPage() {
 
       <header className="hero">
         <div className="wrap reveal in">
-          <span className="eyebrow"><span className="dot" /> For Freelancers · Cohort #1</span>
-          <h1>Land bigger clients with <em>proven D2C funnels.</em></h1>
-          <p className="lead">Here's how freelancers use the exact playbooks behind the brands we've scaled to win larger retainers — coming soon as a hands-on cohort.</p>
+          <span className="eyebrow"><span className="dot" /> For Freelancers &amp; Marketers · Waitlist</span>
+          <h1>Win more clients. <em>Deliver results that keep them.</em></h1>
+          <p className="lead">The exact playbooks Growth Escalators uses to land D2C brands and scale them — packaged so you can pitch better, execute better, and keep every client you win. Coming soon as a hands-on cohort.</p>
 
           <div className="wl">
             {!submitted ? (
               <form className="wl-form" onSubmit={handleSubmit}>
+                <input
+                  id="name1" type="text" required
+                  placeholder="Your name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
                 <input
                   id="email1" type="email" required
                   placeholder="you@email.com"
@@ -194,7 +201,7 @@ export default function LearnPage() {
 
       <section>
         <div className="wrap">
-          <div className="sec-head reveal"><div className="sec-tag">What you'll learn</div><h2>Turn proven funnels into premium retainers.</h2></div>
+          <div className="sec-head reveal"><div className="sec-tag">What you'll learn</div><h2>Win the client. Deliver the results. Keep the retainer.</h2></div>
           <div className="cards">
             {LEARN_CARDS.map((c, i) => (
               <div className="card reveal" key={c.h} style={{ transitionDelay: `${i * 0.06}s` }}>
@@ -208,7 +215,7 @@ export default function LearnPage() {
 
       <section style={{ paddingTop: 0 }}>
         <div className="wrap">
-          <div className="sec-head reveal"><div className="sec-tag">Who it's for</div><h2>If you sell marketing as a freelancer, this is for you.</h2></div>
+          <div className="sec-head reveal"><div className="sec-tag">Who it's for</div><h2>If you want more clients — and want to keep them — this is for you.</h2></div>
           <div className="personas reveal">
             {PERSONAS.map(p => (
               <div className="persona" key={p.h}>
@@ -243,6 +250,12 @@ export default function LearnPage() {
             {!submitted ? (
               <form className="wl-form" onSubmit={handleSubmit}>
                 <input
+                  type="text" required
+                  placeholder="Your name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+                <input
                   type="email" required
                   placeholder="you@email.com"
                   value={email}
@@ -271,7 +284,7 @@ export default function LearnPage() {
             <details open><summary>When does the cohort start? <span className="pl">+</span></summary><div className="ans">The first cohort opens once we hit {target} waitlist members. Everyone on the list gets one email the moment it's live — no spam in between.</div></details>
             <details><summary>What will it cost? <span className="pl">+</span></summary><div className="ans">Founding-member pricing is reserved for the waitlist and revealed before public pricing goes live. Joining early locks in the lowest rate.</div></details>
             <details><summary>Who's teaching it? <span className="pl">+</span></summary><div className="ans">The Growth Escalators team — the same people behind ₹8.9 Cr+ in managed Meta ad spend across 187+ brands.</div></details>
-            <details><summary>Do I need experience? <span className="pl">+</span></summary><div className="ans">No. It's built so any freelancer — whether you run ads, design, or write — can apply proven funnel structures to win better clients.</div></details>
+            <details><summary>Do I need experience? <span className="pl">+</span></summary><div className="ans">No. It's built so any freelancer or marketer — whether you run ads, design, or write — can apply proven playbooks to win bigger clients and prove the results that keep them.</div></details>
           </div>
         </div>
       </section>
@@ -281,7 +294,7 @@ export default function LearnPage() {
           <a className="logo"><span className="mk">GE</span><span>Growth Escalators<small>India's D2C Performance Marketing Agency</small></span></a>
           <div style={{ textAlign: 'right' }}>
             <a className="mail" href="mailto:jatin@growthescalators.com">jatin@growthescalators.com</a>
-            <div className="tag">© Growth Escalators. Helping freelancers turn skills into retainers.</div>
+            <div className="tag">© Growth Escalators. Helping freelancers and marketers win more clients and deliver results that keep them.</div>
           </div>
         </div>
       </footer>
@@ -338,10 +351,12 @@ const LEARN_CSS = `
 .learn-page h1 em{font-style:normal;background:linear-gradient(120deg,var(--accent-soft),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
 .learn-page .lead{color:var(--muted);font-size:19px;margin:24px auto 0;max-width:48ch}
 .learn-page .wl{margin:34px auto 0;max-width:520px}
-.learn-page .wl-form{display:flex;gap:10px;background:var(--panel2);border:1px solid var(--line2);border-radius:16px;padding:8px;transition:.2s}
+.learn-page .wl-form{display:flex;flex-wrap:wrap;gap:10px;background:var(--panel2);border:1px solid var(--line2);border-radius:16px;padding:8px;transition:.2s}
 .learn-page .wl-form:focus-within{border-color:var(--accent);box-shadow:0 0 0 4px rgba(45,212,167,.14)}
-.learn-page .wl-form input{flex:1;background:transparent;border:none;outline:none;color:var(--ink);font-family:var(--sans);font-size:15.5px;padding:10px 14px}
+.learn-page .wl-form input{flex:1 1 160px;min-width:0;background:transparent;border:none;outline:none;color:var(--ink);font-family:var(--sans);font-size:15.5px;padding:10px 14px}
 .learn-page .wl-form input::placeholder{color:var(--faint)}
+.learn-page .wl-form button{flex:0 0 auto}
+@media(max-width:520px){.learn-page .wl-form input,.learn-page .wl-form button{flex:1 1 100%}}
 .learn-page .wl .micro{margin-top:13px;color:var(--faint);font-size:13px}
 .learn-page .wl-success{background:linear-gradient(170deg,rgba(45,212,167,.1),transparent);border:1px solid rgba(45,212,167,.3);border-radius:18px;padding:30px;text-align:center;animation:learn-pop .4s ease}
 @keyframes learn-pop{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
@@ -404,8 +419,8 @@ const LEARN_CSS = `
 .learn-page footer .wrap{display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap}
 .learn-page footer .tag{color:var(--faint);font-size:13.5px;max-width:46ch;margin-top:6px}
 .learn-page footer a.mail{color:var(--accent-soft);font-size:14px}
-.learn-page .reveal{opacity:0;transform:translateY(24px);transition:opacity .7s,transform .7s}
-.learn-page .reveal.in{opacity:1;transform:none}
+.learn-page .reveal{opacity:1;transform:translateY(24px);transition:transform .5s}
+.learn-page .reveal.in{transform:none}
 @media(max-width:820px){
   .learn-page .cards,.learn-page .personas{grid-template-columns:1fr}
   .learn-page .perks-wrap{padding:30px 22px}
