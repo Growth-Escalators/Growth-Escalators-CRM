@@ -69,9 +69,10 @@ import tasksRouter from './routes/tasks';
 import taskAttachmentsRouter from './routes/taskAttachments';
 import taskListsRouter from './routes/task-lists';
 import teamRouter from './routes/team';
-import { requireAuth, optionalAuth } from './middleware/auth';
+import { requireAuth, requireStrictAuth, optionalAuth } from './middleware/auth';
 import { requireRole } from './middleware/rbac';
 import { validateEnv } from './config/env';
+import { serializeError, HttpError } from './utils/errors';
 
 const app = express();
 
@@ -104,8 +105,13 @@ app.use(cors({
   },
   credentials: false,
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'X-Edge-Token'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
 }));
+
+// Fail fast: in production, CORS origins must be explicitly configured.
+if (process.env.NODE_ENV === 'production' && !process.env.CORS_EXTRA_ORIGIN) {
+  console.warn('[startup] WARNING: CORS_EXTRA_ORIGIN not set in production. Only default origins allowed.');
+}
 
 // ---------------------------------------------------------------------------
 // Request logging
@@ -157,7 +163,18 @@ const webhookLimiter = rateLimit({
   message: { error: 'too many requests' },
 });
 
+// Stricter limiter for auth endpoints — prevents brute-force / credential stuffing.
+// 10 login attempts per minute per IP (legitimate users rarely exceed this).
+const authLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'too many auth attempts — please try again later' },
+});
+
 app.use('/webhooks', webhookLimiter);
+app.use('/auth', authLimiter);
 app.use(generalLimiter);
 
 // ---------------------------------------------------------------------------
@@ -174,7 +191,7 @@ app.use('/auth', authRouter);
 app.use('/webhooks', webhooksRouter);
 app.use('/book', bookingRouter);
 app.use('/api/cashfree', cashfreeRouter);
-app.use('/api/cashfree', requireAuth, cashfreeAdminRouter); // simulate-webhook + debug-orders (admin-only)
+app.use('/api/cashfree', requireStrictAuth, cashfreeAdminRouter); // simulate-webhook + debug-orders (admin-only)
 
 // ---------------------------------------------------------------------------
 // Protected CRM routes (require JWT)
@@ -192,8 +209,8 @@ app.use('/api/system', systemHealthRouter);
 app.use('/api/email-templates', requireAuth, emailTemplatesRouter);
 app.use('/api/capi', requireAuth, capiRouter);
 app.use('/api/blockers', requireAuth, blockersRouter);
-app.use('/api/billing', requireAuth, billingRouter);
-app.use('/api/permissions', requireAuth, permissionsRouter);
+app.use('/api/billing', requireStrictAuth, billingRouter);
+app.use('/api/permissions', requireStrictAuth, permissionsRouter);
 app.use('/api/ads', requireAuth, adsRouter);
 app.use('/api/reports', requireAuth, reportsRouter);
 app.use('/api/social/oauth', socialOAuthRouter); // no auth — browser redirects can't send headers
@@ -338,9 +355,18 @@ app.use((_req: Request, res: Response) => {
 // Global error handler
 // ---------------------------------------------------------------------------
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-  console.error('[error]', err);
-  res.status(500).json({ error: 'internal server error' });
+app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
+  // Log with request context for easier debugging
+  console.error('[error]', {
+    message: err.message,
+    requestId: req.requestId,
+    path: req.path,
+    method: req.method,
+    ...(err instanceof HttpError ? { code: err.code, statusCode: err.statusCode } : {}),
+  });
+
+  const { status, body } = serializeError(err);
+  res.status(status).json(body);
 });
 
 // ---------------------------------------------------------------------------

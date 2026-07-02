@@ -37,8 +37,10 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   const token = header.slice(7);
   try {
     const payload = jwt.verify(token, secret) as AuthPayload;
-    if (!payload.role) payload.role = 'admin';
-    if (!payload.tokenVersion) payload.tokenVersion = 1;
+    if (!payload.role || !payload.tokenVersion || !payload.id || !payload.tenantId) {
+      res.status(401).json({ error: 'invalid token — missing claims' });
+      return;
+    }
     req.user = payload;
     next();
   } catch {
@@ -54,9 +56,10 @@ export function optionalAuth(req: Request, _res: Response, next: NextFunction): 
     if (secret) {
       try {
         const payload = jwt.verify(header.slice(7), secret) as AuthPayload;
-        if (!payload.role) payload.role = 'admin';
-        if (!payload.tokenVersion) payload.tokenVersion = 1;
-        req.user = payload;
+        // Fail closed for incomplete tokens — never default to admin
+        if (payload.role && payload.tokenVersion && payload.id && payload.tenantId) {
+          req.user = payload;
+        }
       } catch { /* token invalid — continue without user */ }
     }
   }
