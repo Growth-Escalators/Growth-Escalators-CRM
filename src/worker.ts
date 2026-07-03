@@ -18,7 +18,7 @@ import { checkSpendAlerts } from './services/spendAlertService';
 import { collectDailyData } from './services/intelligenceDataCollector';
 import { analyzeWithClaude } from './services/intelligenceAnalyzer';
 import { deliverDailyIntelligence } from './services/intelligenceDelivery';
-import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_PERF_MARKETING_CHANNEL, SLACK_SEO_CHANNEL, SLACK_OUTREACH_CHANNEL, SLACK_SOD_EOD_CHANNEL, DEFAULT_TENANT_SLUG } from './config/constants';
+import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_PERF_MARKETING_CHANNEL, SLACK_SEO_CHANNEL, SLACK_OUTREACH_CHANNEL, SLACK_SOD_EOD_CHANNEL, DEFAULT_TENANT_SLUG, WIZMATCH_LEADS_CHANNEL, WIZMATCH_SYSTEM_CHANNEL } from './config/constants';
 import { isPaused } from './config/featureFlags';
 
 // True when this file is run directly (`node dist/worker.js`).
@@ -1524,6 +1524,58 @@ if (process.env.DISABLE_BACKGROUND_JOBS !== 'true' && process.env.WIZMATCH_TENAN
     console.log(`[CRON] Wizmatch warmup: ${result?.sent || 0}/${result?.total || 0} sent`);
   }), { timezone: 'UTC' });
   console.log('[cron] Wizmatch domain warmup scheduled — every 6 hours');
+
+  // ATS Poller — daily 6 AM IST (0:30 UTC)
+  cron.schedule('30 0 * * *', () => safeCron('Wizmatch ATS Poller', async () => {
+    const { pollAtsBoards } = await import('./services/wizmatchAtsPoller');
+    const result = await pollAtsBoards();
+    if (result.jobs_inserted > 0 && WIZMATCH_LEADS_CHANNEL) {
+      const { sendSlackMessage } = await import('./services/slackService');
+      await sendSlackMessage(WIZMATCH_LEADS_CHANNEL,
+        `📋 ATS Poller: ${result.jobs_inserted} new jobs from ${result.companies_polled} companies`,
+      ).catch(() => {});
+    }
+  }), { timezone: 'UTC' });
+  console.log('[cron] Wizmatch ATS poller scheduled — daily 6 AM IST');
+
+  // X-Ray candidate scraper — daily 8 AM IST (2:30 UTC)
+  cron.schedule('30 2 * * *', () => safeCron('Wizmatch X-Ray Scraper', async () => {
+    const { runXrayScrape } = await import('./services/wizmatchXrayScraper');
+    const result = await runXrayScrape(3);
+    if (result.candidates_created > 0 && WIZMATCH_LEADS_CHANNEL) {
+      const { sendSlackMessage } = await import('./services/slackService');
+      await sendSlackMessage(WIZMATCH_LEADS_CHANNEL,
+        `🔍 X-Ray: ${result.candidates_created} new candidates sourced from LinkedIn`,
+      ).catch(() => {});
+    }
+  }), { timezone: 'UTC' });
+  console.log('[cron] Wizmatch X-ray scraper scheduled — daily 8 AM IST');
+
+  // GitHub miner — daily 9 AM IST (3:30 UTC)
+  cron.schedule('30 3 * * *', () => safeCron('Wizmatch GitHub Miner', async () => {
+    const { mineGithubCandidates } = await import('./services/wizmatchGithubMiner');
+    const result = await mineGithubCandidates(3);
+    if (result.candidates_created > 0 && WIZMATCH_LEADS_CHANNEL) {
+      const { sendSlackMessage } = await import('./services/slackService');
+      await sendSlackMessage(WIZMATCH_LEADS_CHANNEL,
+        `💻 GitHub Miner: ${result.candidates_created} new candidates sourced`,
+      ).catch(() => {});
+    }
+  }), { timezone: 'UTC' });
+  console.log('[cron] Wizmatch GitHub miner scheduled — daily 9 AM IST');
+
+  // LCA importer — weekly Sunday 10 PM IST (16:30 UTC)
+  cron.schedule('30 16 * * 0', () => safeCron('Wizmatch LCA Importer', async () => {
+    const { importLcaData } = await import('./services/wizmatchLcaImporter');
+    const result = await importLcaData();
+    if (WIZMATCH_SYSTEM_CHANNEL) {
+      const { sendSlackMessage } = await import('./services/slackService');
+      await sendSlackMessage(WIZMATCH_SYSTEM_CHANNEL,
+        `📊 LCA Import: ${result.records_processed} records, ${result.companies_updated} companies updated with H-1B data`,
+      ).catch(() => {});
+    }
+  }), { timezone: 'UTC' });
+  console.log('[cron] Wizmatch LCA importer scheduled — weekly Sunday 10 PM IST');
 
   // Daily digest — 6 PM IST (12:30 UTC)
   cron.schedule('30 12 * * 1-6', () => safeCron('Wizmatch Daily Digest', async () => {

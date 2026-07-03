@@ -18,7 +18,6 @@
 import { Router, type Request, type Response } from 'express';
 import crypto from 'crypto';
 import { db, pool } from '../db/index';
-import { sql } from 'drizzle-orm';
 import {
   wizmatchCandidates,
   wizmatchPlacements,
@@ -908,6 +907,26 @@ router.post('/placements', async (req: Request, res: Response) => {
     .returning();
 
   res.json(placement);
+});
+
+// POST /api/wizmatch/placements/:id/rtr — generate RTR PDF and upload to R2
+router.post('/placements/:id/rtr', async (req: Request, res: Response) => {
+  const { generateRtrPdf } = await import('../services/wizmatchRtrGenerator');
+  const result = await generateRtrPdf(String(req.params.id));
+  if (!result.success) {
+    res.status(500).json({ error: result.error });
+    return;
+  }
+
+  // Slack alert
+  if (WIZMATCH_LEADS_CHANNEL) {
+    await sendSlackMessage(
+      WIZMATCH_LEADS_CHANNEL,
+      `📄 RTR generated for placement ${req.params.id}: ${result.rtr_url}`,
+    ).catch(() => {});
+  }
+
+  res.json({ rtr_url: result.rtr_url });
 });
 
 router.put('/placements/:id', async (req: Request, res: Response) => {
