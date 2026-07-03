@@ -220,7 +220,7 @@ export default function Sidebar() {
   }, [visible]);
 
   // Order of flat sections
-  const FLAT_ORDER = ['Personal', 'CRM', 'Marketing', 'AI & Automation'];
+  const FLAT_ORDER = ['Personal', 'CRM', 'Marketing', 'AI & Automation', 'Wizmatch'];
 
   return (
     <>
