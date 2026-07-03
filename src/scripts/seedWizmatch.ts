@@ -65,11 +65,11 @@ const FOLLOWUP_STEPS = [
   },
 ];
 
-// 3 sending domains
+// 3 sending domains (reusing Growth Escalators' warmed Purelymail infrastructure)
 const SENDING_DOMAINS = [
-  { domain: 'getwizmatch.com', inboxes: ['archit@getwizmatch.com', 'team@getwizmatch.com'] },
-  { domain: 'wizmatchhq.com', inboxes: ['archit@wizmatchhq.com', 'team@wizmatchhq.com'] },
-  { domain: 'teamwizmatch.com', inboxes: ['archit@teamwizmatch.com', 'team@teamwizmatch.com'] },
+  { domain: 'adscalelab.co', inboxes: ['jatin@adscalelab.co', 'hello@adscalelab.co'] },
+  { domain: 'partnerpeak.co', inboxes: ['jatin@partnerpeak.co', 'hello@partnerpeak.co'] },
+  { domain: 'partners-ge.co', inboxes: ['jatin@partners-ge.co', 'hello@partners-ge.co'] },
 ];
 
 async function seed() {
