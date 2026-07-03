@@ -2,6 +2,7 @@ node_modules/
 client/node_modules/
 dist/
 .env
+wizmatch-railway-env.txt
 *.log
 .DS_Store
 .claude/handoffs/

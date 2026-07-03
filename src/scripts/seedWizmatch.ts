@@ -149,7 +149,7 @@ async function seed() {
       VALUES (
         ${tenantId},
         ${d.domain},
-        ${d.inboxes}::text[],
+        ARRAY[${sql.join(d.inboxes.map((email) => sql`${email}`), sql`, `)}]::text[],
         'healthy',
         NOW()
       )
