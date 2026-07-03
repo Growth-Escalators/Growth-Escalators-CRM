@@ -1,0 +1,99 @@
+name: Wizmatch Dice Scraper
+
+on:
+  schedule:
+    # Daily at 8 AM IST (2:30 UTC)
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Dice scraper
+        env:
+          API_BASE_URL: ${{ secrets.WIZMATCH_API_BASE_URL }}
+          INTERNAL_TOKEN: ${{ secrets.WIZMATCH_INTERNAL_TOKEN }}
+        run: |
+          node -e '
+          const { chromium } = require("playwright");
+          const queries = [
+            "Java developer contract", "Python developer W2",
+            "DevOps engineer C2C", "React developer remote",
+            "Data engineer contract", ".NET developer contract",
+            "AWS architect contract", "Full stack developer C2C"
+          ];
+
+          (async () => {
+            const browser = await chromium.launch({ headless: true });
+            const allSignals = [];
+
+            for (const query of queries) {
+              const page = await browser.newPage();
+              try {
+                await page.goto(`https://www.dice.com/jobs?q=${encodeURIComponent(query)}&countryCode=US&radius=30&radiusUnit=mi&page=1&pageSize=20`, {
+                  timeout: 15000,
+                  waitUntil: "domcontentloaded",
+                });
+                await page.waitForTimeout(2000);
+
+                const jobs = await page.evaluate(() => {
+                  const results = [];
+                  document.querySelectorAll("[id^=\"position-\"]").slice(0, 10).forEach(card => {
+                    const title = card.querySelector("a.card-title-link")?.textContent?.trim() || "";
+                    const company = card.querySelector("a.card-company-link")?.textContent?.trim() || "";
+                    const location = card.querySelector(".location span")?.textContent?.trim() || "";
+                    const url = card.querySelector("a.card-title-link")?.href || "";
+                    if (title) results.push({ title, company, location, url });
+                  });
+                  return results;
+                });
+
+                for (const job of jobs) {
+                  allSignals.push({
+                    job_title: job.title,
+                    job_url: job.url,
+                    source: "dice",
+                    company_name: job.company,
+                    location: job.location,
+                    employment_type: "contract",
+                    keywords: query.toLowerCase().split(" ").slice(0, 4),
+                  });
+                }
+              } catch (e) {
+                console.error(`Dice scrape failed for ${query}:`, e.message);
+              } finally {
+                await page.close();
+              }
+            }
+
+            await browser.close();
+
+            if (allSignals.length === 0) {
+              console.log("No Dice jobs found");
+              process.exit(0);
+            }
+
+            // POST to ingest
+            const resp = await fetch(process.env.API_BASE_URL + "/api/wizmatch/signals/ingest", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-internal-secret": process.env.INTERNAL_TOKEN,
+              },
+              body: JSON.stringify({ signals: allSignals }),
+            });
+            console.log("Ingest response:", await resp.text());
+            console.log(`Total signals sent: ${allSignals.length}`);
+          })().catch(e => { console.error(e); process.exit(1); });
+          '

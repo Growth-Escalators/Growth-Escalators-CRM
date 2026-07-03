@@ -1,0 +1,94 @@
+name: Wizmatch Naukri Candidate Scraper
+
+on:
+  schedule:
+    # Daily at 10 AM IST (4:30 UTC)
+    - cron: '30 4 * * *'
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Naukri candidate scraper
+        env:
+          API_BASE_URL: ${{ secrets.WIZMATCH_API_BASE_URL }}
+          INTERNAL_TOKEN: ${{ secrets.WIZMATCH_INTERNAL_TOKEN }}
+        run: |
+          node -e '
+          const { chromium } = require("playwright");
+
+          const skillCityPairs = [
+            { skill: "Java", city: "Bangalore" },
+            { skill: "Python", city: "Bangalore" },
+            { skill: "React", city: "Bangalore" },
+            { skill: ".NET", city: "Delhi" },
+            { skill: "DevOps", city: "Hyderabad" },
+            { skill: "Java", city: "Pune" },
+            { skill: "Python", city: "Chennai" },
+            { skill: "React", city: "Hyderabad" },
+          ];
+
+          (async () => {
+            const browser = await chromium.launch({ headless: true });
+            const allCandidates = [];
+
+            for (const { skill, city } of skillCityPairs) {
+              const page = await browser.newPage();
+              try {
+                const url = `https://www.naukri.com/${skill.toLowerCase()}-jobs-in-${city.toLowerCase().replace(/\s/g, "-")}`;
+                await page.goto(url, { timeout: 15000, waitUntil: "domcontentloaded" });
+                await page.waitForTimeout(3000);
+
+                const profiles = await page.evaluate(() => {
+                  const results = [];
+                  document.querySelectorAll(".jobTuple.bg-white.br4").slice(0, 5).forEach(card => {
+                    const name = card.querySelector(".userInfo a, .companyName")?.textContent?.trim() || "Unknown";
+                    const skills = Array.from(card.querySelectorAll(".tags .tag")).map(t => t.textContent?.trim()).filter(Boolean);
+                    const exp = card.querySelector(".exp")?.textContent?.trim() || "";
+                    results.push({ name, skills, exp });
+                  });
+                  return results;
+                });
+
+                for (const p of profiles) {
+                  allCandidates.push({
+                    name: p.name,
+                    email: `${p.name.toLowerCase().replace(/\s+/g, ".")}@placeholder.com`, // placeholder — real email via enrichment
+                    skills: [skill, ...p.skills.slice(0, 3)],
+                    location: city,
+                    visa_status: "unknown",
+                    source: "naukri",
+                    india_specific: { experience: p.exp, source_city: city },
+                  });
+                }
+              } catch (e) {
+                console.error(`Naukri scrape failed for ${skill} in ${city}:`, e.message);
+              } finally {
+                await page.close();
+              }
+            }
+
+            await browser.close();
+
+            if (allCandidates.length === 0) {
+              console.log("No Naukri candidates found");
+              process.exit(0);
+            }
+
+            // POST candidates to ingest (reuse the signals ingest — candidates need a separate endpoint or manual entry)
+            // For now, we log them — the admin can import manually via the Candidate Pool UI
+            console.log(`Found ${allCandidates.length} candidates:`);
+            allCandidates.forEach(c => console.log(JSON.stringify(c)));
+          })().catch(e => { console.error(e); process.exit(1); });
+          '
