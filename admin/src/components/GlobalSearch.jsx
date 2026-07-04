@@ -51,35 +51,35 @@ export default function GlobalSearch({ open, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]" onClick={onClose}>
-      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" />
+      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm animate-[fadeIn_150ms_ease-out]" />
       <div
-        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden"
+        className="relative bg-white rounded-xl shadow-modal w-full max-w-lg overflow-hidden animate-[modalIn_200ms_cubic-bezier(0.16,1,0.3,1)]"
         onClick={e => e.stopPropagation()}
       >
         {/* Search input */}
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100">
-          <Search className="w-5 h-5 text-slate-400" />
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-neutral-100">
+          <Search className="w-5 h-5 text-neutral-400" />
           <input
             ref={inputRef}
             value={query}
             onChange={e => { setQuery(e.target.value); search(e.target.value); }}
             onKeyDown={handleKeyDown}
-            placeholder="Search contacts, deals…"
-            className="flex-1 text-base text-slate-900 placeholder-slate-400 outline-none bg-transparent"
+            placeholder="Search contacts, deals, signals…"
+            className="flex-1 text-base text-neutral-900 placeholder-neutral-400 outline-none bg-transparent"
           />
-          <kbd className="hidden sm:inline-flex px-2 py-0.5 text-xs text-slate-400 bg-slate-100 rounded border border-slate-200 font-mono">ESC</kbd>
+          <kbd className="hidden sm:inline-flex px-2 py-0.5 text-xs text-neutral-400 bg-neutral-100 rounded border border-neutral-200 font-mono">ESC</kbd>
         </div>
 
         {/* Results */}
         <div className="max-h-80 overflow-y-auto">
           {loading && (
             <div className="px-5 py-6 space-y-3">
-              {[1,2,3].map(i => <div key={i} className="h-10 bg-slate-50 rounded-lg animate-pulse" />)}
+              {[1,2,3].map(i => <div key={i} className="h-10 bg-neutral-50 rounded-lg animate-pulse" />)}
             </div>
           )}
 
           {!loading && query.length >= 2 && results.length === 0 && (
-            <div className="px-5 py-8 text-center text-sm text-slate-400">
+            <div className="px-5 py-8 text-center text-sm text-neutral-400">
               No results for "{query}"
             </div>
           )}
@@ -89,7 +89,7 @@ export default function GlobalSearch({ open, onClose }) {
               {/* Contacts */}
               {results.filter(r => r.type === 'contact').length > 0 && (
                 <>
-                  <p className="px-5 py-1.5 text-xs font-semibold text-slate-400 uppercase tracking-wider">Contacts</p>
+                  <p className="px-5 py-1.5 text-xs font-semibold text-neutral-400 uppercase tracking-wider">Contacts</p>
                   {results.filter(r => r.type === 'contact').map((r, i) => {
                     const idx = results.indexOf(r);
                     return (
@@ -97,15 +97,15 @@ export default function GlobalSearch({ open, onClose }) {
                         key={r.id}
                         onClick={() => { navigate(`/contacts?id=${r.id}`); onClose(); }}
                         className={`w-full flex items-center gap-3 px-5 py-2.5 text-left transition-colors ${
-                          idx === selectedIdx ? 'bg-sky-50' : 'hover:bg-slate-50'
+                          idx === selectedIdx ? 'bg-primary-50' : 'hover:bg-neutral-50'
                         }`}
                       >
-                        <div className="w-8 h-8 rounded-full bg-sky-100 flex items-center justify-center">
-                          <Users className="w-4 h-4 text-sky-600" />
+                        <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center">
+                          <Users className="w-4 h-4 text-primary-600" />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-sm font-medium text-slate-800 truncate">{r.name}</p>
-                          <p className="text-xs text-slate-400 truncate">{r.subtitle}</p>
+                          <p className="text-sm font-medium text-neutral-900 truncate">{r.name}</p>
+                          <p className="text-xs text-neutral-400 truncate">{r.subtitle}</p>
                         </div>
                       </button>
                     );
@@ -116,7 +116,7 @@ export default function GlobalSearch({ open, onClose }) {
               {/* Deals */}
               {results.filter(r => r.type === 'deal').length > 0 && (
                 <>
-                  <p className="px-5 py-1.5 text-xs font-semibold text-slate-400 uppercase tracking-wider mt-1">Deals</p>
+                  <p className="px-5 py-1.5 text-xs font-semibold text-neutral-400 uppercase tracking-wider mt-1">Deals</p>
                   {results.filter(r => r.type === 'deal').map((r) => {
                     const idx = results.indexOf(r);
                     return (
@@ -124,15 +124,15 @@ export default function GlobalSearch({ open, onClose }) {
                         key={r.id}
                         onClick={() => { navigate(`/pipeline?deal=${r.id}`); onClose(); }}
                         className={`w-full flex items-center gap-3 px-5 py-2.5 text-left transition-colors ${
-                          idx === selectedIdx ? 'bg-sky-50' : 'hover:bg-slate-50'
+                          idx === selectedIdx ? 'bg-primary-50' : 'hover:bg-neutral-50'
                         }`}
                       >
-                        <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                          <TrendingUp className="w-4 h-4 text-green-600" />
+                        <div className="w-8 h-8 rounded-full bg-success-500/10 flex items-center justify-center">
+                          <TrendingUp className="w-4 h-4 text-success-600" />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-sm font-medium text-slate-800 truncate">{r.name}</p>
-                          <p className="text-xs text-slate-400 truncate">{r.subtitle}</p>
+                          <p className="text-sm font-medium text-neutral-900 truncate">{r.name}</p>
+                          <p className="text-xs text-neutral-400 truncate">{r.subtitle}</p>
                         </div>
                       </button>
                     );
@@ -143,7 +143,7 @@ export default function GlobalSearch({ open, onClose }) {
           )}
 
           {!loading && query.length < 2 && (
-            <div className="px-5 py-6 text-center text-sm text-slate-400">
+            <div className="px-5 py-6 text-center text-sm text-neutral-400">
               Type at least 2 characters to search
             </div>
           )}

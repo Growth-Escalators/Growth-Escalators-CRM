@@ -39,9 +39,9 @@ function FeedbackWidget() {
   }
 
   const TYPES = [
-    { id: 'suggestion', label: 'Suggestion', icon: Lightbulb, color: 'text-amber-500', bg: 'bg-amber-50 border-amber-200' },
-    { id: 'bug', label: 'Bug Report', icon: Bug, color: 'text-red-500', bg: 'bg-red-50 border-red-200' },
-    { id: 'question', label: 'Question', icon: HelpCircle, color: 'text-blue-500', bg: 'bg-blue-50 border-blue-200' },
+    { id: 'suggestion', label: 'Suggestion', icon: Lightbulb, color: 'text-warning-600', bg: 'bg-warning-500/10 border-warning-500/20' },
+    { id: 'bug', label: 'Bug Report', icon: Bug, color: 'text-danger-600', bg: 'bg-danger-500/10 border-danger-500/20' },
+    { id: 'question', label: 'Question', icon: HelpCircle, color: 'text-primary-600', bg: 'bg-primary-500/10 border-primary-500/20' },
   ];
   const activeType = TYPES.find(t => t.id === type) || TYPES[0];
 
@@ -65,9 +65,9 @@ function FeedbackWidget() {
             <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl border border-neutral-200 shadow-modal z-50 overflow-hidden">
             {sent ? (
               <div className="p-8 text-center">
-                <CheckCircle className="w-10 h-10 text-green-500 mx-auto mb-3" />
-                <p className="text-sm font-semibold text-slate-800">Thank you!</p>
-                <p className="text-xs text-slate-500 mt-1">Your feedback has been received.</p>
+                <CheckCircle className="w-10 h-10 text-success-500 mx-auto mb-3" />
+                <p className="text-sm font-semibold text-neutral-800">Thank you!</p>
+                <p className="text-xs text-neutral-500 mt-1">Your feedback has been received.</p>
               </div>
             ) : (
               <form onSubmit={handleSubmit}>
@@ -149,23 +149,30 @@ export default function TopBar({ onSearchOpen }) {
       {/* Center: search trigger */}
       <button
         onClick={onSearchOpen}
-        className="flex items-center gap-2 px-3 py-1.5 bg-neutral-100 rounded-lg text-sm text-neutral-500 hover:bg-neutral-200 transition-colors"
+        className="hidden sm:flex items-center gap-2 w-[420px] max-w-full px-3 py-1.5 bg-neutral-100 border border-neutral-200 rounded-md text-sm text-neutral-500 hover:bg-neutral-200 transition-colors"
       >
-        <Search className="w-4 h-4" />
-        <span className="hidden sm:inline">Search…</span>
-        <kbd className="hidden sm:inline-flex px-1.5 py-0.5 text-xs bg-white rounded border border-neutral-200 font-mono ml-4">
+        <Search className="w-4 h-4 flex-shrink-0" />
+        <span className="flex-1 text-left truncate">Search contacts, deals, signals…</span>
+        <kbd className="inline-flex px-1.5 py-0.5 text-xs bg-white rounded border border-neutral-200 font-mono">
           ⌘K
         </kbd>
+      </button>
+      <button
+        onClick={onSearchOpen}
+        className="sm:hidden p-2 text-neutral-500 hover:text-neutral-700 rounded-md hover:bg-neutral-100 transition-colors"
+        aria-label="Search"
+      >
+        <Search className="w-4 h-4" />
       </button>
 
       {/* Right: feedback + notifications + user */}
       <div className="flex items-center gap-2">
         <FeedbackWidget />
-        <button className="p-1.5 text-neutral-400 hover:text-neutral-600 rounded-lg hover:bg-neutral-100 transition-colors relative">
+        <button className="w-9 h-9 flex items-center justify-center text-neutral-400 hover:text-neutral-600 rounded-md hover:bg-neutral-100 transition-colors relative">
           <Bell className="w-4.5 h-4.5" />
         </button>
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-full bg-primary-500 flex items-center justify-center text-white text-xs font-bold uppercase">
+          <div className="w-[30px] h-[30px] rounded-full bg-primary-500 flex items-center justify-center text-white text-xs font-bold uppercase">
             {user?.name?.[0] || '?'}
           </div>
         </div>
