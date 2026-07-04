@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../lib/api.js';
 
-const MSA_COLORS = { none: 'bg-gray-100 text-gray-800', in_progress: 'bg-yellow-100 text-yellow-800', signed: 'bg-green-100 text-green-800' };
+const MSA_BADGE = { none: 'badge-muted', in_progress: 'badge-warning', signed: 'badge-success' };
 
 export default function WizmatchPrimesPage() {
   const [primes, setPrimes] = useState([]);
@@ -17,30 +17,30 @@ export default function WizmatchPrimesPage() {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">Primes Management</h1>
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+      <h1 className="text-[20px] font-bold text-neutral-900 mb-6">Primes Management</h1>
+      <div className="card overflow-hidden">
+        <table className="table-fluent">
+          <thead>
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Company</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Domain</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">MSA Status</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Signed Date</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Active Placements</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Monthly Margin</th>
+              <th>Company</th>
+              <th>Domain</th>
+              <th>MSA Status</th>
+              <th>Signed Date</th>
+              <th>Active Placements</th>
+              <th>Monthly Margin</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-200">
-            {loading ? <tr><td colSpan="6" className="px-4 py-8 text-center text-gray-400">Loading...</td></tr>
-            : primes.length === 0 ? <tr><td colSpan="6" className="px-4 py-8 text-center text-gray-400">No prime companies yet</td></tr>
+          <tbody>
+            {loading ? <tr><td colSpan="6" className="px-4 py-8 text-center text-neutral-400">Loading...</td></tr>
+            : primes.length === 0 ? <tr><td colSpan="6" className="px-4 py-8 text-center text-neutral-400">No prime companies yet</td></tr>
             : primes.map(p => (
-              <tr key={p.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 text-sm font-medium">{p.name}</td>
-                <td className="px-4 py-3 text-sm text-gray-600">{p.domain || '—'}</td>
-                <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs ${MSA_COLORS[p.prime_msa_status]}`}>{p.prime_msa_status}</span></td>
-                <td className="px-4 py-3 text-sm text-gray-500">{p.prime_msa_signed_at ? new Date(p.prime_msa_signed_at).toLocaleDateString() : '—'}</td>
-                <td className="px-4 py-3 text-sm">{p.active_placements || 0}</td>
-                <td className="px-4 py-3 text-sm font-medium text-green-600">${((p.monthly_margin || 0)).toLocaleString()}/mo</td>
+              <tr key={p.id}>
+                <td className="font-medium text-neutral-900">{p.name}</td>
+                <td>{p.domain || '—'}</td>
+                <td><span className={MSA_BADGE[p.prime_msa_status] || 'badge-muted'}>{p.prime_msa_status}</span></td>
+                <td className="text-neutral-500">{p.prime_msa_signed_at ? new Date(p.prime_msa_signed_at).toLocaleDateString() : '—'}</td>
+                <td>{p.active_placements || 0}</td>
+                <td className="font-medium text-success-600">${((p.monthly_margin || 0)).toLocaleString()}/mo</td>
               </tr>
             ))}
           </tbody>

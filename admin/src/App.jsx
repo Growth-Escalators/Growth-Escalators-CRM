@@ -38,6 +38,7 @@ const WizmatchCompliancePage = lazy(() => import('./pages/WizmatchCompliancePage
 const WizmatchPlacementsPage = lazy(() => import('./pages/WizmatchPlacementsPage.jsx'));
 const WizmatchPrimesPage = lazy(() => import('./pages/WizmatchPrimesPage.jsx'));
 const WizmatchAnalyticsPage = lazy(() => import('./pages/WizmatchAnalyticsPage.jsx'));
+const AppLayout = lazy(() => import('./components/AppLayout.jsx'));
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -116,14 +117,14 @@ export default function App() {
             <Route path="/tasks" element={<PrivateRoute><TasksBoardPage /></PrivateRoute>} />
             <Route path="/tasks/v2" element={<PrivateRoute><TasksBoardPage /></PrivateRoute>} />
             <Route path="/my-attendance" element={<PrivateRoute><MyAttendancePage /></PrivateRoute>} />
-            <Route path="/wizmatch/signals" element={<PrivateRoute><WizmatchSignalsPage /></PrivateRoute>} />
-            <Route path="/wizmatch/candidates" element={<PrivateRoute><WizmatchCandidatesPage /></PrivateRoute>} />
-            <Route path="/wizmatch/queue" element={<PrivateRoute><WizmatchReviewQueuePage /></PrivateRoute>} />
-            <Route path="/wizmatch/domains" element={<PrivateRoute><WizmatchDomainsPage /></PrivateRoute>} />
-            <Route path="/wizmatch/compliance" element={<PrivateRoute><WizmatchCompliancePage /></PrivateRoute>} />
-            <Route path="/wizmatch/placements" element={<PrivateRoute><WizmatchPlacementsPage /></PrivateRoute>} />
-            <Route path="/wizmatch/primes" element={<PrivateRoute><WizmatchPrimesPage /></PrivateRoute>} />
-            <Route path="/wizmatch/analytics" element={<PrivateRoute><WizmatchAnalyticsPage /></PrivateRoute>} />
+            <Route path="/wizmatch/signals" element={<PrivateRoute><AppLayout><WizmatchSignalsPage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/candidates" element={<PrivateRoute><AppLayout><WizmatchCandidatesPage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/queue" element={<PrivateRoute><AppLayout><WizmatchReviewQueuePage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/domains" element={<PrivateRoute><AppLayout><WizmatchDomainsPage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/compliance" element={<PrivateRoute><AppLayout><WizmatchCompliancePage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/placements" element={<PrivateRoute><AppLayout><WizmatchPlacementsPage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/primes" element={<PrivateRoute><AppLayout><WizmatchPrimesPage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/analytics" element={<PrivateRoute><AppLayout><WizmatchAnalyticsPage /></AppLayout></PrivateRoute>} />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>

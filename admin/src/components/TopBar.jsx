@@ -49,7 +49,7 @@ function FeedbackWidget() {
     <div className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 text-slate-500 hover:text-sky-600 rounded-lg hover:bg-sky-50 transition-colors text-sm"
+        className="flex items-center gap-1.5 px-2.5 py-1.5 text-neutral-500 hover:text-primary-600 rounded-lg hover:bg-primary-50 transition-colors text-sm"
         title="Send feedback or suggestion"
       >
         <MessageSquarePlus className="w-4 h-4" />
@@ -62,7 +62,7 @@ function FeedbackWidget() {
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
 
           {/* Panel */}
-          <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl border border-slate-200 shadow-xl z-50 overflow-hidden">
+            <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl border border-neutral-200 shadow-modal z-50 overflow-hidden">
             {sent ? (
               <div className="p-8 text-center">
                 <CheckCircle className="w-10 h-10 text-green-500 mx-auto mb-3" />
@@ -72,9 +72,9 @@ function FeedbackWidget() {
             ) : (
               <form onSubmit={handleSubmit}>
                 {/* Header */}
-                <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-slate-800">Send Feedback</h3>
-                  <button type="button" onClick={() => setOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <div className="px-4 py-3 border-b border-neutral-100 flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-neutral-800">Send Feedback</h3>
+                  <button type="button" onClick={() => setOpen(false)} className="text-neutral-400 hover:text-neutral-600">
                     <X className="w-4 h-4" />
                   </button>
                 </div>
@@ -86,9 +86,9 @@ function FeedbackWidget() {
                       key={t.id}
                       type="button"
                       onClick={() => setType(t.id)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                        type === t.id ? t.bg + ' ' + t.color : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
-                      }`}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                      type === t.id ? t.bg + ' ' + t.color : 'bg-white border-neutral-200 text-neutral-500 hover:bg-neutral-50'
+                    }`}
                     >
                       <t.icon className="w-3.5 h-3.5" />
                       {t.label}
@@ -107,11 +107,11 @@ function FeedbackWidget() {
                       "What would you like to know?"
                     }
                     rows={4}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 resize-none"
+                    className="w-full border border-neutral-300 rounded-sm px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-200 resize-none"
                     autoFocus
                     required
                   />
-                  <p className="text-[10px] text-slate-400 mt-1.5">
+                  <p className="text-[10px] text-neutral-400 mt-1.5">
                     From: {user?.name || 'Unknown'} ({user?.email || 'no email'}) &middot; Page: {window.location.pathname}
                   </p>
                 </div>
@@ -121,7 +121,7 @@ function FeedbackWidget() {
                   <button
                     type="submit"
                     disabled={sending || !message.trim()}
-                    className="w-full flex items-center justify-center gap-2 py-2 bg-sky-600 text-white rounded-lg text-sm font-medium hover:bg-sky-700 disabled:opacity-50 transition-colors"
+                    className="w-full flex items-center justify-center gap-2 py-2 bg-primary-500 text-white rounded-lg text-sm font-medium hover:bg-primary-600 disabled:opacity-50 transition-colors"
                   >
                     <Send className="w-3.5 h-3.5" />
                     {sending ? 'Sending...' : 'Send Feedback'}
@@ -140,7 +140,7 @@ export default function TopBar({ onSearchOpen }) {
   const user = getUser();
 
   return (
-    <div className="sticky top-0 z-20 bg-white border-b border-slate-200 pl-14 pr-3 md:px-6 py-2.5 flex items-center gap-3 md:gap-4">
+    <div className="sticky top-0 z-20 bg-white border-b border-neutral-200 pl-14 pr-3 md:px-6 py-2.5 flex items-center gap-3 md:gap-4 shadow-card">
       {/* Left: breadcrumbs */}
       <div className="flex-1 min-w-0">
         <Breadcrumbs />
@@ -149,11 +149,11 @@ export default function TopBar({ onSearchOpen }) {
       {/* Center: search trigger */}
       <button
         onClick={onSearchOpen}
-        className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 rounded-lg text-sm text-slate-500 hover:bg-slate-200 transition-colors"
+        className="flex items-center gap-2 px-3 py-1.5 bg-neutral-100 rounded-lg text-sm text-neutral-500 hover:bg-neutral-200 transition-colors"
       >
         <Search className="w-4 h-4" />
         <span className="hidden sm:inline">Search…</span>
-        <kbd className="hidden sm:inline-flex px-1.5 py-0.5 text-xs bg-white rounded border border-slate-200 font-mono ml-4">
+        <kbd className="hidden sm:inline-flex px-1.5 py-0.5 text-xs bg-white rounded border border-neutral-200 font-mono ml-4">
           ⌘K
         </kbd>
       </button>
@@ -161,11 +161,11 @@ export default function TopBar({ onSearchOpen }) {
       {/* Right: feedback + notifications + user */}
       <div className="flex items-center gap-2">
         <FeedbackWidget />
-        <button className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors">
+        <button className="p-1.5 text-neutral-400 hover:text-neutral-600 rounded-lg hover:bg-neutral-100 transition-colors relative">
           <Bell className="w-4.5 h-4.5" />
         </button>
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-full bg-sky-600 flex items-center justify-center text-white text-xs font-bold uppercase">
+          <div className="w-7 h-7 rounded-full bg-primary-500 flex items-center justify-center text-white text-xs font-bold uppercase">
             {user?.name?.[0] || '?'}
           </div>
         </div>

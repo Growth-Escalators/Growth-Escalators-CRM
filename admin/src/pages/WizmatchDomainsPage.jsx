@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../lib/api.js';
 
-const STATUS_COLORS = { healthy: 'bg-green-100 text-green-800', warn: 'bg-yellow-100 text-yellow-800', paused: 'bg-orange-100 text-orange-800', blacklisted: 'bg-red-100 text-red-800' };
+const STATUS_BADGE = { healthy: 'badge-success', warn: 'badge-warning', paused: 'badge-accent', blacklisted: 'badge-danger' };
 
 export default function WizmatchDomainsPage() {
   const [domains, setDomains] = useState([]);
@@ -27,28 +27,28 @@ export default function WizmatchDomainsPage() {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">Domain Health</h1>
+      <h1 className="text-[20px] font-bold text-neutral-900 mb-6">Domain Health</h1>
       <div className="grid grid-cols-3 gap-4">
-        {loading ? <p className="text-gray-400">Loading...</p>
+        {loading ? <p className="text-neutral-400">Loading...</p>
         : domains.map(d => (
-          <div key={d.id} className="bg-white rounded-lg shadow p-4">
+          <div key={d.id} className="card p-4">
             <div className="flex justify-between items-start mb-3">
-              <h3 className="font-bold">{d.domain}</h3>
-              <span className={`px-2 py-1 rounded text-xs font-medium ${STATUS_COLORS[d.status]}`}>{d.status}</span>
+              <h3 className="text-[15px] font-semibold text-neutral-900">{d.domain}</h3>
+              <span className={STATUS_BADGE[d.status] || 'badge-muted'}>{d.status}</span>
             </div>
-            <div className="grid grid-cols-2 gap-2 text-xs mb-3">
-              <div><span className="font-medium">SPF:</span> {d.spf_ok === null ? '—' : d.spf_ok ? '✅' : '❌'}</div>
-              <div><span className="font-medium">DMARC:</span> {d.dmarc_ok === null ? '—' : d.dmarc_ok ? '✅' : '❌'}</div>
-              <div><span className="font-medium">Sends 7d:</span> {d.sends_7d}</div>
-              <div><span className="font-medium">Reply rate:</span> {(d.reply_rate_7d * 100).toFixed(1)}%</div>
+            <div className="grid grid-cols-2 gap-2 text-xs mb-3 text-neutral-600">
+              <div><span className="font-medium text-neutral-700">SPF:</span> {d.spf_ok === null ? '—' : d.spf_ok ? '✅' : '❌'}</div>
+              <div><span className="font-medium text-neutral-700">DMARC:</span> {d.dmarc_ok === null ? '—' : d.dmarc_ok ? '✅' : '❌'}</div>
+              <div><span className="font-medium text-neutral-700">Sends 7d:</span> {d.sends_7d}</div>
+              <div><span className="font-medium text-neutral-700">Reply rate:</span> {(d.reply_rate_7d * 100).toFixed(1)}%</div>
             </div>
-            <div className="text-xs text-gray-400 mb-2">Last check: {d.last_check_at ? new Date(d.last_check_at).toLocaleString() : 'Never'}</div>
-            <div className="text-xs text-gray-400 mb-3">Inboxes: {d.inbox_addresses?.join(', ')}</div>
+            <div className="text-xs text-neutral-400 mb-2">Last check: {d.last_check_at ? new Date(d.last_check_at).toLocaleString() : 'Never'}</div>
+            <div className="text-xs text-neutral-400 mb-3">Inboxes: {d.inbox_addresses?.join(', ')}</div>
             <div className="flex gap-2">
               {d.status === 'healthy' ? (
-                <button onClick={() => { const r = prompt('Reason for pausing?'); if (r) pauseDomain(d.id, r); }} className="px-3 py-1 bg-orange-600 text-white rounded text-xs">Pause</button>
+                <button onClick={() => { const r = prompt('Reason for pausing?'); if (r) pauseDomain(d.id, r); }} className="btn-accent btn-compact">Pause</button>
               ) : (
-                <button onClick={() => resumeDomain(d.id)} className="px-3 py-1 bg-green-600 text-white rounded text-xs">Resume</button>
+                <button onClick={() => resumeDomain(d.id)} className="btn-primary btn-compact">Resume</button>
               )}
             </div>
           </div>

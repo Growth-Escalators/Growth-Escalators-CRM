@@ -11,11 +11,11 @@ import { apiFetch } from '../lib/api.js';
 // ---------------------------------------------------------------------------
 function getStageStyle(stageName, index) {
   const PALETTE = [
-    { color: '#64748b', light: 'bg-slate-50 border-slate-200' },
+    { color: '#64748b', light: 'bg-neutral-50 border-neutral-200' },
     { color: '#3b82f6', light: 'bg-blue-50 border-blue-200' },
     { color: '#6366f1', light: 'bg-indigo-50 border-indigo-200' },
     { color: '#8b5cf6', light: 'bg-violet-50 border-violet-200' },
-    { color: '#0ea5e9', light: 'bg-sky-50 border-sky-200' },
+    { color: '#0ea5e9', light: 'bg-primary-50 border-sky-200' },
     { color: '#f59e0b', light: 'bg-amber-50 border-amber-200' },
     { color: '#f97316', light: 'bg-orange-50 border-orange-200' },
     { color: '#ec4899', light: 'bg-rose-50 border-rose-200' },
@@ -77,8 +77,8 @@ function DealCard({ deal, index, onClick, onArchive, onUnarchive, selected = fal
     : deal.score >= 40
     ? 'bg-amber-100 text-amber-700'
     : deal.score > 0
-    ? 'bg-red-100 text-red-600'
-    : 'bg-slate-100 text-slate-400';
+    ? 'bg-red-100 text-danger-600'
+    : 'bg-neutral-100 text-neutral-400';
 
   return (
     <Draggable draggableId={deal.id} index={index}>
@@ -92,7 +92,7 @@ function DealCard({ deal, index, onClick, onArchive, onUnarchive, selected = fal
             if (selectionMode && onToggleSelect) { onToggleSelect(); return; }
             onClick?.(e);
           }}
-          className={`bg-white rounded-xl border p-3 shadow-sm hover:shadow-md cursor-pointer transition-all relative select-none ${selected ? 'border-blue-400 ring-2 ring-blue-200' : 'border-slate-200'} ${snapshot.isDragging ? 'shadow-xl rotate-1 scale-105' : ''} ${isArchived ? 'opacity-60' : ''}`}
+          className={`bg-white rounded-xl border p-3 shadow-sm hover:shadow-md cursor-pointer transition-all relative select-none ${selected ? 'border-blue-400 ring-2 ring-blue-200' : 'border-neutral-200'} ${snapshot.isDragging ? 'shadow-xl rotate-1 scale-105' : ''} ${isArchived ? 'opacity-60' : ''}`}
           style={{ width: 220, ...provided.draggableProps.style }}
         >
           {/* Row 1: name + days + menu */}
@@ -103,11 +103,11 @@ function DealCard({ deal, index, onClick, onArchive, onUnarchive, selected = fal
                 checked={selected}
                 onClick={(e) => e.stopPropagation()}
                 onChange={(e) => { e.stopPropagation(); onToggleSelect(); }}
-                className="mt-0.5 mr-1 rounded border-slate-300 text-blue-500 focus:ring-blue-400 cursor-pointer"
+                className="mt-0.5 mr-1 rounded border-neutral-300 text-primary-500 focus:ring-blue-400 cursor-pointer"
                 aria-label="Select deal"
               />
             )}
-            <p className="text-sm font-bold text-slate-900 leading-tight line-clamp-1 flex-1">
+            <p className="text-sm font-bold text-neutral-900 leading-tight line-clamp-1 flex-1">
               {deal.contactName ?? 'Unknown'}
             </p>
             <div className="flex items-center gap-1 shrink-0">
@@ -119,18 +119,18 @@ function DealCard({ deal, index, onClick, onArchive, onUnarchive, selected = fal
               <div ref={menuRef} className="relative" onClick={(e) => e.stopPropagation()}>
                 <button
                   onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
-                  className="text-slate-300 hover:text-slate-500 p-0.5 rounded"
+                  className="text-neutral-300 hover:text-neutral-500 p-0.5 rounded"
                 >
                   <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
                   </svg>
                 </button>
                 {menuOpen && (
-                  <div className="absolute top-5 right-0 z-20 bg-white border border-slate-200 rounded-xl shadow-lg py-1 min-w-[130px]" onClick={(e) => e.stopPropagation()}>
+                  <div className="absolute top-5 right-0 z-20 bg-white border border-neutral-200 rounded-xl shadow-lg py-1 min-w-[130px]" onClick={(e) => e.stopPropagation()}>
                     {isArchived ? (
-                      <button onClick={() => { onUnarchive(); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Unarchive</button>
+                      <button onClick={() => { onUnarchive(); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm text-neutral-700 hover:bg-neutral-50">Unarchive</button>
                     ) : (
-                      <button onClick={() => { onArchive(); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50">Archive</button>
+                      <button onClick={() => { onArchive(); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm text-danger-600 hover:bg-red-50">Archive</button>
                     )}
                   </div>
                 )}
@@ -140,18 +140,18 @@ function DealCard({ deal, index, onClick, onArchive, onUnarchive, selected = fal
 
           {/* Company */}
           {deal.companyName && (
-            <p className="text-xs text-slate-400 mb-1.5 line-clamp-1">{deal.companyName}</p>
+            <p className="text-xs text-neutral-400 mb-1.5 line-clamp-1">{deal.companyName}</p>
           )}
 
           {/* Bottom row */}
           <div className="flex items-center justify-between mt-2">
             <div className="flex items-center gap-1.5">
               {fmtInr(deal.dealValue) && (
-                <span className="text-xs font-semibold text-green-600">{fmtInr(deal.dealValue)}</span>
+                <span className="text-xs font-semibold text-success-600">{fmtInr(deal.dealValue)}</span>
               )}
             </div>
             <div className="flex items-center gap-1">
-              <span className={`text-[10px] text-slate-400 ${days > 3 ? 'text-red-400' : ''}`}>{days}d</span>
+              <span className={`text-[10px] text-neutral-400 ${days > 3 ? 'text-red-400' : ''}`}>{days}d</span>
               {deal.assignedTo ? (
                 <span
                   className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold uppercase"
@@ -161,7 +161,7 @@ function DealCard({ deal, index, onClick, onArchive, onUnarchive, selected = fal
                   {deal.assignedTo[0]}
                 </span>
               ) : (
-                <span className="w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center text-slate-400 text-[9px]">?</span>
+                <span className="w-5 h-5 rounded-full bg-neutral-200 flex items-center justify-center text-neutral-400 text-[9px]">?</span>
               )}
             </div>
           </div>
@@ -202,12 +202,12 @@ function WonLostModal({ stageName, contactName, onConfirm, onCancel }) {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
     </svg>
   ) : (
-    <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <svg className="w-6 h-6 text-danger-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/>
     </svg>
   );
   const title = won ? 'Deal Won!' : abandoned ? 'Mark as Abandoned?' : 'Why was this deal lost?';
-  const btnClass = won ? 'bg-emerald-600 hover:bg-emerald-700' : abandoned ? 'bg-amber-500 hover:bg-amber-600' : 'bg-red-600 hover:bg-red-700';
+  const btnClass = won ? 'bg-emerald-600 hover:bg-emerald-700' : abandoned ? 'bg-warning-500 hover:bg-amber-600' : 'bg-danger-600 hover:bg-red-700';
   const btnLabel = won ? 'Save & Confirm' : abandoned ? 'Mark Abandoned' : 'Mark as Lost';
 
   return (
@@ -217,20 +217,20 @@ function WonLostModal({ stageName, contactName, onConfirm, onCancel }) {
           <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${iconBg}`}>
             {icon}
           </div>
-          <h2 className="text-lg font-bold text-slate-900">{title}</h2>
-          <p className="text-sm text-slate-500 mt-1">
-            {contactName} &rarr; <span className="font-medium text-slate-700">{stageName}</span>
+          <h2 className="text-lg font-bold text-neutral-900">{title}</h2>
+          <p className="text-sm text-neutral-500 mt-1">
+            {contactName} &rarr; <span className="font-medium text-neutral-700">{stageName}</span>
           </p>
 
           {lost && (
             <div className="mt-4">
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                Reason <span className="text-red-500">*</span>
+              <label className="block text-sm font-medium text-neutral-700 mb-1.5">
+                Reason <span className="text-danger-500">*</span>
               </label>
               <select
                 value={lostReason}
                 onChange={(e) => setLostReason(e.target.value)}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-red-400"
+                className="w-full border border-neutral-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-red-400"
               >
                 <option value="">Select a reason…</option>
                 {LOST_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
@@ -239,24 +239,24 @@ function WonLostModal({ stageName, contactName, onConfirm, onCancel }) {
           )}
 
           <div className="mt-4">
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">
-              {won ? 'Notes about this win?' : 'Additional notes'} <span className="text-slate-400 font-normal">(optional)</span>
+            <label className="block text-sm font-medium text-neutral-700 mb-1.5">
+              {won ? 'Notes about this win?' : 'Additional notes'} <span className="text-neutral-400 font-normal">(optional)</span>
             </label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={3}
               placeholder={won ? 'What made this deal happen?' : 'Any additional context…'}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-300 resize-none"
+              className="w-full border border-neutral-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-300 resize-none"
             />
           </div>
         </div>
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl">
-          <button onClick={onCancel} className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 border border-slate-200 rounded-lg hover:bg-white">
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-neutral-100 bg-neutral-50 rounded-b-2xl">
+          <button onClick={onCancel} className="px-4 py-2 text-sm font-medium text-neutral-600 hover:text-neutral-800 border border-neutral-200 rounded-lg hover:bg-white">
             Cancel
           </button>
           {won && (
-            <button onClick={() => onConfirm(null, null)} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-white">
+            <button onClick={() => onConfirm(null, null)} className="px-4 py-2 text-sm font-medium text-neutral-600 border border-neutral-200 rounded-lg hover:bg-white">
               Skip
             </button>
           )}
@@ -320,22 +320,22 @@ function AddDealModal({ pipelineId, stageName, onAdded, onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100">
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-neutral-100">
           <div>
-            <h2 className="text-lg font-bold text-slate-900">Add Deal</h2>
-            <p className="text-sm text-slate-400 mt-0.5">Stage: <span className="font-medium text-slate-600">{stageName}</span></p>
+            <h2 className="text-lg font-bold text-neutral-900">Add Deal</h2>
+            <p className="text-sm text-neutral-400 mt-0.5">Stage: <span className="font-medium text-neutral-600">{stageName}</span></p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100">
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600 p-1 rounded-lg hover:bg-neutral-100">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
         </div>
         <div className="px-6 py-5 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">Contact <span className="text-red-500">*</span></label>
+            <label className="block text-sm font-medium text-neutral-700 mb-1.5">Contact <span className="text-danger-500">*</span></label>
             {selectedContact ? (
-              <div className="flex items-center justify-between border border-slate-200 rounded-lg px-3 py-2.5 bg-blue-50">
+              <div className="flex items-center justify-between border border-neutral-200 rounded-lg px-3 py-2.5 bg-blue-50">
                 <span className="text-sm font-medium text-blue-800">{selectedContact.firstName} {selectedContact.lastName ?? ''}</span>
-                <button onClick={() => { setSelectedContact(null); setSearch(''); }} className="text-blue-400 hover:text-blue-600 text-xs">Change</button>
+                <button onClick={() => { setSelectedContact(null); setSearch(''); }} className="text-blue-400 hover:text-primary-600 text-xs">Change</button>
               </div>
             ) : (
               <div className="relative">
@@ -344,19 +344,19 @@ function AddDealModal({ pipelineId, stageName, onAdded, onClose }) {
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search contact name..."
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-neutral-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 />
                 {(searching || contacts.length > 0) && (
-                  <div className="absolute top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg z-10 max-h-48 overflow-y-auto">
-                    {searching && <p className="px-3 py-2 text-sm text-slate-400">Searching…</p>}
+                  <div className="absolute top-full mt-1 w-full bg-white border border-neutral-200 rounded-xl shadow-lg z-10 max-h-48 overflow-y-auto">
+                    {searching && <p className="px-3 py-2 text-sm text-neutral-400">Searching…</p>}
                     {contacts.map((c) => (
                       <button
                         key={c.id}
                         onClick={() => { setSelectedContact(c); setSearch(''); setContacts([]); }}
-                        className="w-full text-left px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                        className="w-full text-left px-3 py-2.5 text-sm text-neutral-700 hover:bg-neutral-50 flex items-center gap-2"
                       >
                         <span className="font-medium">{c.firstName} {c.lastName ?? ''}</span>
-                        {c.phone && <span className="text-slate-400 text-xs">{c.phone}</span>}
+                        {c.phone && <span className="text-neutral-400 text-xs">{c.phone}</span>}
                       </button>
                     ))}
                   </div>
@@ -365,25 +365,25 @@ function AddDealModal({ pipelineId, stageName, onAdded, onClose }) {
             )}
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">Deal Value (&#8377;) <span className="text-slate-400 font-normal">(optional)</span></label>
+            <label className="block text-sm font-medium text-neutral-700 mb-1.5">Deal Value (&#8377;) <span className="text-neutral-400 font-normal">(optional)</span></label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">&#8377;</span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 text-sm">&#8377;</span>
               <input
                 type="number"
                 min="0"
                 value={dealValue}
                 onChange={(e) => setDealValue(e.target.value)}
                 placeholder="0"
-                className="w-full border border-slate-200 rounded-lg pl-7 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-neutral-200 rounded-lg pl-7 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               />
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">Assigned To</label>
+            <label className="block text-sm font-medium text-neutral-700 mb-1.5">Assigned To</label>
             <select
               value={assignedTo}
               onChange={(e) => setAssignedTo(e.target.value)}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-neutral-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
               <option value="">Unassigned</option>
               <option value="jatin">Jatin</option>
@@ -391,11 +391,11 @@ function AddDealModal({ pipelineId, stageName, onAdded, onClose }) {
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">Source <span className="text-slate-400 font-normal">(optional)</span></label>
+            <label className="block text-sm font-medium text-neutral-700 mb-1.5">Source <span className="text-neutral-400 font-normal">(optional)</span></label>
             <select
               value={source}
               onChange={(e) => setSource(e.target.value)}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-neutral-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
               <option value="">Unknown</option>
               <option value="form">Website Form</option>
@@ -407,12 +407,12 @@ function AddDealModal({ pipelineId, stageName, onAdded, onClose }) {
             </select>
           </div>
         </div>
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl">
-          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-white">Cancel</button>
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-neutral-100 bg-neutral-50 rounded-b-2xl">
+          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-neutral-600 border border-neutral-200 rounded-lg hover:bg-white">Cancel</button>
           <button
             onClick={handleAdd}
             disabled={saving || !selectedContact}
-            className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 flex items-center gap-2"
+            className="px-5 py-2 text-sm font-semibold text-white bg-primary-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 flex items-center gap-2"
           >
             {saving && <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>}
             Add Deal
@@ -516,18 +516,18 @@ function DealDetailSlideIn({ dealId, onClose, onViewContact, onUpdated }) {
   }
 
   return (
-    <div className="fixed inset-y-0 right-0 z-40 w-full max-w-md bg-white shadow-2xl flex flex-col border-l border-slate-200">
+    <div className="fixed inset-y-0 right-0 z-40 w-full max-w-md bg-white shadow-2xl flex flex-col border-l border-neutral-200">
       {/* Header */}
-      <div className="px-5 py-4 border-b border-slate-100 flex items-start justify-between shrink-0">
+      <div className="px-5 py-4 border-b border-neutral-100 flex items-start justify-between shrink-0">
         <div className="flex-1 mr-3">
           {loading ? (
-            <div className="h-5 w-32 bg-slate-200 rounded animate-pulse mb-1"/>
+            <div className="h-5 w-32 bg-neutral-200 rounded animate-pulse mb-1"/>
           ) : (
             <>
-              <h2 className="text-base font-bold text-slate-900 leading-tight">
+              <h2 className="text-base font-bold text-neutral-900 leading-tight">
                 {deal?.first_name} {deal?.last_name ?? ''}
               </h2>
-              {deal?.company_name && <p className="text-sm text-slate-400">{deal.company_name}</p>}
+              {deal?.company_name && <p className="text-sm text-neutral-400">{deal.company_name}</p>}
             </>
           )}
         </div>
@@ -535,12 +535,12 @@ function DealDetailSlideIn({ dealId, onClose, onViewContact, onUpdated }) {
           {deal?.contact_id && (
             <button
               onClick={() => onViewContact(deal)}
-              className="text-xs font-medium text-blue-600 hover:text-blue-800 border border-blue-200 hover:bg-blue-50 px-2.5 py-1 rounded-lg"
+              className="text-xs font-medium text-primary-600 hover:text-blue-800 border border-blue-200 hover:bg-blue-50 px-2.5 py-1 rounded-lg"
             >
               View Contact
             </button>
           )}
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100">
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600 p-1 rounded-lg hover:bg-neutral-100">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
             </svg>
@@ -550,85 +550,85 @@ function DealDetailSlideIn({ dealId, onClose, onViewContact, onUpdated }) {
 
       {loading ? (
         <div className="flex-1 flex items-center justify-center">
-          <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"/>
+          <div className="w-6 h-6 border-2 border-primary-500 border-t-transparent rounded-full animate-spin"/>
         </div>
       ) : loadError ? (
         <div className="flex-1 flex flex-col items-center justify-center p-6 gap-2 text-center">
-          <p className="text-red-600 text-sm font-medium">Could not load deal</p>
-          <p className="text-slate-400 text-xs">{loadError}</p>
-          <p className="text-slate-300 text-[10px] font-mono break-all">id: {dealId}</p>
+          <p className="text-danger-600 text-sm font-medium">Could not load deal</p>
+          <p className="text-neutral-400 text-xs">{loadError}</p>
+          <p className="text-neutral-300 text-[10px] font-mono break-all">id: {dealId}</p>
         </div>
       ) : !deal ? (
-        <div className="flex-1 flex items-center justify-center text-slate-400 text-sm">Deal not found</div>
+        <div className="flex-1 flex items-center justify-center text-neutral-400 text-sm">Deal not found</div>
       ) : (
         <div className="flex-1 overflow-y-auto">
           {/* Deal stats grid */}
-          <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
+          <div className="px-5 py-4 border-b border-neutral-100 bg-neutral-50">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Deal Info</p>
+              <p className="text-[10px] uppercase tracking-wide text-neutral-400 font-semibold">Deal Info</p>
               {editValues === null && (
-                <button onClick={startEdit} className="text-xs text-blue-600 hover:text-blue-800 font-medium">Edit</button>
+                <button onClick={startEdit} className="text-xs text-primary-600 hover:text-blue-800 font-medium">Edit</button>
               )}
             </div>
             {editValues === null ? (
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Value</p>
-                  <p className="text-lg font-bold text-green-600">{fmtInr(deal.deal_value) || '—'}</p>
+                  <p className="text-[10px] uppercase tracking-wide text-neutral-400 mb-0.5">Value</p>
+                  <p className="text-lg font-bold text-success-600">{fmtInr(deal.deal_value) || '—'}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Stage</p>
-                  <span className="text-xs font-semibold text-slate-700 bg-white border border-slate-200 px-2 py-0.5 rounded-lg">{deal.stage}</span>
+                  <p className="text-[10px] uppercase tracking-wide text-neutral-400 mb-0.5">Stage</p>
+                  <span className="text-xs font-semibold text-neutral-700 bg-white border border-neutral-200 px-2 py-0.5 rounded-lg">{deal.stage}</span>
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Source</p>
-                  <p className="text-sm text-slate-600">{SOURCE_LABELS[deal.source] ?? deal.source ?? '—'}</p>
+                  <p className="text-[10px] uppercase tracking-wide text-neutral-400 mb-0.5">Source</p>
+                  <p className="text-sm text-neutral-600">{SOURCE_LABELS[deal.source] ?? deal.source ?? '—'}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Assigned To</p>
-                  <p className="text-sm text-slate-600">{deal.assigned_to ?? '—'}</p>
+                  <p className="text-[10px] uppercase tracking-wide text-neutral-400 mb-0.5">Assigned To</p>
+                  <p className="text-sm text-neutral-600">{deal.assigned_to ?? '—'}</p>
                 </div>
                 {deal.probability != null && (
                   <div>
-                    <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Probability</p>
-                    <p className="text-sm font-semibold text-blue-600">{deal.probability}%</p>
+                    <p className="text-[10px] uppercase tracking-wide text-neutral-400 mb-0.5">Probability</p>
+                    <p className="text-sm font-semibold text-primary-600">{deal.probability}%</p>
                   </div>
                 )}
                 {deal.expected_close_date && (
                   <div>
-                    <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Expected Close</p>
-                    <p className="text-sm text-slate-600">{new Date(deal.expected_close_date).toLocaleDateString('en-IN')}</p>
+                    <p className="text-[10px] uppercase tracking-wide text-neutral-400 mb-0.5">Expected Close</p>
+                    <p className="text-sm text-neutral-600">{new Date(deal.expected_close_date).toLocaleDateString('en-IN')}</p>
                   </div>
                 )}
                 <div>
-                  <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Pipeline</p>
-                  <p className="text-sm text-slate-600">{deal.pipeline_name ?? '—'}</p>
+                  <p className="text-[10px] uppercase tracking-wide text-neutral-400 mb-0.5">Pipeline</p>
+                  <p className="text-sm text-neutral-600">{deal.pipeline_name ?? '—'}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Created</p>
-                  <p className="text-sm text-slate-600">{new Date(deal.created_at).toLocaleDateString('en-IN')}</p>
+                  <p className="text-[10px] uppercase tracking-wide text-neutral-400 mb-0.5">Created</p>
+                  <p className="text-sm text-neutral-600">{new Date(deal.created_at).toLocaleDateString('en-IN')}</p>
                 </div>
               </div>
             ) : (
               <div className="space-y-3">
                 <div>
-                  <label className="text-[10px] uppercase text-slate-400">Value (₹)</label>
+                  <label className="text-[10px] uppercase text-neutral-400">Value (₹)</label>
                   <input type="number" value={editValues.deal_value} onChange={e => setEditValues({...editValues, deal_value: e.target.value})}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 mt-0.5" />
+                    className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 mt-0.5" />
                 </div>
                 <div>
-                  <label className="text-[10px] uppercase text-slate-400">Assigned To</label>
+                  <label className="text-[10px] uppercase text-neutral-400">Assigned To</label>
                   <select value={editValues.assigned_to} onChange={e => setEditValues({...editValues, assigned_to: e.target.value})}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 mt-0.5 bg-white">
+                    className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 mt-0.5 bg-white">
                     <option value="">Unassigned</option>
                     <option value="jatin">Jatin</option>
                     <option value="saksham">Saksham</option>
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] uppercase text-slate-400">Source</label>
+                  <label className="text-[10px] uppercase text-neutral-400">Source</label>
                   <select value={editValues.source} onChange={e => setEditValues({...editValues, source: e.target.value})}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 mt-0.5 bg-white">
+                    className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 mt-0.5 bg-white">
                     <option value="">Unknown</option>
                     <option value="form">Website Form</option>
                     <option value="paid_ad">Paid Ad</option>
@@ -639,27 +639,27 @@ function DealDetailSlideIn({ dealId, onClose, onViewContact, onUpdated }) {
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] uppercase text-slate-400">Probability (%)</label>
+                  <label className="text-[10px] uppercase text-neutral-400">Probability (%)</label>
                   <input type="number" min="0" max="100" value={editValues.probability} onChange={e => setEditValues({...editValues, probability: e.target.value})}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 mt-0.5" />
+                    className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 mt-0.5" />
                 </div>
                 <div>
-                  <label className="text-[10px] uppercase text-slate-400">Expected Close</label>
+                  <label className="text-[10px] uppercase text-neutral-400">Expected Close</label>
                   <input type="date" value={editValues.expected_close_date} onChange={e => setEditValues({...editValues, expected_close_date: e.target.value})}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 mt-0.5" />
+                    className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 mt-0.5" />
                 </div>
                 <div>
-                  <label className="text-[10px] uppercase text-slate-400">Notes</label>
+                  <label className="text-[10px] uppercase text-neutral-400">Notes</label>
                   <textarea rows={3} value={editValues.notes} onChange={e => setEditValues({...editValues, notes: e.target.value})}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 mt-0.5" />
+                    className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 mt-0.5" />
                 </div>
                 <div className="flex gap-2 pt-1">
                   <button onClick={saveEdit} disabled={addingNote}
-                    className="flex-1 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-50">
+                    className="flex-1 px-4 py-2 text-sm font-semibold text-white bg-primary-600 hover:bg-blue-700 rounded-xl disabled:opacity-50">
                     {addingNote ? 'Saving…' : 'Save Changes'}
                   </button>
                   <button onClick={() => setEditValues(null)}
-                    className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50">
+                    className="px-4 py-2 text-sm font-medium text-neutral-600 border border-neutral-200 rounded-xl hover:bg-neutral-50">
                     Cancel
                   </button>
                 </div>
@@ -669,13 +669,13 @@ function DealDetailSlideIn({ dealId, onClose, onViewContact, onUpdated }) {
 
           {/* Notes */}
           {deal.notes && (
-            <div className="px-5 py-3 border-b border-slate-100">
-              <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-1.5">Deal Notes</p>
-              <p className="text-sm text-slate-600">{deal.notes}</p>
+            <div className="px-5 py-3 border-b border-neutral-100">
+              <p className="text-[10px] uppercase tracking-wide text-neutral-400 mb-1.5">Deal Notes</p>
+              <p className="text-sm text-neutral-600">{deal.notes}</p>
             </div>
           )}
           {deal.lost_reason && (
-            <div className="px-5 py-3 border-b border-slate-100 bg-red-50">
+            <div className="px-5 py-3 border-b border-neutral-100 bg-red-50">
               <p className="text-[10px] uppercase tracking-wide text-red-400 mb-1">Lost Reason</p>
               <p className="text-sm text-red-700 font-medium">{deal.lost_reason}</p>
             </div>
@@ -683,38 +683,38 @@ function DealDetailSlideIn({ dealId, onClose, onViewContact, onUpdated }) {
 
           {/* Activity Timeline */}
           <div className="px-5 py-4">
-            <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-3 font-semibold">Activity Timeline</p>
+            <p className="text-[10px] uppercase tracking-wide text-neutral-400 mb-3 font-semibold">Activity Timeline</p>
             {activities.length === 0 ? (
-              <p className="text-sm text-slate-400 text-center py-6">No activity yet</p>
+              <p className="text-sm text-neutral-400 text-center py-6">No activity yet</p>
             ) : (
               <div className="relative">
-                <div className="absolute left-2.5 top-0 bottom-0 w-px bg-slate-200"/>
+                <div className="absolute left-2.5 top-0 bottom-0 w-px bg-neutral-200"/>
                 <div className="space-y-4 pl-8">
                   {activities.map((a, i) => (
                     <div key={i} className="relative">
                       <div className="absolute -left-[22px] w-5 h-5 rounded-full bg-white border-2 flex items-center justify-center"
                         style={{ borderColor: a.activity_type === 'stage_change' ? '#3b82f6' : '#64748b' }}>
                         {a.activity_type === 'stage_change' ? (
-                          <svg className="w-2.5 h-2.5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-2.5 h-2.5 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M13 7l5 5m0 0l-5 5m5-5H6"/>
                           </svg>
                         ) : (
-                          <svg className="w-2.5 h-2.5 text-slate-400" fill="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-2.5 h-2.5 text-neutral-400" fill="currentColor" viewBox="0 0 24 24">
                             <circle cx="12" cy="12" r="4"/>
                           </svg>
                         )}
                       </div>
                       <div>
                         {a.activity_type === 'stage_change' ? (
-                          <p className="text-sm text-slate-700">
-                            Moved <span className="font-medium text-slate-500">{a.from_stage}</span>
+                          <p className="text-sm text-neutral-700">
+                            Moved <span className="font-medium text-neutral-500">{a.from_stage}</span>
                             {' → '}
-                            <span className="font-semibold text-slate-800">{a.to_stage}</span>
+                            <span className="font-semibold text-neutral-800">{a.to_stage}</span>
                           </p>
                         ) : (
-                          <p className="text-sm text-slate-700">{a.note}</p>
+                          <p className="text-sm text-neutral-700">{a.note}</p>
                         )}
-                        <p className="text-[11px] text-slate-400 mt-0.5">{fmtDate(a.created_at)}</p>
+                        <p className="text-[11px] text-neutral-400 mt-0.5">{fmtDate(a.created_at)}</p>
                       </div>
                     </div>
                   ))}
@@ -723,18 +723,18 @@ function DealDetailSlideIn({ dealId, onClose, onViewContact, onUpdated }) {
             )}
 
             {/* Add Note */}
-            <div className="mt-5 pt-4 border-t border-slate-100">
+            <div className="mt-5 pt-4 border-t border-neutral-100">
               <textarea
                 value={noteText}
                 onChange={(e) => setNoteText(e.target.value)}
                 rows={3}
                 placeholder="Add a note…"
-                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50"
+                className="w-full border border-neutral-200 rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 bg-neutral-50"
               />
               <button
                 onClick={addNote}
                 disabled={addingNote || !noteText.trim()}
-                className="mt-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-50 transition-colors"
+                className="mt-2 px-4 py-2 text-sm font-semibold text-white bg-primary-600 hover:bg-blue-700 rounded-xl disabled:opacity-50 transition-colors"
               >
                 {addingNote ? 'Saving…' : 'Add Note'}
               </button>
@@ -931,7 +931,7 @@ export default function PipelinePage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
+    <div className="flex min-h-screen bg-neutral-50">
       <Sidebar />
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Header */}
@@ -939,12 +939,12 @@ export default function PipelinePage() {
           <div className="flex items-center gap-4 flex-wrap">
             {/* Pipeline dropdown */}
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-slate-500 shrink-0">Pipeline:</span>
+              <span className="text-sm font-medium text-neutral-500 shrink-0">Pipeline:</span>
               <div className="relative">
                 <select
                   value={activePipelineId ?? ''}
                   onChange={(e) => setActivePipelineId(e.target.value)}
-                  className="appearance-none border border-slate-200 rounded-xl pl-3 pr-8 py-2 text-sm font-semibold text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-orange-400 cursor-pointer"
+                  className="appearance-none border border-neutral-200 rounded-xl pl-3 pr-8 py-2 text-sm font-semibold text-neutral-800 bg-white focus:outline-none focus:ring-2 focus:ring-orange-400 cursor-pointer"
                   style={{ minWidth: 180 }}
                 >
                   {pipelinesList.map((p) => (
@@ -952,20 +952,20 @@ export default function PipelinePage() {
                   ))}
                 </select>
                 <div className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2">
-                  <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/>
                   </svg>
                 </div>
               </div>
               {totalDeals > 0 && (
-                <span className="text-xs text-slate-400 bg-slate-100 px-2.5 py-1 rounded-full font-medium">
+                <span className="text-xs text-neutral-400 bg-neutral-100 px-2.5 py-1 rounded-full font-medium">
                   {totalDeals} deal{totalDeals !== 1 ? 's' : ''}
                   {totalValue > 0 && ` · ${fmtInr(totalValue)}`}
                 </span>
               )}
               <Link
                 to="/pipelines/settings"
-                className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                className="p-2 rounded-lg hover:bg-neutral-100 text-neutral-400 hover:text-neutral-600 transition-colors"
                 title="Pipeline Settings"
               >
                 <Settings className="w-4 h-4" />
@@ -975,12 +975,12 @@ export default function PipelinePage() {
             <div className="flex-1" />
 
             {/* Show archived toggle */}
-            <label className="flex items-center gap-2 text-sm text-slate-500 cursor-pointer select-none">
+            <label className="flex items-center gap-2 text-sm text-neutral-500 cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={showArchived}
                 onChange={(e) => setShowArchived(e.target.checked)}
-                className="rounded border-slate-300 text-orange-500 focus:ring-orange-400"
+                className="rounded border-neutral-300 text-orange-500 focus:ring-orange-400"
               />
               Show archived
             </label>
@@ -988,7 +988,7 @@ export default function PipelinePage() {
             {/* Analytics toggle */}
             <button
               onClick={() => setShowAnalytics(v => !v)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${showAnalytics ? 'bg-blue-50 border-blue-300 text-blue-700' : 'border-slate-200 text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${showAnalytics ? 'bg-blue-50 border-blue-300 text-blue-700' : 'border-neutral-200 text-neutral-500 hover:text-neutral-700 hover:bg-neutral-50'}`}
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
@@ -999,7 +999,7 @@ export default function PipelinePage() {
             {/* Add Deal — top right */}
             <button
               onClick={() => setAddDealModal({ pipelineId: activePipelineId, stageName: kanbanStages[0]?.stageName ?? '' })}
-              className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-sky-600 hover:bg-sky-700 rounded-lg transition-colors"
+              className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 rounded-lg transition-colors"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
               Add Deal
@@ -1009,21 +1009,21 @@ export default function PipelinePage() {
           {/* Filters — compact inline row */}
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             <select value={filterAssigned} onChange={(e) => setFilterAssigned(e.target.value)}
-              className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-sky-400">
+              className="text-xs border border-neutral-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-sky-400">
               <option value="">All Owners</option>
               <option value="jatin">Jatin</option>
               <option value="saksham">Saksham</option>
               <option value="unassigned">Unassigned</option>
             </select>
             <select value={filterValue} onChange={(e) => setFilterValue(e.target.value)}
-              className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-sky-400">
+              className="text-xs border border-neutral-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-sky-400">
               <option value="">All Values</option>
               <option value="high">High (10L+)</option>
               <option value="medium">Medium (1-10L)</option>
               <option value="low">Low (&lt; 1L)</option>
             </select>
             <select value={filterAge} onChange={(e) => setFilterAge(e.target.value)}
-              className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-sky-400">
+              className="text-xs border border-neutral-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-sky-400">
               <option value="">All Ages</option>
               <option value="stale">Stale (3+ days)</option>
               <option value="week">This Week</option>
@@ -1031,22 +1031,22 @@ export default function PipelinePage() {
             </select>
             {(filterAssigned || filterValue || filterAge) && (
               <button onClick={() => { setFilterAssigned(''); setFilterValue(''); setFilterAge(''); }}
-                className="text-xs text-red-500 hover:text-red-700 font-medium">Clear</button>
+                className="text-xs text-danger-500 hover:text-red-700 font-medium">Clear</button>
             )}
           </div>
         </div>
 
         {showAnalytics && analytics && (
-          <div className="bg-white border-b border-slate-100 px-6 py-3 shrink-0">
+          <div className="bg-white border-b border-neutral-100 px-6 py-3 shrink-0">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {[
-                { label: 'Weighted Forecast', value: analytics.forecast > 0 ? fmtInr(analytics.forecast) : '₹0', color: 'text-green-600' },
-                { label: 'Win Rate', value: `${Math.round(analytics.winRate * 100)}%`, color: 'text-blue-600' },
+                { label: 'Weighted Forecast', value: analytics.forecast > 0 ? fmtInr(analytics.forecast) : '₹0', color: 'text-success-600' },
+                { label: 'Win Rate', value: `${Math.round(analytics.winRate * 100)}%`, color: 'text-primary-600' },
                 { label: 'Avg Cycle', value: analytics.avgCycleDays ? `${analytics.avgCycleDays}d` : '—', color: 'text-violet-600' },
-                { label: 'Open Deals', value: `${analytics.openCount}`, color: 'text-slate-700' },
+                { label: 'Open Deals', value: `${analytics.openCount}`, color: 'text-neutral-700' },
               ].map(kpi => (
-                <div key={kpi.label} className="bg-slate-50 rounded-xl px-4 py-3 border border-slate-100">
-                  <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">{kpi.label}</p>
+                <div key={kpi.label} className="bg-neutral-50 rounded-xl px-4 py-3 border border-neutral-100">
+                  <p className="text-[10px] uppercase tracking-wide text-neutral-400 mb-1">{kpi.label}</p>
                   <p className={`text-lg font-bold ${kpi.color}`}>{kpi.value}</p>
                 </div>
               ))}
@@ -1054,11 +1054,11 @@ export default function PipelinePage() {
             {analytics.byStage?.length > 0 && (
               <div className="mt-2 flex gap-3 overflow-x-auto pb-1">
                 {analytics.byStage.map(s => (
-                  <div key={s.stage} className="shrink-0 bg-slate-50 rounded-lg px-3 py-1.5 border border-slate-100 text-xs">
-                    <span className="font-medium text-slate-700">{s.stage}</span>
-                    <span className="text-slate-400 ml-2">{s.count} deals</span>
-                    {s.value > 0 && <span className="text-green-600 ml-2">{fmtInr(s.value)}</span>}
-                    <span className="text-amber-500 ml-2">{s.avg_age_days}d avg</span>
+                  <div key={s.stage} className="shrink-0 bg-neutral-50 rounded-lg px-3 py-1.5 border border-neutral-100 text-xs">
+                    <span className="font-medium text-neutral-700">{s.stage}</span>
+                    <span className="text-neutral-400 ml-2">{s.count} deals</span>
+                    {s.value > 0 && <span className="text-success-600 ml-2">{fmtInr(s.value)}</span>}
+                    <span className="text-warning-500 ml-2">{s.avg_age_days}d avg</span>
                   </div>
                 ))}
               </div>
@@ -1068,12 +1068,12 @@ export default function PipelinePage() {
 
         {pipelinesList.length === 0 && !loading ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
-            <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
-              <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-16 h-16 bg-neutral-100 rounded-2xl flex items-center justify-center mb-4">
+              <svg className="w-8 h-8 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7"/>
               </svg>
             </div>
-            <h3 className="text-lg font-semibold text-slate-700 mb-2">No pipelines yet</h3>
+            <h3 className="text-lg font-semibold text-neutral-700 mb-2">No pipelines yet</h3>
             <Link to="/pipelines/settings" className="text-sm font-medium text-orange-500 hover:text-orange-700">
               Create your first pipeline &rarr;
             </Link>
@@ -1081,7 +1081,7 @@ export default function PipelinePage() {
         ) : loading ? (
           <div className="flex gap-3 px-4 py-4 overflow-x-auto">
             {[1, 2, 3, 4].map((n) => (
-              <div key={n} className="min-w-[220px] w-[220px] shrink-0 rounded-xl border border-slate-200 bg-slate-100 animate-pulse h-64"/>
+              <div key={n} className="min-w-[220px] w-[220px] shrink-0 rounded-xl border border-neutral-200 bg-neutral-100 animate-pulse h-64"/>
             ))}
           </div>
         ) : (
@@ -1151,7 +1151,7 @@ export default function PipelinePage() {
                           ))}
                           {provided.placeholder}
                           {stageDeals.length === 0 && !snapshot.isDraggingOver && (
-                            <p className="text-center text-xs text-slate-300 py-2">Empty</p>
+                            <p className="text-center text-xs text-neutral-300 py-2">Empty</p>
                           )}
                         </div>
                       )}
@@ -1161,7 +1161,7 @@ export default function PipelinePage() {
                     <div className="px-2 pb-2 shrink-0">
                       <button
                         onClick={() => setAddDealModal({ pipelineId: activePipelineId, stageName: stageData.stageName })}
-                        className="w-full text-xs text-slate-400 hover:text-slate-600 hover:bg-white border border-dashed border-slate-200 hover:border-slate-300 rounded-lg py-1.5 transition-colors"
+                        className="w-full text-xs text-neutral-400 hover:text-neutral-600 hover:bg-white border border-dashed border-neutral-200 hover:border-neutral-300 rounded-lg py-1.5 transition-colors"
                       >
                         + Add Deal
                       </button>
@@ -1176,15 +1176,15 @@ export default function PipelinePage() {
 
       {/* Floating bulk-action bar — visible whenever at least one deal is selected */}
       {selectedIds.size > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 bg-white border border-slate-200 shadow-xl rounded-2xl px-4 py-2.5 flex items-center gap-3">
-          <span className="text-sm font-medium text-slate-700">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 bg-white border border-neutral-200 shadow-xl rounded-2xl px-4 py-2.5 flex items-center gap-3">
+          <span className="text-sm font-medium text-neutral-700">
             {selectedIds.size} selected
           </span>
-          <div className="w-px h-5 bg-slate-200" />
+          <div className="w-px h-5 bg-neutral-200" />
           <button
             onClick={bulkArchive}
             disabled={bulkBusy}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-neutral-600 hover:text-danger-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
             title="Archive selected deals"
           >
             <Archive className="w-4 h-4" />
@@ -1193,7 +1193,7 @@ export default function PipelinePage() {
           <button
             onClick={() => setSelectedIds(new Set())}
             disabled={bulkBusy}
-            className="flex items-center gap-1 px-2 py-1.5 text-sm text-slate-400 hover:text-slate-700 rounded-lg transition-colors disabled:opacity-50"
+            className="flex items-center gap-1 px-2 py-1.5 text-sm text-neutral-400 hover:text-neutral-700 rounded-lg transition-colors disabled:opacity-50"
             title="Clear selection"
           >
             <X className="w-4 h-4" />

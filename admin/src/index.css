@@ -1,14 +1,139 @@
+/* Growth Escalators CRM — Fluent design tokens
+   Drop-in replacement for admin/src/index.css */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-* {
-  box-sizing: border-box;
+:root {
+  /* ── Color tokens ─────────────────────────────── */
+  --color-primary-50: #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-200: #bfdbfe;
+  --color-primary-300: #93c5fd;
+  --color-primary-400: #60a5fa;
+  --color-primary-500: #3b82f6;
+  --color-primary-600: #2563eb;
+  --color-primary-700: #1d4ed8;
+  --color-primary-800: #1e40af;
+  --color-primary-900: #1e3a8a;
+
+  --color-accent-50: #fff7ed;
+  --color-accent-100: #ffedd5;
+  --color-accent-200: #fed7aa;
+  --color-accent-400: #fb923c;
+  --color-accent-500: #f97316;
+  --color-accent-600: #ea580c;
+  --color-accent-700: #c2410c;
+
+  --color-neutral-0: #ffffff;
+  --color-neutral-50: #f8fafc;
+  --color-neutral-100: #f1f5f9;
+  --color-neutral-200: #e2e8f0;
+  --color-neutral-300: #cbd5e1;
+  --color-neutral-400: #94a3b8;
+  --color-neutral-500: #64748b;
+  --color-neutral-600: #475569;
+  --color-neutral-700: #334155;
+  --color-neutral-800: #1e293b;
+  --color-neutral-900: #0f172a;
+
+  --color-success-500: #22c55e;
+  --color-success-600: #16a34a;
+  --color-warning-500: #f59e0b;
+  --color-warning-600: #d97706;
+  --color-danger-500: #ef4444;
+  --color-danger-600: #dc2626;
+
+  /* ── Fluent elevation ─────────────────────────── */
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.06);
+  --shadow-modal: 0 20px 60px rgba(0, 0, 0, 0.15), 0 8px 20px rgba(0, 0, 0, 0.1);
+  --shadow-sidebar: 4px 0 24px rgba(0, 0, 0, 0.06);
+
+  /* ── Radius ───────────────────────────────────── */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  /* ── Typography ───────────────────────────────── */
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* ── Motion ───────────────────────────────────── */
+  --ease-fluent: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-decelerate: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-accelerate: cubic-bezier(0.4, 0, 1, 1);
+  --duration-fast: 150ms;
+  --duration-base: 200ms;
+  --duration-slow: 300ms;
 }
+
+* { box-sizing: border-box; }
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
-  background-color: #f8fafc;
-  color: #0f172a;
+  font-family: var(--font-sans);
+  background-color: var(--color-neutral-50);
+  color: var(--color-neutral-900);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Accessible Fluent focus ring on everything interactive */
+*:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-primary-400), 0 0 0 4px var(--color-primary-200);
+}
+
+/* ── Acrylic sidebar material ───────────────────── */
+.sidebar-fluent {
+  background:
+    radial-gradient(420px 260px at 0% 0%, rgba(96, 165, 250, 0.20), transparent 70%),
+    radial-gradient(360px 300px at 100% 100%, rgba(249, 115, 22, 0.07), transparent 70%),
+    linear-gradient(180deg, #1e3a8a 0%, #1c3178 55%, #172554 100%);
+  backdrop-filter: blur(40px) saturate(125%);
+  -webkit-backdrop-filter: blur(40px) saturate(125%);
+  box-shadow: var(--shadow-sidebar);
+}
+
+/* ── Reusable component classes ─────────────────── */
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 h-9 px-4 rounded-md text-sm font-semibold transition-all duration-200;
+  }
+  .btn-primary { @apply btn bg-primary-500 hover:bg-primary-600 active:bg-primary-700 text-white; }
+  .btn-accent  { @apply btn bg-accent-500 hover:bg-accent-600 active:bg-accent-700 text-white; }
+  .btn-standard { @apply btn bg-neutral-100 hover:bg-neutral-200 text-neutral-700 border border-neutral-200; }
+  .btn-subtle  { @apply btn bg-transparent hover:bg-neutral-100 text-neutral-600; }
+  .btn-danger  { @apply btn bg-danger-500 hover:bg-danger-600 text-white; }
+  .btn-compact { @apply h-8 px-3 text-xs; }
+
+  .card { @apply bg-white border border-neutral-200 rounded-lg shadow-card transition-shadow duration-200; }
+  .card-hover { @apply hover:shadow-hover; }
+
+  .badge { @apply inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border; }
+  .badge-success { @apply badge bg-success-500/10 text-success-600 border-success-500/20; }
+  .badge-warning { @apply badge bg-warning-500/10 text-warning-700 border-warning-500/20; }
+  .badge-danger  { @apply badge bg-danger-500/10 text-danger-600 border-danger-500/20; }
+  .badge-info    { @apply badge bg-primary-500/10 text-primary-700 border-primary-500/20; }
+  .badge-accent  { @apply badge bg-accent-500/10 text-accent-700 border-accent-500/20; }
+  .badge-muted   { @apply badge bg-neutral-200 text-neutral-500 border-neutral-300; }
+
+  .input {
+    @apply w-full h-9 border border-neutral-300 rounded-sm px-3 text-sm bg-white transition-all
+           focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-200
+           placeholder:text-neutral-400;
+  }
+  .input-label { @apply block text-[13px] font-semibold text-neutral-700 mb-1; }
+  .input-help  { @apply text-xs text-neutral-400 mt-1; }
+
+  .table-fluent { @apply w-full text-sm; }
+  .table-fluent thead th {
+    @apply bg-neutral-50 text-neutral-500 text-[11px] font-semibold uppercase tracking-wider text-left px-3 py-3 border-b border-neutral-200;
+  }
+  .table-fluent tbody td { @apply px-3 py-2.5 border-b border-neutral-100 text-neutral-600; }
+  .table-fluent tbody tr { @apply bg-white hover:bg-neutral-50 transition-colors duration-150; }
+  .table-fluent tbody tr.is-selected { @apply bg-primary-50 shadow-[inset_3px_0_0_theme(colors.primary.500)]; }
 }

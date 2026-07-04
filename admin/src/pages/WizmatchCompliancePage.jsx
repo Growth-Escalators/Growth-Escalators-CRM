@@ -22,9 +22,9 @@ export default function WizmatchCompliancePage() {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">Compliance Log</h1>
-      <div className="mb-4 flex gap-3">
-        <select value={filters.reason} onChange={e => setFilters({ reason: e.target.value })} className="px-3 py-2 border rounded text-sm">
+      <h1 className="text-[20px] font-bold text-neutral-900 mb-6">Compliance Log</h1>
+      <div className="mb-4 flex gap-3 items-center">
+        <select value={filters.reason} onChange={e => setFilters({ reason: e.target.value })} className="input w-auto">
           <option value="">All Reasons</option>
           <option value="unsubscribe">Unsubscribe</option>
           <option value="hard_bounce">Hard Bounce</option>
@@ -32,26 +32,26 @@ export default function WizmatchCompliancePage() {
           <option value="do_not_contact">Do Not Contact</option>
           <option value="manual">Manual</option>
         </select>
-        <span className="text-sm text-gray-500 self-center">{total} suppressed emails</span>
+        <span className="text-[12.5px] text-neutral-500">{total} suppressed emails</span>
       </div>
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+      <div className="card overflow-hidden">
+        <table className="table-fluent">
+          <thead>
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reason</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Channel</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+              <th>Email</th>
+              <th>Reason</th>
+              <th>Channel</th>
+              <th>Date</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-200">
-            {loading ? <tr><td colSpan="4" className="px-4 py-8 text-center text-gray-400">Loading...</td></tr>
+          <tbody>
+            {loading ? <tr><td colSpan="4" className="px-4 py-8 text-center text-neutral-400">Loading...</td></tr>
             : suppressions.map(s => (
               <tr key={s.id}>
-                <td className="px-4 py-3 text-sm font-medium">{s.email}</td>
-                <td className="px-4 py-3 text-sm"><span className="px-2 py-0.5 rounded text-xs bg-red-50 text-red-700">{s.reason}</span></td>
-                <td className="px-4 py-3 text-sm text-gray-500">{s.source_channel}</td>
-                <td className="px-4 py-3 text-sm text-gray-500">{s.suppressed_at ? new Date(s.suppressed_at).toLocaleDateString() : '—'}</td>
+                <td className="font-medium text-neutral-900">{s.email}</td>
+                <td><span className="badge-danger">{s.reason}</span></td>
+                <td className="text-neutral-500">{s.source_channel}</td>
+                <td className="text-neutral-500">{s.suppressed_at ? new Date(s.suppressed_at).toLocaleDateString() : '—'}</td>
               </tr>
             ))}
           </tbody>

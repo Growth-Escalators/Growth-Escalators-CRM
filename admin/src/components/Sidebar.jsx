@@ -6,11 +6,11 @@ import { NAV_ENTRIES, GROUP_LABELS, getVisibleEntries, groupForPath } from './na
 import CommandPalette from './CommandPalette.jsx';
 
 const ROLE_BADGE_COLORS = {
-  admin: 'bg-purple-600',
-  manager_ops: 'bg-sky-500',
-  manager_ads: 'bg-blue-500',
-  sales: 'bg-orange-500',
-  staff: 'bg-slate-500',
+  admin: 'bg-primary-700',
+  manager_ops: 'bg-primary-400',
+  manager_ads: 'bg-primary-500',
+  sales: 'bg-accent-500',
+  staff: 'bg-neutral-500',
 };
 
 const ROLE_LABELS = {
@@ -39,22 +39,22 @@ function writeStoredGroups(g) {
 }
 
 const navClass = ({ isActive }) =>
-  `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${
+  `flex items-center gap-3 px-3 py-2 rounded-md text-[13.5px] font-medium transition-all duration-150 ${
     isActive
-      ? 'bg-slate-800 text-white border-l-2 border-l-emerald-400 ml-[-2px]'
-      : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+      ? 'bg-white/10 text-white font-semibold border-l-[3px] border-l-primary-400 ml-[-3px]'
+      : 'text-[rgba(219,234,254,0.78)] hover:bg-white/5 hover:text-white'
   }`;
 
 const navClassNested = ({ isActive }) =>
-  `flex items-center gap-3 pl-5 pr-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${
+  `flex items-center gap-3 pl-5 pr-3 py-2 rounded-md text-[13.5px] font-medium transition-all duration-150 ${
     isActive
-      ? 'bg-slate-800 text-white border-l-2 border-l-emerald-400 ml-[-2px]'
-      : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+      ? 'bg-white/10 text-white font-semibold border-l-[3px] border-l-primary-400 ml-[-3px]'
+      : 'text-[rgba(219,234,254,0.78)] hover:bg-white/5 hover:text-white'
   }`;
 
 function SectionLabel({ children }) {
   return (
-    <p className="px-3 pt-5 pb-1 text-[10px] font-semibold text-slate-500 uppercase tracking-[0.12em]">
+    <p className="px-3 pt-5 pb-1 text-[10.5px] font-semibold text-primary-300 uppercase tracking-[0.1em]">
       {children}
     </p>
   );
@@ -76,7 +76,7 @@ function NavEntry({ entry, unreadCount, pendingLeavesCount, nested = false }) {
   if (entry.external) {
     return (
       <a href={entry.href} target="_blank" rel="noopener noreferrer"
-        className={`flex items-center gap-3 ${nested ? 'pl-5 pr-3' : 'px-3'} py-2 rounded-lg text-sm font-medium transition-all duration-150 text-slate-400 hover:bg-slate-800/60 hover:text-slate-200`}>
+        className={`flex items-center gap-3 ${nested ? 'pl-5 pr-3' : 'px-3'} py-2 rounded-md text-[13.5px] font-medium transition-all duration-150 text-[rgba(219,234,254,0.78)] hover:bg-white/5 hover:text-white`}>
         <Icon className="w-4 h-4" />
         <span className="flex-1">{entry.label}</span>
         <ExternalChevron />
@@ -93,12 +93,12 @@ function NavEntry({ entry, unreadCount, pendingLeavesCount, nested = false }) {
       <Icon className="w-4 h-4" />
       <span className="flex-1">{entry.label}</span>
       {entry.badge === 'inbox-unread' && unreadCount > 0 && (
-        <span className="bg-emerald-500 text-white text-xs rounded-full px-1.5 py-0.5 min-w-5 text-center font-semibold leading-none">
+        <span className="bg-accent-500 text-white text-[11px] rounded-full px-1.5 py-0.5 min-w-5 text-center font-semibold leading-none">
           {unreadCount > 99 ? '99+' : unreadCount}
         </span>
       )}
       {entry.badge === 'pending-leaves' && pendingLeavesCount > 0 && (
-        <span className="bg-amber-500 text-white text-xs rounded-full px-1.5 py-0.5 min-w-5 text-center font-semibold leading-none">
+        <span className="bg-accent-500 text-white text-[11px] rounded-full px-1.5 py-0.5 min-w-5 text-center font-semibold leading-none">
           {pendingLeavesCount > 99 ? '99+' : pendingLeavesCount}
         </span>
       )}
@@ -114,11 +114,11 @@ function GroupHeader({ id, label, isOpen, onToggle }) {
       type="button"
       onClick={onToggle}
       aria-expanded={isOpen}
-      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 transition-all duration-150"
+      className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-[13.5px] font-medium text-[rgba(219,234,254,0.78)] hover:bg-white/5 hover:text-white transition-all duration-150"
     >
       <Icon className="w-4 h-4" />
       <span className="flex-1 text-left">{label}</span>
-      <ChevronRight className={`w-3.5 h-3.5 text-slate-500 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+      <ChevronRight className={`w-3.5 h-3.5 text-primary-300 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
     </button>
   );
 }
@@ -229,7 +229,7 @@ export default function Sidebar() {
         type="button"
         onClick={() => setMobileOpen(true)}
         aria-label="Open navigation"
-        className="md:hidden fixed top-2 left-2 z-30 p-2 bg-white border border-slate-200 rounded-lg shadow-sm text-slate-600 hover:text-slate-900"
+        className="md:hidden fixed top-2 left-2 z-30 p-2 bg-white border border-neutral-200 rounded-lg shadow-card text-neutral-600 hover:text-neutral-900"
       >
         <Menu className="w-5 h-5" />
       </button>
@@ -246,8 +246,8 @@ export default function Sidebar() {
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} entries={visible} />
 
       <aside
-        className={`bg-slate-900 text-slate-300 flex flex-col flex-shrink-0
-          md:static md:w-56 md:min-h-screen md:translate-x-0
+        className={`sidebar-fluent text-[rgba(219,234,254,0.78)] flex flex-col flex-shrink-0
+          md:static md:w-64 md:min-h-screen md:translate-x-0
           fixed inset-y-0 left-0 z-50 w-64 h-screen
           transform transition-transform duration-200 ease-out
           ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}
@@ -257,20 +257,18 @@ export default function Sidebar() {
           type="button"
           onClick={() => setMobileOpen(false)}
           aria-label="Close navigation"
-          className="md:hidden absolute top-3 right-3 text-slate-400 hover:text-white"
+          className="md:hidden absolute top-3 right-3 text-primary-300 hover:text-white"
         >
           <X className="w-5 h-5" />
         </button>
 
         {/* Logo */}
-        <div className="px-5 py-5 border-b border-slate-700/60">
+        <div className="px-5 py-5 border-b border-white/10">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-sky-500 to-emerald-400 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-sky-500/20">
-              GE
-            </div>
+            <img src="/ge-mark.png" alt="GE" className="w-9 h-9 rounded-lg border border-white/20" />
             <div>
-              <p className="text-white font-semibold text-sm leading-tight">Growth Escalators</p>
-              <p className="text-slate-500 text-xs">CRM</p>
+              <p className="text-white font-semibold text-[13.5px] leading-tight">Growth Escalators</p>
+              <p className="text-primary-300 text-[11.5px]">CRM</p>
             </div>
           </div>
         </div>
@@ -325,23 +323,23 @@ export default function Sidebar() {
         </nav>
 
         {/* User + logout */}
-        <div className="px-4 py-4 border-t border-slate-700/60">
+        <div className="px-4 py-4 border-t border-white/10">
           <div className="flex items-center gap-3 mb-3">
-            <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold text-white uppercase">
+            <div className="w-8 h-8 rounded-full bg-primary-500 flex items-center justify-center text-xs font-bold text-white uppercase">
               {user?.name?.[0] ?? '?'}
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-white text-sm font-medium truncate">{user?.name ?? 'User'}</p>
               <div className="flex items-center gap-1.5">
                 <span className={`w-1.5 h-1.5 rounded-full ${ROLE_BADGE_COLORS[role] || ROLE_BADGE_COLORS.staff}`} />
-                <span className="text-slate-500 text-xs">{ROLE_LABELS[role] || 'Staff'}</span>
+                <span className="text-primary-300 text-xs">{ROLE_LABELS[role] || 'Staff'}</span>
               </div>
             </div>
           </div>
-          <p className="text-[10px] text-slate-600 mb-2">⌘K to search</p>
+          <p className="text-[10px] text-primary-300/60 mb-2">⌘K to search</p>
           <button
             onClick={logout}
-            className="w-full text-left text-xs text-slate-500 hover:text-white transition-colors px-1"
+            className="w-full text-left text-xs text-[rgba(219,234,254,0.6)] hover:text-white transition-colors px-1"
           >
             Sign out
           </button>
