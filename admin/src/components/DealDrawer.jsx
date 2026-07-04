@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { apiFetch } from '../lib/api.js';
+import { Badge } from './ui/index.js';
 
 function fmtInr(val) {
   if (!val || val <= 0) return null;
@@ -97,18 +98,24 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
   }
 
   return (
-    <div className="fixed inset-y-0 right-0 z-40 w-full max-w-md bg-white shadow-2xl flex flex-col border-l border-neutral-200">
+    <div className="fixed inset-y-0 right-0 z-40 w-full max-w-[640px] bg-white shadow-modal flex flex-col border-l border-neutral-200">
       {/* Header */}
-      <div className="px-5 py-4 border-b border-neutral-100 flex items-start justify-between shrink-0">
-        <div className="flex-1 mr-3">
+      <div className="px-6 py-5 border-b border-neutral-100 flex items-start justify-between shrink-0">
+        <div className="flex-1 mr-3 min-w-0">
           {loading ? (
             <div className="h-5 w-32 bg-neutral-200 rounded animate-pulse mb-1"/>
           ) : (
             <>
-              <h2 className="text-base font-bold text-neutral-900 leading-tight">
-                {deal?.first_name} {deal?.last_name ?? ''}
-              </h2>
-              {deal?.company_name && <p className="text-sm text-neutral-400">{deal.company_name}</p>}
+              <div className="flex items-center gap-2 flex-wrap mb-1">
+                <h2 className="text-lg font-bold text-neutral-900 leading-tight truncate">
+                  {deal?.first_name} {deal?.last_name ?? ''}
+                </h2>
+                {deal?.stage && <Badge type="info">{deal.stage}</Badge>}
+              </div>
+              {deal?.company_name && <p className="text-sm text-neutral-400 mb-1">{deal.company_name}</p>}
+              {fmtInr(deal?.deal_value) && (
+                <p className="text-[22px] leading-none font-bold text-success-600">{fmtInr(deal.deal_value)}</p>
+              )}
             </>
           )}
         </div>
@@ -116,7 +123,7 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
           {deal?.contact_id && (
             <button
               onClick={() => onViewContact(deal)}
-              className="text-xs font-medium text-primary-600 hover:text-blue-800 border border-blue-200 hover:bg-blue-50 px-2.5 py-1 rounded-lg"
+              className="text-xs font-medium text-primary-600 hover:text-primary-800 border border-primary-200 hover:bg-primary-50 px-2.5 py-1 rounded-lg"
             >
               View Contact
             </button>
@@ -148,7 +155,7 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
             <div className="flex items-center justify-between mb-2">
               <p className="text-[10px] uppercase tracking-wide text-neutral-400 font-semibold">Deal Info</p>
               {editValues === null && (
-                <button onClick={startEdit} className="text-xs text-primary-600 hover:text-blue-800 font-medium">Edit</button>
+                <button onClick={startEdit} className="text-xs text-primary-600 hover:text-primary-800 font-medium">Edit</button>
               )}
             </div>
             {editValues === null ? (
@@ -195,12 +202,12 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
                 <div>
                   <label className="text-[10px] uppercase text-neutral-400">Value (₹)</label>
                   <input type="number" value={editValues.deal_value} onChange={e => setEditValues({...editValues, deal_value: e.target.value})}
-                    className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 mt-0.5" />
+                    className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 mt-0.5" />
                 </div>
                 <div>
                   <label className="text-[10px] uppercase text-neutral-400">Assigned To</label>
                   <select value={editValues.assigned_to} onChange={e => setEditValues({...editValues, assigned_to: e.target.value})}
-                    className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 mt-0.5 bg-white">
+                    className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 mt-0.5 bg-white">
                     <option value="">Unassigned</option>
                     <option value="jatin">Jatin</option>
                     <option value="saksham">Saksham</option>
@@ -209,7 +216,7 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
                 <div>
                   <label className="text-[10px] uppercase text-neutral-400">Source</label>
                   <select value={editValues.source} onChange={e => setEditValues({...editValues, source: e.target.value})}
-                    className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 mt-0.5 bg-white">
+                    className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 mt-0.5 bg-white">
                     <option value="">Unknown</option>
                     <option value="form">Website Form</option>
                     <option value="paid_ad">Paid Ad</option>
@@ -222,21 +229,21 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
                 <div>
                   <label className="text-[10px] uppercase text-neutral-400">Probability (%)</label>
                   <input type="number" min="0" max="100" value={editValues.probability} onChange={e => setEditValues({...editValues, probability: e.target.value})}
-                    className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 mt-0.5" />
+                    className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 mt-0.5" />
                 </div>
                 <div>
                   <label className="text-[10px] uppercase text-neutral-400">Expected Close</label>
                   <input type="date" value={editValues.expected_close_date} onChange={e => setEditValues({...editValues, expected_close_date: e.target.value})}
-                    className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 mt-0.5" />
+                    className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 mt-0.5" />
                 </div>
                 <div>
                   <label className="text-[10px] uppercase text-neutral-400">Notes</label>
                   <textarea rows={3} value={editValues.notes} onChange={e => setEditValues({...editValues, notes: e.target.value})}
-                    className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 mt-0.5" />
+                    className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary-400 mt-0.5" />
                 </div>
                 <div className="flex gap-2 pt-1">
                   <button onClick={saveEdit} disabled={addingNote}
-                    className="flex-1 px-4 py-2 text-sm font-semibold text-white bg-primary-600 hover:bg-blue-700 rounded-xl disabled:opacity-50">
+                    className="flex-1 px-4 py-2 text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 rounded-xl disabled:opacity-50">
                     {addingNote ? 'Saving…' : 'Save Changes'}
                   </button>
                   <button onClick={() => setEditValues(null)}
@@ -256,9 +263,9 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
             </div>
           )}
           {deal.lost_reason && (
-            <div className="px-5 py-3 border-b border-neutral-100 bg-red-50">
-              <p className="text-[10px] uppercase tracking-wide text-red-400 mb-1">Lost Reason</p>
-              <p className="text-sm text-red-700 font-medium">{deal.lost_reason}</p>
+            <div className="px-5 py-3 border-b border-neutral-100 bg-danger-500/10">
+              <p className="text-[10px] uppercase tracking-wide text-danger-500 mb-1">Lost Reason</p>
+              <p className="text-sm text-danger-600 font-medium">{deal.lost_reason}</p>
             </div>
           )}
 
@@ -310,12 +317,12 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
                 onChange={(e) => setNoteText(e.target.value)}
                 rows={3}
                 placeholder="Add a note…"
-                className="w-full border border-neutral-200 rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 bg-neutral-50"
+                className="w-full border border-neutral-200 rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary-400 bg-neutral-50"
               />
               <button
                 onClick={addNote}
                 disabled={addingNote || !noteText.trim()}
-                className="mt-2 px-4 py-2 text-sm font-semibold text-white bg-primary-600 hover:bg-blue-700 rounded-xl disabled:opacity-50 transition-colors"
+                className="mt-2 px-4 py-2 text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 rounded-xl disabled:opacity-50 transition-colors"
               >
                 {addingNote ? 'Saving…' : 'Add Note'}
               </button>
