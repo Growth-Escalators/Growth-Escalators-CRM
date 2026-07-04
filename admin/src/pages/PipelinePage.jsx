@@ -11,21 +11,25 @@ import { apiFetch } from '../lib/api.js';
 // Helpers
 // ---------------------------------------------------------------------------
 function getStageStyle(stageName, index) {
+  // Named-stage colors per design spec — matched by substring so custom
+  // pipelines (Pipeline Manager lets users rename/add stages) still fall
+  // back sensibly to the generic palette below.
+  const lc = (stageName ?? '').toLowerCase();
+  if (lc.includes('won')) return { color: '#22c55e', light: 'bg-success-500/10 border-success-500/20' };
+  if (lc.includes('lost')) return { color: '#dc2626', light: 'bg-danger-500/10 border-danger-500/20' };
+  if (lc.includes('abandoned')) return { color: '#f59e0b', light: 'bg-warning-500/10 border-warning-500/20' };
+  if (lc.includes('proposal')) return { color: '#f97316', light: 'bg-accent-50 border-accent-200' };
+  if (lc.includes('discovery')) return { color: '#1d4ed8', light: 'bg-primary-50 border-primary-200' };
+  if (lc.includes('qualified')) return { color: '#3b82f6', light: 'bg-primary-50 border-primary-200' };
+  if (lc.includes('new') || lc.includes('lead')) return { color: '#94a3b8', light: 'bg-neutral-50 border-neutral-200' };
+
   const PALETTE = [
     { color: '#64748b', light: 'bg-neutral-50 border-neutral-200' },
-    { color: '#3b82f6', light: 'bg-blue-50 border-blue-200' },
-    { color: '#6366f1', light: 'bg-indigo-50 border-indigo-200' },
-    { color: '#8b5cf6', light: 'bg-violet-50 border-violet-200' },
-    { color: '#0ea5e9', light: 'bg-primary-50 border-sky-200' },
-    { color: '#f59e0b', light: 'bg-amber-50 border-amber-200' },
-    { color: '#f97316', light: 'bg-orange-50 border-orange-200' },
-    { color: '#ec4899', light: 'bg-rose-50 border-rose-200' },
-    { color: '#14b8a6', light: 'bg-teal-50 border-teal-200' },
-    { color: '#06b6d4', light: 'bg-cyan-50 border-cyan-200' },
+    { color: '#3b82f6', light: 'bg-primary-50 border-primary-200' },
+    { color: '#1d4ed8', light: 'bg-primary-50 border-primary-200' },
+    { color: '#f97316', light: 'bg-accent-50 border-accent-200' },
+    { color: '#22c55e', light: 'bg-success-500/10 border-success-500/20' },
   ];
-  const lc = (stageName ?? '').toLowerCase();
-  if (lc.includes('won')) return { color: '#16a34a', light: 'bg-emerald-50 border-emerald-200' };
-  if (lc.includes('lost')) return { color: '#dc2626', light: 'bg-red-50 border-red-200' };
   return PALETTE[index % PALETTE.length];
 }
 
@@ -74,11 +78,11 @@ function DealCard({ deal, index, onClick, onArchive, onUnarchive, selected = fal
   }, [menuOpen]);
 
   const scoreColor = deal.score >= 70
-    ? 'bg-green-100 text-green-700'
+    ? 'bg-success-500/10 text-success-700'
     : deal.score >= 40
-    ? 'bg-amber-100 text-amber-700'
+    ? 'bg-warning-500/10 text-warning-700'
     : deal.score > 0
-    ? 'bg-red-100 text-danger-600'
+    ? 'bg-danger-500/10 text-danger-600'
     : 'bg-neutral-100 text-neutral-400';
 
   return (
@@ -93,7 +97,7 @@ function DealCard({ deal, index, onClick, onArchive, onUnarchive, selected = fal
             if (selectionMode && onToggleSelect) { onToggleSelect(); return; }
             onClick?.(e);
           }}
-          className={`bg-white rounded-xl border p-3 shadow-sm hover:shadow-md cursor-pointer transition-all relative select-none ${selected ? 'border-blue-400 ring-2 ring-blue-200' : 'border-neutral-200'} ${snapshot.isDragging ? 'shadow-xl rotate-1 scale-105' : ''} ${isArchived ? 'opacity-60' : ''}`}
+          className={`bg-white rounded-xl border p-3 shadow-sm hover:shadow-md cursor-pointer transition-all relative select-none ${selected ? 'border-primary-400 ring-2 ring-primary-200' : 'border-neutral-200'} ${snapshot.isDragging ? 'shadow-xl rotate-1 scale-105' : ''} ${isArchived ? 'opacity-60' : ''}`}
           style={{ width: 220, ...provided.draggableProps.style }}
         >
           {/* Row 1: name + days + menu */}
@@ -104,7 +108,7 @@ function DealCard({ deal, index, onClick, onArchive, onUnarchive, selected = fal
                 checked={selected}
                 onClick={(e) => e.stopPropagation()}
                 onChange={(e) => { e.stopPropagation(); onToggleSelect(); }}
-                className="mt-0.5 mr-1 rounded border-neutral-300 text-primary-500 focus:ring-blue-400 cursor-pointer"
+                className="mt-0.5 mr-1 rounded border-neutral-300 text-primary-500 focus:ring-primary-400 cursor-pointer"
                 aria-label="Select deal"
               />
             )}
@@ -131,7 +135,7 @@ function DealCard({ deal, index, onClick, onArchive, onUnarchive, selected = fal
                     {isArchived ? (
                       <button onClick={() => { onUnarchive(); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm text-neutral-700 hover:bg-neutral-50">Unarchive</button>
                     ) : (
-                      <button onClick={() => { onArchive(); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm text-danger-600 hover:bg-red-50">Archive</button>
+                      <button onClick={() => { onArchive(); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm text-danger-600 hover:bg-danger-500/10">Archive</button>
                     )}
                   </div>
                 )}
@@ -152,7 +156,7 @@ function DealCard({ deal, index, onClick, onArchive, onUnarchive, selected = fal
               )}
             </div>
             <div className="flex items-center gap-1">
-              <span className={`text-[10px] text-neutral-400 ${days > 3 ? 'text-red-400' : ''}`}>{days}d</span>
+              <span className={`text-[10px] text-neutral-400 ${days > 3 ? 'text-danger-500' : ''}`}>{days}d</span>
               {deal.assignedTo ? (
                 <span
                   className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold uppercase"
@@ -193,13 +197,13 @@ function WonLostModal({ stageName, contactName, onConfirm, onCancel }) {
   const [notes, setNotes] = useState('');
   const canConfirm = won || abandoned || !!lostReason;
 
-  const iconBg = won ? 'bg-emerald-100' : abandoned ? 'bg-amber-100' : 'bg-red-100';
+  const iconBg = won ? 'bg-success-500/10' : abandoned ? 'bg-warning-500/10' : 'bg-danger-500/10';
   const icon = won ? (
-    <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <svg className="w-6 h-6 text-success-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
     </svg>
   ) : abandoned ? (
-    <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <svg className="w-6 h-6 text-warning-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
     </svg>
   ) : (
@@ -208,7 +212,7 @@ function WonLostModal({ stageName, contactName, onConfirm, onCancel }) {
     </svg>
   );
   const title = won ? 'Deal Won!' : abandoned ? 'Mark as Abandoned?' : 'Why was this deal lost?';
-  const btnClass = won ? 'bg-emerald-600 hover:bg-emerald-700' : abandoned ? 'bg-warning-500 hover:bg-amber-600' : 'bg-danger-600 hover:bg-red-700';
+  const btnClass = won ? 'bg-success-600 hover:bg-success-700' : abandoned ? 'bg-warning-500 hover:bg-warning-600' : 'bg-danger-600 hover:opacity-90';
   const btnLabel = won ? 'Save & Confirm' : abandoned ? 'Mark Abandoned' : 'Mark as Lost';
 
   return (
@@ -231,7 +235,7 @@ function WonLostModal({ stageName, contactName, onConfirm, onCancel }) {
               <select
                 value={lostReason}
                 onChange={(e) => setLostReason(e.target.value)}
-                className="w-full border border-neutral-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-red-400"
+                className="w-full border border-neutral-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-danger-500"
               >
                 <option value="">Select a reason…</option>
                 {LOST_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
@@ -334,9 +338,9 @@ function AddDealModal({ pipelineId, stageName, onAdded, onClose }) {
           <div>
             <label className="block text-sm font-medium text-neutral-700 mb-1.5">Contact <span className="text-danger-500">*</span></label>
             {selectedContact ? (
-              <div className="flex items-center justify-between border border-neutral-200 rounded-lg px-3 py-2.5 bg-blue-50">
-                <span className="text-sm font-medium text-blue-800">{selectedContact.firstName} {selectedContact.lastName ?? ''}</span>
-                <button onClick={() => { setSelectedContact(null); setSearch(''); }} className="text-blue-400 hover:text-primary-600 text-xs">Change</button>
+              <div className="flex items-center justify-between border border-neutral-200 rounded-lg px-3 py-2.5 bg-primary-50">
+                <span className="text-sm font-medium text-primary-800">{selectedContact.firstName} {selectedContact.lastName ?? ''}</span>
+                <button onClick={() => { setSelectedContact(null); setSearch(''); }} className="text-primary-400 hover:text-primary-600 text-xs">Change</button>
               </div>
             ) : (
               <div className="relative">
@@ -413,7 +417,7 @@ function AddDealModal({ pipelineId, stageName, onAdded, onClose }) {
           <button
             onClick={handleAdd}
             disabled={saving || !selectedContact}
-            className="px-5 py-2 text-sm font-semibold text-white bg-primary-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 flex items-center gap-2"
+            className="px-5 py-2 text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 rounded-lg disabled:opacity-50 flex items-center gap-2"
           >
             {saving && <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>}
             Add Deal
@@ -622,7 +626,7 @@ export default function PipelinePage() {
                 <select
                   value={activePipelineId ?? ''}
                   onChange={(e) => setActivePipelineId(e.target.value)}
-                  className="appearance-none border border-neutral-200 rounded-xl pl-3 pr-8 py-2 text-sm font-semibold text-neutral-800 bg-white focus:outline-none focus:ring-2 focus:ring-orange-400 cursor-pointer"
+                  className="appearance-none border border-neutral-200 rounded-xl pl-3 pr-8 py-2 text-sm font-semibold text-neutral-800 bg-white focus:outline-none focus:ring-2 focus:ring-primary-400 cursor-pointer"
                   style={{ minWidth: 180 }}
                 >
                   {pipelinesList.map((p) => (
@@ -658,7 +662,7 @@ export default function PipelinePage() {
                 type="checkbox"
                 checked={showArchived}
                 onChange={(e) => setShowArchived(e.target.checked)}
-                className="rounded border-neutral-300 text-orange-500 focus:ring-orange-400"
+                className="rounded border-neutral-300 text-primary-500 focus:ring-primary-400"
               />
               Show archived
             </label>
@@ -666,7 +670,7 @@ export default function PipelinePage() {
             {/* Analytics toggle */}
             <button
               onClick={() => setShowAnalytics(v => !v)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${showAnalytics ? 'bg-blue-50 border-blue-300 text-blue-700' : 'border-neutral-200 text-neutral-500 hover:text-neutral-700 hover:bg-neutral-50'}`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${showAnalytics ? 'bg-primary-50 border-primary-300 text-primary-700' : 'border-neutral-200 text-neutral-500 hover:text-neutral-700 hover:bg-neutral-50'}`}
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
@@ -687,21 +691,21 @@ export default function PipelinePage() {
           {/* Filters — compact inline row */}
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             <select value={filterAssigned} onChange={(e) => setFilterAssigned(e.target.value)}
-              className="text-xs border border-neutral-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-sky-400">
+              className="text-xs border border-neutral-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-primary-400">
               <option value="">All Owners</option>
               <option value="jatin">Jatin</option>
               <option value="saksham">Saksham</option>
               <option value="unassigned">Unassigned</option>
             </select>
             <select value={filterValue} onChange={(e) => setFilterValue(e.target.value)}
-              className="text-xs border border-neutral-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-sky-400">
+              className="text-xs border border-neutral-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-primary-400">
               <option value="">All Values</option>
               <option value="high">High (10L+)</option>
               <option value="medium">Medium (1-10L)</option>
               <option value="low">Low (&lt; 1L)</option>
             </select>
             <select value={filterAge} onChange={(e) => setFilterAge(e.target.value)}
-              className="text-xs border border-neutral-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-sky-400">
+              className="text-xs border border-neutral-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-primary-400">
               <option value="">All Ages</option>
               <option value="stale">Stale (3+ days)</option>
               <option value="week">This Week</option>
@@ -709,7 +713,7 @@ export default function PipelinePage() {
             </select>
             {(filterAssigned || filterValue || filterAge) && (
               <button onClick={() => { setFilterAssigned(''); setFilterValue(''); setFilterAge(''); }}
-                className="text-xs text-danger-500 hover:text-red-700 font-medium">Clear</button>
+                className="text-xs text-danger-500 hover:text-danger-600 font-medium">Clear</button>
             )}
           </div>
         </div>
@@ -720,7 +724,7 @@ export default function PipelinePage() {
               {[
                 { label: 'Weighted Forecast', value: analytics.forecast > 0 ? fmtInr(analytics.forecast) : '₹0', color: 'text-success-600' },
                 { label: 'Win Rate', value: `${Math.round(analytics.winRate * 100)}%`, color: 'text-primary-600' },
-                { label: 'Avg Cycle', value: analytics.avgCycleDays ? `${analytics.avgCycleDays}d` : '—', color: 'text-violet-600' },
+                { label: 'Avg Cycle', value: analytics.avgCycleDays ? `${analytics.avgCycleDays}d` : '—', color: 'text-accent-600' },
                 { label: 'Open Deals', value: `${analytics.openCount}`, color: 'text-neutral-700' },
               ].map(kpi => (
                 <div key={kpi.label} className="bg-neutral-50 rounded-xl px-4 py-3 border border-neutral-100">
@@ -752,7 +756,7 @@ export default function PipelinePage() {
               </svg>
             </div>
             <h3 className="text-lg font-semibold text-neutral-700 mb-2">No pipelines yet</h3>
-            <Link to="/pipelines/settings" className="text-sm font-medium text-orange-500 hover:text-orange-700">
+            <Link to="/pipelines/settings" className="text-sm font-medium text-accent-600 hover:text-accent-700">
               Create your first pipeline &rarr;
             </Link>
           </div>
@@ -862,7 +866,7 @@ export default function PipelinePage() {
           <button
             onClick={bulkArchive}
             disabled={bulkBusy}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-neutral-600 hover:text-danger-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-neutral-600 hover:text-danger-600 hover:bg-danger-500/10 rounded-lg transition-colors disabled:opacity-50"
             title="Archive selected deals"
           >
             <Archive className="w-4 h-4" />
