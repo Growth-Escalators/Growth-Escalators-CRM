@@ -137,3 +137,8 @@ body {
   .table-fluent tbody tr { @apply bg-white hover:bg-neutral-50 transition-colors duration-150; }
   .table-fluent tbody tr.is-selected { @apply bg-primary-50 shadow-[inset_3px_0_0_theme(colors.primary.500)]; }
 }
+
+/* ── Modal/Drawer entrance animations (referenced by ui/Modal.jsx, ui/Drawer.jsx) ── */
+@keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+@keyframes modalIn { from { opacity: 0; transform: scale(0.95) } to { opacity: 1; transform: scale(1) } }
+@keyframes drawerIn { from { transform: translateX(100%) } to { transform: translateX(0) } }
