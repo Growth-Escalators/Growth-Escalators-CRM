@@ -2,11 +2,11 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { apiFetch } from '../lib/api.js';
 
 const BUSINESS_TYPES = [
-  { value: 'd2c_brand', label: 'D2C Brand', color: 'bg-green-100 text-green-700' },
-  { value: 'agency_owner', label: 'Agency Owner', color: 'bg-blue-100 text-blue-700' },
-  { value: 'freelancer', label: 'Freelancer', color: 'bg-purple-100 text-purple-700' },
-  { value: 'ecom_brand', label: 'Ecom Brand', color: 'bg-orange-100 text-orange-700' },
-  { value: 'healthcare', label: 'Healthcare', color: 'bg-teal-100 text-teal-700' },
+  { value: 'd2c_brand', label: 'D2C Brand', color: 'bg-success-500/10 text-success-700' },
+  { value: 'agency_owner', label: 'Agency Owner', color: 'bg-primary-100 text-primary-700' },
+  { value: 'freelancer', label: 'Freelancer', color: 'bg-primary-100 text-primary-700' },
+  { value: 'ecom_brand', label: 'Ecom Brand', color: 'bg-accent-100 text-accent-700' },
+  { value: 'healthcare', label: 'Healthcare', color: 'bg-success-500/10 text-success-700' },
 ];
 
 const ASSIGNED_OPTIONS = [
@@ -56,9 +56,9 @@ function ConversationItem({ item }) {
               <p className="text-white text-sm whitespace-pre-wrap">{item.content}</p>
             </div>
             {item.templateName && (
-              <p className="text-xs text-slate-400 mt-0.5 text-right">{item.templateName}</p>
+              <p className="text-xs text-neutral-400 mt-0.5 text-right">{item.templateName}</p>
             )}
-            <p className="text-xs text-slate-400 mt-0.5 text-right">{relativeTime(item.created_at)}</p>
+            <p className="text-xs text-neutral-400 mt-0.5 text-right">{relativeTime(item.created_at)}</p>
           </div>
         </div>
       );
@@ -67,38 +67,38 @@ function ConversationItem({ item }) {
       return (
         <div className="flex justify-start mb-3">
           <div className="max-w-[75%]">
-            <div className="rounded-2xl rounded-tl-sm px-4 py-2.5 bg-white border border-slate-200">
-              <p className="text-slate-900 text-sm whitespace-pre-wrap">{item.content}</p>
+            <div className="rounded-2xl rounded-tl-sm px-4 py-2.5 bg-white border border-neutral-200">
+              <p className="text-neutral-900 text-sm whitespace-pre-wrap">{item.content}</p>
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">{relativeTime(item.created_at)}</p>
+            <p className="text-xs text-neutral-400 mt-0.5">{relativeTime(item.created_at)}</p>
           </div>
         </div>
       );
     }
     return (
-      <div className="mb-3 border-l-4 border-blue-400 bg-blue-50 rounded-r-xl px-4 py-3">
+      <div className="mb-3 border-l-4 border-primary-400 bg-primary-50 rounded-r-xl px-4 py-3">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Email sent</span>
-          <span className="text-xs text-slate-400">{relativeTime(item.created_at)}</span>
+          <span className="text-xs font-semibold text-primary-700 uppercase tracking-wide">Email sent</span>
+          <span className="text-xs text-neutral-400">{relativeTime(item.created_at)}</span>
         </div>
-        {item.templateName && <p className="text-xs text-slate-500 mb-1">{item.templateName}</p>}
-        {item.content && <p className="text-sm text-slate-700 whitespace-pre-wrap">{item.content}</p>}
+        {item.templateName && <p className="text-xs text-neutral-500 mb-1">{item.templateName}</p>}
+        {item.content && <p className="text-sm text-neutral-700 whitespace-pre-wrap">{item.content}</p>}
       </div>
     );
   }
 
   if (type === 'booking') {
     const tierColor = item.tier === 'hot'
-      ? 'bg-green-100 text-green-700'
-      : item.tier === 'warm' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500';
+      ? 'bg-success-500/10 text-success-700'
+      : item.tier === 'warm' ? 'bg-warning-500/10 text-warning-700' : 'bg-neutral-100 text-neutral-500';
     return (
-      <div className="mb-3 border-l-4 border-orange-400 bg-orange-50 rounded-r-xl px-4 py-3">
+      <div className="mb-3 border-l-4 border-accent-400 bg-accent-50 rounded-r-xl px-4 py-3">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-sm font-semibold text-orange-800">📅 Strategy Call Booked</span>
-          <span className="text-xs text-slate-400">{relativeTime(item.created_at)}</span>
+          <span className="text-sm font-semibold text-accent-700">📅 Strategy Call Booked</span>
+          <span className="text-xs text-neutral-400">{relativeTime(item.created_at)}</span>
         </div>
         {item.scheduledAt && (
-          <p className="text-xs text-slate-600 mb-1">{formatDateTime(item.scheduledAt)}</p>
+          <p className="text-xs text-neutral-600 mb-1">{formatDateTime(item.scheduledAt)}</p>
         )}
         {(item.tier || item.score) && (
           <div className="flex items-center gap-2">
@@ -108,7 +108,7 @@ function ConversationItem({ item }) {
               </span>
             )}
             {item.score != null && (
-              <span className="text-xs text-slate-500">Score: {item.score}/100</span>
+              <span className="text-xs text-neutral-500">Score: {item.score}/100</span>
             )}
           </div>
         )}
@@ -126,20 +126,20 @@ function ConversationItem({ item }) {
     } catch {}
     return (
       <div className="mb-2 flex flex-col items-center">
-        <span className="text-xs text-slate-400 bg-slate-100 rounded-full px-3 py-1">{label}</span>
-        <span className="text-[10px] text-slate-300 mt-0.5">{relativeTime(item.created_at)}</span>
+        <span className="text-xs text-neutral-400 bg-neutral-100 rounded-full px-3 py-1">{label}</span>
+        <span className="text-[10px] text-neutral-300 mt-0.5">{relativeTime(item.created_at)}</span>
       </div>
     );
   }
 
   if (type === 'note') {
     return (
-      <div className="mb-3 border-l-4 border-yellow-400 bg-yellow-50 rounded-r-xl px-4 py-3">
+      <div className="mb-3 border-l-4 border-warning-500 bg-warning-500/10 rounded-r-xl px-4 py-3">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-sm font-semibold text-yellow-800">✏️ Note by {item.createdBy ?? 'team'}</span>
-          <span className="text-xs text-slate-400">{relativeTime(item.created_at)}</span>
+          <span className="text-sm font-semibold text-warning-700">✏️ Note by {item.createdBy ?? 'team'}</span>
+          <span className="text-xs text-neutral-400">{relativeTime(item.created_at)}</span>
         </div>
-        <p className="text-sm text-slate-700 whitespace-pre-wrap">{item.content}</p>
+        <p className="text-sm text-neutral-700 whitespace-pre-wrap">{item.content}</p>
       </div>
     );
   }
@@ -277,12 +277,15 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
   ];
 
   return (
-    <div className="fixed inset-0 z-40 flex justify-end">
-      <div className="flex-1 bg-black/30" onClick={onClose} />
-      <div ref={slideRef} className="w-full max-w-xl bg-white shadow-2xl flex flex-col h-full">
+    <div className="fixed inset-0 z-40 flex justify-end bg-black/40 backdrop-blur-sm animate-[fadeIn_150ms_ease-out]" onClick={onClose}>
+      <div
+        ref={slideRef}
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-xl bg-white shadow-modal flex flex-col h-full animate-[drawerIn_300ms_cubic-bezier(0.4,0,0.2,1)]"
+      >
 
         {/* Header */}
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100 shrink-0">
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-neutral-100 shrink-0">
           <div
             className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-base shrink-0"
             style={{ background: stringToColor(id ?? '') }}
@@ -290,10 +293,10 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
             {initials}
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="font-bold text-slate-900 text-base truncate">{fullName || 'Unknown'}</h2>
+            <h2 className="font-bold text-neutral-900 text-base truncate">{fullName || 'Unknown'}</h2>
             <div className="flex items-center gap-2 flex-wrap">
               {contact?.companyName && (
-                <span className="text-xs text-slate-400 truncate">{contact.companyName}</span>
+                <span className="text-xs text-neutral-400 truncate">{contact.companyName}</span>
               )}
               {btType && (
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${btType.color}`}>
@@ -308,7 +311,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                 href={`https://wa.me/${phone.replace(/\D/g, '')}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="p-2 text-slate-400 hover:text-green-600 rounded-lg hover:bg-slate-100"
+                className="p-2 text-neutral-400 hover:text-success-600 rounded-lg hover:bg-neutral-100"
                 title="Open WhatsApp"
               >
                 <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
@@ -318,7 +321,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
             )}
             <button
               onClick={onClose}
-              className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+              className="p-2 text-neutral-400 hover:text-neutral-600 rounded-lg hover:bg-neutral-100"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -328,15 +331,15 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-slate-100 shrink-0">
+        <div className="flex border-b border-neutral-100 shrink-0">
           {TABS.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 py-2.5 text-xs font-medium transition-colors ${
+              className={`flex-1 py-2.5 text-xs font-medium transition-colors border-b-[2.5px] ${
                 activeTab === tab.id
-                  ? 'text-blue-600 border-b-2 border-blue-600'
-                  : 'text-slate-400 hover:text-slate-600'
+                  ? 'text-primary-600 border-primary-500'
+                  : 'text-neutral-400 border-transparent hover:text-neutral-600'
               }`}
             >
               {tab.label}
@@ -352,9 +355,9 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
             <div className="flex flex-col flex-1 overflow-hidden">
               <div className="flex-1 overflow-y-auto px-4 py-3">
                 {convLoading ? (
-                  <div className="flex justify-center py-8 text-slate-400 text-sm">Loading…</div>
+                  <div className="flex justify-center py-8 text-neutral-400 text-sm">Loading…</div>
                 ) : conversation.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-slate-300">
+                  <div className="flex flex-col items-center justify-center py-12 text-neutral-300">
                     <svg className="w-10 h-10 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                     </svg>
@@ -364,7 +367,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                   conversation.map((item) => <ConversationItem key={item.id} item={item} />)
                 )}
               </div>
-              <div className="px-4 py-3 border-t border-slate-100 bg-white shrink-0">
+              <div className="px-4 py-3 border-t border-neutral-100 bg-white shrink-0">
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -372,12 +375,12 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                     onChange={(e) => setNoteInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && addNote()}
                     placeholder="Add a note…"
-                    className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="flex-1 border border-neutral-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                   />
                   <button
                     onClick={addNote}
                     disabled={addingNote || !noteInput.trim()}
-                    className="px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                    className="px-3 py-2 bg-primary-600 text-white text-sm font-medium rounded-lg hover:bg-primary-700 disabled:opacity-50"
                   >
                     Add
                   </button>
@@ -390,37 +393,37 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
           {activeTab === 'details' && (
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
               <div className="space-y-3">
-                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Contact Info</h3>
+                <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Contact Info</h3>
                 {phone && (
                   <div className="flex items-center gap-3">
-                    <span className="text-xs text-slate-400 w-20 shrink-0">Phone</span>
-                    <a href={`tel:${phone}`} className="text-sm text-blue-600 hover:underline">{phone}</a>
+                    <span className="text-xs text-neutral-400 w-20 shrink-0">Phone</span>
+                    <a href={`tel:${phone}`} className="text-sm text-primary-600 hover:underline">{phone}</a>
                   </div>
                 )}
                 {email && (
                   <div className="flex items-center gap-3">
-                    <span className="text-xs text-slate-400 w-20 shrink-0">Email</span>
-                    <a href={`mailto:${email}`} className="text-sm text-blue-600 hover:underline">{email}</a>
+                    <span className="text-xs text-neutral-400 w-20 shrink-0">Email</span>
+                    <a href={`mailto:${email}`} className="text-sm text-primary-600 hover:underline">{email}</a>
                   </div>
                 )}
                 {contact?.companyName && (
                   <div className="flex items-center gap-3">
-                    <span className="text-xs text-slate-400 w-20 shrink-0">Company</span>
-                    <span className="text-sm text-slate-700">{contact.companyName}</span>
+                    <span className="text-xs text-neutral-400 w-20 shrink-0">Company</span>
+                    <span className="text-sm text-neutral-700">{contact.companyName}</span>
                   </div>
                 )}
                 <div className="flex items-center gap-3">
-                  <span className="text-xs text-slate-400 w-20 shrink-0">Source</span>
-                  <span className="text-sm text-slate-700 capitalize">{contact?.source ?? '—'}</span>
+                  <span className="text-xs text-neutral-400 w-20 shrink-0">Source</span>
+                  <span className="text-sm text-neutral-700 capitalize">{contact?.source ?? '—'}</span>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="text-xs text-slate-400 w-20 shrink-0">Score</span>
+                  <span className="text-xs text-neutral-400 w-20 shrink-0">Score</span>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                     (contact?.score ?? 0) >= 70
-                      ? 'bg-green-100 text-green-700'
+                      ? 'bg-success-500/10 text-success-700'
                       : (contact?.score ?? 0) >= 40
-                      ? 'bg-amber-100 text-amber-700'
-                      : 'bg-slate-100 text-slate-500'
+                      ? 'bg-warning-500/10 text-warning-700'
+                      : 'bg-neutral-100 text-neutral-500'
                   }`}>
                     {contact?.score ?? 0}/100
                   </span>
@@ -428,11 +431,11 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
               </div>
 
               <div className="space-y-2">
-                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Business Type</h3>
+                <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Business Type</h3>
                 <select
                   value={contact?.businessType ?? ''}
                   onChange={(e) => patchContact({ businessType: e.target.value || null })}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-neutral-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
                 >
                   <option value="">Unknown</option>
                   {BUSINESS_TYPES.map((b) => (
@@ -442,7 +445,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
               </div>
 
               <div className="space-y-2">
-                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Assigned To</h3>
+                <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Assigned To</h3>
                 <div className="flex gap-2">
                   {ASSIGNED_OPTIONS.map((a) => (
                     <button
@@ -450,8 +453,8 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                       onClick={() => patchContact({ assignedTo: contact?.assignedTo === a.value ? null : a.value })}
                       className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
                         contact?.assignedTo === a.value
-                          ? 'border-blue-500 bg-blue-50 text-blue-700'
-                          : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                          ? 'border-primary-500 bg-primary-50 text-primary-700'
+                          : 'border-neutral-200 text-neutral-600 hover:bg-neutral-50'
                       }`}
                     >
                       <span
@@ -468,10 +471,10 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
 
               {contact?.tags?.length > 0 && (
                 <div className="space-y-2">
-                  <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Tags</h3>
+                  <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Tags</h3>
                   <div className="flex flex-wrap gap-1.5">
                     {(contact.tags ?? []).map((tag) => (
-                      <span key={tag} className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                      <span key={tag} className="text-xs px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600">
                         {tag}
                       </span>
                     ))}
@@ -481,13 +484,13 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
 
               {contact?.notes && (
                 <div className="space-y-2">
-                  <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Contact Notes</h3>
-                  <p className="text-sm text-slate-700 whitespace-pre-wrap">{contact.notes}</p>
+                  <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Contact Notes</h3>
+                  <p className="text-sm text-neutral-700 whitespace-pre-wrap">{contact.notes}</p>
                 </div>
               )}
 
-              <div className="space-y-1 pt-2 border-t border-slate-100">
-                <p className="text-xs text-slate-400">
+              <div className="space-y-1 pt-2 border-t border-neutral-100">
+                <p className="text-xs text-neutral-400">
                   Created:{' '}
                   {contact?.createdAt
                     ? new Date(contact.createdAt).toLocaleDateString('en-IN', {
@@ -496,7 +499,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                     : '—'}
                 </p>
                 {contact?.lastActivityAt && (
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-neutral-400">
                     Last activity:{' '}
                     {new Date(contact.lastActivityAt).toLocaleDateString('en-IN', {
                       day: 'numeric', month: 'short', year: 'numeric',
@@ -510,19 +513,19 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
           {/* NOTES TAB */}
           {activeTab === 'notes' && (
             <div className="flex-1 overflow-y-auto flex flex-col">
-              <div className="px-5 py-4 border-b border-slate-100 shrink-0">
+              <div className="px-5 py-4 border-b border-neutral-100 shrink-0">
                 <textarea
                   value={noteInput}
                   onChange={(e) => setNoteInput(e.target.value)}
                   rows={3}
                   placeholder="Write a note…"
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  className="w-full border border-neutral-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
                 />
                 <div className="flex justify-end mt-2">
                   <button
                     onClick={addNote}
                     disabled={addingNote || !noteInput.trim()}
-                    className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                    className="px-4 py-2 bg-primary-600 text-white text-sm font-medium rounded-lg hover:bg-primary-700 disabled:opacity-50"
                   >
                     Add Note
                   </button>
@@ -530,30 +533,30 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
               </div>
               <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3">
                 {notesLoading ? (
-                  <p className="text-sm text-slate-400 text-center py-4">Loading…</p>
+                  <p className="text-sm text-neutral-400 text-center py-4">Loading…</p>
                 ) : notes.length === 0 ? (
-                  <p className="text-sm text-slate-300 text-center py-8">No notes yet</p>
+                  <p className="text-sm text-neutral-300 text-center py-8">No notes yet</p>
                 ) : (
                   notes.map((note) => (
-                    <div key={note.id} className="border border-slate-200 rounded-xl p-4 bg-white">
+                    <div key={note.id} className="border border-neutral-200 rounded-xl p-4 bg-white">
                       {editNoteId === note.id ? (
                         <>
                           <textarea
                             value={editNoteContent}
                             onChange={(e) => setEditNoteContent(e.target.value)}
                             rows={3}
-                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none mb-2"
+                            className="w-full border border-neutral-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none mb-2"
                           />
                           <div className="flex gap-2 justify-end">
                             <button
                               onClick={() => { setEditNoteId(null); setEditNoteContent(''); }}
-                              className="px-3 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50"
+                              className="px-3 py-1.5 text-xs text-neutral-600 border border-neutral-200 rounded-lg hover:bg-neutral-50"
                             >
                               Cancel
                             </button>
                             <button
                               onClick={saveEditNote}
-                              className="px-3 py-1.5 text-xs text-white bg-blue-600 rounded-lg hover:bg-blue-700"
+                              className="px-3 py-1.5 text-xs text-white bg-primary-600 rounded-lg hover:bg-primary-700"
                             >
                               Save
                             </button>
@@ -561,21 +564,21 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                         </>
                       ) : (
                         <>
-                          <p className="text-sm text-slate-700 whitespace-pre-wrap mb-2">{note.content}</p>
+                          <p className="text-sm text-neutral-700 whitespace-pre-wrap mb-2">{note.content}</p>
                           <div className="flex items-center justify-between">
-                            <span className="text-xs text-slate-400">
+                            <span className="text-xs text-neutral-400">
                               {note.createdBy} · {relativeTime(note.createdAt || note.created_at)}
                             </span>
                             <div className="flex gap-1">
                               <button
                                 onClick={() => { setEditNoteId(note.id); setEditNoteContent(note.content); }}
-                                className="text-xs text-slate-400 hover:text-blue-600 px-2 py-1"
+                                className="text-xs text-neutral-400 hover:text-primary-600 px-2 py-1"
                               >
                                 Edit
                               </button>
                               <button
                                 onClick={() => deleteNote(note.id)}
-                                className="text-xs text-slate-400 hover:text-red-600 px-2 py-1"
+                                className="text-xs text-neutral-400 hover:text-danger-600 px-2 py-1"
                               >
                                 Delete
                               </button>
@@ -594,9 +597,9 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
           {activeTab === 'tasks' && (
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
               {tasksLoading ? (
-                <div className="flex justify-center py-8 text-slate-400 text-sm">Loading tasks…</div>
+                <div className="flex justify-center py-8 text-neutral-400 text-sm">Loading tasks…</div>
               ) : tasks.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-slate-300">
+                <div className="flex flex-col items-center justify-center py-12 text-neutral-300">
                   <svg className="w-10 h-10 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                   </svg>
@@ -604,15 +607,15 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                 </div>
               ) : (
                 tasks.map((task) => (
-                  <div key={task.id} className="border border-slate-200 rounded-xl p-4 bg-white">
+                  <div key={task.id} className="border border-neutral-200 rounded-xl p-4 bg-white">
                     <div className="flex items-start justify-between gap-2 mb-2">
-                      <span className="text-sm font-semibold text-slate-900 flex-1">{task.name}</span>
+                      <span className="text-sm font-semibold text-neutral-900 flex-1">{task.name}</span>
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
                         task.status?.status === 'complete' || task.status?.status === 'closed'
-                          ? 'bg-emerald-100 text-emerald-700'
+                          ? 'bg-success-500/10 text-success-700'
                           : task.status?.status === 'in progress'
-                          ? 'bg-blue-100 text-blue-700'
-                          : 'bg-slate-100 text-slate-600'
+                          ? 'bg-primary-100 text-primary-700'
+                          : 'bg-neutral-100 text-neutral-600'
                       }`}>
                         {task.status?.status ?? 'to do'}
                       </span>
@@ -620,20 +623,20 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                     <div className="flex items-center gap-2 flex-wrap">
                       {task.priority?.priority && (
                         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                          task.priority.priority === '1' ? 'bg-red-100 text-red-600'
-                          : task.priority.priority === '2' ? 'bg-orange-100 text-orange-700'
-                          : 'bg-slate-100 text-slate-500'
+                          task.priority.priority === '1' ? 'bg-danger-500/10 text-danger-600'
+                          : task.priority.priority === '2' ? 'bg-accent-100 text-accent-700'
+                          : 'bg-neutral-100 text-neutral-500'
                         }`}>
                           {task.priority.priority === '1' ? 'Urgent' : task.priority.priority === '2' ? 'High' : 'Normal'}
                         </span>
                       )}
                       {task.due_date && (
-                        <span className="text-xs text-slate-400">
+                        <span className="text-xs text-neutral-400">
                           Due: {new Date(Number(task.due_date)).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                         </span>
                       )}
                       {task.assignees?.length > 0 && (
-                        <span className="text-xs text-slate-400">
+                        <span className="text-xs text-neutral-400">
                           → {task.assignees.map(a => a.username).join(', ')}
                         </span>
                       )}
@@ -643,7 +646,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                         href={task.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-xs text-blue-500 hover:text-blue-700 mt-2 inline-block"
+                        className="text-xs text-primary-500 hover:text-primary-700 mt-2 inline-block"
                       >
                         Open in ClickUp →
                       </a>
@@ -658,21 +661,21 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
           {activeTab === 'deals' && (
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
               {deals.length === 0 ? (
-                <p className="text-sm text-slate-300 text-center py-8">No deals yet</p>
+                <p className="text-sm text-neutral-300 text-center py-8">No deals yet</p>
               ) : (
                 deals.map((deal) => (
-                  <div key={deal.id} className="border border-slate-200 rounded-xl p-4 bg-white">
+                  <div key={deal.id} className="border border-neutral-200 rounded-xl p-4 bg-white">
                     <div className="flex items-start justify-between mb-1">
-                      <span className="text-sm font-semibold text-slate-900">{deal.title}</span>
+                      <span className="text-sm font-semibold text-neutral-900">{deal.title}</span>
                       <div className="flex items-center gap-2 shrink-0">
                         {deal.dealValue > 0 && (
-                          <span className="text-sm font-semibold text-green-600">
+                          <span className="text-sm font-semibold text-success-600">
                             ₹{Number(deal.dealValue).toLocaleString('en-IN')}
                           </span>
                         )}
                         <a
                           href={`/pipeline?dealId=${deal.id}`}
-                          className="text-xs text-blue-600 hover:text-blue-800 font-medium ml-auto shrink-0"
+                          className="text-xs text-primary-600 hover:text-primary-800 font-medium ml-auto shrink-0"
                         >
                           Open in Pipeline →
                         </a>
@@ -681,22 +684,22 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                         deal.stage?.toLowerCase().includes('won')
-                          ? 'bg-emerald-100 text-emerald-700'
+                          ? 'bg-success-500/10 text-success-700'
                           : deal.stage?.toLowerCase().includes('lost')
-                          ? 'bg-red-100 text-red-600'
-                          : 'bg-blue-100 text-blue-700'
+                          ? 'bg-danger-500/10 text-danger-600'
+                          : 'bg-primary-100 text-primary-700'
                       }`}>
                         {deal.stage ?? 'Unknown'}
                       </span>
                       {deal.pipelineName && (
-                        <span className="text-xs text-slate-400">{deal.pipelineName}</span>
+                        <span className="text-xs text-neutral-400">{deal.pipelineName}</span>
                       )}
                       {deal.assignedTo && (
-                        <span className="text-xs text-slate-400">→ {deal.assignedTo}</span>
+                        <span className="text-xs text-neutral-400">→ {deal.assignedTo}</span>
                       )}
                     </div>
                     {deal.lostReason && (
-                      <p className="text-xs text-red-400 mt-1">Lost: {deal.lostReason}</p>
+                      <p className="text-xs text-danger-500 mt-1">Lost: {deal.lostReason}</p>
                     )}
                   </div>
                 ))

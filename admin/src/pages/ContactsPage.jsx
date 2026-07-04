@@ -3,6 +3,7 @@ import Sidebar from '../components/Sidebar.jsx';
 import ContactSlideIn from '../components/ContactSlideIn.jsx';
 import AddUpdateOpportunityModal from '../components/AddUpdateOpportunityModal.jsx';
 import { apiFetch } from '../lib/api.js';
+import { Modal, Button } from '../components/ui/index.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -116,7 +117,7 @@ function ResizeHandle({ startWidth, onResize }) {
     <div
       onMouseDown={onMouseDown}
       onClick={(e) => e.stopPropagation()}
-      className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-blue-400 group-hover:bg-neutral-300 transition-colors"
+      className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-primary-400 group-hover:bg-neutral-300 transition-colors"
       title="Drag to resize"
     />
   );
@@ -182,76 +183,72 @@ function AddContactModal({ onClose, onCreated }) {
         type={type}
         value={form[key]}
         onChange={(e) => setForm({ ...form, [key]: e.target.value })}
-        className="w-full border border-neutral-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+        className="w-full border border-neutral-200 rounded-sm px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-200 focus:border-primary-500"
         required={required}
       />
     </div>
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-neutral-100">
-          <h2 className="text-lg font-bold text-neutral-900">Add Contact</h2>
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600 p-1 rounded-lg hover:bg-neutral-100">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
-          </button>
+    <Modal
+      open
+      onClose={onClose}
+      title="Add Contact"
+      footer={
+        <>
+          <Button variant="standard" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit" form="add-contact-form" disabled={saving}>
+            {saving ? 'Adding…' : 'Add Contact'}
+          </Button>
+        </>
+      }
+    >
+      <form id="add-contact-form" onSubmit={handleSubmit} className="space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {field('firstName', 'First Name', 'text', true)}
+          {field('lastName', 'Last Name')}
         </div>
-        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {field('firstName', 'First Name', 'text', true)}
-            {field('lastName', 'Last Name')}
-          </div>
-          {field('phone', 'Phone / WhatsApp')}
-          {field('email', 'Email', 'email')}
-          {field('companyName', 'Company Name')}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-neutral-600 mb-1">Source</label>
-              <select value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })}
-                className="w-full border border-neutral-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
-                <option value="">Select…</option>
-                <option value="facebook">Facebook</option>
-                <option value="instagram">Instagram</option>
-                <option value="whatsapp">WhatsApp</option>
-                <option value="organic">Organic</option>
-                <option value="referral">Referral</option>
-                <option value="calcom">Cal.com</option>
-                <option value="checkout">Checkout</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-neutral-600 mb-1">Assigned To</label>
-              <select value={form.assignedTo} onChange={(e) => setForm({ ...form, assignedTo: e.target.value })}
-                className="w-full border border-neutral-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
-                <option value="">Unassigned</option>
-                <option value="jatin">Jatin</option>
-                <option value="saksham">Saksham</option>
-              </select>
-            </div>
+        {field('phone', 'Phone / WhatsApp')}
+        {field('email', 'Email', 'email')}
+        {field('companyName', 'Company Name')}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-neutral-600 mb-1">Source</label>
+            <select value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })}
+              className="w-full border border-neutral-200 rounded-sm px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-200 focus:border-primary-500">
+              <option value="">Select…</option>
+              <option value="facebook">Facebook</option>
+              <option value="instagram">Instagram</option>
+              <option value="whatsapp">WhatsApp</option>
+              <option value="organic">Organic</option>
+              <option value="referral">Referral</option>
+              <option value="calcom">Cal.com</option>
+              <option value="checkout">Checkout</option>
+            </select>
           </div>
           <div>
-            <label className="block text-xs font-medium text-neutral-600 mb-1">Tags <span className="text-neutral-400 font-normal">(comma-separated)</span></label>
-            <input
-              type="text"
-              value={form.tags}
-              onChange={(e) => setForm({ ...form, tags: e.target.value })}
-              placeholder="hot-lead, d2c, …"
-              className="w-full border border-neutral-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-            />
+            <label className="block text-xs font-medium text-neutral-600 mb-1">Assigned To</label>
+            <select value={form.assignedTo} onChange={(e) => setForm({ ...form, assignedTo: e.target.value })}
+              className="w-full border border-neutral-200 rounded-sm px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-200 focus:border-primary-500">
+              <option value="">Unassigned</option>
+              <option value="jatin">Jatin</option>
+              <option value="saksham">Saksham</option>
+            </select>
           </div>
-          {error && <p className="text-sm text-danger-600">{error}</p>}
-          <div className="flex gap-3 pt-1">
-            <button type="button" onClick={onClose} className="flex-1 py-2 text-sm font-medium border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors">
-              Cancel
-            </button>
-            <button type="submit" disabled={saving} className="flex-1 py-2 text-sm font-semibold text-white bg-primary-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50">
-              {saving ? 'Adding…' : 'Add Contact'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-neutral-600 mb-1">Tags <span className="text-neutral-400 font-normal">(comma-separated)</span></label>
+          <input
+            type="text"
+            value={form.tags}
+            onChange={(e) => setForm({ ...form, tags: e.target.value })}
+            placeholder="hot-lead, d2c, …"
+            className="w-full border border-neutral-200 rounded-sm px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-200 focus:border-primary-500"
+          />
+        </div>
+        {error && <p className="text-sm text-danger-600">{error}</p>}
+      </form>
+    </Modal>
   );
 }
 
@@ -425,7 +422,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
             {availableTags.length > 0 && (
               <div className="flex flex-wrap gap-2 max-h-[120px] overflow-y-auto">
                 {availableTags.map((tag) => (
-                  <label key={tag} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm cursor-pointer transition-colors ${selectedTags.has(tag) ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-neutral-200 text-neutral-600 hover:bg-neutral-50'}`}>
+                  <label key={tag} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm cursor-pointer transition-colors ${selectedTags.has(tag) ? 'bg-primary-50 border-primary-300 text-primary-700' : 'bg-white border-neutral-200 text-neutral-600 hover:bg-neutral-50'}`}>
                     <input
                       type="checkbox"
                       checked={selectedTags.has(tag)}
@@ -451,7 +448,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
                 className="flex-1 min-w-[200px] border border-neutral-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               />
               <button onClick={handleBulkTag} disabled={busy || (!tagInput.trim() && selectedTags.size === 0)}
-                className="bg-primary-600 hover:bg-blue-700 text-white text-sm px-4 py-1.5 rounded-lg disabled:opacity-50">
+                className="bg-primary-600 hover:bg-primary-700 text-white text-sm px-4 py-1.5 rounded-lg disabled:opacity-50">
                 Apply
               </button>
               <button onClick={() => { setShowTagPanel(false); setSelectedTags(new Set()); }} className="text-neutral-400 hover:text-neutral-600 text-sm">Cancel</button>
@@ -474,7 +471,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
               ))}
             </select>
             <button onClick={handleBulkEmail} disabled={busy || !selectedTemplateId}
-              className="bg-primary-600 hover:bg-blue-700 text-white text-sm px-4 py-1.5 rounded-lg disabled:opacity-50">
+              className="bg-primary-600 hover:bg-primary-700 text-white text-sm px-4 py-1.5 rounded-lg disabled:opacity-50">
               Send to {count} contact{count > 1 ? 's' : ''}
             </button>
             <button onClick={() => setShowEmailPanel(false)} className="text-neutral-400 hover:text-neutral-600 text-sm">Cancel</button>
@@ -491,7 +488,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
               <option value="saksham">Saksham</option>
             </select>
             <button onClick={handleAssign} disabled={busy}
-              className="bg-primary-600 hover:bg-blue-700 text-white text-sm px-4 py-1.5 rounded-lg disabled:opacity-50">
+              className="bg-primary-600 hover:bg-primary-700 text-white text-sm px-4 py-1.5 rounded-lg disabled:opacity-50">
               Assign
             </button>
             <button onClick={() => setShowAssignPanel(false)} className="text-neutral-400 hover:text-neutral-600 text-sm">Cancel</button>
@@ -506,7 +503,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
             {count} Contact{count > 1 ? 's' : ''} Selected
           </span>
           {count < total && (
-            <button onClick={onSelectAll} className="text-xs text-blue-400 hover:text-blue-300 underline whitespace-nowrap">
+            <button onClick={onSelectAll} className="text-xs text-primary-400 hover:text-primary-300 underline whitespace-nowrap">
               Select all {total.toLocaleString()}
             </button>
           )}
@@ -531,7 +528,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
             if (emailTemplates.length === 0) {
               apiFetch('/api/email-templates').then(d => { if (Array.isArray(d)) setEmailTemplates(d); }).catch(() => {});
             }
-          }} className={`${btnBase} bg-blue-700 hover:bg-primary-600 text-white`}>
+          }} className={`${btnBase} bg-primary-700 hover:bg-primary-600 text-white`}>
             Send email
           </button>
           <button onClick={() => {
@@ -539,10 +536,10 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
             if (availableTags.length === 0) {
               apiFetch('/api/contacts/tags').then(d => { if (Array.isArray(d)) setAvailableTags(d); }).catch(() => {});
             }
-          }} className={`${btnBase} bg-violet-700 hover:bg-violet-600 text-white`}>
+          }} className={`${btnBase} bg-primary-700 hover:bg-primary-600 text-white`}>
             Add tags
           </button>
-          <button onClick={handleBulkDelete} disabled={busy} className={`${btnBase} bg-red-700 hover:bg-danger-600 text-white`}>
+          <button onClick={handleBulkDelete} disabled={busy} className={`${btnBase} bg-danger-700 hover:bg-danger-600 text-white`}>
             Delete
           </button>
 
@@ -570,7 +567,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
                 </button>
                 <div className="h-px bg-neutral-100 my-1" />
                 <button onClick={() => { setShowMoreMenu(false); onOpenOpportunity?.(); }}
-                  className="w-full text-left px-4 py-2.5 text-sm text-blue-700 hover:bg-blue-50 font-medium">
+                  className="w-full text-left px-4 py-2.5 text-sm text-primary-700 hover:bg-primary-50 font-medium">
                   Add to pipeline
                 </button>
               </div>
@@ -706,7 +703,7 @@ export default function ContactsPage() {
         <div className="bg-white border-b px-8 py-5 flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-bold text-neutral-900">Contacts</h1>
-            <span className="bg-neutral-100 text-neutral-600 text-sm font-semibold px-2.5 py-0.5 rounded-full">
+            <span className="bg-primary-100 text-primary-700 text-sm font-semibold px-2.5 py-0.5 rounded-full">
               {total.toLocaleString()}
             </span>
           </div>
@@ -740,7 +737,7 @@ export default function ContactsPage() {
             </button>
             <button
               onClick={() => setShowAddContact(true)}
-              className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-primary-600 hover:bg-blue-700 rounded-lg transition-colors"
+              className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 rounded-lg transition-colors"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
               Add Contact
@@ -766,12 +763,12 @@ export default function ContactsPage() {
               >
                 {list.label}
                 {list.id !== 'all' && listCounts[list.id] > 0 && (
-                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${activeList === list.id ? 'bg-primary-100 text-blue-700' : 'bg-neutral-100 text-neutral-500'}`}>
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${activeList === list.id ? 'bg-primary-100 text-primary-700' : 'bg-neutral-100 text-neutral-500'}`}>
                     {listCounts[list.id]}
                   </span>
                 )}
                 {list.id === 'all' && (
-                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${activeList === list.id ? 'bg-primary-100 text-blue-700' : 'bg-neutral-100 text-neutral-500'}`}>
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${activeList === list.id ? 'bg-primary-100 text-primary-700' : 'bg-neutral-100 text-neutral-500'}`}>
                     {total.toLocaleString()}
                   </span>
                 )}
@@ -822,7 +819,7 @@ export default function ContactsPage() {
 
           {activeFilters.length > 0 && (
             <button onClick={() => { setFilterSource(''); setFilterAssignedTo(''); setFilterDateFrom(''); setPage(1); }}
-              className="text-sm text-danger-500 hover:text-red-700 font-medium">
+              className="text-sm text-danger-500 hover:text-danger-700 font-medium">
               Clear all filters
             </button>
           )}
@@ -832,9 +829,9 @@ export default function ContactsPage() {
         {activeFilters.length > 0 && (
           <div className="bg-white border-b px-8 py-2 flex gap-2 flex-wrap">
             {activeFilters.map((f) => (
-              <span key={f.key} className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 text-xs font-medium px-2.5 py-1 rounded-full border border-blue-200">
+              <span key={f.key} className="inline-flex items-center gap-1.5 bg-primary-50 text-primary-700 text-xs font-medium px-2.5 py-1 rounded-full border border-primary-200">
                 {f.label}
-                <button onClick={f.clear} className="text-blue-400 hover:text-blue-700 leading-none">×</button>
+                <button onClick={f.clear} className="text-primary-400 hover:text-primary-700 leading-none">×</button>
               </span>
             ))}
           </div>
@@ -911,7 +908,7 @@ export default function ContactsPage() {
 
                   return (
                     <tr key={c.id}
-                      className={`border-b border-neutral-100 transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-neutral-50'}`}>
+                      className={`border-b border-neutral-100 transition-colors ${isSelected ? 'bg-primary-50 shadow-[inset_3px_0_0_theme(colors.primary.500)]' : 'hover:bg-neutral-50'}`}>
                       <td className="px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
                         <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(c.id)}
                           className="rounded border-neutral-300 text-primary-600 focus:ring-primary-500" />
@@ -970,7 +967,7 @@ export default function ContactsPage() {
                       <td className="px-3 py-1.5 cursor-pointer overflow-hidden" onClick={() => setSelectedContact(c)}>
                         <div className="flex flex-wrap gap-1">
                           {(c.tags ?? []).slice(0, 2).map((tag) => (
-                            <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 font-medium truncate max-w-[80px]">
+                            <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary-100 text-primary-700 font-medium truncate max-w-[80px]">
                               {tag}
                             </span>
                           ))}
@@ -978,7 +975,7 @@ export default function ContactsPage() {
                             <span className="text-[10px] text-neutral-400">+{c.tags.length - 2}</span>
                           )}
                           {c.activeDeal && (
-                            <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium border border-blue-200 truncate max-w-[120px]">
+                            <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-accent-50 text-accent-700 font-medium border border-accent-200 truncate max-w-[120px]">
                               {c.activeDeal.pipelineName} · {c.activeDeal.stage}
                             </span>
                           )}
