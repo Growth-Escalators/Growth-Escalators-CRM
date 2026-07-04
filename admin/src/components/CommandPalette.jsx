@@ -71,30 +71,30 @@ export default function CommandPalette({ open, onClose, entries }) {
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-start justify-center pt-[15vh] bg-black/50"
+      className="fixed inset-0 z-[60] flex items-start justify-center pt-[15vh] bg-black/40 backdrop-blur-sm animate-[fadeIn_150ms_ease-out]"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label="Command palette"
     >
       <div
-        className="w-[480px] max-w-[92vw] bg-slate-900 text-slate-100 border border-slate-700 rounded-xl shadow-2xl overflow-hidden"
+        className="w-[480px] max-w-[92vw] bg-primary-900 text-white border border-white/10 rounded-xl shadow-modal overflow-hidden animate-[modalIn_200ms_cubic-bezier(0.16,1,0.3,1)]"
         onClick={e => e.stopPropagation()}
         onKeyDown={handleKey}
       >
-        <div className="flex items-center gap-2 px-3 py-3 border-b border-slate-700">
-          <Search className="w-4 h-4 text-slate-400 flex-shrink-0" />
+        <div className="flex items-center gap-2 px-3 py-3 border-b border-white/10">
+          <Search className="w-4 h-4 text-primary-300 flex-shrink-0" />
           <input
             ref={inputRef}
             value={query}
             onChange={e => { setQuery(e.target.value); setActiveIdx(0); }}
             placeholder="Jump to..."
-            className="flex-1 bg-transparent outline-none text-sm placeholder:text-slate-500"
+            className="flex-1 bg-transparent outline-none text-sm placeholder:text-primary-300/50"
           />
         </div>
         <ul className="max-h-[320px] overflow-y-auto py-1">
           {matches.length === 0 && (
-            <li className="px-3 py-3 text-sm text-slate-500">No matches</li>
+            <li className="px-3 py-3 text-sm text-primary-300/70">No matches</li>
           )}
           {matches.map((m, i) => {
             const Icon = m.icon;
@@ -108,12 +108,12 @@ export default function CommandPalette({ open, onClose, entries }) {
                 onMouseEnter={() => setActiveIdx(i)}
                 onClick={() => go(m)}
                 className={`flex items-center gap-3 px-3 py-2 cursor-pointer text-sm ${
-                  active ? 'bg-slate-800' : ''
+                  active ? 'bg-white/10' : ''
                 }`}
               >
-                <Icon className="w-4 h-4 text-slate-400 flex-shrink-0" />
-                <span className="flex-1 truncate text-slate-100">{m.label}</span>
-                <span className="text-xs text-slate-500 truncate ml-2">{path}</span>
+                <Icon className="w-4 h-4 text-primary-300 flex-shrink-0" />
+                <span className="flex-1 truncate text-white">{m.label}</span>
+                <span className="text-xs text-primary-300/70 truncate ml-2">{path}</span>
               </li>
             );
           })}

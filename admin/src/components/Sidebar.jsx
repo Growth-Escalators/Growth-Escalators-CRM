@@ -38,20 +38,6 @@ function writeStoredGroups(g) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(g)); } catch { /* ignore quota */ }
 }
 
-const navClass = ({ isActive }) =>
-  `flex items-center gap-3 px-3 py-2 rounded-md text-[13.5px] font-medium transition-all duration-150 ${
-    isActive
-      ? 'bg-white/10 text-white font-semibold border-l-[3px] border-l-primary-400 ml-[-3px]'
-      : 'text-[rgba(219,234,254,0.78)] hover:bg-white/5 hover:text-white'
-  }`;
-
-const navClassNested = ({ isActive }) =>
-  `flex items-center gap-3 pl-5 pr-3 py-2 rounded-md text-[13.5px] font-medium transition-all duration-150 ${
-    isActive
-      ? 'bg-white/10 text-white font-semibold border-l-[3px] border-l-primary-400 ml-[-3px]'
-      : 'text-[rgba(219,234,254,0.78)] hover:bg-white/5 hover:text-white'
-  }`;
-
 function SectionLabel({ children }) {
   return (
     <p className="px-3 pt-5 pb-1 text-[10.5px] font-semibold text-primary-300 uppercase tracking-[0.1em]">
@@ -71,12 +57,12 @@ function ExternalChevron() {
 
 function NavEntry({ entry, unreadCount, pendingLeavesCount, nested = false }) {
   const Icon = entry.icon;
-  const cls = nested ? navClassNested : navClass;
+  const basePad = nested ? 'pl-5 pr-3' : 'px-3';
 
   if (entry.external) {
     return (
       <a href={entry.href} target="_blank" rel="noopener noreferrer"
-        className={`flex items-center gap-3 ${nested ? 'pl-5 pr-3' : 'px-3'} py-2 rounded-md text-[13.5px] font-medium transition-all duration-150 text-[rgba(219,234,254,0.78)] hover:bg-white/5 hover:text-white`}>
+        className={`relative flex items-center gap-3 ${basePad} py-2 rounded-md text-[13.5px] font-medium transition-all duration-150 text-[rgba(219,234,254,0.78)] hover:bg-white/5 hover:text-white`}>
         <Icon className="w-4 h-4" />
         <span className="flex-1">{entry.label}</span>
         <ExternalChevron />
@@ -88,21 +74,32 @@ function NavEntry({ entry, unreadCount, pendingLeavesCount, nested = false }) {
     <NavLink
       to={entry.to}
       {...(entry.newTab ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-      className={cls}
+      className={({ isActive }) =>
+        `relative flex items-center gap-3 ${basePad} py-2 rounded-md text-[13.5px] font-medium transition-all duration-150 ${
+          isActive ? 'bg-white/10 text-white font-semibold' : 'text-[rgba(219,234,254,0.78)] hover:bg-white/5 hover:text-white'
+        }`
+      }
     >
-      <Icon className="w-4 h-4" />
-      <span className="flex-1">{entry.label}</span>
-      {entry.badge === 'inbox-unread' && unreadCount > 0 && (
-        <span className="bg-accent-500 text-white text-[11px] rounded-full px-1.5 py-0.5 min-w-5 text-center font-semibold leading-none">
-          {unreadCount > 99 ? '99+' : unreadCount}
-        </span>
+      {({ isActive }) => (
+        <>
+          {isActive && (
+            <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[18px] rounded-[2px] bg-primary-400" />
+          )}
+          <Icon className="w-4 h-4" />
+          <span className="flex-1">{entry.label}</span>
+          {entry.badge === 'inbox-unread' && unreadCount > 0 && (
+            <span className="bg-accent-500 text-white text-[11px] rounded-full px-1.5 py-0.5 min-w-5 text-center font-semibold leading-none">
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </span>
+          )}
+          {entry.badge === 'pending-leaves' && pendingLeavesCount > 0 && (
+            <span className="bg-accent-500 text-white text-[11px] rounded-full px-1.5 py-0.5 min-w-5 text-center font-semibold leading-none">
+              {pendingLeavesCount > 99 ? '99+' : pendingLeavesCount}
+            </span>
+          )}
+          {entry.newTab && <ExternalChevron />}
+        </>
       )}
-      {entry.badge === 'pending-leaves' && pendingLeavesCount > 0 && (
-        <span className="bg-accent-500 text-white text-[11px] rounded-full px-1.5 py-0.5 min-w-5 text-center font-semibold leading-none">
-          {pendingLeavesCount > 99 ? '99+' : pendingLeavesCount}
-        </span>
-      )}
-      {entry.newTab && <ExternalChevron />}
     </NavLink>
   );
 }
@@ -336,7 +333,7 @@ export default function Sidebar() {
               </div>
             </div>
           </div>
-          <p className="text-[10px] text-primary-300/60 mb-2">⌘K to search</p>
+          <p className="inline-flex items-center border border-white/[0.08] bg-white/[0.08] rounded px-1.5 py-0.5 text-[10px] text-primary-300/70 mb-2">⌘K to search</p>
           <button
             onClick={logout}
             className="w-full text-left text-xs text-[rgba(219,234,254,0.6)] hover:text-white transition-colors px-1"
