@@ -23,13 +23,15 @@ function daysOverdue(dueDate) {
   return days > 0 ? days : 0;
 }
 
+// Standardized status → badge-color map per design spec:
+// Paid -> success, Pending/Sent -> warning, Overdue -> danger, Partial -> info (primary), Draft/Cancelled -> muted
 const STATUS_BADGE = {
-  draft:           'bg-slate-100 text-slate-600',
-  sent:            'bg-blue-100 text-blue-700',
-  paid:            'bg-green-100 text-green-700',
-  partially_paid:  'bg-amber-100 text-amber-700',
-  overdue:         'bg-red-100 text-red-700',
-  cancelled:       'bg-slate-100 text-slate-400 line-through',
+  draft:           'bg-neutral-100 text-neutral-600',
+  sent:            'bg-warning-500/10 text-warning-700',
+  paid:            'bg-success-500/10 text-success-700',
+  partially_paid:  'bg-primary-500/10 text-primary-700',
+  overdue:         'bg-danger-500/10 text-danger-600',
+  cancelled:       'bg-neutral-100 text-neutral-400 line-through',
 };
 
 const INDIAN_STATES = [
@@ -80,7 +82,7 @@ function ServicesPicker({ value = [], onChange }) {
 
   return (
     <div>
-      <label className="block text-xs font-medium text-slate-700 mb-1">Services</label>
+      <label className="block text-xs font-medium text-neutral-700 mb-1">Services</label>
       <div className="flex flex-wrap gap-1.5 mb-2">
         {SERVICE_PRESETS.map(svc => {
           const active = selected.includes(svc);
@@ -91,8 +93,8 @@ function ServicesPicker({ value = [], onChange }) {
               onClick={() => toggle(svc)}
               className={`text-xs px-2 py-1 rounded-full border transition-colors ${
                 active
-                  ? 'bg-sky-600 text-white border-sky-600'
-                  : 'bg-white text-slate-600 border-slate-300 hover:border-sky-400'
+                  ? 'bg-primary-600 text-white border-primary-600'
+                  : 'bg-white text-neutral-600 border-neutral-300 hover:border-primary-400'
               }`}
             >{svc}</button>
           );
@@ -102,7 +104,7 @@ function ServicesPicker({ value = [], onChange }) {
             key={svc}
             type="button"
             onClick={() => toggle(svc)}
-            className="text-xs px-2 py-1 rounded-full bg-purple-600 text-white border border-purple-600"
+            className="text-xs px-2 py-1 rounded-full bg-primary-600 text-white border border-primary-600"
             title="Custom service — click to remove"
           >{svc} ✕</button>
         ))}
@@ -111,7 +113,7 @@ function ServicesPicker({ value = [], onChange }) {
         <input
           type="text"
           placeholder="Add custom service (press Enter)"
-          className="flex-1 border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+          className="flex-1 border border-neutral-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
           value={custom}
           onChange={e => setCustom(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCustom(); } }}
@@ -119,10 +121,10 @@ function ServicesPicker({ value = [], onChange }) {
         <button
           type="button"
           onClick={addCustom}
-          className="px-3 py-1.5 text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg"
+          className="px-3 py-1.5 text-xs font-medium bg-neutral-100 hover:bg-neutral-200 text-neutral-700 rounded-lg"
         >Add</button>
       </div>
-      <p className="text-[10px] text-slate-400 mt-1">Shown as chips on the Clients list. Used for retainer analytics and invoice line-item prefill.</p>
+      <p className="text-[10px] text-neutral-400 mt-1">Shown as chips on the Clients list. Used for retainer analytics and invoice line-item prefill.</p>
     </div>
   );
 }
@@ -208,65 +210,65 @@ function ClientModal({ client, onClose, onSaved }) {
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b">
-          <h2 className="text-lg font-semibold text-slate-900">{client ? 'Edit Client' : 'Add Billing Client'}</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
+          <h2 className="text-lg font-semibold text-neutral-900">{client ? 'Edit Client' : 'Add Billing Client'}</h2>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600">✕</button>
         </div>
         <div className="p-5 space-y-4">
-          {error && <div className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{error}</div>}
+          {error && <div className="text-sm text-danger-600 bg-danger-500/10 p-3 rounded-lg">{error}</div>}
 
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
-              <label className="block text-xs font-medium text-slate-700 mb-1">Client / Company Name *</label>
-              <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              <label className="block text-xs font-medium text-neutral-700 mb-1">Client / Company Name *</label>
+              <input className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Contact Person</label>
-              <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              <label className="block text-xs font-medium text-neutral-700 mb-1">Contact Person</label>
+              <input className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 value={form.contactPerson} onChange={e => setForm(f => ({ ...f, contactPerson: e.target.value }))} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Email</label>
-              <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              <label className="block text-xs font-medium text-neutral-700 mb-1">Email</label>
+              <input className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Address</label>
-            <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 mb-2"
+            <label className="block text-xs font-medium text-neutral-700 mb-1">Address</label>
+            <input className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 mb-2"
               placeholder="Address line 1" value={form.addressLine1} onChange={e => setForm(f => ({ ...f, addressLine1: e.target.value }))} />
             <div className="grid grid-cols-3 gap-2">
-              <input className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              <input className="border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 placeholder="City" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} />
-              <select className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              <select className="border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 value={form.state} onChange={e => handleStateChange(e.target.value)}>
                 <option value="">State</option>
                 {INDIAN_STATES.map(s => <option key={s.code} value={s.name}>{s.name}</option>)}
               </select>
-              <input className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              <input className="border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 placeholder="Pincode" value={form.pincode} onChange={e => setForm(f => ({ ...f, pincode: e.target.value }))} />
             </div>
           </div>
 
-          <div className="border border-slate-200 rounded-lg p-4 space-y-3">
+          <div className="border border-neutral-200 rounded-lg p-4 space-y-3">
             <div className="flex items-center gap-3">
               <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" className="w-4 h-4 text-sky-600 rounded"
+                <input type="checkbox" className="w-4 h-4 text-primary-600 rounded"
                   checked={form.isGst} onChange={e => setForm(f => ({ ...f, isGst: e.target.checked }))} />
-                <span className="text-sm font-medium text-slate-700">GST Registered</span>
+                <span className="text-sm font-medium text-neutral-700">GST Registered</span>
               </label>
             </div>
             {form.isGst && (
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">GSTIN</label>
-                  <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 uppercase"
+                  <label className="block text-xs font-medium text-neutral-700 mb-1">GSTIN</label>
+                  <input className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 uppercase"
                     value={form.gstin} onChange={e => setForm(f => ({ ...f, gstin: e.target.value.toUpperCase() }))} />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Tax Type</label>
-                  <select className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  <label className="block text-xs font-medium text-neutral-700 mb-1">Tax Type</label>
+                  <select className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                     value={form.taxType} onChange={e => setForm(f => ({ ...f, taxType: e.target.value }))}>
                     <option value="">Select tax type</option>
                     <option value="igst">IGST 18% (other state)</option>
@@ -279,18 +281,18 @@ function ClientModal({ client, onClose, onSaved }) {
 
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Monthly Retainer (₹)</label>
-              <input type="number" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              <label className="block text-xs font-medium text-neutral-700 mb-1">Monthly Retainer (₹)</label>
+              <input type="number" className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 value={form.retainerAmount} onChange={e => setForm(f => ({ ...f, retainerAmount: e.target.value }))} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Invoice Day</label>
-              <input type="number" min="1" max="28" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              <label className="block text-xs font-medium text-neutral-700 mb-1">Invoice Day</label>
+              <input type="number" min="1" max="28" className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 value={form.invoiceDayOfMonth} onChange={e => setForm(f => ({ ...f, invoiceDayOfMonth: e.target.value }))} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">SAC Code</label>
-              <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              <label className="block text-xs font-medium text-neutral-700 mb-1">SAC Code</label>
+              <input className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 value={form.sacCode} onChange={e => setForm(f => ({ ...f, sacCode: e.target.value }))} />
             </div>
           </div>
@@ -301,15 +303,15 @@ function ClientModal({ client, onClose, onSaved }) {
           />
 
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Notes</label>
-            <textarea rows={2} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+            <label className="block text-xs font-medium text-neutral-700 mb-1">Notes</label>
+            <textarea rows={2} className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
           </div>
         </div>
         <div className="flex justify-end gap-3 p-5 border-t">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50">Cancel</button>
+          <button onClick={onClose} className="px-4 py-2 text-sm text-neutral-600 border border-neutral-300 rounded-lg hover:bg-neutral-50">Cancel</button>
           <button onClick={handleSave} disabled={saving}
-            className="px-4 py-2 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50">
+            className="px-4 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50">
             {saving ? 'Saving…' : (client ? 'Update Client' : 'Add Client')}
           </button>
         </div>
@@ -468,37 +470,37 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b">
-          <h2 className="text-lg font-semibold text-slate-900">{isEdit ? 'Edit Invoice' : 'New Invoice'}</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
+          <h2 className="text-lg font-semibold text-neutral-900">{isEdit ? 'Edit Invoice' : 'New Invoice'}</h2>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600">✕</button>
         </div>
         <div className="p-5 space-y-5">
-          {error && <div className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{error}</div>}
+          {error && <div className="text-sm text-danger-600 bg-danger-500/10 p-3 rounded-lg">{error}</div>}
 
           <div className="grid grid-cols-3 gap-4">
             <div className="col-span-3">
-              <label className="block text-xs font-medium text-slate-700 mb-1">Client *</label>
-              <select className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              <label className="block text-xs font-medium text-neutral-700 mb-1">Client *</label>
+              <select className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 value={form.clientId} onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))}>
                 <option value="">Select client…</option>
                 {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Invoice Date</label>
-              <input type="date" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              <label className="block text-xs font-medium text-neutral-700 mb-1">Invoice Date</label>
+              <input type="date" className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 value={String(form.invoiceDate || '')} onChange={e => setForm(f => ({ ...f, invoiceDate: e.target.value }))} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Due Date</label>
-              <input type="date" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              <label className="block text-xs font-medium text-neutral-700 mb-1">Due Date</label>
+              <input type="date" className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 value={String(form.dueDate || '')} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Invoice Type</label>
-              <div className="flex rounded-lg border border-slate-300 overflow-hidden">
+              <label className="block text-xs font-medium text-neutral-700 mb-1">Invoice Type</label>
+              <div className="flex rounded-lg border border-neutral-300 overflow-hidden">
                 {['gst', 'non_gst'].map(t => (
                   <button key={t} onClick={() => setForm(f => ({ ...f, invoiceType: t, taxType: t === 'non_gst' ? '' : f.taxType }))}
-                    className={`flex-1 py-2 text-sm font-medium transition-colors ${form.invoiceType === t ? 'bg-sky-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+                    className={`flex-1 py-2 text-sm font-medium transition-colors ${form.invoiceType === t ? 'bg-primary-600 text-white' : 'bg-white text-neutral-600 hover:bg-neutral-50'}`}>
                     {t === 'gst' ? 'GST' : 'Non-GST'}
                   </button>
                 ))}
@@ -508,11 +510,11 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
 
           {form.invoiceType === 'gst' && (
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Tax Type</label>
-              <div className="flex rounded-lg border border-slate-300 overflow-hidden">
+              <label className="block text-xs font-medium text-neutral-700 mb-1">Tax Type</label>
+              <div className="flex rounded-lg border border-neutral-300 overflow-hidden">
                 {[['igst', 'IGST 18% (other state)'], ['cgst_sgst', 'CGST 9% + SGST 9% (Rajasthan)']].map(([v, l]) => (
                   <button key={v} onClick={() => setForm(f => ({ ...f, taxType: v }))}
-                    className={`flex-1 py-2 text-sm font-medium transition-colors ${form.taxType === v ? 'bg-sky-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+                    className={`flex-1 py-2 text-sm font-medium transition-colors ${form.taxType === v ? 'bg-primary-600 text-white' : 'bg-white text-neutral-600 hover:bg-neutral-50'}`}>
                     {l}
                   </button>
                 ))}
@@ -522,64 +524,64 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
 
           {/* Line Items */}
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">
-              Invoice Description <span className="text-slate-400 font-normal">(optional)</span>
+            <label className="block text-xs font-medium text-neutral-700 mb-1">
+              Invoice Description <span className="text-neutral-400 font-normal">(optional)</span>
             </label>
-            <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+            <input className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               placeholder="e.g. Retainer — Performance Marketing · April 2026"
               value={form.serviceDescription}
               onChange={e => setForm(f => ({ ...f, serviceDescription: e.target.value }))} />
-            <p className="text-[10px] text-slate-400 mt-1">Short summary shown above line items on the invoice PDF and on the invoices list.</p>
+            <p className="text-[10px] text-neutral-400 mt-1">Short summary shown above line items on the invoice PDF and on the invoices list.</p>
           </div>
 
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-medium text-slate-700">Line Items</label>
+              <label className="text-xs font-medium text-neutral-700">Line Items</label>
               <button onClick={() => setLineItems(l => [...l, { description: '', sacCode: '9983', quantity: 1, unit: 'Month', rate: '', amount: 0 }])}
-                className="text-xs text-sky-600 hover:text-sky-700 font-medium">+ Add item</button>
+                className="text-xs text-primary-600 hover:text-primary-700 font-medium">+ Add item</button>
             </div>
-            <div className="border border-slate-200 rounded-lg overflow-hidden">
+            <div className="border border-neutral-200 rounded-lg overflow-hidden">
               <table className="w-full text-sm">
-                <thead className="bg-slate-50">
+                <thead className="bg-neutral-50">
                   <tr>
-                    <th className="text-left px-3 py-2 text-xs font-medium text-slate-600 w-[35%]">Description</th>
-                    <th className="text-left px-3 py-2 text-xs font-medium text-slate-600 w-[10%]">SAC</th>
-                    <th className="text-left px-3 py-2 text-xs font-medium text-slate-600 w-[8%]">Qty</th>
-                    <th className="text-left px-3 py-2 text-xs font-medium text-slate-600 w-[10%]">Unit</th>
-                    <th className="text-left px-3 py-2 text-xs font-medium text-slate-600 w-[15%]">Rate (₹)</th>
-                    <th className="text-left px-3 py-2 text-xs font-medium text-slate-600 w-[15%]">Amount (₹)</th>
+                    <th className="text-left px-3 py-2 text-xs font-medium text-neutral-600 w-[35%]">Description</th>
+                    <th className="text-left px-3 py-2 text-xs font-medium text-neutral-600 w-[10%]">SAC</th>
+                    <th className="text-left px-3 py-2 text-xs font-medium text-neutral-600 w-[8%]">Qty</th>
+                    <th className="text-left px-3 py-2 text-xs font-medium text-neutral-600 w-[10%]">Unit</th>
+                    <th className="text-left px-3 py-2 text-xs font-medium text-neutral-600 w-[15%]">Rate (₹)</th>
+                    <th className="text-left px-3 py-2 text-xs font-medium text-neutral-600 w-[15%]">Amount (₹)</th>
                     <th className="w-[7%]"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {lineItems.map((item, idx) => (
-                    <tr key={idx} className="border-t border-slate-100">
+                    <tr key={idx} className="border-t border-neutral-100">
                       <td className="px-2 py-1">
-                        <input className="w-full border-0 px-1 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-sky-400 rounded"
+                        <input className="w-full border-0 px-1 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary-400 rounded"
                           value={item.description} onChange={e => updateLineItem(idx, 'description', e.target.value)} />
                       </td>
                       <td className="px-2 py-1">
-                        <input className="w-full border-0 px-1 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-sky-400 rounded"
+                        <input className="w-full border-0 px-1 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary-400 rounded"
                           value={item.sacCode} onChange={e => updateLineItem(idx, 'sacCode', e.target.value)} />
                       </td>
                       <td className="px-2 py-1">
-                        <input type="number" className="w-full border-0 px-1 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-sky-400 rounded"
+                        <input type="number" className="w-full border-0 px-1 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary-400 rounded"
                           value={item.quantity} onChange={e => updateLineItem(idx, 'quantity', e.target.value)} />
                       </td>
                       <td className="px-2 py-1">
-                        <input className="w-full border-0 px-1 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-sky-400 rounded"
+                        <input className="w-full border-0 px-1 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary-400 rounded"
                           value={item.unit} onChange={e => updateLineItem(idx, 'unit', e.target.value)} />
                       </td>
                       <td className="px-2 py-1">
-                        <input type="number" className="w-full border-0 px-1 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-sky-400 rounded"
+                        <input type="number" className="w-full border-0 px-1 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary-400 rounded"
                           value={item.rate} onChange={e => updateLineItem(idx, 'rate', e.target.value)} />
                       </td>
-                      <td className="px-2 py-1 text-slate-600 text-right pr-3">
+                      <td className="px-2 py-1 text-neutral-600 text-right pr-3">
                         {(parseFloat(String(item.amount)) || 0).toLocaleString('en-IN')}
                       </td>
                       <td className="px-2 py-1 text-center">
                         <button onClick={() => setLineItems(l => l.filter((_, i) => i !== idx))}
-                          className="text-slate-300 hover:text-red-500 text-xs">✕</button>
+                          className="text-neutral-300 hover:text-danger-500 text-xs">✕</button>
                       </td>
                     </tr>
                   ))}
@@ -589,19 +591,19 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
           </div>
 
           {/* Discount */}
-          <div className="border border-slate-200 rounded-lg p-3">
+          <div className="border border-neutral-200 rounded-lg p-3">
             <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-medium text-slate-700">Discount <span className="text-slate-400 font-normal">(optional)</span></label>
+              <label className="text-xs font-medium text-neutral-700">Discount <span className="text-neutral-400 font-normal">(optional)</span></label>
               {form.discountType && (
                 <button
                   type="button"
                   onClick={() => setForm(f => ({ ...f, discountType: '', discountValue: '', discountLabel: '' }))}
-                  className="text-[11px] text-slate-400 hover:text-red-500"
+                  className="text-[11px] text-neutral-400 hover:text-danger-500"
                 >Remove discount</button>
               )}
             </div>
             <div className="grid grid-cols-[140px_1fr_1.5fr] gap-2 items-center">
-              <div className="flex rounded-lg border border-slate-300 overflow-hidden text-xs">
+              <div className="flex rounded-lg border border-neutral-300 overflow-hidden text-xs">
                 {[
                   { k: '', label: 'None' },
                   { k: 'fixed', label: '₹' },
@@ -612,7 +614,7 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
                     type="button"
                     onClick={() => setForm(f => ({ ...f, discountType: k, discountValue: k ? f.discountValue : '' }))}
                     className={`flex-1 py-1.5 font-medium transition-colors ${
-                      form.discountType === k ? 'bg-sky-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
+                      form.discountType === k ? 'bg-primary-600 text-white' : 'bg-white text-neutral-600 hover:bg-neutral-50'
                     }`}
                   >{label}</button>
                 ))}
@@ -623,7 +625,7 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
                 min="0"
                 disabled={!form.discountType}
                 placeholder={form.discountType === 'percent' ? '10' : '500'}
-                className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50 disabled:text-slate-400"
+                className="border border-neutral-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-neutral-50 disabled:text-neutral-400"
                 value={form.discountValue}
                 onChange={e => setForm(f => ({ ...f, discountValue: e.target.value }))}
               />
@@ -631,7 +633,7 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
                 type="text"
                 disabled={!form.discountType}
                 placeholder="Label (e.g. Loyalty discount)"
-                className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50 disabled:text-slate-400"
+                className="border border-neutral-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-neutral-50 disabled:text-neutral-400"
                 value={form.discountLabel}
                 onChange={e => setForm(f => ({ ...f, discountLabel: e.target.value }))}
               />
@@ -641,12 +643,12 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
           {/* Totals */}
           <div className="flex justify-end">
             <div className="w-64 space-y-1 text-sm">
-              <div className="flex justify-between text-slate-600">
+              <div className="flex justify-between text-neutral-600">
                 <span>Subtotal</span>
                 <span>₹{subtotal.toLocaleString('en-IN')}</span>
               </div>
               {discount > 0 && (
-                <div className="flex justify-between text-rose-600">
+                <div className="flex justify-between text-danger-600">
                   <span>
                     {form.discountLabel
                       ? form.discountLabel
@@ -658,12 +660,12 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
                 </div>
               )}
               {taxAmount > 0 && (
-                <div className="flex justify-between text-slate-600">
+                <div className="flex justify-between text-neutral-600">
                   <span>{taxLabel}</span>
                   <span>₹{taxAmount.toLocaleString('en-IN')}</span>
                 </div>
               )}
-              <div className="flex justify-between font-bold text-slate-900 border-t border-slate-200 pt-1 text-base">
+              <div className="flex justify-between font-bold text-neutral-900 border-t border-neutral-200 pt-1 text-base">
                 <span>Total</span>
                 <span>₹{total.toLocaleString('en-IN')}</span>
               </div>
@@ -672,24 +674,24 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
 
           {form.invoiceType === 'non_gst' && (
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Payment Note</label>
-              <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              <label className="block text-xs font-medium text-neutral-700 mb-1">Payment Note</label>
+              <input className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 placeholder="Payment details for non-GST invoice"
                 value={form.paymentNote} onChange={e => setForm(f => ({ ...f, paymentNote: e.target.value }))} />
             </div>
           )}
 
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Notes</label>
-            <textarea rows={2} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+            <label className="block text-xs font-medium text-neutral-700 mb-1">Notes</label>
+            <textarea rows={2} className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
           </div>
         </div>
 
         <div className="flex justify-end gap-3 p-5 border-t">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50">Cancel</button>
+          <button onClick={onClose} className="px-4 py-2 text-sm text-neutral-600 border border-neutral-300 rounded-lg hover:bg-neutral-50">Cancel</button>
           <button onClick={handleSave} disabled={saving}
-            className="px-4 py-2 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50">
+            className="px-4 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50">
             {saving ? 'Saving…' : (isEdit ? 'Update Invoice' : 'Create Invoice')}
           </button>
         </div>
@@ -732,27 +734,27 @@ function PaymentModal({ invoice, onClose, onSaved }) {
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
         <div className="flex items-center justify-between p-5 border-b">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Record Payment</h2>
-            <p className="text-sm text-slate-500 mt-0.5">{invoice.invoice_number} · Due: {fmt(invoice.amount_due)}</p>
+            <h2 className="text-lg font-semibold text-neutral-900">Record Payment</h2>
+            <p className="text-sm text-neutral-500 mt-0.5">{invoice.invoice_number} · Due: {fmt(invoice.amount_due)}</p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600">✕</button>
         </div>
         <div className="p-5 space-y-4">
-          {error && <div className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{error}</div>}
+          {error && <div className="text-sm text-danger-600 bg-danger-500/10 p-3 rounded-lg">{error}</div>}
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Amount (₹) *</label>
-            <input type="number" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+            <label className="block text-xs font-medium text-neutral-700 mb-1">Amount (₹) *</label>
+            <input type="number" className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Payment Date</label>
-              <input type="date" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              <label className="block text-xs font-medium text-neutral-700 mb-1">Payment Date</label>
+              <input type="date" className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 value={form.paymentDate} onChange={e => setForm(f => ({ ...f, paymentDate: e.target.value }))} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Mode</label>
-              <select className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              <label className="block text-xs font-medium text-neutral-700 mb-1">Mode</label>
+              <select className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 value={form.paymentMode} onChange={e => setForm(f => ({ ...f, paymentMode: e.target.value }))}>
                 <option value="bank_transfer">Bank Transfer</option>
                 <option value="upi">UPI</option>
@@ -763,15 +765,15 @@ function PaymentModal({ invoice, onClose, onSaved }) {
             </div>
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">UTR / Reference Number</label>
-            <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+            <label className="block text-xs font-medium text-neutral-700 mb-1">UTR / Reference Number</label>
+            <input className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               value={form.reference} onChange={e => setForm(f => ({ ...f, reference: e.target.value }))} />
           </div>
         </div>
         <div className="flex justify-end gap-3 p-5 border-t">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50">Cancel</button>
+          <button onClick={onClose} className="px-4 py-2 text-sm text-neutral-600 border border-neutral-300 rounded-lg hover:bg-neutral-50">Cancel</button>
           <button onClick={handleSave} disabled={saving}
-            className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50">
+            className="px-4 py-2 text-sm bg-success-600 text-white rounded-lg hover:bg-success-700 disabled:opacity-50">
             {saving ? 'Recording…' : 'Record Payment'}
           </button>
         </div>
@@ -812,22 +814,22 @@ function StatusUpdateModal({ invoice, onClose, onSaved }) {
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
         <div className="flex items-center justify-between p-5 border-b">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Update Status</h2>
-            <p className="text-sm text-slate-500 mt-0.5">{invoice.invoice_number} &middot; {invoice.client_name}</p>
+            <h2 className="text-lg font-semibold text-neutral-900">Update Status</h2>
+            <p className="text-sm text-neutral-500 mt-0.5">{invoice.invoice_number} &middot; {invoice.client_name}</p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">&#10005;</button>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600">&#10005;</button>
         </div>
         <div className="p-5 space-y-4">
-          {error && <div className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{error}</div>}
+          {error && <div className="text-sm text-danger-600 bg-danger-500/10 p-3 rounded-lg">{error}</div>}
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Current Status</label>
-            <span className={`text-xs font-medium px-2 py-1 rounded-full ${STATUS_BADGE[invoice.status] || 'bg-slate-100 text-slate-600'}`}>
+            <label className="block text-xs font-medium text-neutral-700 mb-1">Current Status</label>
+            <span className={`text-xs font-medium px-2 py-1 rounded-full ${STATUS_BADGE[invoice.status] || 'bg-neutral-100 text-neutral-600'}`}>
               {invoice.status?.replace('_', ' ')}
             </span>
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">New Status *</label>
-            <select className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+            <label className="block text-xs font-medium text-neutral-700 mb-1">New Status *</label>
+            <select className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
               {['draft', 'sent', 'paid', 'partially_paid', 'overdue'].map(s => (
                 <option key={s} value={s}>{s.replace('_', ' ')}</option>
@@ -835,20 +837,20 @@ function StatusUpdateModal({ invoice, onClose, onSaved }) {
             </select>
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Amount Paid (&#8377;) <span className="text-slate-400 font-normal">optional</span></label>
-            <input type="number" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+            <label className="block text-xs font-medium text-neutral-700 mb-1">Amount Paid (&#8377;) <span className="text-neutral-400 font-normal">optional</span></label>
+            <input type="number" className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               placeholder="0" value={form.amountPaid} onChange={e => setForm(f => ({ ...f, amountPaid: e.target.value }))} />
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Notes <span className="text-slate-400 font-normal">optional</span></label>
-            <textarea rows={2} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+            <label className="block text-xs font-medium text-neutral-700 mb-1">Notes <span className="text-neutral-400 font-normal">optional</span></label>
+            <textarea rows={2} className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
           </div>
         </div>
         <div className="flex justify-end gap-3 p-5 border-t">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50">Cancel</button>
+          <button onClick={onClose} className="px-4 py-2 text-sm text-neutral-600 border border-neutral-300 rounded-lg hover:bg-neutral-50">Cancel</button>
           <button onClick={handleSave} disabled={saving}
-            className="px-4 py-2 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50">
+            className="px-4 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50">
             {saving ? 'Updating...' : 'Update Status'}
           </button>
         </div>
@@ -870,11 +872,11 @@ function CollectionTab() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="text-center py-12 text-slate-400">Loading collection tracker...</div>;
-  if (error) return <div className="text-center py-12 text-red-500">Error: {error}</div>;
+  if (loading) return <div className="text-center py-12 text-neutral-400">Loading collection tracker...</div>;
+  if (error) return <div className="text-center py-12 text-danger-500">Error: {error}</div>;
   if (!tracker || !tracker.months || tracker.months.length === 0) {
     return (
-      <div className="text-center py-16 text-slate-400">
+      <div className="text-center py-16 text-neutral-400">
         <p className="mb-2">No collection data available</p>
         <p className="text-xs">Generate invoices first to see the collection tracker</p>
       </div>
@@ -891,23 +893,23 @@ function CollectionTab() {
 
   function renderCell(cell) {
     if (!cell || !cell.status || cell.status === 'none') {
-      return <span className="text-slate-300 text-lg">&mdash;</span>;
+      return <span className="text-neutral-300 text-lg">&mdash;</span>;
     }
     if (cell.status === 'paid') {
-      return <span className="text-green-600 text-lg" title="Paid">&#9989;</span>;
+      return <span className="text-success-600 text-lg" title="Paid">&#9989;</span>;
     }
     if (cell.status === 'partially_paid') {
       const paid = cell.amount_paid || 0;
       const total = cell.total_amount || 0;
       return (
         <div className="text-center">
-          <span className="text-amber-500 text-lg" title="Partially Paid">&#128993;</span>
-          <div className="text-xs text-amber-600 mt-0.5">{fmt(paid)}/{fmt(total)}</div>
+          <span className="text-warning-500 text-lg" title="Partially Paid">&#128993;</span>
+          <div className="text-xs text-warning-600 mt-0.5">{fmt(paid)}/{fmt(total)}</div>
         </div>
       );
     }
     // overdue, sent, draft — unpaid
-    return <span className="text-red-500 text-lg" title={cell.status}>&#10060;</span>;
+    return <span className="text-danger-500 text-lg" title={cell.status}>&#10060;</span>;
   }
 
   // Compute totals per month
@@ -924,26 +926,26 @@ function CollectionTab() {
   });
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+    <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden">
       <table className="w-full">
-        <thead className="bg-slate-50 border-b border-slate-200">
+        <thead className="bg-neutral-50 border-b border-neutral-200">
           <tr>
-            <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide min-w-[200px]">Client</th>
+            <th className="text-left px-4 py-3 text-xs font-semibold text-neutral-500 uppercase tracking-wide min-w-[200px]">Client</th>
             {months.map((m, i) => (
-              <th key={i} className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">{monthLabel(m)}</th>
+              <th key={i} className="text-center px-4 py-3 text-xs font-semibold text-neutral-500 uppercase tracking-wide">{monthLabel(m)}</th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100">
+        <tbody className="divide-y divide-neutral-100">
           {clients.length === 0 && (
-            <tr><td colSpan={months.length + 1} className="text-center py-12 text-slate-400">No clients with invoices</td></tr>
+            <tr><td colSpan={months.length + 1} className="text-center py-12 text-neutral-400">No clients with invoices</td></tr>
           )}
           {clients.map((c, ci) => (
-            <tr key={ci} className="hover:bg-slate-50 transition-colors">
+            <tr key={ci} className="hover:bg-neutral-50 transition-colors">
               <td className="px-4 py-3">
-                <div className="text-sm font-medium text-slate-800">{c.client_name}</div>
+                <div className="text-sm font-medium text-neutral-800">{c.client_name}</div>
                 {c.retainer_amount ? (
-                  <div className="text-xs text-slate-400">{fmt(c.retainer_amount)}/mo</div>
+                  <div className="text-xs text-neutral-400">{fmt(c.retainer_amount)}/mo</div>
                 ) : null}
               </td>
               {months.map((m, mi) => (
@@ -954,13 +956,13 @@ function CollectionTab() {
             </tr>
           ))}
           {/* Totals row */}
-          <tr className="bg-slate-50 border-t-2 border-slate-300 font-semibold">
-            <td className="px-4 py-3 text-sm text-slate-700">Totals</td>
+          <tr className="bg-neutral-50 border-t-2 border-neutral-300 font-semibold">
+            <td className="px-4 py-3 text-sm text-neutral-700">Totals</td>
             {monthTotals.map((t, i) => (
               <td key={i} className="px-4 py-3 text-center">
-                <div className="text-xs text-slate-500">Expected: {fmt(t.expected)}</div>
-                <div className="text-xs text-green-600">Collected: {fmt(t.collected)}</div>
-                <div className="text-xs text-red-500">Due: {fmt(t.due)}</div>
+                <div className="text-xs text-neutral-500">Expected: {fmt(t.expected)}</div>
+                <div className="text-xs text-success-600">Collected: {fmt(t.collected)}</div>
+                <div className="text-xs text-danger-500">Due: {fmt(t.due)}</div>
               </td>
             ))}
           </tr>
@@ -991,13 +993,13 @@ function RetainersTab() {
     } catch (e) { setMsg(`Error: ${e.message}`); }
   }
 
-  if (loading) return <div className="text-center py-12 text-slate-400">Loading retainers...</div>;
+  if (loading) return <div className="text-center py-12 text-neutral-400">Loading retainers...</div>;
 
   return (
     <div>
-      {msg && <div className="mb-4 bg-sky-50 border border-sky-200 rounded-xl p-3 text-sm text-sky-700">{msg}</div>}
+      {msg && <div className="mb-4 bg-primary-50 border border-primary-200 rounded-xl p-3 text-sm text-primary-700">{msg}</div>}
       {retainers.length === 0 ? (
-        <div className="text-center py-16 text-slate-400">
+        <div className="text-center py-16 text-neutral-400">
           <p className="mb-2">No retainers yet</p>
           <p className="text-xs">Create a retainer to auto-generate monthly invoices</p>
         </div>
@@ -1007,26 +1009,26 @@ function RetainersTab() {
             const items = r.line_items || [];
             const total = items.reduce((s, i) => s + (i.amount || 0), 0);
             return (
-              <div key={r.id} className="bg-white rounded-xl border border-slate-200 p-5">
+              <div key={r.id} className="bg-white rounded-xl border border-neutral-200 p-5">
                 <div className="flex items-start justify-between mb-3">
                   <div>
-                    <h3 className="font-semibold text-slate-800">{r.client_name}</h3>
-                    <p className="text-xs text-slate-400 font-mono">{r.retainer_number}</p>
+                    <h3 className="font-semibold text-neutral-800">{r.client_name}</h3>
+                    <p className="text-xs text-neutral-400 font-mono">{r.retainer_number}</p>
                   </div>
                   <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                    r.status === 'active' ? 'bg-green-100 text-green-700' :
-                    r.status === 'paused' ? 'bg-amber-100 text-amber-700' :
-                    'bg-slate-100 text-slate-400'
+                    r.status === 'active' ? 'bg-success-500/10 text-success-700' :
+                    r.status === 'paused' ? 'bg-warning-500/10 text-warning-700' :
+                    'bg-neutral-100 text-neutral-400'
                   }`}>{r.status}</span>
                 </div>
-                <div className="text-sm text-slate-600 space-y-1 mb-3">
+                <div className="text-sm text-neutral-600 space-y-1 mb-3">
                   <div className="flex justify-between"><span>Monthly value</span><span className="font-semibold">{fmt(total)}</span></div>
                   <div className="flex justify-between"><span>Billing day</span><span>{r.billing_day || 1}st of month</span></div>
                   <div className="flex justify-between"><span>Tax type</span><span>{r.tax_type === 'igst' ? 'IGST 18%' : r.tax_type === 'cgst_sgst' ? 'CGST+SGST' : 'No Tax'}</span></div>
                 </div>
                 {r.status === 'active' && (
                   <button onClick={() => handleGenerate(r.id, r.client_name)}
-                    className="w-full text-center text-xs font-medium px-3 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700">
+                    className="w-full text-center text-xs font-medium px-3 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700">
                     Generate Invoice
                   </button>
                 )}
@@ -1152,56 +1154,57 @@ export default function BillingPage() {
   });
 
   return (
-    <div className="flex h-screen bg-slate-50">
+    <div className="flex h-screen bg-neutral-50">
       <Sidebar />
       <main className="flex-1 overflow-y-auto p-8">
         {/* Header */}
         <div className="flex items-start justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Billing & Retainers</h1>
-            <p className="text-slate-500 mt-1 text-sm">Monthly recurring revenue and invoice management</p>
+            <h1 className="text-2xl font-bold text-neutral-900">Billing & Retainers</h1>
+            <p className="text-neutral-500 mt-1 text-sm">Monthly recurring revenue and invoice management</p>
           </div>
           <div className="flex items-center gap-3">
-            {msg && <span className="text-sm text-slate-600">{msg}</span>}
+            {msg && <span className="text-sm text-neutral-600">{msg}</span>}
             <button onClick={handleGenerate} disabled={generating}
-              className="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-100 disabled:opacity-50 flex items-center gap-2">
+              className="px-4 py-2 text-sm border border-neutral-300 text-neutral-700 rounded-lg hover:bg-neutral-100 disabled:opacity-50 flex items-center gap-2">
               {generating ? '⏳' : '🔄'} Generate Drafts
             </button>
             <button onClick={() => { setEditInvoice(null); setShowInvoiceModal(true); }}
-              className="px-4 py-2 text-sm bg-slate-800 text-white rounded-lg hover:bg-slate-700 flex items-center gap-1.5">
+              className="px-4 py-2 text-sm bg-neutral-800 text-white rounded-lg hover:bg-neutral-700 flex items-center gap-1.5">
               + New Invoice
             </button>
             <button onClick={() => { setEditClient(null); setShowClientModal(true); }}
-              className="px-4 py-2 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 flex items-center gap-1.5">
+              className="px-4 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 flex items-center gap-1.5">
               + Add Client
             </button>
           </div>
         </div>
 
-        {/* Stats */}
+        {/* Stats — 3 primary-accented tiles + Outstanding in danger-red per spec */}
         {stats && (
           <div className="grid grid-cols-4 gap-4 mb-6">
             {[
-              { label: 'Monthly MRR', value: fmt(stats.totalMrr), color: 'text-sky-600', sub: 'active retainers' },
-              { label: 'Collected this month', value: fmt(stats.collectedThisMonth), color: 'text-green-600', sub: 'payments received' },
-              { label: 'Outstanding', value: fmt(stats.outstanding), color: stats.outstanding > 0 ? 'text-amber-600' : 'text-slate-600', sub: `${stats.overdueCount} overdue` },
-              { label: 'Annual Run Rate', value: fmt(stats.annualRunRate), color: 'text-purple-600', sub: 'MRR × 12' },
+              { label: 'Monthly MRR', value: fmt(stats.totalMrr), color: 'text-primary-600', bar: 'bg-primary-500', sub: 'active retainers' },
+              { label: 'Collected this month', value: fmt(stats.collectedThisMonth), color: 'text-success-600', bar: 'bg-primary-500', sub: 'payments received' },
+              { label: 'Outstanding', value: fmt(stats.outstanding), color: stats.outstanding > 0 ? 'text-danger-600' : 'text-neutral-600', bar: stats.outstanding > 0 ? 'bg-danger-500' : 'bg-primary-500', sub: `${stats.overdueCount} overdue` },
+              { label: 'Annual Run Rate', value: fmt(stats.annualRunRate), color: 'text-primary-600', bar: 'bg-primary-500', sub: 'MRR × 12' },
             ].map((card) => (
-              <div key={card.label} className="bg-white rounded-xl border border-slate-200 p-5">
-                <p className="text-xs text-slate-500 font-medium">{card.label}</p>
-                <p className={`text-2xl font-bold mt-1 ${card.color}`}>{card.value}</p>
-                <p className="text-xs text-slate-400 mt-1">{card.sub}</p>
+              <div key={card.label} className="relative overflow-hidden bg-white rounded-lg border border-neutral-200 shadow-card p-5">
+                <span className={`absolute top-0 inset-x-0 h-[3px] ${card.bar}`} />
+                <p className="text-[12.5px] text-neutral-500 font-medium">{card.label}</p>
+                <p className={`text-[28px] leading-none font-bold mt-1.5 ${card.color}`}>{card.value}</p>
+                <p className="text-xs text-neutral-400 mt-2">{card.sub}</p>
               </div>
             ))}
           </div>
         )}
 
         {/* Tabs */}
-        <div className="flex gap-1 mb-5 border-b border-slate-200">
+        <div className="flex gap-1 mb-5 border-b border-neutral-200">
           {[['invoices', 'Invoices'], ['retainers', 'Retainers'], ['clients', 'Clients'], ['payments', 'Payments'], ['collection', 'Collection']].map(([id, label]) => (
             <button key={id} onClick={() => setTab(id)}
               className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-                tab === id ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800'
+                tab === id ? 'border-primary-600 text-primary-600' : 'border-transparent text-neutral-500 hover:text-neutral-800'
               }`}>
               {label}
             </button>
@@ -1209,7 +1212,7 @@ export default function BillingPage() {
         </div>
 
         {loading ? (
-          <div className="text-center py-16 text-slate-400">Loading…</div>
+          <div className="text-center py-16 text-neutral-400">Loading…</div>
         ) : (
           <>
             {/* ── INVOICES TAB ── */}
@@ -1218,68 +1221,68 @@ export default function BillingPage() {
                 <div className="flex items-center gap-3 mb-4">
                   <div className="relative flex-1 max-w-xs">
                     <input placeholder="Search client or invoice #" value={search} onChange={e => setSearch(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500" />
-                    <svg className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      className="w-full pl-9 pr-3 py-2 text-sm border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" />
+                    <svg className="absolute left-3 top-2.5 w-4 h-4 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                     </svg>
                   </div>
                   {['', 'draft', 'sent', 'paid', 'partially_paid', 'overdue', 'cancelled'].map(s => (
                     <button key={s} onClick={() => setFilterStatus(s)}
                       className={`px-3 py-1.5 text-xs rounded-full font-medium transition-colors ${
-                        filterStatus === s ? 'bg-sky-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        filterStatus === s ? 'bg-primary-600 text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
                       }`}>
                       {s === '' ? 'All' : s.replace('_', ' ')}
                     </button>
                   ))}
                 </div>
 
-                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden">
                   <table className="w-full">
-                    <thead className="bg-slate-50 border-b border-slate-200">
+                    <thead className="bg-neutral-50 border-b border-neutral-200">
                       <tr>
                         {['Invoice #', 'Client', 'Date', 'Due', 'Amount', 'Tax', 'Status', 'Actions'].map(h => (
-                          <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">{h}</th>
+                          <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-neutral-500 uppercase tracking-wide">{h}</th>
                         ))}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y divide-neutral-100">
                       {filtered.length === 0 && (
-                        <tr><td colSpan={8} className="text-center py-12 text-slate-400">No invoices found</td></tr>
+                        <tr><td colSpan={8} className="text-center py-12 text-neutral-400">No invoices found</td></tr>
                       )}
                       {filtered.map(inv => (
-                        <tr key={inv.id} className="hover:bg-slate-50 transition-colors">
+                        <tr key={inv.id} className="hover:bg-neutral-50 transition-colors">
                           <td className="px-4 py-3">
-                            <div className="text-sm font-mono text-slate-700 font-medium">{inv.invoice_number}</div>
+                            <div className="text-sm font-mono text-primary-700 font-medium">{inv.invoice_number}</div>
                             {inv.service_description && (
-                              <div className="text-[11px] text-slate-500 mt-0.5 max-w-[260px] truncate" title={inv.service_description}>
+                              <div className="text-[11px] text-neutral-500 mt-0.5 max-w-[260px] truncate" title={inv.service_description}>
                                 {inv.service_description}
                               </div>
                             )}
                           </td>
                           <td className="px-4 py-3">
-                            <div className="text-sm font-medium text-slate-800">{inv.client_name}</div>
-                            {inv.client_contact_person && <div className="text-xs text-slate-400">{inv.client_contact_person}</div>}
+                            <div className="text-sm font-medium text-neutral-800">{inv.client_name}</div>
+                            {inv.client_contact_person && <div className="text-xs text-neutral-400">{inv.client_contact_person}</div>}
                           </td>
-                          <td className="px-4 py-3 text-sm text-slate-600">{fmtDate(inv.invoice_date)}</td>
-                          <td className="px-4 py-3 text-sm text-slate-600">
+                          <td className="px-4 py-3 text-sm text-neutral-600">{fmtDate(inv.invoice_date)}</td>
+                          <td className="px-4 py-3 text-sm text-neutral-600">
                             {fmtDate(inv.due_date)}
                             {inv.status === 'overdue' && (
-                              <div className="text-xs text-red-500 font-medium">{daysOverdue(inv.due_date)}d overdue</div>
+                              <div className="text-xs text-danger-500 font-medium">{daysOverdue(inv.due_date)}d overdue</div>
                             )}
                           </td>
                           <td className="px-4 py-3">
-                            <div className="text-sm font-semibold text-slate-800">{fmt(inv.total_amount)}</div>
+                            <div className="text-sm font-semibold text-neutral-800">{fmt(inv.total_amount)}</div>
                             {inv.status === 'partially_paid' && (
-                              <div className="text-xs text-amber-600">Due: {fmt(inv.amount_due)}</div>
+                              <div className="text-xs text-warning-600">Due: {fmt(inv.amount_due)}</div>
                             )}
                           </td>
                           <td className="px-4 py-3">
-                            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${inv.tax_type === 'igst' ? 'bg-purple-100 text-purple-700' : inv.tax_type === 'cgst_sgst' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>
+                            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${inv.tax_type === 'igst' ? 'bg-primary-100 text-primary-700' : inv.tax_type === 'cgst_sgst' ? 'bg-primary-100 text-primary-700' : 'bg-neutral-100 text-neutral-500'}`}>
                               {inv.tax_type === 'igst' ? 'IGST' : inv.tax_type === 'cgst_sgst' ? 'CGST+SGST' : 'No Tax'}
                             </span>
                           </td>
                           <td className="px-4 py-3">
-                            <span className={`text-xs font-medium px-2 py-1 rounded-full ${STATUS_BADGE[inv.status] || 'bg-slate-100 text-slate-600'}`}>
+                            <span className={`text-xs font-medium px-2 py-1 rounded-full ${STATUS_BADGE[inv.status] || 'bg-neutral-100 text-neutral-600'}`}>
                               {inv.status === 'paid' ? `✓ Paid ${fmtDate(inv.paid_at)}` :
                                inv.status === 'partially_paid' ? 'Partial' :
                                inv.status?.replace('_', ' ')}
@@ -1294,20 +1297,20 @@ export default function BillingPage() {
                                 } catch { setEditInvoice({ ...inv }); }
                                 setShowInvoiceModal(true);
                               }}
-                                className="p-1.5 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded" title="Edit">
+                                className="p-1.5 text-neutral-400 hover:text-primary-600 hover:bg-primary-50 rounded" title="Edit">
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                 </svg>
                               </button>
                               <button onClick={() => handleDownloadPDF(inv.id, inv.invoice_number)}
-                                className="p-1.5 text-slate-400 hover:text-orange-600 hover:bg-orange-50 rounded" title="Download PDF">
+                                className="p-1.5 text-neutral-400 hover:text-accent-600 hover:bg-accent-50 rounded" title="Download PDF">
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                 </svg>
                               </button>
                               {['draft', 'overdue'].includes(inv.status) && (
                                 <button onClick={() => handleMarkSent(inv.id)}
-                                  className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="Mark Sent">
+                                  className="p-1.5 text-neutral-400 hover:text-primary-600 hover:bg-primary-50 rounded" title="Mark Sent">
                                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                                   </svg>
@@ -1315,7 +1318,7 @@ export default function BillingPage() {
                               )}
                               {['sent', 'partially_paid', 'overdue'].includes(inv.status) && (
                                 <button onClick={() => setPaymentInvoice(inv)}
-                                  className="p-1.5 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded" title="Record Payment">
+                                  className="p-1.5 text-neutral-400 hover:text-success-600 hover:bg-success-500/10 rounded" title="Record Payment">
                                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                                   </svg>
@@ -1323,7 +1326,7 @@ export default function BillingPage() {
                               )}
                               {inv.status !== 'cancelled' && (
                                 <button onClick={() => setStatusInvoice(inv)}
-                                  className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded" title="Update Status">
+                                  className="p-1.5 text-neutral-400 hover:text-primary-600 hover:bg-primary-50 rounded" title="Update Status">
                                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                                   </svg>
@@ -1331,14 +1334,14 @@ export default function BillingPage() {
                               )}
                               {inv.status === 'cancelled' ? (
                                 <button onClick={() => handleDelete(inv.id)}
-                                  className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded" title="Delete permanently">
+                                  className="p-1.5 text-neutral-400 hover:text-danger-500 hover:bg-danger-500/10 rounded" title="Delete permanently">
                                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                   </svg>
                                 </button>
                               ) : inv.status !== 'paid' ? (
                                 <button onClick={() => handleCancel(inv.id)}
-                                  className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded" title="Cancel">
+                                  className="p-1.5 text-neutral-400 hover:text-danger-500 hover:bg-danger-500/10 rounded" title="Cancel">
                                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                   </svg>
@@ -1356,18 +1359,18 @@ export default function BillingPage() {
 
             {/* ── CLIENTS TAB ── */}
             {tab === 'clients' && (
-              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden">
                 <table className="w-full">
-                  <thead className="bg-slate-50 border-b border-slate-200">
+                  <thead className="bg-neutral-50 border-b border-neutral-200">
                     <tr>
                       {['Client', 'Contact', 'Services', 'Retainer/mo', 'Tax Type', 'Invoice Day', 'Status', 'Actions'].map(h => (
-                        <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">{h}</th>
+                        <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-neutral-500 uppercase tracking-wide">{h}</th>
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-neutral-100">
                     {clients.length === 0 && (
-                      <tr><td colSpan={8} className="text-center py-12 text-slate-400">No clients yet</td></tr>
+                      <tr><td colSpan={8} className="text-center py-12 text-neutral-400">No clients yet</td></tr>
                     )}
                     {clients.map(c => {
                       const serviceChips = Array.isArray(c.services) && c.services.length > 0
@@ -1377,47 +1380,47 @@ export default function BillingPage() {
                             .map(s => s.trim())
                             .filter(Boolean);
                       return (
-                        <tr key={c.id} className="hover:bg-slate-50">
+                        <tr key={c.id} className="hover:bg-neutral-50">
                           <td className="px-4 py-3">
-                            <div className="text-sm font-medium text-slate-800">{c.name}</div>
-                            {c.gstin && <div className="text-xs text-slate-400 font-mono">{c.gstin}</div>}
+                            <div className="text-sm font-medium text-neutral-800">{c.name}</div>
+                            {c.gstin && <div className="text-xs text-neutral-400 font-mono">{c.gstin}</div>}
                           </td>
                           <td className="px-4 py-3">
-                            <div className="text-sm text-slate-600">{c.contactPerson || '—'}</div>
-                            {c.email && <div className="text-xs text-slate-400">{c.email}</div>}
+                            <div className="text-sm text-neutral-600">{c.contactPerson || '—'}</div>
+                            {c.email && <div className="text-xs text-neutral-400">{c.email}</div>}
                           </td>
                           <td className="px-4 py-3">
                             {serviceChips.length === 0 ? (
-                              <span className="text-xs text-slate-400">—</span>
+                              <span className="text-xs text-neutral-400">—</span>
                             ) : (
                               <div className="flex flex-wrap gap-1 max-w-[220px]">
                                 {serviceChips.map((s, i) => (
-                                  <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 font-medium whitespace-nowrap">
+                                  <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-primary-50 text-primary-700 font-medium whitespace-nowrap">
                                     {s}
                                   </span>
                                 ))}
                               </div>
                             )}
                           </td>
-                          <td className="px-4 py-3 text-sm font-semibold text-slate-800">{fmt(c.retainerAmount)}</td>
+                          <td className="px-4 py-3 text-sm font-semibold text-neutral-800">{fmt(c.retainerAmount)}</td>
                           <td className="px-4 py-3">
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.isGst ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.isGst ? 'bg-success-500/10 text-success-700' : 'bg-neutral-100 text-neutral-500'}`}>
                               {c.isGst ? (c.taxType === 'igst' ? 'IGST' : 'CGST+SGST') : 'Non-GST'}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-sm text-slate-600">{c.invoiceDayOfMonth || 1}st</td>
+                          <td className="px-4 py-3 text-sm text-neutral-600">{c.invoiceDayOfMonth || 1}st</td>
                           <td className="px-4 py-3">
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.isActive ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-400'}`}>
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.isActive ? 'bg-success-500/10 text-success-700' : 'bg-neutral-100 text-neutral-400'}`}>
                               {c.isActive ? 'Active' : 'Inactive'}
                             </span>
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2">
                               <button onClick={() => { setEditClient(c); setShowClientModal(true); }}
-                                className="text-xs text-sky-600 hover:underline">Edit</button>
+                                className="text-xs text-primary-600 hover:underline">Edit</button>
                               {c.isActive && (
                                 <button onClick={() => handleDeleteClient(c.id)}
-                                  className="text-xs text-red-400 hover:text-red-600 hover:underline">Deactivate</button>
+                                  className="text-xs text-danger-500 hover:text-danger-600 hover:underline">Deactivate</button>
                               )}
                             </div>
                           </td>
@@ -1434,27 +1437,27 @@ export default function BillingPage() {
 
             {/* ── PAYMENTS TAB ── */}
             {tab === 'payments' && (
-              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden">
                 <table className="w-full">
-                  <thead className="bg-slate-50 border-b border-slate-200">
+                  <thead className="bg-neutral-50 border-b border-neutral-200">
                     <tr>
                       {['Date', 'Client', 'Invoice', 'Amount', 'Mode', 'Reference'].map(h => (
-                        <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">{h}</th>
+                        <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-neutral-500 uppercase tracking-wide">{h}</th>
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-neutral-100">
                     {paymentsList.length === 0 && (
-                      <tr><td colSpan={6} className="text-center py-12 text-slate-400">No payments recorded</td></tr>
+                      <tr><td colSpan={6} className="text-center py-12 text-neutral-400">No payments recorded</td></tr>
                     )}
                     {paymentsList.map(p => (
-                      <tr key={p.id} className="hover:bg-slate-50">
-                        <td className="px-4 py-3 text-sm text-slate-600">{fmtDate(p.payment_date)}</td>
-                        <td className="px-4 py-3 text-sm font-medium text-slate-800">{p.client_name}</td>
-                        <td className="px-4 py-3 text-sm font-mono text-slate-600">{p.invoice_number}</td>
-                        <td className="px-4 py-3 text-sm font-semibold text-green-600">{fmt(p.amount)}</td>
-                        <td className="px-4 py-3 text-sm text-slate-600 capitalize">{(p.payment_mode || '').replace('_', ' ')}</td>
-                        <td className="px-4 py-3 text-sm text-slate-500 font-mono">{p.reference || '—'}</td>
+                      <tr key={p.id} className="hover:bg-neutral-50">
+                        <td className="px-4 py-3 text-sm text-neutral-600">{fmtDate(p.payment_date)}</td>
+                        <td className="px-4 py-3 text-sm font-medium text-neutral-800">{p.client_name}</td>
+                        <td className="px-4 py-3 text-sm font-mono text-neutral-600">{p.invoice_number}</td>
+                        <td className="px-4 py-3 text-sm font-semibold text-success-600">{fmt(p.amount)}</td>
+                        <td className="px-4 py-3 text-sm text-neutral-600 capitalize">{(p.payment_mode || '').replace('_', ' ')}</td>
+                        <td className="px-4 py-3 text-sm text-neutral-500 font-mono">{p.reference || '—'}</td>
                       </tr>
                     ))}
                   </tbody>
