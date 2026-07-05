@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-05T19:47:37.428Z_
+_Generated: 2026-07-05T19:58:17.994Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -11,19 +11,25 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 ## Repository
 
 - **Repo**: growth-escalators-backend-v2
-- **Branch**: `main`
-- **Last commit**: 103e274 feat(wizmatch): India relevance foundation (scoring, matching, ingestion) (15 hours ago)
-- **Uncommitted changes**: 19 file(s)
+- **Branch**: `ai/collaboration-setup`
+- **Last commit**: d0ab81c chore(ai): add AI collaboration layer (AGENTS.md, .ai/, docs scaffolding, ai:brief) (8 minutes ago)
+- **Uncommitted changes**: 15 file(s)
 
 ## Current task
 
-CURRENT_TASK.md
+**AI collaboration layer setup** — establishing the persistent, chat-independent context
+scaffolding for this repo (`AGENTS.md`, `CLAUDE.md` import, `.ai/` files, `docs/` folders,
+and the `ai:brief` generator script).
+
+Scope is **documentation + tooling only**. No production app logic, database schema, admin
+UI, deployment config, or API behaviour is changed by this task.
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
 
 ## Recent commits
 
 ```
+d0ab81c chore(ai): add AI collaboration layer (AGENTS.md, .ai/, docs scaffolding, ai:brief)
 103e274 feat(wizmatch): India relevance foundation (scoring, matching, ingestion)
 db0ff78 chore(admin): rebuild public/admin — Requirements page
 c1340b5 feat(admin): Wizmatch Requirements page
@@ -33,7 +39,6 @@ f0aa639 feat(wizmatch): wire placements into the CRM deals/pipeline layer
 45ac3ed fix(wizmatch): unbreak signals list + stalled automation pipeline
 0ef9edd chore(admin): rebuild public/admin — Wizmatch 3a/3b Fluent output
 b991c16 style(admin): restyle WizmatchPlacementsPage to Fluent 3b spec + wire up Add Placement
-59a5b6e style(admin): restyle WizmatchCandidatesPage to Fluent 3a spec
 ```
 
 ## npm scripts
@@ -63,7 +68,15 @@ b991c16 style(admin): restyle WizmatchPlacementsPage to Fluent 3b spec + wire up
 ## Context layer files (tracked)
 
 ```
-
+.ai/AI_BRIEF.md
+.ai/CURRENT_STATE.md
+.ai/CURRENT_TASK.md
+.ai/HANDOFF_LOG.md
+.ai/REVIEW_CHECKLIST.md
+.ai/TOOL_ROLES.md
+docs/decisions/.gitkeep
+docs/prd/.gitkeep
+docs/reviews/.gitkeep
 ```
 
 ## Where to read next

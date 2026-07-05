@@ -49,11 +49,21 @@ function npmScripts(): string {
   }
 }
 
-function firstHeadingLines(relPath: string, max = 1): string {
+/**
+ * Extracts the body text under a named `## <heading>` section of a markdown file
+ * (e.g. the "Active task" section of .ai/CURRENT_TASK.md), stopping at the next
+ * heading. Falls back to the fallback string if the heading isn't found.
+ */
+function sectionBody(relPath: string, heading: string, fallback = ''): string {
   const body = readRepoFile(relPath);
-  if (!body) return '';
-  const line = body.split('\n').find((l) => l.trim().length > 0) ?? '';
-  return line.replace(/^#+\s*/, '').trim();
+  if (!body) return fallback;
+  const lines = body.split('\n');
+  const startIdx = lines.findIndex((l) => l.trim().toLowerCase() === `## ${heading}`.toLowerCase());
+  if (startIdx === -1) return fallback;
+  const rest = lines.slice(startIdx + 1);
+  const endIdx = rest.findIndex((l) => l.trim().startsWith('#'));
+  const section = (endIdx === -1 ? rest : rest.slice(0, endIdx)).join('\n').trim();
+  return section || fallback;
 }
 
 const generatedAt = new Date().toISOString();
@@ -82,7 +92,7 @@ chat can rebuild context from the repo alone. For durable guidance read \`AGENTS
 
 ## Current task
 
-${firstHeadingLines('.ai/CURRENT_TASK.md') || '(see .ai/CURRENT_TASK.md)'}
+${sectionBody('.ai/CURRENT_TASK.md', 'Active task', '(see .ai/CURRENT_TASK.md)')}
 
 > Full detail in [\`.ai/CURRENT_TASK.md\`](CURRENT_TASK.md) · state in [\`.ai/CURRENT_STATE.md\`](CURRENT_STATE.md)
 

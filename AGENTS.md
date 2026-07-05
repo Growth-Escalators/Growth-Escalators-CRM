@@ -14,15 +14,31 @@ alone, without relying on prior conversation history.
 - **Live**: `crm.growthescalators.com` (CRM) · `api.growthescalators.com` (API) · `ecom.growthescalators.com` (D2C, Vercel)
 - **Local**: `~/repo-comparison/v2`
 - **Stack**: Node 20 · Express · TypeScript · Drizzle (Postgres) · Vitest · React (admin + client SPAs)
-- **Deploy**: two Railway services (`web` + `worker`); auto-deploys on push to `main`.
+- **Deploy**: Railway, auto-deploys on push to `main`. Repo-local docs describe an Express +
+  Socket.io + node-cron process that can run standalone (`DISABLE_BACKGROUND_JOBS=true` for
+  API-only mode); production may split this into separate `web` + `worker` Railway services if
+  configured that way in the Railway UI. **Verify actual Railway topology before changing any
+  deployment or worker assumption** — don't take "two services" as given.
 
 ## Before you start any task
 
-1. `git pull origin main` — the repo auto-deploys, so stale local state is dangerous.
-2. Read `.ai/CURRENT_TASK.md` — what is actively being worked on.
-3. Skim `.ai/CURRENT_STATE.md` — the last-known-good snapshot.
-4. Regenerate the brief if in doubt: `npm run ai:brief` (writes `.ai/AI_BRIEF.md` from local repo facts only).
-5. For deeper context, read `CLAUDE.md` and the `docs/` reference set.
+1. Inspect state first, don't assume: `git branch --show-current` and `git status --short`.
+2. `git fetch origin` for freshness. Only run `git pull origin main` when you are intentionally
+   on `main` **and** the working tree is clean. Never pull, merge, or rebase while unrelated
+   dirty files exist — investigate and preserve them first (see dirty-worktree rule below).
+3. Read `.ai/CURRENT_TASK.md` — what is actively being worked on.
+4. Skim `.ai/CURRENT_STATE.md` — the last-known-good snapshot.
+5. Regenerate the brief if in doubt: `npm run ai:brief` (writes `.ai/AI_BRIEF.md` from local repo facts only).
+6. For deeper context, read `CLAUDE.md` and the `docs/` reference set.
+
+## Dirty-worktree protection
+
+- Preserve unrelated user changes. Do not stage, commit, delete, reformat, or "clean up" files
+  that aren't part of the task you were given.
+- Never run destructive git commands (`git reset --hard`, `git clean`, `git checkout -- .`, etc.)
+  unless the user explicitly instructs it for that exact operation.
+- Every commit includes only the files relevant to the task at hand — check `git status` and
+  `git diff --stat` before committing and stage by path, not with `git add -A` / `git add .`.
 
 ## Where context lives (`.ai/`)
 
@@ -45,6 +61,10 @@ alone, without relying on prior conversation history.
 - **Report faithfully.** If tests fail, say so with output. If a step was skipped, say that.
 - **Leave a trail.** After a completed unit, append to `.ai/HANDOFF_LOG.md` and update
   `.ai/CURRENT_TASK.md` / `.ai/CURRENT_STATE.md` as needed so the next agent (or chat) can pick up cold.
+- **Commit discipline.** Commit only when explicitly asked, or when the current task's scope
+  clearly calls for it. **Never push without explicit human confirmation**, and never push to
+  `main` unless explicitly approved for that specific push — this repo auto-deploys on push,
+  so pushes are production-sensitive.
 
 ## Load-bearing invariants (always apply)
 

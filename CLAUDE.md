@@ -31,7 +31,9 @@ split in [`.ai/TOOL_ROLES.md`](.ai/TOOL_ROLES.md)):
 - **Local**: `~/repo-comparison/v2`
 - **Stack**: Node 20 · Express · TypeScript · Drizzle (Postgres) · Vitest · React (admin + client SPAs)
 
-Before any session: `git pull origin main`. The repo auto-deploys on push.
+Before any session: check `git branch --show-current` and `git status --short`; `git fetch origin`
+for freshness; only `git pull origin main` when intentionally on `main` with a clean tree. The
+repo auto-deploys on push to `main` — pushes are production-sensitive.
 
 ## Reference docs
 
@@ -84,7 +86,9 @@ When the user mentions "content frontend" or "rendering workflow", work in the r
 ## Execution defaults
 
 - Proceed without asking confirmation. Auto-fix errors that surface during your own work.
-- Run tasks fully to completion. Commit and push after each coherent unit of change.
+- Run tasks fully to completion. Commit only when explicitly asked or when the task's scope
+  clearly calls for it; never push without explicit human confirmation, and never push to
+  `main` unless explicitly approved for that push — production deploys are sensitive.
 - After completing a change: recap what changed, how to test it, what else was touched.
 - **Exception**: pause and confirm before edits to `src/db/schema.ts`, `src/middleware/auth.ts`, `src/middleware/rbac.ts`, or `src/routes/cashfree.ts` — these match the "Don't touch without asking" table and the autonomy default does not override it.
 
