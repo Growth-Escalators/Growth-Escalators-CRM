@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-05T20:27:40.089Z_
+_Generated: 2026-07-05T20:48:42.717Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -11,25 +11,30 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 ## Repository
 
 - **Repo**: growth-escalators-backend-v2
-- **Branch**: `feature/contact-intelligence-prd`
-- **Last commit**: a7ac996 docs(wizmatch): add contact intelligence PRD (6 minutes ago)
-- **Uncommitted changes**: 4 file(s)
+- **Branch**: `feature/contact-intelligence-phase1-plan`
+- **Last commit**: 8124f6c docs(wizmatch): add contact intelligence phase 1 plan (9 seconds ago)
+- **Uncommitted changes**: 0 file(s)
 
 ## Current task
 
-**Harden Wizmatch Contact Intelligence PRD** - tighten the PRD before any implementation while
-Claude is temporarily unavailable and Codex is acting as implementation lead.
+**Wizmatch Contact Intelligence Phase 1 plan** — create and keep merge-ready a docs-only
+implementation plan for the Phase 1 boundary: deterministic company qualification,
+zero-paid-enrichment rules, internal CRM reuse, manual review workflow, exact scoring/status
+logic, proposed service functions, and proposed tests.
 
-Scope is **documentation/context only**: harden the Contact Intelligence PRD, update task state,
-append the handoff log, and regenerate the AI brief. No production app logic, database schema,
-migrations, API routes, admin/client UI, deployment config, `package.json`, or `package-lock.json`
-changes.
+Scope is **documentation/context only**. No production app logic, database schema, migrations,
+API routes, admin/client UI, deployment config, `package.json`, or `package-lock.json` changes.
+
+The source PRD now lives on `main` at `docs/prd/001-contact-intelligence.md`.
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
 
 ## Recent commits
 
 ```
+8124f6c docs(wizmatch): add contact intelligence phase 1 plan
+4788843 Merge pull request #11 from Growth-Escalators/feature/contact-intelligence-prd
+d7b488a docs(wizmatch): harden contact intelligence PRD
 a7ac996 docs(wizmatch): add contact intelligence PRD
 67adc69 Merge pull request #10 from Growth-Escalators/ai/collaboration-setup
 6939550 chore(ai): clarify Railway docs wording
@@ -37,9 +42,6 @@ dbbf0ea chore(ai): harden collaboration protocol
 d0ab81c chore(ai): add AI collaboration layer (AGENTS.md, .ai/, docs scaffolding, ai:brief)
 103e274 feat(wizmatch): India relevance foundation (scoring, matching, ingestion)
 db0ff78 chore(admin): rebuild public/admin — Requirements page
-c1340b5 feat(admin): Wizmatch Requirements page
-69ee2b8 feat(wizmatch): requirement → branded vendor sheet (backend)
-f0aa639 feat(wizmatch): wire placements into the CRM deals/pipeline layer
 ```
 
 ## npm scripts
@@ -78,6 +80,7 @@ f0aa639 feat(wizmatch): wire placements into the CRM deals/pipeline layer
 docs/decisions/.gitkeep
 docs/decisions/ADR-001-ai-collaboration-workflow.md
 docs/prd/.gitkeep
+docs/prd/001-contact-intelligence-phase1-plan.md
 docs/prd/001-contact-intelligence.md
 docs/reviews/.gitkeep
 docs/reviews/codex-ai-collaboration-review.md
