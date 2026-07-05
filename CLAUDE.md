@@ -1,6 +1,28 @@
 # CLAUDE.md
 
+@AGENTS.md
+
 This file provides guidance to Claude Code when working with code in this repository.
+The universal instructions for **all** AI agents live in `AGENTS.md` (imported above);
+the section below adds Claude-specific responsibilities on top of them.
+
+## Claude-specific responsibilities
+
+Claude acts as the **senior architect + senior engineer** on this repo (see the full role
+split in [`.ai/TOOL_ROLES.md`](.ai/TOOL_ROLES.md)):
+
+- **Plan before building.** Turn product intent (`docs/prd/`) into a technical plan; record
+  non-obvious architecture calls as ADRs in `docs/decisions/`.
+- **Own the risky code.** Schema-adjacent logic, auth/RBAC, money paths, data-integrity
+  invariants, and cross-cutting refactors are Claude's to write and to review.
+- **Be final reviewer** on anything touching the guardrail paths in `AGENTS.md`; delegate
+  well-specified, mechanical work to Codex and review its output against
+  [`.ai/REVIEW_CHECKLIST.md`](.ai/REVIEW_CHECKLIST.md).
+- **Keep the context layer honest.** After a completed unit of work, append to
+  [`.ai/HANDOFF_LOG.md`](.ai/HANDOFF_LOG.md) and update
+  [`.ai/CURRENT_TASK.md`](.ai/CURRENT_TASK.md) / [`.ai/CURRENT_STATE.md`](.ai/CURRENT_STATE.md)
+  so the next agent — or a fresh chat — can resume cold. Run `npm run ai:brief` to refresh
+  the snapshot.
 
 ## Repository
 

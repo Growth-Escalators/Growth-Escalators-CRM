@@ -23,7 +23,8 @@
     "test:coverage": "vitest --run --coverage",
     "build:all": "npm run client:build && npm run admin:build && npm run build",
     "seo:doctor": "npx tsx scripts/seo-doctor.ts",
-    "db:sizes": "npx tsx scripts/db-table-sizes.ts"
+    "db:sizes": "npx tsx scripts/db-table-sizes.ts",
+    "ai:brief": "tsx scripts/generate-ai-brief.ts"
   },
   "keywords": [],
   "author": "",
