@@ -37,7 +37,7 @@ repo auto-deploys on push to `main` — pushes are production-sensitive.
 
 ## Reference docs
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — two-process Railway split, routes/services, SPAs, landing-page resilience
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Railway process topology, routes/services, SPAs, landing-page resilience
 - [`docs/DATABASE.md`](docs/DATABASE.md) — schema lifecycle, Drizzle migrations, `ensure*` hooks, multi-tenancy
 - [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — Railway + Vercel build gotchas, Cashfree edge gotchas, pre-deploy checklist
 - [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) — logging, constants, contact normalisation, commit style
