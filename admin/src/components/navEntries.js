@@ -175,6 +175,11 @@ export const NAV_ENTRIES = [
 
   // ── WIZMATCH STAFFING ─────────────────────────────────────────
   {
+    id: 'wm-requirements', label: 'Requirements', to: '/wizmatch/requirements',
+    icon: FileText, section: 'Wizmatch', group: null,
+    visible: f => f.canWizmatch,
+  },
+  {
     id: 'wm-signals', label: 'Job Signals', to: '/wizmatch/signals',
     icon: Radar, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
