@@ -1,9 +1,15 @@
-name: Wizmatch Naukri Candidate Scraper
+name: Wizmatch India Job Signals (Naukri)
+
+# Scrapes India IT job listings from Naukri search pages and ingests them as
+# wizmatch_job_signals (source=naukri) via the real /signals/ingest endpoint.
+# Previously this logged candidates with placeholder emails and never ingested
+# anything — Naukri search pages are JOB listings, so this now models them as
+# job signals (the actual India-source gap). Selectors are best-effort against
+# Naukri's DOM and may need occasional maintenance.
 
 on:
   schedule:
-    # Daily at 10 AM IST (4:30 UTC)
-    - cron: '30 4 * * *'
+    - cron: '30 4 * * *' # Daily 10 AM IST
   workflow_dispatch:
 
 jobs:
@@ -11,16 +17,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
-
       - name: Install Playwright
         run: npx playwright install --with-deps chromium
-
-      - name: Run Naukri candidate scraper
+      - name: Scrape Naukri job signals and ingest
         env:
           API_BASE_URL: ${{ secrets.WIZMATCH_API_BASE_URL }}
           INTERNAL_TOKEN: ${{ secrets.WIZMATCH_INTERNAL_TOKEN }}
@@ -40,38 +42,46 @@ jobs:
           ];
 
           (async () => {
+            if (!process.env.API_BASE_URL || !process.env.INTERNAL_TOKEN) {
+              console.error("Missing API_BASE_URL or INTERNAL_TOKEN secret");
+              process.exit(1);
+            }
             const browser = await chromium.launch({ headless: true });
-            const allCandidates = [];
+            const signals = [];
 
             for (const { skill, city } of skillCityPairs) {
               const page = await browser.newPage();
               try {
-                const url = `https://www.naukri.com/${skill.toLowerCase()}-jobs-in-${city.toLowerCase().replace(/\s/g, "-")}`;
-                await page.goto(url, { timeout: 15000, waitUntil: "domcontentloaded" });
+                const url = `https://www.naukri.com/${skill.toLowerCase().replace(/\./g, "")}-jobs-in-${city.toLowerCase().replace(/\s/g, "-")}`;
+                await page.goto(url, { timeout: 20000, waitUntil: "domcontentloaded" });
                 await page.waitForTimeout(3000);
 
-                const profiles = await page.evaluate(() => {
-                  const results = [];
-                  document.querySelectorAll(".jobTuple.bg-white.br4").slice(0, 5).forEach(card => {
-                    const name = card.querySelector(".userInfo a, .companyName")?.textContent?.trim() || "Unknown";
-                    const skills = Array.from(card.querySelectorAll(".tags .tag")).map(t => t.textContent?.trim()).filter(Boolean);
-                    const exp = card.querySelector(".exp")?.textContent?.trim() || "";
-                    results.push({ name, skills, exp });
+                const jobs = await page.evaluate(() => {
+                  const out = [];
+                  document.querySelectorAll("article.jobTuple, div.srp-jobtuple-wrapper, .jobTuple").forEach(card => {
+                    const titleEl = card.querySelector("a.title, a.title.ellipsis, .title a, .title");
+                    const companyEl = card.querySelector("a.subTitle, .companyInfo .subTitle, .comp-name, .subTitle");
+                    const locEl = card.querySelector(".loc .locWdth, .location .ellipsis, .loc span, .location");
+                    const title = titleEl?.textContent?.trim();
+                    const jobUrl = titleEl?.getAttribute("href") || "";
+                    const company = companyEl?.textContent?.trim() || "";
+                    const location = locEl?.textContent?.trim() || "";
+                    if (title && jobUrl) out.push({ title, jobUrl, company, location });
                   });
-                  return results;
+                  return out.slice(0, 10);
                 });
 
-                for (const p of profiles) {
-                  allCandidates.push({
-                    name: p.name,
-                    email: `${p.name.toLowerCase().replace(/\s+/g, ".")}@placeholder.com`, // placeholder — real email via enrichment
-                    skills: [skill, ...p.skills.slice(0, 3)],
-                    location: city,
-                    visa_status: "unknown",
+                for (const j of jobs) {
+                  signals.push({
+                    job_title: j.title,
+                    job_url: j.jobUrl,
                     source: "naukri",
-                    india_specific: { experience: p.exp, source_city: city },
+                    location: j.location || city,
+                    keywords: [skill],
+                    company_name: j.company || undefined,
                   });
                 }
+                console.log(`${skill} in ${city}: ${jobs.length} jobs`);
               } catch (e) {
                 console.error(`Naukri scrape failed for ${skill} in ${city}:`, e.message);
               } finally {
@@ -81,14 +91,18 @@ jobs:
 
             await browser.close();
 
-            if (allCandidates.length === 0) {
-              console.log("No Naukri candidates found");
+            if (signals.length === 0) {
+              console.log("No Naukri job signals found (selectors may need updating)");
               process.exit(0);
             }
 
-            // POST candidates to ingest (reuse the signals ingest — candidates need a separate endpoint or manual entry)
-            // For now, we log them — the admin can import manually via the Candidate Pool UI
-            console.log(`Found ${allCandidates.length} candidates:`);
-            allCandidates.forEach(c => console.log(JSON.stringify(c)));
+            const res = await fetch(`${process.env.API_BASE_URL}/api/wizmatch/signals/ingest`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "x-internal-secret": process.env.INTERNAL_TOKEN },
+              body: JSON.stringify({ signals }),
+            });
+            const body = await res.text();
+            if (!res.ok) { console.error(`Ingest failed ${res.status}: ${body}`); process.exit(1); }
+            console.log(`Ingested ${signals.length} Naukri signals:`, body);
           })().catch(e => { console.error(e); process.exit(1); });
           '

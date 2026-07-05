@@ -277,20 +277,21 @@ router.post('/signals/:id/score', requireInternalToken, async (req: Request, res
   const row = result.rows[0];
   const daysOpen = row.days_open || Math.floor((Date.now() - new Date(row.first_seen_at).getTime()) / 86400000);
 
-  const { score, breakdown, reasoning } = scoreSignal({
+  const { score, region, breakdown, reasoning } = scoreSignal({
     daysOpen,
     repostCount: row.repost_count || 0,
     companyVolumeCount: row.company_volume || 0,
     employmentType: row.employment_type,
     keywords: row.keywords,
     h1bSponsorCount: row.h1b_sponsor_count || 0,
+    location: row.location, // drives India-vs-US rubric selection
   });
 
   await pool.query(
     `UPDATE wizmatch_job_signals
      SET score = $3, score_breakdown = $4::jsonb, status = 'scored', days_open = $5
      WHERE id = $1 AND tenant_id = $2`,
-    [signalId, tenantId, score, JSON.stringify({ ...breakdown, reasoning }), daysOpen],
+    [signalId, tenantId, score, JSON.stringify({ ...breakdown, region, reasoning }), daysOpen],
   );
 
   // Slack alert for high scores
@@ -739,6 +740,82 @@ router.post('/candidates', async (req: Request, res: Response) => {
     .returning();
 
   res.json(candidate);
+});
+
+// POST /api/wizmatch/candidates/ingest — batch create from scrapers (internal).
+// Dedupes by contact + skips placeholder emails so junk rows don't land.
+router.post('/candidates/ingest', requireInternalToken, async (req: Request, res: Response) => {
+  const tenantId = process.env.WIZMATCH_TENANT_ID;
+  if (!tenantId) {
+    res.status(500).json({ error: 'WIZMATCH_TENANT_ID not configured' });
+    return;
+  }
+
+  const incoming = req.body.candidates as Array<{
+    name: string; email: string; skills?: string[]; location?: string;
+    visa_status?: string; rate_hourly?: number; rate_currency?: string;
+    source?: string; linkedin_url?: string; github_url?: string;
+    india_specific?: Record<string, unknown>;
+  }>;
+
+  if (!Array.isArray(incoming)) {
+    res.status(400).json({ error: 'Expected { candidates: [...] }' });
+    return;
+  }
+
+  let inserted = 0;
+  let skipped = 0;
+  let errors = 0;
+
+  for (const c of incoming) {
+    try {
+      const email = (c.email || '').toLowerCase().trim();
+      // Reject junk: missing name/email, obvious placeholders, malformed addresses.
+      if (!c.name || !email || !email.includes('@') || email.endsWith('@placeholder.com')) {
+        skipped++;
+        continue;
+      }
+
+      const [firstName, ...rest] = c.name.trim().split(' ');
+      const { contact } = await findOrCreateContact(tenantId, {
+        firstName,
+        lastName: rest.join(' ') || undefined,
+        source: `wizmatch_${c.source || 'scrape'}`,
+        channels: [{ channelType: 'email', channelValue: email, isPrimary: true }],
+      });
+
+      // One candidate per contact — skip if we already have one.
+      const existing = await pool.query(
+        `SELECT id FROM wizmatch_candidates WHERE tenant_id = $1 AND contact_id = $2`,
+        [tenantId, contact.id],
+      );
+      if (existing.rows.length > 0) {
+        skipped++;
+        continue;
+      }
+
+      await db.insert(wizmatchCandidates).values({
+        tenantId,
+        contactId: contact.id,
+        skills: c.skills || [],
+        location: c.location,
+        visaStatus: c.visa_status,
+        rateHourly: c.rate_hourly,
+        rateCurrency: c.rate_currency,
+        source: c.source || 'scrape',
+        linkedinUrl: c.linkedin_url,
+        githubUrl: c.github_url,
+        indiaSpecific: c.india_specific || {},
+      });
+      inserted++;
+    } catch (e) {
+      logger.error({ err: e }, '[wizmatch] candidate ingest error');
+      errors++;
+    }
+  }
+
+  logger.info(`[wizmatch] candidate ingest: ${inserted} new, ${skipped} skipped, ${errors} errors`);
+  res.json({ inserted, skipped, errors });
 });
 
 router.get('/candidates/:id', async (req: Request, res: Response) => {

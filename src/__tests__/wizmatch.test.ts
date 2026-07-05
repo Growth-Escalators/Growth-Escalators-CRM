@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import crypto from 'crypto';
+import { scoreSignal, detectRegion } from '../services/wizmatchScoring';
 
 // Test the deterministic scorer (pure TS, no network)
 describe('Wizmatch Signal Scorer', () => {
@@ -108,6 +109,62 @@ describe('Wizmatch Signal Scorer', () => {
       employmentType: 'W2', keywords: ['java'], h1bSponsorCount: 0,
     });
     expect(score).toBe(8);
+  });
+});
+
+// Test the REAL region-aware scorer (pure, no DB) — US regression + India rubric
+describe('Wizmatch Signal Scorer — region-aware (real impl)', () => {
+  it('detectRegion infers India from Indian cities, US otherwise', () => {
+    expect(detectRegion('Bangalore, India')).toBe('india');
+    expect(detectRegion('Bengaluru')).toBe('india');
+    expect(detectRegion('Pune')).toBe('india');
+    expect(detectRegion('New York, NY')).toBe('us');
+    expect(detectRegion('Remote')).toBe('us');
+    expect(detectRegion(null)).toBe('us');
+  });
+
+  it('US: stale + reposted + contract keyword scores 8 (regression)', () => {
+    const { score, region } = scoreSignal({
+      daysOpen: 35, repostCount: 1, companyVolumeCount: 1,
+      employmentType: 'W2', keywords: ['java'], h1bSponsorCount: 0,
+    });
+    expect(region).toBe('us');
+    expect(score).toBe(8);
+  });
+
+  it('US: LCA sponsor 5+ adds 1 (regression)', () => {
+    const { score } = scoreSignal({
+      daysOpen: 1, repostCount: 0, companyVolumeCount: 1,
+      employmentType: 'FTE', keywords: ['java'], h1bSponsorCount: 10,
+    });
+    expect(score).toBe(1);
+  });
+
+  it('India: stale + reposted + contract + high-demand skill crosses the gate', () => {
+    const { score, region } = scoreSignal({
+      daysOpen: 35, repostCount: 1, companyVolumeCount: 1,
+      employmentType: 'Contract', keywords: ['java'], h1bSponsorCount: 0,
+      location: 'Bangalore',
+    });
+    expect(region).toBe('india');
+    expect(score).toBeGreaterThanOrEqual(7); // 3 (stale) + 2 (repost) + 2 (contract) + 1 (skill)
+  });
+
+  it('India: ignores H-1B/LCA entirely', () => {
+    const { score, region } = scoreSignal({
+      daysOpen: 1, repostCount: 0, companyVolumeCount: 1,
+      employmentType: 'FTE', keywords: ['java'], h1bSponsorCount: 20,
+      location: 'Pune',
+    });
+    expect(region).toBe('india');
+    expect(score).toBe(1); // only the high-demand skill point; LCA contributes nothing
+  });
+
+  it('caps at 10 for either region', () => {
+    const us = scoreSignal({ daysOpen: 45, repostCount: 3, companyVolumeCount: 6, employmentType: 'C2C', keywords: ['contract'], h1bSponsorCount: 20 });
+    const india = scoreSignal({ daysOpen: 45, repostCount: 3, companyVolumeCount: 6, employmentType: 'contract', keywords: ['java'], h1bSponsorCount: 0, location: 'Hyderabad' });
+    expect(us.score).toBe(10);
+    expect(india.score).toBeLessThanOrEqual(10);
   });
 });
 
