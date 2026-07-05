@@ -788,6 +788,24 @@ router.put('/candidates/:id', async (req: Request, res: Response) => {
 // SECTION 3 — PLACEMENT ROUTES
 // ============================================================
 
+// Pipeline stages mirror wizmatch_placements.status exactly, so a placement's
+// status maps 1:1 onto its linked deal's stage — no translation table needed.
+const WIZMATCH_PLACEMENT_STAGES = ['submitted', 'interviewing', 'offered', 'started', 'ended', 'lost'];
+
+// Idempotently ensure the Wizmatch placements pipeline exists and return its id.
+// Called on every placement create so the deal is never orphaned with a NULL
+// pipeline_id (previously the slug was looked up but never created).
+async function ensureWizmatchPipeline(tenantId: string): Promise<string> {
+  const result = await pool.query(
+    `INSERT INTO pipelines (tenant_id, name, slug, stages, color, is_active)
+     VALUES ($1, 'Wizmatch Placements', 'wizmatch-placements', $2::jsonb, '#3b82f6', true)
+     ON CONFLICT (tenant_id, slug) DO UPDATE SET stages = EXCLUDED.stages
+     RETURNING id`,
+    [tenantId, JSON.stringify(WIZMATCH_PLACEMENT_STAGES)],
+  );
+  return result.rows[0].id;
+}
+
 router.get('/placements', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const limit = Math.min(Number(req.query.limit) || 50, 200);
@@ -864,12 +882,14 @@ router.post('/placements', async (req: Request, res: Response) => {
   }
   const contactId = candResult.rows[0].contact_id;
 
-  // Find or create a Wizmatch pipeline
-  let pipelineResult = await pool.query(
-    `SELECT id FROM pipelines WHERE tenant_id = $1 AND slug = 'wizmatch-placements' LIMIT 1`,
-    [tenantId],
-  );
-  let pipelineId = pipelineResult.rows[0]?.id;
+  // Ensure the Wizmatch placements pipeline exists (idempotent) so the deal is
+  // never orphaned with a NULL pipeline_id.
+  const pipelineId = await ensureWizmatchPipeline(tenantId);
+
+  // Monthly economic value: contract margin annualised to a month (160 hrs) or
+  // the one-off perm fee. Both deal columns receive the same figure so finance
+  // rollups (which read `value`) and the pipeline card (`deal_value`) agree.
+  const dealValue = permFeeAmount ?? (marginHourly ? marginHourly * 160 : 0);
 
   // Create deal
   const dealResult = await pool.query(
@@ -881,8 +901,8 @@ router.post('/placements', async (req: Request, res: Response) => {
       contactId,
       pipelineId,
       `Placement: ${body.placement_type}`,
-      marginHourly ? String(marginHourly * 160) : String(permFeeAmount || 0),
-      permFeeAmount || marginHourly,
+      String(dealValue),
+      dealValue,
     ],
   );
   const dealId = dealResult.rows[0].id;
@@ -948,6 +968,22 @@ router.put('/placements/:id', async (req: Request, res: Response) => {
       return;
     }
 
+    const placement = result.rows[0];
+
+    // Keep the linked CRM deal's stage in lockstep with the placement status
+    // (identical vocabulary) so the Placements kanban and the deals pipeline
+    // never diverge. Stamp closed_at on terminal stages for close-rate reporting.
+    if (placement.deal_id) {
+      await pool.query(
+        `UPDATE deals
+         SET stage = $3, updated_at = NOW(),
+             closed_at = CASE WHEN $3 IN ('ended','lost') THEN COALESCE(closed_at, NOW()) ELSE NULL END,
+             lost_reason = CASE WHEN $3 = 'lost' THEN COALESCE(lost_reason, 'placement lost') ELSE lost_reason END
+         WHERE id = $1 AND tenant_id = $2`,
+        [placement.deal_id, tenantId, status],
+      );
+    }
+
     // Log status change event
     await pool.query(
       `INSERT INTO events (tenant_id, event_type, payload, source_id, occurred_at)
@@ -955,7 +991,7 @@ router.put('/placements/:id', async (req: Request, res: Response) => {
       [tenantId, JSON.stringify({ placementId: req.params.id, newStatus: status }), req.params.id],
     );
 
-    res.json(result.rows[0]);
+    res.json(placement);
   } else {
     res.status(400).json({ error: 'Only status updates supported' });
   }
