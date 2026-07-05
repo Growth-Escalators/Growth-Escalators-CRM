@@ -107,3 +107,29 @@ schema, migrations, Railway/Vercel config, production logic, `package.json`, or 
 in a fresh worktree without `node_modules`) and review the docs/context-only diff.
 
 **Next:** review the PRD, then create a follow-up implementation ADR before any schema/API/UI work.
+
+## 2026-07-06 — Step 5: Contact Intelligence PRD hardening — Codex — READY FOR REVIEW
+
+**What was done**
+- Hardened `docs/prd/001-contact-intelligence.md` before any implementation work.
+- Replaced the unapproved Hunter fallback with the approved/known provider order:
+  Apollo -> Snov -> Reacher/email verification -> website/manual pattern -> Google fallback.
+- Made Phase 1 explicitly zero-paid-enrichment: deterministic company qualification, internal CRM
+  reuse, and manual review planning only.
+- Reduced the MVP data model to `wizmatch_company_intelligence`, `wizmatch_contact_candidates`,
+  and `wizmatch_discovery_runs`; moved relationship edges to a future enhancement.
+- Added explicit status enums for company intelligence, contact candidates, and discovery runs.
+- Added exact MVP cost caps and a Phase 1 MVP Build Boundary for what Codex can safely do while
+  Claude is unavailable.
+
+**Files modified:** `docs/prd/001-contact-intelligence.md`, `.ai/CURRENT_TASK.md`,
+`.ai/HANDOFF_LOG.md`, `.ai/AI_BRIEF.md` (regenerated).
+
+**Not changed by this task:** no `src/`, `admin/`, `client/`, `src/db/`, API routes, database
+schema, migrations, Railway/Vercel config, production logic, `package.json`, or `package-lock.json`.
+
+**Verify:** `PATH="../v2/node_modules/.bin:$PATH" npm run ai:brief` and review the docs/context-only
+diff.
+
+**Next:** review the hardened PRD; create an implementation ADR before schema/API/UI/worker or paid
+enrichment work.

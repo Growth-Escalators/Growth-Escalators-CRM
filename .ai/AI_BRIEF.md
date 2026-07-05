@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-05T20:20:52.584Z_
+_Generated: 2026-07-05T20:27:40.089Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,24 +12,25 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: growth-escalators-backend-v2
 - **Branch**: `feature/contact-intelligence-prd`
-- **Last commit**: 67adc69 Merge pull request #10 from Growth-Escalators/ai/collaboration-setup (9 minutes ago)
-- **Uncommitted changes**: 6 file(s)
+- **Last commit**: a7ac996 docs(wizmatch): add contact intelligence PRD (6 minutes ago)
+- **Uncommitted changes**: 4 file(s)
 
 ## Current task
 
-**Wizmatch Contact Intelligence PRD** - create the first planning artifact for the next main
-Wizmatch build while Claude is temporarily unavailable and Codex is acting as implementation
-lead.
+**Harden Wizmatch Contact Intelligence PRD** - tighten the PRD before any implementation while
+Claude is temporarily unavailable and Codex is acting as implementation lead.
 
-Scope is **documentation/context only**: PRD, ADR, saved review, task state, handoff log, and
-generated AI brief. No production app logic, database schema, migrations, API routes, admin/client
-UI, deployment config, `package.json`, or `package-lock.json` changes.
+Scope is **documentation/context only**: harden the Contact Intelligence PRD, update task state,
+append the handoff log, and regenerate the AI brief. No production app logic, database schema,
+migrations, API routes, admin/client UI, deployment config, `package.json`, or `package-lock.json`
+changes.
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
 
 ## Recent commits
 
 ```
+a7ac996 docs(wizmatch): add contact intelligence PRD
 67adc69 Merge pull request #10 from Growth-Escalators/ai/collaboration-setup
 6939550 chore(ai): clarify Railway docs wording
 dbbf0ea chore(ai): harden collaboration protocol
@@ -39,7 +40,6 @@ db0ff78 chore(admin): rebuild public/admin — Requirements page
 c1340b5 feat(admin): Wizmatch Requirements page
 69ee2b8 feat(wizmatch): requirement → branded vendor sheet (backend)
 f0aa639 feat(wizmatch): wire placements into the CRM deals/pipeline layer
-6c013af chore(admin): rebuild public/admin — Wizmatch rate-display fix
 ```
 
 ## npm scripts
@@ -76,8 +76,11 @@ f0aa639 feat(wizmatch): wire placements into the CRM deals/pipeline layer
 .ai/REVIEW_CHECKLIST.md
 .ai/TOOL_ROLES.md
 docs/decisions/.gitkeep
+docs/decisions/ADR-001-ai-collaboration-workflow.md
 docs/prd/.gitkeep
+docs/prd/001-contact-intelligence.md
 docs/reviews/.gitkeep
+docs/reviews/codex-ai-collaboration-review.md
 ```
 
 ## Where to read next

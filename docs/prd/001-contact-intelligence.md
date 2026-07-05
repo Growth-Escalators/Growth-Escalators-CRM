@@ -133,10 +133,12 @@ Recommended waterfall:
    - Search snippets where already available.
    - LinkedIn profile URLs if discoverable without high-cost calls.
 
-4. Role-targeted paid enrichment for qualified companies only
+4. Role-targeted paid enrichment for qualified companies only, Phase 3 or later
    - Apollo first for role-based people search.
-   - Hunter/domain pattern as fallback.
-   - Email verification before any outreach.
+   - Snov second when Apollo is unavailable, incomplete, or too expensive for the target.
+   - Reacher/email verification before any outreach.
+   - Website/manual pattern discovery before adding any extra paid source.
+   - Google fallback only after the cheaper/internal/manual paths fail.
    - Stop after enough valid contacts are found; do not keep spending to maximize quantity.
 
 5. Manual seed/import
@@ -226,7 +228,8 @@ Proposed workflow:
 
 No database schema changes are part of this PRD.
 
-Future implementation can consider these entities after review:
+Future implementation can consider these MVP entities after review. The initial build should stay
+to these three entities only until Claude/human review approves a broader model.
 
 ### `wizmatch_company_intelligence`
 
@@ -241,7 +244,7 @@ Potential fields:
 - `qualification_score`
 - `target_region`
 - `is_it_staffing_fit`
-- `discovery_status`
+- `status`
 - `last_qualified_at`
 - `last_discovered_at`
 - `next_refresh_at`
@@ -274,7 +277,7 @@ Potential fields:
 - `ranking_score`
 - `relationship_score`
 - `confidence_score`
-- `status` (`new`, `needs_review`, `approved`, `rejected`, `do_not_contact`)
+- `status`
 - `approved_by`
 - `approved_at`
 - `rejection_reason`
@@ -299,21 +302,46 @@ Potential fields:
 - `error_message`
 - timestamps
 
-### `wizmatch_contact_company_edges`
+### Explicit MVP Status Enums
 
-Purpose: relationship memory between a contact and a company/account.
+Company intelligence status:
 
-Potential fields:
+- `new`
+- `qualified`
+- `needs_review`
+- `ready_for_discovery`
+- `discovery_blocked`
+- `discovered`
+- `rejected`
+- `suppressed`
+- `cooldown`
 
-- `id`
-- `tenant_id`
-- `contact_candidate_id`
-- `company_id`
-- `relationship_type`
-- `relationship_score`
-- `last_interaction_at`
-- `metadata`
-- timestamps
+Contact candidate status:
+
+- `new`
+- `needs_review`
+- `approved`
+- `rejected`
+- `do_not_contact`
+- `linked_to_crm`
+- `stale`
+
+Discovery run status:
+
+- `queued`
+- `running`
+- `succeeded`
+- `partial`
+- `failed`
+- `skipped`
+- `blocked_by_cap`
+
+### Future Enhancement: `wizmatch_contact_company_edges`
+
+Relationship edges between contacts and companies/accounts are useful, but they are not part of
+the initial MVP model. Defer this until the first implementation proves that relationship memory
+cannot be represented cleanly through `wizmatch_contact_candidates.metadata`, CRM contacts, prior
+placements, prime status, replies, and suppression history.
 
 Implementation note: approved contacts should eventually reuse existing CRM `contacts` and `contact_channels` patterns, including email/phone normalization and `lastActivityAt` updates on writes.
 
@@ -367,12 +395,16 @@ Cost control is a core feature, not an implementation detail.
 Rules:
 
 - Do not run paid enrichment for every company.
-- Paid enrichment only for Tier A companies by default.
-- Tier B paid enrichment requires manual approval or a very strong active signal.
+- Phase 1 paid enrichment is disabled by default.
+- Phase 1 max paid discovery per company = 0.
+- Phase 1 max contact candidates shown per company = 3.
+- Rediscovery cooldown = 30 days unless manually overridden for a specific company.
+- Paid enrichment only for Tier A companies by default in Phase 3 or later.
+- Tier B paid discovery later requires explicit manual approval.
 - Tier C and rejected companies receive no paid enrichment.
 - Reuse CRM/internal data before vendor calls.
 - Cache discovery results and avoid re-enriching the same company/contact inside a cooldown window.
-- Cap contacts discovered per company.
+- Cap contacts discovered per company; show only the top 3 candidates in the MVP review surface.
 - Cap paid provider calls per company, per day, and per month.
 - Stop the waterfall after enough verified contacts are found.
 - Log provider, cost estimate, result count, and failure reason for every paid run.
@@ -411,6 +443,9 @@ Product guardrails:
 - No mass enrichment without qualification.
 - No automatic sending directly from discovery.
 - Respect suppression, unsubscribe, bounce, and do-not-contact state.
+- Use the approved provider order only: Apollo -> Snov -> Reacher/email verification ->
+  website/manual pattern -> Google fallback.
+- Do not introduce Hunter or another enrichment vendor unless explicitly approved in a later ADR.
 
 Engineering guardrails for future implementation:
 
@@ -423,7 +458,32 @@ Engineering guardrails for future implementation:
 - Log costs and provider failures.
 - Do not put provider credentials in code or docs.
 
-## 17. Implementation Phases
+## 17. Phase 1 MVP Build Boundary
+
+While Claude is unavailable, Codex can safely work only inside this boundary unless the user gives
+new explicit approval.
+
+Codex can safely build:
+
+- Documentation and planning artifacts.
+- Deterministic company qualification scoring plan.
+- TypeScript service skeleton only if approved later.
+- Tests only if approved later.
+
+Must wait for Claude/human architecture approval:
+
+- Database schema changes.
+- Migrations.
+- Paid enrichment integrations.
+- Outreach sending changes.
+- Worker or cron changes.
+- Any change to production logic, API routes, or admin/client UI.
+
+Phase 1 must remain zero-paid-enrichment. It can define deterministic scoring, internal CRM reuse,
+and manual review planning, but it must not call Apollo, Snov, Reacher, Google, or any paid
+provider.
+
+## 18. Implementation Phases
 
 Phase 0 - Planning
 
@@ -431,11 +491,15 @@ Phase 0 - Planning
 - Decide whether Contact Intelligence should extend existing Wizmatch tables or use new dedicated tables.
 - Create implementation ADR before schema/API work.
 
-Phase 1 - Company qualification
+Phase 1 - Company qualification, internal reuse, and manual review planning
 
 - Add deterministic qualification scoring.
 - Classify companies into Tier A/B/C/Reject.
+- Reuse existing CRM/Wizmatch contacts and relationship facts only.
+- Plan manual review states and approval gates.
 - Keep it zero-cost and explainable.
+- Paid enrichment disabled by default.
+- Max paid discovery per company = 0.
 
 Phase 2 - Internal and free discovery
 
@@ -445,7 +509,9 @@ Phase 2 - Internal and free discovery
 
 Phase 3 - Paid discovery waterfall
 
-- Enable Apollo/Hunter/MillionVerifier only behind qualification and caps.
+- Enable Apollo -> Snov -> Reacher/email verification -> website/manual pattern -> Google fallback
+  only behind qualification and caps.
+- Require manual approval for Tier B paid discovery.
 - Add audit/cost logging.
 - Add retry and cooldown rules.
 
@@ -467,13 +533,19 @@ Phase 6 - Analytics and feedback loop
 - Improve qualification/ranking based on outcomes.
 - Add stale-contact refresh rules.
 
-## 18. Acceptance Criteria
+## 19. Acceptance Criteria
 
 For this documentation PR:
 
 - PRD exists at `docs/prd/001-contact-intelligence.md`.
 - PRD explicitly states internal-only, IT/Tech-only, India 80% / US 20%, no paid enrichment for every company, and manual approval before outreach.
 - PRD includes data model/API/UI proposals without implementing them.
+- PRD removes Hunter from the approved MVP stack and uses Apollo -> Snov -> Reacher/email
+  verification -> website/manual pattern -> Google fallback.
+- PRD defines Phase 1 as zero-paid-enrichment with max paid discovery per company = 0.
+- PRD limits the initial MVP data model to company intelligence, contact candidates, and discovery runs.
+- PRD defines explicit status enums and exact MVP cost caps.
+- PRD states what Codex can and cannot build while Claude is unavailable.
 - No source, schema, route, UI, package, migration, or deployment file changes.
 
 For the future implementation:
@@ -486,7 +558,7 @@ For the future implementation:
 - India-first prioritization is visible in qualification and ranking.
 - Tests cover qualification, ranking, cost caps, suppression, and approval gates.
 
-## 19. Explicitly Out Of Scope
+## 20. Explicitly Out Of Scope
 
 - Any code implementation in this PR.
 - Database schema changes in this PR.
@@ -497,6 +569,7 @@ For the future implementation:
 - HRMS, payroll, attendance, timesheets, onboarding, or generic SaaS features.
 - Automatic outreach without manual approval.
 - Expensive enrichment across all companies.
+- Hunter or any enrichment vendor outside the approved stack unless explicitly approved later.
 - Replacing the existing Wizmatch signal/candidate/placement pipeline.
 - Candidate sourcing changes unrelated to contact intelligence.
 - Public SaaS packaging or multi-customer billing.
