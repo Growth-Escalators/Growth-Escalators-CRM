@@ -175,14 +175,41 @@ async function pollAshby(slug: string): Promise<IngestedJob[]> {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const CONTRACT_KEYWORDS = ['contract', 'c2c', 'w2', '1099', 'contract-to-hire', '6-month', '12-month'];
+
+// Broad skill taxonomy — languages/frameworks/cloud plus enterprise & functional
+// stacks common in India staffing (SAP, Salesforce, ServiceNow, QA, BA, etc.),
+// so niche roles don't fall through to an empty keyword set.
 const SKILL_KEYWORDS = [
-  'java', 'python', 'react', 'node', '.net', 'c#', 'javascript', 'typescript',
-  'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'devops', 'spring', 'django',
-  'flask', 'vue', 'angular', 'sql', 'postgres', 'mongodb', 'redis', 'kafka',
-  'spark', 'airflow', 'tensorflow', 'pytorch', 'machine learning', 'data engineer',
-  'full stack', 'frontend', 'backend', 'mobile', 'ios', 'android', 'swift',
-  'kotlin', 'go', 'rust', 'scala', 'ruby', 'php', 'laravel',
+  // languages / core
+  'java', 'python', 'javascript', 'typescript', 'c#', '.net', 'dotnet', 'go', 'golang',
+  'rust', 'scala', 'ruby', 'php', 'kotlin', 'swift', 'c++', 'perl', 'r ',
+  // web / frameworks
+  'react', 'angular', 'vue', 'node', 'next.js', 'spring', 'spring boot', 'django',
+  'flask', 'laravel', '.net core', 'express', 'graphql', 'rest api',
+  // cloud / infra / devops
+  'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'devops', 'terraform', 'ansible',
+  'jenkins', 'ci/cd', 'cloud', 'linux', 'microservices',
+  // data / ml
+  'sql', 'postgres', 'mysql', 'oracle', 'mongodb', 'redis', 'kafka', 'spark', 'hadoop',
+  'airflow', 'snowflake', 'databricks', 'tableau', 'power bi', 'etl', 'data engineer',
+  'data scientist', 'data analyst', 'machine learning', 'ml', 'ai', 'nlp', 'tensorflow', 'pytorch',
+  // enterprise / functional (India-heavy)
+  'sap', 'sap abap', 'sap fico', 'sap mm', 'salesforce', 'servicenow', 'workday', 'peoplesoft',
+  'guidewire', 'pega', 'sharepoint', 'dynamics 365', 'mulesoft', 'informatica', 'mainframe', 'cobol',
+  // roles / disciplines
+  'full stack', 'frontend', 'backend', 'mobile', 'ios', 'android', 'qa', 'automation',
+  'selenium', 'manual testing', 'business analyst', 'scrum master', 'project manager',
+  'product manager', 'ui/ux', 'security', 'network', 'sre', 'embedded',
 ];
+
+// Stopwords stripped when falling back to job-title tokens.
+const TITLE_STOPWORDS = new Set([
+  'senior', 'sr', 'junior', 'jr', 'lead', 'principal', 'staff', 'engineer', 'developer',
+  'consultant', 'specialist', 'analyst', 'manager', 'architect', 'expert', 'associate',
+  'the', 'a', 'an', 'and', 'or', 'for', 'with', 'of', 'in', 'to', 'i', 'ii', 'iii',
+  'remote', 'onsite', 'hybrid', 'contract', 'fulltime', 'full-time', 'position', 'role',
+  'hiring', 'urgent', 'immediate', 'new', 'job', 'opening', 'years', 'exp', 'experience',
+]);
 
 function normalizeEmploymentType(raw: string | null): string | null {
   if (!raw) return null;
@@ -193,9 +220,17 @@ function normalizeEmploymentType(raw: string | null): string | null {
   return raw;
 }
 
-function extractKeywords(title: string, extra: string): string[] {
+export function extractKeywords(title: string, extra: string): string[] {
   const text = `${title} ${extra}`.toLowerCase();
-  return SKILL_KEYWORDS.filter((skill) => text.includes(skill));
+  const matched = SKILL_KEYWORDS.filter((skill) => text.includes(skill)).map((s) => s.trim());
+  if (matched.length > 0) return Array.from(new Set(matched));
+
+  // Fallback: significant tokens from the title, so the matcher (which relies on
+  // keyword overlap) still has something to work with for niche/unlisted roles.
+  return Array.from(new Set(
+    title.toLowerCase().replace(/[^a-z0-9+#. ]/g, ' ').split(/\s+/)
+      .filter((w) => w.length > 2 && !TITLE_STOPWORDS.has(w)),
+  )).slice(0, 6);
 }
 
 // ── Main poller ──────────────────────────────────────────────────────────────
