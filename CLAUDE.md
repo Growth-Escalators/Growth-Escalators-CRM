@@ -1,6 +1,28 @@
 # CLAUDE.md
 
+@AGENTS.md
+
 This file provides guidance to Claude Code when working with code in this repository.
+The universal instructions for **all** AI agents live in `AGENTS.md` (imported above);
+the section below adds Claude-specific responsibilities on top of them.
+
+## Claude-specific responsibilities
+
+Claude acts as the **senior architect + senior engineer** on this repo (see the full role
+split in [`.ai/TOOL_ROLES.md`](.ai/TOOL_ROLES.md)):
+
+- **Plan before building.** Turn product intent (`docs/prd/`) into a technical plan; record
+  non-obvious architecture calls as ADRs in `docs/decisions/`.
+- **Own the risky code.** Schema-adjacent logic, auth/RBAC, money paths, data-integrity
+  invariants, and cross-cutting refactors are Claude's to write and to review.
+- **Be final reviewer** on anything touching the guardrail paths in `AGENTS.md`; delegate
+  well-specified, mechanical work to Codex and review its output against
+  [`.ai/REVIEW_CHECKLIST.md`](.ai/REVIEW_CHECKLIST.md).
+- **Keep the context layer honest.** After a completed unit of work, append to
+  [`.ai/HANDOFF_LOG.md`](.ai/HANDOFF_LOG.md) and update
+  [`.ai/CURRENT_TASK.md`](.ai/CURRENT_TASK.md) / [`.ai/CURRENT_STATE.md`](.ai/CURRENT_STATE.md)
+  so the next agent — or a fresh chat — can resume cold. Run `npm run ai:brief` to refresh
+  the snapshot.
 
 ## Repository
 
@@ -9,11 +31,13 @@ This file provides guidance to Claude Code when working with code in this reposi
 - **Local**: `~/repo-comparison/v2`
 - **Stack**: Node 20 · Express · TypeScript · Drizzle (Postgres) · Vitest · React (admin + client SPAs)
 
-Before any session: `git pull origin main`. The repo auto-deploys on push.
+Before any session: check `git branch --show-current` and `git status --short`; `git fetch origin`
+for freshness; only `git pull origin main` when intentionally on `main` with a clean tree. The
+repo auto-deploys on push to `main` — pushes are production-sensitive.
 
 ## Reference docs
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — two-process Railway split, routes/services, SPAs, landing-page resilience
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Railway process topology, routes/services, SPAs, landing-page resilience
 - [`docs/DATABASE.md`](docs/DATABASE.md) — schema lifecycle, Drizzle migrations, `ensure*` hooks, multi-tenancy
 - [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — Railway + Vercel build gotchas, Cashfree edge gotchas, pre-deploy checklist
 - [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) — logging, constants, contact normalisation, commit style
@@ -62,7 +86,9 @@ When the user mentions "content frontend" or "rendering workflow", work in the r
 ## Execution defaults
 
 - Proceed without asking confirmation. Auto-fix errors that surface during your own work.
-- Run tasks fully to completion. Commit and push after each coherent unit of change.
+- Run tasks fully to completion. Commit only when explicitly asked or when the task's scope
+  clearly calls for it; never push without explicit human confirmation, and never push to
+  `main` unless explicitly approved for that push — production deploys are sensitive.
 - After completing a change: recap what changed, how to test it, what else was touched.
 - **Exception**: pause and confirm before edits to `src/db/schema.ts`, `src/middleware/auth.ts`, `src/middleware/rbac.ts`, or `src/routes/cashfree.ts` — these match the "Don't touch without asking" table and the autonomy default does not override it.
 
