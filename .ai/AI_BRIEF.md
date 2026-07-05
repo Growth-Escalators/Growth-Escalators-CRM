@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-05T20:48:42.717Z_
+_Generated: 2026-07-05T20:55:48.333Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -11,28 +11,27 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 ## Repository
 
 - **Repo**: growth-escalators-backend-v2
-- **Branch**: `feature/contact-intelligence-phase1-plan`
-- **Last commit**: 8124f6c docs(wizmatch): add contact intelligence phase 1 plan (9 seconds ago)
+- **Branch**: `feature/contact-intelligence-phase1-adr`
+- **Last commit**: 9ebcb52 docs(wizmatch): add contact intelligence phase 1 ADR (9 seconds ago)
 - **Uncommitted changes**: 0 file(s)
 
 ## Current task
 
-**Wizmatch Contact Intelligence Phase 1 plan** — create and keep merge-ready a docs-only
-implementation plan for the Phase 1 boundary: deterministic company qualification,
-zero-paid-enrichment rules, internal CRM reuse, manual review workflow, exact scoring/status
-logic, proposed service functions, and proposed tests.
+**Wizmatch Contact Intelligence Phase 1 architecture ADR** — record the smallest safe
+implementation architecture after the PRD and Phase 1 plan landed on `main`.
 
-Scope is **documentation/context only**. No production app logic, database schema, migrations,
+Scope is **documentation/context only**. This task creates an ADR for the first implementation
+slice and updates the AI handoff context. No production app logic, database schema, migrations,
 API routes, admin/client UI, deployment config, `package.json`, or `package-lock.json` changes.
-
-The source PRD now lives on `main` at `docs/prd/001-contact-intelligence.md`.
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
 
 ## Recent commits
 
 ```
-8124f6c docs(wizmatch): add contact intelligence phase 1 plan
+9ebcb52 docs(wizmatch): add contact intelligence phase 1 ADR
+2f8239a Merge pull request #12 from Growth-Escalators/feature/contact-intelligence-phase1-plan
+742bbda docs(wizmatch): add contact intelligence phase 1 plan
 4788843 Merge pull request #11 from Growth-Escalators/feature/contact-intelligence-prd
 d7b488a docs(wizmatch): harden contact intelligence PRD
 a7ac996 docs(wizmatch): add contact intelligence PRD
@@ -40,8 +39,6 @@ a7ac996 docs(wizmatch): add contact intelligence PRD
 6939550 chore(ai): clarify Railway docs wording
 dbbf0ea chore(ai): harden collaboration protocol
 d0ab81c chore(ai): add AI collaboration layer (AGENTS.md, .ai/, docs scaffolding, ai:brief)
-103e274 feat(wizmatch): India relevance foundation (scoring, matching, ingestion)
-db0ff78 chore(admin): rebuild public/admin — Requirements page
 ```
 
 ## npm scripts
@@ -79,6 +76,7 @@ db0ff78 chore(admin): rebuild public/admin — Requirements page
 .ai/TOOL_ROLES.md
 docs/decisions/.gitkeep
 docs/decisions/ADR-001-ai-collaboration-workflow.md
+docs/decisions/ADR-002-contact-intelligence-phase1-architecture.md
 docs/prd/.gitkeep
 docs/prd/001-contact-intelligence-phase1-plan.md
 docs/prd/001-contact-intelligence.md

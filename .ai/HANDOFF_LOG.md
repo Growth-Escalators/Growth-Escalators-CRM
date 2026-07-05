@@ -5,6 +5,28 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-06 — Contact Intelligence Phase 1 architecture ADR — Codex — READY FOR REVIEW
+
+**What was done**
+- Added `docs/decisions/ADR-002-contact-intelligence-phase1-architecture.md`.
+- ADR-002 proposes the smallest safe Phase 1 implementation shape: a pure deterministic
+  TypeScript service plus unit tests, with no database writes, schema changes, API routes,
+  admin/client UI, worker/cron changes, provider integrations, outreach sending, package changes,
+  or deployment config changes.
+- The ADR keeps paid discovery disabled (`maxPaidDiscoveryPerCompany = 0`), caps visible contact
+  candidates at 3, and requires explainable scoring outputs.
+
+**Files created:** `docs/decisions/ADR-002-contact-intelligence-phase1-architecture.md`.
+**Files modified:** `.ai/CURRENT_TASK.md`, `.ai/HANDOFF_LOG.md`, `.ai/AI_BRIEF.md` (regenerated).
+
+**Not changed by this task:** no `src/`, `admin/`, `client/`, `src/db/`, API routes, schema,
+migrations, Railway/Vercel config, production logic, `package.json`, or `package-lock.json`.
+
+**Verify:** `PATH="../v2/node_modules/.bin:$PATH" npm run ai:brief` should pass. Review ADR-002
+before authorizing the first code PR.
+**Next:** If ADR-002 is accepted, implement only `src/services/wizmatch/contactIntelligenceService.ts`
+and its unit tests in a later PR.
+
 ## 2026-07-06 — Wizmatch Contact Intelligence Phase 1 plan — Codex — READY FOR REVIEW
 
 **What was done**
