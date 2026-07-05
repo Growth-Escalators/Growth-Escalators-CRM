@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-05T19:58:17.994Z_
+_Generated: 2026-07-05T20:20:52.584Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -11,24 +11,28 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 ## Repository
 
 - **Repo**: growth-escalators-backend-v2
-- **Branch**: `ai/collaboration-setup`
-- **Last commit**: d0ab81c chore(ai): add AI collaboration layer (AGENTS.md, .ai/, docs scaffolding, ai:brief) (8 minutes ago)
-- **Uncommitted changes**: 15 file(s)
+- **Branch**: `feature/contact-intelligence-prd`
+- **Last commit**: 67adc69 Merge pull request #10 from Growth-Escalators/ai/collaboration-setup (9 minutes ago)
+- **Uncommitted changes**: 6 file(s)
 
 ## Current task
 
-**AI collaboration layer setup** — establishing the persistent, chat-independent context
-scaffolding for this repo (`AGENTS.md`, `CLAUDE.md` import, `.ai/` files, `docs/` folders,
-and the `ai:brief` generator script).
+**Wizmatch Contact Intelligence PRD** - create the first planning artifact for the next main
+Wizmatch build while Claude is temporarily unavailable and Codex is acting as implementation
+lead.
 
-Scope is **documentation + tooling only**. No production app logic, database schema, admin
-UI, deployment config, or API behaviour is changed by this task.
+Scope is **documentation/context only**: PRD, ADR, saved review, task state, handoff log, and
+generated AI brief. No production app logic, database schema, migrations, API routes, admin/client
+UI, deployment config, `package.json`, or `package-lock.json` changes.
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
 
 ## Recent commits
 
 ```
+67adc69 Merge pull request #10 from Growth-Escalators/ai/collaboration-setup
+6939550 chore(ai): clarify Railway docs wording
+dbbf0ea chore(ai): harden collaboration protocol
 d0ab81c chore(ai): add AI collaboration layer (AGENTS.md, .ai/, docs scaffolding, ai:brief)
 103e274 feat(wizmatch): India relevance foundation (scoring, matching, ingestion)
 db0ff78 chore(admin): rebuild public/admin — Requirements page
@@ -36,9 +40,6 @@ c1340b5 feat(admin): Wizmatch Requirements page
 69ee2b8 feat(wizmatch): requirement → branded vendor sheet (backend)
 f0aa639 feat(wizmatch): wire placements into the CRM deals/pipeline layer
 6c013af chore(admin): rebuild public/admin — Wizmatch rate-display fix
-45ac3ed fix(wizmatch): unbreak signals list + stalled automation pipeline
-0ef9edd chore(admin): rebuild public/admin — Wizmatch 3a/3b Fluent output
-b991c16 style(admin): restyle WizmatchPlacementsPage to Fluent 3b spec + wire up Add Placement
 ```
 
 ## npm scripts

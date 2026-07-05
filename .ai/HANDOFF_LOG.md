@@ -73,3 +73,37 @@ Vercel config, or any production logic/database schema/UI file.
 **Verify:** `npm run ai:brief` ran successfully (exit 0); `.ai/AI_BRIEF.md`'s "Current task"
 section now shows the actual active-task summary instead of the file title.
 **Next:** Codex re-review; not pushed, not deployed.
+
+## 2026-07-06 — Step 4: Wizmatch Contact Intelligence PRD — Codex — READY FOR REVIEW
+
+**What was done**
+- Created the first product planning artifact for the next Wizmatch build:
+  `docs/prd/001-contact-intelligence.md`.
+- Captured the AI collaboration workflow decision in
+  `docs/decisions/ADR-001-ai-collaboration-workflow.md`.
+- Saved the Codex review of the AI collaboration setup in
+  `docs/reviews/codex-ai-collaboration-review.md`.
+- Updated `.ai/CURRENT_TASK.md` for the Contact Intelligence PRD task.
+
+**Planning decisions captured**
+- Wizmatch Contact Intelligence remains internal-only for Growth Escalators.
+- Scope is IT/Tech staffing only.
+- Priority is India 80% / US 20%.
+- Company qualification must happen before contact discovery.
+- Paid enrichment is limited to qualified/high-priority companies.
+- Manual approval remains required before outreach.
+- Data model, API, and UI are proposals only; no schema, route, or UI changes were made.
+
+**Files created:** `docs/prd/001-contact-intelligence.md`,
+`docs/decisions/ADR-001-ai-collaboration-workflow.md`,
+`docs/reviews/codex-ai-collaboration-review.md`.
+
+**Files modified:** `.ai/CURRENT_TASK.md`, `.ai/HANDOFF_LOG.md`, `.ai/AI_BRIEF.md` (regenerated).
+
+**Not changed by this task:** no `src/`, `admin/`, `client/`, `src/db/`, API routes, database
+schema, migrations, Railway/Vercel config, production logic, `package.json`, or `package-lock.json`.
+
+**Verify:** run `npm run ai:brief` (or `PATH="../v2/node_modules/.bin:$PATH" npm run ai:brief`
+in a fresh worktree without `node_modules`) and review the docs/context-only diff.
+
+**Next:** review the PRD, then create a follow-up implementation ADR before any schema/API/UI work.
