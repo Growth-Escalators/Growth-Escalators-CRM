@@ -44,6 +44,18 @@ import {
 } from '../config/constants';
 import multer from 'multer';
 import { parseRequirement, generateRequirementSheet } from '../services/wizmatchRequirementSheet';
+import {
+  CONTACT_INTELLIGENCE_PHASE1_CAPS,
+  qualifyCompanyForContactIntelligence,
+  type ContactIntelligenceInput,
+} from '../services/wizmatchContactIntelligence';
+import {
+  buildWizmatchCommandCenter,
+  type CommandCenterCandidateInput,
+  type CommandCenterMetricsInput,
+  type CommandCenterRequirementInput,
+  type CommandCenterSignalInput,
+} from '../services/wizmatchCommandCenter';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -54,6 +66,513 @@ const requirementUpload = multer({
   limits: { fileSize: 15 * 1024 * 1024 }, // 15MB
 });
 const ALLOWED_REQ_MEDIA = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'];
+
+type ContactIntelligenceCompanyRow = {
+  company_id: string;
+  company_name: string;
+  company_domain: string | null;
+  company_country: string | null;
+  company_industry: string | null;
+  is_prime: boolean | null;
+  prime_msa_status: string | null;
+  h1b_sponsor_count: number | null;
+  signal_id: string | null;
+  job_title: string | null;
+  keywords: string[] | null;
+  location: string | null;
+  source: string | null;
+  signal_score: number | null;
+  days_open: number | null;
+  signal_status: string | null;
+  matched_candidate_count: number | null;
+  active_signal_count: number | null;
+  positive_reply_count: number | null;
+  negative_reply_count: number | null;
+  placement_count: number | null;
+  domain_status: string | null;
+  suppressed_count: number | null;
+  active_duplicate_count: number | null;
+  signal_contact_ids: string[] | null;
+};
+
+type CommandCenterMetricsRow = {
+  active_signals: number | string | null;
+  priority_signals: number | string | null;
+  available_candidates: number | string | null;
+  open_requirements: number | string | null;
+  active_placements: number | string | null;
+  paused_domains: number | string | null;
+  suppressed_contacts: number | string | null;
+};
+
+function numeric(value: unknown): number {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') return Number(value) || 0;
+  return 0;
+}
+
+async function fetchInternalContactCandidates(
+  tenantId: string,
+  companyName: string,
+  companyDomain: string | null,
+  signalContactIds: string[],
+) {
+  const result = await pool.query(
+    `SELECT c.id,
+            TRIM(CONCAT(c.first_name, ' ', COALESCE(c.last_name, ''))) AS name,
+            COALESCE(c.metadata->>'title', c.metadata->>'job_title', c.source_detail) AS title,
+            c.do_not_contact,
+            c.source,
+            email.channel_value AS email,
+            email.verified AS email_verified,
+            phone.channel_value AS phone,
+            linkedin.channel_value AS linkedin_url,
+            CASE WHEN c.id = ANY($4::uuid[]) THEN true ELSE false END AS from_signal,
+            EXISTS (
+              SELECT 1 FROM wizmatch_suppression_list ws
+              WHERE ws.tenant_id = c.tenant_id AND ws.contact_id = c.id
+            ) AS is_suppressed
+     FROM contacts c
+     LEFT JOIN LATERAL (
+       SELECT channel_value, verified
+       FROM contact_channels cc
+       WHERE cc.contact_id = c.id AND cc.channel_type = 'email'
+       ORDER BY cc.is_primary DESC, cc.created_at DESC
+       LIMIT 1
+     ) email ON true
+     LEFT JOIN LATERAL (
+       SELECT channel_value
+       FROM contact_channels cc
+       WHERE cc.contact_id = c.id AND cc.channel_type IN ('phone', 'whatsapp')
+       ORDER BY cc.is_primary DESC, cc.created_at DESC
+       LIMIT 1
+     ) phone ON true
+     LEFT JOIN LATERAL (
+       SELECT channel_value
+       FROM contact_channels cc
+       WHERE cc.contact_id = c.id AND cc.channel_type = 'linkedin'
+       ORDER BY cc.is_primary DESC, cc.created_at DESC
+       LIMIT 1
+     ) linkedin ON true
+     WHERE c.tenant_id = $1
+       AND (
+         c.id = ANY($4::uuid[])
+         OR LOWER(COALESCE(c.company_name, '')) = LOWER($2)
+         OR ($3::text IS NOT NULL AND LOWER(COALESCE(c.company_name, '')) LIKE '%' || LOWER($3::text) || '%')
+         OR ($3::text IS NOT NULL AND LOWER(COALESCE(c.metadata->>'company_domain', '')) = LOWER($3::text))
+       )
+     ORDER BY from_signal DESC, c.last_activity_at DESC NULLS LAST, c.created_at DESC
+     LIMIT 10`,
+    [tenantId, companyName, companyDomain, signalContactIds],
+  );
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    name: row.name || 'Unknown contact',
+    title: row.title,
+    email: row.email,
+    phone: row.phone,
+    linkedinUrl: row.linkedin_url,
+    verified: row.email_verified,
+    doNotContact: Boolean(row.do_not_contact || row.is_suppressed),
+    source: row.from_signal ? 'prior_wizmatch_signal' : (row.source || 'internal_crm'),
+    relationshipSignals: [
+      row.from_signal ? 'prior_signal_contact' : null,
+      row.email_verified ? 'verified_email' : null,
+    ].filter(Boolean) as string[],
+  }));
+}
+
+async function buildContactIntelligenceResult(tenantId: string, row: ContactIntelligenceCompanyRow) {
+  const signalContactIds = row.signal_contact_ids?.filter(Boolean) ?? [];
+  const internalContacts = await fetchInternalContactCandidates(
+    tenantId,
+    row.company_name,
+    row.company_domain,
+    signalContactIds,
+  );
+
+  const input: ContactIntelligenceInput = {
+    company: {
+      id: row.company_id,
+      name: row.company_name,
+      domain: row.company_domain,
+      country: row.company_country,
+      industry: row.company_industry,
+      isPrime: row.is_prime,
+      primeMsaStatus: row.prime_msa_status,
+      h1bSponsorCount: numeric(row.h1b_sponsor_count),
+    },
+    signal: row.signal_id ? {
+      id: row.signal_id,
+      jobTitle: row.job_title,
+      keywords: row.keywords ?? [],
+      location: row.location,
+      source: row.source,
+      score: numeric(row.signal_score),
+      daysOpen: numeric(row.days_open),
+      status: row.signal_status,
+    } : null,
+    candidateSupply: {
+      matchedCandidateCount: numeric(row.matched_candidate_count),
+      availableCandidateCount: numeric(row.matched_candidate_count),
+    },
+    relationships: {
+      knownContactCount: internalContacts.length,
+      positiveReplyCount: numeric(row.positive_reply_count),
+      placementCount: numeric(row.placement_count),
+      negativeReplyCount: numeric(row.negative_reply_count),
+      isPrime: Boolean(row.is_prime),
+      hasSignedMsa: row.prime_msa_status === 'signed',
+    },
+    safety: {
+      suppressedCount: numeric(row.suppressed_count),
+      domainStatus: row.domain_status,
+      activeDuplicateCount: numeric(row.active_duplicate_count),
+      inCooldown: false,
+    },
+    internalContacts,
+  };
+
+  return {
+    ...qualifyCompanyForContactIntelligence(input),
+    latestSignal: row.signal_id ? {
+      id: row.signal_id,
+      jobTitle: row.job_title,
+      source: row.source,
+      location: row.location,
+      score: numeric(row.signal_score),
+      daysOpen: numeric(row.days_open),
+      status: row.signal_status,
+      matchedCandidateCount: numeric(row.matched_candidate_count),
+    } : null,
+    relationshipSummary: {
+      knownContactCount: internalContacts.length,
+      positiveReplyCount: numeric(row.positive_reply_count),
+      negativeReplyCount: numeric(row.negative_reply_count),
+      placementCount: numeric(row.placement_count),
+      activeSignalCount: numeric(row.active_signal_count),
+    },
+    safetySummary: {
+      domainStatus: row.domain_status || 'unknown',
+      suppressedCount: numeric(row.suppressed_count),
+      activeDuplicateCount: numeric(row.active_duplicate_count),
+    },
+  };
+}
+
+async function fetchContactIntelligenceCompanyRows(tenantId: string, limit: number, companyId?: string) {
+  const params: unknown[] = [tenantId];
+  let companyFilter = '';
+  if (companyId) {
+    params.push(companyId);
+    companyFilter = `AND c.id = $${params.length}`;
+  }
+  params.push(limit);
+
+  const result = await pool.query(
+    `WITH latest_signals AS (
+       SELECT DISTINCT ON (s.company_id)
+              s.company_id,
+              s.id AS signal_id,
+              s.job_title,
+              s.keywords,
+              s.location,
+              s.source,
+              s.score AS signal_score,
+              s.days_open,
+              s.status AS signal_status,
+              s.matched_candidate_ids,
+              s.contact_id,
+              s.created_at
+       FROM wizmatch_job_signals s
+       WHERE s.tenant_id = $1 AND s.company_id IS NOT NULL
+       ORDER BY s.company_id, s.score DESC NULLS LAST, s.created_at DESC
+     )
+     SELECT c.id AS company_id,
+            c.name AS company_name,
+            c.domain AS company_domain,
+            c.country AS company_country,
+            c.industry AS company_industry,
+            c.is_prime,
+            c.prime_msa_status,
+            c.h1b_sponsor_count,
+            ls.signal_id,
+            ls.job_title,
+            ls.keywords,
+            ls.location,
+            ls.source,
+            ls.signal_score,
+            ls.days_open,
+            ls.signal_status,
+            COALESCE(cardinality(ls.matched_candidate_ids), 0)::int AS matched_candidate_count,
+            (SELECT COUNT(*)::int
+             FROM wizmatch_job_signals s2
+             WHERE s2.tenant_id = $1 AND s2.company_id = c.id AND s2.status NOT IN ('dead', 'placed')) AS active_signal_count,
+            (SELECT COUNT(*)::int
+             FROM wizmatch_job_signals s3
+             WHERE s3.tenant_id = $1 AND s3.company_id = c.id AND s3.status = 'replied_positive') AS positive_reply_count,
+            (SELECT COUNT(*)::int
+             FROM wizmatch_job_signals s4
+             WHERE s4.tenant_id = $1 AND s4.company_id = c.id AND s4.status = 'replied_other') AS negative_reply_count,
+            (SELECT COUNT(*)::int
+             FROM wizmatch_placements wp
+             WHERE wp.tenant_id = $1 AND (wp.company_id = c.id OR wp.prime_company_id = c.id)) AS placement_count,
+            dh.status AS domain_status,
+            (SELECT COUNT(*)::int
+             FROM wizmatch_suppression_list ws
+             WHERE ws.tenant_id = $1
+               AND c.domain IS NOT NULL
+               AND LOWER(SPLIT_PART(COALESCE(ws.email, ''), '@', 2)) = LOWER(c.domain)) AS suppressed_count,
+            (SELECT COUNT(*)::int
+             FROM wizmatch_job_signals s5
+             WHERE s5.tenant_id = $1
+               AND s5.company_id = c.id
+               AND s5.status IN ('drafted', 'sent')) AS active_duplicate_count,
+            ARRAY_REMOVE(ARRAY_AGG(DISTINCT sig_contacts.contact_id), NULL) AS signal_contact_ids
+     FROM wizmatch_companies c
+     JOIN latest_signals ls ON ls.company_id = c.id
+     LEFT JOIN wizmatch_domain_health dh ON dh.tenant_id = c.tenant_id AND dh.domain = c.domain
+     LEFT JOIN wizmatch_job_signals sig_contacts ON sig_contacts.tenant_id = c.tenant_id AND sig_contacts.company_id = c.id
+     WHERE c.tenant_id = $1 ${companyFilter}
+     GROUP BY c.id, ls.signal_id, ls.job_title, ls.keywords, ls.location, ls.source, ls.signal_score,
+              ls.days_open, ls.signal_status, ls.matched_candidate_ids, dh.status
+     ORDER BY COALESCE(ls.signal_score, 0) DESC, active_signal_count DESC, c.updated_at DESC
+     LIMIT $${params.length}`,
+    params,
+  );
+
+  return result.rows as ContactIntelligenceCompanyRow[];
+}
+
+async function fetchCommandCenterSignals(tenantId: string, limit: number): Promise<CommandCenterSignalInput[]> {
+  const result = await pool.query(
+    `SELECT s.id,
+            s.job_title,
+            s.company_id,
+            c.name AS company_name,
+            c.domain AS company_domain,
+            c.industry AS company_industry,
+            c.country AS company_country,
+            c.is_prime,
+            s.source,
+            s.location,
+            s.status,
+            s.score,
+            s.days_open,
+            COALESCE(cardinality(s.matched_candidate_ids), 0)::int AS matched_candidate_count,
+            dh.status AS domain_status,
+            (SELECT COUNT(*)::int
+             FROM wizmatch_suppression_list ws
+             WHERE ws.tenant_id = s.tenant_id
+               AND c.domain IS NOT NULL
+               AND LOWER(SPLIT_PART(COALESCE(ws.email, ''), '@', 2)) = LOWER(c.domain)) AS suppressed_count
+     FROM wizmatch_job_signals s
+     LEFT JOIN wizmatch_companies c ON c.id = s.company_id
+     LEFT JOIN wizmatch_domain_health dh ON dh.tenant_id = s.tenant_id AND dh.domain = c.domain
+     WHERE s.tenant_id = $1
+       AND s.status NOT IN ('dead', 'placed')
+     ORDER BY COALESCE(s.score, 0) DESC, COALESCE(cardinality(s.matched_candidate_ids), 0) DESC, s.created_at DESC
+     LIMIT $2`,
+    [tenantId, limit],
+  );
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    jobTitle: row.job_title,
+    companyId: row.company_id,
+    companyName: row.company_name,
+    companyDomain: row.company_domain,
+    companyIndustry: row.company_industry,
+    companyCountry: row.company_country,
+    isPrime: row.is_prime,
+    source: row.source,
+    location: row.location,
+    status: row.status,
+    score: numeric(row.score),
+    daysOpen: numeric(row.days_open),
+    matchedCandidateCount: numeric(row.matched_candidate_count),
+    domainStatus: row.domain_status,
+    suppressedCount: numeric(row.suppressed_count),
+  }));
+}
+
+async function fetchCommandCenterCandidates(tenantId: string, limit: number): Promise<CommandCenterCandidateInput[]> {
+  const result = await pool.query(
+    `SELECT wc.id,
+            TRIM(CONCAT(c.first_name, ' ', COALESCE(c.last_name, ''))) AS name,
+            wc.skills,
+            wc.location,
+            wc.visa_status,
+            wc.rate_hourly,
+            wc.rate_currency,
+            wc.availability_status,
+            wc.source,
+            wc.is_wizmatch_certified
+     FROM wizmatch_candidates wc
+     JOIN contacts c ON c.id = wc.contact_id
+     WHERE wc.tenant_id = $1
+     ORDER BY CASE WHEN wc.availability_status = 'available' THEN 0 ELSE 1 END,
+              wc.is_wizmatch_certified DESC,
+              wc.updated_at DESC
+     LIMIT $2`,
+    [tenantId, limit],
+  );
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    name: row.name || 'Unknown candidate',
+    skills: row.skills ?? [],
+    location: row.location,
+    visaStatus: row.visa_status,
+    rateHourly: numeric(row.rate_hourly),
+    rateCurrency: row.rate_currency,
+    availabilityStatus: row.availability_status,
+    source: row.source,
+    isWizmatchCertified: row.is_wizmatch_certified,
+  }));
+}
+
+async function fetchCommandCenterRequirements(tenantId: string, limit: number): Promise<CommandCenterRequirementInput[]> {
+  const result = await pool.query(
+    `SELECT r.id,
+            r.title,
+            comp.name AS company_name,
+            r.required_skills,
+            r.location,
+            r.region,
+            r.priority,
+            r.positions,
+            r.status,
+            r.budget_min,
+            r.budget_max,
+            r.budget_currency
+     FROM wizmatch_requirements r
+     LEFT JOIN wizmatch_companies comp ON comp.id = r.company_id
+     WHERE r.tenant_id = $1
+       AND r.status <> 'closed'
+     ORDER BY CASE r.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 ELSE 2 END,
+              r.updated_at DESC
+     LIMIT $2`,
+    [tenantId, limit],
+  );
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    companyName: row.company_name,
+    requiredSkills: row.required_skills ?? [],
+    location: row.location,
+    region: row.region,
+    priority: row.priority,
+    positions: numeric(row.positions),
+    status: row.status,
+    budgetMin: numeric(row.budget_min),
+    budgetMax: numeric(row.budget_max),
+    budgetCurrency: row.budget_currency,
+  }));
+}
+
+async function fetchCommandCenterMetrics(tenantId: string): Promise<Omit<CommandCenterMetricsInput, 'reviewReadyCompanies' | 'blockedCompanies'>> {
+  const result = await pool.query(
+    `SELECT
+       (SELECT COUNT(*)::int
+        FROM wizmatch_job_signals
+        WHERE tenant_id = $1 AND status NOT IN ('dead', 'placed')) AS active_signals,
+       (SELECT COUNT(*)::int
+        FROM wizmatch_job_signals
+        WHERE tenant_id = $1 AND status NOT IN ('dead', 'placed') AND COALESCE(score, 0) >= 7) AS priority_signals,
+       (SELECT COUNT(*)::int
+        FROM wizmatch_candidates
+        WHERE tenant_id = $1 AND availability_status = 'available') AS available_candidates,
+       (SELECT COUNT(*)::int
+        FROM wizmatch_requirements
+        WHERE tenant_id = $1 AND status <> 'closed') AS open_requirements,
+       (SELECT COUNT(*)::int
+        FROM wizmatch_placements
+        WHERE tenant_id = $1 AND status IN ('submitted', 'interviewing', 'offered', 'started')) AS active_placements,
+       (SELECT COUNT(*)::int
+        FROM wizmatch_domain_health
+        WHERE tenant_id = $1 AND status IN ('paused', 'blacklisted')) AS paused_domains,
+       (SELECT COUNT(*)::int
+        FROM wizmatch_suppression_list
+        WHERE tenant_id = $1) AS suppressed_contacts`,
+    [tenantId],
+  );
+  const row = (result.rows[0] ?? {}) as CommandCenterMetricsRow;
+  return {
+    activeSignals: numeric(row.active_signals),
+    prioritySignals: numeric(row.priority_signals),
+    availableCandidates: numeric(row.available_candidates),
+    openRequirements: numeric(row.open_requirements),
+    activePlacements: numeric(row.active_placements),
+    pausedDomains: numeric(row.paused_domains),
+    suppressedContacts: numeric(row.suppressed_contacts),
+  };
+}
+
+// ============================================================
+// SECTION 0 — CONTACT INTELLIGENCE PHASE 1 ROUTES
+// ============================================================
+
+// GET /api/wizmatch/contact-intelligence/queue — read-only Phase 1 queue
+router.get('/contact-intelligence/queue', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const limit = Math.min(Number(req.query.limit) || 25, 100);
+  const rows = await fetchContactIntelligenceCompanyRows(tenantId, limit);
+  const items = await Promise.all(rows.map((row) => buildContactIntelligenceResult(tenantId, row)));
+
+  res.json({
+    items,
+    total: items.length,
+    phase: 'phase_1_zero_paid_enrichment',
+    costControls: CONTACT_INTELLIGENCE_PHASE1_CAPS,
+  });
+});
+
+// GET /api/wizmatch/contact-intelligence/companies/:companyId — read-only detail
+router.get('/contact-intelligence/companies/:companyId', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const rows = await fetchContactIntelligenceCompanyRows(tenantId, 1, String(req.params.companyId));
+  if (rows.length === 0) {
+    res.status(404).json({ error: 'Company intelligence not found' });
+    return;
+  }
+
+  res.json(await buildContactIntelligenceResult(tenantId, rows[0]));
+});
+
+// GET /api/wizmatch/command-center — read-only intelligence operating layer
+router.get('/command-center', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const limit = Math.min(Number(req.query.limit) || 25, 75);
+
+  const [contactRows, signals, candidates, requirements, baseMetrics] = await Promise.all([
+    fetchContactIntelligenceCompanyRows(tenantId, limit),
+    fetchCommandCenterSignals(tenantId, limit),
+    fetchCommandCenterCandidates(tenantId, limit),
+    fetchCommandCenterRequirements(tenantId, limit),
+    fetchCommandCenterMetrics(tenantId),
+  ]);
+  const contactIntelligence = await Promise.all(
+    contactRows.map((row) => buildContactIntelligenceResult(tenantId, row)),
+  );
+  const metrics: CommandCenterMetricsInput = {
+    ...baseMetrics,
+    reviewReadyCompanies: contactIntelligence.filter((item) =>
+      item.qualificationTier !== 'Reject' && item.contactCandidates.length > 0,
+    ).length,
+    blockedCompanies: contactIntelligence.filter((item) => item.hardBlocks.length > 0).length,
+  };
+
+  res.json(buildWizmatchCommandCenter({
+    metrics,
+    contactIntelligence,
+    signals,
+    candidates,
+    requirements,
+  }));
+});
 
 // ============================================================
 // SECTION 1 — SIGNAL ROUTES

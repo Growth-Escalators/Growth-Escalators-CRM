@@ -2,7 +2,7 @@ import {
   Calendar, Home, Users, Kanban, CheckSquare, MessageSquare, TrendingUp,
   Megaphone, Share2, Target, Search, FileText, Brain, MapPin, Zap, Mail,
   Link as LinkIcon, CreditCard, Receipt, Shield, ShieldCheck, ClipboardList, Settings,
-  Briefcase, Building2, Radar, UserCheck, Send, Globe, Gavel, BarChart3,
+  Briefcase, Building2, Radar, UserCheck, Send, Globe, Gavel, BarChart3, Network,
 } from 'lucide-react';
 
 // Permission flag bag — derived from user role + per-user permission overrides.
@@ -175,6 +175,11 @@ export const NAV_ENTRIES = [
 
   // ── WIZMATCH STAFFING ─────────────────────────────────────────
   {
+    id: 'wm-command-center', label: 'Command Center', to: '/wizmatch/command-center',
+    icon: Brain, section: 'Wizmatch', group: null,
+    visible: f => f.canWizmatch,
+  },
+  {
     id: 'wm-requirements', label: 'Requirements', to: '/wizmatch/requirements',
     icon: FileText, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
@@ -192,6 +197,11 @@ export const NAV_ENTRIES = [
   {
     id: 'wm-queue', label: 'Review Queue', to: '/wizmatch/queue',
     icon: Send, section: 'Wizmatch', group: null,
+    visible: f => f.canWizmatch,
+  },
+  {
+    id: 'wm-contact-intelligence', label: 'Contact Intel', to: '/wizmatch/contact-intelligence',
+    icon: Network, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
   {

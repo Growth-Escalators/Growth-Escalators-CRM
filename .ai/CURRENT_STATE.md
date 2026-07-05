@@ -13,7 +13,10 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
 
 ## In progress
 
-- **AI collaboration layer** (this change): context scaffolding only, no app behaviour touched.
+- **Wizmatch Intelligence Command Center local build**: read-only Phase 1 operating layer over
+  existing Wizmatch data. It adds deterministic Contact Intelligence, client discovery scoring,
+  candidate intelligence scoring, requirement priority, module health, and a unified command queue.
+  No schema, migrations, paid enrichment, sending, worker/cron, package, or deployment changes.
 
 ## Recently landed (context)
 
@@ -27,6 +30,8 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   Wizmatch tables → JOIN queries must alias filter columns or Postgres throws 42702.
 - If the worker runs as a separate Railway service, it serves only a health probe, not the API →
   worker crons must call `WIZMATCH_API_BASE_URL` (public `web` URL), not `localhost`.
+- Local demo route `/wizmatch/command-center-demo` works without DB/login. The authenticated
+  `/wizmatch/command-center` route needs a healthy local API/database and CRM auth token.
 
 ## How to rebuild context fast
 

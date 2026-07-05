@@ -177,3 +177,52 @@ diff.
 
 **Next:** review the hardened PRD; create an implementation ADR before schema/API/UI/worker or paid
 enrichment work.
+
+## 2026-07-06 — Step 8: Wizmatch Intelligence Command Center local build — Codex — LOCALHOST READY
+
+**What was done**
+- Built a broad read-only Phase 1 Wizmatch operating layer for local review.
+- Added deterministic Command Center scoring for:
+  - Client Discovery / Company Signals.
+  - Contact Intelligence.
+  - Candidate Intelligence.
+  - Requirement Intake / fill priority.
+  - Module health and manual-review command queue.
+- Added a read-only `/api/wizmatch/command-center` endpoint that aggregates existing Wizmatch
+  tables only.
+- Added an admin Command Center page plus demo route:
+  `/wizmatch/command-center-demo`.
+- Preserved Phase 1 guardrails: no schema changes, no migrations, no paid enrichment, no
+  auto-sending, no worker/cron changes, no package/deployment changes.
+
+**Files changed**
+- `src/services/wizmatchContactIntelligence.ts`
+- `src/services/wizmatchCommandCenter.ts`
+- `src/routes/wizmatch.ts`
+- `src/__tests__/contactIntelligence.test.ts`
+- `src/__tests__/wizmatchCommandCenter.test.ts`
+- `admin/src/App.jsx`
+- `admin/src/components/navEntries.js`
+- `admin/src/pages/WizmatchContactIntelligencePage.jsx`
+- `admin/src/pages/WizmatchCommandCenterPage.jsx`
+- `.ai/CURRENT_TASK.md`
+- `.ai/CURRENT_STATE.md`
+- `.ai/HANDOFF_LOG.md`
+- `.ai/AI_BRIEF.md` regenerated
+
+**Verification**
+- `npx vitest --run src/__tests__/contactIntelligence.test.ts src/__tests__/wizmatchCommandCenter.test.ts`
+  passed: 2 files, 9 tests.
+- `npm run build` passed.
+- `npm test` passed: 13 files, 177 tests.
+- `npm run build` in `admin/` passed.
+- `curl -I http://localhost:5174/wizmatch/command-center-demo` returned HTTP 200.
+
+**Not changed**
+- No `src/db/schema.ts`, migrations, Railway/Vercel config, `package.json`, `package-lock.json`,
+  paid provider integration, worker/cron automation, or outreach send behavior changed.
+
+**Next**
+- Review localhost demo at `http://localhost:5174/wizmatch/command-center-demo`.
+- If accepted, decide whether to push this local branch. Persistence/schema-backed approval
+  workflow should be planned separately before any migration.

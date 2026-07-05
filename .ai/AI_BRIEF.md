@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-05T20:55:48.333Z_
+_Generated: 2026-07-05T21:25:05.751Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,24 +12,26 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: growth-escalators-backend-v2
 - **Branch**: `feature/contact-intelligence-phase1-adr`
-- **Last commit**: 9ebcb52 docs(wizmatch): add contact intelligence phase 1 ADR (9 seconds ago)
-- **Uncommitted changes**: 0 file(s)
+- **Last commit**: d629039 docs(wizmatch): add contact intelligence phase 1 ADR (29 minutes ago)
+- **Uncommitted changes**: 14 file(s)
 
 ## Current task
 
-**Wizmatch Contact Intelligence Phase 1 architecture ADR** — record the smallest safe
-implementation architecture after the PRD and Phase 1 plan landed on `main`.
+**Wizmatch Intelligence Command Center local build** — create a broad, read-only Phase 1
+operating layer for Wizmatch that combines Contact Intelligence, Client Discovery scoring,
+Candidate Intelligence scoring, requirement priority, module health, and a unified manual-review
+command queue.
 
-Scope is **documentation/context only**. This task creates an ADR for the first implementation
-slice and updates the AI handoff context. No production app logic, database schema, migrations,
-API routes, admin/client UI, deployment config, `package.json`, or `package-lock.json` changes.
+Scope is **local implementation only**. This task may touch backend services/routes, admin UI,
+and tests, but must not change database schema, migrations, paid enrichment integrations,
+outreach sending, worker/cron automation, deployment config, `package.json`, or `package-lock.json`.
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
 
 ## Recent commits
 
 ```
-9ebcb52 docs(wizmatch): add contact intelligence phase 1 ADR
+d629039 docs(wizmatch): add contact intelligence phase 1 ADR
 2f8239a Merge pull request #12 from Growth-Escalators/feature/contact-intelligence-phase1-plan
 742bbda docs(wizmatch): add contact intelligence phase 1 plan
 4788843 Merge pull request #11 from Growth-Escalators/feature/contact-intelligence-prd
