@@ -18,6 +18,7 @@
 import { Router, type Request, type Response } from 'express';
 import crypto from 'crypto';
 import { db, pool } from '../db/index';
+import { sql } from 'drizzle-orm';
 import {
   wizmatchCandidates,
   wizmatchPlacements,
@@ -55,31 +56,34 @@ router.get('/signals', async (req: Request, res: Response) => {
   const limit = Math.min(Number(req.query.limit) || 50, 200);
   const offset = Number(req.query.offset) || 0;
 
-  const conditions: string[] = ['tenant_id = $1'];
+  // Columns are qualified with the `s` alias: the data query below joins
+  // `contacts` and `wizmatch_companies`, which also have tenant_id/status/
+  // source/score columns — bare names would raise "column is ambiguous" (42702).
+  const conditions: string[] = ['s.tenant_id = $1'];
   const params: unknown[] = [tenantId];
   let paramIdx = 2;
 
   if (req.query.status) {
-    conditions.push(`status = $${paramIdx++}`);
+    conditions.push(`s.status = $${paramIdx++}`);
     params.push(req.query.status);
   }
   if (req.query.min_score) {
-    conditions.push(`score >= $${paramIdx++}`);
+    conditions.push(`s.score >= $${paramIdx++}`);
     params.push(Number(req.query.min_score));
   }
   if (req.query.source) {
-    conditions.push(`source = $${paramIdx++}`);
+    conditions.push(`s.source = $${paramIdx++}`);
     params.push(req.query.source);
   }
   if (req.query.company_id) {
-    conditions.push(`company_id = $${paramIdx++}`);
+    conditions.push(`s.company_id = $${paramIdx++}`);
     params.push(req.query.company_id);
   }
 
   const whereClause = conditions.join(' AND ');
 
   const countResult = await pool.query(
-    `SELECT COUNT(*)::int AS total FROM wizmatch_job_signals WHERE ${whereClause}`,
+    `SELECT COUNT(*)::int AS total FROM wizmatch_job_signals s WHERE ${whereClause}`,
     params,
   );
   const total = countResult.rows[0]?.total ?? 0;

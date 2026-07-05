@@ -252,7 +252,7 @@ export default function WizmatchSignalsPage() {
                         <div key={i} className="card p-3 mb-2">
                           <div className="font-medium text-sm text-neutral-900">{c.first_name} {c.last_name}</div>
                           <div className="text-xs text-neutral-500">{c.skills?.join(', ')}</div>
-                          <div className="text-xs text-neutral-500">{c.visa_status} · ${c.rate_hourly}/{c.rate_currency} · {c.availability_status}</div>
+                          <div className="text-xs text-neutral-500">{c.visa_status} · {c.rate_currency === 'INR' ? '₹' : '$'}{c.rate_hourly}/hr · {c.availability_status}</div>
                         </div>
                       ))}
                     </div>

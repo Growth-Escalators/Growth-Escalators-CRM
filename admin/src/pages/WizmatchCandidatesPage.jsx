@@ -120,7 +120,7 @@ export default function WizmatchCandidatesPage() {
                 </td>
                 <td>{c.location || '—'}</td>
                 <td><span className={VISA_BADGE[c.visa_status] || 'badge-muted'}>{c.visa_status || '—'}</span></td>
-                <td className="text-right font-mono text-neutral-900">{c.rate_hourly ? `$${c.rate_hourly}/${c.rate_currency || 'hr'}` : '—'}</td>
+                <td className="text-right font-mono text-neutral-900">{c.rate_hourly ? `${c.rate_currency === 'INR' ? '₹' : '$'}${c.rate_hourly}/hr` : '—'}</td>
                 <td><span className={AVAIL_BADGE[c.availability_status] || 'badge-muted'}>{c.availability_status}</span></td>
                 <td className="text-neutral-500 text-[12.5px]">{c.source}</td>
               </tr>

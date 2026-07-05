@@ -1407,7 +1407,10 @@ if (process.env.DISABLE_BACKGROUND_JOBS !== 'true' && process.env.WIZMATCH_TENAN
       [tenantId],
     );
     const token = process.env.WIZMATCH_INTERNAL_TOKEN || process.env.OUTREACH_INTERNAL_SECRET;
-    const baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : `http://localhost:${process.env.PORT || 3000}`;
+    // Runs in the *worker* service, which serves only a health probe (WORKER_PORT)
+    // — not the Express API. Must call the public `web` service; localhost /
+    // RAILWAY_PUBLIC_DOMAIN would fail and stall every signal at status='new'.
+    const baseUrl = process.env.WIZMATCH_API_BASE_URL || 'https://api.growthescalators.com';
     for (const s of signals.rows) {
       try {
         await fetch(`${baseUrl}/api/wizmatch/signals/${s.id}/score`, {
@@ -1428,7 +1431,10 @@ if (process.env.DISABLE_BACKGROUND_JOBS !== 'true' && process.env.WIZMATCH_TENAN
       [tenantId],
     );
     const token = process.env.WIZMATCH_INTERNAL_TOKEN || process.env.OUTREACH_INTERNAL_SECRET;
-    const baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : `http://localhost:${process.env.PORT || 3000}`;
+    // Runs in the *worker* service, which serves only a health probe (WORKER_PORT)
+    // — not the Express API. Must call the public `web` service; localhost /
+    // RAILWAY_PUBLIC_DOMAIN would fail and stall every signal at status='new'.
+    const baseUrl = process.env.WIZMATCH_API_BASE_URL || 'https://api.growthescalators.com';
     for (const s of signals.rows) {
       try {
         await fetch(`${baseUrl}/api/wizmatch/signals/${s.id}/enrich`, {
@@ -1449,7 +1455,10 @@ if (process.env.DISABLE_BACKGROUND_JOBS !== 'true' && process.env.WIZMATCH_TENAN
       [tenantId],
     );
     const token = process.env.WIZMATCH_INTERNAL_TOKEN || process.env.OUTREACH_INTERNAL_SECRET;
-    const baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : `http://localhost:${process.env.PORT || 3000}`;
+    // Runs in the *worker* service, which serves only a health probe (WORKER_PORT)
+    // — not the Express API. Must call the public `web` service; localhost /
+    // RAILWAY_PUBLIC_DOMAIN would fail and stall every signal at status='new'.
+    const baseUrl = process.env.WIZMATCH_API_BASE_URL || 'https://api.growthescalators.com';
     for (const s of signals.rows) {
       try {
         await fetch(`${baseUrl}/api/wizmatch/signals/${s.id}/match`, {
