@@ -100,7 +100,7 @@ describe('Wizmatch Contact Discovery Phase 3', () => {
       reacherVerify: vi.fn(async () => 'verified' as const),
     });
 
-    const result = await executeWizmatchContactDiscovery(baseInput(), mockProviders, enabledConfig());
+    const result = await executeWizmatchContactDiscovery(baseInput(), mockProviders, enabledConfig(), { costGuardToken: 'guard-token' });
 
     expect(result.status).toBe('succeeded');
     expect(result.candidates).toHaveLength(3);
@@ -115,7 +115,7 @@ describe('Wizmatch Contact Discovery Phase 3', () => {
         candidate({ name: 'Snov Contact', source: 'snov', email: 'vendor@example.in', costCents: 5, reasons: ['snov'] }),
       ]),
     });
-    const snovResult = await executeWizmatchContactDiscovery(baseInput(), mockProviders, enabledConfig());
+    const snovResult = await executeWizmatchContactDiscovery(baseInput(), mockProviders, enabledConfig(), { costGuardToken: 'guard-token' });
     expect(snovResult.candidates[0].source).toBe('snov');
     expect(mockProviders.googleFallbackSearch).not.toHaveBeenCalled();
 
@@ -124,7 +124,7 @@ describe('Wizmatch Contact Discovery Phase 3', () => {
         candidate({ name: 'LinkedIn Contact', title: 'Public profile match', email: null, linkedinUrl: 'https://linkedin.com/in/demo', source: 'google_fallback', sourceUrl: 'https://linkedin.com/in/demo', deliverabilityStatus: 'unknown', confidenceScore: 3, rankingScore: 58, costCents: 2, reasons: ['google'] }),
       ]),
     });
-    const googleResult = await executeWizmatchContactDiscovery(baseInput(), googleProviders, enabledConfig());
+    const googleResult = await executeWizmatchContactDiscovery(baseInput(), googleProviders, enabledConfig(), { costGuardToken: 'guard-token' });
     expect(googleResult.candidates[0].source).toBe('google_fallback');
   });
 
@@ -136,7 +136,7 @@ describe('Wizmatch Contact Discovery Phase 3', () => {
       reacherVerify: vi.fn(async () => 'invalid' as const),
     });
 
-    const result = await executeWizmatchContactDiscovery(baseInput(), mockProviders, enabledConfig());
+    const result = await executeWizmatchContactDiscovery(baseInput(), mockProviders, enabledConfig(), { costGuardToken: 'guard-token' });
 
     expect(result.status).toBe('partial');
     expect(result.candidates[0].status).toBe('stale');
@@ -150,10 +150,24 @@ describe('Wizmatch Contact Discovery Phase 3', () => {
       googleFallbackSearch: vi.fn(async () => []),
     });
 
-    const result = await executeWizmatchContactDiscovery(baseInput(), mockProviders, enabledConfig());
+    const result = await executeWizmatchContactDiscovery(baseInput(), mockProviders, enabledConfig(), { costGuardToken: 'guard-token' });
 
     expect(result.status).toBe('partial');
     expect(result.errors.join(' ')).toContain('apollo down');
     expect(result.errors.join(' ')).toContain('snov down');
+  });
+
+  it('does not call providers without a cost guard token', async () => {
+    const mockProviders = providers({
+      apolloPeopleSearch: vi.fn(async () => [
+        candidate({ name: 'Asha Rao', title: 'Head of Talent', email: 'asha@example.in' }),
+      ]),
+    });
+
+    const result = await executeWizmatchContactDiscovery(baseInput(), mockProviders, enabledConfig());
+
+    expect(result.status).toBe('blocked_by_cap');
+    expect(result.errors.join(' ')).toContain('Cost guard token is required');
+    expect(mockProviders.apolloPeopleSearch).not.toHaveBeenCalled();
   });
 });

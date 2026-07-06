@@ -5,6 +5,65 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-06 — Step 19: Wizmatch API cost protection — Codex — VERIFIED LOCALLY
+
+**What was done**
+- Added a reusable cost guard for paid Contact Intelligence discovery:
+  - ₹5,000/month default pilot budget,
+  - ₹500/day default budget,
+  - 20 tenant paid runs/day,
+  - 5 user paid runs/day,
+  - provider daily caps for Apollo, Snov, Reacher, and Google fallback,
+  - provider-env checks for Apollo/Snov/Reacher and SERPER when Google fallback is enabled.
+- Cost guard reads existing `wizmatch_discovery_runs` rows; no new ledger table or migration was
+  added.
+- Discovery preview now includes budget readiness, remaining caps, provider env status, and exact
+  blocked reasons.
+- Confirmed discovery rechecks budget immediately before provider calls, requires a cost-guard
+  token, and uses a Postgres advisory lock to avoid double-click duplicate provider runs.
+- Confirmed blocked attempts are persisted as zero-cost `blocked_by_cap` audit rows with
+  cost-guard metadata.
+- Contact Intelligence V2, Guardrail Center, and Data Readiness now expose cost-control status.
+- Added env knobs to `.env.example` for budget, run caps, provider caps, and provider cost
+  estimates.
+
+**Guardrails preserved**
+- No automatic outreach sending.
+- No automatic candidate submissions.
+- No worker/cron automation changes.
+- No new tables, schema edits, or migrations.
+- No Railway/Vercel/deployment config changes.
+- No `package.json` or `package-lock.json` changes.
+
+**Files changed**
+- `src/services/wizmatchCostGuard.ts`
+- `src/services/wizmatchContactDiscovery.ts`
+- `src/services/wizmatchContactDiscoveryProviders.ts`
+- `src/routes/wizmatch.ts`
+- `src/__tests__/wizmatchCostGuard.test.ts`
+- `src/__tests__/wizmatchContactDiscovery.test.ts`
+- `admin/src/pages/WizmatchNewPages.jsx`
+- `admin/src/pages/WizmatchOperatingPages.jsx`
+- `.env.example`
+- `public/admin/` rebuilt by `npm run admin:build`
+- `.ai/CURRENT_TASK.md`
+- `.ai/CURRENT_STATE.md`
+- `.ai/HANDOFF_LOG.md`
+- `.ai/AI_BRIEF.md` regenerated
+
+**Verification**
+- `npx vitest run src/__tests__/wizmatchCostGuard.test.ts src/__tests__/wizmatchContactDiscovery.test.ts src/__tests__/wizmatchContactIntelligenceRoutes.test.ts`
+  passed: 3 files, 13 tests.
+- `npm run build` passed.
+- `npm run admin:build` passed.
+- `npm test` passed: 21 files, 206 tests.
+
+**Next**
+- Push/deploy only after explicit approval.
+- Before enabling paid discovery in any live Railway environment, validate `/wizmatch/readiness`,
+  confirm Cost Controls show the expected budget/provider-env state, and run one controlled Tier A
+  preview/discovery.
+
 ## 2026-07-06 — Step 18: Contact Intelligence Phase 3 preview-first discovery — Codex — VERIFIED LOCALLY
 
 **What was done**

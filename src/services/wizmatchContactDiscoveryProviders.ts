@@ -53,6 +53,11 @@ function titleScore(title: string | null) {
   return 55;
 }
 
+function intEnv(value: string | undefined, defaultValue: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : defaultValue;
+}
+
 function candidateFromRaw(
   source: WizmatchProviderCandidate['source'],
   raw: Record<string, unknown>,
@@ -104,7 +109,7 @@ export function createDefaultWizmatchContactDiscoveryProviders(): WizmatchContac
         const data = await res.json() as { people?: Array<Record<string, unknown>> };
         return (data.people || [])
           .map((person) => candidateFromRaw('apollo', person, {
-            costCents: 10,
+            costCents: intEnv(process.env.WIZMATCH_APOLLO_COST_CENTS, 1500),
             reason: 'Apollo returned a role-targeted person match.',
             sourceUrl: 'https://apollo.io',
           }))
@@ -140,7 +145,7 @@ export function createDefaultWizmatchContactDiscoveryProviders(): WizmatchContac
         const data = await res.json() as { emails?: Array<Record<string, unknown>> };
         return (data.emails || [])
           .map((email) => candidateFromRaw('snov', email, {
-            costCents: 5,
+            costCents: intEnv(process.env.WIZMATCH_SNOV_COST_CENTS, 1000),
             reason: 'Snov returned a domain email match.',
             sourceUrl: 'https://snov.io',
           }))
@@ -198,7 +203,7 @@ export function createDefaultWizmatchContactDiscoveryProviders(): WizmatchContac
             deliverabilityStatus: 'unknown' as const,
             confidenceScore: 3,
             rankingScore: 58,
-            costCents: 2,
+            costCents: intEnv(process.env.WIZMATCH_GOOGLE_FALLBACK_COST_CENTS, 100),
             reasons: ['Google fallback found a public profile candidate after provider discovery returned no usable contacts.'],
             raw: { title: item.title, link: item.link, snippet: item.snippet },
           };

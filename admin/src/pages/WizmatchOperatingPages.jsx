@@ -204,6 +204,23 @@ const DEMO_GUARDRAILS = {
     maxPaidDiscoveryPerCompany: 0,
     maxContactCandidatesShown: 3,
     rediscoveryCooldownDays: 30,
+    costGuard: {
+      currency: 'INR',
+      estimatedCostCents: 3200,
+      budget: {
+        month: { usedCents: 0, limitCents: 500000, remainingCents: 500000 },
+        day: { usedCents: 0, limitCents: 50000, remainingCents: 50000 },
+        userDayRuns: { used: 0, limit: 5, remaining: 5 },
+        tenantDayRuns: { used: 0, limit: 20, remaining: 20 },
+        providerDayCalls: {
+          apollo: { used: 0, limit: 50, remaining: 50, estimated: 1 },
+          snov: { used: 0, limit: 50, remaining: 50, estimated: 1 },
+          reacher: { used: 0, limit: 150, remaining: 150, estimated: 3 },
+          googleFallback: { used: 0, limit: 25, remaining: 25, estimated: 1 },
+        },
+      },
+      providerEnv: { missing: ['demo mode'] },
+    },
   },
   rules: [
     'Paid discovery requires qualification, preview confirmation, and explicit manual execution.',
@@ -267,6 +284,12 @@ function badgeFor(value) {
 
 function text(value) {
   return String(value || '').replace(/_/g, ' ');
+}
+
+function formatMinorCurrency(cents, currency = 'INR') {
+  const value = Number(cents || 0) / 100;
+  const prefix = currency === 'INR' ? 'Rs' : currency;
+  return `${prefix} ${value.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 }
 
 function countWhere(items, predicate) {
@@ -415,10 +438,15 @@ function EmptyQueue({ title = 'Nothing to show', description = 'Adjust filters o
 }
 
 function GuardrailRow({ label, value }) {
+  const display = typeof value === 'object' && value !== null
+    ? value.budget
+      ? `Month ${formatMinorCurrency(value.budget.month?.usedCents, value.currency)} / ${formatMinorCurrency(value.budget.month?.limitCents, value.currency)}`
+      : JSON.stringify(value)
+    : String(value);
   return (
     <div className="flex items-center justify-between gap-3 rounded-md border border-neutral-100 bg-neutral-50 px-3 py-2 text-[12.5px]">
       <span className="font-semibold text-neutral-700">{text(label)}</span>
-      <span className="text-right text-neutral-500">{String(value)}</span>
+      <span className="text-right text-neutral-500">{display}</span>
     </div>
   );
 }
@@ -1003,6 +1031,15 @@ export function WizmatchReadinessPage({ demoMode = false }) {
           </div>
         </div>
         <div className="space-y-4">
+          <div className="card p-5">
+            <SectionHeader icon={DatabaseZap} title="Cost controls" description="Current paid-discovery budget posture." />
+            <div className="space-y-2">
+              <GuardrailRow label="paidDiscoveryEnabled" value={data.costControls?.paidDiscoveryEnabled ?? false} />
+              <GuardrailRow label="googleFallbackEnabled" value={data.costControls?.googleFallbackEnabled ?? false} />
+              <GuardrailRow label="monthlyBudget" value={data.costControls?.costGuard || {}} />
+              <GuardrailRow label="providerEnvMissing" value={(data.costControls?.costGuard?.providerEnv?.missing || []).join(', ') || 'none'} />
+            </div>
+          </div>
           <div className="card p-5">
             <SectionHeader icon={ListChecks} title="Operator notes" description="How to tell demo from live data." />
             <div className="space-y-2">
