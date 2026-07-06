@@ -47,7 +47,12 @@ import { parseRequirement, generateRequirementSheet } from '../services/wizmatch
 import {
   CONTACT_INTELLIGENCE_PHASE1_CAPS,
   qualifyCompanyForContactIntelligence,
+  resolveContactIntelligenceReviewAction,
+  type CompanyIntelligenceStatus,
+  type CompanyQualificationTier,
+  type ContactCandidateStatus,
   type ContactIntelligenceInput,
+  type ContactIntelligenceRegion,
 } from '../services/wizmatchContactIntelligence';
 import {
   buildWizmatchCommandCenter,
@@ -105,10 +110,65 @@ type CommandCenterMetricsRow = {
   suppressed_contacts: number | string | null;
 };
 
+type PersistedContactCandidateRow = {
+  id: string;
+  crm_contact_id: string | null;
+  name: string;
+  title: string | null;
+  email: string | null;
+  phone: string | null;
+  linkedin_url: string | null;
+  source: string | null;
+  source_url: string | null;
+  deliverability_status: string | null;
+  ranking_score: number | null;
+  relationship_score: number | null;
+  confidence_score: number | null;
+  status: string | null;
+  rejection_reason: string | null;
+  metadata: Record<string, unknown> | null;
+};
+
 function numeric(value: unknown): number {
   if (typeof value === 'number') return value;
   if (typeof value === 'string') return Number(value) || 0;
   return 0;
+}
+
+function firstString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function splitName(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return {
+    firstName: parts[0] || 'Unknown',
+    lastName: parts.length > 1 ? parts.slice(1).join(' ') : undefined,
+  };
+}
+
+function mapPersistedCandidate(row: PersistedContactCandidateRow) {
+  const status = (row.status || 'needs_review') as ContactCandidateStatus;
+  return {
+    id: row.id,
+    crmContactId: row.crm_contact_id,
+    name: row.name,
+    title: row.title,
+    email: row.email,
+    phone: row.phone,
+    linkedinUrl: row.linkedin_url,
+    source: row.source || 'internal_crm',
+    sourceUrl: row.source_url,
+    deliverabilityStatus: row.deliverability_status,
+    status,
+    rankingScore: numeric(row.ranking_score),
+    relationshipScore: numeric(row.relationship_score),
+    confidenceScore: numeric(row.confidence_score),
+    rejectionReason: row.rejection_reason,
+    reasons: Array.isArray(row.metadata?.reasons) ? row.metadata.reasons.map(String) : [],
+  };
 }
 
 async function fetchInternalContactCandidates(
@@ -259,6 +319,272 @@ async function buildContactIntelligenceResult(tenantId: string, row: ContactInte
       activeDuplicateCount: numeric(row.active_duplicate_count),
     },
   };
+}
+
+async function fetchPersistedContactIntelligence(tenantId: string, companyId: string) {
+  const [company, candidates, discoveryRuns] = await Promise.all([
+    pool.query(
+      `SELECT id,
+              qualification_tier,
+              qualification_score,
+              target_region,
+              is_it_staffing_fit,
+              status,
+              review_status,
+              review_action,
+              reviewed_by,
+              reviewed_at,
+              rejection_reason,
+              review_notes,
+              last_qualified_at,
+              last_discovered_at,
+              next_refresh_at,
+              cost_cents_total,
+              source_summary,
+              metadata
+       FROM wizmatch_company_intelligence
+       WHERE tenant_id = $1 AND company_id = $2
+       LIMIT 1`,
+      [tenantId, companyId],
+    ),
+    pool.query(
+      `SELECT id,
+              crm_contact_id,
+              name,
+              title,
+              email,
+              phone,
+              linkedin_url,
+              source,
+              source_url,
+              deliverability_status,
+              ranking_score,
+              relationship_score,
+              confidence_score,
+              status,
+              rejection_reason,
+              metadata
+       FROM wizmatch_contact_candidates
+       WHERE tenant_id = $1 AND company_id = $2
+       ORDER BY CASE status
+                  WHEN 'approved' THEN 0
+                  WHEN 'needs_review' THEN 1
+                  WHEN 'linked_to_crm' THEN 2
+                  WHEN 'new' THEN 3
+                  ELSE 4
+                END,
+                ranking_score DESC NULLS LAST,
+                created_at DESC
+       LIMIT 10`,
+      [tenantId, companyId],
+    ),
+    pool.query(
+      `SELECT id,
+              run_type,
+              source,
+              status,
+              cost_cents,
+              paid_provider,
+              started_at,
+              finished_at,
+              result_counts,
+              error_message,
+              created_at
+       FROM wizmatch_discovery_runs
+       WHERE tenant_id = $1 AND company_id = $2
+       ORDER BY created_at DESC
+       LIMIT 5`,
+      [tenantId, companyId],
+    ),
+  ]);
+
+  return {
+    company: company.rows[0] || null,
+    contactCandidates: (candidates.rows as PersistedContactCandidateRow[]).map(mapPersistedCandidate),
+    discoveryRuns: discoveryRuns.rows,
+  };
+}
+
+async function withPersistedContactIntelligence(tenantId: string, item: Awaited<ReturnType<typeof buildContactIntelligenceResult>>) {
+  const persisted = await fetchPersistedContactIntelligence(tenantId, item.companyId);
+  if (!persisted.company) {
+    return { ...item, persisted: null };
+  }
+
+  return {
+    ...item,
+    qualificationTier: (persisted.company.qualification_tier || item.qualificationTier) as CompanyQualificationTier,
+    qualificationScore: numeric(persisted.company.qualification_score) || item.qualificationScore,
+    targetRegion: (persisted.company.target_region || item.targetRegion) as ContactIntelligenceRegion,
+    companyStatus: (persisted.company.status || item.companyStatus) as CompanyIntelligenceStatus,
+    contactCandidates: persisted.contactCandidates.length ? persisted.contactCandidates : item.contactCandidates,
+    persisted: {
+      id: persisted.company.id,
+      reviewStatus: persisted.company.review_status,
+      reviewAction: persisted.company.review_action,
+      reviewedBy: persisted.company.reviewed_by,
+      reviewedAt: persisted.company.reviewed_at,
+      rejectionReason: persisted.company.rejection_reason,
+      reviewNotes: persisted.company.review_notes,
+      lastQualifiedAt: persisted.company.last_qualified_at,
+      lastDiscoveredAt: persisted.company.last_discovered_at,
+      nextRefreshAt: persisted.company.next_refresh_at,
+      costCentsTotal: numeric(persisted.company.cost_cents_total),
+      sourceSummary: persisted.company.source_summary || {},
+      metadata: persisted.company.metadata || {},
+      discoveryRuns: persisted.discoveryRuns,
+    },
+  };
+}
+
+async function persistContactIntelligenceSnapshot(tenantId: string, userId: string | undefined, companyId: string) {
+  const rows = await fetchContactIntelligenceCompanyRows(tenantId, 1, companyId);
+  if (rows.length === 0) return null;
+
+  const computed = await buildContactIntelligenceResult(tenantId, rows[0]);
+  const sourceSummary = {
+    latestSignal: computed.latestSignal,
+    relationshipSummary: computed.relationshipSummary,
+    safetySummary: computed.safetySummary,
+    reasons: computed.reasons,
+    hardBlocks: computed.hardBlocks,
+    phase: 'manual_review_persistence',
+  };
+  const nextRefreshAt = new Date(Date.now() + CONTACT_INTELLIGENCE_PHASE1_CAPS.rediscoveryCooldownDays * 24 * 60 * 60 * 1000);
+
+  const companyResult = await pool.query(
+    `INSERT INTO wizmatch_company_intelligence (
+       tenant_id,
+       company_id,
+       qualification_tier,
+       qualification_score,
+       target_region,
+       is_it_staffing_fit,
+       status,
+       review_status,
+       last_qualified_at,
+       next_refresh_at,
+       cost_cents_total,
+       source_summary,
+       metadata,
+       updated_at
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 'needs_review', NOW(), $8, 0, $9::jsonb, $10::jsonb, NOW())
+     ON CONFLICT (tenant_id, company_id)
+     DO UPDATE SET qualification_tier = EXCLUDED.qualification_tier,
+                   qualification_score = EXCLUDED.qualification_score,
+                   target_region = EXCLUDED.target_region,
+                   is_it_staffing_fit = EXCLUDED.is_it_staffing_fit,
+                   status = CASE
+                     WHEN wizmatch_company_intelligence.review_status IN ('approved', 'rejected')
+                     THEN wizmatch_company_intelligence.status
+                     ELSE EXCLUDED.status
+                   END,
+                   last_qualified_at = NOW(),
+                   next_refresh_at = EXCLUDED.next_refresh_at,
+                   source_summary = EXCLUDED.source_summary,
+                   metadata = EXCLUDED.metadata,
+                   updated_at = NOW()
+     RETURNING id`,
+    [
+      tenantId,
+      companyId,
+      computed.qualificationTier,
+      computed.qualificationScore,
+      computed.targetRegion,
+      computed.qualificationTier !== 'Reject',
+      computed.companyStatus,
+      nextRefreshAt,
+      JSON.stringify(sourceSummary),
+      JSON.stringify({ generatedBy: userId || 'system', costControls: computed.costControls }),
+    ],
+  );
+  const companyIntelligenceId = companyResult.rows[0].id as string;
+
+  for (const candidate of computed.contactCandidates) {
+    await pool.query(
+      `INSERT INTO wizmatch_contact_candidates (
+         tenant_id,
+         company_intelligence_id,
+         company_id,
+         crm_contact_id,
+         name,
+         title,
+         email,
+         phone,
+         linkedin_url,
+         region,
+         source,
+         deliverability_status,
+         ranking_score,
+         relationship_score,
+         confidence_score,
+         status,
+         metadata,
+         updated_at
+       )
+       SELECT $1, $2, $3, $4::uuid, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::jsonb, NOW()
+       WHERE NOT EXISTS (
+         SELECT 1
+         FROM wizmatch_contact_candidates existing
+         WHERE existing.tenant_id = $1
+           AND existing.company_id = $3
+           AND (
+             ($4::uuid IS NOT NULL AND existing.crm_contact_id = $4::uuid)
+             OR ($7::text IS NOT NULL AND LOWER(COALESCE(existing.email, '')) = LOWER($7::text))
+           )
+       )`,
+      [
+        tenantId,
+        companyIntelligenceId,
+        companyId,
+        candidate.id,
+        candidate.name,
+        candidate.title,
+        candidate.email,
+        candidate.phone,
+        candidate.linkedinUrl,
+        computed.targetRegion,
+        candidate.source,
+        candidate.confidenceScore >= 8 ? 'verified' : 'unverified',
+        candidate.rankingScore,
+        candidate.relationshipScore,
+        candidate.confidenceScore,
+        candidate.status,
+        JSON.stringify({ reasons: candidate.reasons, snapshotGeneratedAt: new Date().toISOString() }),
+      ],
+    );
+  }
+
+  await pool.query(
+    `INSERT INTO wizmatch_discovery_runs (
+       tenant_id,
+       company_intelligence_id,
+       company_id,
+       run_type,
+       source,
+       status,
+       cost_cents,
+       paid_provider,
+       requested_by,
+       started_at,
+       finished_at,
+       input_snapshot,
+       result_counts
+     )
+     VALUES ($1, $2, $3, 'internal_reuse', 'internal_crm', $4, 0, false, $5::uuid, NOW(), NOW(), $6::jsonb, $7::jsonb)`,
+    [
+      tenantId,
+      companyIntelligenceId,
+      companyId,
+      computed.contactCandidates.length > 0 ? 'succeeded' : 'partial',
+      userId || null,
+      JSON.stringify({ companyId, latestSignal: computed.latestSignal }),
+      JSON.stringify({ contactCandidates: computed.contactCandidates.length }),
+    ],
+  );
+
+  return withPersistedContactIntelligence(tenantId, computed);
 }
 
 async function fetchContactIntelligenceCompanyRows(tenantId: string, limit: number, companyId?: string) {
@@ -520,12 +846,13 @@ router.get('/contact-intelligence/queue', async (req: Request, res: Response) =>
   const tenantId = req.user!.tenantId;
   const limit = Math.min(Number(req.query.limit) || 25, 100);
   const rows = await fetchContactIntelligenceCompanyRows(tenantId, limit);
-  const items = await Promise.all(rows.map((row) => buildContactIntelligenceResult(tenantId, row)));
+  const computed = await Promise.all(rows.map((row) => buildContactIntelligenceResult(tenantId, row)));
+  const items = await Promise.all(computed.map((item) => withPersistedContactIntelligence(tenantId, item)));
 
   res.json({
     items,
     total: items.length,
-    phase: 'phase_1_zero_paid_enrichment',
+    phase: 'phase_2_manual_review_persistence',
     costControls: CONTACT_INTELLIGENCE_PHASE1_CAPS,
   });
 });
@@ -539,7 +866,277 @@ router.get('/contact-intelligence/companies/:companyId', async (req: Request, re
     return;
   }
 
-  res.json(await buildContactIntelligenceResult(tenantId, rows[0]));
+  const computed = await buildContactIntelligenceResult(tenantId, rows[0]);
+  res.json(await withPersistedContactIntelligence(tenantId, computed));
+});
+
+// POST /api/wizmatch/contact-intelligence/companies/:companyId/snapshot
+// Persists the deterministic qualification result and reusable internal candidates.
+router.post('/contact-intelligence/companies/:companyId/snapshot', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const item = await persistContactIntelligenceSnapshot(tenantId, req.user?.id, String(req.params.companyId));
+  if (!item) {
+    res.status(404).json({ error: 'Company intelligence source not found' });
+    return;
+  }
+  res.json({ item, costControls: CONTACT_INTELLIGENCE_PHASE1_CAPS });
+});
+
+// POST /api/wizmatch/contact-intelligence/companies/:companyId/review
+// Updates manual company review state only. Paid discovery requests are persisted as blocked.
+router.post('/contact-intelligence/companies/:companyId/review', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const companyId = String(req.params.companyId);
+  const action = firstString(req.body?.action) || 'watchlist_company';
+  const notes = firstString(req.body?.notes);
+  const rejectionReason = firstString(req.body?.rejectionReason);
+
+  const item = await persistContactIntelligenceSnapshot(tenantId, req.user?.id, companyId);
+  if (!item?.persisted?.id) {
+    res.status(404).json({ error: 'Company intelligence source not found' });
+    return;
+  }
+
+  const transition = resolveContactIntelligenceReviewAction({
+    entity: 'company',
+    action: action as any,
+    currentCompanyStatus: item.companyStatus as any,
+  });
+  const nextStatus = transition.nextCompanyStatus || item.companyStatus;
+  const reviewStatus =
+    action === 'approve_company' ? 'approved'
+      : action === 'reject_company' ? 'rejected'
+      : 'watchlist';
+
+  await pool.query(
+    `UPDATE wizmatch_company_intelligence
+     SET status = $1,
+         review_status = $2,
+         review_action = $3,
+         reviewed_by = $4::uuid,
+         reviewed_at = NOW(),
+         rejection_reason = $5,
+         review_notes = $6,
+         updated_at = NOW()
+     WHERE tenant_id = $7 AND company_id = $8`,
+    [nextStatus, reviewStatus, action, req.user?.id || null, rejectionReason, notes, tenantId, companyId],
+  );
+
+  if (transition.nextDiscoveryStatus) {
+    await pool.query(
+      `INSERT INTO wizmatch_discovery_runs (
+         tenant_id,
+         company_intelligence_id,
+         company_id,
+         run_type,
+         source,
+         status,
+         cost_cents,
+         paid_provider,
+         requested_by,
+         input_snapshot,
+         result_counts,
+         error_message
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, 0, false, $7::uuid, $8::jsonb, $9::jsonb, $10)`,
+      [
+        tenantId,
+        item.persisted.id,
+        companyId,
+        action === 'request_paid_discovery' ? 'paid_discovery' : 'manual_review',
+        action === 'request_paid_discovery' ? 'paid_provider_blocked' : 'reviewer',
+        transition.nextDiscoveryStatus,
+        req.user?.id || null,
+        JSON.stringify({ action, companyId }),
+        JSON.stringify({ allowed: transition.allowed }),
+        transition.allowed ? null : transition.reasons.join(' '),
+      ],
+    );
+  }
+
+  const refreshed = await fetchPersistedContactIntelligence(tenantId, companyId);
+  res.json({ transition, persisted: refreshed.company, contactCandidates: refreshed.contactCandidates });
+});
+
+// POST /api/wizmatch/contact-intelligence/companies/:companyId/contacts/manual
+// Adds a manually supplied contact candidate for review; it does not create a CRM contact yet.
+router.post('/contact-intelligence/companies/:companyId/contacts/manual', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const companyId = String(req.params.companyId);
+  const name = firstString(req.body?.name);
+  if (!name) {
+    res.status(400).json({ error: 'name is required' });
+    return;
+  }
+
+  const item = await persistContactIntelligenceSnapshot(tenantId, req.user?.id, companyId);
+  if (!item?.persisted?.id) {
+    res.status(404).json({ error: 'Company intelligence source not found' });
+    return;
+  }
+
+  const email = firstString(req.body?.email)?.toLowerCase();
+  const phone = firstString(req.body?.phone);
+  const title = firstString(req.body?.title);
+  const linkedinUrl = firstString(req.body?.linkedinUrl);
+  const notes = firstString(req.body?.notes);
+
+  const inserted = await pool.query(
+    `INSERT INTO wizmatch_contact_candidates (
+       tenant_id,
+       company_intelligence_id,
+       company_id,
+       name,
+       title,
+       email,
+       phone,
+       linkedin_url,
+       region,
+       source,
+       deliverability_status,
+       ranking_score,
+       relationship_score,
+       confidence_score,
+       status,
+       metadata,
+       created_at,
+       updated_at
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'manual_seed', 'manual_review', 50, 0, 4, 'needs_review', $10::jsonb, NOW(), NOW())
+     RETURNING id`,
+    [
+      tenantId,
+      item.persisted.id,
+      companyId,
+      name,
+      title,
+      email,
+      phone,
+      linkedinUrl,
+      item.targetRegion,
+      JSON.stringify({ notes, addedBy: req.user?.id || null }),
+    ],
+  );
+
+  const refreshed = await fetchPersistedContactIntelligence(tenantId, companyId);
+  res.status(201).json({ id: inserted.rows[0].id, contactCandidates: refreshed.contactCandidates });
+});
+
+// POST /api/wizmatch/contact-intelligence/contacts/:candidateId/review
+router.post('/contact-intelligence/contacts/:candidateId/review', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const candidateId = String(req.params.candidateId);
+  const action = firstString(req.body?.action) || 'reject_contact';
+  const rejectionReason = firstString(req.body?.rejectionReason);
+  const transition = resolveContactIntelligenceReviewAction({
+    entity: 'contact_candidate',
+    action: action as any,
+    currentContactStatus: 'needs_review',
+  });
+  if (!transition.nextContactStatus) {
+    res.status(400).json({ error: 'Unsupported contact review action', transition });
+    return;
+  }
+
+  const result = await pool.query(
+    `UPDATE wizmatch_contact_candidates
+     SET status = $1,
+         approved_by = CASE WHEN $1 = 'approved' THEN $2::uuid ELSE approved_by END,
+         approved_at = CASE WHEN $1 = 'approved' THEN NOW() ELSE approved_at END,
+         reviewed_by = $2::uuid,
+         reviewed_at = NOW(),
+         rejection_reason = $3,
+         updated_at = NOW()
+     WHERE tenant_id = $4 AND id = $5
+     RETURNING company_id`,
+    [transition.nextContactStatus, req.user?.id || null, rejectionReason, tenantId, candidateId],
+  );
+  if (result.rows.length === 0) {
+    res.status(404).json({ error: 'Contact candidate not found' });
+    return;
+  }
+
+  const refreshed = await fetchPersistedContactIntelligence(tenantId, result.rows[0].company_id);
+  res.json({ transition, contactCandidates: refreshed.contactCandidates });
+});
+
+// POST /api/wizmatch/contact-intelligence/contacts/:candidateId/link-crm-contact
+// Explicitly links/creates a CRM contact after reviewer approval. This does not send outreach.
+router.post('/contact-intelligence/contacts/:candidateId/link-crm-contact', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const candidateId = String(req.params.candidateId);
+  const result = await pool.query(
+    `SELECT id, company_id, crm_contact_id, name, title, email, phone, linkedin_url, status, metadata
+     FROM wizmatch_contact_candidates
+     WHERE tenant_id = $1 AND id = $2
+     LIMIT 1`,
+    [tenantId, candidateId],
+  );
+  const candidate = result.rows[0];
+  if (!candidate) {
+    res.status(404).json({ error: 'Contact candidate not found' });
+    return;
+  }
+  if (!['approved', 'linked_to_crm'].includes(candidate.status)) {
+    res.status(409).json({ error: 'Contact candidate must be approved before CRM linking' });
+    return;
+  }
+  if (!candidate.email && !candidate.phone && !candidate.linkedin_url) {
+    res.status(400).json({ error: 'At least one email, phone, or LinkedIn channel is required to link a CRM contact' });
+    return;
+  }
+
+  if (candidate.crm_contact_id) {
+    await pool.query(
+      `UPDATE contacts
+       SET last_activity_at = NOW(), updated_at = NOW()
+       WHERE tenant_id = $1 AND id = $2`,
+      [tenantId, candidate.crm_contact_id],
+    );
+    await pool.query(
+      `UPDATE wizmatch_contact_candidates
+       SET status = 'linked_to_crm', updated_at = NOW()
+       WHERE tenant_id = $1 AND id = $2`,
+      [tenantId, candidateId],
+    );
+    res.json({ crmContactId: candidate.crm_contact_id, created: false });
+    return;
+  }
+
+  const channels = [
+    candidate.email ? { channelType: 'email', channelValue: candidate.email, isPrimary: true } : null,
+    candidate.phone ? { channelType: 'phone', channelValue: candidate.phone, isPrimary: !candidate.email } : null,
+    candidate.linkedin_url ? { channelType: 'linkedin', channelValue: candidate.linkedin_url, isPrimary: !candidate.email && !candidate.phone } : null,
+  ].filter(Boolean) as Array<{ channelType: string; channelValue: string; isPrimary?: boolean }>;
+  const name = splitName(candidate.name);
+  const { contact, created } = await findOrCreateContact(tenantId, {
+    ...name,
+    source: 'wizmatch_contact_intelligence',
+    sourceDetail: candidate.title || 'manual review approved contact',
+    metadata: {
+      ...(candidate.metadata || {}),
+      title: candidate.title,
+      wizmatch_company_id: candidate.company_id,
+      contact_intelligence_candidate_id: candidate.id,
+    },
+    channels,
+  });
+  await pool.query(
+    `UPDATE contacts
+     SET last_activity_at = NOW(), updated_at = NOW()
+     WHERE tenant_id = $1 AND id = $2`,
+    [tenantId, contact.id],
+  );
+  await pool.query(
+    `UPDATE wizmatch_contact_candidates
+     SET crm_contact_id = $1,
+         status = 'linked_to_crm',
+         updated_at = NOW()
+     WHERE tenant_id = $2 AND id = $3`,
+    [contact.id, tenantId, candidateId],
+  );
+
+  res.json({ crmContactId: contact.id, created });
 });
 
 // GET /api/wizmatch/command-center — read-only intelligence operating layer
@@ -554,8 +1151,11 @@ router.get('/command-center', async (req: Request, res: Response) => {
     fetchCommandCenterRequirements(tenantId, limit),
     fetchCommandCenterMetrics(tenantId),
   ]);
-  const contactIntelligence = await Promise.all(
+  const computedContactIntelligence = await Promise.all(
     contactRows.map((row) => buildContactIntelligenceResult(tenantId, row)),
+  );
+  const contactIntelligence = await Promise.all(
+    computedContactIntelligence.map((item) => withPersistedContactIntelligence(tenantId, item)),
   );
   const metrics: CommandCenterMetricsInput = {
     ...baseMetrics,

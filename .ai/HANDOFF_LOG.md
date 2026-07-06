@@ -257,3 +257,40 @@ enrichment work.
 **Next**
 - Build writable API routes for manual review actions, still without paid enrichment, worker/cron
   automation, or outreach sending.
+
+## 2026-07-06 — Step 10: Contact Intelligence points 1-11 + module plans — Codex — VERIFIED LOCALLY
+
+**What was done**
+- Completed the pending Contact Intelligence workflow through point 11:
+  - reviewed current local branch and kept work local,
+  - kept the approved three-table migration as the persistence boundary,
+  - added persisted snapshot wiring from deterministic scoring into Contact Intelligence tables,
+  - added writable manual review API routes,
+  - added manual contact candidate import,
+  - added explicit CRM contact linking after candidate approval,
+  - updated the Contact Intelligence admin page with live review actions,
+  - added an API route registration test.
+- Created planning docs for the next two modules:
+  - `docs/prd/002-client-discovery-plan.md`
+  - `docs/prd/003-candidate-intelligence-plan.md`
+
+**Guardrails preserved**
+- No paid enrichment/provider calls.
+- No outreach sending.
+- No worker/cron automation.
+- No Railway/Vercel/deployment config changes.
+- No `package.json` or `package-lock.json` changes.
+- Production DB was not touched; the migration remains local until explicitly applied in an
+  intended environment.
+
+**Verification**
+- `npx vitest --run src/__tests__/contactIntelligence.test.ts src/__tests__/wizmatchContactIntelligenceRoutes.test.ts`
+  passed: 2 files, 7 tests.
+- `npm run build` passed.
+- `npm run build` in `admin/` passed.
+- `npm test` passed: 14 files, 180 tests.
+- `PATH="../v2/node_modules/.bin:$PATH" npm run ai:brief` passed.
+
+**Next**
+- Build Client Discovery / Company Signals from `docs/prd/002-client-discovery-plan.md`, feeding
+  qualified companies into Contact Intelligence.

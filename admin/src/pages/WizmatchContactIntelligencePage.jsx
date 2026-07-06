@@ -143,7 +143,7 @@ function ScoreBar({ label, value, max }) {
   );
 }
 
-function CandidateCard({ candidate }) {
+function CandidateCard({ candidate, disabled, onReview, onLinkCrm }) {
   return (
     <div className="border border-neutral-200 rounded-lg p-3 bg-white">
       <div className="flex items-start justify-between gap-3">
@@ -158,6 +158,7 @@ function CandidateCard({ candidate }) {
       <div className="mt-2 text-[12px] text-neutral-500 space-y-1">
         <p>{candidate.email || 'No email'}{candidate.phone ? ` · ${candidate.phone}` : ''}</p>
         <p className="capitalize">{candidate.source?.replace(/_/g, ' ') || 'internal crm'}</p>
+        <p className="capitalize">Status: {candidate.status?.replace(/_/g, ' ') || 'needs review'}</p>
       </div>
       {candidate.reasons?.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1">
@@ -166,6 +167,32 @@ function CandidateCard({ candidate }) {
           ))}
         </div>
       )}
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <button
+          type="button"
+          className="btn-primary btn-compact"
+          disabled={disabled || candidate.status === 'approved' || candidate.status === 'linked_to_crm'}
+          onClick={() => onReview(candidate, 'approve_contact')}
+        >
+          Approve
+        </button>
+        <button
+          type="button"
+          className="btn-standard btn-compact"
+          disabled={disabled || candidate.status === 'rejected' || candidate.status === 'linked_to_crm'}
+          onClick={() => onReview(candidate, 'reject_contact')}
+        >
+          Reject
+        </button>
+        <button
+          type="button"
+          className="btn-standard btn-compact"
+          disabled={disabled || !['approved', 'linked_to_crm'].includes(candidate.status)}
+          onClick={() => onLinkCrm(candidate)}
+        >
+          Link CRM
+        </button>
+      </div>
     </div>
   );
 }
@@ -212,6 +239,10 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [costControls, setCostControls] = useState(null);
+  const [actionLoading, setActionLoading] = useState('');
+  const [actionMessage, setActionMessage] = useState('');
+  const [reviewNotes, setReviewNotes] = useState('');
+  const [manualContact, setManualContact] = useState({ name: '', title: '', email: '', phone: '', linkedinUrl: '', notes: '' });
 
   const loadQueue = useCallback(async () => {
     setLoading(true);
@@ -255,6 +286,176 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
   }, [demoMode]);
 
   useEffect(() => { loadQueue(); }, [loadQueue]);
+
+  const updateSelectedInMemory = useCallback((updater) => {
+    setSelected((prev) => {
+      if (!prev) return prev;
+      const next = updater(prev);
+      setItems((list) => list.map((item) => item.companyId === next.companyId ? next : item));
+      return next;
+    });
+  }, []);
+
+  const snapshotCompany = useCallback(async () => {
+    if (!selected) return;
+    setActionLoading('snapshot');
+    setActionMessage('');
+    try {
+      if (demoMode) {
+        updateSelectedInMemory((prev) => ({
+          ...prev,
+          persisted: {
+            ...(prev.persisted || {}),
+            reviewStatus: 'needs_review',
+            lastQualifiedAt: new Date().toISOString(),
+            costCentsTotal: 0,
+          },
+        }));
+        setActionMessage('Demo snapshot saved locally.');
+      } else {
+        await apiFetch(`/api/wizmatch/contact-intelligence/companies/${selected.companyId}/snapshot`, { method: 'POST' });
+        await loadQueue();
+        setActionMessage('Snapshot saved for manual review.');
+      }
+    } catch (e) {
+      setActionMessage(e.message || 'Snapshot failed');
+    } finally {
+      setActionLoading('');
+    }
+  }, [demoMode, loadQueue, selected, updateSelectedInMemory]);
+
+  const reviewCompany = useCallback(async (action) => {
+    if (!selected) return;
+    setActionLoading(action);
+    setActionMessage('');
+    try {
+      if (demoMode) {
+        const status =
+          action === 'approve_company' ? 'discovery_blocked'
+            : action === 'reject_company' ? 'rejected'
+            : 'needs_review';
+        updateSelectedInMemory((prev) => ({
+          ...prev,
+          companyStatus: status,
+          persisted: {
+            ...(prev.persisted || {}),
+            reviewStatus: action === 'approve_company' ? 'approved' : action === 'reject_company' ? 'rejected' : 'watchlist',
+            reviewAction: action,
+            reviewNotes,
+            reviewedAt: new Date().toISOString(),
+          },
+        }));
+        setActionMessage(`Demo action saved: ${action.replace(/_/g, ' ')}`);
+      } else {
+        await apiFetch(`/api/wizmatch/contact-intelligence/companies/${selected.companyId}/review`, {
+          method: 'POST',
+          body: JSON.stringify({ action, notes: reviewNotes }),
+        });
+        await loadQueue();
+        setActionMessage(`Saved: ${action.replace(/_/g, ' ')}`);
+      }
+    } catch (e) {
+      setActionMessage(e.message || 'Review action failed');
+    } finally {
+      setActionLoading('');
+    }
+  }, [demoMode, loadQueue, reviewNotes, selected, updateSelectedInMemory]);
+
+  const reviewContact = useCallback(async (candidate, action) => {
+    if (!selected) return;
+    setActionLoading(`${action}:${candidate.id}`);
+    setActionMessage('');
+    const nextStatus =
+      action === 'approve_contact' ? 'approved'
+        : action === 'mark_do_not_contact' ? 'do_not_contact'
+        : 'rejected';
+    try {
+      if (demoMode) {
+        updateSelectedInMemory((prev) => ({
+          ...prev,
+          contactCandidates: (prev.contactCandidates || []).map((item) =>
+            item.id === candidate.id ? { ...item, status: nextStatus } : item,
+          ),
+        }));
+        setActionMessage(`Demo contact ${nextStatus.replace(/_/g, ' ')}.`);
+      } else {
+        await apiFetch(`/api/wizmatch/contact-intelligence/contacts/${candidate.id}/review`, {
+          method: 'POST',
+          body: JSON.stringify({ action }),
+        });
+        await loadQueue();
+        setActionMessage(`Contact ${nextStatus.replace(/_/g, ' ')}.`);
+      }
+    } catch (e) {
+      setActionMessage(e.message || 'Contact review failed');
+    } finally {
+      setActionLoading('');
+    }
+  }, [demoMode, loadQueue, selected, updateSelectedInMemory]);
+
+  const linkCrmContact = useCallback(async (candidate) => {
+    setActionLoading(`link:${candidate.id}`);
+    setActionMessage('');
+    try {
+      if (demoMode) {
+        updateSelectedInMemory((prev) => ({
+          ...prev,
+          contactCandidates: (prev.contactCandidates || []).map((item) =>
+            item.id === candidate.id ? { ...item, status: 'linked_to_crm', crmContactId: `demo-crm-${candidate.id}` } : item,
+          ),
+        }));
+        setActionMessage('Demo CRM link created.');
+      } else {
+        const result = await apiFetch(`/api/wizmatch/contact-intelligence/contacts/${candidate.id}/link-crm-contact`, {
+          method: 'POST',
+        });
+        await loadQueue();
+        setActionMessage(`CRM contact linked: ${result.crmContactId}`);
+      }
+    } catch (e) {
+      setActionMessage(e.message || 'CRM linking failed');
+    } finally {
+      setActionLoading('');
+    }
+  }, [demoMode, loadQueue, updateSelectedInMemory]);
+
+  const addManualContact = useCallback(async () => {
+    if (!selected || !manualContact.name.trim()) return;
+    setActionLoading('manual-contact');
+    setActionMessage('');
+    try {
+      if (demoMode) {
+        const candidate = {
+          id: `manual-${Date.now()}`,
+          name: manualContact.name.trim(),
+          title: manualContact.title || 'Manual contact',
+          email: manualContact.email || null,
+          phone: manualContact.phone || null,
+          linkedinUrl: manualContact.linkedinUrl || null,
+          source: 'manual_seed',
+          status: 'needs_review',
+          rankingScore: 50,
+          relationshipScore: 0,
+          confidenceScore: manualContact.email ? 4 : 2,
+          reasons: ['Manual reviewer seed.'],
+        };
+        updateSelectedInMemory((prev) => ({ ...prev, contactCandidates: [candidate, ...(prev.contactCandidates || [])] }));
+        setActionMessage('Demo manual contact added.');
+      } else {
+        await apiFetch(`/api/wizmatch/contact-intelligence/companies/${selected.companyId}/contacts/manual`, {
+          method: 'POST',
+          body: JSON.stringify(manualContact),
+        });
+        await loadQueue();
+        setActionMessage('Manual contact added for review.');
+      }
+      setManualContact({ name: '', title: '', email: '', phone: '', linkedinUrl: '', notes: '' });
+    } catch (e) {
+      setActionMessage(e.message || 'Manual contact add failed');
+    } finally {
+      setActionLoading('');
+    }
+  }, [demoMode, loadQueue, manualContact, selected, updateSelectedInMemory]);
 
   const summary = useMemo(() => {
     const tierA = items.filter((item) => item.qualificationTier === 'A').length;
@@ -351,12 +552,24 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
                 <div>
                   <h2 className="text-[18px] font-bold text-neutral-900">{selected.companyName}</h2>
                   <p className="text-[12.5px] text-neutral-500">{selected.companyDomain || 'No domain'} · {selected.targetRegion?.toUpperCase()}</p>
+                  {selected.persisted?.reviewStatus && (
+                    <p className="text-[12px] text-neutral-500 mt-1">
+                      Review: <span className="font-semibold capitalize">{selected.persisted.reviewStatus.replace(/_/g, ' ')}</span>
+                      {selected.persisted.reviewedAt ? ` · ${new Date(selected.persisted.reviewedAt).toLocaleString()}` : ''}
+                    </p>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <span className={TIER_BADGE[selected.qualificationTier] || 'badge-muted'}>Tier {selected.qualificationTier}</span>
                   <span className={STATUS_BADGE[selected.companyStatus] || 'badge-muted'}>{selected.companyStatus?.replace(/_/g, ' ')}</span>
                 </div>
               </div>
+
+              {actionMessage && (
+                <div className="mb-5 rounded-lg border border-primary-100 bg-primary-50 px-3 py-2 text-[13px] text-primary-900">
+                  {actionMessage}
+                </div>
+              )}
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-5">
                 <div className="bg-neutral-50 rounded-lg p-4">
@@ -410,7 +623,13 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
                   <div className="space-y-3">
                     {selected.contactCandidates?.length ? (
                       selected.contactCandidates.map((candidate) => (
-                        <CandidateCard key={candidate.id} candidate={candidate} />
+                        <CandidateCard
+                          key={candidate.id}
+                          candidate={candidate}
+                          disabled={Boolean(actionLoading)}
+                          onReview={reviewContact}
+                          onLinkCrm={linkCrmContact}
+                        />
                       ))
                     ) : (
                       <div className="border border-dashed border-neutral-300 rounded-lg p-5 text-center text-neutral-400">
@@ -421,15 +640,76 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
                   </div>
 
                   <h3 className="text-[15px] font-semibold text-neutral-800 mt-6 mb-3">Manual Review Actions</h3>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button className="btn-primary btn-compact" disabled>Approve later</button>
-                    <button className="btn-standard btn-compact" disabled>Reject later</button>
-                    <button className="btn-standard btn-compact" disabled>Add manual contact</button>
-                    <button className="btn-standard btn-compact" disabled>Request discovery</button>
+                  <textarea
+                    className="w-full min-h-[72px] rounded-lg border border-neutral-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-200"
+                    placeholder="Reviewer notes"
+                    value={reviewNotes}
+                    onChange={(e) => setReviewNotes(e.target.value)}
+                  />
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <button className="btn-primary btn-compact" disabled={Boolean(actionLoading)} onClick={() => reviewCompany('approve_company')}>
+                      Approve company
+                    </button>
+                    <button className="btn-standard btn-compact" disabled={Boolean(actionLoading)} onClick={() => reviewCompany('reject_company')}>
+                      Reject company
+                    </button>
+                    <button className="btn-standard btn-compact" disabled={Boolean(actionLoading)} onClick={() => reviewCompany('watchlist_company')}>
+                      Watchlist
+                    </button>
+                    <button className="btn-standard btn-compact" disabled={Boolean(actionLoading)} onClick={() => reviewCompany('request_paid_discovery')}>
+                      Request discovery
+                    </button>
                   </div>
                   <p className="text-[12px] text-neutral-400 mt-2">
-                    Actions are disabled in this local Phase 1 slice: no writes, no outreach, no paid enrichment.
+                    Company/contact actions persist review state only. Request discovery stays blocked by the zero-paid-enrichment cap.
                   </p>
+
+                  <h3 className="text-[15px] font-semibold text-neutral-800 mt-6 mb-3">Add Manual Contact</h3>
+                  <div className="grid grid-cols-1 gap-2">
+                    <input
+                      className="rounded-lg border border-neutral-200 px-3 py-2 text-sm"
+                      placeholder="Name"
+                      value={manualContact.name}
+                      onChange={(e) => setManualContact((prev) => ({ ...prev, name: e.target.value }))}
+                    />
+                    <input
+                      className="rounded-lg border border-neutral-200 px-3 py-2 text-sm"
+                      placeholder="Title"
+                      value={manualContact.title}
+                      onChange={(e) => setManualContact((prev) => ({ ...prev, title: e.target.value }))}
+                    />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      <input
+                        className="rounded-lg border border-neutral-200 px-3 py-2 text-sm"
+                        placeholder="Email"
+                        value={manualContact.email}
+                        onChange={(e) => setManualContact((prev) => ({ ...prev, email: e.target.value }))}
+                      />
+                      <input
+                        className="rounded-lg border border-neutral-200 px-3 py-2 text-sm"
+                        placeholder="Phone"
+                        value={manualContact.phone}
+                        onChange={(e) => setManualContact((prev) => ({ ...prev, phone: e.target.value }))}
+                      />
+                    </div>
+                    <input
+                      className="rounded-lg border border-neutral-200 px-3 py-2 text-sm"
+                      placeholder="LinkedIn URL"
+                      value={manualContact.linkedinUrl}
+                      onChange={(e) => setManualContact((prev) => ({ ...prev, linkedinUrl: e.target.value }))}
+                    />
+                    <button
+                      className="btn-standard btn-compact justify-center"
+                      disabled={Boolean(actionLoading) || !manualContact.name.trim()}
+                      onClick={addManualContact}
+                    >
+                      Add manual contact
+                    </button>
+                  </div>
+
+                  <button className="btn-standard btn-compact mt-4 w-full justify-center" disabled={Boolean(actionLoading)} onClick={snapshotCompany}>
+                    Save / refresh persisted snapshot
+                  </button>
                 </div>
               </div>
             </div>

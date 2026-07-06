@@ -13,11 +13,10 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
 
 ## In progress
 
-- **Wizmatch Contact Intelligence persistence slice**: first schema-backed foundation for manual
-  review state. It adds the three approved MVP tables (`wizmatch_company_intelligence`,
-  `wizmatch_contact_candidates`, `wizmatch_discovery_runs`), a review-action service contract, and
-  ADR-003. Still no writable API routes, admin action buttons, paid enrichment, outreach sending,
-  worker/cron automation, package, or deployment changes.
+- **Wizmatch Contact Intelligence manual review workflow**: local implementation now includes the
+  three approved MVP persistence tables, snapshot/review/manual-contact/CRM-link API routes, admin
+  review actions, API route tests, and plans for Client Discovery + Candidate Intelligence. Still
+  no paid enrichment, outreach sending, worker/cron automation, package, or deployment changes.
 
 ## Recently landed (context)
 
@@ -33,8 +32,10 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   worker crons must call `WIZMATCH_API_BASE_URL` (public `web` URL), not `localhost`.
 - Local demo route `/wizmatch/command-center-demo` works without DB/login. The authenticated
   `/wizmatch/command-center` route needs a healthy local API/database and CRM auth token.
-- Contact Intelligence persistence is local-only until reviewed and migrated in the intended
-  environment. Paid discovery remains blocked by service caps.
+- Contact Intelligence persistence/API/UI are local-only until reviewed and migrated in the
+  intended environment. Paid discovery remains blocked by service caps.
+- Applying `src/db/migrations/0021_contact_intelligence_phase2.sql` to any real database is still
+  a separate environment decision; this session did not touch production DB state.
 
 ## How to rebuild context fast
 
