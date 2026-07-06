@@ -26,6 +26,9 @@ const BADGE = {
   warm: 'badge-info',
   watch: 'badge-warning',
   blocked: 'badge-danger',
+  ready: 'badge-success',
+  needs_data: 'badge-warning',
+  needs_migration_check: 'badge-danger',
   healthy: 'badge-success',
   approved: 'badge-success',
   review_candidates: 'badge-info',
@@ -195,6 +198,7 @@ const DEMO_WORKBENCH = {
 const DEMO_GUARDRAILS = {
   safetyCenter: DEMO_WORKBENCH.safetyCenter,
   guardrails: DEMO_WORKBENCH.guardrails,
+  readiness: { status: 'needs_data', score: 78, primaryIssue: 'Demo mode uses sample data; open the authenticated page to validate live CRM records.' },
   costControls: {
     paidDiscoveryEnabled: false,
     maxPaidDiscoveryPerCompany: 0,
@@ -207,6 +211,52 @@ const DEMO_GUARDRAILS = {
     'Candidate review persistence does not create submissions.',
     'Requirement priority planning does not change requirement status.',
     'Safety blockers must be resolved before volume increases.',
+  ],
+};
+
+const DEMO_READINESS = {
+  generatedAt: '2026-07-06T00:00:00.000Z',
+  database: { status: 'connected', reason: 'Demo readiness fixture loaded.' },
+  overall: {
+    status: 'needs_data',
+    score: 78,
+    primaryIssue: 'Demo data is healthy, but live readiness must be checked after login.',
+  },
+  tables: [
+    { table: 'wizmatch_companies', label: 'Companies', required: true, exists: true, count: 12, latestAt: '2026-07-06T00:00:00.000Z', status: 'ready', reason: 'Live rows found.' },
+    { table: 'wizmatch_job_signals', label: 'Job signals', required: true, exists: true, count: 30, latestAt: '2026-07-06T00:00:00.000Z', status: 'ready', reason: 'Live rows found.' },
+    { table: 'wizmatch_candidates', label: 'Candidates', required: true, exists: true, count: 25, latestAt: '2026-07-06T00:00:00.000Z', status: 'ready', reason: 'Live rows found.' },
+    { table: 'wizmatch_requirements', label: 'Requirements', required: true, exists: true, count: 7, latestAt: '2026-07-06T00:00:00.000Z', status: 'ready', reason: 'Live rows found.' },
+    { table: 'wizmatch_company_intelligence', label: 'Company intelligence', required: true, exists: true, count: 0, latestAt: null, status: 'needs_data', reason: 'Table exists but no review rows were found.' },
+    { table: 'wizmatch_contact_candidates', label: 'Contact candidates', required: true, exists: true, count: 0, latestAt: null, status: 'needs_data', reason: 'Table exists but no review rows were found.' },
+    { table: 'wizmatch_discovery_runs', label: 'Discovery runs', required: true, exists: true, count: 0, latestAt: null, status: 'needs_data', reason: 'No discovery audit rows yet.' },
+    { table: 'wizmatch_placements', label: 'Placements', required: false, exists: true, count: 1, latestAt: '2026-07-06T00:00:00.000Z', status: 'ready', reason: 'Live rows found.' },
+    { table: 'wizmatch_domain_health', label: 'Domain health', required: true, exists: true, count: 2, latestAt: '2026-07-06T00:00:00.000Z', status: 'ready', reason: 'Live rows found.' },
+    { table: 'wizmatch_suppression_list', label: 'Suppressions', required: true, exists: true, count: 1, latestAt: '2026-07-06T00:00:00.000Z', status: 'ready', reason: 'Live rows found.' },
+    { table: 'contacts', label: 'CRM contacts', required: true, exists: true, count: 50, latestAt: '2026-07-06T00:00:00.000Z', status: 'ready', reason: 'Live rows found.' },
+    { table: 'contact_channels', label: 'CRM contact channels', required: true, exists: true, count: 80, latestAt: '2026-07-06T00:00:00.000Z', status: 'ready', reason: 'Live rows found.' },
+  ],
+  modules: [
+    { module: 'client_discovery', label: 'Client Discovery', status: 'ready', score: 100, reason: 'Real data is present for this module.', counts: { companies: 12, signals: 30, candidates: 25, domains: 2 }, nextStep: 'Use this module with logged-in live data.' },
+    { module: 'contact_intelligence', label: 'Contact Intelligence', status: 'needs_data', score: 55, reason: 'Contact Intelligence tables exist but have no review state yet.', counts: { companyIntel: 0, contactCandidates: 0, contacts: 50, channels: 80 }, nextStep: 'Send qualified companies from Client Discovery or create snapshots.' },
+    { module: 'candidate_intelligence', label: 'Candidate Intelligence', status: 'ready', score: 100, reason: 'Real data is present for this module.', counts: { candidates: 25, contacts: 50, channels: 80 }, nextStep: 'Use this module with logged-in live data.' },
+    { module: 'requirement_priority', label: 'Requirement Priority', status: 'ready', score: 100, reason: 'Real data is present for this module.', counts: { requirements: 7, candidates: 25 }, nextStep: 'Use this module with logged-in live data.' },
+    { module: 'review_workbench', label: 'Review Workbench', status: 'ready', score: 100, reason: 'Real data is present for this module.', counts: { companies: 12, signals: 30, candidates: 25, requirements: 7 }, nextStep: 'Use this module with logged-in live data.' },
+    { module: 'analytics', label: 'Analytics / ROI', status: 'ready', score: 100, reason: 'Real data is present for this module.', counts: { signals: 30, candidates: 25, requirements: 7, placements: 1 }, nextStep: 'Use this module with logged-in live data.' },
+    { module: 'guardrails', label: 'Guardrails', status: 'ready', score: 100, reason: 'Real data is present for this module.', counts: { domains: 2, suppressions: 1, discoveryRuns: 0 }, nextStep: 'Use this module with logged-in live data.' },
+  ],
+  operatorNotes: [
+    'Open /wizmatch/readiness first when validating live data.',
+    'Demo pages are labeled demo mode and use fixed sample data.',
+    'Live pages require CRM login and protected /api/wizmatch routes.',
+    'A healthy state means required tables exist and source records are present.',
+  ],
+  guardedItems: [
+    'Paid Apollo/Snov/Reacher enrichment remains blocked.',
+    'Automatic outreach sending remains blocked.',
+    'Automatic candidate submission remains blocked.',
+    'Worker/cron automation remains blocked.',
+    'Production migrations require explicit approval.',
   ],
 };
 
@@ -409,6 +459,7 @@ function OperatingLinks() {
     ['/wizmatch/client-discovery-new-demo', 'Clients', Target],
     ['/wizmatch/contact-intelligence-new-demo', 'Contacts', Contact],
     ['/wizmatch/candidate-intelligence-new-demo', 'Candidates', UserCheck],
+    ['/wizmatch/readiness-demo', 'Readiness', DatabaseZap],
     ['/wizmatch/analytics-new-demo', 'Analytics', Activity],
   ];
   return (
@@ -443,6 +494,83 @@ function Metric({ icon: Icon, label, value, helper, tone = 'neutral' }) {
           <Icon className="h-4 w-4" />
         </div>
       </div>
+    </div>
+  );
+}
+
+function ReadinessStrip({ readiness, demoMode }) {
+  const status = readiness?.status || 'needs_data';
+  const primaryIssue = readiness?.primaryIssue || 'Readiness has not been checked yet.';
+  const href = demoMode ? '/wizmatch/readiness-demo' : '/wizmatch/readiness';
+  return (
+    <div className="rounded-lg border border-primary-100 bg-white px-4 py-3 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="rounded-md bg-primary-50 p-2 text-primary-700">
+            <DatabaseZap className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-semibold text-neutral-950">Live data readiness</p>
+              <span className={badgeFor(status)}>{text(status)}</span>
+              {readiness?.score != null && <span className="badge-muted">{readiness.score}/100</span>}
+            </div>
+            <p className="mt-1 text-[12.5px] leading-5 text-neutral-500">{primaryIssue}</p>
+          </div>
+        </div>
+        <a href={href} className="btn-secondary btn-compact">
+          Open readiness
+          <ArrowRight className="h-4 w-4" />
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function StatusPill({ status }) {
+  return <span className={badgeFor(status)}>{text(status)}</span>;
+}
+
+function TableReadinessRow({ table }) {
+  return (
+    <div className="grid gap-3 rounded-md border border-neutral-100 bg-white px-3 py-3 text-[12.5px] md:grid-cols-[1.3fr_0.8fr_0.7fr_1fr_2fr]">
+      <div>
+        <p className="font-semibold text-neutral-900">{table.label}</p>
+        <p className="mt-0.5 font-mono text-[11px] text-neutral-400">{table.table}</p>
+      </div>
+      <div><StatusPill status={table.status} /></div>
+      <div className="font-semibold text-neutral-800">{table.exists ? table.count ?? 0 : 'Missing'}</div>
+      <div className="text-neutral-500">{table.latestAt ? new Date(table.latestAt).toLocaleDateString() : 'No rows'}</div>
+      <div className="text-neutral-500">{table.reason}</div>
+    </div>
+  );
+}
+
+function ModuleReadinessCard({ module }) {
+  return (
+    <div className="card p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <StatusPill status={module.status} />
+            <span className="badge-muted">{module.score}/100</span>
+          </div>
+          <h2 className="font-semibold text-neutral-950">{module.label}</h2>
+          <p className="mt-1 text-[12.5px] leading-5 text-neutral-500">{module.reason}</p>
+        </div>
+        <div className="rounded-md bg-primary-50 p-2 text-primary-700">
+          <DatabaseZap className="h-4 w-4" />
+        </div>
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        {Object.entries(module.counts || {}).slice(0, 4).map(([key, value]) => (
+          <div key={key} className="rounded-md bg-neutral-50 px-3 py-2">
+            <p className="text-[10.5px] font-semibold uppercase tracking-wider text-neutral-400">{text(key)}</p>
+            <p className="mt-1 text-sm font-bold text-neutral-900">{value}</p>
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 rounded-md bg-neutral-50 px-3 py-2 text-[12.5px] text-neutral-600">{module.nextStep}</p>
     </div>
   );
 }
@@ -569,6 +697,8 @@ export function WizmatchReviewWorkbenchPage({ demoMode = false }) {
         <Metric icon={AlertTriangle} label="Blocked" value={data.summary?.blocked || 0} helper="Resolve manually" tone="danger" />
         <Metric icon={CheckCircle2} label="Safe actions" value={data.summary?.safeExecutableActions || 0} helper="No sending/submits" tone="success" />
       </div>
+
+      <ReadinessStrip readiness={data.readiness || DEMO_READINESS.overall} demoMode={demoMode} />
 
       {message && <div className="rounded-md border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-800">{message}</div>}
 
@@ -783,6 +913,7 @@ export function WizmatchGuardrailsPage({ demoMode = false }) {
         <Metric icon={Contact} label="Contacts shown" value={data.costControls?.maxContactCandidatesShown ?? 3} helper="Per company" />
         <Metric icon={AlertTriangle} label="Blockers" value={(data.safetyCenter?.blockers || []).length} helper="Manual resolution" tone="danger" />
       </div>
+      <ReadinessStrip readiness={data.readiness || DEMO_READINESS.overall} demoMode={demoMode} />
       <div className="grid gap-5 xl:grid-cols-[1fr_1fr_360px]">
         <div className="card p-5">
           <SectionHeader icon={AlertTriangle} title="Active blockers" description="Resolve manually before increasing volume." />
@@ -807,6 +938,87 @@ export function WizmatchGuardrailsPage({ demoMode = false }) {
               <GuardrailRow key={key} label={key} value={value} />
             ))}
           </div>
+        </div>
+      </div>
+    </Page>
+  );
+}
+
+export function WizmatchReadinessPage({ demoMode = false }) {
+  const fallback = useMemo(() => DEMO_READINESS, []);
+  const { data, loading, error, refresh } = useLiveData({
+    demoMode,
+    fallback,
+    loadLive: useCallback(() => apiFetch('/api/wizmatch/readiness'), []),
+  });
+  const readyTables = (data.tables || []).filter((table) => table.status === 'ready').length;
+  const missingTables = (data.tables || []).filter((table) => !table.exists).length;
+  const needsDataModules = (data.modules || []).filter((module) => module.status === 'needs_data').length;
+  const blockedModules = (data.modules || []).filter((module) => module.status === 'blocked' || module.status === 'needs_migration_check').length;
+
+  return (
+    <Page
+      eyebrow="Live Data Validation"
+      title="Wizmatch Data Readiness"
+      description="Read-only live-data diagnostics for CRM/Wizmatch tables, module readiness, empty-state reasons, and guarded items before the team relies on production workflows."
+      demoMode={demoMode}
+      loading={loading}
+      error={error}
+      onRefresh={refresh}
+    >
+      <div className="grid gap-4 md:grid-cols-5">
+        <Metric icon={DatabaseZap} label="Overall" value={text(data.overall?.status || 'needs_data')} helper={data.overall?.primaryIssue || 'Readiness pending'} tone={data.overall?.status === 'ready' ? 'success' : data.overall?.status === 'blocked' ? 'danger' : 'neutral'} />
+        <Metric icon={Activity} label="Score" value={data.overall?.score ?? 0} helper="Module average" />
+        <Metric icon={CheckCircle2} label="Ready tables" value={readyTables} helper="Rows found" tone="success" />
+        <Metric icon={AlertTriangle} label="Missing tables" value={missingTables} helper="Migration check" tone={missingTables ? 'danger' : 'success'} />
+        <Metric icon={ListChecks} label="Needs data" value={needsDataModules} helper={`${blockedModules} blocked/check`} tone={blockedModules ? 'danger' : 'neutral'} />
+      </div>
+
+      <div className="card p-5">
+        <SectionHeader icon={DatabaseZap} title="Primary live-data issue" description="Start here when a Wizmatch page looks empty." />
+        <div className="rounded-md border border-neutral-100 bg-neutral-50 px-4 py-3">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <StatusPill status={data.overall?.status || 'needs_data'} />
+            <span className={data.database?.status === 'connected' ? 'badge-success' : 'badge-danger'}>{data.database?.status || 'unknown database'}</span>
+          </div>
+          <p className="text-sm font-semibold text-neutral-900">{data.overall?.primaryIssue}</p>
+          <p className="mt-1 text-[12.5px] text-neutral-500">{data.database?.reason}</p>
+        </div>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-3">
+        {(data.modules || []).map((module) => (
+          <ModuleReadinessCard key={module.module} module={module} />
+        ))}
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
+        <div className="card p-5">
+          <SectionHeader icon={DatabaseZap} title="Table readiness" description="Tenant-scoped counts and latest activity. Missing required tables mean migration/state must be checked." />
+          <div className="space-y-2">
+            {(data.tables || []).map((table) => (
+              <TableReadinessRow key={table.table} table={table} />
+            ))}
+          </div>
+        </div>
+        <div className="space-y-4">
+          <div className="card p-5">
+            <SectionHeader icon={ListChecks} title="Operator notes" description="How to tell demo from live data." />
+            <div className="space-y-2">
+              {(data.operatorNotes || []).map((note) => (
+                <p key={note} className="rounded-md bg-neutral-50 px-3 py-2 text-[12.5px] text-neutral-700">{note}</p>
+              ))}
+            </div>
+          </div>
+          <div className="card p-5">
+            <SectionHeader icon={ShieldCheck} title="Still intentionally blocked" description="These are not readiness bugs." />
+            <div className="space-y-2">
+              {(data.guardedItems || []).map((item) => (
+                <p key={item} className="rounded-md bg-danger-50 px-3 py-2 text-[12.5px] text-danger-800">{item}</p>
+              ))}
+            </div>
+          </div>
+          <OperatingLinks />
         </div>
       </div>
     </Page>
@@ -874,6 +1086,7 @@ export function WizmatchLocalDemoFlowPage({ demoMode = false }) {
             ['/wizmatch/review-workbench-demo', 'Review Workbench'],
             ['/wizmatch/requirement-priority-new-demo', 'Requirement Priority'],
             ['/wizmatch/guardrails-new-demo', 'Guardrail Center'],
+            ['/wizmatch/readiness-demo', 'Data Readiness'],
             ['/wizmatch/command-center-new-demo', 'Command Center V2'],
             ['/wizmatch/client-discovery-new-demo', 'Client Discovery V2'],
             ['/wizmatch/contact-intelligence-new-demo', 'Contact Intelligence V2'],

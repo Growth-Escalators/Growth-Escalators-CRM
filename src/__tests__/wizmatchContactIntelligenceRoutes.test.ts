@@ -28,6 +28,7 @@ describe('Wizmatch Contact Intelligence routes', () => {
     expect(routeExists('/requirement-priority/:requirementId/review-plan', 'post')).toBe(true);
     expect(routeExists('/review-workbench', 'get')).toBe(true);
     expect(routeExists('/guardrails', 'get')).toBe(true);
+    expect(routeExists('/readiness', 'get')).toBe(true);
     expect(routeExists('/analytics/roi', 'get')).toBe(true);
   });
 });

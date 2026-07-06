@@ -3,6 +3,7 @@ import {
   Megaphone, Share2, Target, Search, FileText, Brain, MapPin, Zap, Mail,
   Link as LinkIcon, CreditCard, Receipt, Shield, ShieldCheck, ClipboardList, Settings,
   Briefcase, Building2, Radar, UserCheck, Send, Globe, Gavel, BarChart3, Network,
+  DatabaseZap,
 } from 'lucide-react';
 
 // Permission flag bag — derived from user role + per-user permission overrides.
@@ -177,6 +178,11 @@ export const NAV_ENTRIES = [
   {
     id: 'wm-review-workbench', label: 'Review Workbench', to: '/wizmatch/review-workbench',
     icon: ClipboardList, section: 'Wizmatch', group: null,
+    visible: f => f.canWizmatch,
+  },
+  {
+    id: 'wm-readiness', label: 'Data Readiness', to: '/wizmatch/readiness',
+    icon: DatabaseZap, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
   {
