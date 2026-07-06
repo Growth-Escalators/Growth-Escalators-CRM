@@ -175,18 +175,18 @@ export const NAV_ENTRIES = [
 
   // ── WIZMATCH STAFFING ─────────────────────────────────────────
   {
+    id: 'wm-review-workbench', label: 'Review Workbench', to: '/wizmatch/review-workbench',
+    icon: ClipboardList, section: 'Wizmatch', group: null,
+    visible: f => f.canWizmatch,
+  },
+  {
     id: 'wm-command-center', label: 'Command Center', to: '/wizmatch/command-center',
     icon: Brain, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
   {
-    id: 'wm-command-center-new', label: 'Command Center New', to: '/wizmatch/command-center-new',
+    id: 'wm-command-center-new', label: 'Command Center V2', to: '/wizmatch/command-center-new',
     icon: Brain, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-review-workbench', label: 'Review Workbench', to: '/wizmatch/review-workbench',
-    icon: ClipboardList, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
   {
@@ -195,7 +195,7 @@ export const NAV_ENTRIES = [
     visible: f => f.canWizmatch,
   },
   {
-    id: 'wm-client-discovery-new', label: 'Client Discovery New', to: '/wizmatch/client-discovery-new',
+    id: 'wm-client-discovery-new', label: 'Client Discovery V2', to: '/wizmatch/client-discovery-new',
     icon: Search, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
@@ -225,7 +225,7 @@ export const NAV_ENTRIES = [
     visible: f => f.canWizmatch,
   },
   {
-    id: 'wm-candidate-intelligence-new', label: 'Candidate Intel New', to: '/wizmatch/candidate-intelligence-new',
+    id: 'wm-candidate-intelligence-new', label: 'Candidate Intel V2', to: '/wizmatch/candidate-intelligence-new',
     icon: ClipboardList, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
@@ -240,7 +240,7 @@ export const NAV_ENTRIES = [
     visible: f => f.canWizmatch,
   },
   {
-    id: 'wm-contact-intelligence-new', label: 'Contact Intel New', to: '/wizmatch/contact-intelligence-new',
+    id: 'wm-contact-intelligence-new', label: 'Contact Intel V2', to: '/wizmatch/contact-intelligence-new',
     icon: Network, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
@@ -265,7 +265,7 @@ export const NAV_ENTRIES = [
     visible: f => f.canWizmatch,
   },
   {
-    id: 'wm-guardrails-new', label: 'Guardrails New', to: '/wizmatch/guardrails-new',
+    id: 'wm-guardrails-new', label: 'Guardrails', to: '/wizmatch/guardrails-new',
     icon: ShieldCheck, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
@@ -275,7 +275,7 @@ export const NAV_ENTRIES = [
     visible: f => f.canWizmatch,
   },
   {
-    id: 'wm-analytics-new', label: 'Analytics New', to: '/wizmatch/analytics-new',
+    id: 'wm-analytics-new', label: 'Analytics V2', to: '/wizmatch/analytics-new',
     icon: BarChart3, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },

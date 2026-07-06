@@ -110,4 +110,46 @@ describe('Wizmatch Review Workbench', () => {
     expect(result.safetyCenter.status).toBe('blocked');
     expect(result.safetyCenter.blockers).toContain('1 paused/blacklisted sending domain(s).');
   });
+
+  it('keeps executable workbench actions scoped to safe manual endpoints', () => {
+    const safeRequirement = scoreRequirementPriority({
+      ...requirement,
+      candidateMatches: [candidate],
+      contactApprovedCount: 1,
+    });
+    const blockedRequirement = scoreRequirementPriority({
+      ...requirement,
+      id: 'req-blocked',
+      title: 'Payroll Coordinator',
+      requiredSkills: [],
+      candidateMatches: [],
+      hasSuppression: true,
+    });
+    const hotCandidate = scoreCandidateIntelligence(candidate);
+    const blockedCandidate = scoreCandidateIntelligence({
+      ...candidate,
+      id: 'candidate-blocked',
+      name: 'Blocked Candidate',
+      hasUsableContactChannel: false,
+      availabilityStatus: 'placed',
+      activePlacementCount: 1,
+    });
+
+    const result = buildWizmatchReviewWorkbench({
+      clientDiscovery: [],
+      contactIntelligence: [],
+      candidates: [hotCandidate, blockedCandidate],
+      requirements: [safeRequirement, blockedRequirement],
+      metrics: { pausedDomains: 0, suppressedContacts: 0, paidRunsBlocked: 0 },
+    });
+
+    const executable = result.actions.filter((action) => action.allowed);
+    const blocked = result.actions.filter((action) => action.priority === 'blocked');
+
+    expect(executable.length).toBeGreaterThan(0);
+    expect(executable.every((action) => action.method === 'POST' && action.endpoint?.startsWith('/api/wizmatch/'))).toBe(true);
+    expect(executable.every((action) => action.guardrails.some((guardrail) => /No automatic|Manual reviewer|No paid/.test(guardrail)))).toBe(true);
+    expect(blocked.length).toBeGreaterThan(0);
+    expect(blocked.every((action) => action.allowed === false)).toBe(true);
+  });
 });

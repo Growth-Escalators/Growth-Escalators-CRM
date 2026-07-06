@@ -18,8 +18,10 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   Candidate Intelligence deterministic readiness/matching + persisted review intent, Requirement
   Priority scoring, a unified Review Workbench, Guardrail Center, Local Demo Flow, and deterministic
   Analytics / ROI. Admin classic pages, CRM-styled V2 pages, and the new operating pages exist.
-  Still no paid enrichment, outreach sending, candidate auto-submission, worker/cron automation,
-  package, or deployment changes.
+  `/wizmatch` now lands on the Review Workbench, and the operating frontend has module/priority
+  filters, richer CRM-style action cards, guardrail/cost panels, preview links, and requirement
+  review-plan feedback. Still no paid enrichment, outreach sending, candidate auto-submission,
+  worker/cron automation, package, or deployment changes.
 
 ## Recently landed (context)
 
@@ -55,6 +57,10 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
 - Requirement Priority and Review Workbench are deterministic/manual-action layers. Requirement
   review-plan endpoints are planning-only; live workbench safe actions call existing approved
   endpoints and preserve manual review gates.
+- The latest operating UI polish was verified against `/wizmatch/review-workbench-demo`,
+  `/wizmatch/requirement-priority-new-demo`, `/wizmatch/guardrails-new-demo`,
+  `/wizmatch/local-demo-flow-demo`, and `/wizmatch-demo`; module filtering, safe action feedback,
+  and requirement review-plan feedback work in demo mode.
 
 ## How to rebuild context fast
 

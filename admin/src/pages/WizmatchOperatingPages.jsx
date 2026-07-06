@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Activity,
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
@@ -7,6 +8,11 @@ import {
   Contact,
   DatabaseZap,
   FileText,
+  Filter,
+  LayoutDashboard,
+  ListChecks,
+  LockKeyhole,
+  PlayCircle,
   RefreshCw,
   ShieldCheck,
   Target,
@@ -28,6 +34,17 @@ const BADGE = {
   prioritize_requirement: 'badge-warning',
   resolve_safety: 'badge-danger',
 };
+
+const MODULE_META = {
+  client_discovery: { label: 'Client Discovery', icon: Target, tone: 'primary' },
+  contact_intelligence: { label: 'Contact Intelligence', icon: Contact, tone: 'success' },
+  candidate_intelligence: { label: 'Candidate Intelligence', icon: UserCheck, tone: 'primary' },
+  requirement_priority: { label: 'Requirement Priority', icon: FileText, tone: 'warning' },
+  safety: { label: 'Safety', icon: ShieldCheck, tone: 'danger' },
+};
+
+const PRIORITY_FILTERS = ['all', 'hot', 'warm', 'watch', 'blocked'];
+const MODULE_FILTERS = ['all', 'client_discovery', 'contact_intelligence', 'candidate_intelligence', 'requirement_priority', 'safety'];
 
 const DEMO_REQUIREMENTS = {
   items: [
@@ -201,6 +218,26 @@ function text(value) {
   return String(value || '').replace(/_/g, ' ');
 }
 
+function countWhere(items, predicate) {
+  return items.filter(predicate).length;
+}
+
+function moduleLabel(module) {
+  return MODULE_META[module]?.label || text(module);
+}
+
+function moduleIcon(module) {
+  return MODULE_META[module]?.icon || ClipboardList;
+}
+
+function moduleToneClass(module) {
+  const tone = MODULE_META[module]?.tone;
+  if (tone === 'success') return 'bg-success-50 text-success-700';
+  if (tone === 'warning') return 'bg-warning-50 text-warning-700';
+  if (tone === 'danger') return 'bg-danger-50 text-danger-700';
+  return 'bg-primary-50 text-primary-700';
+}
+
 function useLiveData({ demoMode, fallback, loadLive }) {
   const [data, setData] = useState(fallback);
   const [loading, setLoading] = useState(!demoMode);
@@ -231,22 +268,37 @@ function useLiveData({ demoMode, fallback, loadLive }) {
 
 function Page({ eyebrow, title, description, demoMode, loading, error, onRefresh, children }) {
   return (
-    <div className="min-h-screen bg-neutral-50 px-5 py-5 lg:px-8">
+    <div className="min-h-screen bg-neutral-50 px-4 py-4 sm:px-5 lg:px-8">
       <div className="mx-auto max-w-[1540px] space-y-5">
-        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral-200 pb-5">
-          <div>
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <span className="badge-info">{eyebrow}</span>
-              {demoMode && <span className="badge-warning">Demo mode</span>}
-              {loading && <span className="badge-muted">Loading</span>}
+        <div className="card overflow-hidden">
+          <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral-100 bg-white px-5 py-5">
+            <div>
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <span className="badge-info">{eyebrow}</span>
+                {demoMode && <span className="badge-warning">Demo mode</span>}
+                {loading && <span className="badge-muted">Loading</span>}
+              </div>
+              <h1 className="text-[28px] font-bold tracking-tight text-neutral-950">{title}</h1>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-neutral-500">{description}</p>
             </div>
-            <h1 className="text-[28px] font-bold tracking-tight text-neutral-950">{title}</h1>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-neutral-500">{description}</p>
+            <button type="button" onClick={onRefresh} className="btn-secondary btn-compact">
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </button>
           </div>
-          <button type="button" onClick={onRefresh} className="btn-secondary btn-compact">
-            <RefreshCw className="h-4 w-4" />
-            Refresh
-          </button>
+          <div className="grid gap-3 bg-neutral-50 px-5 py-3 md:grid-cols-4">
+            {[
+              ['Manual approval', 'Required before outreach'],
+              ['Paid enrichment', 'Disabled in Phase 1'],
+              ['Candidate submit', 'Never automatic'],
+              ['Logic mode', 'Deterministic first'],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-md border border-neutral-200 bg-white px-3 py-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-400">{label}</p>
+                <p className="mt-0.5 text-[12.5px] font-semibold text-neutral-800">{value}</p>
+              </div>
+            ))}
+          </div>
         </div>
         {error && (
           <div className="rounded-md border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-800">
@@ -254,6 +306,124 @@ function Page({ eyebrow, title, description, demoMode, loading, error, onRefresh
           </div>
         )}
         {children}
+      </div>
+    </div>
+  );
+}
+
+function SectionHeader({ icon: Icon = ClipboardList, title, description, action }) {
+  return (
+    <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+      <div className="flex items-start gap-3">
+        <div className="rounded-md bg-primary-50 p-2 text-primary-700">
+          <Icon className="h-4 w-4" />
+        </div>
+        <div>
+          <h2 className="text-[15px] font-semibold text-neutral-950">{title}</h2>
+          {description && <p className="mt-0.5 text-[12.5px] leading-5 text-neutral-500">{description}</p>}
+        </div>
+      </div>
+      {action}
+    </div>
+  );
+}
+
+function FilterBar({ label, options, value, onChange }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-neutral-200 bg-white p-2">
+      <div className="mr-1 flex items-center gap-1.5 px-2 text-[12px] font-semibold uppercase tracking-wider text-neutral-400">
+        <Filter className="h-3.5 w-3.5" />
+        {label}
+      </div>
+      {options.map((option) => (
+        <button
+          key={option}
+          type="button"
+          onClick={() => onChange(option)}
+          className={`rounded-md px-3 py-1.5 text-[12.5px] font-semibold transition ${
+            value === option ? 'bg-primary-500 text-white shadow-sm' : 'text-neutral-600 hover:bg-neutral-100'
+          }`}
+        >
+          {option === 'all' ? 'All' : moduleLabel(option)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function EmptyQueue({ title = 'Nothing to show', description = 'Adjust filters or refresh the queue.' }) {
+  return (
+    <div className="card flex min-h-[220px] flex-col items-center justify-center p-8 text-center">
+      <div className="mb-3 rounded-md bg-neutral-100 p-3 text-neutral-500">
+        <ListChecks className="h-5 w-5" />
+      </div>
+      <h2 className="font-semibold text-neutral-950">{title}</h2>
+      <p className="mt-1 max-w-md text-sm leading-6 text-neutral-500">{description}</p>
+    </div>
+  );
+}
+
+function GuardrailRow({ label, value }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-md border border-neutral-100 bg-neutral-50 px-3 py-2 text-[12.5px]">
+      <span className="font-semibold text-neutral-700">{text(label)}</span>
+      <span className="text-right text-neutral-500">{String(value)}</span>
+    </div>
+  );
+}
+
+function MetricRail({ actions }) {
+  const modules = MODULE_FILTERS.filter((item) => item !== 'all');
+  return (
+    <div className="card p-5">
+      <SectionHeader
+        icon={LayoutDashboard}
+        title="Operating map"
+        description="Live queue mix across Wizmatch modules."
+      />
+      <div className="space-y-2">
+        {modules.map((module) => {
+          const Icon = moduleIcon(module);
+          const count = countWhere(actions, (action) => action.module === module);
+          return (
+            <div key={module} className="flex items-center justify-between rounded-md border border-neutral-100 bg-white px-3 py-2">
+              <div className="flex items-center gap-2">
+                <span className={`rounded-md p-1.5 ${moduleToneClass(module)}`}>
+                  <Icon className="h-3.5 w-3.5" />
+                </span>
+                <span className="text-[12.5px] font-semibold text-neutral-800">{moduleLabel(module)}</span>
+              </div>
+              <span className="rounded-md bg-neutral-900 px-2 py-1 text-xs font-bold text-white">{count}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function OperatingLinks() {
+  const links = [
+    ['/wizmatch/review-workbench-demo', 'Workbench', ClipboardList],
+    ['/wizmatch/requirement-priority-new-demo', 'Requirements', FileText],
+    ['/wizmatch/client-discovery-new-demo', 'Clients', Target],
+    ['/wizmatch/contact-intelligence-new-demo', 'Contacts', Contact],
+    ['/wizmatch/candidate-intelligence-new-demo', 'Candidates', UserCheck],
+    ['/wizmatch/analytics-new-demo', 'Analytics', Activity],
+  ];
+  return (
+    <div className="card p-5">
+      <SectionHeader icon={PlayCircle} title="Preview surfaces" description="No-login localhost links for fast review." />
+      <div className="grid gap-2 sm:grid-cols-2">
+        {links.map(([href, label, Icon]) => (
+          <a key={href} href={href} className="flex items-center justify-between rounded-md border border-neutral-100 bg-white px-3 py-2 text-sm font-semibold text-neutral-800 transition hover:border-primary-300 hover:text-primary-700">
+            <span className="flex items-center gap-2">
+              <Icon className="h-4 w-4 text-neutral-400" />
+              {label}
+            </span>
+            <ArrowRight className="h-3.5 w-3.5" />
+          </a>
+        ))}
       </div>
     </div>
   );
@@ -278,39 +448,51 @@ function Metric({ icon: Icon, label, value, helper, tone = 'neutral' }) {
 }
 
 function ActionCard({ action, onRun, running }) {
+  const Icon = moduleIcon(action.module);
   return (
-    <div className="card p-4">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <span className={badgeFor(action.priority)}>{action.priority}</span>
-            <span className={badgeFor(action.actionType)}>{text(action.actionType)}</span>
-            <span className="badge-muted">{text(action.module)}</span>
+    <div className={`card card-hover overflow-hidden ${action.priority === 'hot' ? 'border-success-200' : action.priority === 'blocked' ? 'border-danger-200' : ''}`}>
+      <div className={`h-1 ${action.priority === 'hot' ? 'bg-success-500' : action.priority === 'blocked' ? 'bg-danger-500' : action.priority === 'warm' ? 'bg-primary-500' : 'bg-neutral-300'}`} />
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 gap-3">
+            <div className={`mt-0.5 rounded-md p-2 ${moduleToneClass(action.module)}`}>
+              <Icon className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <span className={badgeFor(action.priority)}>{action.priority}</span>
+                <span className={badgeFor(action.actionType)}>{text(action.actionType)}</span>
+                <span className="badge-muted">{moduleLabel(action.module)}</span>
+              </div>
+              <h2 className="text-[15px] font-semibold text-neutral-950">{action.title}</h2>
+              <p className="mt-1 text-[12.5px] text-neutral-500">{action.subtitle}</p>
+            </div>
           </div>
-          <h2 className="text-[15px] font-semibold text-neutral-950">{action.title}</h2>
-          <p className="mt-1 text-[12.5px] text-neutral-500">{action.subtitle}</p>
+          <div className="text-right">
+            <p className="text-2xl font-bold text-neutral-950">{action.score}</p>
+            <p className="text-[11px] uppercase tracking-wider text-neutral-400">score</p>
+          </div>
         </div>
-        <div className="text-right">
-          <p className="text-2xl font-bold text-neutral-950">{action.score}</p>
-          <p className="text-[11px] uppercase tracking-wider text-neutral-400">score</p>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {(action.reasons || []).slice(0, 3).map((reason) => (
+            <span key={reason} className="badge-muted">{reason}</span>
+          ))}
         </div>
-      </div>
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        {(action.reasons || []).slice(0, 3).map((reason) => (
-          <span key={reason} className="badge-muted">{reason}</span>
-        ))}
-      </div>
-      <div className="mt-4 flex items-center justify-between gap-3 border-t border-neutral-100 pt-3">
-        <p className="text-[12px] text-neutral-500">{(action.guardrails || [])[0] || 'Manual action only.'}</p>
-        <button
-          type="button"
-          disabled={!action.allowed || running}
-          onClick={() => onRun(action)}
-          className={action.allowed ? 'btn-primary btn-compact' : 'btn-secondary btn-compact opacity-60'}
-        >
-          {action.allowed ? (running ? 'Working...' : 'Run safe action') : 'Blocked'}
-          <ArrowRight className="h-4 w-4" />
-        </button>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-neutral-100 pt-3">
+          <p className="flex items-center gap-1.5 text-[12px] text-neutral-500">
+            <LockKeyhole className="h-3.5 w-3.5 text-neutral-400" />
+            {(action.guardrails || [])[0] || 'Manual action only.'}
+          </p>
+          <button
+            type="button"
+            disabled={!action.allowed || running}
+            onClick={() => onRun(action)}
+            className={action.allowed ? 'btn-primary btn-compact' : 'btn-secondary btn-compact opacity-60'}
+          >
+            {action.allowed ? (running ? 'Working...' : 'Run safe action') : 'Blocked'}
+            <ArrowRight className="h-4 w-4" />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -343,7 +525,13 @@ export function WizmatchReviewWorkbenchPage({ demoMode = false }) {
   });
   const [runningId, setRunningId] = useState(null);
   const [message, setMessage] = useState('');
+  const [moduleFilter, setModuleFilter] = useState('all');
+  const [priorityFilter, setPriorityFilter] = useState('all');
   const actions = data.actions || [];
+  const filteredActions = useMemo(() => actions.filter((action) => (
+    (moduleFilter === 'all' || action.module === moduleFilter)
+    && (priorityFilter === 'all' || action.priority === priorityFilter)
+  )), [actions, moduleFilter, priorityFilter]);
 
   async function runAction(action) {
     setRunningId(action.id);
@@ -384,18 +572,26 @@ export function WizmatchReviewWorkbenchPage({ demoMode = false }) {
 
       {message && <div className="rounded-md border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-800">{message}</div>}
 
+      <div className="grid gap-3 xl:grid-cols-[1fr_1fr]">
+        <FilterBar label="Module" options={MODULE_FILTERS} value={moduleFilter} onChange={setModuleFilter} />
+        <FilterBar label="Priority" options={PRIORITY_FILTERS} value={priorityFilter} onChange={setPriorityFilter} />
+      </div>
+
       <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
         <div className="grid gap-3">
-          {actions.map((action) => (
+          {filteredActions.length ? filteredActions.map((action) => (
             <ActionCard key={action.id} action={action} onRun={runAction} running={runningId === action.id} />
-          ))}
+          )) : (
+            <EmptyQueue
+              title="No actions match these filters"
+              description="The safe queue is still intact; change module or priority filters to see other items."
+            />
+          )}
         </div>
         <div className="space-y-4">
+          <MetricRail actions={actions} />
           <div className="card p-5">
-            <div className="mb-3 flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-primary-600" />
-              <h2 className="text-[15px] font-semibold text-neutral-950">Safety center</h2>
-            </div>
+            <SectionHeader icon={ShieldCheck} title="Safety center" description="Blockers stay explanatory until a human resolves them." />
             <span className={badgeFor(data.safetyCenter?.status)}>{data.safetyCenter?.status || 'healthy'}</span>
             <div className="mt-3 space-y-2">
               {(data.safetyCenter?.blockers || ['No blockers detected.']).map((item) => (
@@ -404,19 +600,14 @@ export function WizmatchReviewWorkbenchPage({ demoMode = false }) {
             </div>
           </div>
           <div className="card p-5">
-            <div className="mb-3 flex items-center gap-2">
-              <DatabaseZap className="h-4 w-4 text-primary-600" />
-              <h2 className="text-[15px] font-semibold text-neutral-950">Guardrails</h2>
-            </div>
+            <SectionHeader icon={DatabaseZap} title="Guardrails" description="Every safe action respects these caps." />
             <div className="space-y-2">
               {Object.entries(data.guardrails || {}).map(([key, value]) => (
-                <div key={key} className="flex items-center justify-between gap-3 rounded-md bg-neutral-50 px-3 py-2 text-[12.5px]">
-                  <span className="font-semibold text-neutral-700">{text(key)}</span>
-                  <span className="text-neutral-500">{String(value)}</span>
-                </div>
+                <GuardrailRow key={key} label={key} value={value} />
               ))}
             </div>
           </div>
+          <OperatingLinks />
         </div>
       </div>
     </Page>
@@ -432,7 +623,31 @@ export function WizmatchRequirementPriorityPage({ demoMode = false }) {
   });
   const items = data.items || [];
   const [selectedId, setSelectedId] = useState(null);
+  const [planMessage, setPlanMessage] = useState('');
+  const [planningId, setPlanningId] = useState(null);
   const selected = useMemo(() => items.find((item) => item.id === selectedId) || items[0], [items, selectedId]);
+
+  async function runReviewPlan(item) {
+    if (!item) return;
+    setPlanningId(item.id);
+    setPlanMessage('');
+    try {
+      if (demoMode) {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        setPlanMessage(`Demo review plan prepared for ${item.title}. No submission was created.`);
+      } else {
+        const result = await apiFetch(`/api/wizmatch/requirement-priority/${item.id}/review-plan`, {
+          method: 'POST',
+          body: JSON.stringify({ action: item.nextAction }),
+        });
+        setPlanMessage(result.message || `Review plan prepared for ${item.title}.`);
+      }
+    } catch (err) {
+      setPlanMessage(err?.message || 'Unable to prepare requirement review plan.');
+    } finally {
+      setPlanningId(null);
+    }
+  }
 
   return (
     <Page
@@ -450,6 +665,7 @@ export function WizmatchRequirementPriorityPage({ demoMode = false }) {
         <Metric icon={UserCheck} label="Matches" value={items.reduce((sum, item) => sum + (item.topCandidateMatches?.length || 0), 0)} helper="Top 3 each" />
         <Metric icon={AlertTriangle} label="Blocked" value={items.filter((item) => item.priority === 'blocked').length} helper="Needs cleanup" tone="danger" />
       </div>
+      {planMessage && <div className="rounded-md border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-800">{planMessage}</div>}
 
       <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
         <div className="space-y-3">
@@ -484,7 +700,31 @@ export function WizmatchRequirementPriorityPage({ demoMode = false }) {
                 <h2 className="text-xl font-bold text-neutral-950">{selected.title}</h2>
                 <p className="mt-1 text-sm text-neutral-500">{selected.companyName || 'No company'} - {selected.region?.toUpperCase()}</p>
               </div>
-              <p className="text-3xl font-bold text-neutral-950">{selected.score}</p>
+              <div className="text-right">
+                <p className="text-3xl font-bold text-neutral-950">{selected.score}</p>
+                <button
+                  type="button"
+                  disabled={selected.priority === 'blocked' || planningId === selected.id}
+                  onClick={() => runReviewPlan(selected)}
+                  className={selected.priority === 'blocked' ? 'btn-secondary btn-compact mt-2 opacity-60' : 'btn-primary btn-compact mt-2'}
+                >
+                  {planningId === selected.id ? 'Preparing...' : 'Prepare review plan'}
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            <div className="mt-5 grid gap-3 md:grid-cols-4">
+              {[
+                ['Score', selected.score],
+                ['Action', text(selected.nextAction)],
+                ['Matches', selected.topCandidateMatches?.length || 0],
+                ['Blockers', selected.blockers?.length || 0],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-md border border-neutral-100 bg-neutral-50 px-3 py-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-400">{label}</p>
+                  <p className="mt-1 text-sm font-bold text-neutral-900">{value}</p>
+                </div>
+              ))}
             </div>
             <div className="mt-5">
               <ScoreBars scores={selected.componentScores} />
@@ -543,9 +783,9 @@ export function WizmatchGuardrailsPage({ demoMode = false }) {
         <Metric icon={Contact} label="Contacts shown" value={data.costControls?.maxContactCandidatesShown ?? 3} helper="Per company" />
         <Metric icon={AlertTriangle} label="Blockers" value={(data.safetyCenter?.blockers || []).length} helper="Manual resolution" tone="danger" />
       </div>
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid gap-5 xl:grid-cols-[1fr_1fr_360px]">
         <div className="card p-5">
-          <h2 className="mb-3 text-[15px] font-semibold text-neutral-950">Active blockers</h2>
+          <SectionHeader icon={AlertTriangle} title="Active blockers" description="Resolve manually before increasing volume." />
           <div className="space-y-2">
             {(data.safetyCenter?.blockers || ['No blockers detected.']).map((item) => (
               <p key={item} className="rounded-md bg-neutral-50 px-3 py-2 text-sm text-neutral-700">{item}</p>
@@ -553,10 +793,18 @@ export function WizmatchGuardrailsPage({ demoMode = false }) {
           </div>
         </div>
         <div className="card p-5">
-          <h2 className="mb-3 text-[15px] font-semibold text-neutral-950">Rules enforced</h2>
+          <SectionHeader icon={ShieldCheck} title="Rules enforced" description="Non-negotiable operating boundaries." />
           <div className="space-y-2">
             {(data.rules || []).map((rule) => (
               <p key={rule} className="rounded-md bg-success-50 px-3 py-2 text-sm text-success-800">{rule}</p>
+            ))}
+          </div>
+        </div>
+        <div className="card p-5">
+          <SectionHeader icon={DatabaseZap} title="Cost controls" description="Phase 1 remains zero-paid-enrichment." />
+          <div className="space-y-2">
+            {Object.entries(data.costControls || {}).map(([key, value]) => (
+              <GuardrailRow key={key} label={key} value={value} />
             ))}
           </div>
         </div>
@@ -573,6 +821,13 @@ export function WizmatchLocalDemoFlowPage({ demoMode = false }) {
     { title: 'Requirement prioritized', detail: 'Urgent requirements are ranked by candidate coverage and contact readiness.', icon: FileText },
     { title: 'Safety checked', detail: 'Paid enrichment, sending, and submissions remain blocked until manual approval gates pass.', icon: ShieldCheck },
   ];
+  const operatingChecklist = [
+    'Start in Review Workbench for the unified queue.',
+    'Use Requirement Priority to choose the requirement/candidate path.',
+    'Use Client Discovery and Contact Intelligence for company/contact review.',
+    'Use Candidate Intelligence before any submission decision.',
+    'Use Guardrail Center before increasing volume.',
+  ];
 
   return (
     <Page
@@ -584,7 +839,8 @@ export function WizmatchLocalDemoFlowPage({ demoMode = false }) {
       error={null}
       onRefresh={() => {}}
     >
-      <div className="grid gap-4 lg:grid-cols-5">
+      <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
+        <div className="grid gap-4 lg:grid-cols-5">
         {steps.map((step, index) => {
           const Icon = step.icon;
           return (
@@ -598,9 +854,21 @@ export function WizmatchLocalDemoFlowPage({ demoMode = false }) {
             </div>
           );
         })}
+        </div>
+        <div className="card p-5">
+          <SectionHeader icon={ListChecks} title="Operator checklist" description="Use this order for a clean localhost review." />
+          <div className="space-y-2">
+            {operatingChecklist.map((item) => (
+              <p key={item} className="flex items-start gap-2 rounded-md bg-neutral-50 px-3 py-2 text-[12.5px] text-neutral-700">
+                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 text-success-600" />
+                {item}
+              </p>
+            ))}
+          </div>
+        </div>
       </div>
       <div className="card p-5">
-        <h2 className="mb-3 text-lg font-bold text-neutral-950">Preview links</h2>
+        <SectionHeader icon={PlayCircle} title="Preview links" description="All routes below work without login in demo mode." />
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {[
             ['/wizmatch/review-workbench-demo', 'Review Workbench'],

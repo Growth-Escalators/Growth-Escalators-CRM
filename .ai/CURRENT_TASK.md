@@ -4,7 +4,7 @@
 
 **Wizmatch unified operating workbench** — build the next manual-action layer across the
 Wizmatch intelligence modules: review workbench, requirement priority, candidate review
-persistence, guardrail center, and local demo flow.
+persistence, guardrail center, local demo flow, and the first CRM-native operating polish pass.
 
 Scope is **Wizmatch backend services/routes, admin UI, tests, generated admin bundle, and AI
 context**. This task must not add paid enrichment integrations, automatic outreach sending,
@@ -29,12 +29,19 @@ automatic candidate submissions, worker/cron automation, deployment config chang
   and Local Demo Flow.
 - [x] Add authenticated and no-login demo routes for the new pages.
 - [x] Add Wizmatch sidebar entries for the new pages.
+- [x] Make `/wizmatch` route to the Review Workbench as the primary operating entry point.
+- [x] Improve the operating frontend with CRM-styled page chrome, module/priority filters,
+  richer action cards, operating map, guardrail/cost panels, preview links, and requirement
+  review-plan action feedback.
+- [x] Keep old/classic Wizmatch pages and routes available.
+- [x] Add focused tests that ensure executable workbench actions remain safe manual Wizmatch
+  endpoints and blocked safety items are not executable.
 - [x] Verify new demo routes render without browser runtime errors.
 - [x] Verify safe action button works in demo mode.
+- [x] Verify module filters and requirement review-plan feedback work in demo mode.
 
 ## Next task
 
-After this slice is reviewed, the next major build should make the new workbench the primary
-Wizmatch operating homepage and progressively move live reviewer actions from the older classic
-pages into the new workbench while preserving the no-paid-enrichment/no-auto-send/no-auto-submit
-guardrails.
+After this slice is reviewed, the next major build should add a real local-data readiness panel
+and progressively move more reviewer actions from the older classic pages into the workbench while
+preserving no-paid-enrichment, no-auto-send, and no-auto-submit guardrails.

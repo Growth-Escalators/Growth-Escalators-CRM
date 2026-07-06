@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-06T08:27:19.289Z_
+_Generated: 2026-07-06T08:46:20.530Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,14 +12,14 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: growth-escalators-backend-v2
 - **Branch**: `feature/contact-intelligence-phase1-adr`
-- **Last commit**: 310edb1 feat(wizmatch): add crm-styled v2 admin pages (5 hours ago)
-- **Uncommitted changes**: 210 file(s)
+- **Last commit**: 5fe0942 feat(wizmatch): add unified operating workbench (19 minutes ago)
+- **Uncommitted changes**: 223 file(s)
 
 ## Current task
 
 **Wizmatch unified operating workbench** — build the next manual-action layer across the
 Wizmatch intelligence modules: review workbench, requirement priority, candidate review
-persistence, guardrail center, and local demo flow.
+persistence, guardrail center, local demo flow, and the first CRM-native operating polish pass.
 
 Scope is **Wizmatch backend services/routes, admin UI, tests, generated admin bundle, and AI
 context**. This task must not add paid enrichment integrations, automatic outreach sending,
@@ -31,6 +31,7 @@ automatic candidate submissions, worker/cron automation, deployment config chang
 ## Recent commits
 
 ```
+5fe0942 feat(wizmatch): add unified operating workbench
 310edb1 feat(wizmatch): add crm-styled v2 admin pages
 402380d fix(wizmatch): normalize contact intelligence channels
 16da4bc feat(wizmatch): add analytics roi feedback loop
@@ -40,7 +41,6 @@ b320d0b feat(wizmatch): add contact intelligence review persistence
 7cfc431 feat(wizmatch): add intelligence command center
 d629039 docs(wizmatch): add contact intelligence phase 1 ADR
 2f8239a Merge pull request #12 from Growth-Escalators/feature/contact-intelligence-phase1-plan
-742bbda docs(wizmatch): add contact intelligence phase 1 plan
 ```
 
 ## npm scripts

@@ -131,6 +131,8 @@ export default function App() {
             <Route path="/tasks" element={<PrivateRoute><TasksBoardPage /></PrivateRoute>} />
             <Route path="/tasks/v2" element={<PrivateRoute><TasksBoardPage /></PrivateRoute>} />
             <Route path="/my-attendance" element={<PrivateRoute><MyAttendancePage /></PrivateRoute>} />
+            <Route path="/wizmatch-demo" element={<WizmatchReviewWorkbenchPage demoMode />} />
+            <Route path="/wizmatch" element={<Navigate to="/wizmatch/review-workbench" replace />} />
             <Route path="/wizmatch/command-center-demo" element={<WizmatchCommandCenterPage demoMode />} />
             <Route path="/wizmatch/command-center-new-demo" element={<WizmatchCommandCenterNewPage demoMode />} />
             <Route path="/wizmatch/command-center" element={<PrivateRoute><AppLayout><WizmatchCommandCenterPage /></AppLayout></PrivateRoute>} />

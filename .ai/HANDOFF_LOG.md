@@ -524,3 +524,52 @@ enrichment work.
 - `npm run admin:build` passed.
 - Browser render checks passed for the four new demo routes with no console/runtime errors.
 - Safe action button demo check passed on `/wizmatch/review-workbench-demo`.
+
+## 2026-07-06 — Step 16: Wizmatch operating frontend polish — Codex — VERIFIED LOCALLY
+
+**What was done**
+- Improved the new Wizmatch operating pages to better match the existing CRM Fluent styling:
+  tighter page chrome, guardrail strip, richer action cards, module icons, operating map,
+  cost-control panels, and clearer preview links.
+- Added module and priority filters to the Review Workbench.
+- Added requirement review-plan action feedback on the Requirement Priority page.
+- Made `/wizmatch` route to `/wizmatch/review-workbench`, with `/wizmatch-demo` as a no-login
+  demo entry point.
+- Reordered/renamed Wizmatch sidebar entries so Review Workbench is the primary operating page
+  and V2 pages have cleaner labels.
+- Added focused workbench tests proving executable actions stay scoped to safe manual Wizmatch
+  endpoints and blocked safety items are not executable.
+
+**Guardrails preserved**
+- No paid enrichment/provider calls.
+- No outreach sending.
+- No automatic candidate submissions.
+- No worker/cron automation.
+- No Railway/Vercel/deployment config changes.
+- No `package.json` or `package-lock.json` changes.
+- No schema or migration changes in this slice.
+- Classic Wizmatch pages and routes were preserved.
+
+**Files changed**
+- `admin/src/pages/WizmatchOperatingPages.jsx`
+- `admin/src/App.jsx`
+- `admin/src/components/navEntries.js`
+- `src/__tests__/wizmatchReviewWorkbench.test.ts`
+- `public/admin/` rebuilt by `npm run admin:build`
+- `.ai/CURRENT_TASK.md`
+- `.ai/CURRENT_STATE.md`
+- `.ai/AI_BRIEF.md`
+- `.ai/HANDOFF_LOG.md`
+
+**Verification**
+- `npx vitest run src/__tests__/wizmatchReviewWorkbench.test.ts src/__tests__/wizmatchContactIntelligenceRoutes.test.ts`
+  passed: 2 files, 4 tests.
+- `npm run admin:build` passed.
+- Browser smoke checks passed for:
+  - `/wizmatch/review-workbench-demo`
+  - `/wizmatch/requirement-priority-new-demo`
+  - `/wizmatch/guardrails-new-demo`
+  - `/wizmatch/local-demo-flow-demo`
+  - `/wizmatch-demo`
+- Browser interaction checks passed for Review Workbench module filtering, safe action feedback,
+  and Requirement Priority review-plan feedback.
