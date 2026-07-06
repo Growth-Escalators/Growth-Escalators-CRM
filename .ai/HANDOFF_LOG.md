@@ -226,3 +226,34 @@ enrichment work.
 - Review localhost demo at `http://localhost:5174/wizmatch/command-center-demo`.
 - If accepted, decide whether to push this local branch. Persistence/schema-backed approval
   workflow should be planned separately before any migration.
+
+## 2026-07-06 — Step 9: Contact Intelligence review persistence slice — Codex — VERIFIED LOCALLY
+
+**What was done**
+- Started the first schema-backed Contact Intelligence persistence slice after explicit approval
+  to complete items 1, 2, and 3 together.
+- Added ADR-003 for the review action model, schema plan, and migration boundary.
+- Added the three hardened-PRD MVP tables to `src/db/schema.ts`:
+  `wizmatch_company_intelligence`, `wizmatch_contact_candidates`, and `wizmatch_discovery_runs`.
+- Added SQL migration `src/db/migrations/0021_contact_intelligence_phase2.sql`.
+- Added review-action transition helper in `src/services/wizmatchContactIntelligence.ts`.
+- Added focused tests proving manual review transitions stay safe and paid discovery remains
+  blocked by caps.
+
+**Guardrails preserved**
+- No paid enrichment/provider calls.
+- No outreach sending.
+- No worker/cron automation.
+- No writable API routes or admin action buttons yet.
+- No Railway/Vercel/deployment config changes.
+- No `package.json` or `package-lock.json` changes.
+
+**Verification**
+- `npx vitest --run src/__tests__/contactIntelligence.test.ts` passed: 1 file, 6 tests.
+- `npm run build` passed.
+- `npm test` passed: 13 files, 179 tests.
+- `PATH="../v2/node_modules/.bin:$PATH" npm run ai:brief` passed.
+
+**Next**
+- Build writable API routes for manual review actions, still without paid enrichment, worker/cron
+  automation, or outreach sending.

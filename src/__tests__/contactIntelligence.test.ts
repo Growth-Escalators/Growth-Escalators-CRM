@@ -3,6 +3,7 @@ import {
   CONTACT_INTELLIGENCE_PHASE1_CAPS,
   assertPhase1CostCaps,
   qualifyCompanyForContactIntelligence,
+  resolveContactIntelligenceReviewAction,
 } from '../services/wizmatchContactIntelligence';
 
 describe('Wizmatch Contact Intelligence Phase 1', () => {
@@ -74,5 +75,41 @@ describe('Wizmatch Contact Intelligence Phase 1', () => {
     expect(CONTACT_INTELLIGENCE_PHASE1_CAPS.paidDiscoveryEnabled).toBe(false);
     expect(CONTACT_INTELLIGENCE_PHASE1_CAPS.maxPaidDiscoveryPerCompany).toBe(0);
     expect(assertPhase1CostCaps(1)).toBe('blocked_by_cap');
+  });
+
+  it('maps company review actions without enabling sending or paid discovery', () => {
+    const approve = resolveContactIntelligenceReviewAction({
+      entity: 'company',
+      action: 'approve_company',
+      currentCompanyStatus: 'qualified',
+    });
+
+    expect(approve.allowed).toBe(true);
+    expect(approve.nextCompanyStatus).toBe('discovery_blocked');
+    expect(approve.reasons.join(' ')).toContain('no outreach is sent');
+
+    const paidDiscovery = resolveContactIntelligenceReviewAction({
+      entity: 'company',
+      action: 'request_paid_discovery',
+      currentCompanyStatus: 'qualified',
+    });
+
+    expect(paidDiscovery.allowed).toBe(false);
+    expect(paidDiscovery.nextCompanyStatus).toBe('discovery_blocked');
+    expect(paidDiscovery.nextDiscoveryStatus).toBe('blocked_by_cap');
+  });
+
+  it('maps contact candidate review actions to safe statuses', () => {
+    expect(resolveContactIntelligenceReviewAction({
+      entity: 'contact_candidate',
+      action: 'approve_contact',
+      currentContactStatus: 'needs_review',
+    }).nextContactStatus).toBe('approved');
+
+    expect(resolveContactIntelligenceReviewAction({
+      entity: 'contact_candidate',
+      action: 'mark_do_not_contact',
+      currentContactStatus: 'needs_review',
+    }).nextContactStatus).toBe('do_not_contact');
   });
 });

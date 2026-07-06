@@ -26,6 +26,16 @@ export type DiscoveryRunStatus =
   | 'failed'
   | 'skipped'
   | 'blocked_by_cap';
+export type ContactIntelligenceReviewAction =
+  | 'approve_company'
+  | 'reject_company'
+  | 'watchlist_company'
+  | 'request_internal_reuse'
+  | 'request_paid_discovery'
+  | 'approve_contact'
+  | 'reject_contact'
+  | 'mark_do_not_contact';
+export type ContactIntelligenceReviewEntity = 'company' | 'contact_candidate' | 'discovery_run';
 
 export const CONTACT_INTELLIGENCE_PHASE1_CAPS = {
   paidDiscoveryEnabled: false,
@@ -126,6 +136,25 @@ export interface ContactIntelligenceResult {
   reasons: string[];
   costControls: typeof CONTACT_INTELLIGENCE_PHASE1_CAPS;
   contactCandidates: ContactCandidateRecommendation[];
+}
+
+export interface ContactIntelligenceReviewActionInput {
+  entity: ContactIntelligenceReviewEntity;
+  action: ContactIntelligenceReviewAction;
+  currentCompanyStatus?: CompanyIntelligenceStatus;
+  currentContactStatus?: ContactCandidateStatus;
+  currentDiscoveryStatus?: DiscoveryRunStatus;
+}
+
+export interface ContactIntelligenceReviewActionResult {
+  allowed: boolean;
+  action: ContactIntelligenceReviewAction;
+  entity: ContactIntelligenceReviewEntity;
+  nextCompanyStatus?: CompanyIntelligenceStatus;
+  nextContactStatus?: ContactCandidateStatus;
+  nextDiscoveryStatus?: DiscoveryRunStatus;
+  requiresManualApproval: boolean;
+  reasons: string[];
 }
 
 const INDIA_MARKERS = [
@@ -507,4 +536,69 @@ export function assertPhase1CostCaps(requestedPaidRuns: number): DiscoveryRunSta
     return 'blocked_by_cap';
   }
   return 'queued';
+}
+
+export function resolveContactIntelligenceReviewAction(
+  input: ContactIntelligenceReviewActionInput,
+): ContactIntelligenceReviewActionResult {
+  const reasons: string[] = [];
+  const result: ContactIntelligenceReviewActionResult = {
+    allowed: true,
+    action: input.action,
+    entity: input.entity,
+    requiresManualApproval: true,
+    reasons,
+  };
+
+  if (input.action === 'request_paid_discovery') {
+    reasons.push('Paid discovery remains blocked because Phase 1/2 caps set max paid discovery per company to 0.');
+    return {
+      ...result,
+      allowed: false,
+      nextCompanyStatus: 'discovery_blocked',
+      nextDiscoveryStatus: assertPhase1CostCaps(1),
+    };
+  }
+
+  if (input.entity === 'company') {
+    if (input.action === 'approve_company') {
+      reasons.push('Company approved for internal reuse/manual contact review only; no outreach is sent.');
+      return { ...result, nextCompanyStatus: 'discovery_blocked' };
+    }
+    if (input.action === 'reject_company') {
+      reasons.push('Company rejected by reviewer.');
+      return { ...result, nextCompanyStatus: 'rejected', nextDiscoveryStatus: 'skipped' };
+    }
+    if (input.action === 'watchlist_company') {
+      reasons.push('Company remains in manual review/watchlist.');
+      return { ...result, nextCompanyStatus: 'needs_review' };
+    }
+    if (input.action === 'request_internal_reuse') {
+      reasons.push('Internal CRM reuse can run at zero cost.');
+      return { ...result, nextCompanyStatus: 'discovered', nextDiscoveryStatus: 'queued' };
+    }
+  }
+
+  if (input.entity === 'contact_candidate') {
+    if (input.action === 'approve_contact') {
+      reasons.push('Contact candidate approved for the next manual outreach-preparation step only.');
+      return { ...result, nextContactStatus: 'approved' };
+    }
+    if (input.action === 'reject_contact') {
+      reasons.push('Contact candidate rejected by reviewer.');
+      return { ...result, nextContactStatus: 'rejected' };
+    }
+    if (input.action === 'mark_do_not_contact') {
+      reasons.push('Contact candidate marked do-not-contact and must not enter outreach.');
+      return { ...result, nextContactStatus: 'do_not_contact' };
+    }
+  }
+
+  if (input.entity === 'discovery_run' && input.action === 'request_internal_reuse') {
+    reasons.push('Discovery run limited to zero-cost internal reuse.');
+    return { ...result, nextDiscoveryStatus: 'queued' };
+  }
+
+  reasons.push('Action is not valid for this entity.');
+  return { ...result, allowed: false };
 }

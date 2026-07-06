@@ -1385,3 +1385,123 @@ export const wizmatchRequirements = pgTable(
     regionIdx: index('wizmatch_requirements_region_idx').on(t.region),
   }),
 );
+
+// ---------------------------------------------------------------------------
+// TABLE 55 — wizmatch_company_intelligence
+// Phase 2 persistence for Contact Intelligence qualification/review state.
+// Paid enrichment stays disabled by service guardrails until a later approved phase.
+// ---------------------------------------------------------------------------
+export const wizmatchCompanyIntelligence = pgTable(
+  'wizmatch_company_intelligence',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    companyId: uuid('company_id').notNull().references(() => wizmatchCompanies.id),
+    qualificationTier: text('qualification_tier').default('C'), // A | B | C | Reject
+    qualificationScore: integer('qualification_score').default(0),
+    targetRegion: text('target_region').default('india'), // india | us
+    isItStaffingFit: boolean('is_it_staffing_fit').default(false),
+    status: text('status').default('new'), // new | qualified | needs_review | discovery_blocked | discovered | rejected | suppressed | cooldown
+    reviewStatus: text('review_status').default('needs_review'), // needs_review | approved | rejected | watchlist
+    reviewAction: text('review_action'),
+    reviewedBy: uuid('reviewed_by').references(() => users.id),
+    reviewedAt: timestamp('reviewed_at'),
+    rejectionReason: text('rejection_reason'),
+    reviewNotes: text('review_notes'),
+    lastQualifiedAt: timestamp('last_qualified_at'),
+    lastDiscoveredAt: timestamp('last_discovered_at'),
+    nextRefreshAt: timestamp('next_refresh_at'),
+    costCentsTotal: integer('cost_cents_total').default(0),
+    sourceSummary: jsonb('source_summary').default({}),
+    metadata: jsonb('metadata').default({}),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (t) => ({
+    tenantStatusIdx: index('wizmatch_ci_tenant_status_idx').on(t.tenantId, t.status),
+    tenantReviewIdx: index('wizmatch_ci_tenant_review_idx').on(t.tenantId, t.reviewStatus),
+    tierIdx: index('wizmatch_ci_tier_idx').on(t.qualificationTier),
+    nextRefreshIdx: index('wizmatch_ci_next_refresh_idx').on(t.nextRefreshAt),
+    tenantCompanyUniq: uniqueIndex('wizmatch_ci_tenant_company_idx').on(t.tenantId, t.companyId),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE 56 — wizmatch_contact_candidates
+// Reviewable contact candidates from internal CRM reuse/free discovery.
+// Outreach cannot be sent from this table without the existing manual review flow.
+// ---------------------------------------------------------------------------
+export const wizmatchContactCandidates = pgTable(
+  'wizmatch_contact_candidates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    companyIntelligenceId: uuid('company_intelligence_id').references(() => wizmatchCompanyIntelligence.id),
+    companyId: uuid('company_id').notNull().references(() => wizmatchCompanies.id),
+    crmContactId: uuid('crm_contact_id').references(() => contacts.id),
+    name: text('name').notNull(),
+    title: text('title'),
+    roleCategory: text('role_category'),
+    email: text('email'),
+    phone: text('phone'),
+    linkedinUrl: text('linkedin_url'),
+    location: text('location'),
+    region: text('region').default('india'), // india | us
+    source: text('source').default('internal_crm'), // internal_crm | prior_signal | website_manual | manual_seed
+    sourceUrl: text('source_url'),
+    deliverabilityStatus: text('deliverability_status').default('unverified'),
+    rankingScore: integer('ranking_score').default(0),
+    relationshipScore: integer('relationship_score').default(0),
+    confidenceScore: integer('confidence_score').default(0),
+    status: text('status').default('needs_review'), // new | needs_review | approved | rejected | do_not_contact | linked_to_crm | stale
+    approvedBy: uuid('approved_by').references(() => users.id),
+    approvedAt: timestamp('approved_at'),
+    reviewedBy: uuid('reviewed_by').references(() => users.id),
+    reviewedAt: timestamp('reviewed_at'),
+    rejectionReason: text('rejection_reason'),
+    metadata: jsonb('metadata').default({}),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (t) => ({
+    tenantStatusIdx: index('wizmatch_cc_tenant_status_idx').on(t.tenantId, t.status),
+    companyStatusIdx: index('wizmatch_cc_company_status_idx').on(t.companyId, t.status),
+    intelligenceIdx: index('wizmatch_cc_intelligence_idx').on(t.companyIntelligenceId),
+    crmContactIdx: index('wizmatch_cc_crm_contact_idx').on(t.crmContactId),
+    scoreIdx: index('wizmatch_cc_score_idx').on(t.rankingScore),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE 57 — wizmatch_discovery_runs
+// Audit/cost log for discovery attempts. Phase 1/2 rows must be zero-cost internal/free runs.
+// ---------------------------------------------------------------------------
+export const wizmatchDiscoveryRuns = pgTable(
+  'wizmatch_discovery_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    companyIntelligenceId: uuid('company_intelligence_id').references(() => wizmatchCompanyIntelligence.id),
+    companyId: uuid('company_id').notNull().references(() => wizmatchCompanies.id),
+    runType: text('run_type').default('internal_reuse'),
+    source: text('source').default('internal_crm'),
+    status: text('status').default('queued'), // queued | running | succeeded | partial | failed | skipped | blocked_by_cap
+    costCents: integer('cost_cents').default(0),
+    paidProvider: boolean('paid_provider').default(false),
+    requestedBy: uuid('requested_by').references(() => users.id),
+    startedAt: timestamp('started_at'),
+    finishedAt: timestamp('finished_at'),
+    inputSnapshot: jsonb('input_snapshot').default({}),
+    resultCounts: jsonb('result_counts').default({}),
+    errorMessage: text('error_message'),
+    metadata: jsonb('metadata').default({}),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    tenantStatusIdx: index('wizmatch_dr_tenant_status_idx').on(t.tenantId, t.status),
+    companyIdx: index('wizmatch_dr_company_idx').on(t.companyId),
+    intelligenceIdx: index('wizmatch_dr_intelligence_idx').on(t.companyIntelligenceId),
+    sourceIdx: index('wizmatch_dr_source_idx').on(t.source),
+    createdAtIdx: index('wizmatch_dr_created_at_idx').on(t.createdAt),
+  }),
+);

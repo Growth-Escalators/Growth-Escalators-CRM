@@ -2,28 +2,28 @@
 
 ## Active task
 
-**Wizmatch Intelligence Command Center local build** — create a broad, read-only Phase 1
-operating layer for Wizmatch that combines Contact Intelligence, Client Discovery scoring,
-Candidate Intelligence scoring, requirement priority, module health, and a unified manual-review
-command queue.
+**Wizmatch Contact Intelligence persistence slice** — complete the first three Phase 2 items:
+review action model, schema plan/ADR, and database migration for the approved MVP Contact
+Intelligence entities.
 
-Scope is **local implementation only**. This task may touch backend services/routes, admin UI,
-and tests, but must not change database schema, migrations, paid enrichment integrations,
-outreach sending, worker/cron automation, deployment config, `package.json`, or `package-lock.json`.
+Scope is **local implementation only**. This task may touch the Contact Intelligence service
+contract, tests, `src/db/schema.ts`, one migration SQL file, and AI/docs context. It must not add
+writable API routes, admin action buttons, paid enrichment integrations, outreach sending,
+worker/cron automation, deployment config, `package.json`, or `package-lock.json`.
 
 ## Definition of done
 
-- [x] Reuse the Phase 1 Contact Intelligence deterministic service and caps.
-- [x] Add deterministic Command Center scoring for client opportunities, candidates, requirements,
-  module health, and review actions.
-- [x] Add a read-only `/api/wizmatch/command-center` endpoint using existing Wizmatch tables only.
-- [x] Add a CRM admin Command Center page and demo route.
-- [x] Add focused unit tests for Command Center scoring.
-- [x] Run focused tests, full `npm test`, backend `npm run build`, and admin `npm run build`.
-- [x] Start admin localhost demo for review.
+- [x] Add review-action state transition contract for company/contact/discovery decisions.
+- [x] Record schema plan in an ADR before writable API/UI work.
+- [x] Add the three approved MVP persistence tables to `src/db/schema.ts`.
+- [x] Add a matching SQL migration for those three tables only.
+- [x] Add focused tests for safe review actions and paid-discovery blocking.
+- [x] Run focused Contact Intelligence tests.
+- [x] Run backend `npm run build`.
+- [x] Run full `npm test`.
+- [x] Regenerate `.ai/AI_BRIEF.md`.
 
 ## Next task
 
-Review the local Command Center at `/wizmatch/command-center-demo`. If accepted, decide whether
-to commit/push this local implementation branch, then plan the first schema-backed persistence
-slice separately before any migration or paid enrichment work.
+After this slice is verified, the next major step is writable API routes for manual review
+actions. That should still avoid paid enrichment, worker/cron automation, and outreach sending.

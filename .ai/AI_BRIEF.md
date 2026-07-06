@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-05T21:25:05.751Z_
+_Generated: 2026-07-06T02:04:08.740Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,25 +12,26 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: growth-escalators-backend-v2
 - **Branch**: `feature/contact-intelligence-phase1-adr`
-- **Last commit**: d629039 docs(wizmatch): add contact intelligence phase 1 ADR (29 minutes ago)
-- **Uncommitted changes**: 14 file(s)
+- **Last commit**: 7cfc431 feat(wizmatch): add intelligence command center (5 hours ago)
+- **Uncommitted changes**: 11 file(s)
 
 ## Current task
 
-**Wizmatch Intelligence Command Center local build** — create a broad, read-only Phase 1
-operating layer for Wizmatch that combines Contact Intelligence, Client Discovery scoring,
-Candidate Intelligence scoring, requirement priority, module health, and a unified manual-review
-command queue.
+**Wizmatch Contact Intelligence persistence slice** — complete the first three Phase 2 items:
+review action model, schema plan/ADR, and database migration for the approved MVP Contact
+Intelligence entities.
 
-Scope is **local implementation only**. This task may touch backend services/routes, admin UI,
-and tests, but must not change database schema, migrations, paid enrichment integrations,
-outreach sending, worker/cron automation, deployment config, `package.json`, or `package-lock.json`.
+Scope is **local implementation only**. This task may touch the Contact Intelligence service
+contract, tests, `src/db/schema.ts`, one migration SQL file, and AI/docs context. It must not add
+writable API routes, admin action buttons, paid enrichment integrations, outreach sending,
+worker/cron automation, deployment config, `package.json`, or `package-lock.json`.
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
 
 ## Recent commits
 
 ```
+7cfc431 feat(wizmatch): add intelligence command center
 d629039 docs(wizmatch): add contact intelligence phase 1 ADR
 2f8239a Merge pull request #12 from Growth-Escalators/feature/contact-intelligence-phase1-plan
 742bbda docs(wizmatch): add contact intelligence phase 1 plan
@@ -40,7 +41,6 @@ a7ac996 docs(wizmatch): add contact intelligence PRD
 67adc69 Merge pull request #10 from Growth-Escalators/ai/collaboration-setup
 6939550 chore(ai): clarify Railway docs wording
 dbbf0ea chore(ai): harden collaboration protocol
-d0ab81c chore(ai): add AI collaboration layer (AGENTS.md, .ai/, docs scaffolding, ai:brief)
 ```
 
 ## npm scripts
