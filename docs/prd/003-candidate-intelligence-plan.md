@@ -6,6 +6,20 @@ Date: 2026-07-06
 Scope: Planning only. No schema, API, UI, worker, enrichment, or outreach change is approved by
 this document.
 
+Implementation status: Phase 1 deterministic implementation exists locally on
+`feature/contact-intelligence-phase1-adr` with:
+
+- `src/services/wizmatchCandidateIntelligence.ts`
+- `GET /api/wizmatch/candidate-intelligence/queue`
+- `GET /api/wizmatch/candidate-intelligence/candidates/:candidateId`
+- `GET /api/wizmatch/candidate-intelligence/requirements/:requirementId/matches`
+- `POST /api/wizmatch/candidate-intelligence/candidates/:candidateId/review`
+- `admin/src/pages/WizmatchCandidateIntelligencePage.jsx`
+
+The implementation uses existing candidates, contacts, requirements, signals, and placements. It
+does not create submissions, does not send outreach, does not call paid enrichment, and keeps
+candidate review as planning-only until a persistence model is approved.
+
 ## Goal
 
 Build a Candidate Intelligence layer that turns the internal candidate pool into ranked,

@@ -2,14 +2,14 @@
 
 ## Active task
 
-**Wizmatch Contact Intelligence manual review workflow** — complete pending items 1-11 from the
-Contact Intelligence build list and add plans for the next two modules: Client Discovery and
-Candidate Intelligence.
+**Wizmatch Client Discovery + Candidate Intelligence implementation** — implement the two planned
+Phase 1 modules in one go, building deterministic scoring, API surfaces, admin pages, and focused
+tests on top of existing Wizmatch tables.
 
-Scope is **local implementation only**. This task may touch Contact Intelligence services/routes,
-admin UI, tests, docs, schema/migration files already approved for the persistence slice, and AI
-context. It must not add paid enrichment integrations, outreach sending, worker/cron automation,
-deployment config, `package.json`, or `package-lock.json`.
+Scope is **local implementation only**. This task may touch Wizmatch services/routes, admin UI,
+tests, module PRDs, and AI context. It must not add paid enrichment integrations, candidate
+submissions, outreach sending, worker/cron automation, deployment config, `package.json`, or
+`package-lock.json`.
 
 ## Definition of done
 
@@ -31,9 +31,17 @@ deployment config, `package.json`, or `package-lock.json`.
 - [x] Add API route registration test.
 - [x] Create `docs/prd/002-client-discovery-plan.md`.
 - [x] Create `docs/prd/003-candidate-intelligence-plan.md`.
+- [x] Add deterministic Client Discovery scoring service with exact Phase 1 weights.
+- [x] Add Client Discovery queue/detail/qualify/handoff API routes.
+- [x] Add Client Discovery admin page and demo route.
+- [x] Add deterministic Candidate Intelligence scoring service with exact Phase 1 weights.
+- [x] Add Candidate Intelligence queue/detail/requirement-match/review-plan API routes.
+- [x] Add Candidate Intelligence admin page and demo route.
+- [x] Add focused service and route registration tests.
+- [x] Run focused tests, backend build, admin build, and full backend test suite.
 
 ## Next task
 
-After this slice is verified, the next major build is Client Discovery / Company Signals. It should
-reuse existing tables first, stay deterministic/low-cost, and feed only qualified companies into
-Contact Intelligence.
+After this slice is verified, the next major build should be an Analytics / ROI feedback loop that
+summarizes company discovery, contact review, candidate readiness, requirement fill paths, and
+placement outcomes without adding paid providers or auto-sending.

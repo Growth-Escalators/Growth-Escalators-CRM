@@ -61,6 +61,22 @@ import {
   type CommandCenterRequirementInput,
   type CommandCenterSignalInput,
 } from '../services/wizmatchCommandCenter';
+import {
+  CLIENT_DISCOVERY_GUARDRAILS,
+  rankClientDiscoveryQueue,
+  scoreClientDiscoveryOpportunity,
+  selectCompaniesForContactIntelligence,
+  type ClientDiscoveryInput,
+} from '../services/wizmatchClientDiscovery';
+import {
+  CANDIDATE_INTELLIGENCE_GUARDRAILS,
+  rankCandidateIntelligenceQueue,
+  rankCandidatesForRequirement,
+  scoreCandidateIntelligence,
+  type CandidateIntelligenceInput,
+  type CandidateRequirementInput,
+  type CandidateSignalInput,
+} from '../services/wizmatchCandidateIntelligence';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -127,6 +143,82 @@ type PersistedContactCandidateRow = {
   status: string | null;
   rejection_reason: string | null;
   metadata: Record<string, unknown> | null;
+};
+
+type ClientDiscoverySignalRow = {
+  id: string;
+  job_title: string;
+  company_id: string | null;
+  company_name: string | null;
+  company_domain: string | null;
+  company_industry: string | null;
+  company_country: string | null;
+  is_prime: boolean | null;
+  prime_msa_status: string | null;
+  h1b_sponsor_count: number | null;
+  source: string | null;
+  location: string | null;
+  status: string | null;
+  signal_score: number | null;
+  days_open: number | null;
+  repost_count: number | null;
+  matched_candidate_count: number | null;
+  active_signal_count: number | null;
+  positive_reply_count: number | null;
+  placement_count: number | null;
+  domain_status: string | null;
+  suppressed_count: number | null;
+  active_duplicate_count: number | null;
+};
+
+type CandidateIntelligenceRow = {
+  id: string;
+  contact_id: string | null;
+  name: string | null;
+  skills: string[] | null;
+  location: string | null;
+  visa_status: string | null;
+  rate_hourly: number | null;
+  rate_currency: string | null;
+  availability_date: string | null;
+  availability_status: string | null;
+  source: string | null;
+  linkedin_url: string | null;
+  github_url: string | null;
+  resume_url: string | null;
+  is_wizmatch_certified: boolean | null;
+  has_email: boolean | null;
+  has_phone: boolean | null;
+  contact_do_not_contact: boolean | null;
+  is_suppressed: boolean | null;
+  active_placement_count: number | null;
+  active_submission_count: number | null;
+  prior_placement_count: number | null;
+};
+
+type CandidateRequirementRow = {
+  id: string;
+  title: string;
+  company_name: string | null;
+  required_skills: string[] | null;
+  location: string | null;
+  region: string | null;
+  work_mode: string | null;
+  budget_min: number | null;
+  budget_max: number | null;
+  budget_currency: string | null;
+  priority: string | null;
+  status: string | null;
+};
+
+type CandidateSignalRow = {
+  id: string;
+  job_title: string;
+  company_name: string | null;
+  keywords: string[] | null;
+  location: string | null;
+  score: number | null;
+  status: string | null;
 };
 
 function numeric(value: unknown): number {
@@ -799,6 +891,280 @@ async function fetchCommandCenterRequirements(tenantId: string, limit: number): 
   }));
 }
 
+function mapClientDiscoveryRow(row: ClientDiscoverySignalRow): ClientDiscoveryInput {
+  return {
+    id: row.id,
+    jobTitle: row.job_title,
+    companyId: row.company_id,
+    companyName: row.company_name,
+    companyDomain: row.company_domain,
+    companyIndustry: row.company_industry,
+    companyCountry: row.company_country,
+    isPrime: row.is_prime,
+    primeMsaStatus: row.prime_msa_status,
+    h1bSponsorCount: numeric(row.h1b_sponsor_count),
+    source: row.source,
+    location: row.location,
+    status: row.status,
+    signalScore: numeric(row.signal_score),
+    daysOpen: numeric(row.days_open),
+    repostCount: numeric(row.repost_count),
+    matchedCandidateCount: numeric(row.matched_candidate_count),
+    activeSignalCount: numeric(row.active_signal_count),
+    positiveReplyCount: numeric(row.positive_reply_count),
+    placementCount: numeric(row.placement_count),
+    domainStatus: row.domain_status,
+    suppressedCount: numeric(row.suppressed_count),
+    activeDuplicateCount: numeric(row.active_duplicate_count),
+  };
+}
+
+async function fetchClientDiscoverySignals(tenantId: string, limit: number, companyId?: string) {
+  const params: unknown[] = [tenantId];
+  let companyFilter = '';
+  if (companyId) {
+    params.push(companyId);
+    companyFilter = `AND s.company_id = $${params.length}`;
+  }
+  params.push(limit);
+
+  const result = await pool.query(
+    `SELECT s.id,
+            s.job_title,
+            s.company_id,
+            c.name AS company_name,
+            c.domain AS company_domain,
+            c.industry AS company_industry,
+            c.country AS company_country,
+            c.is_prime,
+            c.prime_msa_status,
+            c.h1b_sponsor_count,
+            s.source,
+            s.location,
+            s.status,
+            s.score AS signal_score,
+            s.days_open,
+            s.repost_count,
+            COALESCE(cardinality(s.matched_candidate_ids), 0)::int AS matched_candidate_count,
+            (SELECT COUNT(*)::int
+             FROM wizmatch_job_signals s2
+             WHERE s2.tenant_id = s.tenant_id AND s2.company_id = s.company_id AND s2.status NOT IN ('dead', 'placed')) AS active_signal_count,
+            (SELECT COUNT(*)::int
+             FROM wizmatch_job_signals s3
+             WHERE s3.tenant_id = s.tenant_id AND s3.company_id = s.company_id AND s3.status = 'replied_positive') AS positive_reply_count,
+            (SELECT COUNT(*)::int
+             FROM wizmatch_placements wp
+             WHERE wp.tenant_id = s.tenant_id AND (wp.company_id = s.company_id OR wp.prime_company_id = s.company_id)) AS placement_count,
+            dh.status AS domain_status,
+            (SELECT COUNT(*)::int
+             FROM wizmatch_suppression_list ws
+             WHERE ws.tenant_id = s.tenant_id
+               AND c.domain IS NOT NULL
+               AND LOWER(SPLIT_PART(COALESCE(ws.email, ''), '@', 2)) = LOWER(c.domain)) AS suppressed_count,
+            (SELECT COUNT(*)::int
+             FROM wizmatch_job_signals s4
+             WHERE s4.tenant_id = s.tenant_id
+               AND s4.company_id = s.company_id
+               AND s4.status IN ('drafted', 'sent')) AS active_duplicate_count
+     FROM wizmatch_job_signals s
+     LEFT JOIN wizmatch_companies c ON c.id = s.company_id
+     LEFT JOIN wizmatch_domain_health dh ON dh.tenant_id = s.tenant_id AND dh.domain = c.domain
+     WHERE s.tenant_id = $1
+       AND s.status NOT IN ('dead', 'placed')
+       ${companyFilter}
+     ORDER BY COALESCE(s.score, 0) DESC,
+              COALESCE(cardinality(s.matched_candidate_ids), 0) DESC,
+              s.created_at DESC
+     LIMIT $${params.length}`,
+    params,
+  );
+
+  return (result.rows as ClientDiscoverySignalRow[]).map(mapClientDiscoveryRow);
+}
+
+function mapCandidateRequirement(row: CandidateRequirementRow): CandidateRequirementInput {
+  return {
+    id: row.id,
+    title: row.title,
+    companyName: row.company_name,
+    requiredSkills: row.required_skills ?? [],
+    location: row.location,
+    region: row.region,
+    workMode: row.work_mode,
+    budgetMin: numeric(row.budget_min),
+    budgetMax: numeric(row.budget_max),
+    budgetCurrency: row.budget_currency,
+    priority: row.priority,
+    status: row.status,
+  };
+}
+
+function mapCandidateSignal(row: CandidateSignalRow): CandidateSignalInput {
+  return {
+    id: row.id,
+    jobTitle: row.job_title,
+    companyName: row.company_name,
+    keywords: row.keywords ?? [],
+    location: row.location,
+    score: numeric(row.score),
+    status: row.status,
+  };
+}
+
+function mapCandidateIntelligenceRow(
+  row: CandidateIntelligenceRow,
+  requirements: CandidateRequirementInput[],
+  signals: CandidateSignalInput[],
+): CandidateIntelligenceInput {
+  return {
+    id: row.id,
+    contactId: row.contact_id,
+    name: row.name || 'Unknown candidate',
+    skills: row.skills ?? [],
+    location: row.location,
+    visaStatus: row.visa_status,
+    rateHourly: numeric(row.rate_hourly),
+    rateCurrency: row.rate_currency,
+    availabilityDate: row.availability_date,
+    availabilityStatus: row.availability_status,
+    source: row.source,
+    linkedinUrl: row.linkedin_url,
+    githubUrl: row.github_url,
+    resumeUrl: row.resume_url,
+    isWizmatchCertified: row.is_wizmatch_certified,
+    hasUsableContactChannel: Boolean(row.has_email || row.has_phone || row.linkedin_url),
+    doNotContact: row.contact_do_not_contact,
+    suppressed: row.is_suppressed,
+    activePlacementCount: numeric(row.active_placement_count),
+    activeSubmissionCount: numeric(row.active_submission_count),
+    priorPlacementCount: numeric(row.prior_placement_count),
+    requirements,
+    signals,
+  };
+}
+
+async function fetchCandidateIntelligenceRequirements(tenantId: string, limit: number, requirementId?: string) {
+  const params: unknown[] = [tenantId];
+  let requirementFilter = '';
+  if (requirementId) {
+    params.push(requirementId);
+    requirementFilter = `AND r.id = $${params.length}`;
+  }
+  params.push(limit);
+  const result = await pool.query(
+    `SELECT r.id,
+            r.title,
+            comp.name AS company_name,
+            r.required_skills,
+            r.location,
+            r.region,
+            r.work_mode,
+            r.budget_min,
+            r.budget_max,
+            r.budget_currency,
+            r.priority,
+            r.status
+     FROM wizmatch_requirements r
+     LEFT JOIN wizmatch_companies comp ON comp.id = r.company_id
+     WHERE r.tenant_id = $1
+       AND r.status <> 'closed'
+       ${requirementFilter}
+     ORDER BY CASE r.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 ELSE 2 END,
+              r.updated_at DESC
+     LIMIT $${params.length}`,
+    params,
+  );
+  return (result.rows as CandidateRequirementRow[]).map(mapCandidateRequirement);
+}
+
+async function fetchCandidateIntelligenceSignals(tenantId: string, limit: number) {
+  const result = await pool.query(
+    `SELECT s.id,
+            s.job_title,
+            comp.name AS company_name,
+            s.keywords,
+            s.location,
+            s.score,
+            s.status
+     FROM wizmatch_job_signals s
+     LEFT JOIN wizmatch_companies comp ON comp.id = s.company_id
+     WHERE s.tenant_id = $1
+       AND s.status NOT IN ('dead', 'placed')
+     ORDER BY COALESCE(s.score, 0) DESC, s.created_at DESC
+     LIMIT $2`,
+    [tenantId, limit],
+  );
+  return (result.rows as CandidateSignalRow[]).map(mapCandidateSignal);
+}
+
+async function fetchCandidateIntelligenceInputs(tenantId: string, limit: number, candidateId?: string) {
+  const [requirements, signals] = await Promise.all([
+    fetchCandidateIntelligenceRequirements(tenantId, 30),
+    fetchCandidateIntelligenceSignals(tenantId, 30),
+  ]);
+
+  const params: unknown[] = [tenantId];
+  let candidateFilter = '';
+  if (candidateId) {
+    params.push(candidateId);
+    candidateFilter = `AND wc.id = $${params.length}`;
+  }
+  params.push(limit);
+
+  const result = await pool.query(
+    `SELECT wc.id,
+            wc.contact_id,
+            TRIM(CONCAT(c.first_name, ' ', COALESCE(c.last_name, ''))) AS name,
+            wc.skills,
+            wc.location,
+            wc.visa_status,
+            wc.rate_hourly,
+            wc.rate_currency,
+            wc.availability_date,
+            wc.availability_status,
+            wc.source,
+            wc.linkedin_url,
+            wc.github_url,
+            wc.resume_url,
+            wc.is_wizmatch_certified,
+            c.do_not_contact AS contact_do_not_contact,
+            EXISTS (
+              SELECT 1 FROM contact_channels cc
+              WHERE cc.contact_id = c.id AND cc.channel_type = 'email'
+            ) AS has_email,
+            EXISTS (
+              SELECT 1 FROM contact_channels cc
+              WHERE cc.contact_id = c.id AND cc.channel_type IN ('phone', 'whatsapp')
+            ) AS has_phone,
+            EXISTS (
+              SELECT 1 FROM wizmatch_suppression_list ws
+              WHERE ws.tenant_id = wc.tenant_id AND ws.contact_id = c.id
+            ) AS is_suppressed,
+            (SELECT COUNT(*)::int
+             FROM wizmatch_placements wp
+             WHERE wp.tenant_id = wc.tenant_id AND wp.candidate_id = wc.id AND wp.status IN ('submitted', 'interviewing', 'offered', 'started')) AS active_placement_count,
+            (SELECT COUNT(*)::int
+             FROM wizmatch_placements wp
+             WHERE wp.tenant_id = wc.tenant_id AND wp.candidate_id = wc.id AND wp.status IN ('submitted', 'interviewing')) AS active_submission_count,
+            (SELECT COUNT(*)::int
+             FROM wizmatch_placements wp
+             WHERE wp.tenant_id = wc.tenant_id AND wp.candidate_id = wc.id AND wp.status IN ('started', 'ended')) AS prior_placement_count
+     FROM wizmatch_candidates wc
+     JOIN contacts c ON c.id = wc.contact_id
+     WHERE wc.tenant_id = $1
+       ${candidateFilter}
+     ORDER BY CASE WHEN wc.availability_status = 'available' THEN 0 ELSE 1 END,
+              wc.is_wizmatch_certified DESC,
+              wc.updated_at DESC
+     LIMIT $${params.length}`,
+    params,
+  );
+
+  return (result.rows as CandidateIntelligenceRow[]).map((row) =>
+    mapCandidateIntelligenceRow(row, requirements, signals),
+  );
+}
+
 async function fetchCommandCenterMetrics(tenantId: string): Promise<Omit<CommandCenterMetricsInput, 'reviewReadyCompanies' | 'blockedCompanies'>> {
   const result = await pool.query(
     `SELECT
@@ -836,6 +1202,155 @@ async function fetchCommandCenterMetrics(tenantId: string): Promise<Omit<Command
     suppressedContacts: numeric(row.suppressed_contacts),
   };
 }
+
+// ============================================================
+// SECTION -2 — CLIENT DISCOVERY / COMPANY SIGNALS ROUTES
+// ============================================================
+
+router.get('/client-discovery/queue', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const limit = Math.min(Number(req.query.limit) || 50, 100);
+  const rows = await fetchClientDiscoverySignals(tenantId, limit);
+  const items = rankClientDiscoveryQueue(rows);
+  const selected = selectCompaniesForContactIntelligence(items);
+
+  res.json({
+    items,
+    total: items.length,
+    selectedForContactIntelligence: selected.length,
+    guardrails: CLIENT_DISCOVERY_GUARDRAILS,
+  });
+});
+
+router.get('/client-discovery/companies/:companyId', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const rows = await fetchClientDiscoverySignals(tenantId, 25, String(req.params.companyId));
+  if (rows.length === 0) {
+    res.status(404).json({ error: 'Client discovery company not found' });
+    return;
+  }
+  const signals = rankClientDiscoveryQueue(rows);
+  res.json({
+    companyId: String(req.params.companyId),
+    companyName: signals[0]?.companyName,
+    companyDomain: signals[0]?.companyDomain,
+    bestSignal: signals[0],
+    signals,
+    guardrails: CLIENT_DISCOVERY_GUARDRAILS,
+  });
+});
+
+router.post('/client-discovery/companies/:companyId/qualify', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const rows = await fetchClientDiscoverySignals(tenantId, 25, String(req.params.companyId));
+  if (rows.length === 0) {
+    res.status(404).json({ error: 'Client discovery company not found' });
+    return;
+  }
+  const results = rankClientDiscoveryQueue(rows);
+  const selected = selectCompaniesForContactIntelligence(results);
+  res.json({
+    qualified: selected.length > 0,
+    bestSignal: results[0],
+    eligibleForContactIntelligence: selected.some((item) => item.companyId === String(req.params.companyId)),
+    guardrails: CLIENT_DISCOVERY_GUARDRAILS,
+  });
+});
+
+router.post('/client-discovery/companies/:companyId/send-to-contact-intelligence', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const companyId = String(req.params.companyId);
+  const rows = await fetchClientDiscoverySignals(tenantId, 25, companyId);
+  if (rows.length === 0) {
+    res.status(404).json({ error: 'Client discovery company not found' });
+    return;
+  }
+  const results = rankClientDiscoveryQueue(rows);
+  const selected = selectCompaniesForContactIntelligence(results);
+  if (!selected.some((item) => item.companyId === companyId)) {
+    res.status(409).json({
+      error: 'Company is not eligible for Contact Intelligence handoff',
+      bestSignal: results[0],
+      guardrails: CLIENT_DISCOVERY_GUARDRAILS,
+    });
+    return;
+  }
+
+  const item = await persistContactIntelligenceSnapshot(tenantId, req.user?.id, companyId);
+  if (!item) {
+    res.status(404).json({ error: 'Contact Intelligence source not found for company' });
+    return;
+  }
+  res.json({ item, fromClientDiscovery: results[0], guardrails: CLIENT_DISCOVERY_GUARDRAILS });
+});
+
+// ============================================================
+// SECTION -1 — CANDIDATE INTELLIGENCE ROUTES
+// ============================================================
+
+router.get('/candidate-intelligence/queue', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const limit = Math.min(Number(req.query.limit) || 50, 100);
+  const inputs = await fetchCandidateIntelligenceInputs(tenantId, limit);
+  const items = rankCandidateIntelligenceQueue(inputs);
+  res.json({
+    items,
+    total: items.length,
+    guardrails: CANDIDATE_INTELLIGENCE_GUARDRAILS,
+  });
+});
+
+router.get('/candidate-intelligence/candidates/:candidateId', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const inputs = await fetchCandidateIntelligenceInputs(tenantId, 1, String(req.params.candidateId));
+  if (inputs.length === 0) {
+    res.status(404).json({ error: 'Candidate intelligence record not found' });
+    return;
+  }
+  res.json({
+    item: scoreCandidateIntelligence(inputs[0]),
+    guardrails: CANDIDATE_INTELLIGENCE_GUARDRAILS,
+  });
+});
+
+router.get('/candidate-intelligence/requirements/:requirementId/matches', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const [requirements, candidates] = await Promise.all([
+    fetchCandidateIntelligenceRequirements(tenantId, 1, String(req.params.requirementId)),
+    fetchCandidateIntelligenceInputs(tenantId, Math.min(Number(req.query.limit) || 50, 100)),
+  ]);
+  if (requirements.length === 0) {
+    res.status(404).json({ error: 'Requirement not found' });
+    return;
+  }
+  const matches = rankCandidatesForRequirement(requirements[0], candidates);
+  res.json({
+    requirement: requirements[0],
+    matches,
+    total: matches.length,
+    guardrails: CANDIDATE_INTELLIGENCE_GUARDRAILS,
+  });
+});
+
+router.post('/candidate-intelligence/candidates/:candidateId/review', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const action = firstString(req.body?.action) || 'mark_reviewed';
+  const notes = firstString(req.body?.notes);
+  const inputs = await fetchCandidateIntelligenceInputs(tenantId, 1, String(req.params.candidateId));
+  if (inputs.length === 0) {
+    res.status(404).json({ error: 'Candidate intelligence record not found' });
+    return;
+  }
+  const item = scoreCandidateIntelligence(inputs[0]);
+  res.json({
+    persisted: false,
+    action,
+    notes,
+    item,
+    message: 'Candidate Intelligence review is planning-only in this slice; no outreach, submission, or candidate state was changed.',
+    guardrails: CANDIDATE_INTELLIGENCE_GUARDRAILS,
+  });
+});
 
 // ============================================================
 // SECTION 0 — CONTACT INTELLIGENCE PHASE 1 ROUTES

@@ -294,3 +294,57 @@ enrichment work.
 **Next**
 - Build Client Discovery / Company Signals from `docs/prd/002-client-discovery-plan.md`, feeding
   qualified companies into Contact Intelligence.
+
+## 2026-07-06 — Step 11: Client Discovery + Candidate Intelligence implementation — Codex — VERIFIED LOCALLY
+
+**What was done**
+- Implemented Client Discovery / Company Signals from `docs/prd/002-client-discovery-plan.md`:
+  deterministic scoring service, exact Phase 1 component weights, hard blockers, queue/detail/
+  qualify/handoff API routes, admin page, demo route, and tests.
+- Implemented Candidate Intelligence from `docs/prd/003-candidate-intelligence-plan.md`:
+  deterministic readiness/matching service, exact Phase 1 component weights, hard blockers,
+  queue/detail/requirement-match/review-plan API routes, admin page, demo route, and tests.
+- Wired both modules into Wizmatch navigation and React routes.
+- Updated the two module PRDs with implementation status.
+
+**Guardrails preserved**
+- No paid enrichment/provider calls.
+- No outreach sending.
+- No automatic candidate submissions.
+- No worker/cron automation.
+- No Railway/Vercel/deployment config changes.
+- No `package.json` or `package-lock.json` changes.
+- Candidate Intelligence review remains planning-only; it does not persist candidate review state.
+- Client Discovery handoff only creates/refreshes the already-approved Contact Intelligence
+  snapshot/review state for hot/warm qualified companies.
+
+**Files changed**
+- `src/services/wizmatchClientDiscovery.ts`
+- `src/services/wizmatchCandidateIntelligence.ts`
+- `src/routes/wizmatch.ts`
+- `src/__tests__/clientDiscovery.test.ts`
+- `src/__tests__/candidateIntelligence.test.ts`
+- `src/__tests__/wizmatchContactIntelligenceRoutes.test.ts`
+- `admin/src/pages/WizmatchClientDiscoveryPage.jsx`
+- `admin/src/pages/WizmatchCandidateIntelligencePage.jsx`
+- `admin/src/App.jsx`
+- `admin/src/components/navEntries.js`
+- `docs/prd/002-client-discovery-plan.md`
+- `docs/prd/003-candidate-intelligence-plan.md`
+- `.ai/CURRENT_TASK.md`
+- `.ai/CURRENT_STATE.md`
+- `.ai/AI_BRIEF.md`
+- `.ai/HANDOFF_LOG.md`
+
+**Verification**
+- `npx vitest --run src/__tests__/clientDiscovery.test.ts src/__tests__/candidateIntelligence.test.ts src/__tests__/wizmatchContactIntelligenceRoutes.test.ts src/__tests__/wizmatchCommandCenter.test.ts`
+  passed: 4 files, 12 tests.
+- `npm run build` passed.
+- `npm run build` in `admin/` passed.
+- `npm test` passed: 16 files, 186 tests.
+
+**Next**
+- Verify the two new localhost demo pages:
+  `/wizmatch/client-discovery-demo` and `/wizmatch/candidate-intelligence-demo`.
+- The next major build should be Analytics / ROI feedback loop across discovery, contact review,
+  candidate readiness, requirement fill path, and placements.

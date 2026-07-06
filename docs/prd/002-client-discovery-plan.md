@@ -6,6 +6,20 @@ Date: 2026-07-06
 Scope: Planning only. No provider integration, schema change, worker change, or outreach change is
 approved by this document.
 
+Implementation status: Phase 1 deterministic implementation exists locally on
+`feature/contact-intelligence-phase1-adr` with:
+
+- `src/services/wizmatchClientDiscovery.ts`
+- `GET /api/wizmatch/client-discovery/queue`
+- `GET /api/wizmatch/client-discovery/companies/:companyId`
+- `POST /api/wizmatch/client-discovery/companies/:companyId/qualify`
+- `POST /api/wizmatch/client-discovery/companies/:companyId/send-to-contact-intelligence`
+- `admin/src/pages/WizmatchClientDiscoveryPage.jsx`
+
+The implementation still uses existing tables first, performs no paid enrichment, sends no
+outreach, and only hands qualified hot/warm companies into the existing Contact Intelligence
+snapshot/review workflow.
+
 ## Goal
 
 Build a low-cost Client Discovery layer that finds and ranks IT/Tech staffing opportunities before

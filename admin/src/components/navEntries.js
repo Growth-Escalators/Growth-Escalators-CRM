@@ -180,6 +180,11 @@ export const NAV_ENTRIES = [
     visible: f => f.canWizmatch,
   },
   {
+    id: 'wm-client-discovery', label: 'Client Discovery', to: '/wizmatch/client-discovery',
+    icon: Search, section: 'Wizmatch', group: null,
+    visible: f => f.canWizmatch,
+  },
+  {
     id: 'wm-requirements', label: 'Requirements', to: '/wizmatch/requirements',
     icon: FileText, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
@@ -192,6 +197,11 @@ export const NAV_ENTRIES = [
   {
     id: 'wm-candidates', label: 'Candidate Pool', to: '/wizmatch/candidates',
     icon: UserCheck, section: 'Wizmatch', group: null,
+    visible: f => f.canWizmatch,
+  },
+  {
+    id: 'wm-candidate-intelligence', label: 'Candidate Intel', to: '/wizmatch/candidate-intelligence',
+    icon: ClipboardList, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
   {
