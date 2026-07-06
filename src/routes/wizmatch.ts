@@ -88,6 +88,7 @@ import {
   type RequirementPriorityInput,
 } from '../services/wizmatchRequirementPriority';
 import { buildWizmatchReviewWorkbench } from '../services/wizmatchReviewWorkbench';
+import { getWizmatchReadiness } from '../services/wizmatchReadiness';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -1495,17 +1496,23 @@ async function buildReviewWorkbenchPayload(tenantId: string, limit: number) {
 router.get('/review-workbench', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const limit = Math.min(Number(req.query.limit) || 30, 75);
-  res.json(await buildReviewWorkbenchPayload(tenantId, limit));
+  const [workbench, readiness] = await Promise.all([
+    buildReviewWorkbenchPayload(tenantId, limit),
+    getWizmatchReadiness(pool, tenantId),
+  ]);
+  res.json({ ...workbench, readiness: readiness.overall });
 });
 
 router.get('/guardrails', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const workbench = await buildReviewWorkbenchPayload(tenantId, 30);
+  const readiness = await getWizmatchReadiness(pool, tenantId);
   res.json({
     generatedAt: workbench.generatedAt,
     safetyCenter: workbench.safetyCenter,
     guardrails: workbench.guardrails,
     costControls: CONTACT_INTELLIGENCE_PHASE1_CAPS,
+    readiness: readiness.overall,
     rules: [
       'Paid enrichment remains disabled until company qualification and explicit approval.',
       'Manual approval is required before outreach.',
@@ -1514,6 +1521,11 @@ router.get('/guardrails', async (req: Request, res: Response) => {
       'Safety blockers must be resolved before volume increases.',
     ],
   });
+});
+
+router.get('/readiness', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  res.json(await getWizmatchReadiness(pool, tenantId));
 });
 
 // ============================================================

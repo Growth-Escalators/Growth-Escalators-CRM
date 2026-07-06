@@ -17,11 +17,14 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   Intelligence manual review/persistence, Client Discovery deterministic scoring + handoff,
   Candidate Intelligence deterministic readiness/matching + persisted review intent, Requirement
   Priority scoring, a unified Review Workbench, Guardrail Center, Local Demo Flow, and deterministic
-  Analytics / ROI. Admin classic pages, CRM-styled V2 pages, and the new operating pages exist.
+  Analytics / ROI. It now also includes a read-only Data Readiness API/page that checks required
+  table presence, tenant-scoped counts, latest activity, module status, empty-state reasons,
+  operator notes, and guarded blocked items. Admin classic pages, CRM-styled V2 pages, and the
+  new operating pages exist.
   `/wizmatch` now lands on the Review Workbench, and the operating frontend has module/priority
-  filters, richer CRM-style action cards, guardrail/cost panels, preview links, and requirement
-  review-plan feedback. Still no paid enrichment, outreach sending, candidate auto-submission,
-  worker/cron automation, package, or deployment changes.
+  filters, readiness strips, richer CRM-style action cards, guardrail/cost panels, preview links,
+  and requirement review-plan feedback. Still no paid enrichment, outreach sending, candidate
+  auto-submission, worker/cron automation, package, or deployment changes.
 
 ## Recently landed (context)
 
@@ -42,8 +45,9 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   `/wizmatch/client-discovery-new-demo`, `/wizmatch/candidate-intelligence-new-demo`, and
   `/wizmatch/analytics-new-demo` also work without DB/login. New operating demo routes
   `/wizmatch/review-workbench-demo`, `/wizmatch/requirement-priority-new-demo`,
-  `/wizmatch/guardrails-new-demo`, and `/wizmatch/local-demo-flow-demo` work without DB/login.
-  Authenticated routes need a healthy local API/database and CRM auth token.
+  `/wizmatch/guardrails-new-demo`, `/wizmatch/readiness-demo`, and
+  `/wizmatch/local-demo-flow-demo` work without DB/login. Authenticated routes need a healthy
+  local API/database and CRM auth token.
 - Contact Intelligence persistence/API/UI are local-only until reviewed and migrated in the
   intended environment. Paid discovery remains blocked by service caps.
 - Applying `src/db/migrations/0021_contact_intelligence_phase2.sql` to any real database is still
@@ -59,8 +63,9 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   endpoints and preserve manual review gates.
 - The latest operating UI polish was verified against `/wizmatch/review-workbench-demo`,
   `/wizmatch/requirement-priority-new-demo`, `/wizmatch/guardrails-new-demo`,
-  `/wizmatch/local-demo-flow-demo`, and `/wizmatch-demo`; module filtering, safe action feedback,
-  and requirement review-plan feedback work in demo mode.
+  `/wizmatch/readiness-demo`, `/wizmatch/local-demo-flow-demo`, and `/wizmatch-demo`; module
+  filtering, safe action feedback, requirement review-plan feedback, and readiness table/module
+  displays work in demo mode.
 
 ## How to rebuild context fast
 

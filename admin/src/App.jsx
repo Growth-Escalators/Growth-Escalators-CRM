@@ -51,6 +51,7 @@ const WizmatchAnalyticsNewPage = lazy(() => import('./pages/WizmatchNewPages.jsx
 const WizmatchReviewWorkbenchPage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchReviewWorkbenchPage })));
 const WizmatchRequirementPriorityPage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchRequirementPriorityPage })));
 const WizmatchGuardrailsPage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchGuardrailsPage })));
+const WizmatchReadinessPage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchReadinessPage })));
 const WizmatchLocalDemoFlowPage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchLocalDemoFlowPage })));
 const AppLayout = lazy(() => import('./components/AppLayout.jsx'));
 
@@ -161,6 +162,8 @@ export default function App() {
             <Route path="/wizmatch/compliance" element={<PrivateRoute><AppLayout><WizmatchCompliancePage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/guardrails-new-demo" element={<WizmatchGuardrailsPage demoMode />} />
             <Route path="/wizmatch/guardrails-new" element={<PrivateRoute><AppLayout><WizmatchGuardrailsPage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/readiness-demo" element={<WizmatchReadinessPage demoMode />} />
+            <Route path="/wizmatch/readiness" element={<PrivateRoute><AppLayout><WizmatchReadinessPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/placements" element={<PrivateRoute><AppLayout><WizmatchPlacementsPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/primes" element={<PrivateRoute><AppLayout><WizmatchPrimesPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/analytics-demo" element={<WizmatchAnalyticsPage demoMode />} />

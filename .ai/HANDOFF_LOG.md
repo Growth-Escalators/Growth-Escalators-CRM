@@ -5,6 +5,63 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-06 — Step 17: Wizmatch data readiness + real-data UX — Codex — VERIFIED LOCALLY
+
+**What was done**
+- Added a read-only Wizmatch Data Readiness layer:
+  - `GET /api/wizmatch/readiness`,
+  - deterministic readiness evaluation for database connectivity, table presence, tenant-scoped
+    counts, latest activity, module status, empty-state reasons, operator notes, and guarded
+    blocked items,
+  - authenticated `/wizmatch/readiness`,
+  - no-login `/wizmatch/readiness-demo`,
+  - Wizmatch sidebar entry for Data Readiness.
+- Surfaced readiness status inside Review Workbench and Guardrail Center so operators can tell
+  whether a page is empty because of missing data, migration state, auth/API issues, or guarded
+  workflows.
+- Preserved old/classic pages and all existing demo routes.
+
+**Guardrails preserved**
+- No paid enrichment/provider calls.
+- No outreach sending.
+- No automatic candidate submissions.
+- No worker/cron automation.
+- No database schema or migration changes.
+- No Railway/Vercel/deployment config changes.
+- No `package.json` or `package-lock.json` changes.
+
+**Files changed**
+- `src/services/wizmatchReadiness.ts`
+- `src/routes/wizmatch.ts`
+- `src/__tests__/wizmatchReadiness.test.ts`
+- `src/__tests__/wizmatchContactIntelligenceRoutes.test.ts`
+- `admin/src/pages/WizmatchOperatingPages.jsx`
+- `admin/src/App.jsx`
+- `admin/src/components/navEntries.js`
+- `public/admin/` rebuilt by `npm run admin:build`
+- `.ai/CURRENT_TASK.md`
+- `.ai/CURRENT_STATE.md`
+- `.ai/HANDOFF_LOG.md`
+- `.ai/AI_BRIEF.md` regenerated
+
+**Verification**
+- `npx vitest run src/__tests__/wizmatchReadiness.test.ts src/__tests__/wizmatchContactIntelligenceRoutes.test.ts src/__tests__/wizmatchReviewWorkbench.test.ts`
+  passed: 3 files, 7 tests.
+- `npm run build` passed.
+- `npm test` passed: 19 files, 194 tests.
+- `npm run admin:build` passed.
+- Browser smoke passed for `/wizmatch-demo`, `/wizmatch/review-workbench-demo`,
+  `/wizmatch/readiness-demo`, `/wizmatch/client-discovery-new-demo`,
+  `/wizmatch/contact-intelligence-new-demo`, `/wizmatch/candidate-intelligence-new-demo`,
+  `/wizmatch/requirement-priority-new-demo`, `/wizmatch/guardrails-new-demo`, and
+  `/wizmatch/analytics-new-demo`.
+- Browser interaction checks passed for Review Workbench filtering/safe action feedback,
+  Requirement Priority review-plan feedback, and Data Readiness table/module content.
+
+**Next**
+- Validate the authenticated live pages against real CRM/Wizmatch records.
+- Production migration/deploy decisions remain separate guarded work.
+
 ## 2026-07-06 — Contact Intelligence Phase 1 architecture ADR — Codex — READY FOR REVIEW
 
 **What was done**
