@@ -16,9 +16,10 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
 - **Wizmatch intelligence operating layer**: local implementation now includes Contact
   Intelligence manual review/persistence, Client Discovery deterministic scoring + handoff, and
   Candidate Intelligence deterministic readiness/matching, plus a deterministic Analytics / ROI
-  feedback loop. Admin demo routes exist for Command Center, Contact Intelligence, Client
-  Discovery, Candidate Intelligence, and Analytics / ROI. Still no paid enrichment, outreach
-  sending, candidate auto-submission, worker/cron automation, package, or deployment changes.
+  feedback loop. Admin classic pages and CRM-styled V2 pages exist for Command Center, Contact
+  Intelligence, Client Discovery, Candidate Intelligence, and Analytics / ROI. Still no paid
+  enrichment, outreach sending, candidate auto-submission, worker/cron automation, package, or
+  deployment changes.
 
 ## Recently landed (context)
 
@@ -32,10 +33,13 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   Wizmatch tables → JOIN queries must alias filter columns or Postgres throws 42702.
 - If the worker runs as a separate Railway service, it serves only a health probe, not the API →
   worker crons must call `WIZMATCH_API_BASE_URL` (public `web` URL), not `localhost`.
-- Local demo routes `/wizmatch/command-center-demo`, `/wizmatch/contact-intelligence-demo`,
+- Local classic demo routes `/wizmatch/command-center-demo`, `/wizmatch/contact-intelligence-demo`,
   `/wizmatch/client-discovery-demo`, `/wizmatch/candidate-intelligence-demo`, and
-  `/wizmatch/analytics-demo` work without DB/login. Authenticated routes need a healthy local
-  API/database and CRM auth token.
+  `/wizmatch/analytics-demo` work without DB/login. Local V2 demo routes
+  `/wizmatch/command-center-new-demo`, `/wizmatch/contact-intelligence-new-demo`,
+  `/wizmatch/client-discovery-new-demo`, `/wizmatch/candidate-intelligence-new-demo`, and
+  `/wizmatch/analytics-new-demo` also work without DB/login. Authenticated routes need a healthy
+  local API/database and CRM auth token.
 - Contact Intelligence persistence/API/UI are local-only until reviewed and migrated in the
   intended environment. Paid discovery remains blocked by service caps.
 - Applying `src/db/migrations/0021_contact_intelligence_phase2.sql` to any real database is still

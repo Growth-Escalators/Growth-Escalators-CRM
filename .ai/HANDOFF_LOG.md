@@ -427,3 +427,48 @@ enrichment work.
 - `npm test` passed: 17 files, 188 tests.
 - `npm run build` in `admin/` passed.
 - `npm run ai:brief` passed.
+
+## 2026-07-06 — Step 14: Wizmatch V2 admin presentation pages — Codex — VERIFIED LOCALLY
+
+**What was done**
+- Added CRM-styled V2 presentation pages for the Wizmatch operating modules:
+  - Command Center,
+  - Client Discovery,
+  - Contact Intelligence,
+  - Candidate Intelligence,
+  - Analytics / ROI.
+- Kept all existing classic pages and demo routes intact.
+- Added separate authenticated `-new` routes and no-login `-new-demo` routes.
+- Added Wizmatch sidebar entries for the V2 pages.
+- V2 pages reuse existing APIs and fall back to local demo data if live data is unavailable.
+
+**Guardrails preserved**
+- Admin UI only plus AI context updates.
+- No backend route/service changes.
+- No database schema or migration changes.
+- No paid enrichment/provider calls.
+- No outreach sending.
+- No automatic candidate submissions.
+- No worker/cron automation.
+- No Railway/Vercel/deployment config changes.
+- No `package.json` or `package-lock.json` changes.
+- Classic Wizmatch pages were not removed.
+
+**Files changed**
+- `admin/src/pages/WizmatchNewPages.jsx`
+- `admin/src/App.jsx`
+- `admin/src/components/navEntries.js`
+- `.ai/CURRENT_TASK.md`
+- `.ai/CURRENT_STATE.md`
+- `.ai/AI_BRIEF.md`
+- `.ai/HANDOFF_LOG.md`
+
+**Verification**
+- `npm run build` in `admin/` passed.
+- Browser render check passed for:
+  - `/wizmatch/command-center-new-demo`
+  - `/wizmatch/client-discovery-new-demo`
+  - `/wizmatch/contact-intelligence-new-demo`
+  - `/wizmatch/candidate-intelligence-new-demo`
+  - `/wizmatch/analytics-new-demo`
+- No browser page errors or console errors after fixing the V2 candidate table key warning.
