@@ -789,3 +789,35 @@ enrichment work.
 - `npm run build` passed.
 - `npm test` passed: 22 files, 211 tests.
 - `npm run admin:build` passed.
+
+## 2026-07-07 — Step 18: Production analytics/digest resilience — Codex — VERIFIED LOCALLY
+
+**What was done**
+- After deploying candidate intake to Railway, production logs showed `/api/wizmatch/analytics/roi`
+  and `/api/wizmatch/digest` could 500 when an environment is missing newer Wizmatch tables or
+  columns.
+- Hardened optional Wizmatch analytics stats so missing optional tables/columns return zeroed
+  metrics instead of breaking the page.
+- Updated daily digest job-signal status counts to use `created_at`, because `wizmatch_job_signals`
+  does not have an `updated_at` column in the current schema.
+- Added route-level coverage for classifying optional Wizmatch schema gaps as recoverable.
+
+**Guardrails preserved**
+- No schema or migration changes.
+- No database mutation changes.
+- No paid enrichment/provider calls.
+- No outreach sending.
+- No automatic candidate submissions.
+- No worker/cron automation.
+- No deployment config changes.
+
+**Files changed**
+- `src/routes/wizmatch.ts`
+- `src/__tests__/wizmatchContactIntelligenceRoutes.test.ts`
+- `.ai/CURRENT_STATE.md`
+- `.ai/AI_BRIEF.md`
+- `.ai/HANDOFF_LOG.md`
+
+**Verification**
+- `npm run build` passed.
+- `npm test` passed: 22 files, 212 tests.

@@ -71,9 +71,9 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
 - Candidate Profile Intake accepts up to 50 manually vetted profiles per request, defaults to
   dry-run preview, skips duplicate candidate records by CRM contact, and writes only confirmed
   imports. Operators should follow `docs/wizmatch-daily-operations.md` for the daily loop.
-- Analytics / ROI is read-only and deterministic. It may return zeroed Contact Intelligence review
-  metrics if the local DB has not applied `0021_contact_intelligence_phase2.sql`; it does not
-  create schema, write snapshots, send outreach, or call providers.
+- Analytics / ROI and daily digest are read-only and deterministic. They degrade gracefully to
+  zeroed optional metrics when newer Wizmatch tables/columns are missing in an environment; they
+  do not create schema, write snapshots, send outreach, or call providers.
 - Requirement Priority and Review Workbench are deterministic/manual-action layers. Requirement
   review-plan endpoints are planning-only; live workbench safe actions call existing approved
   endpoints and preserve manual review gates.

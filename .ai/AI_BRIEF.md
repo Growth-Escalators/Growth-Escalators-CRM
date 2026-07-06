@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-06T18:45:38.096Z_
+_Generated: 2026-07-06T18:59:22.949Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,8 +12,8 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: growth-escalators-backend-v2
 - **Branch**: `feature/contact-intelligence-phase1-adr`
-- **Last commit**: 20b737c feat(wizmatch): add paid discovery cost guard (5 hours ago)
-- **Uncommitted changes**: 225 file(s)
+- **Last commit**: 717b167 feat(wizmatch): add candidate profile intake (13 minutes ago)
+- **Uncommitted changes**: 6 file(s)
 
 ## Current task
 
@@ -30,6 +30,7 @@ automation, paid provider calls, deployment config changes, `package.json`, or `
 ## Recent commits
 
 ```
+717b167 feat(wizmatch): add candidate profile intake
 20b737c feat(wizmatch): add paid discovery cost guard
 2218a65 feat(wizmatch): add preview-first contact discovery
 d3aa9bf feat(wizmatch): add data readiness workbench
@@ -39,7 +40,6 @@ fdabbd6 feat(wizmatch): polish operating workbench frontend
 402380d fix(wizmatch): normalize contact intelligence channels
 16da4bc feat(wizmatch): add analytics roi feedback loop
 78648c0 feat(wizmatch): implement client and candidate intelligence
-9eb5a7f feat(wizmatch): add contact intelligence manual review workflow
 ```
 
 ## npm scripts
