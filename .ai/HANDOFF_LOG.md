@@ -745,3 +745,47 @@ enrichment work.
   - `/wizmatch-demo`
 - Browser interaction checks passed for Review Workbench module filtering, safe action feedback,
   and Requirement Priority review-plan feedback.
+
+## 2026-07-07 — Step 17: Candidate profile intake + daily operations SOP — Codex — VERIFIED LOCALLY
+
+**What was done**
+- Added a manual, authenticated Candidate Profile Intake flow for Candidate Intelligence.
+- Added `POST /api/wizmatch/candidate-intelligence/intake`, which defaults to dry-run preview and
+  requires `dryRun=false` plus `confirmImport=true` before writing.
+- Added CSV/manual parsing, email/phone normalization, skill dedupe, validation, row warnings, and
+  a 50-profile request cap in `src/services/wizmatchCandidateIntake.ts`.
+- Reused `findOrCreateContact` so CRM contact dedupe and channel normalization remain consistent.
+- Skips duplicate Wizmatch candidate records when a candidate already exists for the CRM contact.
+- Scores preview/imported profiles through deterministic Candidate Intelligence.
+- Added a Candidate Profile Intake panel to the classic Candidate Intelligence page with sample
+  CSV, preview scores, import action, and result feedback.
+- Fixed the Candidate Intelligence Shortlist action so it calls the supported `shortlist` backend
+  action.
+- Added `docs/wizmatch-daily-operations.md` for the daily operator workflow.
+
+**Guardrails preserved**
+- No outreach sending.
+- No automatic candidate submissions.
+- No paid enrichment/provider calls.
+- No worker/cron automation.
+- No schema or migration changes.
+- No Railway/Vercel/deployment config changes.
+- No `package.json` or `package-lock.json` changes.
+
+**Files changed**
+- `src/services/wizmatchCandidateIntake.ts`
+- `src/routes/wizmatch.ts`
+- `src/__tests__/candidateIntake.test.ts`
+- `src/__tests__/wizmatchContactIntelligenceRoutes.test.ts`
+- `admin/src/pages/WizmatchCandidateIntelligencePage.jsx`
+- `public/admin/` rebuilt by `npm run admin:build`
+- `docs/wizmatch-daily-operations.md`
+- `.ai/CURRENT_TASK.md`
+- `.ai/CURRENT_STATE.md`
+- `.ai/AI_BRIEF.md`
+- `.ai/HANDOFF_LOG.md`
+
+**Verification**
+- `npm run build` passed.
+- `npm test` passed: 22 files, 211 tests.
+- `npm run admin:build` passed.
