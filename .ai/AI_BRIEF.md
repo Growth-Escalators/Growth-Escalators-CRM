@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-06T02:30:44.912Z_
+_Generated: 2026-07-06T02:38:24.813Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,25 +12,25 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: growth-escalators-backend-v2
 - **Branch**: `feature/contact-intelligence-phase1-adr`
-- **Last commit**: 9eb5a7f feat(wizmatch): add contact intelligence manual review workflow (13 minutes ago)
-- **Uncommitted changes**: 17 file(s)
+- **Last commit**: 78648c0 feat(wizmatch): implement client and candidate intelligence (7 minutes ago)
+- **Uncommitted changes**: 11 file(s)
 
 ## Current task
 
-**Wizmatch Client Discovery + Candidate Intelligence implementation** — implement the two planned
-Phase 1 modules in one go, building deterministic scoring, API surfaces, admin pages, and focused
-tests on top of existing Wizmatch tables.
+**Wizmatch Analytics / ROI feedback loop** — add a deterministic read-only ROI layer that connects
+company discovery, contact review, candidate readiness, requirements, sending, and placements.
 
 Scope is **local implementation only**. This task may touch Wizmatch services/routes, admin UI,
-tests, module PRDs, and AI context. It must not add paid enrichment integrations, candidate
-submissions, outreach sending, worker/cron automation, deployment config, `package.json`, or
-`package-lock.json`.
+tests, analytics docs/context, and AI context. It must not add paid enrichment integrations,
+candidate submissions, outreach sending, worker/cron automation, deployment config,
+`package.json`, or `package-lock.json`.
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
 
 ## Recent commits
 
 ```
+78648c0 feat(wizmatch): implement client and candidate intelligence
 9eb5a7f feat(wizmatch): add contact intelligence manual review workflow
 b320d0b feat(wizmatch): add contact intelligence review persistence
 7cfc431 feat(wizmatch): add intelligence command center
@@ -40,7 +40,6 @@ d629039 docs(wizmatch): add contact intelligence phase 1 ADR
 4788843 Merge pull request #11 from Growth-Escalators/feature/contact-intelligence-prd
 d7b488a docs(wizmatch): harden contact intelligence PRD
 a7ac996 docs(wizmatch): add contact intelligence PRD
-67adc69 Merge pull request #10 from Growth-Escalators/ai/collaboration-setup
 ```
 
 ## npm scripts

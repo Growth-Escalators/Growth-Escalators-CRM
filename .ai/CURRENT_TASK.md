@@ -2,14 +2,13 @@
 
 ## Active task
 
-**Wizmatch Client Discovery + Candidate Intelligence implementation** — implement the two planned
-Phase 1 modules in one go, building deterministic scoring, API surfaces, admin pages, and focused
-tests on top of existing Wizmatch tables.
+**Wizmatch Analytics / ROI feedback loop** — add a deterministic read-only ROI layer that connects
+company discovery, contact review, candidate readiness, requirements, sending, and placements.
 
 Scope is **local implementation only**. This task may touch Wizmatch services/routes, admin UI,
-tests, module PRDs, and AI context. It must not add paid enrichment integrations, candidate
-submissions, outreach sending, worker/cron automation, deployment config, `package.json`, or
-`package-lock.json`.
+tests, analytics docs/context, and AI context. It must not add paid enrichment integrations,
+candidate submissions, outreach sending, worker/cron automation, deployment config,
+`package.json`, or `package-lock.json`.
 
 ## Definition of done
 
@@ -39,9 +38,15 @@ submissions, outreach sending, worker/cron automation, deployment config, `packa
 - [x] Add Candidate Intelligence admin page and demo route.
 - [x] Add focused service and route registration tests.
 - [x] Run focused tests, backend build, admin build, and full backend test suite.
+- [x] Add deterministic Analytics / ROI service.
+- [x] Add read-only `/api/wizmatch/analytics/roi` endpoint.
+- [x] Upgrade Wizmatch Analytics admin page with ROI KPIs, funnel, module scorecards,
+  recommendations, risks, and guardrails.
+- [x] Add no-login `/wizmatch/analytics-demo` route.
+- [x] Add ROI service tests and route registration coverage.
 
 ## Next task
 
-After this slice is verified, the next major build should be an Analytics / ROI feedback loop that
-summarizes company discovery, contact review, candidate readiness, requirement fill paths, and
-placement outcomes without adding paid providers or auto-sending.
+After this slice is verified, the next major build should be a unified review/action workbench that
+lets the team move from ROI recommendations into specific safe manual actions: approve contacts,
+shortlist candidates, prioritize requirements, and resolve safety blockers without auto-sending.

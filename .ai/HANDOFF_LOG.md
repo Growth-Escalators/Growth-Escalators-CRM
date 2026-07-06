@@ -348,3 +348,54 @@ enrichment work.
   `/wizmatch/client-discovery-demo` and `/wizmatch/candidate-intelligence-demo`.
 - The next major build should be Analytics / ROI feedback loop across discovery, contact review,
   candidate readiness, requirement fill path, and placements.
+
+## 2026-07-06 — Step 12: Analytics / ROI feedback loop — Codex — VERIFIED LOCALLY
+
+**What was done**
+- Added deterministic read-only ROI analytics service in `src/services/wizmatchRoiAnalytics.ts`.
+- Added `GET /api/wizmatch/analytics/roi`, aggregating signals, Contact Intelligence review state,
+  candidates, requirements, placements, and source performance.
+- Updated Wizmatch Analytics admin page with:
+  - ROI KPI cards,
+  - operating funnel conversion,
+  - module scorecards,
+  - recommendations,
+  - risks,
+  - guardrail panel,
+  - existing domain/source/pipeline sections.
+- Added no-login `/wizmatch/analytics-demo`.
+- Added focused ROI service tests and route registration coverage.
+
+**Guardrails preserved**
+- Read-only analytics only.
+- No paid enrichment/provider calls.
+- No outreach sending.
+- No automatic candidate submissions.
+- No worker/cron automation.
+- No schema/migration changes in this slice.
+- No Railway/Vercel/deployment config changes.
+- No `package.json` or `package-lock.json` changes.
+
+**Files changed**
+- `src/services/wizmatchRoiAnalytics.ts`
+- `src/routes/wizmatch.ts`
+- `src/__tests__/wizmatchRoiAnalytics.test.ts`
+- `src/__tests__/wizmatchContactIntelligenceRoutes.test.ts`
+- `admin/src/pages/WizmatchAnalyticsPage.jsx`
+- `admin/src/App.jsx`
+- `.ai/CURRENT_TASK.md`
+- `.ai/CURRENT_STATE.md`
+- `.ai/AI_BRIEF.md`
+- `.ai/HANDOFF_LOG.md`
+
+**Verification**
+- `npx vitest --run src/__tests__/wizmatchRoiAnalytics.test.ts src/__tests__/wizmatchContactIntelligenceRoutes.test.ts`
+  passed: 2 files, 3 tests.
+- `npm run build` passed.
+- `npm run build` in `admin/` passed.
+- `npm test` passed: 17 files, 188 tests.
+
+**Next**
+- Build a unified review/action workbench that turns ROI recommendations into safe manual actions:
+  contact approval, candidate shortlist planning, requirement prioritization, and safety blocker
+  resolution without auto-sending.

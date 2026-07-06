@@ -24,5 +24,6 @@ describe('Wizmatch Contact Intelligence routes', () => {
     expect(routeExists('/candidate-intelligence/candidates/:candidateId', 'get')).toBe(true);
     expect(routeExists('/candidate-intelligence/requirements/:requirementId/matches', 'get')).toBe(true);
     expect(routeExists('/candidate-intelligence/candidates/:candidateId/review', 'post')).toBe(true);
+    expect(routeExists('/analytics/roi', 'get')).toBe(true);
   });
 });

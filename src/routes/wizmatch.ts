@@ -77,6 +77,10 @@ import {
   type CandidateRequirementInput,
   type CandidateSignalInput,
 } from '../services/wizmatchCandidateIntelligence';
+import {
+  buildWizmatchRoiAnalytics,
+  type WizmatchRoiAnalyticsInput,
+} from '../services/wizmatchRoiAnalytics';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -3079,6 +3083,176 @@ router.get('/analytics', async (req: Request, res: Response) => {
     pipeline: pipelineStats.rows,
     sources: sourceStats.rows,
   });
+});
+
+async function fetchOptionalContactIntelligenceRoiStats(tenantId: string): Promise<WizmatchRoiAnalyticsInput['contactIntelligence']> {
+  try {
+    const result = await pool.query(
+      `SELECT
+         (SELECT COUNT(*)::int
+          FROM wizmatch_company_intelligence
+          WHERE tenant_id = $1 AND status IN ('qualified', 'needs_review', 'ready_for_discovery', 'discovery_blocked', 'discovered')) AS companies_qualified,
+         (SELECT COUNT(*)::int
+          FROM wizmatch_company_intelligence
+          WHERE tenant_id = $1 AND reviewed_at IS NOT NULL) AS companies_reviewed,
+         (SELECT COUNT(*)::int
+          FROM wizmatch_contact_candidates
+          WHERE tenant_id = $1 AND status IN ('approved', 'linked_to_crm')) AS contacts_approved,
+         (SELECT COUNT(*)::int
+          FROM wizmatch_contact_candidates
+          WHERE tenant_id = $1 AND status = 'linked_to_crm') AS contacts_linked,
+         (SELECT COUNT(*)::int
+          FROM wizmatch_discovery_runs
+          WHERE tenant_id = $1 AND status = 'blocked_by_cap') AS paid_runs_blocked,
+         (SELECT COALESCE(SUM(cost_cents), 0)::int
+          FROM wizmatch_discovery_runs
+          WHERE tenant_id = $1) AS cost_cents_total`,
+      [tenantId],
+    );
+    const row = result.rows[0] ?? {};
+    return {
+      companiesQualified: numeric(row.companies_qualified),
+      companiesReviewed: numeric(row.companies_reviewed),
+      contactsApproved: numeric(row.contacts_approved),
+      contactsLinked: numeric(row.contacts_linked),
+      paidRunsBlocked: numeric(row.paid_runs_blocked),
+      costCentsTotal: numeric(row.cost_cents_total),
+    };
+  } catch (e) {
+    logger.warn({ err: e }, '[wizmatch] contact intelligence ROI stats unavailable');
+    return {
+      companiesQualified: 0,
+      companiesReviewed: 0,
+      contactsApproved: 0,
+      contactsLinked: 0,
+      paidRunsBlocked: 0,
+      costCentsTotal: 0,
+    };
+  }
+}
+
+router.get('/analytics/roi', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const from = (req.query.from as string) || new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const to = (req.query.to as string) || new Date().toISOString().slice(0, 10);
+  const toEnd = `${to} 23:59:59`;
+
+  const [
+    signalStats,
+    contactIntelligence,
+    candidateStats,
+    requirementStats,
+    placementStats,
+    sourceStats,
+  ] = await Promise.all([
+    pool.query(
+      `SELECT
+         COUNT(*)::int AS total,
+         COUNT(*) FILTER (WHERE COALESCE(score, 0) >= 7)::int AS priority,
+         COUNT(*) FILTER (WHERE LOWER(COALESCE(location, '') || ' ' || COALESCE(source, '')) LIKE ANY (ARRAY['%india%','%bangalore%','%bengaluru%','%hyderabad%','%pune%','%chennai%','%mumbai%','%delhi%','%noida%','%gurgaon%','%gurugram%']))::int AS india,
+         COUNT(*) FILTER (WHERE NOT (LOWER(COALESCE(location, '') || ' ' || COALESCE(source, '')) LIKE ANY (ARRAY['%india%','%bangalore%','%bengaluru%','%hyderabad%','%pune%','%chennai%','%mumbai%','%delhi%','%noida%','%gurgaon%','%gurugram%'])))::int AS us,
+         COUNT(*) FILTER (WHERE status = 'matched')::int AS matched,
+         COUNT(*) FILTER (WHERE status = 'drafted')::int AS drafted,
+         COUNT(*) FILTER (WHERE status = 'sent')::int AS sent,
+         COUNT(*) FILTER (WHERE status = 'replied_positive')::int AS positive_replies
+       FROM wizmatch_job_signals
+       WHERE tenant_id = $1 AND created_at >= $2 AND created_at <= $3`,
+      [tenantId, from, toEnd],
+    ),
+    fetchOptionalContactIntelligenceRoiStats(tenantId),
+    pool.query(
+      `SELECT
+         COUNT(*)::int AS total,
+         COUNT(*) FILTER (WHERE availability_status = 'available')::int AS available,
+         COUNT(*) FILTER (WHERE is_wizmatch_certified = true)::int AS certified,
+         COUNT(*) FILTER (WHERE LOWER(COALESCE(location, '')) LIKE ANY (ARRAY['%india%','%bangalore%','%bengaluru%','%hyderabad%','%pune%','%chennai%','%mumbai%','%delhi%','%noida%','%gurgaon%','%gurugram%']))::int AS india,
+         COUNT(*) FILTER (WHERE NOT (LOWER(COALESCE(location, '')) LIKE ANY (ARRAY['%india%','%bangalore%','%bengaluru%','%hyderabad%','%pune%','%chennai%','%mumbai%','%delhi%','%noida%','%gurgaon%','%gurugram%'])))::int AS us
+       FROM wizmatch_candidates
+       WHERE tenant_id = $1`,
+      [tenantId],
+    ),
+    pool.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE status <> 'closed')::int AS open,
+         COUNT(*) FILTER (WHERE status <> 'closed' AND priority = 'urgent')::int AS urgent,
+         COUNT(*) FILTER (WHERE status = 'sheet_ready')::int AS sheet_ready,
+         COUNT(*) FILTER (WHERE status = 'shared')::int AS shared,
+         COUNT(*) FILTER (WHERE status = 'closed')::int AS closed
+       FROM wizmatch_requirements
+       WHERE tenant_id = $1`,
+      [tenantId],
+    ),
+    pool.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE status IN ('submitted', 'interviewing', 'offered', 'started'))::int AS active,
+         COUNT(*) FILTER (WHERE status = 'submitted')::int AS submitted,
+         COUNT(*) FILTER (WHERE status = 'interviewing')::int AS interviewing,
+         COUNT(*) FILTER (WHERE status = 'offered')::int AS offered,
+         COUNT(*) FILTER (WHERE status = 'started')::int AS started,
+         COUNT(*) FILTER (WHERE status = 'lost')::int AS lost,
+         COALESCE(SUM(CASE WHEN status = 'started' THEN margin_hourly * 160 ELSE 0 END), 0)::int AS monthly_margin
+       FROM wizmatch_placements
+       WHERE tenant_id = $1`,
+      [tenantId],
+    ),
+    pool.query(
+      `SELECT source, COUNT(*)::int AS count, COALESCE(AVG(score), 0)::real AS avg_score
+       FROM wizmatch_job_signals
+       WHERE tenant_id = $1 AND created_at >= $2 AND created_at <= $3
+       GROUP BY source
+       ORDER BY count DESC`,
+      [tenantId, from, toEnd],
+    ),
+  ]);
+
+  const signalsRow = signalStats.rows[0] ?? {};
+  const candidatesRow = candidateStats.rows[0] ?? {};
+  const requirementsRow = requirementStats.rows[0] ?? {};
+  const placementsRow = placementStats.rows[0] ?? {};
+
+  res.json(buildWizmatchRoiAnalytics({
+    from,
+    to,
+    signals: {
+      total: numeric(signalsRow.total),
+      priority: numeric(signalsRow.priority),
+      india: numeric(signalsRow.india),
+      us: numeric(signalsRow.us),
+      matched: numeric(signalsRow.matched),
+      drafted: numeric(signalsRow.drafted),
+      sent: numeric(signalsRow.sent),
+      positiveReplies: numeric(signalsRow.positive_replies),
+    },
+    contactIntelligence,
+    candidates: {
+      total: numeric(candidatesRow.total),
+      available: numeric(candidatesRow.available),
+      certified: numeric(candidatesRow.certified),
+      india: numeric(candidatesRow.india),
+      us: numeric(candidatesRow.us),
+    },
+    requirements: {
+      open: numeric(requirementsRow.open),
+      urgent: numeric(requirementsRow.urgent),
+      sheetReady: numeric(requirementsRow.sheet_ready),
+      shared: numeric(requirementsRow.shared),
+      closed: numeric(requirementsRow.closed),
+    },
+    placements: {
+      active: numeric(placementsRow.active),
+      submitted: numeric(placementsRow.submitted),
+      interviewing: numeric(placementsRow.interviewing),
+      offered: numeric(placementsRow.offered),
+      started: numeric(placementsRow.started),
+      lost: numeric(placementsRow.lost),
+      monthlyMargin: numeric(placementsRow.monthly_margin),
+    },
+    sourceBreakdown: sourceStats.rows.map((row) => ({
+      source: row.source || 'unknown',
+      count: numeric(row.count),
+      avgScore: numeric(row.avg_score),
+    })),
+  }));
 });
 
 // ============================================================
