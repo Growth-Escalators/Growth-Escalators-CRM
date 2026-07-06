@@ -21,11 +21,13 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   table presence, tenant-scoped counts, latest activity, module status, empty-state reasons,
   operator notes, and guarded blocked items. Contact Intelligence now has a preview-first manual
   discovery layer for Apollo/Snov/Reacher and controlled Google fallback, gated by env flags,
-  eligibility rules, caps, cooldown, and explicit `confirmPreview=true`. Admin classic pages,
+  eligibility rules, hard-blocking budget/rate caps, provider-env checks, advisory-lock
+  duplicate protection, cooldown, and explicit `confirmPreview=true`. Admin classic pages,
   CRM-styled V2 pages, and the new operating pages exist.
   `/wizmatch` now lands on the Review Workbench, and the operating frontend has module/priority
   filters, readiness strips, richer CRM-style action cards, guardrail/cost panels, preview links,
-  Contact Intelligence discovery preview/run controls, and requirement review-plan feedback.
+  Contact Intelligence discovery preview/run controls, budget/provider-env visibility, and
+  requirement review-plan feedback.
   Paid discovery defaults off unless env-enabled and manually run after preview. Still no outreach
   sending, candidate auto-submission, worker/cron automation, package, or deployment changes.
 
@@ -54,7 +56,9 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
 - Contact Intelligence persistence/API/UI are local-only until reviewed and migrated in the
   intended environment. Paid discovery is manual-only, preview-first, and disabled by default via
   `WIZMATCH_PAID_DISCOVERY_ENABLED=false`; Google fallback is disabled by default via
-  `WIZMATCH_GOOGLE_FALLBACK_ENABLED=false`.
+  `WIZMATCH_GOOGLE_FALLBACK_ENABLED=false`. Cost guard defaults are conservative:
+  ₹5,000/month, ₹500/day, 20 tenant runs/day, 5 user runs/day, and provider daily caps. Confirmed
+  blocked discovery attempts are audited as zero-cost `blocked_by_cap` rows.
 - Applying `src/db/migrations/0021_contact_intelligence_phase2.sql` to any real database is still
   a separate environment decision; this session did not touch production DB state.
 - Candidate Intelligence review now persists reviewer intent into
@@ -73,7 +77,8 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   displays work in demo mode.
 - Phase 3 preview-first discovery tests cover Tier A eligibility, Tier B manual approval, disabled
   env, cooldown/caps, Apollo/Snov/Google fallback order, Reacher invalid handling, provider
-  failures, max-3 candidate cap, dedupe, and route registration.
+  failures, max-3 candidate cap, dedupe, cost guard budget/provider/user caps, provider-env
+  blocks, no-provider-without-token behavior, and route registration.
 
 ## How to rebuild context fast
 

@@ -10,6 +10,12 @@ import type {
   ContactIntelligenceRegion,
   DiscoveryRunStatus,
 } from './wizmatchContactIntelligence';
+import {
+  calculateWizmatchProviderCostCents,
+  getWizmatchCostGuardConfig,
+  type WizmatchCostGuardEvaluation,
+  type WizmatchProviderCallCounts,
+} from './wizmatchCostGuard';
 
 export interface WizmatchContactDiscoveryConfig {
   paidDiscoveryEnabled: boolean;
@@ -55,6 +61,7 @@ export interface WizmatchContactDiscoveryPreview {
     rediscoveryCooldownDays: number;
     cooldownUntil: string | null;
   };
+  costGuard: WizmatchCostGuardEvaluation | null;
   blockedReasons: string[];
   notes: string[];
 }
@@ -70,6 +77,10 @@ export interface WizmatchContactDiscoveryRunResult {
   providerCalls: Record<string, number>;
   costCents: number;
   errors: string[];
+}
+
+export interface WizmatchContactDiscoveryExecutionOptions {
+  costGuardToken?: string | null;
 }
 
 function boolEnv(value: string | undefined, defaultValue = false) {
@@ -113,6 +124,7 @@ function inCooldown(input: WizmatchContactDiscoveryInput, config: WizmatchContac
 export function buildWizmatchContactDiscoveryPreview(
   input: WizmatchContactDiscoveryInput,
   config: WizmatchContactDiscoveryConfig = getWizmatchContactDiscoveryConfig(),
+  costGuard: WizmatchCostGuardEvaluation | null = null,
 ): WizmatchContactDiscoveryPreview {
   const blockedReasons: string[] = [];
   const providerOrder = [
@@ -132,11 +144,18 @@ export function buildWizmatchContactDiscoveryPreview(
   if (input.qualificationTier === 'Reject' || input.qualificationTier === 'C') blockedReasons.push(`Tier ${input.qualificationTier} companies are not eligible for paid discovery.`);
   if (input.qualificationTier === 'B' && input.reviewStatus !== 'approved') blockedReasons.push('Tier B paid discovery requires manual company approval first.');
   if (inCooldown(input, config)) blockedReasons.push('Company is inside the rediscovery cooldown/cap window.');
+  if (costGuard && !costGuard.allowed) blockedReasons.push(...costGuard.blockReasons);
 
   const eligible = blockedReasons.length === 0;
-  const estimatedCostCents = eligible
-    ? 10 + 5 + (config.maxProviderCallsPerRun.reacher * 3) + (config.googleFallbackEnabled ? 2 : 0)
-    : 0;
+  const estimatedProviderCalls: WizmatchProviderCallCounts = {
+    apollo: config.maxProviderCallsPerRun.apollo,
+    snov: config.maxProviderCallsPerRun.snov,
+    reacher: config.maxProviderCallsPerRun.reacher,
+    googleFallback: config.googleFallbackEnabled ? config.maxProviderCallsPerRun.googleFallback : 0,
+  };
+  const estimatedCostCents = costGuard
+    ? costGuard.estimatedCostCents
+    : calculateWizmatchProviderCostCents(estimatedProviderCalls, getWizmatchCostGuardConfig());
 
   return {
     companyId: input.companyId,
@@ -157,6 +176,7 @@ export function buildWizmatchContactDiscoveryPreview(
       rediscoveryCooldownDays: config.rediscoveryCooldownDays,
       cooldownUntil: iso(input.nextRefreshAt),
     },
+    costGuard,
     blockedReasons,
     notes: [
       'Preview does not call Apollo, Snov, Reacher, Google, or any paid provider.',
@@ -212,12 +232,23 @@ export async function executeWizmatchContactDiscovery(
   input: WizmatchContactDiscoveryInput,
   providers: WizmatchContactDiscoveryProviders = createDefaultWizmatchContactDiscoveryProviders(),
   config: WizmatchContactDiscoveryConfig = getWizmatchContactDiscoveryConfig(),
+  options: WizmatchContactDiscoveryExecutionOptions = {},
 ): Promise<WizmatchContactDiscoveryRunResult> {
   const preview = buildWizmatchContactDiscoveryPreview(input, config);
   const providerCalls = { apollo: 0, snov: 0, reacher: 0, googleFallback: 0 };
   const errors: string[] = [];
   if (!preview.eligible || !input.companyDomain) {
     return { preview, status: 'blocked_by_cap', candidates: [], providerCalls, costCents: 0, errors };
+  }
+  if (!options.costGuardToken) {
+    return {
+      preview,
+      status: 'blocked_by_cap',
+      candidates: [],
+      providerCalls,
+      costCents: 0,
+      errors: ['Cost guard token is required before provider discovery can run.'],
+    };
   }
 
   let rawCandidates: WizmatchProviderCandidate[] = [];
@@ -266,7 +297,7 @@ export async function executeWizmatchContactDiscovery(
     config,
     providerCalls,
   );
-  const costCents = candidates.reduce((sum, candidate) => sum + candidate.costCents, 0);
+  const costCents = calculateWizmatchProviderCostCents(providerCalls);
   const usable = candidates.some((candidate) => candidate.status === 'needs_review');
   const status: DiscoveryRunStatus = usable ? 'succeeded' : candidates.length > 0 || errors.length > 0 ? 'partial' : 'failed';
 

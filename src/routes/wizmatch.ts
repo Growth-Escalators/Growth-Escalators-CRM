@@ -95,6 +95,14 @@ import {
   getWizmatchContactDiscoveryConfig,
   type WizmatchContactDiscoveryInput,
 } from '../services/wizmatchContactDiscovery';
+import {
+  buildWizmatchDiscoveryProviderEstimate,
+  evaluateWizmatchCostGuard,
+  fetchWizmatchCostGuardUsage,
+  getWizmatchCostGuardConfig,
+  getWizmatchProviderEnvStatus,
+  type WizmatchCostGuardEvaluation,
+} from '../services/wizmatchCostGuard';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -742,6 +750,105 @@ async function buildContactDiscoveryInput(
       paidRunsInCooldown,
     },
   };
+}
+
+async function buildContactDiscoveryCostGuard(
+  tenantId: string,
+  userId: string | null | undefined,
+  companyId: string,
+): Promise<WizmatchCostGuardEvaluation> {
+  const discoveryConfig = getWizmatchContactDiscoveryConfig();
+  const usage = await fetchWizmatchCostGuardUsage(pool, tenantId, userId);
+  return evaluateWizmatchCostGuard({
+    tenantId,
+    userId,
+    companyId,
+    estimatedProviderCalls: buildWizmatchDiscoveryProviderEstimate(discoveryConfig.googleFallbackEnabled),
+    usage,
+    providerEnv: getWizmatchProviderEnvStatus(process.env, discoveryConfig.googleFallbackEnabled),
+    config: getWizmatchCostGuardConfig(),
+  });
+}
+
+async function buildContactDiscoveryCostControls(
+  tenantId: string,
+  userId: string | null | undefined,
+  companyId = 'tenant-summary',
+) {
+  return {
+    ...getWizmatchContactDiscoveryConfig(),
+    costGuard: await buildContactDiscoveryCostGuard(tenantId, userId, companyId),
+  };
+}
+
+async function insertContactDiscoveryRunAudit(input: {
+  tenantId: string;
+  companyIntelligenceId: string;
+  companyId: string;
+  source: string;
+  status: string;
+  costCents: number;
+  userId?: string | null;
+  inputSnapshot: Record<string, unknown>;
+  resultCounts: Record<string, unknown>;
+  errorMessage?: string | null;
+  metadata: Record<string, unknown>;
+}) {
+  const result = await pool.query(
+    `INSERT INTO wizmatch_discovery_runs (
+       tenant_id,
+       company_intelligence_id,
+       company_id,
+       run_type,
+       source,
+       status,
+       cost_cents,
+       paid_provider,
+       requested_by,
+       started_at,
+       finished_at,
+       input_snapshot,
+       result_counts,
+       error_message,
+       metadata
+     )
+     VALUES ($1, $2, $3, 'paid_discovery', $4, $5, $6, true, $7::uuid, NOW(), NOW(), $8::jsonb, $9::jsonb, $10, $11::jsonb)
+     RETURNING id`,
+    [
+      input.tenantId,
+      input.companyIntelligenceId,
+      input.companyId,
+      input.source,
+      input.status,
+      input.costCents,
+      input.userId || null,
+      JSON.stringify(input.inputSnapshot),
+      JSON.stringify(input.resultCounts),
+      input.errorMessage || null,
+      JSON.stringify(input.metadata),
+    ],
+  );
+  return String(result.rows[0]?.id || '');
+}
+
+async function withContactDiscoveryAdvisoryLock<T>(
+  lockKey: string,
+  run: () => Promise<T>,
+): Promise<{ locked: true; result: T } | { locked: false }> {
+  const client = await pool.connect();
+  try {
+    const lock = await client.query('SELECT pg_try_advisory_lock(hashtext($1)) AS locked', [lockKey]);
+    if (!lock.rows[0]?.locked) return { locked: false };
+    try {
+      return { locked: true, result: await run() };
+    } finally {
+      await client.query('SELECT pg_advisory_unlock(hashtext($1))', [lockKey]).catch((err) => {
+        logger.warn({ err, lockKey }, '[wizmatch] failed to release contact discovery advisory lock');
+      });
+    }
+  } finally {
+    client.release();
+  }
 }
 
 async function fetchContactIntelligenceCompanyRows(tenantId: string, limit: number, companyId?: string) {
@@ -1549,22 +1656,26 @@ async function buildReviewWorkbenchPayload(tenantId: string, limit: number) {
 router.get('/review-workbench', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const limit = Math.min(Number(req.query.limit) || 30, 75);
-  const [workbench, readiness] = await Promise.all([
+  const [workbench, readiness, costControls] = await Promise.all([
     buildReviewWorkbenchPayload(tenantId, limit),
     getWizmatchReadiness(pool, tenantId),
+    buildContactDiscoveryCostControls(tenantId, req.user?.id),
   ]);
-  res.json({ ...workbench, readiness: readiness.overall });
+  res.json({ ...workbench, readiness: readiness.overall, costControls });
 });
 
 router.get('/guardrails', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const workbench = await buildReviewWorkbenchPayload(tenantId, 30);
-  const readiness = await getWizmatchReadiness(pool, tenantId);
+  const [workbench, readiness, costControls] = await Promise.all([
+    buildReviewWorkbenchPayload(tenantId, 30),
+    getWizmatchReadiness(pool, tenantId),
+    buildContactDiscoveryCostControls(tenantId, req.user?.id),
+  ]);
   res.json({
     generatedAt: workbench.generatedAt,
     safetyCenter: workbench.safetyCenter,
     guardrails: workbench.guardrails,
-    costControls: getWizmatchContactDiscoveryConfig(),
+    costControls,
     readiness: readiness.overall,
     rules: [
       'Paid discovery requires qualification, preview confirmation, and explicit manual execution.',
@@ -1578,7 +1689,11 @@ router.get('/guardrails', async (req: Request, res: Response) => {
 
 router.get('/readiness', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  res.json(await getWizmatchReadiness(pool, tenantId));
+  const [readiness, costControls] = await Promise.all([
+    getWizmatchReadiness(pool, tenantId),
+    buildContactDiscoveryCostControls(tenantId, req.user?.id),
+  ]);
+  res.json({ ...readiness, costControls });
 });
 
 // ============================================================
@@ -1597,7 +1712,7 @@ router.get('/contact-intelligence/queue', async (req: Request, res: Response) =>
     items,
     total: items.length,
     phase: 'phase_3_preview_first_manual_paid_discovery',
-    costControls: getWizmatchContactDiscoveryConfig(),
+    costControls: await buildContactDiscoveryCostControls(tenantId, req.user?.id),
   });
 });
 
@@ -1623,7 +1738,7 @@ router.post('/contact-intelligence/companies/:companyId/snapshot', async (req: R
     res.status(404).json({ error: 'Company intelligence source not found' });
     return;
   }
-  res.json({ item, costControls: getWizmatchContactDiscoveryConfig() });
+  res.json({ item, costControls: await buildContactDiscoveryCostControls(tenantId, req.user?.id, String(req.params.companyId)) });
 });
 
 // POST /api/wizmatch/contact-intelligence/companies/:companyId/review
@@ -1713,11 +1828,19 @@ router.post('/contact-intelligence/companies/:companyId/discovery-preview', asyn
     return;
   }
 
-  const preview = buildWizmatchContactDiscoveryPreview(discoveryInput.input);
+  const costGuard = await buildContactDiscoveryCostGuard(tenantId, req.user?.id, companyId);
+  const preview = buildWizmatchContactDiscoveryPreview(
+    discoveryInput.input,
+    getWizmatchContactDiscoveryConfig(),
+    costGuard,
+  );
   res.json({
     preview,
     item: discoveryInput.item,
-    costControls: getWizmatchContactDiscoveryConfig(),
+    costControls: {
+      ...getWizmatchContactDiscoveryConfig(),
+      costGuard,
+    },
   });
 });
 
@@ -1733,7 +1856,12 @@ router.post('/contact-intelligence/companies/:companyId/discover', async (req: R
     return;
   }
 
-  const preview = buildWizmatchContactDiscoveryPreview(discoveryInput.input);
+  const initialCostGuard = await buildContactDiscoveryCostGuard(tenantId, req.user?.id, companyId);
+  const preview = buildWizmatchContactDiscoveryPreview(
+    discoveryInput.input,
+    getWizmatchContactDiscoveryConfig(),
+    initialCostGuard,
+  );
   if (!confirmPreview) {
     res.status(400).json({
       error: 'Run discovery requires confirmPreview=true after reviewing discovery-preview.',
@@ -1742,53 +1870,95 @@ router.post('/contact-intelligence/companies/:companyId/discover', async (req: R
     return;
   }
   if (!preview.eligible) {
-    res.status(409).json({ error: 'Company is not eligible for paid discovery.', preview });
+    await insertContactDiscoveryRunAudit({
+      tenantId,
+      companyIntelligenceId: discoveryInput.item!.persisted!.id,
+      companyId,
+      source: initialCostGuard.blockCode || 'eligibility_guard',
+      status: 'blocked_by_cap',
+      costCents: 0,
+      userId: req.user?.id || null,
+      inputSnapshot: { preview, providerOrder: preview.providerOrder },
+      resultCounts: { candidates: 0, providerCalls: { apollo: 0, snov: 0, reacher: 0, googleFallback: 0 } },
+      errorMessage: preview.blockedReasons.join(' | '),
+      metadata: {
+        costGuard: initialCostGuard,
+        blockReasons: preview.blockedReasons,
+      },
+    });
+    const statusCode = initialCostGuard.blockCode ? initialCostGuard.httpStatus : 409;
+    res.status(statusCode).json({ error: 'Company is not eligible for paid discovery.', preview });
     return;
   }
 
-  const discovery = await executeWizmatchContactDiscovery(discoveryInput.input);
-  const sourceSummary = discovery.candidates.length
-    ? Array.from(new Set(discovery.candidates.map((candidate) => candidate.source))).join(',')
-    : 'provider_discovery';
-  const run = await pool.query(
-    `INSERT INTO wizmatch_discovery_runs (
-       tenant_id,
-       company_intelligence_id,
-       company_id,
-       run_type,
-       source,
-       status,
-       cost_cents,
-       paid_provider,
-       requested_by,
-       started_at,
-       finished_at,
-       input_snapshot,
-       result_counts,
-       error_message,
-       metadata
-     )
-     VALUES ($1, $2, $3, 'paid_discovery', $4, $5, $6, true, $7::uuid, NOW(), NOW(), $8::jsonb, $9::jsonb, $10, $11::jsonb)
-     RETURNING id`,
-    [
-      tenantId,
-      discoveryInput.item!.persisted!.id,
-      companyId,
-      sourceSummary,
-      discovery.status,
-      discovery.costCents,
-      req.user?.id || null,
-      JSON.stringify({ preview: discovery.preview, providerOrder: discovery.preview.providerOrder }),
-      JSON.stringify({ candidates: discovery.candidates.length, providerCalls: discovery.providerCalls }),
-      discovery.errors.length ? discovery.errors.join(' | ') : null,
-      JSON.stringify({ errors: discovery.errors, providerCalls: discovery.providerCalls }),
-    ],
-  );
+  const locked = await withContactDiscoveryAdvisoryLock(initialCostGuard.idempotencyKey, async () => {
+    const costGuard = await buildContactDiscoveryCostGuard(tenantId, req.user?.id, companyId);
+    const guardedPreview = buildWizmatchContactDiscoveryPreview(
+      discoveryInput.input,
+      getWizmatchContactDiscoveryConfig(),
+      costGuard,
+    );
+    if (!costGuard.allowed) {
+      const runId = await insertContactDiscoveryRunAudit({
+        tenantId,
+        companyIntelligenceId: discoveryInput.item!.persisted!.id,
+        companyId,
+        source: costGuard.blockCode || 'cost_guard',
+        status: 'blocked_by_cap',
+        costCents: 0,
+        userId: req.user?.id || null,
+        inputSnapshot: { preview: guardedPreview, providerOrder: guardedPreview.providerOrder },
+        resultCounts: { candidates: 0, providerCalls: { apollo: 0, snov: 0, reacher: 0, googleFallback: 0 } },
+        errorMessage: costGuard.blockReasons.join(' | '),
+        metadata: {
+          costGuard,
+          budgetSnapshot: costGuard.budget,
+          blockReasons: costGuard.blockReasons,
+        },
+      });
+      return {
+        blocked: true as const,
+        httpStatus: costGuard.httpStatus,
+        body: {
+          error: 'Paid discovery is blocked by cost guard.',
+          preview: guardedPreview,
+          discoveryRunId: runId,
+        },
+      };
+    }
 
-  for (const candidate of discovery.candidates) {
-    const email = candidate.email ? normalizeChannelValue('email', candidate.email) : null;
-    await pool.query(
-      `INSERT INTO wizmatch_contact_candidates (
+    const discovery = await executeWizmatchContactDiscovery(
+      discoveryInput.input,
+      undefined,
+      getWizmatchContactDiscoveryConfig(),
+      { costGuardToken: costGuard.idempotencyKey },
+    );
+    const sourceSummary = discovery.candidates.length
+      ? Array.from(new Set(discovery.candidates.map((candidate) => candidate.source))).join(',')
+      : 'provider_discovery';
+    const runId = await insertContactDiscoveryRunAudit({
+      tenantId,
+      companyIntelligenceId: discoveryInput.item!.persisted!.id,
+      companyId,
+      source: sourceSummary,
+      status: discovery.status,
+      costCents: discovery.costCents,
+      userId: req.user?.id || null,
+      inputSnapshot: { preview: { ...discovery.preview, costGuard }, providerOrder: discovery.preview.providerOrder },
+      resultCounts: { candidates: discovery.candidates.length, providerCalls: discovery.providerCalls },
+      errorMessage: discovery.errors.length ? discovery.errors.join(' | ') : null,
+      metadata: {
+        errors: discovery.errors,
+        providerCalls: discovery.providerCalls,
+        costGuard,
+        budgetSnapshot: costGuard.budget,
+      },
+    });
+
+    for (const candidate of discovery.candidates) {
+      const email = candidate.email ? normalizeChannelValue('email', candidate.email) : null;
+      await pool.query(
+        `INSERT INTO wizmatch_contact_candidates (
          tenant_id,
          company_intelligence_id,
          company_id,
@@ -1819,33 +1989,33 @@ router.post('/contact-intelligence/companies/:companyId/discover', async (req: R
              OR ($7::text IS NOT NULL AND LOWER(COALESCE(existing.linkedin_url, '')) = LOWER($7::text))
            )
        )`,
-      [
-        tenantId,
-        discoveryInput.item!.persisted!.id,
-        companyId,
-        candidate.name,
-        candidate.title,
-        email,
-        candidate.linkedinUrl,
-        discoveryInput.input.targetRegion,
-        candidate.source,
-        candidate.sourceUrl,
-        candidate.deliverabilityStatus,
-        candidate.rankingScore,
-        candidate.confidenceScore,
-        candidate.status,
-        JSON.stringify({
-          reasons: candidate.reasons,
-          providerCostCents: candidate.costCents,
-          discoveryRunId: run.rows[0].id,
-          raw: candidate.raw || {},
-        }),
-      ],
-    );
-  }
+        [
+          tenantId,
+          discoveryInput.item!.persisted!.id,
+          companyId,
+          candidate.name,
+          candidate.title,
+          email,
+          candidate.linkedinUrl,
+          discoveryInput.input.targetRegion,
+          candidate.source,
+          candidate.sourceUrl,
+          candidate.deliverabilityStatus,
+          candidate.rankingScore,
+          candidate.confidenceScore,
+          candidate.status,
+          JSON.stringify({
+            reasons: candidate.reasons,
+            providerCostCents: candidate.costCents,
+            discoveryRunId: runId,
+            raw: candidate.raw || {},
+          }),
+        ],
+      );
+    }
 
-  await pool.query(
-    `UPDATE wizmatch_company_intelligence
+    await pool.query(
+      `UPDATE wizmatch_company_intelligence
      SET status = CASE WHEN $1 IN ('succeeded', 'partial') THEN 'discovered' ELSE status END,
          last_discovered_at = NOW(),
          next_refresh_at = NOW() + ($2::int * INTERVAL '1 day'),
@@ -1853,27 +2023,43 @@ router.post('/contact-intelligence/companies/:companyId/discover', async (req: R
          metadata = COALESCE(metadata, '{}'::jsonb) || $4::jsonb,
          updated_at = NOW()
      WHERE tenant_id = $5 AND company_id = $6`,
-    [
-      discovery.status,
-      getWizmatchContactDiscoveryConfig().rediscoveryCooldownDays,
-      discovery.costCents,
-      JSON.stringify({ lastPaidDiscoveryRunId: run.rows[0].id, lastPaidDiscoveryStatus: discovery.status }),
-      tenantId,
-      companyId,
-    ],
-  );
+      [
+        discovery.status,
+        getWizmatchContactDiscoveryConfig().rediscoveryCooldownDays,
+        discovery.costCents,
+        JSON.stringify({ lastPaidDiscoveryRunId: runId, lastPaidDiscoveryStatus: discovery.status }),
+        tenantId,
+        companyId,
+      ],
+    );
 
-  const refreshed = await fetchPersistedContactIntelligence(tenantId, companyId);
-  res.json({
-    preview: discovery.preview,
-    discoveryRunId: run.rows[0].id,
-    status: discovery.status,
-    providerCalls: discovery.providerCalls,
-    costCents: discovery.costCents,
-    errors: discovery.errors,
-    contactCandidates: refreshed.contactCandidates,
-    persisted: refreshed.company,
+    const refreshed = await fetchPersistedContactIntelligence(tenantId, companyId);
+    return {
+      blocked: false as const,
+      body: {
+        preview: { ...discovery.preview, costGuard },
+        discoveryRunId: runId,
+        status: discovery.status,
+        providerCalls: discovery.providerCalls,
+        costCents: discovery.costCents,
+        errors: discovery.errors,
+        contactCandidates: refreshed.contactCandidates,
+        persisted: refreshed.company,
+      },
+    };
   });
+  if (!locked.locked) {
+    res.status(429).json({
+      error: 'Another paid discovery run is already in progress for this company.',
+      preview,
+    });
+    return;
+  }
+  if (locked.result.blocked) {
+    res.status(locked.result.httpStatus).json(locked.result.body);
+    return;
+  }
+  res.json(locked.result.body);
 });
 
 // POST /api/wizmatch/contact-intelligence/companies/:companyId/contacts/manual

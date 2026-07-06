@@ -307,6 +307,12 @@ function formatCurrency(value) {
   return `Rs ${Number(value || 0).toLocaleString('en-IN')}`;
 }
 
+function formatMinorCurrency(cents, currency = 'INR') {
+  const value = Number(cents || 0) / 100;
+  const prefix = currency === 'INR' ? 'Rs' : currency;
+  return `${prefix} ${value.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+}
+
 function formatPct(value) {
   return `${Number(value || 0).toFixed(1)}%`;
 }
@@ -725,7 +731,17 @@ export function WizmatchClientDiscoveryNewPage({ demoMode = false }) {
 }
 
 export function WizmatchContactIntelligenceNewPage({ demoMode = false }) {
-  const fallback = useMemo(() => ({ items: DEMO_CONTACTS, costControls: { paidDiscoveryEnabled: false, googleFallbackEnabled: false, maxPaidDiscoveryPerCompany: 1, maxContactCandidatesShown: 3, rediscoveryCooldownDays: 30 } }), []);
+  const fallback = useMemo(() => ({
+    items: DEMO_CONTACTS,
+    costControls: {
+      paidDiscoveryEnabled: false,
+      googleFallbackEnabled: false,
+      maxPaidDiscoveryPerCompany: 1,
+      maxContactCandidatesShown: 3,
+      rediscoveryCooldownDays: 30,
+      costGuard: null,
+    },
+  }), []);
   const { data, loading, error, refresh } = useLiveData({
     demoMode,
     fallback,
@@ -756,9 +772,27 @@ export function WizmatchContactIntelligenceNewPage({ demoMode = false }) {
         setPreview({
           eligible: blockedReasons.length === 0,
           status: blockedReasons.length === 0 ? 'ready_for_manual_paid_discovery' : 'paid_discovery_disabled',
-          estimatedCostCents: blockedReasons.length === 0 ? 26 : 0,
+          estimatedCostCents: blockedReasons.length === 0 ? 3200 : 0,
           providerOrder: ['internal_crm_reuse', 'company_metadata', 'website_manual_pattern', 'apollo', 'snov', 'reacher_verification', 'google_fallback'],
           capStatus: { ...(data.costControls || {}), paidRunsInCooldown: 0, cooldownUntil: null },
+          costGuard: {
+            allowed: blockedReasons.length === 0,
+            currency: 'INR',
+            estimatedCostCents: blockedReasons.length === 0 ? 3200 : 0,
+            budget: {
+              month: { usedCents: 0, limitCents: 500000, remainingCents: 500000 },
+              day: { usedCents: 0, limitCents: 50000, remainingCents: 50000 },
+              userDayRuns: { used: 0, limit: 5, remaining: 5 },
+              tenantDayRuns: { used: 0, limit: 20, remaining: 20 },
+              providerDayCalls: {
+                apollo: { used: 0, limit: 50, remaining: 50, estimated: 1 },
+                snov: { used: 0, limit: 50, remaining: 50, estimated: 1 },
+                reacher: { used: 0, limit: 150, remaining: 150, estimated: 3 },
+                googleFallback: { used: 0, limit: 25, remaining: 25, estimated: 1 },
+              },
+            },
+            providerEnv: { missing: blockedReasons.length === 0 ? [] : ['provider env disabled in demo'] },
+          },
           blockedReasons,
           notes: ['Demo preview only. No provider calls are made.', 'Discovery never sends outreach.'],
         });
@@ -787,6 +821,7 @@ export function WizmatchContactIntelligenceNewPage({ demoMode = false }) {
           method: 'POST',
           body: JSON.stringify({ confirmPreview: true }),
         });
+        setPreview(result.preview || preview);
         setActionMessage(`Discovery ${result.status}. ${result.contactCandidates?.length || 0} reviewable contacts now available.`);
         await refresh();
       }
@@ -859,8 +894,9 @@ export function WizmatchContactIntelligenceNewPage({ demoMode = false }) {
                     <div className="space-y-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className={badgeFor(preview.status)}>{preview.status?.replace(/_/g, ' ')}</span>
-                        <span className="badge-muted">Estimated cost {Number(preview.estimatedCostCents || 0).toLocaleString('en-IN')} cents</span>
+                        <span className="badge-muted">Estimated cost {formatMinorCurrency(preview.estimatedCostCents, preview.costGuard?.currency)}</span>
                         <span className="badge-muted">Cooldown {preview.capStatus?.rediscoveryCooldownDays || 30}d</span>
+                        {preview.costGuard?.providerEnv?.missing?.length > 0 && <span className="badge-danger">Provider env missing</span>}
                       </div>
                       <div className="grid gap-3 md:grid-cols-2">
                         <div className="rounded-md bg-neutral-50 p-3">
@@ -872,6 +908,23 @@ export function WizmatchContactIntelligenceNewPage({ demoMode = false }) {
                           <p className="mt-1 text-sm text-neutral-800">Paid runs {preview.capStatus?.paidRunsInCooldown || 0}/{preview.capStatus?.maxPaidDiscoveryPerCompany ?? 1} · Google {preview.capStatus?.googleFallbackEnabled ? 'on' : 'off'}</p>
                         </div>
                       </div>
+                      {preview.costGuard?.budget && (
+                        <div className="rounded-md border border-neutral-100 bg-neutral-50 p-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500">Cost controls</p>
+                          <div className="mt-2 grid gap-2 md:grid-cols-2">
+                            <p className="text-[12.5px] text-neutral-700">Month: {formatMinorCurrency(preview.costGuard.budget.month.usedCents, preview.costGuard.currency)} / {formatMinorCurrency(preview.costGuard.budget.month.limitCents, preview.costGuard.currency)}</p>
+                            <p className="text-[12.5px] text-neutral-700">Today: {formatMinorCurrency(preview.costGuard.budget.day.usedCents, preview.costGuard.currency)} / {formatMinorCurrency(preview.costGuard.budget.day.limitCents, preview.costGuard.currency)}</p>
+                            <p className="text-[12.5px] text-neutral-700">Your runs: {preview.costGuard.budget.userDayRuns.used}/{preview.costGuard.budget.userDayRuns.limit}</p>
+                            <p className="text-[12.5px] text-neutral-700">Tenant runs: {preview.costGuard.budget.tenantDayRuns.used}/{preview.costGuard.budget.tenantDayRuns.limit}</p>
+                          </div>
+                          <p className="mt-2 text-[12px] text-neutral-500">
+                            Provider calls today: Apollo {preview.costGuard.budget.providerDayCalls?.apollo?.used || 0}/{preview.costGuard.budget.providerDayCalls?.apollo?.limit || 0} · Snov {preview.costGuard.budget.providerDayCalls?.snov?.used || 0}/{preview.costGuard.budget.providerDayCalls?.snov?.limit || 0} · Reacher {preview.costGuard.budget.providerDayCalls?.reacher?.used || 0}/{preview.costGuard.budget.providerDayCalls?.reacher?.limit || 0} · Google {preview.costGuard.budget.providerDayCalls?.googleFallback?.used || 0}/{preview.costGuard.budget.providerDayCalls?.googleFallback?.limit || 0}
+                          </p>
+                        </div>
+                      )}
+                      {preview.costGuard?.providerEnv?.missing?.length > 0 && (
+                        <p className="rounded-md bg-warning-50 px-3 py-2 text-[12.5px] text-warning-800">Missing provider env: {preview.costGuard.providerEnv.missing.join(', ')}</p>
+                      )}
                       {(preview.blockedReasons || []).length > 0 && (
                         <div className="space-y-1.5">
                           {preview.blockedReasons.map((reason) => <p key={reason} className="rounded-md bg-danger-50 px-3 py-2 text-[12.5px] text-danger-800">{reason}</p>)}
