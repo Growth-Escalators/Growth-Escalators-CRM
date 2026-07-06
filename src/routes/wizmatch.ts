@@ -257,6 +257,28 @@ function numeric(value: unknown): number {
   return 0;
 }
 
+export function isOptionalWizmatchSchemaError(error: unknown): boolean {
+  const pgError = error as { code?: string; message?: string } | null;
+  if (!pgError) return false;
+  if (pgError.code === '42P01' || pgError.code === '42703') return true;
+  return /relation "wizmatch_[^"]+" does not exist|column "[^"]+" does not exist/i.test(pgError.message || '');
+}
+
+async function optionalWizmatchStatsQuery<T extends Record<string, unknown>>(
+  label: string,
+  query: string,
+  params: unknown[],
+  fallback: T,
+): Promise<{ rows: T[] }> {
+  try {
+    return await pool.query(query, params) as { rows: T[] };
+  } catch (e) {
+    if (!isOptionalWizmatchSchemaError(e)) throw e;
+    logger.warn({ err: e }, `[wizmatch] optional stats unavailable: ${label}`);
+    return { rows: [fallback] };
+  }
+}
+
 function firstString(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
@@ -3835,17 +3857,27 @@ router.get('/digest', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const date = (req.query.date as string) || new Date().toISOString().slice(0, 10);
 
-  const stats = await pool.query(
+  const stats = await optionalWizmatchStatsQuery(
+    'daily digest',
     `SELECT
        (SELECT COUNT(*)::int FROM wizmatch_job_signals WHERE tenant_id = $1 AND created_at::date = $2) AS signals_captured,
        (SELECT COUNT(*)::int FROM wizmatch_job_signals WHERE tenant_id = $1 AND created_at::date = $2 AND score >= 7) AS signals_priority,
        (SELECT COUNT(*)::int FROM messages WHERE tenant_id = $1 AND sent_at::date = $2 AND channel = 'email' AND direction = 'outbound') AS sends,
-       (SELECT COUNT(*)::int FROM wizmatch_job_signals WHERE tenant_id = $1 AND status = 'replied_positive' AND updated_at::date = $2) AS positive_replies,
+       (SELECT COUNT(*)::int FROM wizmatch_job_signals WHERE tenant_id = $1 AND status = 'replied_positive' AND created_at::date = $2) AS positive_replies,
        (SELECT COUNT(*)::int FROM wizmatch_candidates WHERE tenant_id = $1 AND created_at::date = $2) AS candidates_sourced,
-       (SELECT COUNT(*)::int FROM wizmatch_job_signals WHERE tenant_id = $1 AND status = 'matched' AND updated_at::date = $2) AS matches_made,
+       (SELECT COUNT(*)::int FROM wizmatch_job_signals WHERE tenant_id = $1 AND status = 'matched' AND created_at::date = $2) AS matches_made,
        (SELECT COUNT(*)::int FROM wizmatch_placements WHERE tenant_id = $1 AND updated_at::date = $2) AS placements_updated
     `,
     [tenantId, date],
+    {
+      signals_captured: 0,
+      signals_priority: 0,
+      sends: 0,
+      positive_replies: 0,
+      candidates_sourced: 0,
+      matches_made: 0,
+      placements_updated: 0,
+    },
   );
 
   res.json({ date, stats: stats.rows[0] });
@@ -3985,7 +4017,8 @@ router.get('/analytics/roi', async (req: Request, res: Response) => {
        WHERE tenant_id = $1`,
       [tenantId],
     ),
-    pool.query(
+    optionalWizmatchStatsQuery(
+      'requirements ROI',
       `SELECT
          COUNT(*) FILTER (WHERE status <> 'closed')::int AS open,
          COUNT(*) FILTER (WHERE status <> 'closed' AND priority = 'urgent')::int AS urgent,
@@ -3995,6 +4028,13 @@ router.get('/analytics/roi', async (req: Request, res: Response) => {
        FROM wizmatch_requirements
        WHERE tenant_id = $1`,
       [tenantId],
+      {
+        open: 0,
+        urgent: 0,
+        sheet_ready: 0,
+        shared: 0,
+        closed: 0,
+      },
     ),
     pool.query(
       `SELECT
