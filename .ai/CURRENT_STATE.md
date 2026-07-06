@@ -14,12 +14,12 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
 ## In progress
 
 - **Wizmatch intelligence operating layer**: local implementation now includes Contact
-  Intelligence manual review/persistence, Client Discovery deterministic scoring + handoff, and
-  Candidate Intelligence deterministic readiness/matching, plus a deterministic Analytics / ROI
-  feedback loop. Admin classic pages and CRM-styled V2 pages exist for Command Center, Contact
-  Intelligence, Client Discovery, Candidate Intelligence, and Analytics / ROI. Still no paid
-  enrichment, outreach sending, candidate auto-submission, worker/cron automation, package, or
-  deployment changes.
+  Intelligence manual review/persistence, Client Discovery deterministic scoring + handoff,
+  Candidate Intelligence deterministic readiness/matching + persisted review intent, Requirement
+  Priority scoring, a unified Review Workbench, Guardrail Center, Local Demo Flow, and deterministic
+  Analytics / ROI. Admin classic pages, CRM-styled V2 pages, and the new operating pages exist.
+  Still no paid enrichment, outreach sending, candidate auto-submission, worker/cron automation,
+  package, or deployment changes.
 
 ## Recently landed (context)
 
@@ -38,17 +38,23 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   `/wizmatch/analytics-demo` work without DB/login. Local V2 demo routes
   `/wizmatch/command-center-new-demo`, `/wizmatch/contact-intelligence-new-demo`,
   `/wizmatch/client-discovery-new-demo`, `/wizmatch/candidate-intelligence-new-demo`, and
-  `/wizmatch/analytics-new-demo` also work without DB/login. Authenticated routes need a healthy
-  local API/database and CRM auth token.
+  `/wizmatch/analytics-new-demo` also work without DB/login. New operating demo routes
+  `/wizmatch/review-workbench-demo`, `/wizmatch/requirement-priority-new-demo`,
+  `/wizmatch/guardrails-new-demo`, and `/wizmatch/local-demo-flow-demo` work without DB/login.
+  Authenticated routes need a healthy local API/database and CRM auth token.
 - Contact Intelligence persistence/API/UI are local-only until reviewed and migrated in the
   intended environment. Paid discovery remains blocked by service caps.
 - Applying `src/db/migrations/0021_contact_intelligence_phase2.sql` to any real database is still
   a separate environment decision; this session did not touch production DB state.
-- Candidate Intelligence review is planning-only in this slice: it returns review guidance but
-  does not persist candidate review state or create submissions.
+- Candidate Intelligence review now persists reviewer intent into
+  `wizmatch_candidates.india_specific.candidateIntelligenceReview`; it still does not create
+  submissions, send outreach, or change placement state.
 - Analytics / ROI is read-only and deterministic. It may return zeroed Contact Intelligence review
   metrics if the local DB has not applied `0021_contact_intelligence_phase2.sql`; it does not
   create schema, write snapshots, send outreach, or call providers.
+- Requirement Priority and Review Workbench are deterministic/manual-action layers. Requirement
+  review-plan endpoints are planning-only; live workbench safe actions call existing approved
+  endpoints and preserve manual review gates.
 
 ## How to rebuild context fast
 

@@ -185,6 +185,11 @@ export const NAV_ENTRIES = [
     visible: f => f.canWizmatch,
   },
   {
+    id: 'wm-review-workbench', label: 'Review Workbench', to: '/wizmatch/review-workbench',
+    icon: ClipboardList, section: 'Wizmatch', group: null,
+    visible: f => f.canWizmatch,
+  },
+  {
     id: 'wm-client-discovery', label: 'Client Discovery', to: '/wizmatch/client-discovery',
     icon: Search, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
@@ -197,6 +202,11 @@ export const NAV_ENTRIES = [
   {
     id: 'wm-requirements', label: 'Requirements', to: '/wizmatch/requirements',
     icon: FileText, section: 'Wizmatch', group: null,
+    visible: f => f.canWizmatch,
+  },
+  {
+    id: 'wm-requirement-priority-new', label: 'Requirement Priority', to: '/wizmatch/requirement-priority-new',
+    icon: Target, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
   {
@@ -255,6 +265,11 @@ export const NAV_ENTRIES = [
     visible: f => f.canWizmatch,
   },
   {
+    id: 'wm-guardrails-new', label: 'Guardrails New', to: '/wizmatch/guardrails-new',
+    icon: ShieldCheck, section: 'Wizmatch', group: null,
+    visible: f => f.canWizmatch,
+  },
+  {
     id: 'wm-analytics', label: 'Analytics', to: '/wizmatch/analytics',
     icon: BarChart3, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
@@ -262,6 +277,11 @@ export const NAV_ENTRIES = [
   {
     id: 'wm-analytics-new', label: 'Analytics New', to: '/wizmatch/analytics-new',
     icon: BarChart3, section: 'Wizmatch', group: null,
+    visible: f => f.canWizmatch,
+  },
+  {
+    id: 'wm-local-demo-flow', label: 'Local Demo Flow', to: '/wizmatch/local-demo-flow',
+    icon: Zap, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
 

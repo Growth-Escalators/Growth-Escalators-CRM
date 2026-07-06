@@ -81,6 +81,13 @@ import {
   buildWizmatchRoiAnalytics,
   type WizmatchRoiAnalyticsInput,
 } from '../services/wizmatchRoiAnalytics';
+import {
+  REQUIREMENT_PRIORITY_GUARDRAILS,
+  rankRequirementPriorityQueue,
+  scoreRequirementPriority,
+  type RequirementPriorityInput,
+} from '../services/wizmatchRequirementPriority';
+import { buildWizmatchReviewWorkbench } from '../services/wizmatchReviewWorkbench';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -1340,19 +1347,172 @@ router.post('/candidate-intelligence/candidates/:candidateId/review', async (req
   const tenantId = req.user!.tenantId;
   const action = firstString(req.body?.action) || 'mark_reviewed';
   const notes = firstString(req.body?.notes);
+  const allowedActions = new Set(['mark_reviewed', 'shortlist', 'watch', 'reject', 'block']);
+  if (!allowedActions.has(action)) {
+    res.status(400).json({ error: 'Unsupported candidate review action' });
+    return;
+  }
   const inputs = await fetchCandidateIntelligenceInputs(tenantId, 1, String(req.params.candidateId));
   if (inputs.length === 0) {
     res.status(404).json({ error: 'Candidate intelligence record not found' });
     return;
   }
   const item = scoreCandidateIntelligence(inputs[0]);
+  if (item.priority === 'blocked' && action !== 'block' && action !== 'reject') {
+    res.status(409).json({
+      error: 'Blocked candidates can only be blocked or rejected until blockers are resolved',
+      item,
+      guardrails: CANDIDATE_INTELLIGENCE_GUARDRAILS,
+    });
+    return;
+  }
+  const reviewState = {
+    candidateIntelligenceReview: {
+      action,
+      notes,
+      reviewedBy: req.user?.id || null,
+      reviewedAt: new Date().toISOString(),
+      score: item.score,
+      priority: item.priority,
+      topRequirementId: item.topRequirementMatches[0]?.requirementId || null,
+      guardrails: CANDIDATE_INTELLIGENCE_GUARDRAILS,
+    },
+  };
+  await pool.query(
+    `UPDATE wizmatch_candidates
+     SET india_specific = COALESCE(india_specific, '{}'::jsonb) || $1::jsonb,
+         updated_at = NOW()
+     WHERE tenant_id = $2 AND id = $3`,
+    [JSON.stringify(reviewState), tenantId, String(req.params.candidateId)],
+  );
+  res.json({
+    persisted: true,
+    action,
+    notes,
+    item,
+    reviewState: reviewState.candidateIntelligenceReview,
+    message: 'Candidate Intelligence review intent was persisted. No outreach, submission, or placement state was changed.',
+    guardrails: CANDIDATE_INTELLIGENCE_GUARDRAILS,
+  });
+});
+
+// ============================================================
+// SECTION -1A — REQUIREMENT PRIORITY / REVIEW PLANNING ROUTES
+// ============================================================
+
+async function buildRequirementPriorityInputs(
+  tenantId: string,
+  limit: number,
+  requirementId?: string,
+): Promise<RequirementPriorityInput[]> {
+  const [requirements, candidates, contactStats] = await Promise.all([
+    fetchCandidateIntelligenceRequirements(tenantId, limit, requirementId),
+    fetchCandidateIntelligenceInputs(tenantId, 100),
+    fetchOptionalContactIntelligenceRoiStats(tenantId),
+  ]);
+
+  return requirements.map((requirement) => ({
+    ...requirement,
+    candidateMatches: candidates,
+    contactApprovedCount: contactStats.contactsApproved,
+    contactBlockedCount: contactStats.paidRunsBlocked,
+  }));
+}
+
+router.get('/requirement-priority/queue', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const limit = Math.min(Number(req.query.limit) || 50, 100);
+  const inputs = await buildRequirementPriorityInputs(tenantId, limit);
+  const items = rankRequirementPriorityQueue(inputs);
+  res.json({
+    items,
+    total: items.length,
+    guardrails: REQUIREMENT_PRIORITY_GUARDRAILS,
+  });
+});
+
+router.post('/requirement-priority/:requirementId/review-plan', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const action = firstString(req.body?.action) || 'review_candidates';
+  const notes = firstString(req.body?.notes);
+  const inputs = await buildRequirementPriorityInputs(tenantId, 1, String(req.params.requirementId));
+  if (inputs.length === 0) {
+    res.status(404).json({ error: 'Requirement not found' });
+    return;
+  }
+  const item = scoreRequirementPriority(inputs[0]);
   res.json({
     persisted: false,
     action,
     notes,
     item,
-    message: 'Candidate Intelligence review is planning-only in this slice; no outreach, submission, or candidate state was changed.',
-    guardrails: CANDIDATE_INTELLIGENCE_GUARDRAILS,
+    message: 'Requirement priority review is planning-only. No candidate submission, outreach, schema, or status update was performed.',
+    guardrails: REQUIREMENT_PRIORITY_GUARDRAILS,
+  });
+});
+
+// ============================================================
+// SECTION -1B — UNIFIED REVIEW WORKBENCH / SAFETY CENTER ROUTES
+// ============================================================
+
+async function buildReviewWorkbenchPayload(tenantId: string, limit: number) {
+  const [
+    contactRows,
+    clientRows,
+    candidateInputs,
+    requirementInputs,
+    baseMetrics,
+    contactStats,
+  ] = await Promise.all([
+    fetchContactIntelligenceCompanyRows(tenantId, limit),
+    fetchClientDiscoverySignals(tenantId, limit),
+    fetchCandidateIntelligenceInputs(tenantId, limit),
+    buildRequirementPriorityInputs(tenantId, limit),
+    fetchCommandCenterMetrics(tenantId),
+    fetchOptionalContactIntelligenceRoiStats(tenantId),
+  ]);
+
+  const computedContactIntelligence = await Promise.all(
+    contactRows.map((row) => buildContactIntelligenceResult(tenantId, row)),
+  );
+  const contactIntelligence = await Promise.all(
+    computedContactIntelligence.map((item) => withPersistedContactIntelligence(tenantId, item)),
+  );
+
+  return buildWizmatchReviewWorkbench({
+    clientDiscovery: rankClientDiscoveryQueue(clientRows),
+    contactIntelligence,
+    candidates: rankCandidateIntelligenceQueue(candidateInputs),
+    requirements: rankRequirementPriorityQueue(requirementInputs),
+    metrics: {
+      pausedDomains: baseMetrics.pausedDomains,
+      suppressedContacts: baseMetrics.suppressedContacts,
+      paidRunsBlocked: contactStats.paidRunsBlocked,
+    },
+  });
+}
+
+router.get('/review-workbench', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const limit = Math.min(Number(req.query.limit) || 30, 75);
+  res.json(await buildReviewWorkbenchPayload(tenantId, limit));
+});
+
+router.get('/guardrails', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const workbench = await buildReviewWorkbenchPayload(tenantId, 30);
+  res.json({
+    generatedAt: workbench.generatedAt,
+    safetyCenter: workbench.safetyCenter,
+    guardrails: workbench.guardrails,
+    costControls: CONTACT_INTELLIGENCE_PHASE1_CAPS,
+    rules: [
+      'Paid enrichment remains disabled until company qualification and explicit approval.',
+      'Manual approval is required before outreach.',
+      'Candidate review persistence does not create submissions.',
+      'Requirement priority planning does not change requirement status.',
+      'Safety blockers must be resolved before volume increases.',
+    ],
   });
 });
 
