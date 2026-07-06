@@ -32,7 +32,7 @@ import { requireInternalToken } from '../middleware/internalAuth';
 import { scoreSignal } from '../services/wizmatchScoring';
 import { matchCandidates } from '../services/wizmatchMatching';
 import { callClaude, parseClaudeJSON, CLAUDE_MODELS } from '../services/claudeService';
-import { findOrCreateContact } from '../services/contactService';
+import { findOrCreateContact, normalizeChannelValue } from '../services/contactService';
 import { sendSlackMessage } from '../services/slackService';
 import {
   WIZMATCH_LEADS_CHANNEL,
@@ -1494,8 +1494,10 @@ router.post('/contact-intelligence/companies/:companyId/contacts/manual', async 
     return;
   }
 
-  const email = firstString(req.body?.email)?.toLowerCase();
-  const phone = firstString(req.body?.phone);
+  const rawEmail = firstString(req.body?.email);
+  const rawPhone = firstString(req.body?.phone);
+  const email = rawEmail ? normalizeChannelValue('email', rawEmail) : null;
+  const phone = rawPhone ? normalizeChannelValue('phone', rawPhone) : null;
   const title = firstString(req.body?.title);
   const linkedinUrl = firstString(req.body?.linkedinUrl);
   const notes = firstString(req.body?.notes);
@@ -1623,8 +1625,8 @@ router.post('/contact-intelligence/contacts/:candidateId/link-crm-contact', asyn
   }
 
   const channels = [
-    candidate.email ? { channelType: 'email', channelValue: candidate.email, isPrimary: true } : null,
-    candidate.phone ? { channelType: 'phone', channelValue: candidate.phone, isPrimary: !candidate.email } : null,
+    candidate.email ? { channelType: 'email', channelValue: normalizeChannelValue('email', candidate.email), isPrimary: true } : null,
+    candidate.phone ? { channelType: 'phone', channelValue: normalizeChannelValue('phone', candidate.phone), isPrimary: !candidate.email } : null,
     candidate.linkedin_url ? { channelType: 'linkedin', channelValue: candidate.linkedin_url, isPrimary: !candidate.email && !candidate.phone } : null,
   ].filter(Boolean) as Array<{ channelType: string; channelValue: string; isPrimary?: boolean }>;
   const name = splitName(candidate.name);

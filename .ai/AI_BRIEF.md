@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-06T02:38:24.813Z_
+_Generated: 2026-07-06T02:44:53.117Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,8 +12,8 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: growth-escalators-backend-v2
 - **Branch**: `feature/contact-intelligence-phase1-adr`
-- **Last commit**: 78648c0 feat(wizmatch): implement client and candidate intelligence (7 minutes ago)
-- **Uncommitted changes**: 11 file(s)
+- **Last commit**: c9eb1eb fix(wizmatch): normalize contact intelligence channels (9 seconds ago)
+- **Uncommitted changes**: 2 file(s)
 
 ## Current task
 
@@ -30,6 +30,8 @@ candidate submissions, outreach sending, worker/cron automation, deployment conf
 ## Recent commits
 
 ```
+c9eb1eb fix(wizmatch): normalize contact intelligence channels
+16da4bc feat(wizmatch): add analytics roi feedback loop
 78648c0 feat(wizmatch): implement client and candidate intelligence
 9eb5a7f feat(wizmatch): add contact intelligence manual review workflow
 b320d0b feat(wizmatch): add contact intelligence review persistence
@@ -38,8 +40,6 @@ d629039 docs(wizmatch): add contact intelligence phase 1 ADR
 2f8239a Merge pull request #12 from Growth-Escalators/feature/contact-intelligence-phase1-plan
 742bbda docs(wizmatch): add contact intelligence phase 1 plan
 4788843 Merge pull request #11 from Growth-Escalators/feature/contact-intelligence-prd
-d7b488a docs(wizmatch): harden contact intelligence PRD
-a7ac996 docs(wizmatch): add contact intelligence PRD
 ```
 
 ## npm scripts

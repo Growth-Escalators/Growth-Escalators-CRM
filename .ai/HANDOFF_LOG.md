@@ -399,3 +399,31 @@ enrichment work.
 - Build a unified review/action workbench that turns ROI recommendations into safe manual actions:
   contact approval, candidate shortlist planning, requirement prioritization, and safety blocker
   resolution without auto-sending.
+
+## 2026-07-06 — Step 13: Local review + preview verification — Codex — VERIFIED LOCALLY
+
+**What was done**
+- Reviewed the local Wizmatch intelligence implementation across Contact Intelligence, Client
+  Discovery, Candidate Intelligence, Command Center, and Analytics / ROI.
+- Fixed Contact Intelligence manual contact handling so email/phone values use the shared CRM
+  channel normalization before persistence/linking.
+- Regenerated `.ai/AI_BRIEF.md` after verification.
+
+**Guardrails preserved**
+- No paid enrichment/provider calls.
+- No outreach sending.
+- No automatic candidate submissions.
+- No worker/cron automation.
+- No Railway/Vercel/deployment config changes.
+- No `package.json` or `package-lock.json` changes.
+
+**Files changed**
+- `src/routes/wizmatch.ts`
+- `.ai/AI_BRIEF.md`
+- `.ai/HANDOFF_LOG.md`
+
+**Verification**
+- `npm run build` passed.
+- `npm test` passed: 17 files, 188 tests.
+- `npm run build` in `admin/` passed.
+- `npm run ai:brief` passed.
