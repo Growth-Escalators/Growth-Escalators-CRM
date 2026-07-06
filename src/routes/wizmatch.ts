@@ -78,6 +78,10 @@ import {
   type CandidateSignalInput,
 } from '../services/wizmatchCandidateIntelligence';
 import {
+  buildCandidateIntakeRequest,
+  type CandidateIntakeProfile,
+} from '../services/wizmatchCandidateIntake';
+import {
   buildWizmatchRoiAnalytics,
   type WizmatchRoiAnalyticsInput,
 } from '../services/wizmatchRoiAnalytics';
@@ -1337,6 +1341,36 @@ async function fetchCandidateIntelligenceInputs(tenantId: string, limit: number,
   );
 }
 
+function candidateProfileToIntelligenceInput(
+  profile: CandidateIntakeProfile,
+  options: {
+    id: string;
+    contactId?: string | null;
+    requirements: CandidateRequirementInput[];
+    signals: CandidateSignalInput[];
+  },
+): CandidateIntelligenceInput {
+  return {
+    id: options.id,
+    contactId: options.contactId,
+    name: profile.name,
+    skills: profile.skills,
+    location: profile.location,
+    visaStatus: profile.visaStatus,
+    rateHourly: profile.rateHourly,
+    rateCurrency: profile.rateCurrency,
+    availabilityDate: profile.availabilityDate,
+    availabilityStatus: profile.availabilityStatus,
+    source: profile.source,
+    linkedinUrl: profile.linkedinUrl,
+    githubUrl: profile.githubUrl,
+    resumeUrl: profile.resumeUrl,
+    hasUsableContactChannel: Boolean(profile.email || profile.phone || profile.linkedinUrl),
+    requirements: options.requirements,
+    signals: options.signals,
+  };
+}
+
 async function fetchCommandCenterMetrics(tenantId: string): Promise<Omit<CommandCenterMetricsInput, 'reviewReadyCompanies' | 'blockedCompanies'>> {
   const result = await pool.query(
     `SELECT
@@ -1459,6 +1493,199 @@ router.post('/client-discovery/companies/:companyId/send-to-contact-intelligence
 // ============================================================
 // SECTION -1 — CANDIDATE INTELLIGENCE ROUTES
 // ============================================================
+
+router.post('/candidate-intelligence/intake', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const intake = buildCandidateIntakeRequest({
+    candidates: Array.isArray(req.body?.candidates) ? req.body.candidates : undefined,
+    rawText: firstString(req.body?.rawText) || undefined,
+  });
+
+  if (intake.items.length === 0) {
+    res.status(400).json({
+      error: 'No candidate profiles found. Paste CSV text with headers or send { candidates: [...] }.',
+      expectedHeaders: [
+        'name',
+        'email',
+        'phone',
+        'skills',
+        'location',
+        'visa_status',
+        'rate_hourly',
+        'rate_currency',
+        'availability_status',
+        'source',
+        'linkedin_url',
+        'github_url',
+        'resume_url',
+      ],
+    });
+    return;
+  }
+
+  const [requirements, signals] = await Promise.all([
+    fetchCandidateIntelligenceRequirements(tenantId, 30),
+    fetchCandidateIntelligenceSignals(tenantId, 30),
+  ]);
+  const preview = intake.accepted.map((profile, index) => ({
+    row: index + 1,
+    profile,
+    score: scoreCandidateIntelligence(candidateProfileToIntelligenceInput(profile, {
+      id: `preview-${index + 1}`,
+      requirements,
+      signals,
+    })),
+  }));
+
+  const shouldWrite = req.body?.dryRun === false && req.body?.confirmImport === true;
+  if (!shouldWrite) {
+    res.json({
+      dryRun: true,
+      accepted: intake.accepted.length,
+      skipped: intake.skipped.length,
+      truncated: intake.truncated,
+      skippedRows: intake.skipped,
+      preview,
+      message: 'Preview only. Send dryRun=false and confirmImport=true to create CRM contacts and Wizmatch candidate records.',
+      guardrails: {
+        noOutreach: true,
+        noCandidateSubmission: true,
+        maxProfilesPerRequest: 50,
+      },
+    });
+    return;
+  }
+
+  const results: Array<Record<string, unknown>> = [];
+  let inserted = 0;
+  let duplicates = 0;
+  let errors = 0;
+
+  for (let index = 0; index < intake.accepted.length; index += 1) {
+    const profile = intake.accepted[index];
+    try {
+      const name = splitName(profile.name);
+      const channels = [
+        profile.email ? { channelType: 'email', channelValue: profile.email, isPrimary: true } : null,
+        profile.phone ? { channelType: 'phone', channelValue: profile.phone, isPrimary: !profile.email } : null,
+        profile.linkedinUrl ? {
+          channelType: 'linkedin',
+          channelValue: profile.linkedinUrl,
+          isPrimary: !profile.email && !profile.phone,
+        } : null,
+      ].filter((channel): channel is { channelType: string; channelValue: string; isPrimary: boolean } => Boolean(channel));
+
+      const { contact, created: contactCreated } = await findOrCreateContact(tenantId, {
+        firstName: name.firstName,
+        lastName: name.lastName,
+        source: 'wizmatch_candidate_intake',
+        sourceDetail: profile.source,
+        metadata: {
+          wizmatch_candidate_intake: true,
+          source: profile.source,
+          resume_url: profile.resumeUrl,
+          github_url: profile.githubUrl,
+          warnings: profile.warnings,
+        },
+        channels,
+      });
+
+      const existing = await pool.query(
+        `SELECT id
+         FROM wizmatch_candidates
+         WHERE tenant_id = $1 AND contact_id = $2
+         LIMIT 1`,
+        [tenantId, contact.id],
+      );
+      if (existing.rows.length > 0) {
+        duplicates += 1;
+        results.push({
+          row: index + 1,
+          status: 'duplicate',
+          candidateId: existing.rows[0].id,
+          contactId: contact.id,
+          contactCreated,
+          name: profile.name,
+          message: 'Candidate already exists for this CRM contact; no duplicate profile created.',
+        });
+        continue;
+      }
+
+      const score = scoreCandidateIntelligence(candidateProfileToIntelligenceInput(profile, {
+        id: `new-${index + 1}`,
+        contactId: contact.id,
+        requirements,
+        signals,
+      }));
+
+      const [candidate] = await db
+        .insert(wizmatchCandidates)
+        .values({
+          tenantId,
+          contactId: contact.id,
+          skills: profile.skills,
+          location: profile.location,
+          visaStatus: profile.visaStatus,
+          rateHourly: profile.rateHourly,
+          rateCurrency: profile.rateCurrency,
+          availabilityDate: profile.availabilityDate,
+          availabilityStatus: profile.availabilityStatus,
+          source: profile.source,
+          linkedinUrl: profile.linkedinUrl,
+          githubUrl: profile.githubUrl,
+          resumeUrl: profile.resumeUrl,
+          matchScore: score.score,
+          indiaSpecific: {
+            candidateIntake: {
+              importedBy: req.user?.id || null,
+              importedAt: new Date().toISOString(),
+              warnings: profile.warnings,
+              dryRun: false,
+            },
+          },
+        })
+        .returning();
+
+      inserted += 1;
+      results.push({
+        row: index + 1,
+        status: 'inserted',
+        candidateId: candidate.id,
+        contactId: contact.id,
+        contactCreated,
+        score,
+        warnings: profile.warnings,
+      });
+    } catch (error) {
+      errors += 1;
+      logger.error({ err: error }, '[wizmatch] candidate intelligence intake error');
+      results.push({
+        row: index + 1,
+        status: 'error',
+        name: profile.name,
+        message: error instanceof Error ? error.message : 'Candidate intake failed',
+      });
+    }
+  }
+
+  res.status(201).json({
+    dryRun: false,
+    accepted: intake.accepted.length,
+    inserted,
+    duplicates,
+    skipped: intake.skipped.length,
+    errors,
+    truncated: intake.truncated,
+    skippedRows: intake.skipped,
+    results,
+    message: 'Candidate intake completed. No outreach, submission, placement, provider enrichment, or paid action was performed.',
+    guardrails: {
+      noOutreach: true,
+      noCandidateSubmission: true,
+      noPaidEnrichment: true,
+    },
+  });
+});
 
 router.get('/candidate-intelligence/queue', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;

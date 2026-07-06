@@ -27,7 +27,11 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   `/wizmatch` now lands on the Review Workbench, and the operating frontend has module/priority
   filters, readiness strips, richer CRM-style action cards, guardrail/cost panels, preview links,
   Contact Intelligence discovery preview/run controls, budget/provider-env visibility, and
-  requirement review-plan feedback.
+  requirement review-plan feedback. Candidate Intelligence now includes a manual Candidate Profile
+  Intake panel and authenticated `POST /api/wizmatch/candidate-intelligence/intake` endpoint for
+  preview-first CSV/profile imports. Intake creates/reuses CRM contacts and Wizmatch candidate
+  records only after explicit confirmation; it scores profiles deterministically and does not send
+  outreach, submit candidates, call providers, or update placements.
   Paid discovery defaults off unless env-enabled and manually run after preview. Still no outreach
   sending, candidate auto-submission, worker/cron automation, package, or deployment changes.
 
@@ -64,6 +68,9 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
 - Candidate Intelligence review now persists reviewer intent into
   `wizmatch_candidates.india_specific.candidateIntelligenceReview`; it still does not create
   submissions, send outreach, or change placement state.
+- Candidate Profile Intake accepts up to 50 manually vetted profiles per request, defaults to
+  dry-run preview, skips duplicate candidate records by CRM contact, and writes only confirmed
+  imports. Operators should follow `docs/wizmatch-daily-operations.md` for the daily loop.
 - Analytics / ROI is read-only and deterministic. It may return zeroed Contact Intelligence review
   metrics if the local DB has not applied `0021_contact_intelligence_phase2.sql`; it does not
   create schema, write snapshots, send outreach, or call providers.

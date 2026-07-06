@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-06T14:07:07.019Z_
+_Generated: 2026-07-06T18:45:38.096Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,26 +12,25 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: growth-escalators-backend-v2
 - **Branch**: `feature/contact-intelligence-phase1-adr`
-- **Last commit**: 2218a65 feat(wizmatch): add preview-first contact discovery (16 minutes ago)
+- **Last commit**: 20b737c feat(wizmatch): add paid discovery cost guard (5 hours ago)
 - **Uncommitted changes**: 225 file(s)
 
 ## Current task
 
-**Wizmatch API cost protection** — add a hard-blocking cost/rate guard around Contact
-Intelligence paid discovery so Apollo/Snov/Reacher/Google fallback cannot create unexpected
-spend. Discovery remains manual, authenticated, preview-first, and disabled by default unless
-env-enabled.
+**Wizmatch daily operations + candidate intake** — finish the next safe operating slice after the
+paid discovery/cost-guard release by adding manual candidate-profile intake and an operator SOP.
 
-Scope is **Contact Intelligence cost-guard backend services/routes, admin UI visibility, tests,
-generated admin bundle, env documentation, and AI context**. This task must not add new database
+Scope is **Candidate Intelligence intake backend/UI, parser tests, route registration, operator
+documentation, generated admin bundle, and AI context**. This task must not add new database
 tables, migrations, automatic outreach sending, automatic candidate submissions, worker/cron
-automation, deployment config changes, `package.json`, or `package-lock.json`.
+automation, paid provider calls, deployment config changes, `package.json`, or `package-lock.json`.
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
 
 ## Recent commits
 
 ```
+20b737c feat(wizmatch): add paid discovery cost guard
 2218a65 feat(wizmatch): add preview-first contact discovery
 d3aa9bf feat(wizmatch): add data readiness workbench
 fdabbd6 feat(wizmatch): polish operating workbench frontend
@@ -41,7 +40,6 @@ fdabbd6 feat(wizmatch): polish operating workbench frontend
 16da4bc feat(wizmatch): add analytics roi feedback loop
 78648c0 feat(wizmatch): implement client and candidate intelligence
 9eb5a7f feat(wizmatch): add contact intelligence manual review workflow
-b320d0b feat(wizmatch): add contact intelligence review persistence
 ```
 
 ## npm scripts

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, ClipboardCheck, RefreshCw, ShieldCheck, UserCheck } from 'lucide-react';
+import { CheckCircle2, ClipboardCheck, Eye, RefreshCw, ShieldCheck, Upload, UserCheck } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
 
 const PRIORITY_BADGE = {
@@ -62,6 +62,10 @@ const DEMO_ITEMS = [
   },
 ];
 
+const SAMPLE_INTAKE_CSV = `name,email,phone,skills,location,visa_status,rate_hourly,rate_currency,availability_status,source,linkedin_url,resume_url
+Aarav Kumar,aarav@example.com,9876543210,"Java; Spring; AWS",Hyderabad India,,2400,INR,available,manual_intake,https://linkedin.com/in/aarav,https://example.com/aarav.pdf
+Neha Shah,neha@example.com,,"QA Automation; Selenium; Java",Pune India,,1800,INR,available,manual_intake,,`;
+
 function ScorePill({ score, priority }) {
   return (
     <div className="flex items-center gap-2">
@@ -118,6 +122,9 @@ export default function WizmatchCandidateIntelligencePage({ demoMode = false }) 
   const [error, setError] = useState('');
   const [actionMessage, setActionMessage] = useState('');
   const [actionLoading, setActionLoading] = useState('');
+  const [intakeText, setIntakeText] = useState('');
+  const [intakeLoading, setIntakeLoading] = useState('');
+  const [intakeResult, setIntakeResult] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -175,6 +182,49 @@ export default function WizmatchCandidateIntelligencePage({ demoMode = false }) 
     }
   }, [demoMode, selected]);
 
+  const runIntake = useCallback(async ({ dryRun }) => {
+    if (!intakeText.trim()) {
+      setIntakeResult({ error: 'Paste candidate CSV text first.' });
+      return;
+    }
+    setIntakeLoading(dryRun ? 'preview' : 'import');
+    setIntakeResult(null);
+    try {
+      if (demoMode) {
+        const accepted = Math.max(0, intakeText.trim().split(/\r?\n/).length - 1);
+        setIntakeResult({
+          dryRun,
+          accepted,
+          inserted: dryRun ? 0 : accepted,
+          skipped: 0,
+          duplicates: 0,
+          errors: 0,
+          message: dryRun
+            ? 'Demo preview only. No records were written.'
+            : 'Demo import simulated locally. No records were written.',
+          preview: DEMO_ITEMS.slice(0, 2).map((item, index) => ({ row: index + 1, profile: item, score: item })),
+        });
+        return;
+      }
+      const result = await apiFetch('/api/wizmatch/candidate-intelligence/intake', {
+        method: 'POST',
+        body: JSON.stringify({
+          rawText: intakeText,
+          dryRun,
+          confirmImport: !dryRun,
+        }),
+      });
+      setIntakeResult(result);
+      if (!dryRun) {
+        await load();
+      }
+    } catch (e) {
+      setIntakeResult({ error: e.message || 'Candidate intake failed' });
+    } finally {
+      setIntakeLoading('');
+    }
+  }, [demoMode, intakeText, load]);
+
   return (
     <div className="p-6">
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -194,6 +244,79 @@ export default function WizmatchCandidateIntelligencePage({ demoMode = false }) 
           {error}
         </div>
       )}
+
+      <div className="card p-4 mb-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-[12px] font-semibold uppercase text-primary-700">Candidate Profile Intake</p>
+            <h2 className="mt-1 text-base font-bold text-neutral-900">Paste vetted candidate profiles</h2>
+            <p className="mt-1 text-[12.5px] text-neutral-500">
+              Manual-only intake for IT/Tech candidates. Preview scores first, then import CRM contacts + Wizmatch candidate records. No outreach or submissions are created.
+            </p>
+          </div>
+          <button type="button" className="btn-standard btn-compact self-start" onClick={() => setIntakeText(SAMPLE_INTAKE_CSV)}>
+            Use sample CSV
+          </button>
+        </div>
+
+        <textarea
+          className="mt-4 min-h-[128px] w-full rounded-lg border border-neutral-200 bg-white p-3 text-sm font-mono text-neutral-800 outline-none focus:border-primary-300 focus:ring-2 focus:ring-primary-100"
+          value={intakeText}
+          onChange={(event) => setIntakeText(event.target.value)}
+          placeholder="name,email,phone,skills,location,visa_status,rate_hourly,rate_currency,availability_status,source,linkedin_url,resume_url"
+        />
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className="btn-standard btn-compact"
+            disabled={Boolean(intakeLoading)}
+            onClick={() => runIntake({ dryRun: true })}
+          >
+            <Eye className="w-3.5 h-3.5" /> {intakeLoading === 'preview' ? 'Previewing...' : 'Preview scores'}
+          </button>
+          <button
+            type="button"
+            className="btn-primary btn-compact"
+            disabled={Boolean(intakeLoading)}
+            onClick={() => runIntake({ dryRun: false })}
+          >
+            <Upload className="w-3.5 h-3.5" /> {intakeLoading === 'import' ? 'Importing...' : 'Import candidates'}
+          </button>
+          <span className="text-[12px] text-neutral-500">Max 50 profiles per import. Duplicates by CRM contact are skipped.</span>
+        </div>
+
+        {intakeResult && (
+          <div className={`mt-4 rounded-lg border px-4 py-3 text-sm ${intakeResult.error ? 'border-danger-200 bg-danger-50 text-danger-700' : 'border-primary-100 bg-primary-50 text-primary-800'}`}>
+            <p className="font-semibold">{intakeResult.error || intakeResult.message || 'Candidate intake result'}</p>
+            {!intakeResult.error && (
+              <>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <span className="badge-muted">Accepted {intakeResult.accepted || 0}</span>
+                  <span className="badge-success">Inserted {intakeResult.inserted || 0}</span>
+                  <span className="badge-warning">Duplicates {intakeResult.duplicates || 0}</span>
+                  <span className="badge-muted">Skipped {intakeResult.skipped || 0}</span>
+                  <span className="badge-danger">Errors {intakeResult.errors || 0}</span>
+                </div>
+                {(intakeResult.preview || []).length > 0 && (
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                    {intakeResult.preview.slice(0, 6).map((row) => (
+                      <div key={`${row.row}-${row.profile?.name}`} className="rounded-md border border-primary-100 bg-white/80 p-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="font-semibold text-neutral-900">{row.profile?.name}</p>
+                            <p className="text-[12px] text-neutral-500">{row.profile?.location || 'No location'} · {row.profile?.skills?.length || 0} skills</p>
+                          </div>
+                          <span className="rounded-md bg-neutral-900 px-2 py-1 text-xs font-bold text-white">{row.score?.score ?? '-'}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-5">
         <div className="card p-4">
@@ -242,7 +365,7 @@ export default function WizmatchCandidateIntelligencePage({ demoMode = false }) 
                   <button className="btn-standard btn-compact" disabled={actionLoading || selected.priority === 'blocked'} onClick={() => reviewPlan('mark_reviewed')}>
                     <ClipboardCheck className="w-3.5 h-3.5" /> Mark reviewed
                   </button>
-                  <button className="btn-primary btn-compact" disabled={actionLoading || selected.priority === 'blocked'} onClick={() => reviewPlan('shortlist_for_requirement')}>
+                  <button className="btn-primary btn-compact" disabled={actionLoading || selected.priority === 'blocked'} onClick={() => reviewPlan('shortlist')}>
                     <UserCheck className="w-3.5 h-3.5" /> Shortlist
                   </button>
                 </div>
