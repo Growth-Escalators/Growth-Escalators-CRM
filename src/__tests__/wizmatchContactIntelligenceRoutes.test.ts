@@ -17,6 +17,8 @@ describe('Wizmatch Contact Intelligence routes', () => {
     expect(routeExists('/contact-intelligence/companies/:companyId', 'get')).toBe(true);
     expect(routeExists('/contact-intelligence/companies/:companyId/snapshot', 'post')).toBe(true);
     expect(routeExists('/contact-intelligence/companies/:companyId/review', 'post')).toBe(true);
+    expect(routeExists('/contact-intelligence/companies/:companyId/discovery-preview', 'post')).toBe(true);
+    expect(routeExists('/contact-intelligence/companies/:companyId/discover', 'post')).toBe(true);
     expect(routeExists('/contact-intelligence/companies/:companyId/contacts/manual', 'post')).toBe(true);
     expect(routeExists('/contact-intelligence/contacts/:candidateId/review', 'post')).toBe(true);
     expect(routeExists('/contact-intelligence/contacts/:candidateId/link-crm-contact', 'post')).toBe(true);

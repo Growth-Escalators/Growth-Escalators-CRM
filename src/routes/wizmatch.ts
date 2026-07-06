@@ -89,6 +89,12 @@ import {
 } from '../services/wizmatchRequirementPriority';
 import { buildWizmatchReviewWorkbench } from '../services/wizmatchReviewWorkbench';
 import { getWizmatchReadiness } from '../services/wizmatchReadiness';
+import {
+  buildWizmatchContactDiscoveryPreview,
+  executeWizmatchContactDiscovery,
+  getWizmatchContactDiscoveryConfig,
+  type WizmatchContactDiscoveryInput,
+} from '../services/wizmatchContactDiscovery';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -689,6 +695,53 @@ async function persistContactIntelligenceSnapshot(tenantId: string, userId: stri
   );
 
   return withPersistedContactIntelligence(tenantId, computed);
+}
+
+async function countPaidDiscoveryRunsInCooldown(
+  tenantId: string,
+  companyId: string,
+  cooldownDays: number,
+) {
+  const result = await pool.query(
+    `SELECT COUNT(*)::int AS count
+     FROM wizmatch_discovery_runs
+     WHERE tenant_id = $1
+       AND company_id = $2
+       AND paid_provider = true
+       AND status IN ('queued', 'running', 'succeeded', 'partial')
+       AND created_at > NOW() - ($3::int * INTERVAL '1 day')`,
+    [tenantId, companyId, cooldownDays],
+  );
+  return numeric(result.rows[0]?.count);
+}
+
+async function buildContactDiscoveryInput(
+  tenantId: string,
+  userId: string | undefined,
+  companyId: string,
+): Promise<{ item: Awaited<ReturnType<typeof persistContactIntelligenceSnapshot>>; input: WizmatchContactDiscoveryInput } | null> {
+  const item = await persistContactIntelligenceSnapshot(tenantId, userId, companyId);
+  if (!item?.persisted?.id) return null;
+  const config = getWizmatchContactDiscoveryConfig();
+  const paidRunsInCooldown = await countPaidDiscoveryRunsInCooldown(tenantId, companyId, config.rediscoveryCooldownDays);
+
+  return {
+    item,
+    input: {
+      companyId,
+      companyName: item.companyName,
+      companyDomain: item.companyDomain,
+      targetRegion: item.targetRegion,
+      qualificationTier: item.qualificationTier,
+      qualificationScore: item.qualificationScore,
+      companyStatus: item.companyStatus,
+      reviewStatus: item.persisted.reviewStatus,
+      hardBlocks: item.hardBlocks,
+      lastDiscoveredAt: item.persisted.lastDiscoveredAt,
+      nextRefreshAt: item.persisted.nextRefreshAt,
+      paidRunsInCooldown,
+    },
+  };
 }
 
 async function fetchContactIntelligenceCompanyRows(tenantId: string, limit: number, companyId?: string) {
@@ -1511,10 +1564,10 @@ router.get('/guardrails', async (req: Request, res: Response) => {
     generatedAt: workbench.generatedAt,
     safetyCenter: workbench.safetyCenter,
     guardrails: workbench.guardrails,
-    costControls: CONTACT_INTELLIGENCE_PHASE1_CAPS,
+    costControls: getWizmatchContactDiscoveryConfig(),
     readiness: readiness.overall,
     rules: [
-      'Paid enrichment remains disabled until company qualification and explicit approval.',
+      'Paid discovery requires qualification, preview confirmation, and explicit manual execution.',
       'Manual approval is required before outreach.',
       'Candidate review persistence does not create submissions.',
       'Requirement priority planning does not change requirement status.',
@@ -1543,8 +1596,8 @@ router.get('/contact-intelligence/queue', async (req: Request, res: Response) =>
   res.json({
     items,
     total: items.length,
-    phase: 'phase_2_manual_review_persistence',
-    costControls: CONTACT_INTELLIGENCE_PHASE1_CAPS,
+    phase: 'phase_3_preview_first_manual_paid_discovery',
+    costControls: getWizmatchContactDiscoveryConfig(),
   });
 });
 
@@ -1570,7 +1623,7 @@ router.post('/contact-intelligence/companies/:companyId/snapshot', async (req: R
     res.status(404).json({ error: 'Company intelligence source not found' });
     return;
   }
-  res.json({ item, costControls: CONTACT_INTELLIGENCE_PHASE1_CAPS });
+  res.json({ item, costControls: getWizmatchContactDiscoveryConfig() });
 });
 
 // POST /api/wizmatch/contact-intelligence/companies/:companyId/review
@@ -1647,6 +1700,180 @@ router.post('/contact-intelligence/companies/:companyId/review', async (req: Req
 
   const refreshed = await fetchPersistedContactIntelligence(tenantId, companyId);
   res.json({ transition, persisted: refreshed.company, contactCandidates: refreshed.contactCandidates });
+});
+
+// POST /api/wizmatch/contact-intelligence/companies/:companyId/discovery-preview
+// Read-only planning step. It never calls Apollo/Snov/Reacher/Google.
+router.post('/contact-intelligence/companies/:companyId/discovery-preview', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const companyId = String(req.params.companyId);
+  const discoveryInput = await buildContactDiscoveryInput(tenantId, req.user?.id, companyId);
+  if (!discoveryInput) {
+    res.status(404).json({ error: 'Company intelligence source not found' });
+    return;
+  }
+
+  const preview = buildWizmatchContactDiscoveryPreview(discoveryInput.input);
+  res.json({
+    preview,
+    item: discoveryInput.item,
+    costControls: getWizmatchContactDiscoveryConfig(),
+  });
+});
+
+// POST /api/wizmatch/contact-intelligence/companies/:companyId/discover
+// Manual paid discovery only. Requires an explicit preview confirmation and never sends outreach.
+router.post('/contact-intelligence/companies/:companyId/discover', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const companyId = String(req.params.companyId);
+  const confirmPreview = req.body?.confirmPreview === true;
+  const discoveryInput = await buildContactDiscoveryInput(tenantId, req.user?.id, companyId);
+  if (!discoveryInput) {
+    res.status(404).json({ error: 'Company intelligence source not found' });
+    return;
+  }
+
+  const preview = buildWizmatchContactDiscoveryPreview(discoveryInput.input);
+  if (!confirmPreview) {
+    res.status(400).json({
+      error: 'Run discovery requires confirmPreview=true after reviewing discovery-preview.',
+      preview,
+    });
+    return;
+  }
+  if (!preview.eligible) {
+    res.status(409).json({ error: 'Company is not eligible for paid discovery.', preview });
+    return;
+  }
+
+  const discovery = await executeWizmatchContactDiscovery(discoveryInput.input);
+  const sourceSummary = discovery.candidates.length
+    ? Array.from(new Set(discovery.candidates.map((candidate) => candidate.source))).join(',')
+    : 'provider_discovery';
+  const run = await pool.query(
+    `INSERT INTO wizmatch_discovery_runs (
+       tenant_id,
+       company_intelligence_id,
+       company_id,
+       run_type,
+       source,
+       status,
+       cost_cents,
+       paid_provider,
+       requested_by,
+       started_at,
+       finished_at,
+       input_snapshot,
+       result_counts,
+       error_message,
+       metadata
+     )
+     VALUES ($1, $2, $3, 'paid_discovery', $4, $5, $6, true, $7::uuid, NOW(), NOW(), $8::jsonb, $9::jsonb, $10, $11::jsonb)
+     RETURNING id`,
+    [
+      tenantId,
+      discoveryInput.item!.persisted!.id,
+      companyId,
+      sourceSummary,
+      discovery.status,
+      discovery.costCents,
+      req.user?.id || null,
+      JSON.stringify({ preview: discovery.preview, providerOrder: discovery.preview.providerOrder }),
+      JSON.stringify({ candidates: discovery.candidates.length, providerCalls: discovery.providerCalls }),
+      discovery.errors.length ? discovery.errors.join(' | ') : null,
+      JSON.stringify({ errors: discovery.errors, providerCalls: discovery.providerCalls }),
+    ],
+  );
+
+  for (const candidate of discovery.candidates) {
+    const email = candidate.email ? normalizeChannelValue('email', candidate.email) : null;
+    await pool.query(
+      `INSERT INTO wizmatch_contact_candidates (
+         tenant_id,
+         company_intelligence_id,
+         company_id,
+         name,
+         title,
+         email,
+         linkedin_url,
+         region,
+         source,
+         source_url,
+         deliverability_status,
+         ranking_score,
+         relationship_score,
+         confidence_score,
+         status,
+         metadata,
+         created_at,
+         updated_at
+       )
+       SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 0, $13, $14, $15::jsonb, NOW(), NOW()
+       WHERE NOT EXISTS (
+         SELECT 1
+         FROM wizmatch_contact_candidates existing
+         WHERE existing.tenant_id = $1
+           AND existing.company_id = $3
+           AND (
+             ($6::text IS NOT NULL AND LOWER(COALESCE(existing.email, '')) = LOWER($6::text))
+             OR ($7::text IS NOT NULL AND LOWER(COALESCE(existing.linkedin_url, '')) = LOWER($7::text))
+           )
+       )`,
+      [
+        tenantId,
+        discoveryInput.item!.persisted!.id,
+        companyId,
+        candidate.name,
+        candidate.title,
+        email,
+        candidate.linkedinUrl,
+        discoveryInput.input.targetRegion,
+        candidate.source,
+        candidate.sourceUrl,
+        candidate.deliverabilityStatus,
+        candidate.rankingScore,
+        candidate.confidenceScore,
+        candidate.status,
+        JSON.stringify({
+          reasons: candidate.reasons,
+          providerCostCents: candidate.costCents,
+          discoveryRunId: run.rows[0].id,
+          raw: candidate.raw || {},
+        }),
+      ],
+    );
+  }
+
+  await pool.query(
+    `UPDATE wizmatch_company_intelligence
+     SET status = CASE WHEN $1 IN ('succeeded', 'partial') THEN 'discovered' ELSE status END,
+         last_discovered_at = NOW(),
+         next_refresh_at = NOW() + ($2::int * INTERVAL '1 day'),
+         cost_cents_total = COALESCE(cost_cents_total, 0) + $3,
+         metadata = COALESCE(metadata, '{}'::jsonb) || $4::jsonb,
+         updated_at = NOW()
+     WHERE tenant_id = $5 AND company_id = $6`,
+    [
+      discovery.status,
+      getWizmatchContactDiscoveryConfig().rediscoveryCooldownDays,
+      discovery.costCents,
+      JSON.stringify({ lastPaidDiscoveryRunId: run.rows[0].id, lastPaidDiscoveryStatus: discovery.status }),
+      tenantId,
+      companyId,
+    ],
+  );
+
+  const refreshed = await fetchPersistedContactIntelligence(tenantId, companyId);
+  res.json({
+    preview: discovery.preview,
+    discoveryRunId: run.rows[0].id,
+    status: discovery.status,
+    providerCalls: discovery.providerCalls,
+    costCents: discovery.costCents,
+    errors: discovery.errors,
+    contactCandidates: refreshed.contactCandidates,
+    persisted: refreshed.company,
+  });
 });
 
 // POST /api/wizmatch/contact-intelligence/companies/:companyId/contacts/manual

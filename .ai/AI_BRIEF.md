@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-06T13:27:40.168Z_
+_Generated: 2026-07-06T13:49:21.331Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,26 +12,26 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: growth-escalators-backend-v2
 - **Branch**: `feature/contact-intelligence-phase1-adr`
-- **Last commit**: fdabbd6 feat(wizmatch): polish operating workbench frontend (5 hours ago)
-- **Uncommitted changes**: 226 file(s)
+- **Last commit**: d3aa9bf feat(wizmatch): add data readiness workbench (21 minutes ago)
+- **Uncommitted changes**: 225 file(s)
 
 ## Current task
 
-**Wizmatch data readiness + real-data UX** — turn the current demo/operating layer into a
-real-data-ready internal workbench by adding a read-only readiness API/page, surfacing live-data
-health inside the Review Workbench and Guardrail Center, and keeping guarded paid/automation
-items blocked.
+**Wizmatch Contact Intelligence Phase 3: preview-first paid discovery** — add a manual,
+config-gated discovery workflow for Apollo/Snov/Reacher and controlled Google fallback while
+keeping outreach sending, candidate submissions, and worker/cron automation blocked.
 
-Scope is **Wizmatch backend services/routes, admin UI, tests, generated admin bundle, and AI
-context**. This task must not add paid enrichment integrations, automatic outreach sending,
-automatic candidate submissions, worker/cron automation, deployment config changes,
-`package.json`, or `package-lock.json`.
+Scope is **Contact Intelligence backend services/routes, admin UI, tests, generated admin bundle,
+env documentation, and AI context**. This task must not add new database tables, migrations,
+automatic outreach sending, automatic candidate submissions, worker/cron automation,
+deployment config changes, `package.json`, or `package-lock.json`.
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
 
 ## Recent commits
 
 ```
+d3aa9bf feat(wizmatch): add data readiness workbench
 fdabbd6 feat(wizmatch): polish operating workbench frontend
 5fe0942 feat(wizmatch): add unified operating workbench
 310edb1 feat(wizmatch): add crm-styled v2 admin pages
@@ -41,7 +41,6 @@ fdabbd6 feat(wizmatch): polish operating workbench frontend
 9eb5a7f feat(wizmatch): add contact intelligence manual review workflow
 b320d0b feat(wizmatch): add contact intelligence review persistence
 7cfc431 feat(wizmatch): add intelligence command center
-d629039 docs(wizmatch): add contact intelligence phase 1 ADR
 ```
 
 ## npm scripts

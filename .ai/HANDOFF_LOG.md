@@ -5,6 +5,62 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-06 — Step 18: Contact Intelligence Phase 3 preview-first discovery — Codex — VERIFIED LOCALLY
+
+**What was done**
+- Added preview-first manual paid discovery for Contact Intelligence:
+  - `POST /api/wizmatch/contact-intelligence/companies/:companyId/discovery-preview`,
+  - `POST /api/wizmatch/contact-intelligence/companies/:companyId/discover`,
+  - dedicated provider adapters for Apollo, Snov, Reacher verification, and controlled
+    SERPER-backed Google fallback,
+  - eligibility/cap/cooldown logic that blocks Tier C/Reject/suppressed/cooldown/missing-domain
+    companies and requires Tier B manual approval.
+- Discovery execution requires `confirmPreview=true`, writes an audit row to
+  `wizmatch_discovery_runs`, writes at most 3 reviewable candidates to
+  `wizmatch_contact_candidates`, and updates existing company intelligence metadata/cost totals.
+- Updated Contact Intelligence V2 UI with Discovery Preview, Run discovery, provider order,
+  estimated cost, cap status, blocked reasons, deliverability status, and provider-result labels.
+- Added env switches to `.env.example`, defaulting paid discovery and Google fallback off.
+- Updated readiness/guardrail language: paid discovery is gated/manual, while auto-send,
+  auto-submit, and worker/cron automation remain blocked.
+
+**Guardrails preserved**
+- No automatic outreach sending.
+- No automatic candidate submissions.
+- No worker/cron automation changes.
+- No new tables, schema edits, or migrations.
+- No Railway/Vercel/deployment config changes.
+- No `package.json` or `package-lock.json` changes.
+
+**Files changed**
+- `src/services/wizmatchContactDiscovery.ts`
+- `src/services/wizmatchContactDiscoveryProviders.ts`
+- `src/routes/wizmatch.ts`
+- `src/services/wizmatchReadiness.ts`
+- `src/__tests__/wizmatchContactDiscovery.test.ts`
+- `src/__tests__/wizmatchContactIntelligenceRoutes.test.ts`
+- `admin/src/pages/WizmatchNewPages.jsx`
+- `admin/src/pages/WizmatchOperatingPages.jsx`
+- `.env.example`
+- `public/admin/` rebuilt by `npm run admin:build`
+- `.ai/CURRENT_TASK.md`
+- `.ai/CURRENT_STATE.md`
+- `.ai/HANDOFF_LOG.md`
+- `.ai/AI_BRIEF.md` regenerated
+
+**Verification**
+- `npx vitest run src/__tests__/wizmatchContactDiscovery.test.ts src/__tests__/wizmatchContactIntelligenceRoutes.test.ts src/__tests__/contactIntelligence.test.ts src/__tests__/wizmatchReadiness.test.ts`
+  passed: 4 files, 17 tests.
+- `npm run build` passed.
+- `npm test` passed: 20 files, 201 tests.
+- `npm run admin:build` passed.
+
+**Next**
+- Validate authenticated live `/wizmatch/readiness` and `/wizmatch/contact-intelligence-new`.
+- Set provider env vars only in the intended Railway environment, then enable
+  `WIZMATCH_PAID_DISCOVERY_ENABLED=true` for one controlled Tier A manual discovery.
+- Keep auto-send, auto-submit, and worker/cron automation out of scope.
+
 ## 2026-07-06 — Step 17: Wizmatch data readiness + real-data UX — Codex — VERIFIED LOCALLY
 
 **What was done**

@@ -113,7 +113,7 @@ const DEMO_WORKBENCH = {
   },
   safetyCenter: {
     status: 'blocked',
-    blockers: ['1 paused/blacklisted sending domain(s).', '2 paid discovery request(s) were blocked by caps.'],
+    blockers: ['1 paused/blacklisted sending domain(s).', '2 paid discovery request(s) need preview/cap review.'],
     guardrails: ['No paid enrichment.', 'No automatic outreach sending.', 'No automatic candidate submission.'],
   },
   actions: [
@@ -206,7 +206,7 @@ const DEMO_GUARDRAILS = {
     rediscoveryCooldownDays: 30,
   },
   rules: [
-    'Paid enrichment remains disabled until company qualification and explicit approval.',
+    'Paid discovery requires qualification, preview confirmation, and explicit manual execution.',
     'Manual approval is required before outreach.',
     'Candidate review persistence does not create submissions.',
     'Requirement priority planning does not change requirement status.',
@@ -252,7 +252,8 @@ const DEMO_READINESS = {
     'A healthy state means required tables exist and source records are present.',
   ],
   guardedItems: [
-    'Paid Apollo/Snov/Reacher enrichment remains blocked.',
+    'Paid Apollo/Snov/Reacher discovery requires preview, caps, and env enablement.',
+    'Google fallback discovery requires explicit enablement and earlier discovery paths to fail.',
     'Automatic outreach sending remains blocked.',
     'Automatic candidate submission remains blocked.',
     'Worker/cron automation remains blocked.',
@@ -339,7 +340,7 @@ function Page({ eyebrow, title, description, demoMode, loading, error, onRefresh
           <div className="grid gap-3 bg-neutral-50 px-5 py-3 md:grid-cols-4">
             {[
               ['Manual approval', 'Required before outreach'],
-              ['Paid enrichment', 'Disabled in Phase 1'],
+              ['Paid discovery', 'Preview-first manual only'],
               ['Candidate submit', 'Never automatic'],
               ['Logic mode', 'Deterministic first'],
             ].map(([label, value]) => (
@@ -932,7 +933,7 @@ export function WizmatchGuardrailsPage({ demoMode = false }) {
           </div>
         </div>
         <div className="card p-5">
-          <SectionHeader icon={DatabaseZap} title="Cost controls" description="Phase 1 remains zero-paid-enrichment." />
+          <SectionHeader icon={DatabaseZap} title="Cost controls" description="Preview-first paid discovery stays capped and manual." />
           <div className="space-y-2">
             {Object.entries(data.costControls || {}).map(([key, value]) => (
               <GuardrailRow key={key} label={key} value={value} />
@@ -1031,7 +1032,7 @@ export function WizmatchLocalDemoFlowPage({ demoMode = false }) {
     { title: 'Contact approved', detail: 'Reviewer approves one decision-maker contact. No email is sent.', icon: Contact },
     { title: 'Candidate shortlisted', detail: 'Candidate review intent is persisted. No submission is created.', icon: UserCheck },
     { title: 'Requirement prioritized', detail: 'Urgent requirements are ranked by candidate coverage and contact readiness.', icon: FileText },
-    { title: 'Safety checked', detail: 'Paid enrichment, sending, and submissions remain blocked until manual approval gates pass.', icon: ShieldCheck },
+    { title: 'Safety checked', detail: 'Paid discovery is preview-first; sending and submissions remain blocked until later approval.', icon: ShieldCheck },
   ];
   const operatingChecklist = [
     'Start in Review Workbench for the unified queue.',

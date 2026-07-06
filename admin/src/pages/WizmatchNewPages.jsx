@@ -31,6 +31,11 @@ const BADGE = {
   discovered: 'badge-success',
   needs_review: 'badge-warning',
   discovery_blocked: 'badge-warning',
+  paid_discovery_disabled: 'badge-warning',
+  blocked_by_cap: 'badge-danger',
+  preview_only: 'badge-info',
+  ready_for_manual_paid_discovery: 'badge-success',
+  partial: 'badge-warning',
   rejected: 'badge-danger',
   suppressed: 'badge-danger',
   cooldown: 'badge-muted',
@@ -720,7 +725,7 @@ export function WizmatchClientDiscoveryNewPage({ demoMode = false }) {
 }
 
 export function WizmatchContactIntelligenceNewPage({ demoMode = false }) {
-  const fallback = useMemo(() => ({ items: DEMO_CONTACTS, costControls: { paidDiscoveryEnabled: false, maxPaidDiscoveryPerCompany: 0, maxContactCandidatesShown: 3, rediscoveryCooldownDays: 30 } }), []);
+  const fallback = useMemo(() => ({ items: DEMO_CONTACTS, costControls: { paidDiscoveryEnabled: false, googleFallbackEnabled: false, maxPaidDiscoveryPerCompany: 1, maxContactCandidatesShown: 3, rediscoveryCooldownDays: 30 } }), []);
   const { data, loading, error, refresh } = useLiveData({
     demoMode,
     fallback,
@@ -732,12 +737,71 @@ export function WizmatchContactIntelligenceNewPage({ demoMode = false }) {
   const items = data.items || [];
   const [selectedId, setSelectedId] = useState(null);
   const selected = useMemo(() => items.find((item) => item.companyId === selectedId) || items[0], [items, selectedId]);
+  const [preview, setPreview] = useState(null);
+  const [actionMessage, setActionMessage] = useState('');
+  const [actionBusy, setActionBusy] = useState(false);
+
+  useEffect(() => {
+    setPreview(null);
+    setActionMessage('');
+  }, [selected?.companyId]);
+
+  const runPreview = async () => {
+    if (!selected) return;
+    setActionBusy(true);
+    setActionMessage('');
+    try {
+      if (demoMode) {
+        const blockedReasons = data.costControls?.paidDiscoveryEnabled ? [] : ['Paid discovery is disabled by WIZMATCH_PAID_DISCOVERY_ENABLED.'];
+        setPreview({
+          eligible: blockedReasons.length === 0,
+          status: blockedReasons.length === 0 ? 'ready_for_manual_paid_discovery' : 'paid_discovery_disabled',
+          estimatedCostCents: blockedReasons.length === 0 ? 26 : 0,
+          providerOrder: ['internal_crm_reuse', 'company_metadata', 'website_manual_pattern', 'apollo', 'snov', 'reacher_verification', 'google_fallback'],
+          capStatus: { ...(data.costControls || {}), paidRunsInCooldown: 0, cooldownUntil: null },
+          blockedReasons,
+          notes: ['Demo preview only. No provider calls are made.', 'Discovery never sends outreach.'],
+        });
+        setActionMessage('Demo preview prepared.');
+      } else {
+        const result = await apiFetch(`/api/wizmatch/contact-intelligence/companies/${selected.companyId}/discovery-preview`, { method: 'POST', body: JSON.stringify({}) });
+        setPreview(result.preview);
+        setActionMessage(result.preview?.eligible ? 'Preview ready. Manual discovery can be run after review.' : 'Preview blocked. Review the reasons before proceeding.');
+      }
+    } catch (e) {
+      setActionMessage(e.message || 'Discovery preview failed.');
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const runDiscovery = async () => {
+    if (!selected || !preview?.eligible) return;
+    setActionBusy(true);
+    setActionMessage('');
+    try {
+      if (demoMode) {
+        setActionMessage('Demo discovery completed. No paid providers were called.');
+      } else {
+        const result = await apiFetch(`/api/wizmatch/contact-intelligence/companies/${selected.companyId}/discover`, {
+          method: 'POST',
+          body: JSON.stringify({ confirmPreview: true }),
+        });
+        setActionMessage(`Discovery ${result.status}. ${result.contactCandidates?.length || 0} reviewable contacts now available.`);
+        await refresh();
+      }
+    } catch (e) {
+      setActionMessage(e.message || 'Discovery run failed.');
+    } finally {
+      setActionBusy(false);
+    }
+  };
 
   return (
     <PageChrome
       eyebrow="Contact Review"
       title="Contact Intelligence"
-      description="Ranked company-contact review with CRM reuse first, paid discovery disabled, and manual approval before outreach."
+      description="Ranked company-contact review with CRM reuse first, preview-first paid discovery, and manual approval before any outreach."
       demoMode={demoMode}
       loading={loading}
       error={error}
@@ -747,7 +811,7 @@ export function WizmatchContactIntelligenceNewPage({ demoMode = false }) {
       <div className="grid gap-4 md:grid-cols-4">
         <Metric icon={Building2} label="Companies" value={items.length} helper="Qualified queue" />
         <Metric icon={Contact} label="Candidates shown" value={items.reduce((sum, item) => sum + (item.contactCandidates?.length || 0), 0)} helper="Max 3/company" />
-        <Metric icon={DatabaseZap} label="Paid discovery" value={data.costControls?.maxPaidDiscoveryPerCompany ?? 0} helper="Per company cap" tone="success" />
+        <Metric icon={DatabaseZap} label="Paid discovery" value={data.costControls?.paidDiscoveryEnabled ? 'Manual' : 'Off'} helper={`${data.costControls?.maxPaidDiscoveryPerCompany ?? 1}/company cap`} tone={data.costControls?.paidDiscoveryEnabled ? 'success' : 'neutral'} />
         <Metric icon={ShieldCheck} label="Cooldown" value={`${data.costControls?.rediscoveryCooldownDays || 30}d`} helper="Rediscovery guardrail" />
       </div>
 
@@ -780,6 +844,46 @@ export function WizmatchContactIntelligenceNewPage({ demoMode = false }) {
                   <ScoreBar label="Safety/deliverability" value={selected.componentScores?.safetyAndDeliverability} max={10} />
                 </div>
                 <Reasons reasons={selected.reasons} blockers={selected.hardBlocks} />
+                <div className="rounded-lg border border-neutral-200 bg-white p-4">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-neutral-900">Discovery preview</p>
+                      <p className="text-[12.5px] text-neutral-500">Preview first. Run discovery only after reviewing caps, eligibility, and provider order.</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button className="btn-standard btn-compact" type="button" disabled={actionBusy} onClick={runPreview}>Discovery Preview</button>
+                      <button className="btn-primary btn-compact" type="button" disabled={actionBusy || !preview?.eligible} onClick={runDiscovery}>Run discovery</button>
+                    </div>
+                  </div>
+                  {preview ? (
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={badgeFor(preview.status)}>{preview.status?.replace(/_/g, ' ')}</span>
+                        <span className="badge-muted">Estimated cost {Number(preview.estimatedCostCents || 0).toLocaleString('en-IN')} cents</span>
+                        <span className="badge-muted">Cooldown {preview.capStatus?.rediscoveryCooldownDays || 30}d</span>
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div className="rounded-md bg-neutral-50 p-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500">Provider order</p>
+                          <p className="mt-1 text-sm text-neutral-800">{(preview.providerOrder || []).map((item) => item.replace(/_/g, ' ')).join(' -> ')}</p>
+                        </div>
+                        <div className="rounded-md bg-neutral-50 p-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500">Caps</p>
+                          <p className="mt-1 text-sm text-neutral-800">Paid runs {preview.capStatus?.paidRunsInCooldown || 0}/{preview.capStatus?.maxPaidDiscoveryPerCompany ?? 1} · Google {preview.capStatus?.googleFallbackEnabled ? 'on' : 'off'}</p>
+                        </div>
+                      </div>
+                      {(preview.blockedReasons || []).length > 0 && (
+                        <div className="space-y-1.5">
+                          {preview.blockedReasons.map((reason) => <p key={reason} className="rounded-md bg-danger-50 px-3 py-2 text-[12.5px] text-danger-800">{reason}</p>)}
+                        </div>
+                      )}
+                      {(preview.notes || []).map((note) => <p key={note} className="text-[12px] text-neutral-500">{note}</p>)}
+                    </div>
+                  ) : (
+                    <EmptyPanel title="Preview not run yet" description="Run Discovery Preview to see eligibility, estimated cost, provider order, cooldown, and blocked reasons." />
+                  )}
+                  {actionMessage && <p className="mt-3 rounded-md bg-primary-50 px-3 py-2 text-[12.5px] text-primary-700">{actionMessage}</p>}
+                </div>
               </div>
 
               <div>
@@ -797,14 +901,15 @@ export function WizmatchContactIntelligenceNewPage({ demoMode = false }) {
                         </div>
                         <span className="rounded-md bg-neutral-900 px-2.5 py-2 text-sm font-bold text-white">{candidate.rankingScore}</span>
                       </div>
-                      <p className="mt-2 text-[12px] text-neutral-500">{candidate.email || 'No email'} - {candidate.source?.replace(/_/g, ' ')}</p>
+                      <p className="mt-2 text-[12px] text-neutral-500">{candidate.email || 'No email'} - {candidate.source?.replace(/_/g, ' ')} - {candidate.deliverabilityStatus || 'unknown'}</p>
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         <span className={badgeFor(candidate.status)}>{candidate.status?.replace(/_/g, ' ')}</span>
+                        {candidate.sourceUrl && <span className="badge-muted">source URL</span>}
                         {(candidate.reasons || []).slice(0, 2).map((reason) => <span key={reason} className="badge-muted">{reason}</span>)}
                       </div>
                     </div>
                   )) : (
-                    <EmptyPanel title="No internal contacts yet" description="Phase 1 blocks paid discovery; add or approve contacts from the classic action page." />
+                    <EmptyPanel title="No contacts yet" description="Run preview first. If eligible and enabled, manual discovery can create up to 3 reviewable candidates without sending outreach." />
                   )}
                 </div>
               </div>

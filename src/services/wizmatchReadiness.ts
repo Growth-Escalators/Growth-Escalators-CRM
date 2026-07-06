@@ -64,8 +64,8 @@ const TABLES: TableConfig[] = [
 ];
 
 const GUARDED_ITEMS = [
-  'Paid Apollo/Snov/Reacher enrichment remains blocked.',
-  'Google fallback discovery remains blocked.',
+  'Paid Apollo/Snov/Reacher discovery is disabled unless preview, caps, and env enablement pass.',
+  'Google fallback discovery is disabled unless explicitly enabled and earlier discovery paths fail.',
   'Automatic outreach sending remains blocked.',
   'Automatic candidate submission remains blocked.',
   'Worker/cron automation remains blocked.',
