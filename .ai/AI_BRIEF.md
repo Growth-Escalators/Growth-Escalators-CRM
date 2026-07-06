@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-06T02:44:53.117Z_
+_Generated: 2026-07-06T02:57:51.750Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,17 +12,17 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: growth-escalators-backend-v2
 - **Branch**: `feature/contact-intelligence-phase1-adr`
-- **Last commit**: c9eb1eb fix(wizmatch): normalize contact intelligence channels (9 seconds ago)
-- **Uncommitted changes**: 2 file(s)
+- **Last commit**: 402380d fix(wizmatch): normalize contact intelligence channels (13 minutes ago)
+- **Uncommitted changes**: 8 file(s)
 
 ## Current task
 
-**Wizmatch Analytics / ROI feedback loop** — add a deterministic read-only ROI layer that connects
-company discovery, contact review, candidate readiness, requirements, sending, and placements.
+**Wizmatch V2 admin presentation pages** — add CRM-styled V2 pages for the local Wizmatch
+intelligence modules without removing the existing classic pages.
 
-Scope is **local implementation only**. This task may touch Wizmatch services/routes, admin UI,
-tests, analytics docs/context, and AI context. It must not add paid enrichment integrations,
-candidate submissions, outreach sending, worker/cron automation, deployment config,
+Scope is **admin UI + AI context only**. This task may touch admin React routing/pages/nav and
+AI context. It must not add paid enrichment integrations, candidate submissions, outreach sending,
+worker/cron automation, backend routes/services, database schema, migrations, deployment config,
 `package.json`, or `package-lock.json`.
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
@@ -30,7 +30,7 @@ candidate submissions, outreach sending, worker/cron automation, deployment conf
 ## Recent commits
 
 ```
-c9eb1eb fix(wizmatch): normalize contact intelligence channels
+402380d fix(wizmatch): normalize contact intelligence channels
 16da4bc feat(wizmatch): add analytics roi feedback loop
 78648c0 feat(wizmatch): implement client and candidate intelligence
 9eb5a7f feat(wizmatch): add contact intelligence manual review workflow

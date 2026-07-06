@@ -31,18 +31,23 @@ const FunnelManagementPage = lazy(() => import('./pages/FunnelManagementPage.jsx
 const TasksBoardPage = lazy(() => import('./pages/tasks/TasksPage.jsx'));
 const MyAttendancePage = lazy(() => import('./pages/MyAttendancePage.jsx'));
 const WizmatchCommandCenterPage = lazy(() => import('./pages/WizmatchCommandCenterPage.jsx'));
+const WizmatchCommandCenterNewPage = lazy(() => import('./pages/WizmatchNewPages.jsx').then((module) => ({ default: module.WizmatchCommandCenterNewPage })));
 const WizmatchClientDiscoveryPage = lazy(() => import('./pages/WizmatchClientDiscoveryPage.jsx'));
+const WizmatchClientDiscoveryNewPage = lazy(() => import('./pages/WizmatchNewPages.jsx').then((module) => ({ default: module.WizmatchClientDiscoveryNewPage })));
 const WizmatchRequirementsPage = lazy(() => import('./pages/WizmatchRequirementsPage.jsx'));
 const WizmatchSignalsPage = lazy(() => import('./pages/WizmatchSignalsPage.jsx'));
 const WizmatchCandidateIntelligencePage = lazy(() => import('./pages/WizmatchCandidateIntelligencePage.jsx'));
+const WizmatchCandidateIntelligenceNewPage = lazy(() => import('./pages/WizmatchNewPages.jsx').then((module) => ({ default: module.WizmatchCandidateIntelligenceNewPage })));
 const WizmatchCandidatesPage = lazy(() => import('./pages/WizmatchCandidatesPage.jsx'));
 const WizmatchReviewQueuePage = lazy(() => import('./pages/WizmatchReviewQueuePage.jsx'));
 const WizmatchContactIntelligencePage = lazy(() => import('./pages/WizmatchContactIntelligencePage.jsx'));
+const WizmatchContactIntelligenceNewPage = lazy(() => import('./pages/WizmatchNewPages.jsx').then((module) => ({ default: module.WizmatchContactIntelligenceNewPage })));
 const WizmatchDomainsPage = lazy(() => import('./pages/WizmatchDomainsPage.jsx'));
 const WizmatchCompliancePage = lazy(() => import('./pages/WizmatchCompliancePage.jsx'));
 const WizmatchPlacementsPage = lazy(() => import('./pages/WizmatchPlacementsPage.jsx'));
 const WizmatchPrimesPage = lazy(() => import('./pages/WizmatchPrimesPage.jsx'));
 const WizmatchAnalyticsPage = lazy(() => import('./pages/WizmatchAnalyticsPage.jsx'));
+const WizmatchAnalyticsNewPage = lazy(() => import('./pages/WizmatchNewPages.jsx').then((module) => ({ default: module.WizmatchAnalyticsNewPage })));
 const AppLayout = lazy(() => import('./components/AppLayout.jsx'));
 
 class ErrorBoundary extends React.Component {
@@ -123,23 +128,33 @@ export default function App() {
             <Route path="/tasks/v2" element={<PrivateRoute><TasksBoardPage /></PrivateRoute>} />
             <Route path="/my-attendance" element={<PrivateRoute><MyAttendancePage /></PrivateRoute>} />
             <Route path="/wizmatch/command-center-demo" element={<WizmatchCommandCenterPage demoMode />} />
+            <Route path="/wizmatch/command-center-new-demo" element={<WizmatchCommandCenterNewPage demoMode />} />
             <Route path="/wizmatch/command-center" element={<PrivateRoute><AppLayout><WizmatchCommandCenterPage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/command-center-new" element={<PrivateRoute><AppLayout><WizmatchCommandCenterNewPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/client-discovery-demo" element={<WizmatchClientDiscoveryPage demoMode />} />
+            <Route path="/wizmatch/client-discovery-new-demo" element={<WizmatchClientDiscoveryNewPage demoMode />} />
             <Route path="/wizmatch/client-discovery" element={<PrivateRoute><AppLayout><WizmatchClientDiscoveryPage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/client-discovery-new" element={<PrivateRoute><AppLayout><WizmatchClientDiscoveryNewPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/requirements" element={<PrivateRoute><AppLayout><WizmatchRequirementsPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/signals" element={<PrivateRoute><AppLayout><WizmatchSignalsPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/candidate-intelligence-demo" element={<WizmatchCandidateIntelligencePage demoMode />} />
+            <Route path="/wizmatch/candidate-intelligence-new-demo" element={<WizmatchCandidateIntelligenceNewPage demoMode />} />
             <Route path="/wizmatch/candidate-intelligence" element={<PrivateRoute><AppLayout><WizmatchCandidateIntelligencePage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/candidate-intelligence-new" element={<PrivateRoute><AppLayout><WizmatchCandidateIntelligenceNewPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/candidates" element={<PrivateRoute><AppLayout><WizmatchCandidatesPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/queue" element={<PrivateRoute><AppLayout><WizmatchReviewQueuePage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/contact-intelligence-demo" element={<WizmatchContactIntelligencePage demoMode />} />
+            <Route path="/wizmatch/contact-intelligence-new-demo" element={<WizmatchContactIntelligenceNewPage demoMode />} />
             <Route path="/wizmatch/contact-intelligence" element={<PrivateRoute><AppLayout><WizmatchContactIntelligencePage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/contact-intelligence-new" element={<PrivateRoute><AppLayout><WizmatchContactIntelligenceNewPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/domains" element={<PrivateRoute><AppLayout><WizmatchDomainsPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/compliance" element={<PrivateRoute><AppLayout><WizmatchCompliancePage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/placements" element={<PrivateRoute><AppLayout><WizmatchPlacementsPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/primes" element={<PrivateRoute><AppLayout><WizmatchPrimesPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/analytics-demo" element={<WizmatchAnalyticsPage demoMode />} />
+            <Route path="/wizmatch/analytics-new-demo" element={<WizmatchAnalyticsNewPage demoMode />} />
             <Route path="/wizmatch/analytics" element={<PrivateRoute><AppLayout><WizmatchAnalyticsPage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/analytics-new" element={<PrivateRoute><AppLayout><WizmatchAnalyticsNewPage /></AppLayout></PrivateRoute>} />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>

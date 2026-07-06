@@ -2,12 +2,12 @@
 
 ## Active task
 
-**Wizmatch Analytics / ROI feedback loop** — add a deterministic read-only ROI layer that connects
-company discovery, contact review, candidate readiness, requirements, sending, and placements.
+**Wizmatch V2 admin presentation pages** — add CRM-styled V2 pages for the local Wizmatch
+intelligence modules without removing the existing classic pages.
 
-Scope is **local implementation only**. This task may touch Wizmatch services/routes, admin UI,
-tests, analytics docs/context, and AI context. It must not add paid enrichment integrations,
-candidate submissions, outreach sending, worker/cron automation, deployment config,
+Scope is **admin UI + AI context only**. This task may touch admin React routing/pages/nav and
+AI context. It must not add paid enrichment integrations, candidate submissions, outreach sending,
+worker/cron automation, backend routes/services, database schema, migrations, deployment config,
 `package.json`, or `package-lock.json`.
 
 ## Definition of done
@@ -44,9 +44,15 @@ candidate submissions, outreach sending, worker/cron automation, deployment conf
   recommendations, risks, and guardrails.
 - [x] Add no-login `/wizmatch/analytics-demo` route.
 - [x] Add ROI service tests and route registration coverage.
+- [x] Add CRM-styled V2 pages for Command Center, Client Discovery, Contact Intelligence,
+  Candidate Intelligence, and Analytics / ROI.
+- [x] Add separate authenticated `-new` routes and no-login `-new-demo` routes without removing
+  classic pages.
+- [x] Add Wizmatch sidebar entries for the V2 pages.
+- [x] Verify V2 demo routes render without browser runtime errors.
 
 ## Next task
 
 After this slice is verified, the next major build should be a unified review/action workbench that
-lets the team move from ROI recommendations into specific safe manual actions: approve contacts,
-shortlist candidates, prioritize requirements, and resolve safety blockers without auto-sending.
+turns these V2 operating views into safe manual actions: approve contacts, shortlist candidates,
+prioritize requirements, and resolve safety blockers without auto-sending.
