@@ -472,3 +472,55 @@ enrichment work.
   - `/wizmatch/candidate-intelligence-new-demo`
   - `/wizmatch/analytics-new-demo`
 - No browser page errors or console errors after fixing the V2 candidate table key warning.
+
+## 2026-07-06 — Step 15: Wizmatch unified operating workbench — Codex — VERIFIED LOCALLY
+
+**What was done**
+- Added deterministic Requirement Priority scoring for open requirements.
+- Added a unified Review Workbench service that combines Client Discovery, Contact Intelligence,
+  Candidate Intelligence, Requirement Priority, and Safety blockers into one manual-action queue.
+- Updated Candidate Intelligence review so reviewer intent is persisted into existing
+  `wizmatch_candidates.india_specific.candidateIntelligenceReview`.
+- Added backend routes:
+  - `GET /api/wizmatch/review-workbench`
+  - `GET /api/wizmatch/guardrails`
+  - `GET /api/wizmatch/requirement-priority/queue`
+  - `POST /api/wizmatch/requirement-priority/:requirementId/review-plan`
+- Added CRM-styled admin pages and demo routes:
+  - `/wizmatch/review-workbench-demo`
+  - `/wizmatch/requirement-priority-new-demo`
+  - `/wizmatch/guardrails-new-demo`
+  - `/wizmatch/local-demo-flow-demo`
+- Added authenticated routes and sidebar entries for the same new operating pages.
+
+**Guardrails preserved**
+- No paid enrichment/provider calls.
+- No outreach sending.
+- No automatic candidate submissions.
+- No worker/cron automation.
+- No Railway/Vercel/deployment config changes.
+- No `package.json` or `package-lock.json` changes.
+- No new schema or migration in this slice; candidate review state uses existing JSON metadata.
+
+**Files changed**
+- `src/services/wizmatchRequirementPriority.ts`
+- `src/services/wizmatchReviewWorkbench.ts`
+- `src/routes/wizmatch.ts`
+- `src/__tests__/wizmatchReviewWorkbench.test.ts`
+- `src/__tests__/wizmatchContactIntelligenceRoutes.test.ts`
+- `admin/src/pages/WizmatchOperatingPages.jsx`
+- `admin/src/App.jsx`
+- `admin/src/components/navEntries.js`
+- `public/admin/` rebuilt by `npm run admin:build`
+- `.ai/CURRENT_TASK.md`
+- `.ai/CURRENT_STATE.md`
+- `.ai/AI_BRIEF.md`
+- `.ai/HANDOFF_LOG.md`
+
+**Verification**
+- `npx vitest run src/__tests__/wizmatchReviewWorkbench.test.ts src/__tests__/wizmatchContactIntelligenceRoutes.test.ts`
+  passed: 2 files, 3 tests.
+- `npm run build` passed.
+- `npm run admin:build` passed.
+- Browser render checks passed for the four new demo routes with no console/runtime errors.
+- Safe action button demo check passed on `/wizmatch/review-workbench-demo`.
