@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-06T18:59:22.949Z_
+_Generated: 2026-07-07T04:14:09.943Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,24 +12,26 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: growth-escalators-backend-v2
 - **Branch**: `feature/contact-intelligence-phase1-adr`
-- **Last commit**: 717b167 feat(wizmatch): add candidate profile intake (13 minutes ago)
-- **Uncommitted changes**: 6 file(s)
+- **Last commit**: d2e1fec fix(wizmatch): harden analytics against optional schema gaps (9 hours ago)
+- **Uncommitted changes**: 221 file(s)
 
 ## Current task
 
-**Wizmatch daily operations + candidate intake** — finish the next safe operating slice after the
-paid discovery/cost-guard release by adding manual candidate-profile intake and an operator SOP.
+**Facebook Lead Forms -> CRM + Slack** — add a safe Facebook Lead Ads ingestion path so connected
+Facebook pages can send lead-form submissions into CRM contacts and notify the BD/Sales Slack
+channel.
 
-Scope is **Candidate Intelligence intake backend/UI, parser tests, route registration, operator
-documentation, generated admin bundle, and AI context**. This task must not add new database
-tables, migrations, automatic outreach sending, automatic candidate submissions, worker/cron
-automation, paid provider calls, deployment config changes, `package.json`, or `package-lock.json`.
+Scope is **webhook ingestion, CRM contact creation/reuse, Slack notification, Social-page setup
+visibility, tests, generated admin bundle, and AI context**. This task does not add schema,
+migrations, auto-outreach, sequence enrollment, candidate submission, paid enrichment, worker/cron
+automation, deployment config, `package.json`, or `package-lock.json` changes.
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
 
 ## Recent commits
 
 ```
+d2e1fec fix(wizmatch): harden analytics against optional schema gaps
 717b167 feat(wizmatch): add candidate profile intake
 20b737c feat(wizmatch): add paid discovery cost guard
 2218a65 feat(wizmatch): add preview-first contact discovery
@@ -39,7 +41,6 @@ fdabbd6 feat(wizmatch): polish operating workbench frontend
 310edb1 feat(wizmatch): add crm-styled v2 admin pages
 402380d fix(wizmatch): normalize contact intelligence channels
 16da4bc feat(wizmatch): add analytics roi feedback loop
-78648c0 feat(wizmatch): implement client and candidate intelligence
 ```
 
 ## npm scripts

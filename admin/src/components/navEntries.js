@@ -2,8 +2,7 @@ import {
   Calendar, Home, Users, Kanban, CheckSquare, MessageSquare, TrendingUp,
   Megaphone, Share2, Target, Search, FileText, Brain, MapPin, Zap, Mail,
   Link as LinkIcon, CreditCard, Receipt, Shield, ShieldCheck, ClipboardList, Settings,
-  Briefcase, Building2, Radar, UserCheck, Send, Globe, Gavel, BarChart3, Network,
-  DatabaseZap,
+  Briefcase, UserCheck, BarChart3, Network, DatabaseZap,
 } from 'lucide-react';
 
 // Permission flag bag — derived from user role + per-user permission overrides.
@@ -186,28 +185,18 @@ export const NAV_ENTRIES = [
     visible: f => f.canWizmatch,
   },
   {
-    id: 'wm-command-center', label: 'Command Center', to: '/wizmatch/command-center',
-    icon: Brain, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-command-center-new', label: 'Command Center V2', to: '/wizmatch/command-center-new',
-    icon: Brain, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-client-discovery', label: 'Client Discovery', to: '/wizmatch/client-discovery',
+    id: 'wm-client-discovery-new', label: 'Client Discovery', to: '/wizmatch/client-discovery-new',
     icon: Search, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
   {
-    id: 'wm-client-discovery-new', label: 'Client Discovery V2', to: '/wizmatch/client-discovery-new',
-    icon: Search, section: 'Wizmatch', group: null,
+    id: 'wm-candidate-intelligence-new', label: 'Candidate Intelligence', to: '/wizmatch/candidate-intelligence-new',
+    icon: ClipboardList, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
   {
-    id: 'wm-requirements', label: 'Requirements', to: '/wizmatch/requirements',
-    icon: FileText, section: 'Wizmatch', group: null,
+    id: 'wm-contact-intelligence-new', label: 'Contact Intelligence', to: '/wizmatch/contact-intelligence-new',
+    icon: Network, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
   {
@@ -216,78 +205,13 @@ export const NAV_ENTRIES = [
     visible: f => f.canWizmatch,
   },
   {
-    id: 'wm-signals', label: 'Job Signals', to: '/wizmatch/signals',
-    icon: Radar, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-candidates', label: 'Candidate Pool', to: '/wizmatch/candidates',
-    icon: UserCheck, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-candidate-intelligence', label: 'Candidate Intel', to: '/wizmatch/candidate-intelligence',
-    icon: ClipboardList, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-candidate-intelligence-new', label: 'Candidate Intel V2', to: '/wizmatch/candidate-intelligence-new',
-    icon: ClipboardList, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-queue', label: 'Review Queue', to: '/wizmatch/queue',
-    icon: Send, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-contact-intelligence', label: 'Contact Intel', to: '/wizmatch/contact-intelligence',
-    icon: Network, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-contact-intelligence-new', label: 'Contact Intel V2', to: '/wizmatch/contact-intelligence-new',
-    icon: Network, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-placements', label: 'Placements', to: '/wizmatch/placements',
-    icon: Briefcase, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-primes', label: 'Primes', to: '/wizmatch/primes',
-    icon: Building2, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-domains', label: 'Domains', to: '/wizmatch/domains',
-    icon: Globe, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-compliance', label: 'Compliance', to: '/wizmatch/compliance',
-    icon: Gavel, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
     id: 'wm-guardrails-new', label: 'Guardrails', to: '/wizmatch/guardrails-new',
     icon: ShieldCheck, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
   {
-    id: 'wm-analytics', label: 'Analytics', to: '/wizmatch/analytics',
+    id: 'wm-analytics-new', label: 'Analytics', to: '/wizmatch/analytics-new',
     icon: BarChart3, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-analytics-new', label: 'Analytics V2', to: '/wizmatch/analytics-new',
-    icon: BarChart3, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-local-demo-flow', label: 'Local Demo Flow', to: '/wizmatch/local-demo-flow',
-    icon: Zap, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
 
