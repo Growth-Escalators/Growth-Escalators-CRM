@@ -1,5 +1,6 @@
 import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { getAuthToken } from './lib/auth.js';
 
 const LoginPage = lazy(() => import('./pages/LoginPage.jsx'));
 const ContactsPage = lazy(() => import('./pages/ContactsPage.jsx'));
@@ -82,7 +83,7 @@ class ErrorBoundary extends React.Component {
 }
 
 function PrivateRoute({ children }) {
-  const token = localStorage.getItem('ge_crm_token');
+  const token = getAuthToken();
   return token ? children : <Navigate to="/login" replace />;
 }
 

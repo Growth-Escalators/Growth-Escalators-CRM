@@ -141,6 +141,13 @@
       "when": 1783048003383,
       "tag": "0019_silly_zodiak",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1783420000000,
+      "tag": "0022_tenant_scoped_user_emails",
+      "breakpoints": true
     }
   ]
 }

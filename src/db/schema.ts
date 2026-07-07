@@ -436,16 +436,22 @@ export const funnelMembers = pgTable(
 // ---------------------------------------------------------------------------
 // TABLE 17 — users  (CRM admin panel login)
 // ---------------------------------------------------------------------------
-export const users = pgTable('users', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
-  name: text('name').notNull(),
-  email: text('email').notNull().unique(),
-  passwordHash: text('password_hash').notNull(),
-  role: text('role').default('staff'), // admin | manager_ops | manager_ads | sales | staff
-  tokenVersion: integer('token_version').default(1),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+export const users = pgTable(
+  'users',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    name: text('name').notNull(),
+    email: text('email').notNull(),
+    passwordHash: text('password_hash').notNull(),
+    role: text('role').default('staff'), // admin | manager_ops | manager_ads | sales | staff
+    tokenVersion: integer('token_version').default(1),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    tenantEmailIdx: uniqueIndex('users_tenant_email_unique').on(t.tenantId, t.email),
+  }),
+);
 
 // ---------------------------------------------------------------------------
 // TABLE 18 — funnel_assignments  (audit log of every redirect)

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import PagePostsSection from '../components/PagePostsSection.jsx';
 import { apiFetch } from '../lib/api.js';
+import { getAuthToken } from '../lib/auth.js';
 import { Building2, FileText, RefreshCw, AlertCircle, ShieldCheck } from 'lucide-react';
 
 function maskToken(token) {
@@ -106,7 +107,7 @@ export default function MetaAssetsPage() {
             <button
               type="button"
               onClick={() => {
-                const t = localStorage.getItem('ge_crm_token');
+                const t = getAuthToken();
                 window.location.href = `/api/social/oauth/facebook/start?token=${t}`;
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1877F2] text-white rounded-lg text-sm hover:bg-[#0f5fc2] mr-2"

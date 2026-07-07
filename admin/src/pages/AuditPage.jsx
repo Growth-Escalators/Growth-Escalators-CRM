@@ -5,6 +5,7 @@ import GlobalSearch from '../components/GlobalSearch.jsx';
 import { SkeletonTable } from '../components/SkeletonLoader.jsx';
 import EmptyState from '../components/EmptyState.jsx';
 import { apiFetch, getUser } from '../lib/api.js';
+import { getAuthToken } from '../lib/auth.js';
 import { ClipboardList, Download, Filter, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const ACTION_COLORS = {
@@ -67,7 +68,7 @@ export default function AuditPage() {
     if (filters.action) params.set('action', filters.action);
     if (filters.from) params.set('from', filters.from);
     if (filters.to) params.set('to', filters.to);
-    const token = localStorage.getItem('ge_crm_token');
+    const token = getAuthToken();
     const res = await fetch(`/api/audit/export?${params.toString()}`, {
       headers: { Authorization: `Bearer ${token}` },
     });

@@ -10,4 +10,4 @@ nixPkgs = ['nodejs_20', 'npm-9_x', 'openssl']
 cmds = ['npm install --legacy-peer-deps --include=dev']
 
 [phases.build]
-cmds = ['npm run build']
+cmds = ['npm run admin:build && npm run build']

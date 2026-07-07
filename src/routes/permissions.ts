@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { db } from '../db/index';
 import { userPermissions, users } from '../db/schema';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { hash } from '@node-rs/argon2';
 import crypto from 'crypto';
 
@@ -184,9 +184,11 @@ router.post('/users', async (req: Request, res: Response) => {
   }
 
   const normalisedEmail = email.toLowerCase().trim();
-  const existing = await db.select().from(users).where(eq(users.email, normalisedEmail)).limit(1);
+  const existing = await db.select().from(users)
+    .where(and(eq(users.tenantId, tenantId), eq(users.email, normalisedEmail)))
+    .limit(1);
   if (existing.length > 0) {
-    res.status(409).json({ error: `a user with email ${normalisedEmail} already exists` });
+    res.status(409).json({ error: `a user with email ${normalisedEmail} already exists in this product` });
     return;
   }
 
@@ -212,8 +214,8 @@ router.post('/users', async (req: Request, res: Response) => {
 
     // Seed an empty user_permissions row so the user shows up in /users list filters
     await db.execute(sql`
-      INSERT INTO user_permissions (user_id, is_owner)
-      VALUES (${inserted.id}, false)
+      INSERT INTO user_permissions (user_id, tenant_id, is_owner)
+      VALUES (${inserted.id}, ${tenantId}, false)
       ON CONFLICT (user_id) DO NOTHING
     `).catch(() => { /* table may not have unique constraint; ignore */ });
 

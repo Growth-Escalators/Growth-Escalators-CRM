@@ -1,19 +1,22 @@
-const token = () => localStorage.getItem('ge_crm_token');
+import {
+  clearAuthSession,
+  getAuthPermissions,
+  getAuthToken,
+  getAuthUser,
+} from './auth.js';
 
 export async function apiFetch(path, options = {}) {
   const res = await fetch(path, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token()}`,
+      Authorization: `Bearer ${getAuthToken()}`,
       ...options.headers,
     },
   });
 
   if (res.status === 401) {
-    localStorage.removeItem('ge_crm_token');
-    localStorage.removeItem('ge_crm_user');
-    localStorage.removeItem('ge_crm_permissions');
+    clearAuthSession();
     window.location.href = '/login';
     throw new Error('Session expired');
   }
@@ -38,24 +41,14 @@ export async function apiFetch(path, options = {}) {
 }
 
 export function getUser() {
-  try {
-    return JSON.parse(localStorage.getItem('ge_crm_user') || 'null');
-  } catch {
-    return null;
-  }
+  return getAuthUser();
 }
 
 export function getPermissions() {
-  try {
-    return JSON.parse(localStorage.getItem('ge_crm_permissions') || '{}');
-  } catch {
-    return {};
-  }
+  return getAuthPermissions();
 }
 
 export function logout() {
-  localStorage.removeItem('ge_crm_token');
-  localStorage.removeItem('ge_crm_user');
-  localStorage.removeItem('ge_crm_permissions');
+  clearAuthSession();
   window.location.href = '/login';
 }

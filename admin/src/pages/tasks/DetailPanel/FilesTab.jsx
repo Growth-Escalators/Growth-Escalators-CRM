@@ -9,6 +9,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Paperclip, Link as LinkIcon, X, Upload } from 'lucide-react';
 import { apiFetch } from '../../../lib/api.js';
+import { clearAuthSession, getAuthToken } from '../../../lib/auth.js';
 
 function fmtSize(bytes) {
   if (!bytes && bytes !== 0) return '';
@@ -82,14 +83,14 @@ export default function FilesTab({ task }) {
     fd.append('file', file);
     try {
       // FormData → don't set Content-Type; let the browser add the boundary.
-      const token = localStorage.getItem('ge_crm_token');
+      const token = getAuthToken();
       const res = await fetch(`/api/tasks/${task.id}/attachments`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: fd,
       });
       if (res.status === 401) {
-        localStorage.removeItem('ge_crm_token');
+        clearAuthSession();
         window.location.href = '/login';
         return;
       }
@@ -122,7 +123,7 @@ export default function FilesTab({ task }) {
     }
     // Uploaded file — needs auth header, can't use plain <a href>.
     try {
-      const token = localStorage.getItem('ge_crm_token');
+      const token = getAuthToken();
       const res = await fetch(`/api/tasks/${task.id}/attachments/${att.id}/download`, {
         headers: { Authorization: `Bearer ${token}` },
       });

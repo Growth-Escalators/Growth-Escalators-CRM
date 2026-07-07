@@ -4,6 +4,7 @@ import ContactSlideIn from '../components/ContactSlideIn.jsx';
 import AddUpdateOpportunityModal from '../components/AddUpdateOpportunityModal.jsx';
 import { apiFetch } from '../lib/api.js';
 import { Modal, Button } from '../components/ui/index.js';
+import { getAuthToken } from '../lib/auth.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -298,7 +299,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${localStorage.getItem('ge_crm_token')}`,
+        Authorization: `Bearer ${getAuthToken()}`,
       },
       body: JSON.stringify({ contactIds: [...selectedIds] }),
     });

@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import { apiFetch } from '../lib/api.js';
+import { getAuthToken } from '../lib/auth.js';
 
 function safeISOString(date) {
   if (!(date instanceof Date) || isNaN(date.getTime())) return '1970-01-01T00:00:00.000Z';
@@ -1125,7 +1126,7 @@ export default function BillingPage() {
   }
 
   function handleDownloadPDF(id, invoiceNumber) {
-    const token = localStorage.getItem('ge_crm_token');
+    const token = getAuthToken();
     const a = document.createElement('a');
     a.href = `/api/billing/invoices/${id}/pdf`;
     a.download = `${(invoiceNumber || 'invoice').replace(/\//g, '-')}.pdf`;

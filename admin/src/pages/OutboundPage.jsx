@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import StatCard from '../components/StatCard.jsx';
 import { apiFetch } from '../lib/api.js';
+import { getAuthToken } from '../lib/auth.js';
 import {
   Upload, RefreshCw, Filter, X, Target, AlertCircle, CheckCircle2,
   Mail, Link2, Building2, ShieldQuestion, Briefcase, TrendingUp, UserPlus,
@@ -357,7 +358,7 @@ export default function OutboundPage() {
       const form = new FormData();
       form.append('file', file);
       // apiFetch JSON-defaults the Content-Type, so we use raw fetch here
-      const token = localStorage.getItem('ge_crm_token');
+      const token = getAuthToken();
       const r = await fetch('/api/outbound/prospects/import-csv', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
