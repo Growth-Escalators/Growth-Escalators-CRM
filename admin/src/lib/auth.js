@@ -31,6 +31,34 @@ export function getProductHome(slug = getTenantSlug()) {
   return productForTenant(slug) === 'wizmatch' ? '/wizmatch/dashboard' : '/dashboard';
 }
 
+const WIZMATCH_SHARED_ROUTE_MAP = {
+  '/dashboard': '/wizmatch/dashboard',
+  '/contacts': '/wizmatch/contacts',
+  '/pipeline': '/wizmatch/pipeline',
+  '/tasks': '/wizmatch/tasks',
+  '/tasks/v2': '/wizmatch/tasks',
+  '/inbox': '/wizmatch/inbox',
+  '/billing': '/wizmatch/billing',
+  '/finance': '/wizmatch/finance',
+  '/emails': '/wizmatch/emails',
+  '/whatsapp-templates': '/wizmatch/whatsapp-templates',
+  '/discover': '/wizmatch/discover',
+  '/outreach-dashboard': '/wizmatch/outreach',
+  '/intelligence': '/wizmatch/intelligence',
+  '/settings/permissions': '/wizmatch/settings/permissions',
+  '/settings/audit': '/wizmatch/settings/audit',
+  '/pipelines/settings': '/wizmatch/pipelines/settings',
+};
+
+export function productPath(path, slug = getTenantSlug()) {
+  const raw = String(path || '/');
+  if (raw.startsWith('/wizmatch') || productForTenant(slug) !== 'wizmatch') return raw;
+  const match = raw.match(/^([^?#]*)(.*)$/);
+  const pathname = match?.[1] || raw;
+  const suffix = match?.[2] || '';
+  return `${WIZMATCH_SHARED_ROUTE_MAP[pathname] || pathname}${suffix}`;
+}
+
 export function getTenantSlug(explicit) {
   if (explicit) return normalizeTenantSlug(explicit);
   if (typeof window === 'undefined') return 'growth-escalators';

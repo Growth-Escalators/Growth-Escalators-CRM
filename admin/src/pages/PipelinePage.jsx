@@ -6,6 +6,7 @@ import Sidebar from '../components/Sidebar.jsx';
 import ContactSlideIn from '../components/ContactSlideIn.jsx';
 import DealDrawer from '../components/DealDrawer.jsx';
 import { apiFetch } from '../lib/api.js';
+import { productPath } from '../lib/auth.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -646,7 +647,7 @@ export default function PipelinePage() {
                 </span>
               )}
               <Link
-                to="/pipelines/settings"
+                to={productPath('/pipelines/settings')}
                 className="p-2 rounded-lg hover:bg-neutral-100 text-neutral-400 hover:text-neutral-600 transition-colors"
                 title="Pipeline Settings"
               >
@@ -756,7 +757,7 @@ export default function PipelinePage() {
               </svg>
             </div>
             <h3 className="text-lg font-semibold text-neutral-700 mb-2">No pipelines yet</h3>
-            <Link to="/pipelines/settings" className="text-sm font-medium text-accent-600 hover:text-accent-700">
+            <Link to={productPath('/pipelines/settings')} className="text-sm font-medium text-accent-600 hover:text-accent-700">
               Create your first pipeline &rarr;
             </Link>
           </div>

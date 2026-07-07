@@ -87,11 +87,17 @@ class ErrorBoundary extends React.Component {
 function PrivateRoute({ children }) {
   const location = useLocation();
   const activeTenantSlug = getTenantSlug();
-  const token = getAuthToken(activeTenantSlug);
-  const user = getAuthUser(activeTenantSlug);
-  const userTenantSlug = normalizeTenantSlug(user?.tenantSlug || activeTenantSlug);
-  const isWizmatchUser = userTenantSlug === 'wizmatch';
   const isWizmatchPath = location.pathname.startsWith('/wizmatch');
+  const activeToken = getAuthToken(activeTenantSlug);
+  const activeUser = getAuthUser(activeTenantSlug);
+  const growthToken = getAuthToken('growth-escalators');
+  const growthUser = getAuthUser('growth-escalators');
+  const wizmatchToken = getAuthToken('wizmatch');
+  const wizmatchUser = getAuthUser('wizmatch');
+  const token = isWizmatchPath ? wizmatchToken : activeToken;
+  const user = isWizmatchPath ? wizmatchUser : activeUser;
+  const userTenantSlug = normalizeTenantSlug(user?.tenantSlug || (isWizmatchPath ? 'wizmatch' : activeTenantSlug));
+  const isWizmatchUser = userTenantSlug === 'wizmatch';
   const wizmatchSharedRouteMap = {
     '/dashboard': '/wizmatch/dashboard',
     '/contacts': '/wizmatch/contacts',
@@ -109,13 +115,19 @@ function PrivateRoute({ children }) {
     '/settings/audit': '/wizmatch/settings/audit',
     '/pipelines/settings': '/wizmatch/pipelines/settings',
   };
+  if (!token && isWizmatchPath && growthToken && normalizeTenantSlug(growthUser?.tenantSlug) !== 'wizmatch') {
+    return <Navigate to={getProductHome(growthUser?.tenantSlug || 'growth-escalators')} replace />;
+  }
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
   if (token && isWizmatchUser && !isWizmatchPath) {
     return <Navigate to={wizmatchSharedRouteMap[location.pathname] || getProductHome(userTenantSlug)} replace />;
   }
   if (token && !isWizmatchUser && isWizmatchPath) {
     return <Navigate to={getProductHome(userTenantSlug)} replace />;
   }
-  return token ? children : <Navigate to="/login" replace />;
+  return children;
 }
 
 function HomeRedirect() {
@@ -173,9 +185,9 @@ export default function App() {
             <Route path="/wizmatch/inbox" element={<PrivateRoute><InboxPage /></PrivateRoute>} />
             <Route path="/wizmatch/billing" element={<PrivateRoute><BillingPage /></PrivateRoute>} />
             <Route path="/wizmatch/finance" element={<PrivateRoute><FinancePage /></PrivateRoute>} />
-            <Route path="/wizmatch/emails" element={<PrivateRoute><EmailTemplatesPage /></PrivateRoute>} />
+            <Route path="/wizmatch/emails" element={<PrivateRoute><AppLayout><EmailTemplatesPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/whatsapp-templates" element={<PrivateRoute><WhatsAppTemplatesPage /></PrivateRoute>} />
-            <Route path="/wizmatch/discover" element={<PrivateRoute><LeadDiscoveryPage /></PrivateRoute>} />
+            <Route path="/wizmatch/discover" element={<PrivateRoute><AppLayout><LeadDiscoveryPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/outreach" element={<PrivateRoute><OutreachDashboard /></PrivateRoute>} />
             <Route path="/wizmatch/intelligence" element={<PrivateRoute><AppLayout><WizmatchIntelligencePage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/settings/permissions" element={<PrivateRoute><PermissionsPage /></PrivateRoute>} />

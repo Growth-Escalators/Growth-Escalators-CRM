@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-07T16:12:46.198Z_
+_Generated: 2026-07-07T19:35:18.976Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,8 +12,8 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: growth-escalators-backend-v2
 - **Branch**: `feature/contact-intelligence-phase1-adr`
-- **Last commit**: d98ddad fix(auth): separate product navigation and lead routing (6 hours ago)
-- **Uncommitted changes**: 10 file(s)
+- **Last commit**: 3319859 feat(crm): unify Growth and Wizmatch tenant profiles (2 hours ago)
+- **Uncommitted changes**: 13 file(s)
 
 ## Current task
 
@@ -31,6 +31,7 @@ or deployment config changes.
 ## Recent commits
 
 ```
+3319859 feat(crm): unify Growth and Wizmatch tenant profiles
 d98ddad fix(auth): separate product navigation and lead routing
 e3d683f fix(admin): serve freshly built login bundle
 ecd140c fix(deploy): install admin dependencies in nixpacks
@@ -40,7 +41,6 @@ d2e1fec fix(wizmatch): harden analytics against optional schema gaps
 717b167 feat(wizmatch): add candidate profile intake
 20b737c feat(wizmatch): add paid discovery cost guard
 2218a65 feat(wizmatch): add preview-first contact discovery
-d3aa9bf feat(wizmatch): add data readiness workbench
 ```
 
 ## npm scripts

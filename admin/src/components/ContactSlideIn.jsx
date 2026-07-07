@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { apiFetch } from '../lib/api.js';
+import { productPath } from '../lib/auth.js';
 
 const BUSINESS_TYPES = [
   { value: 'd2c_brand', label: 'D2C Brand', color: 'bg-success-500/10 text-success-700' },
@@ -674,7 +675,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                           </span>
                         )}
                         <a
-                          href={`/pipeline?dealId=${deal.id}`}
+                          href={productPath(`/pipeline?dealId=${deal.id}`)}
                           className="text-xs text-primary-600 hover:text-primary-800 font-medium ml-auto shrink-0"
                         >
                           Open in Pipeline →
