@@ -17,6 +17,13 @@ async function seed() {
         settings: {},
       },
       {
+        name: 'Wizmatch',
+        slug: 'wizmatch',
+        plan: 'wizmatch_internal',
+        isActive: true,
+        settings: {},
+      },
+      {
         name: 'City Clinic',
         slug: 'city-clinic',
         plan: 'client_basic',

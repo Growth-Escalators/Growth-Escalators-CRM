@@ -7,6 +7,8 @@ export interface AuthPayload {
   id: string;
   email: string;
   tenantId: string;
+  tenantSlug?: string;
+  product?: string;
   role: string;
   tokenVersion: number;
 }

@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
+import { getAuthToken } from '../lib/auth.js';
 
 async function fetchOutreach(path) {
-  const token = localStorage.getItem('ge_crm_token');
+  const token = getAuthToken();
   const res = await fetch(`/api/outreach/leads${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   });

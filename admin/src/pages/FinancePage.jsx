@@ -1,6 +1,7 @@
 import React, { Fragment, useEffect, useMemo, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import { apiFetch } from '../lib/api.js';
+import { getAuthToken } from '../lib/auth.js';
 import {
   DollarSign, TrendingUp, TrendingDown, Receipt, Plus, Trash2,
   RefreshCw, ChevronLeft, ChevronRight, Users, Settings, Calendar,
@@ -470,7 +471,7 @@ export default function FinancePage() {
   }
 
   function exportCSV() {
-    const token = localStorage.getItem('ge_crm_token');
+    const token = getAuthToken();
     const url = `/api/finance/expenses/export-csv?month=${month}`;
     fetch(url, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.blob())

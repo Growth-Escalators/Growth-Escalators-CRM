@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../lib/api.js';
+import { getAuthToken } from '../lib/auth.js';
 import {
   MapPin, Search, Download, Upload, RefreshCw, Globe,
   Phone, Star, ChevronDown, ChevronUp, CheckSquare, Square,
@@ -209,7 +210,7 @@ export default function LeadDiscoveryPage() {
     if (!selectedSearch) return;
     setExporting(true);
     try {
-      const token = localStorage.getItem('ge_crm_token');
+      const token = getAuthToken();
       const statusParam = filterStatus !== 'all' ? `&status=${filterStatus}` : '';
       const res = await fetch(
         `/api/outreach/discover/export?searchId=${selectedSearch}&format=${format}${statusParam}`,

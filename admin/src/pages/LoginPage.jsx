@@ -1,8 +1,17 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import {
+  getTenantConfig,
+  getTenantSlug,
+  setActiveTenantSlug,
+  setAuthPermissions,
+  setAuthSession,
+  TENANT_OPTIONS,
+} from '../lib/auth.js';
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const [tenantSlug, setTenantSlug] = useState(getTenantSlug());
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -11,6 +20,14 @@ export default function LoginPage() {
   const [resetCode, setResetCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [message, setMessage] = useState('');
+  const tenant = getTenantConfig(tenantSlug);
+
+  function handleTenantChange(nextSlug) {
+    setTenantSlug(nextSlug);
+    setActiveTenantSlug(nextSlug);
+    setError('');
+    setMessage('');
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -20,21 +37,20 @@ export default function LoginPage() {
       const res = await fetch('/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, tenantSlug }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || 'Login failed'); return; }
-      localStorage.setItem('ge_crm_token', data.token);
-      localStorage.setItem('ge_crm_user', JSON.stringify(data.user));
+      setAuthSession({ token: data.token, user: data.user }, tenantSlug);
       // Fetch module permissions so the sidebar can show/hide sections immediately
       try {
         const permsRes = await fetch('/api/permissions/me', {
           headers: { Authorization: `Bearer ${data.token}` },
         });
         const permsData = await permsRes.json();
-        localStorage.setItem('ge_crm_permissions', JSON.stringify(permsData?.permissions || {}));
+        setAuthPermissions(permsData?.permissions || {}, tenantSlug);
       } catch {
-        localStorage.setItem('ge_crm_permissions', '{}');
+        setAuthPermissions({}, tenantSlug);
       }
       navigate('/dashboard');
     } catch {
@@ -53,7 +69,7 @@ export default function LoginPage() {
       const res = await fetch('/auth/forgot-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, tenantSlug }),
       });
       const data = await res.json();
       setMessage(data.message || 'Reset code sent.');
@@ -74,7 +90,7 @@ export default function LoginPage() {
       const res = await fetch('/auth/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, code: resetCode, newPassword }),
+        body: JSON.stringify({ email, code: resetCode, newPassword, tenantSlug }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || 'Reset failed'); return; }
@@ -93,10 +109,10 @@ export default function LoginPage() {
       <div className="bg-white rounded-2xl shadow-lg p-10 w-full max-w-sm">
         <div className="mb-8 text-center">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-sky-500 to-emerald-400 text-white text-xl font-bold mb-4">
-            GE
+            {tenant.shortLabel}
           </div>
-          <h1 className="text-2xl font-bold text-slate-900">Growth Escalators</h1>
-          <p className="text-sm text-slate-500 mt-1">CRM Dashboard</p>
+          <h1 className="text-2xl font-bold text-slate-900">{tenant.label}</h1>
+          <p className="text-sm text-slate-500 mt-1">{tenant.subtitle}</p>
         </div>
 
         {message && (
@@ -108,6 +124,25 @@ export default function LoginPage() {
 
         {mode === 'login' && (
           <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Product</label>
+              <div className="grid grid-cols-2 gap-2">
+                {TENANT_OPTIONS.map((option) => (
+                  <button
+                    key={option.slug}
+                    type="button"
+                    onClick={() => handleTenantChange(option.slug)}
+                    className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                      tenantSlug === option.slug
+                        ? 'border-sky-500 bg-sky-50 text-sky-700'
+                        : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
               <input type="email" value={email} onChange={e => setEmail(e.target.value)} required
@@ -133,7 +168,23 @@ export default function LoginPage() {
 
         {mode === 'forgot' && (
           <form onSubmit={handleForgot} className="space-y-4">
-            <p className="text-sm text-slate-600">Enter your email and we'll send a reset code.</p>
+            <p className="text-sm text-slate-600">Enter your {tenant.label} email and we'll send a reset code.</p>
+            <div className="grid grid-cols-2 gap-2">
+              {TENANT_OPTIONS.map((option) => (
+                <button
+                  key={option.slug}
+                  type="button"
+                  onClick={() => handleTenantChange(option.slug)}
+                  className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                    tenantSlug === option.slug
+                      ? 'border-sky-500 bg-sky-50 text-sky-700'
+                      : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
               <input type="email" value={email} onChange={e => setEmail(e.target.value)} required

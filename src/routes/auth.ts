@@ -20,6 +20,31 @@ if (!JWT_SECRET) {
 // 7-day session — small trusted team. Forced logout still works via
 // tokenVersion bump in DB (used by removeUser scripts and password resets).
 const JWT_EXPIRES = '7d';
+const DEFAULT_TENANT_SLUG = 'growth-escalators';
+
+function normaliseEmail(email: string): string {
+  return email.toLowerCase().trim();
+}
+
+function normaliseTenantSlug(value: unknown): string {
+  const raw = String(value || '').toLowerCase().trim();
+  if (raw === 'wizmatch' || raw === 'wm') return 'wizmatch';
+  if (raw === 'growth' || raw === 'growth-escalators' || raw === 'ge') return 'growth-escalators';
+  return DEFAULT_TENANT_SLUG;
+}
+
+function tenantSlugFromRequest(req: Request, explicit?: unknown): string {
+  if (explicit) return normaliseTenantSlug(explicit);
+  const headerTenant = req.get('x-tenant-slug') || req.get('x-product');
+  if (headerTenant) return normaliseTenantSlug(headerTenant);
+  const host = (req.hostname || req.get('host') || '').toLowerCase();
+  if (host.startsWith('wizmatch.') || host.includes('wizmatch')) return 'wizmatch';
+  return DEFAULT_TENANT_SLUG;
+}
+
+function productForTenant(tenantSlug: string): string {
+  return tenantSlug === 'wizmatch' ? 'wizmatch' : 'growth-escalators';
+}
 
 // Rate limiters
 const loginLimiter = rateLimit({ windowMs: 60_000, max: 5, message: { error: 'Too many login attempts. Try again in 1 minute.' }, standardHeaders: true, legacyHeaders: false });
@@ -27,28 +52,41 @@ const resetLimiter = rateLimit({ windowMs: 15 * 60_000, max: 3, message: { error
 
 // POST /auth/login
 router.post('/login', loginLimiter, async (req: Request, res: Response) => {
-  const { email, password } = req.body as { email?: string; password?: string };
+  const { email, password, tenantSlug: rawTenantSlug, product } = req.body as {
+    email?: string;
+    password?: string;
+    tenantSlug?: string;
+    product?: string;
+  };
 
   if (!email || !password) {
     res.status(400).json({ error: 'email and password are required' });
     return;
   }
 
+  const normalisedEmail = normaliseEmail(email);
+  const tenantSlug = tenantSlugFromRequest(req, rawTenantSlug || product);
+
   try {
     const result = await db.execute(sql`
-      SELECT id, name, email,
-             password_hash AS "passwordHash",
-             role,
-             tenant_id AS "tenantId",
-             token_version AS "tokenVersion"
-      FROM users
-      WHERE email = ${email.toLowerCase()}
-        AND (is_active IS NULL OR is_active = true)
+      SELECT u.id, u.name, u.email,
+             u.password_hash AS "passwordHash",
+             u.role,
+             u.tenant_id AS "tenantId",
+             u.token_version AS "tokenVersion",
+             t.slug AS "tenantSlug",
+             t.name AS "tenantName"
+      FROM users u
+      INNER JOIN tenants t ON t.id = u.tenant_id
+      WHERE u.email = ${normalisedEmail}
+        AND t.slug = ${tenantSlug}
+        AND (u.is_active IS NULL OR u.is_active = true)
+        AND (t.is_active IS NULL OR t.is_active = true)
       LIMIT 1
     `);
     const user = result.rows[0] as {
       id: string; name: string; email: string; passwordHash: string;
-      role: string; tenantId: string; tokenVersion: number;
+      role: string; tenantId: string; tokenVersion: number; tenantSlug: string; tenantName: string;
     } | undefined;
 
     if (!user) {
@@ -66,14 +104,34 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
     const tokenVersion = user.tokenVersion || 1;
 
     const token = jwt.sign(
-      { id: user.id, email: user.email, tenantId: user.tenantId, role, tokenVersion },
+      {
+        id: user.id,
+        email: user.email,
+        tenantId: user.tenantId,
+        tenantSlug: user.tenantSlug,
+        product: productForTenant(user.tenantSlug),
+        role,
+        tokenVersion,
+      },
       JWT_SECRET!,
       { expiresIn: JWT_EXPIRES }
     );
 
     await logAuditEvent(user.id, user.tenantId, 'LOGIN', 'user', user.id, { email: user.email }, req);
 
-    res.json({ token, user: { id: user.id, name: user.name, email: user.email, role } });
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role,
+        tenantId: user.tenantId,
+        tenantSlug: user.tenantSlug,
+        tenantName: user.tenantName,
+        product: productForTenant(user.tenantSlug),
+      },
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error('[auth] login error:', msg);
@@ -90,13 +148,29 @@ router.get('/me', requireAuth, (req: Request, res: Response) => {
 // POST /auth/forgot-password
 // ---------------------------------------------------------------------------
 router.post('/forgot-password', resetLimiter, async (req: Request, res: Response) => {
-  const { email } = req.body as { email?: string };
+  const { email, tenantSlug: rawTenantSlug, product } = req.body as {
+    email?: string;
+    tenantSlug?: string;
+    product?: string;
+  };
 
   // Always return success — don't reveal if email exists
   if (!email) { res.json({ message: 'If that email is registered, a reset code has been sent.' }); return; }
 
   try {
-    const [user] = await db.select().from(users).where(eq(users.email, email.toLowerCase())).limit(1);
+    const normalisedEmail = normaliseEmail(email);
+    const tenantSlug = tenantSlugFromRequest(req, rawTenantSlug || product);
+    const result = await db.execute(sql`
+      SELECT u.id, u.name, u.email
+      FROM users u
+      INNER JOIN tenants t ON t.id = u.tenant_id
+      WHERE u.email = ${normalisedEmail}
+        AND t.slug = ${tenantSlug}
+        AND (u.is_active IS NULL OR u.is_active = true)
+        AND (t.is_active IS NULL OR t.is_active = true)
+      LIMIT 1
+    `);
+    const user = result.rows[0] as { id: string; name: string; email: string } | undefined;
     if (!user) { res.json({ message: 'If that email is registered, a reset code has been sent.' }); return; }
 
     // Generate 6-digit code
@@ -154,7 +228,13 @@ router.post('/forgot-password', resetLimiter, async (req: Request, res: Response
 // POST /auth/reset-password
 // ---------------------------------------------------------------------------
 router.post('/reset-password', resetLimiter, async (req: Request, res: Response) => {
-  const { email, code, newPassword } = req.body as { email?: string; code?: string; newPassword?: string };
+  const { email, code, newPassword, tenantSlug: rawTenantSlug, product } = req.body as {
+    email?: string;
+    code?: string;
+    newPassword?: string;
+    tenantSlug?: string;
+    product?: string;
+  };
 
   if (!email || !code || !newPassword) {
     res.status(400).json({ error: 'email, code, and newPassword are required' });
@@ -167,7 +247,19 @@ router.post('/reset-password', resetLimiter, async (req: Request, res: Response)
   }
 
   try {
-    const [user] = await db.select().from(users).where(eq(users.email, email.toLowerCase())).limit(1);
+    const normalisedEmail = normaliseEmail(email);
+    const tenantSlug = tenantSlugFromRequest(req, rawTenantSlug || product);
+    const result = await db.execute(sql`
+      SELECT u.*
+      FROM users u
+      INNER JOIN tenants t ON t.id = u.tenant_id
+      WHERE u.email = ${normalisedEmail}
+        AND t.slug = ${tenantSlug}
+        AND (u.is_active IS NULL OR u.is_active = true)
+        AND (t.is_active IS NULL OR t.is_active = true)
+      LIMIT 1
+    `);
+    const user = result.rows[0] as { id: string } | undefined;
     if (!user) { res.status(400).json({ error: 'Invalid or expired reset code' }); return; }
 
     // Find valid token

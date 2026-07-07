@@ -632,7 +632,11 @@ oauthRouter.get('/facebook/callback', async (req: Request, res: Response) => {
 
       // Upsert Facebook page
       const existing = await db.select().from(socialAccounts)
-        .where(and(eq(socialAccounts.accountId, page.id), eq(socialAccounts.platform, 'facebook')))
+        .where(and(
+          eq(socialAccounts.tenantId, tenantId),
+          eq(socialAccounts.accountId, page.id),
+          eq(socialAccounts.platform, 'facebook'),
+        ))
         .limit(1);
 
       if (existing.length > 0) {
@@ -667,7 +671,11 @@ oauthRouter.get('/facebook/callback', async (req: Request, res: Response) => {
           const igEncToken = encrypt(pageToken);
 
           const existingIg = await db.select().from(socialAccounts)
-            .where(and(eq(socialAccounts.accountId, ig.id), eq(socialAccounts.platform, 'instagram')))
+            .where(and(
+              eq(socialAccounts.tenantId, tenantId),
+              eq(socialAccounts.accountId, ig.id),
+              eq(socialAccounts.platform, 'instagram'),
+            ))
             .limit(1);
 
           if (existingIg.length > 0) {

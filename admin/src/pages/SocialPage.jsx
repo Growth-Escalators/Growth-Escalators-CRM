@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import { apiFetch } from '../lib/api.js';
+import { getAuthToken } from '../lib/auth.js';
 import { Share2, Globe, Camera, Plus, Trash2, AlertCircle, Image, Film, Search, ExternalLink } from 'lucide-react';
 
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -126,6 +127,23 @@ function ComposeTab({ accounts, onPost }) {
   async function handlePost() {
     if (!selectedIds.length) { setError('Select at least one account'); return; }
     if (!content.trim()) { setError('Add some content'); return; }
+
+    // Convert datetime-local (a TZ-less string like "2026-05-26T15:30") to a
+    // proper ISO string with timezone. The browser's `new Date(localStr)` parses
+    // the string in the user's LOCAL timezone, then `.toISOString()` serializes
+    // to UTC. Without this, Railway (UTC server) interprets "15:30" as 15:30 UTC,
+    // which for an IST user means posts publish 5h30m later than intended.
+    let scheduledAtIso = null;
+    if (schedule && scheduledAt) {
+      const dt = new Date(scheduledAt);
+      if (isNaN(dt.getTime())) { setError('Invalid schedule date'); return; }
+      if (dt.getTime() <= Date.now()) {
+        setError('Scheduled time must be in the future. Uncheck "Schedule for later" to post now.');
+        return;
+      }
+      scheduledAtIso = dt.toISOString();
+    }
+
     setPosting(true);
     setError('');
     try {
@@ -134,7 +152,7 @@ function ComposeTab({ accounts, onPost }) {
         body: JSON.stringify({
           socialAccountIds: selectedIds,
           content,
-          scheduledAt: schedule && scheduledAt ? scheduledAt : null,
+          scheduledAt: scheduledAtIso,
         }),
       });
       setDone(true);
@@ -276,7 +294,9 @@ function CalendarTab() {
 
   function postsByDay(day) {
     return posts.filter(p => {
-      const d = new Date(p.createdAt);
+      // Match the backend's COALESCE(published_at, scheduled_at, created_at)
+      // so a post scheduled for tomorrow appears on tomorrow's tile, not today's.
+      const d = new Date(p.publishedAt || p.scheduledAt || p.createdAt);
       return d.getDate() === day && d.getMonth() === month.getMonth() && d.getFullYear() === month.getFullYear();
     });
   }
@@ -628,7 +648,7 @@ function AccountsTab({ accounts, onDelete, onAdd }) {
           <h3 className="text-lg font-bold text-slate-900 mb-1">Connect Your Facebook Pages</h3>
           <p className="text-sm text-slate-500 mb-6 max-w-sm mx-auto">Link your Facebook Pages and Instagram accounts to post directly from the CRM.</p>
           <button
-            onClick={() => { const t = localStorage.getItem('ge_crm_token'); window.location.href = `/api/social/oauth/facebook/start?token=${t}`; }}
+            onClick={() => { const t = getAuthToken(); window.location.href = `/api/social/oauth/facebook/start?token=${t}`; }}
             className="inline-flex items-center gap-2 px-6 py-3 text-white font-semibold rounded-xl text-sm hover:opacity-90 transition-opacity cursor-pointer" style={{ backgroundColor: '#1877F2' }}>
             <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current"><path d="M22 12c0-5.523-4.477-10-10-10S2 6.477 2 12c0 4.991 3.657 9.128 8.438 9.878v-6.987h-2.54V12h2.54V9.797c0-2.506 1.492-3.89 3.777-3.89 1.094 0 2.238.195 2.238.195v2.46h-1.26c-1.243 0-1.63.771-1.63 1.562V12h2.773l-.443 2.89h-2.33v6.988C18.343 21.128 22 16.991 22 12z"/></svg>
             Connect with Facebook
@@ -644,7 +664,7 @@ function AccountsTab({ accounts, onDelete, onAdd }) {
           <p className="text-sm text-slate-500">{accounts.length} account{accounts.length !== 1 ? 's' : ''} connected</p>
           <div className="flex gap-2">
             <button
-              onClick={() => { const t = localStorage.getItem('ge_crm_token'); window.location.href = `/api/social/oauth/facebook/start?token=${t}`; }}
+              onClick={() => { const t = getAuthToken(); window.location.href = `/api/social/oauth/facebook/start?token=${t}`; }}
               className="flex items-center gap-2 px-4 py-2 text-white rounded-lg text-sm hover:opacity-90 transition-opacity cursor-pointer" style={{ backgroundColor: '#1877F2' }}>
               <Plus className="w-4 h-4" />
               Connect More Pages
