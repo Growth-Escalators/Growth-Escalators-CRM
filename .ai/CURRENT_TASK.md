@@ -31,6 +31,50 @@ or deployment config changes.
 
 ## Next task
 
-Log in as Growth and Wizmatch users on localhost/live and manually confirm that shared modules show
-the correct tenant data in both profiles, especially Contacts, Pipeline, Tasks, Inbox, Templates,
-Billing, Finance, Outreach, and AI Intelligence.
+- [x] Browser-smoke the Wizmatch shared routes with mocked authenticated sessions.
+- [x] Confirm Wizmatch users redirect from Growth shared routes to matching `/wizmatch/*` paths in
+  the frontend route guard.
+- [x] Confirm Growth users do not enter `/wizmatch/*`; a Growth-only session now redirects to
+  `/dashboard`.
+- [x] Fix shared internal links found during smoke so Wizmatch search/contact/pipeline/discovery
+  links stay on `/wizmatch/*`.
+- [x] Browser-smoke the new Wizmatch shared/staffing routes after latest verification: 24
+  Wizmatch authenticated routes rendered with mocked API payloads, 15 Growth shared routes
+  redirected to matching `/wizmatch/*` paths for Wizmatch users, and Growth-only sessions were
+  blocked from `/wizmatch/dashboard` back to `/dashboard`.
+- [x] Confirm production Wizmatch data shape from a read-only Railway/Postgres aggregate query.
+  Production has real GitHub-sourced candidate/contact rows, but it does not yet have usable
+  business operating data across pipeline, inbox, tasks, templates, billing, finance, companies,
+  job signals, requirements, or contact-intelligence review tables.
+- [x] Create a canonical shareable product/system brief at `docs/PRODUCT_SYSTEM_BRIEF.md` so any
+  future agent, AI tool, designer, operator, or business collaborator can quickly understand what
+  the whole software system is and what must stay updated.
+- [ ] Log in with real Growth and Wizmatch users on localhost/live and manually confirm shared
+  modules show the correct tenant data in both profiles once this branch is deployed to a
+  production-like environment.
+- [ ] Review Wizmatch AI Intelligence output after the missing production Wizmatch tables are
+  present and real requirements/client signals/contact candidates exist.
+
+## Production data verification on 2026-07-08 IST
+
+Read-only Railway/Postgres aggregate inspection found:
+
+- `wizmatch` tenant exists and is active.
+- Contacts: 192 rows, all `source = wizmatch_github`, `status = lead`.
+- Contact channels: 192 rows, all email, unverified.
+- Candidates: 192 rows, all `source = github`, `availability_status = available`, latest update
+  `2026-07-06T22:00:30.683Z`.
+- Domain health: 3 rows from the bootstrap seed.
+- Pipeline: 1 bootstrap pipeline.
+- Deals, messages/inbox, tasks, email templates, WhatsApp templates, billing clients, invoices,
+  payments, companies, job signals, placements, suppression list: 0 rows for Wizmatch.
+- Newer branch tables were missing in production: `wizmatch_requirements`,
+  `wizmatch_company_intelligence`, `wizmatch_contact_candidates`, and
+  `wizmatch_discovery_runs`.
+- Demo/test indicators were low in existing production rows: 1 contact matched demo/test text,
+  0 `example.*` contact channels, 0 demo candidate sources.
+
+Conclusion: production Wizmatch is not just dummy data because the 192 GitHub-sourced
+candidate/contact rows look like real sourced data, but it is not yet business-ready/client-ready.
+The CRM operating modules that drive clients and revenue are effectively empty, and the newest
+contact-intelligence/requirements persistence tables are not applied in production.

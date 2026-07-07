@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../lib/api.js';
+import { productPath } from '../lib/auth.js';
 import { Search, Users, TrendingUp, X } from 'lucide-react';
 
 export default function GlobalSearch({ open, onClose }) {
@@ -41,8 +42,8 @@ export default function GlobalSearch({ open, onClose }) {
     if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedIdx(i => Math.max(i - 1, 0)); }
     if (e.key === 'Enter' && results[selectedIdx]) {
       const r = results[selectedIdx];
-      if (r.type === 'contact') navigate(`/contacts?id=${r.id}`);
-      else if (r.type === 'deal') navigate(`/pipeline?deal=${r.id}`);
+      if (r.type === 'contact') navigate(productPath(`/contacts?id=${r.id}`));
+      else if (r.type === 'deal') navigate(productPath(`/pipeline?deal=${r.id}`));
       onClose();
     }
   }
@@ -95,7 +96,7 @@ export default function GlobalSearch({ open, onClose }) {
                     return (
                       <button
                         key={r.id}
-                        onClick={() => { navigate(`/contacts?id=${r.id}`); onClose(); }}
+                        onClick={() => { navigate(productPath(`/contacts?id=${r.id}`)); onClose(); }}
                         className={`w-full flex items-center gap-3 px-5 py-2.5 text-left transition-colors ${
                           idx === selectedIdx ? 'bg-primary-50' : 'hover:bg-neutral-50'
                         }`}
@@ -122,7 +123,7 @@ export default function GlobalSearch({ open, onClose }) {
                     return (
                       <button
                         key={r.id}
-                        onClick={() => { navigate(`/pipeline?deal=${r.id}`); onClose(); }}
+                        onClick={() => { navigate(productPath(`/pipeline?deal=${r.id}`)); onClose(); }}
                         className={`w-full flex items-center gap-3 px-5 py-2.5 text-left transition-colors ${
                           idx === selectedIdx ? 'bg-primary-50' : 'hover:bg-neutral-50'
                         }`}

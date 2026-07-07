@@ -8,6 +8,9 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   process (`DISABLE_BACKGROUND_JOBS=true` for API-only mode); production may run this split
   across separate `web` + `worker` Railway services if configured that way in the Railway UI —
   **verify actual topology before changing deployment/worker assumptions**, don't assume two services.
+- `docs/PRODUCT_SYSTEM_BRIEF.md` is the canonical shareable product/system brief. Update it on
+  meaningful runs when product scope, modules, routes, production data reality, deployment
+  assumptions, or guardrails change.
 - D2C landing on Vercel (`ecom.growthescalators.com`).
 - `npm run build` and `npm test` pass on `main`.
 - Facebook Lead Forms now have a safe ingestion path:
@@ -39,6 +42,12 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   CRM modules plus the primary staffing operating/V2 pages: Review Workbench, Data Readiness,
   Client Discovery, Contact Intelligence, Candidate Intelligence, Requirement Priority,
   Guardrails, and Analytics. Duplicated old frontend routes still redirect to their new pages.
+  Frontend route smoke on 2026-07-07 covered 26 mocked authenticated routes/redirects:
+  all Wizmatch shared/staffing routes rendered, Wizmatch users redirected from `/contacts` to
+  `/wizmatch/contacts`, `/` resolved to `/wizmatch/dashboard`, and Growth-only users visiting
+  `/wizmatch/contacts` redirected to `/dashboard`. `/wizmatch/emails` and `/wizmatch/discover`
+  now render inside the Wizmatch app shell. Shared internal links in global search, contact drawer,
+  pipeline settings, and lead-discovery import success now resolve through product-aware paths.
   The operating frontend has module/priority
   filters, readiness strips, richer CRM-style action cards, guardrail/cost panels, preview links,
   Contact Intelligence discovery preview/run controls, budget/provider-env visibility, and
@@ -55,6 +64,14 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   `POST /api/wizmatch/intelligence/generate` provide manual Claude-powered staffing analysis
   over Wizmatch data only; they do not analyze Growth marketing/SEO/ads data and do not trigger
   outreach or submissions.
+  Verification on 2026-07-08 IST found production Railway currently has only partial Wizmatch
+  data: 192 GitHub-sourced contacts/candidates, 192 email channels, 1 bootstrap pipeline, and 3
+  bootstrap domain-health rows. Production Wizmatch has 0 deals, messages/inbox rows, tasks,
+  email templates, WhatsApp templates, billing clients, invoices, payments, companies, job
+  signals, placements, suppression rows, and is missing the newer `wizmatch_requirements`,
+  `wizmatch_company_intelligence`, `wizmatch_contact_candidates`, and `wizmatch_discovery_runs`
+  tables. That means existing production Wizmatch data is not pure dummy data, but it is not yet
+  client-ready operating data.
 
 ## Recently landed (context)
 
@@ -87,6 +104,17 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   blocked discovery attempts are audited as zero-cost `blocked_by_cap` rows.
 - Applying `src/db/migrations/0021_contact_intelligence_phase2.sql` to any real database is still
   a separate environment decision; this session did not touch production DB state.
+- Production is also missing `src/db/migrations/0020_curvy_silverclaw.sql`
+  (`wizmatch_requirements`) and `src/db/migrations/0021_contact_intelligence_phase2.sql`
+  (`wizmatch_company_intelligence`, `wizmatch_contact_candidates`, `wizmatch_discovery_runs`).
+  Do not apply migrations without explicit approval. Until these exist in the target environment,
+  live requirement intake, Contact Intelligence persistence, discovery-run audit/cost tracking,
+  and richer Data Readiness/AI Intelligence cannot use real persisted operating data.
+- To get real Wizmatch data flowing from the next business day without adding new automation:
+  first get explicit approval for applying required migrations/deploying the branch, then load
+  5-10 real requirements and 20-30 vetted candidate profiles manually, dispatch existing
+  scraper/import flows only after secrets are confirmed, review Client Discovery and Contact
+  Intelligence queues manually, and keep outreach/candidate submissions manual-only.
 - Candidate Intelligence review now persists reviewer intent into
   `wizmatch_candidates.india_specific.candidateIntelligenceReview`; it still does not create
   submissions, send outreach, or change placement state.

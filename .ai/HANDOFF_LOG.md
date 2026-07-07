@@ -966,3 +966,135 @@ enrichment work.
 **Verification**
 - `npm run build` passed.
 - `npm test` passed: 22 files, 212 tests.
+
+## 2026-07-07 — Step 19: Wizmatch shared-route smoke + product-aware links — Codex — VERIFIED LOCALLY
+
+**What was done**
+- Browser-smoked 26 Wizmatch/shared-route cases locally with mocked authenticated Growth and
+  Wizmatch sessions.
+- Confirmed Wizmatch users visiting `/contacts` redirect to `/wizmatch/contacts`.
+- Confirmed Wizmatch `/` resolves to `/wizmatch/dashboard`.
+- Tightened the frontend route guard so Growth-only sessions visiting `/wizmatch/*` redirect to
+  `/dashboard` instead of falling through to `/login`.
+- Added a shared `productPath()` helper for product-aware internal links.
+- Updated shared UI links in Global Search, Contact Slide-In deal links, Pipeline settings links,
+  and Lead Discovery import success links so Wizmatch users stay on `/wizmatch/*`.
+- Wrapped `/wizmatch/emails` and `/wizmatch/discover` in `AppLayout` so they show the Wizmatch
+  shell like the other shared modules.
+
+**Guardrails preserved**
+- No schema or migration changes.
+- No database writes or real API calls during smoke; `/api/*` was mocked.
+- No outreach sending.
+- No automatic candidate submissions.
+- No worker/cron automation.
+- No deployment config changes.
+
+**Files changed**
+- `admin/src/App.jsx`
+- `admin/src/lib/auth.js`
+- `admin/src/components/GlobalSearch.jsx`
+- `admin/src/components/ContactSlideIn.jsx`
+- `admin/src/pages/LeadDiscoveryPage.jsx`
+- `admin/src/pages/PipelinePage.jsx`
+- `.ai/CURRENT_TASK.md`
+- `.ai/CURRENT_STATE.md`
+- `.ai/HANDOFF_LOG.md`
+
+**Verification**
+- `npm run admin:build` passed.
+- `git diff --check` passed.
+- Playwright smoke against `http://127.0.0.1:5174/` passed: 26 checks, 0 failures.
+- Real tenant data verification is still pending because this session did not have local/live login
+  credentials, database access, or Claude keys.
+
+## 2026-07-08 — Step 20: Wizmatch verification + production data reality check — Codex — VERIFIED LOCALLY/READ-ONLY PROD
+
+**What was done**
+- Re-ran the full local verification suite for the current branch.
+- Hit production health/readiness endpoints safely:
+  - `https://api.growthescalators.com/health` returned 200 with DB ok and webhook stale.
+  - `https://api.growthescalators.com/api/wizmatch/readiness` returned 401 without auth, as expected.
+- Used Railway CLI read-only production Postgres access to inspect aggregate Wizmatch tenant counts
+  without printing PII or mutating data.
+- Browser-smoked the built admin app locally with mocked API payloads:
+  - 24 Wizmatch shared/staffing routes rendered.
+  - 15 Growth shared routes redirected to matching `/wizmatch/*` routes for Wizmatch users.
+  - Growth-only session visiting `/wizmatch/dashboard` redirected to `/dashboard`.
+
+**Production Wizmatch data finding**
+- `wizmatch` tenant exists and is active.
+- Present data:
+  - 192 contacts, all `source = wizmatch_github`, `status = lead`.
+  - 192 contact channels, all email, unverified.
+  - 192 candidates, all `source = github`, `availability_status = available`.
+  - 1 bootstrap pipeline.
+  - 3 bootstrap domain-health rows.
+- Empty Wizmatch operating data:
+  - 0 deals, messages/inbox rows, tasks, email templates, WhatsApp templates, billing clients,
+    invoices, payments, companies, job signals, placements, suppression rows.
+- Missing newer production tables:
+  - `wizmatch_requirements`
+  - `wizmatch_company_intelligence`
+  - `wizmatch_contact_candidates`
+  - `wizmatch_discovery_runs`
+- Conclusion: production Wizmatch is not pure dummy data because it has real-looking
+  GitHub-sourced candidate/contact records, but it is not yet client-ready operating data. Real
+  client discovery/contact intelligence/requirements workflows need the missing migrations,
+  deployed branch code, real requirements/signals, and manual review.
+
+**Recommended real-data path for tomorrow**
+- Get explicit approval before any production migration/deploy because main auto-deploys.
+- Apply required migrations/deploy only after approval.
+- Manually load 5-10 real active requirements and 20-30 vetted candidate profiles.
+- Confirm provider/secrets setup for existing ingestion/discovery paths, then manually dispatch
+  approved scrapers/imports; do not add new cron/worker automation.
+- Use Data Readiness, Client Discovery, Contact Intelligence, Candidate Intelligence, and AI
+  Intelligence as manual review layers.
+- Keep outreach sending and candidate submission manual-only.
+
+**Guardrails preserved**
+- No schema or migration edits.
+- No production DB writes.
+- No paid enrichment/provider calls.
+- No outreach sending.
+- No automatic candidate submissions.
+- No worker/cron automation added.
+- No deployment config changes.
+- No push/merge to `main`.
+
+**Verification**
+- `npm run build` passed.
+- `npm test` passed: 24 files, 222 tests.
+- `npm run admin:build` passed.
+- `git diff --check` passed.
+- Playwright route smoke passed: 24 Wizmatch routes, 15 Wizmatch redirects, Growth block check,
+  0 failures.
+
+## 2026-07-08 — Step 21: Canonical product/system brief — Codex — DOCS ONLY
+
+**What was done**
+- Reviewed the existing repo documentation and code layout to identify whether a single shareable
+  product brief already existed.
+- Kept `CRM_SYSTEM_DOCS.md`, `docs/ARCHITECTURE.md`, `docs/DATABASE.md`, `docs/DEPLOYMENT.md`,
+  `docs/URLS.md`, and Wizmatch docs as supporting technical references.
+- Created `docs/PRODUCT_SYSTEM_BRIEF.md` as the canonical high-level brief that explains:
+  - What the overall software system means.
+  - Growth Escalators and Wizmatch as product profiles on one CRM platform.
+  - Live surfaces, modules, routes, architecture, data model, integrations, AI/automation,
+    user types, guardrails, current strategic state, and update ritual.
+- Updated `.ai/CURRENT_TASK.md` and `.ai/CURRENT_STATE.md` so future agents know to keep this file
+  current when product scope, modules, route surface, production data reality, deployment
+  assumptions, or guardrails change.
+
+**Guardrails preserved**
+- Docs/context only.
+- No schema or migration changes.
+- No production DB writes.
+- No deployment config changes.
+- No outreach sending.
+- No automatic candidate submissions.
+- No worker/cron automation added.
+
+**Verification**
+- `git diff --check` passed.
