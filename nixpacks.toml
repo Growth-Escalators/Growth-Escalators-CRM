@@ -7,7 +7,10 @@ nixPkgs = ['nodejs_20', 'npm-9_x', 'openssl']
 # regenerating on macOS. `npm install` resolves those at install time; `npm ci`
 # refuses to and exits 1. The downside (slightly slower install + lockfile may
 # drift) is acceptable for this repo's deploy cadence.
-cmds = ['npm install --legacy-peer-deps --include=dev']
+cmds = [
+  'npm install --legacy-peer-deps --include=dev',
+  'npm --prefix admin install --legacy-peer-deps --include=dev',
+]
 
 [phases.build]
 cmds = ['npm run admin:build && npm run build']
