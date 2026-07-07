@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { logout, getUser, getPermissions, apiFetch } from '../lib/api.js';
+import { getTenantConfig, getTenantSlug } from '../lib/auth.js';
 import { ChevronRight, Menu, X, Wrench, Receipt, Settings as SettingsIcon } from 'lucide-react';
 import { NAV_ENTRIES, GROUP_LABELS, getVisibleEntries, groupForPath } from './navEntries.js';
 import CommandPalette from './CommandPalette.jsx';
@@ -124,6 +125,8 @@ export default function Sidebar() {
   const user = getUser();
   const perms = getPermissions();
   const role = user?.role || 'staff';
+  const tenantSlug = user?.tenantSlug || getTenantSlug();
+  const tenant = getTenantConfig(tenantSlug);
   const location = useLocation();
 
   const [unreadCount, setUnreadCount] = useState(0);
@@ -163,7 +166,7 @@ export default function Sidebar() {
   // Auto-expand group containing the active route. Re-runs on nav so Cmd+K
   // jumps into a closed group still open the right one.
   useEffect(() => {
-    const target = groupForPath(location.pathname, role, perms);
+    const target = groupForPath(location.pathname, role, perms, tenantSlug);
     if (!target) return;
     setOpenGroups(prev => {
       if (prev[target]) return prev;
@@ -171,7 +174,7 @@ export default function Sidebar() {
       writeStoredGroups(next);
       return next;
     });
-  }, [location.pathname, role, perms]);
+  }, [location.pathname, role, perms, tenantSlug]);
 
   // Cmd+K / Ctrl+K command palette
   useEffect(() => {
@@ -194,7 +197,7 @@ export default function Sidebar() {
     });
   }
 
-  const visible = useMemo(() => getVisibleEntries(role, perms), [role, perms]);
+  const visible = useMemo(() => getVisibleEntries(role, perms, tenantSlug), [role, perms, tenantSlug]);
 
   // Bucket visible entries: flat sections (group=null) keep their own label;
   // collapsibles get bucketed by group.
@@ -262,10 +265,10 @@ export default function Sidebar() {
         {/* Logo */}
         <div className="px-5 py-5 border-b border-white/10">
           <div className="flex items-center gap-3">
-            <img src="/ge-mark.png" alt="GE" className="w-9 h-9 rounded-lg border border-white/20" />
+            <img src="/ge-mark.png" alt={tenant.shortLabel} className="w-9 h-9 rounded-lg border border-white/20" />
             <div>
-              <p className="text-white font-semibold text-[13.5px] leading-tight">Growth Escalators</p>
-              <p className="text-primary-300 text-[11.5px]">CRM</p>
+              <p className="text-white font-semibold text-[13.5px] leading-tight">{tenant.label}</p>
+              <p className="text-primary-300 text-[11.5px]">{tenant.productLabel || tenant.subtitle}</p>
             </div>
           </div>
         </div>

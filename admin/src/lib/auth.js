@@ -23,6 +23,14 @@ export function normalizeTenantSlug(value) {
   return 'growth-escalators';
 }
 
+export function productForTenant(slug = getTenantSlug()) {
+  return normalizeTenantSlug(slug) === 'wizmatch' ? 'wizmatch' : 'growth';
+}
+
+export function getProductHome(slug = getTenantSlug()) {
+  return productForTenant(slug) === 'wizmatch' ? '/wizmatch/review-workbench' : '/dashboard';
+}
+
 export function getTenantSlug(explicit) {
   if (explicit) return normalizeTenantSlug(explicit);
   if (typeof window === 'undefined') return 'growth-escalators';

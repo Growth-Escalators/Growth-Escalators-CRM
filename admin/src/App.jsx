@@ -1,6 +1,6 @@
 import React, { Suspense, lazy } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { getAuthToken } from './lib/auth.js';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { getAuthToken, getAuthUser, getProductHome, getTenantSlug, normalizeTenantSlug } from './lib/auth.js';
 
 const LoginPage = lazy(() => import('./pages/LoginPage.jsx'));
 const ContactsPage = lazy(() => import('./pages/ContactsPage.jsx'));
@@ -83,8 +83,23 @@ class ErrorBoundary extends React.Component {
 }
 
 function PrivateRoute({ children }) {
-  const token = getAuthToken();
+  const location = useLocation();
+  const activeTenantSlug = getTenantSlug();
+  const token = getAuthToken(activeTenantSlug);
+  const user = getAuthUser(activeTenantSlug);
+  const userTenantSlug = normalizeTenantSlug(user?.tenantSlug || activeTenantSlug);
+  const isWizmatchUser = userTenantSlug === 'wizmatch';
+  const isWizmatchPath = location.pathname.startsWith('/wizmatch');
+  if (token && isWizmatchUser && !isWizmatchPath) {
+    return <Navigate to={getProductHome(userTenantSlug)} replace />;
+  }
   return token ? children : <Navigate to="/login" replace />;
+}
+
+function HomeRedirect() {
+  const activeTenantSlug = getTenantSlug();
+  const user = getAuthUser(activeTenantSlug);
+  return <Navigate to={getProductHome(user?.tenantSlug || activeTenantSlug)} replace />;
 }
 
 export default function App() {
@@ -167,8 +182,8 @@ export default function App() {
             <Route path="/wizmatch/analytics-new" element={<PrivateRoute><AppLayout><WizmatchAnalyticsNewPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/local-demo-flow-demo" element={<WizmatchLocalDemoFlowPage demoMode />} />
             <Route path="/wizmatch/local-demo-flow" element={<PrivateRoute><AppLayout><WizmatchLocalDemoFlowPage /></AppLayout></PrivateRoute>} />
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/" element={<HomeRedirect />} />
+            <Route path="*" element={<HomeRedirect />} />
           </Routes>
         </Suspense>
       </BrowserRouter>

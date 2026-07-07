@@ -1,9 +1,9 @@
 import crypto from 'crypto';
 import { and, eq } from 'drizzle-orm';
-import { db, contacts, socialAccounts } from '../db/index';
+import { db, contacts, socialAccounts, tenants } from '../db/index';
 import { findOrCreateContact, normalizeChannelValue } from './contactService';
 import { sendSlackMessage } from './slackService';
-import { META_API_BASE, SLACK_SALES_BD_CHANNEL } from '../config/constants';
+import { DEFAULT_TENANT_SLUG, META_API_BASE, SLACK_SALES_BD_CHANNEL, WIZMATCH_LEADS_CHANNEL, WIZMATCH_TENANT_ID } from '../config/constants';
 import logger from '../utils/logger';
 
 type SocialAccount = typeof socialAccounts.$inferSelect;
@@ -49,7 +49,8 @@ interface ContactSnapshot {
 }
 
 export interface FacebookLeadProcessDeps {
-  getPageAccountByPageId(pageId: string): Promise<Pick<SocialAccount, 'id' | 'tenantId' | 'accountId' | 'accountName' | 'accessToken'> | null>;
+  resolvePreferredTenantId?(change: FacebookLeadgenChange): Promise<string | null>;
+  getPageAccountByPageId(pageId: string, preferredTenantId?: string | null): Promise<Pick<SocialAccount, 'id' | 'tenantId' | 'accountId' | 'accountName' | 'accessToken'> | null>;
   fetchLeadDetails(leadgenId: string, accessToken: string): Promise<FacebookLeadDetails>;
   findOrCreate: typeof findOrCreateContact;
   getContactSnapshot(contactId: string): Promise<ContactSnapshot>;
@@ -180,6 +181,73 @@ function getEncKey(): string {
   return key;
 }
 
+function csvSet(value: string | undefined): Set<string> {
+  return new Set(
+    String(value || '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean),
+  );
+}
+
+function parseTenantMap(raw: string | undefined): Record<string, string> {
+  const text = String(raw || '').trim();
+  if (!text) return {};
+  try {
+    const parsed = JSON.parse(text) as Record<string, string>;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+  } catch {
+    // Fall through to compact CSV syntax: "formId:wizmatch,pageId:growth-escalators".
+  }
+  return text.split(',').reduce<Record<string, string>>((acc, pair) => {
+    const [key, value] = pair.split(':').map((part) => part?.trim()).filter(Boolean);
+    if (key && value) acc[key] = value;
+    return acc;
+  }, {});
+}
+
+function tenantRefFromLeadFormConfig(change: FacebookLeadgenChange): string | null {
+  const formMap = parseTenantMap(process.env.FACEBOOK_LEAD_FORM_TENANT_MAP);
+  const pageMap = parseTenantMap(process.env.FACEBOOK_PAGE_TENANT_MAP);
+  if (change.formId && formMap[change.formId]) return formMap[change.formId];
+  if (pageMap[change.pageId]) return pageMap[change.pageId];
+
+  const wizmatchForms = csvSet(process.env.WIZMATCH_FACEBOOK_LEAD_FORM_IDS);
+  const growthForms = csvSet(process.env.GROWTH_FACEBOOK_LEAD_FORM_IDS || process.env.GE_FACEBOOK_LEAD_FORM_IDS);
+  const wizmatchPages = csvSet(process.env.WIZMATCH_FACEBOOK_PAGE_IDS);
+  const growthPages = csvSet(process.env.GROWTH_FACEBOOK_PAGE_IDS || process.env.GE_FACEBOOK_PAGE_IDS);
+
+  if (change.formId && wizmatchForms.has(change.formId)) return 'wizmatch';
+  if (change.formId && growthForms.has(change.formId)) return DEFAULT_TENANT_SLUG;
+  if (wizmatchPages.has(change.pageId)) return 'wizmatch';
+  if (growthPages.has(change.pageId)) return DEFAULT_TENANT_SLUG;
+  return null;
+}
+
+async function tenantIdFromRef(ref: string): Promise<string | null> {
+  const clean = ref.trim();
+  if (!clean) return null;
+  if (clean === 'wizmatch' && WIZMATCH_TENANT_ID) return WIZMATCH_TENANT_ID;
+
+  const [tenant] = await db
+    .select({ id: tenants.id })
+    .from(tenants)
+    .where(eq(tenants.slug, clean))
+    .limit(1);
+  if (tenant?.id) return tenant.id;
+
+  // Allow advanced config to pass a tenant UUID directly.
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clean)) {
+    return clean;
+  }
+  return null;
+}
+
+async function defaultResolvePreferredTenantId(change: FacebookLeadgenChange): Promise<string | null> {
+  const ref = tenantRefFromLeadFormConfig(change);
+  return ref ? tenantIdFromRef(ref) : null;
+}
+
 export function decryptSocialAccessToken(encoded: string): string {
   try {
     const [ivHex, encHex] = encoded.split(':');
@@ -218,15 +286,19 @@ async function defaultFetchLeadDetails(leadgenId: string, accessToken: string): 
 }
 
 const defaultDeps: FacebookLeadProcessDeps = {
-  async getPageAccountByPageId(pageId) {
+  resolvePreferredTenantId: defaultResolvePreferredTenantId,
+  async getPageAccountByPageId(pageId, preferredTenantId) {
+    const filters = [
+      eq(socialAccounts.platform, 'facebook'),
+      eq(socialAccounts.accountId, pageId),
+      eq(socialAccounts.isActive, true),
+    ];
+    if (preferredTenantId) filters.push(eq(socialAccounts.tenantId, preferredTenantId));
+
     const rows = await db
       .select()
       .from(socialAccounts)
-      .where(and(
-        eq(socialAccounts.platform, 'facebook'),
-        eq(socialAccounts.accountId, pageId),
-        eq(socialAccounts.isActive, true),
-      ))
+      .where(and(...filters))
       .limit(1);
     return rows[0] ?? null;
   },
@@ -273,8 +345,12 @@ export async function processFacebookLeadgenChange(
   change: FacebookLeadgenChange,
   deps: FacebookLeadProcessDeps = defaultDeps,
 ): Promise<FacebookLeadProcessResult> {
-  const account = await deps.getPageAccountByPageId(change.pageId);
-  if (!account) throw new Error(`No active connected Facebook page found for page_id ${change.pageId}`);
+  const preferredTenantId = await deps.resolvePreferredTenantId?.(change);
+  const account = await deps.getPageAccountByPageId(change.pageId, preferredTenantId);
+  if (!account) {
+    const tenantHint = preferredTenantId ? ` in configured tenant ${preferredTenantId}` : '';
+    throw new Error(`No active connected Facebook page found for page_id ${change.pageId}${tenantHint}`);
+  }
 
   const pageToken = decryptSocialAccessToken(account.accessToken);
   if (!pageToken) throw new Error(`Facebook page token could not be decrypted for ${account.accountName}`);
@@ -308,6 +384,7 @@ export async function processFacebookLeadgenChange(
         platform: lead.platform || null,
         createdTime: lead.created_time || change.createdTime || null,
         customFields: mapped.customFields,
+        routedTenantId: account.tenantId,
       },
     },
   });
@@ -341,6 +418,7 @@ export async function processFacebookLeadgenChange(
       customFields: mapped.customFields,
       rawFieldData: lead.field_data ?? [],
       capturedAt: now.toISOString(),
+      routedTenantId: account.tenantId,
     },
   };
 
@@ -355,7 +433,9 @@ export async function processFacebookLeadgenChange(
   let slackSent = false;
   try {
     slackSent = await deps.sendSlack(
-      process.env.SLACK_SALES_BD_CHANNEL || SLACK_SALES_BD_CHANNEL,
+      account.tenantId === WIZMATCH_TENANT_ID && WIZMATCH_LEADS_CHANNEL
+        ? WIZMATCH_LEADS_CHANNEL
+        : process.env.SLACK_SALES_BD_CHANNEL || SLACK_SALES_BD_CHANNEL,
       buildFacebookLeadSlackMessage({ mapped, lead, change, pageName: account.accountName, created }),
     );
   } catch (error) {

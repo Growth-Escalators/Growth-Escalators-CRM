@@ -12,10 +12,20 @@ import {
 //   staff < sales < team_lead < manager_ops/manager_ads < admin
 // `team_lead` = full operational tools (Outreach, AI Intelligence, Growth OS,
 // Meta Ads) but NOT financial/security tools (Billing, Permissions, Audit).
-export function computeFlags(role, perms = {}) {
+function productForTenantSlug(tenantSlug = 'growth-escalators') {
+  return String(tenantSlug || '').toLowerCase().trim() === 'wizmatch' ? 'wizmatch' : 'growth';
+}
+
+function entryProduct(entry) {
+  if (entry.product) return entry.product;
+  return entry.section === 'Wizmatch' ? 'wizmatch' : 'growth';
+}
+
+export function computeFlags(role, perms = {}, tenantSlug = 'growth-escalators') {
   const isAdmin = role === 'admin';
   const isTeamLead = role === 'team_lead';
   const isAdminTier = isAdmin || isTeamLead;
+  const product = productForTenantSlug(tenantSlug);
   // Narrow-scope role: only Tasks + Inbox + Meta Ads + Social + (always-on)
   // Content link and My Attendance. Everything else (Contacts, Pipeline,
   // Clients, Billing, Sequences, Discovery, Outreach, Growth OS, Intelligence,
@@ -26,6 +36,9 @@ export function computeFlags(role, perms = {}) {
     isTeamLead,
     isAdminTier,
     isCreativeAssistant,
+    product,
+    isGrowthProduct: product === 'growth',
+    isWizmatchProduct: product === 'wizmatch',
     canCRM:        ['admin', 'manager_ops', 'team_lead', 'sales'].includes(role),
     canTasks:      ['admin', 'manager_ops', 'team_lead', 'sales'].includes(role) || isCreativeAssistant,
     canAds:        ['admin', 'manager_ads', 'team_lead', 'creative_assistant'].includes(role) || !!perms.reportsMetaAds,
@@ -37,7 +50,7 @@ export function computeFlags(role, perms = {}) {
     canDiscovery:  ['admin', 'manager_ops', 'team_lead', 'sales'].includes(role),
     canMarketing:  ['admin', 'manager_ads'].includes(role),
     canSEO:        ['admin', 'manager_ops', 'manager_ads'].includes(role),
-    canWizmatch:   isAdminTier,
+    canWizmatch:   product === 'wizmatch' && isAdminTier,
   };
 }
 
@@ -243,9 +256,9 @@ export const NAV_ENTRIES = [
   },
 ];
 
-export function getVisibleEntries(role, perms) {
-  const flags = computeFlags(role, perms);
-  return NAV_ENTRIES.filter(e => e.visible(flags));
+export function getVisibleEntries(role, perms, tenantSlug) {
+  const flags = computeFlags(role, perms, tenantSlug);
+  return NAV_ENTRIES.filter(e => entryProduct(e) === flags.product && e.visible(flags));
 }
 
 // Map collapsible group name → entry's section label (for palette breadcrumbs)
@@ -257,8 +270,8 @@ export const GROUP_LABELS = {
 
 // Find which collapsible group (if any) owns a given pathname.
 // Used by Sidebar's auto-expand-on-route logic.
-export function groupForPath(pathname, role, perms) {
-  const entries = getVisibleEntries(role, perms);
+export function groupForPath(pathname, role, perms, tenantSlug) {
+  const entries = getVisibleEntries(role, perms, tenantSlug);
   // Match longest "to" first so /settings/permissions wins over /settings.
   const sorted = [...entries].sort((a, b) => (b.to?.length || 0) - (a.to?.length || 0));
   for (const e of sorted) {

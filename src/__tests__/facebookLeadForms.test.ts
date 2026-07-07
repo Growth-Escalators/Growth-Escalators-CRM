@@ -164,6 +164,44 @@ describe('Facebook Lead Forms', () => {
       .resolves.toMatchObject({ contactId: 'contact-1', slackSent: false });
   });
 
+  it('uses preferred tenant routing before selecting a connected Facebook page', async () => {
+    const getPageAccountByPageId = vi.fn().mockResolvedValue({
+      id: 'social-wm',
+      tenantId: 'tenant-wizmatch',
+      accountId: 'page-1',
+      accountName: 'Wizmatch',
+      accessToken: encryptedToken,
+    });
+    const findOrCreate = vi.fn().mockResolvedValue({
+      contact: { id: 'contact-wm', firstName: 'Anika' },
+      channels: [],
+      created: true,
+    });
+    const deps: FacebookLeadProcessDeps = {
+      resolvePreferredTenantId: vi.fn().mockResolvedValue('tenant-wizmatch'),
+      getPageAccountByPageId,
+      fetchLeadDetails: vi.fn().mockResolvedValue({
+        id: 'lead-1',
+        form_id: 'wiz-form-1',
+        field_data: [{ name: 'email', values: ['candidate@example.com'] }],
+      }),
+      findOrCreate,
+      getContactSnapshot: vi.fn().mockResolvedValue({ tags: [], metadata: {} }),
+      updateContactAfterLead: vi.fn().mockResolvedValue(undefined),
+      sendSlack: vi.fn().mockResolvedValue(true),
+    };
+
+    await processFacebookLeadgenChange(
+      { pageId: 'page-1', leadgenId: 'lead-1', formId: 'wiz-form-1' },
+      deps,
+    );
+
+    expect(getPageAccountByPageId).toHaveBeenCalledWith('page-1', 'tenant-wizmatch');
+    expect(findOrCreate).toHaveBeenCalledWith('tenant-wizmatch', expect.objectContaining({
+      source: 'facebook_lead_form',
+    }));
+  });
+
   it('renders Slack messages with page, form, campaign, and contact status', () => {
     const message = buildFacebookLeadSlackMessage({
       mapped: {

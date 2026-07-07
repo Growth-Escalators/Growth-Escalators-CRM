@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   getTenantConfig,
   getTenantSlug,
+  getProductHome,
   setActiveTenantSlug,
   setAuthPermissions,
   setAuthSession,
@@ -52,7 +53,7 @@ export default function LoginPage() {
       } catch {
         setAuthPermissions({}, tenantSlug);
       }
-      navigate('/dashboard');
+      navigate(getProductHome(data.user?.tenantSlug || tenantSlug));
     } catch {
       setError('Network error. Please try again.');
     } finally {
