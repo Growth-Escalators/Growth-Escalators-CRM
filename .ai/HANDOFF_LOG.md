@@ -5,6 +5,108 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-07 — Step 22: Facebook Lead Forms -> CRM + Slack — Codex — VERIFIED LOCALLY
+
+**What was done**
+- Added public Meta Lead Ads webhook routes:
+  `GET /webhooks/meta-leads` for verification and `POST /webhooks/meta-leads` for Page
+  `leadgen` events.
+- Added raw-body Meta signature verification for `X-Hub-Signature-256` using `META_APP_SECRET`.
+- Added `src/services/facebookLeadForms.ts` to:
+  - parse leadgen webhook changes,
+  - fetch lead details from Meta with the connected Facebook Page token,
+  - map standard/custom lead fields,
+  - create/reuse CRM contacts with `findOrCreateContact`,
+  - tag contacts as `facebook_lead` and `meta_lead_form`,
+  - store Facebook source metadata,
+  - bump `lastActivityAt`,
+  - send Slack notifications to the existing BD/Sales channel.
+- Added protected Social endpoints for lead-form setup visibility and page subscription:
+  `GET /api/social/lead-forms/status` and
+  `POST /api/social/lead-forms/accounts/:id/subscribe`.
+- Extended Facebook OAuth scopes with `pages_manage_metadata` and `leads_retrieval`.
+- Added a Facebook Lead Forms setup/status card to the Social Accounts page.
+
+**Guardrails preserved**
+- No schema, migration, auto-outreach, sequence enrollment, candidate submission, paid enrichment,
+  worker/cron automation, package, or deployment config changes.
+- Slack failure does not block webhook success.
+- Duplicate successful lead events are deduped through `processed_events`.
+
+**Files changed**
+- `src/services/facebookLeadForms.ts`
+- `src/routes/webhooks.ts`
+- `src/routes/social.ts`
+- `src/index.ts`
+- `src/__tests__/facebookLeadForms.test.ts`
+- `src/__tests__/facebookLeadRoutes.test.ts`
+- `admin/src/pages/SocialPage.jsx`
+- `public/admin/` rebuilt by `npm run admin:build`
+- `.ai/CURRENT_TASK.md`
+- `.ai/CURRENT_STATE.md`
+- `.ai/HANDOFF_LOG.md`
+- `.ai/AI_BRIEF.md` regenerated
+
+**Verification**
+- `npm test -- facebookLead` passed: 2 files, 9 tests.
+- `npm run build` passed.
+- `npm test` passed: 24 files, 221 tests.
+- `npm run admin:build` passed.
+
+**Next**
+- Configure the Meta app webhook callback to `/webhooks/meta-leads`, subscribe selected Facebook
+  Pages from the Social page, and submit one Meta Lead Ads test lead to confirm CRM contact
+  creation plus Slack notification.
+
+## 2026-07-07 — Step 21: Wizmatch page cleanup — Codex — VERIFIED LOCALLY
+
+**What was done**
+- Cleaned the Wizmatch sidebar so operators only see the newer operating/V2 pages:
+  Review Workbench, Data Readiness, Client Discovery, Contact Intelligence, Candidate Intelligence,
+  Requirement Priority, Guardrails, and Analytics.
+- Redirected duplicated old frontend routes to the new operating pages:
+  `/wizmatch/client-discovery`, `/wizmatch/contact-intelligence`,
+  `/wizmatch/candidate-intelligence`, `/wizmatch/analytics`, and `/wizmatch/queue`.
+- Kept `/wizmatch` routing to `/wizmatch/review-workbench`.
+- Moved Candidate Profile Intake into Candidate Intelligence V2 so the manual CSV/profile intake
+  workflow remains available after the classic candidate-intelligence route is hidden.
+- Removed V2 page links that pointed users back to classic pages.
+- Preserved direct-access classic pages that still have unique workflows: requirements, signals,
+  candidate pool, domains, compliance, placements, and primes.
+
+**Guardrails preserved**
+- No backend API routes were removed.
+- No database schema, migration, provider, outreach-send, candidate-submission, worker/cron, package,
+  or deployment config changes.
+- Paid discovery remains manual, preview-first, env-gated, and cost-guarded.
+
+**Files changed**
+- `admin/src/App.jsx`
+- `admin/src/components/navEntries.js`
+- `admin/src/pages/WizmatchNewPages.jsx`
+- `public/admin/` rebuilt by `npm run admin:build`
+- `.ai/CURRENT_TASK.md`
+- `.ai/CURRENT_STATE.md`
+- `.ai/HANDOFF_LOG.md`
+- `.ai/AI_BRIEF.md` regenerated
+
+**Verification**
+- `npm run build` passed.
+- `npm test` passed: 22 files, 212 tests.
+- `npm run admin:build` passed.
+- Local Vite route smoke passed with HTTP 200 for:
+  `/wizmatch`, `/wizmatch/readiness`, `/wizmatch/review-workbench`,
+  `/wizmatch/client-discovery-new`, `/wizmatch/contact-intelligence-new`,
+  `/wizmatch/candidate-intelligence-new`, `/wizmatch/requirement-priority-new`,
+  `/wizmatch/guardrails-new`, `/wizmatch/analytics-new`, and redirected old routes
+  `/wizmatch/client-discovery`, `/wizmatch/contact-intelligence`,
+  `/wizmatch/candidate-intelligence`, `/wizmatch/analytics`, `/wizmatch/queue`.
+
+**Next**
+- If the team wants old direct-access pages fully removed later, first build V2 replacements for
+  requirements CRUD/sheets, signal detail/drafting, candidate pool CRUD, domain pause/resume,
+  suppression/compliance, placements/RTR, and primes.
+
 ## 2026-07-06 — Step 19: Wizmatch API cost protection — Codex — VERIFIED LOCALLY
 
 **What was done**

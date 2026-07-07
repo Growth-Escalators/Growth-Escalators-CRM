@@ -125,7 +125,12 @@ app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 // fit comfortably under this. Bulk-import routes that need more should
 // mount their own larger parser at the route level.
 // ---------------------------------------------------------------------------
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({
+  limit: '2mb',
+  verify: (req, _res, buf) => {
+    (req as Request).rawBody = buf.toString('utf8');
+  },
+}));
 
 // ---------------------------------------------------------------------------
 // Request ID middleware
@@ -134,6 +139,7 @@ declare global {
   namespace Express {
     interface Request {
       requestId?: string;
+      rawBody?: string;
     }
   }
 }

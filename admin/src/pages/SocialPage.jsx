@@ -435,6 +435,159 @@ function LibraryTab({ onUseInPost }) {
   );
 }
 
+function FacebookLeadFormsPanel({ accounts }) {
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [subscribingId, setSubscribingId] = useState(null);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+
+  const facebookAccounts = accounts.filter(a => a.platform === 'facebook' && a.isActive !== false);
+
+  const loadStatus = useCallback(async (checkMeta = false) => {
+    setLoading(!checkMeta);
+    setChecking(checkMeta);
+    setError('');
+    setMessage('');
+    try {
+      const data = await apiFetch(`/api/social/lead-forms/status${checkMeta ? '?checkMeta=true' : ''}`);
+      setStatus(data);
+    } catch (err) {
+      setError(err.message || 'Could not load lead form status');
+    } finally {
+      setLoading(false);
+      setChecking(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadStatus(false);
+  }, [loadStatus, accounts.length]);
+
+  async function subscribePage(accountId) {
+    setSubscribingId(accountId);
+    setError('');
+    setMessage('');
+    try {
+      const result = await apiFetch(`/api/social/lead-forms/accounts/${accountId}/subscribe`, { method: 'POST' });
+      setMessage(`${result.pageName || 'Facebook page'} subscribed to lead form webhooks.`);
+      await loadStatus(true);
+    } catch (err) {
+      setError(err.message || 'Could not subscribe page');
+    } finally {
+      setSubscribingId(null);
+    }
+  }
+
+  const config = status?.config || {};
+  const ready = Boolean(status?.ready);
+  const pages = status?.pages || [];
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Facebook Lead Forms</p>
+          <h3 className="text-lg font-bold text-slate-900 mt-1">Send lead-form submissions to CRM + #bd-sales</h3>
+          <p className="text-sm text-slate-500 mt-1">
+            V1 creates or updates CRM contacts and sends a Slack alert. It does not auto-send outreach or enroll sequences.
+          </p>
+        </div>
+        <span className={`px-3 py-1 rounded-full text-xs font-semibold ${ready ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+          {ready ? 'Webhook ready' : 'Needs setup'}
+        </span>
+      </div>
+
+      {loading ? (
+        <div className="h-20 bg-slate-50 rounded-lg animate-pulse" />
+      ) : (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            {[
+              ['Meta app', config.appIdConfigured],
+              ['App secret', config.appSecretConfigured],
+              ['Verify token', config.verifyTokenConfigured],
+              ['Slack bot', config.slackConfigured],
+            ].map(([label, ok]) => (
+              <div key={label} className={`rounded-lg border px-3 py-2 ${ok ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'}`}>
+                <p className={`text-xs font-semibold ${ok ? 'text-green-700' : 'text-amber-700'}`}>{ok ? 'Configured' : 'Missing'}</p>
+                <p className="text-sm font-medium text-slate-800">{label}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Webhook URL</p>
+            <div className="flex items-center justify-between gap-3 mt-1">
+              <code className="text-xs text-slate-700 break-all">{config.webhookUrl || '/webhooks/meta-leads'}</code>
+              {config.webhookUrl && (
+                <a href={config.webhookUrl} target="_blank" rel="noreferrer" className="text-xs text-sky-600 hover:text-sky-700 inline-flex items-center gap-1">
+                  Open <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
+            </div>
+          </div>
+
+          {facebookAccounts.length === 0 ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              Connect at least one Facebook Page before subscribing lead forms.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {pages.map(page => (
+                <div key={page.id} className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-3">
+                  <PlatformIcon platform="facebook" size="w-5 h-5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-slate-800 truncate">{page.pageName}</p>
+                    <p className="text-xs text-slate-400">Page ID: {page.pageId}</p>
+                    {page.error && <p className="text-xs text-red-500 mt-1">{page.error}</p>}
+                  </div>
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    page.subscriptionStatus === 'subscribed'
+                      ? 'bg-green-100 text-green-700'
+                      : page.subscriptionStatus === 'error'
+                        ? 'bg-red-100 text-red-700'
+                        : 'bg-slate-100 text-slate-600'
+                  }`}>
+                    {page.subscriptionStatus === 'not_checked' ? 'Not checked' : page.subscriptionStatus.replace(/_/g, ' ')}
+                  </span>
+                  <button
+                    onClick={() => subscribePage(page.id)}
+                    disabled={subscribingId === page.id}
+                    className="px-3 py-1.5 text-xs bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    {subscribingId === page.id ? 'Subscribing...' : 'Subscribe'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => loadStatus(true)}
+              disabled={checking}
+              className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {checking ? 'Checking...' : 'Check Meta subscription'}
+            </button>
+            <span className="text-xs text-slate-400">Latest lead data is stored on CRM contacts as source `facebook_lead_form`.</span>
+          </div>
+        </>
+      )}
+
+      {message && <p className="text-sm text-green-600">{message}</p>}
+      {error && (
+        <p className="text-sm text-red-600 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4" />
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 // Accounts tab
 function AccountsTab({ accounts, onDelete, onAdd }) {
   const [showManual, setShowManual] = useState(false);
@@ -464,6 +617,8 @@ function AccountsTab({ accounts, onDelete, onAdd }) {
 
   return (
     <div className="space-y-6">
+      <FacebookLeadFormsPanel accounts={accounts} />
+
       {/* Connect with Facebook — primary action */}
       {accounts.length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">

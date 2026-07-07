@@ -7,6 +7,11 @@ import { insertJob } from '../services/jobQueue';
 import { validateMetaWebhook } from '../middleware/validateWebhook';
 import { processBooking } from '../services/bookingService';
 import { emitNewMessage, emitStatusUpdate } from './inbox';
+import {
+  extractFacebookLeadgenChanges,
+  processFacebookLeadgenChange,
+  verifyMetaLeadSignature,
+} from '../services/facebookLeadForms';
 
 // Webhook signature verification helper
 function verifyWebhookSignature(secret: string | undefined, rawBody: string, signature: string | undefined, algorithm = 'sha256'): boolean {
@@ -34,6 +39,77 @@ async function isAlreadyProcessed(eventId: string): Promise<boolean> {
 async function markProcessed(eventId: string, source: string): Promise<void> {
   await db.insert(processedEvents).values({ eventId, source }).onConflictDoNothing();
 }
+
+// ---------------------------------------------------------------------------
+// GET /webhooks/meta-leads — Meta Lead Ads webhook verification challenge
+// ---------------------------------------------------------------------------
+router.get('/meta-leads', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  if (mode === 'subscribe' && token === process.env.META_VERIFY_TOKEN) {
+    res.status(200).send(String(challenge));
+  } else {
+    res.status(403).json({ error: 'verification failed' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /webhooks/meta-leads — Facebook Lead Ads leadgen events
+// ---------------------------------------------------------------------------
+router.post('/meta-leads', async (req, res) => {
+  const rawBody = req.rawBody || JSON.stringify(req.body ?? {});
+  const signature = req.headers['x-hub-signature-256'] as string | undefined;
+  if (!verifyMetaLeadSignature(rawBody, signature, process.env.META_APP_SECRET)) {
+    res.status(403).json({ error: 'invalid signature' });
+    return;
+  }
+
+  const changes = extractFacebookLeadgenChanges(req.body);
+  if (changes.length === 0) {
+    res.status(200).json({ status: 'ignored', reason: 'no_leadgen_changes' });
+    return;
+  }
+
+  const results: Array<Record<string, unknown>> = [];
+  let processed = 0;
+  let duplicate = 0;
+  let failed = 0;
+
+  for (const change of changes) {
+    const eventId = `facebook_leadgen:${change.leadgenId}`;
+    if (await isAlreadyProcessed(eventId)) {
+      duplicate++;
+      results.push({ leadgenId: change.leadgenId, status: 'duplicate' });
+      continue;
+    }
+
+    try {
+      const result = await processFacebookLeadgenChange(change);
+      await markProcessed(eventId, 'facebook_leadgen');
+      processed++;
+      results.push({ ...result, status: 'processed' });
+    } catch (error) {
+      failed++;
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error({ error: message, change }, '[facebook-leads webhook] failed');
+      try {
+        await insertJob(
+          null,
+          'facebook_lead_failed',
+          { change, error: message, payload: req.body },
+          `facebook_lead_failed:${change.leadgenId}:${Date.now()}`,
+        );
+      } catch (jobError) {
+        logger.error({ error: jobError }, '[facebook-leads webhook] failed to enqueue failure audit job');
+      }
+      results.push({ leadgenId: change.leadgenId, status: 'failed', error: message });
+    }
+  }
+
+  res.status(200).json({ status: 'ok', processed, duplicate, failed, results });
+});
 
 // ---------------------------------------------------------------------------
 // GET /webhooks/meta-wa — Meta webhook verification challenge

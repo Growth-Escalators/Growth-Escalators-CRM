@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import { uploadToR2, deleteFromR2, listR2Objects } from '../utils/r2';
+import { getFacebookLeadFormsStatus, subscribeFacebookPageToLeadgen } from '../services/facebookLeadForms';
 
 const router = Router();
 
@@ -156,6 +157,33 @@ router.get('/accounts', async (req: Request, res: Response) => {
     res.json({ accounts: safe });
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/social/lead-forms/status
+// ---------------------------------------------------------------------------
+router.get('/lead-forms/status', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const checkMeta = req.query.checkMeta === 'true';
+  try {
+    const status = await getFacebookLeadFormsStatus(tenantId, checkMeta);
+    res.json(status);
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/social/lead-forms/accounts/:id/subscribe
+// ---------------------------------------------------------------------------
+router.post('/lead-forms/accounts/:id/subscribe', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  try {
+    const result = await subscribeFacebookPageToLeadgen(tenantId, String(req.params.id));
+    res.json(result);
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });
 
@@ -461,6 +489,8 @@ oauthRouter.get('/facebook/start', async (req: Request, res: Response) => {
   //   pages_show_list              → CRM lists FB Pages the user administers
   //   pages_read_engagement        → CRM reads organic post engagement
   //   pages_manage_posts           → CRM publishes posts to the Page
+  //   pages_manage_metadata        → CRM subscribes connected Pages to leadgen webhooks
+  //   leads_retrieval              → CRM retrieves Facebook Lead Ads form submissions
   //   business_management          → CRM lists Business Manager + ad accounts
   //   ads_read                     → CRM reads ad-account performance
   //   ads_management               → CRM pauses/activates ad campaigns
@@ -478,6 +508,8 @@ oauthRouter.get('/facebook/start', async (req: Request, res: Response) => {
     'pages_show_list',
     'pages_read_engagement',
     'pages_manage_posts',
+    'pages_manage_metadata',
+    'leads_retrieval',
     'business_management',
     'ads_read',
     'ads_management',

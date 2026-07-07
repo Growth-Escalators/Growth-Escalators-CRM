@@ -2,35 +2,34 @@
 
 ## Active task
 
-**Wizmatch daily operations + candidate intake** — finish the next safe operating slice after the
-paid discovery/cost-guard release by adding manual candidate-profile intake and an operator SOP.
+**Facebook Lead Forms -> CRM + Slack** — add a safe Facebook Lead Ads ingestion path so connected
+Facebook pages can send lead-form submissions into CRM contacts and notify the BD/Sales Slack
+channel.
 
-Scope is **Candidate Intelligence intake backend/UI, parser tests, route registration, operator
-documentation, generated admin bundle, and AI context**. This task must not add new database
-tables, migrations, automatic outreach sending, automatic candidate submissions, worker/cron
-automation, paid provider calls, deployment config changes, `package.json`, or `package-lock.json`.
+Scope is **webhook ingestion, CRM contact creation/reuse, Slack notification, Social-page setup
+visibility, tests, generated admin bundle, and AI context**. This task does not add schema,
+migrations, auto-outreach, sequence enrollment, candidate submission, paid enrichment, worker/cron
+automation, deployment config, `package.json`, or `package-lock.json` changes.
 
 ## Definition of done
 
-- [x] Add `src/services/wizmatchCandidateIntake.ts` for CSV/manual profile parsing, normalization,
-  validation, limits, warnings, and dry-run preparation.
-- [x] Add `POST /api/wizmatch/candidate-intelligence/intake`.
-- [x] Default the intake route to preview-only unless `dryRun=false` and `confirmImport=true`.
-- [x] Reuse `findOrCreateContact` so email/phone normalization and CRM contact dedupe stay intact.
-- [x] Skip duplicate candidate profiles when a Wizmatch candidate already exists for the CRM contact.
-- [x] Score preview/imported candidates through deterministic Candidate Intelligence.
-- [x] Keep intake manual and authenticated; no outreach, submission, placement update, provider call,
-  paid enrichment, worker, or cron action occurs.
-- [x] Add Candidate Profile Intake UI to Candidate Intelligence with sample CSV, preview scores, and
-  import result feedback.
-- [x] Fix the Candidate Intelligence Shortlist button to call the supported `shortlist` action.
-- [x] Add `docs/wizmatch-daily-operations.md` for day-to-day operator usage.
-- [x] Add focused parser tests and route registration coverage.
-- [x] Run backend build, full Vitest suite, admin build, and refresh AI brief.
+- [x] Add public `GET /webhooks/meta-leads` verification route for Meta Lead Ads.
+- [x] Add public `POST /webhooks/meta-leads` route for Page `leadgen` webhook events.
+- [x] Verify `X-Hub-Signature-256` against `META_APP_SECRET` using the raw request body.
+- [x] Dedupe successful lead events with `processed_events` keys like `facebook_leadgen:<id>`.
+- [x] Fetch lead details from Meta using the connected Facebook Page token in `social_accounts`.
+- [x] Map standard and custom lead form fields into CRM contact metadata.
+- [x] Create or reuse CRM contacts through `findOrCreateContact`.
+- [x] Add `facebook_lead`, `meta_lead_form`, and page tags; update `lastActivityAt`.
+- [x] Send a Slack notification to the existing BD/Sales channel without blocking webhook success.
+- [x] Add Social-page lead-form status/subscription endpoints.
+- [x] Extend Facebook OAuth scopes for `pages_manage_metadata` and `leads_retrieval`.
+- [x] Add Social Accounts UI visibility for webhook/config/page subscription status.
+- [x] Run focused Facebook Lead tests, backend build, full Vitest suite, admin build, and refresh
+  AI brief.
 
 ## Next task
 
-After this slice is verified, use `/wizmatch/readiness` and `docs/wizmatch-daily-operations.md`
-to onboard the team into daily operation. Paid discovery still requires provider env setup and a
-small controlled Tier A pilot. Automatic outreach, automatic candidate submissions, and worker/cron
-automation remain out of scope.
+Configure Meta App/Webhooks in the Meta dashboard and subscribe the connected Facebook Pages from
+the CRM Social page. Then use Meta's Lead Ads testing tool to submit one controlled test lead and
+confirm the CRM contact plus Slack notification.

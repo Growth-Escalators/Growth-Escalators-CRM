@@ -10,6 +10,12 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   **verify actual topology before changing deployment/worker assumptions**, don't assume two services.
 - D2C landing on Vercel (`ecom.growthescalators.com`).
 - `npm run build` and `npm test` pass on `main`.
+- Facebook Lead Forms now have a safe ingestion path:
+  `GET/POST /webhooks/meta-leads`, Meta signature verification using the raw request body,
+  connected-page token lookup via `social_accounts`, CRM contact create/reuse via
+  `findOrCreateContact`, `facebook_lead` / `meta_lead_form` tagging, `lastActivityAt` bumping,
+  and Slack notifications to the existing BD/Sales channel. The Social Accounts page exposes
+  webhook/config status and a protected page-subscribe action for `leadgen` webhooks.
 
 ## In progress
 
@@ -24,14 +30,17 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   eligibility rules, hard-blocking budget/rate caps, provider-env checks, advisory-lock
   duplicate protection, cooldown, and explicit `confirmPreview=true`. Admin classic pages,
   CRM-styled V2 pages, and the new operating pages exist.
-  `/wizmatch` now lands on the Review Workbench, and the operating frontend has module/priority
+  `/wizmatch` now lands on the Review Workbench, and the visible Wizmatch sidebar is cleaned down
+  to the primary operating/V2 pages: Review Workbench, Data Readiness, Client Discovery, Contact
+  Intelligence, Candidate Intelligence, Requirement Priority, Guardrails, and Analytics. Duplicated
+  old frontend routes now redirect to their new pages. The operating frontend has module/priority
   filters, readiness strips, richer CRM-style action cards, guardrail/cost panels, preview links,
   Contact Intelligence discovery preview/run controls, budget/provider-env visibility, and
-  requirement review-plan feedback. Candidate Intelligence now includes a manual Candidate Profile
-  Intake panel and authenticated `POST /api/wizmatch/candidate-intelligence/intake` endpoint for
-  preview-first CSV/profile imports. Intake creates/reuses CRM contacts and Wizmatch candidate
-  records only after explicit confirmation; it scores profiles deterministically and does not send
-  outreach, submit candidates, call providers, or update placements.
+  requirement review-plan feedback. Candidate Intelligence V2 now includes the manual Candidate
+  Profile Intake panel and authenticated `POST /api/wizmatch/candidate-intelligence/intake`
+  endpoint for preview-first CSV/profile imports. Intake creates/reuses CRM contacts and Wizmatch
+  candidate records only after explicit confirmation; it scores profiles deterministically and does
+  not send outreach, submit candidates, call providers, or update placements.
   Paid discovery defaults off unless env-enabled and manually run after preview. Still no outreach
   sending, candidate auto-submission, worker/cron automation, package, or deployment changes.
 
@@ -47,16 +56,17 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   Wizmatch tables → JOIN queries must alias filter columns or Postgres throws 42702.
 - If the worker runs as a separate Railway service, it serves only a health probe, not the API →
   worker crons must call `WIZMATCH_API_BASE_URL` (public `web` URL), not `localhost`.
-- Local classic demo routes `/wizmatch/command-center-demo`, `/wizmatch/contact-intelligence-demo`,
-  `/wizmatch/client-discovery-demo`, `/wizmatch/candidate-intelligence-demo`, and
-  `/wizmatch/analytics-demo` work without DB/login. Local V2 demo routes
+- Duplicated old demo routes now redirect to the relevant new demo pages. Local V2 demo routes
   `/wizmatch/command-center-new-demo`, `/wizmatch/contact-intelligence-new-demo`,
   `/wizmatch/client-discovery-new-demo`, `/wizmatch/candidate-intelligence-new-demo`, and
-  `/wizmatch/analytics-new-demo` also work without DB/login. New operating demo routes
+  `/wizmatch/analytics-new-demo` work without DB/login. New operating demo routes
   `/wizmatch/review-workbench-demo`, `/wizmatch/requirement-priority-new-demo`,
   `/wizmatch/guardrails-new-demo`, `/wizmatch/readiness-demo`, and
   `/wizmatch/local-demo-flow-demo` work without DB/login. Authenticated routes need a healthy
   local API/database and CRM auth token.
+- Classic pages with unique operational workflows remain direct-access fallbacks, but are no
+  longer in the Wizmatch sidebar: requirements, signals, candidate pool, domains, compliance,
+  placements, and primes. Do not delete them until matching V2 workflows exist.
 - Contact Intelligence persistence/API/UI are local-only until reviewed and migrated in the
   intended environment. Paid discovery is manual-only, preview-first, and disabled by default via
   `WIZMATCH_PAID_DISCOVERY_ENABLED=false`; Google fallback is disabled by default via
