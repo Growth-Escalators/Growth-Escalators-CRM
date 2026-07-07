@@ -16,6 +16,11 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   `findOrCreateContact`, `facebook_lead` / `meta_lead_form` tagging, `lastActivityAt` bumping,
   and Slack notifications to the existing BD/Sales channel. The Social Accounts page exposes
   webhook/config status and a protected page-subscribe action for `leadgen` webhooks.
+- Growth Escalators and Wizmatch are now tenant-separated CRM profiles. Growth keeps the classic
+  shared CRM routes, while Wizmatch has `/wizmatch/*` equivalents for Dashboard, Contacts,
+  Pipeline, Tasks, Inbox, Billing, Finance, Email Templates, WhatsApp Templates, Lead Discovery,
+  Outreach, AI Intelligence, Permissions, Audit, and Pipeline Settings. The same shared modules
+  use the logged-in tenant token, so Growth data and Wizmatch data stay separated.
 
 ## In progress
 
@@ -30,10 +35,11 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   eligibility rules, hard-blocking budget/rate caps, provider-env checks, advisory-lock
   duplicate protection, cooldown, and explicit `confirmPreview=true`. Admin classic pages,
   CRM-styled V2 pages, and the new operating pages exist.
-  `/wizmatch` now lands on the Review Workbench, and the visible Wizmatch sidebar is cleaned down
-  to the primary operating/V2 pages: Review Workbench, Data Readiness, Client Discovery, Contact
-  Intelligence, Candidate Intelligence, Requirement Priority, Guardrails, and Analytics. Duplicated
-  old frontend routes now redirect to their new pages. The operating frontend has module/priority
+  `/wizmatch` now lands on the Wizmatch Dashboard. The visible Wizmatch sidebar includes shared
+  CRM modules plus the primary staffing operating/V2 pages: Review Workbench, Data Readiness,
+  Client Discovery, Contact Intelligence, Candidate Intelligence, Requirement Priority,
+  Guardrails, and Analytics. Duplicated old frontend routes still redirect to their new pages.
+  The operating frontend has module/priority
   filters, readiness strips, richer CRM-style action cards, guardrail/cost panels, preview links,
   Contact Intelligence discovery preview/run controls, budget/provider-env visibility, and
   requirement review-plan feedback. Candidate Intelligence V2 now includes the manual Candidate
@@ -43,6 +49,12 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   not send outreach, submit candidates, call providers, or update placements.
   Paid discovery defaults off unless env-enabled and manually run after preview. Still no outreach
   sending, candidate auto-submission, worker/cron automation, package, or deployment changes.
+  The new `/api/wizmatch/dashboard` endpoint powers the Wizmatch Dashboard with live tenant-scoped
+  requirements, candidates, signals, contacts, placements, inbox, tasks, review, readiness, and
+  guardrail summaries. `/api/wizmatch/intelligence` and
+  `POST /api/wizmatch/intelligence/generate` provide manual Claude-powered staffing analysis
+  over Wizmatch data only; they do not analyze Growth marketing/SEO/ads data and do not trigger
+  outreach or submissions.
 
 ## Recently landed (context)
 

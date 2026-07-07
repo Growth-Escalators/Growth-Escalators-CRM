@@ -44,6 +44,8 @@ const WizmatchPlacementsPage = lazy(() => import('./pages/WizmatchPlacementsPage
 const WizmatchPrimesPage = lazy(() => import('./pages/WizmatchPrimesPage.jsx'));
 const WizmatchAnalyticsNewPage = lazy(() => import('./pages/WizmatchNewPages.jsx').then((module) => ({ default: module.WizmatchAnalyticsNewPage })));
 const WizmatchReviewWorkbenchPage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchReviewWorkbenchPage })));
+const WizmatchDashboardPage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchDashboardPage })));
+const WizmatchIntelligencePage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchIntelligencePage })));
 const WizmatchRequirementPriorityPage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchRequirementPriorityPage })));
 const WizmatchGuardrailsPage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchGuardrailsPage })));
 const WizmatchReadinessPage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchReadinessPage })));
@@ -90,7 +92,27 @@ function PrivateRoute({ children }) {
   const userTenantSlug = normalizeTenantSlug(user?.tenantSlug || activeTenantSlug);
   const isWizmatchUser = userTenantSlug === 'wizmatch';
   const isWizmatchPath = location.pathname.startsWith('/wizmatch');
+  const wizmatchSharedRouteMap = {
+    '/dashboard': '/wizmatch/dashboard',
+    '/contacts': '/wizmatch/contacts',
+    '/pipeline': '/wizmatch/pipeline',
+    '/tasks': '/wizmatch/tasks',
+    '/inbox': '/wizmatch/inbox',
+    '/billing': '/wizmatch/billing',
+    '/finance': '/wizmatch/finance',
+    '/emails': '/wizmatch/emails',
+    '/whatsapp-templates': '/wizmatch/whatsapp-templates',
+    '/discover': '/wizmatch/discover',
+    '/outreach-dashboard': '/wizmatch/outreach',
+    '/intelligence': '/wizmatch/intelligence',
+    '/settings/permissions': '/wizmatch/settings/permissions',
+    '/settings/audit': '/wizmatch/settings/audit',
+    '/pipelines/settings': '/wizmatch/pipelines/settings',
+  };
   if (token && isWizmatchUser && !isWizmatchPath) {
+    return <Navigate to={wizmatchSharedRouteMap[location.pathname] || getProductHome(userTenantSlug)} replace />;
+  }
+  if (token && !isWizmatchUser && isWizmatchPath) {
     return <Navigate to={getProductHome(userTenantSlug)} replace />;
   }
   return token ? children : <Navigate to="/login" replace />;
@@ -143,7 +165,22 @@ export default function App() {
             <Route path="/tasks/v2" element={<PrivateRoute><TasksBoardPage /></PrivateRoute>} />
             <Route path="/my-attendance" element={<PrivateRoute><MyAttendancePage /></PrivateRoute>} />
             <Route path="/wizmatch-demo" element={<WizmatchReviewWorkbenchPage demoMode />} />
-            <Route path="/wizmatch" element={<Navigate to="/wizmatch/review-workbench" replace />} />
+            <Route path="/wizmatch" element={<Navigate to="/wizmatch/dashboard" replace />} />
+            <Route path="/wizmatch/dashboard" element={<PrivateRoute><AppLayout><WizmatchDashboardPage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/contacts" element={<PrivateRoute><ContactsPage /></PrivateRoute>} />
+            <Route path="/wizmatch/pipeline" element={<PrivateRoute><PipelinePage /></PrivateRoute>} />
+            <Route path="/wizmatch/tasks" element={<PrivateRoute><TasksBoardPage /></PrivateRoute>} />
+            <Route path="/wizmatch/inbox" element={<PrivateRoute><InboxPage /></PrivateRoute>} />
+            <Route path="/wizmatch/billing" element={<PrivateRoute><BillingPage /></PrivateRoute>} />
+            <Route path="/wizmatch/finance" element={<PrivateRoute><FinancePage /></PrivateRoute>} />
+            <Route path="/wizmatch/emails" element={<PrivateRoute><EmailTemplatesPage /></PrivateRoute>} />
+            <Route path="/wizmatch/whatsapp-templates" element={<PrivateRoute><WhatsAppTemplatesPage /></PrivateRoute>} />
+            <Route path="/wizmatch/discover" element={<PrivateRoute><LeadDiscoveryPage /></PrivateRoute>} />
+            <Route path="/wizmatch/outreach" element={<PrivateRoute><OutreachDashboard /></PrivateRoute>} />
+            <Route path="/wizmatch/intelligence" element={<PrivateRoute><AppLayout><WizmatchIntelligencePage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/settings/permissions" element={<PrivateRoute><PermissionsPage /></PrivateRoute>} />
+            <Route path="/wizmatch/settings/audit" element={<PrivateRoute><AuditPage /></PrivateRoute>} />
+            <Route path="/wizmatch/pipelines/settings" element={<PrivateRoute><PipelineManagerPage /></PrivateRoute>} />
             <Route path="/wizmatch/command-center-demo" element={<Navigate to="/wizmatch/review-workbench-demo" replace />} />
             <Route path="/wizmatch/command-center-new-demo" element={<WizmatchCommandCenterNewPage demoMode />} />
             <Route path="/wizmatch/command-center" element={<Navigate to="/wizmatch/review-workbench" replace />} />

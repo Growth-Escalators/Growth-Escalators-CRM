@@ -188,6 +188,83 @@ export const NAV_ENTRIES = [
 
   // ── WIZMATCH STAFFING ─────────────────────────────────────────
   {
+    id: 'wm-dashboard', label: 'Dashboard', to: '/wizmatch/dashboard',
+    icon: Home, section: 'CRM', group: null, product: 'wizmatch',
+    visible: () => true,
+  },
+  {
+    id: 'wm-contacts', label: 'Contacts', to: '/wizmatch/contacts',
+    icon: Users, section: 'CRM', group: null, product: 'wizmatch',
+    visible: f => f.canCRM,
+  },
+  {
+    id: 'wm-pipeline', label: 'Pipeline', to: '/wizmatch/pipeline',
+    icon: Kanban, section: 'CRM', group: null, product: 'wizmatch',
+    visible: f => f.canCRM,
+  },
+  {
+    id: 'wm-tasks', label: 'Tasks', to: '/wizmatch/tasks',
+    icon: CheckSquare, section: 'CRM', group: null, product: 'wizmatch',
+    visible: f => f.canTasks,
+  },
+  {
+    id: 'wm-inbox', label: 'Inbox', to: '/wizmatch/inbox',
+    icon: MessageSquare, section: 'CRM', group: null, product: 'wizmatch',
+    badge: 'inbox-unread',
+    visible: f => f.canInbox,
+  },
+  {
+    id: 'wm-outreach', label: 'Outreach', to: '/wizmatch/outreach',
+    icon: Target, section: 'CRM', group: null, product: 'wizmatch',
+    visible: f => f.isAdminTier,
+  },
+  {
+    id: 'wm-intelligence', label: 'AI Intelligence', to: '/wizmatch/intelligence',
+    icon: Brain, section: 'AI & Automation', group: null, product: 'wizmatch',
+    visible: f => f.isAdminTier,
+  },
+  {
+    id: 'wm-discover', label: 'Lead Discovery', to: '/wizmatch/discover',
+    icon: MapPin, section: 'Tools', group: 'tools', product: 'wizmatch', newTab: true,
+    visible: f => f.canDiscovery,
+  },
+  {
+    id: 'wm-emails', label: 'Email Templates', to: '/wizmatch/emails',
+    icon: Mail, section: 'Tools', group: 'tools', product: 'wizmatch', newTab: true,
+    visible: f => f.canSequences,
+  },
+  {
+    id: 'wm-wa-templates', label: 'WA Templates', to: '/wizmatch/whatsapp-templates',
+    icon: MessageSquare, section: 'Tools', group: 'tools', product: 'wizmatch', newTab: true,
+    visible: f => f.canSequences,
+  },
+  {
+    id: 'wm-billing', label: 'Billing', to: '/wizmatch/billing',
+    icon: CreditCard, section: 'Finance', group: 'finance', product: 'wizmatch',
+    visible: f => f.canBilling,
+  },
+  {
+    id: 'wm-expenses', label: 'Expenses', to: '/wizmatch/finance',
+    icon: Receipt, section: 'Finance', group: 'finance', product: 'wizmatch',
+    badge: 'pending-leaves',
+    visible: f => f.canBilling,
+  },
+  {
+    id: 'wm-permissions', label: 'Permissions', to: '/wizmatch/settings/permissions',
+    icon: Shield, section: 'Settings', group: 'settings', product: 'wizmatch',
+    visible: f => f.isAdmin,
+  },
+  {
+    id: 'wm-audit', label: 'Audit Log', to: '/wizmatch/settings/audit',
+    icon: ClipboardList, section: 'Settings', group: 'settings', product: 'wizmatch',
+    visible: f => f.isAdmin,
+  },
+  {
+    id: 'wm-pipeline-manager', label: 'Pipeline Manager', to: '/wizmatch/pipelines/settings',
+    icon: Settings, section: 'Settings', group: 'settings', product: 'wizmatch',
+    visible: f => f.isAdmin,
+  },
+  {
     id: 'wm-review-workbench', label: 'Review Workbench', to: '/wizmatch/review-workbench',
     icon: ClipboardList, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,

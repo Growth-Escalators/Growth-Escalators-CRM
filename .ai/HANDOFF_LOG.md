@@ -5,6 +5,49 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-07 — Step 23: Growth + Wizmatch tenant-separated CRM profile — Codex — VERIFIED LOCALLY
+
+**What was done**
+- Converted Wizmatch from a mostly separate operating surface into a tenant-separated CRM profile.
+- Added Wizmatch-prefixed routes for shared CRM modules:
+  Dashboard, Contacts, Pipeline, Tasks, Inbox, Billing, Finance, Email Templates, WhatsApp
+  Templates, Lead Discovery, Outreach, AI Intelligence, Permissions, Audit, and Pipeline Settings.
+- Changed Wizmatch home from `/wizmatch/review-workbench` to `/wizmatch/dashboard`.
+- Redirected Wizmatch users who open shared Growth paths to the matching `/wizmatch/*` path.
+- Kept Growth-only marketing modules out of the Wizmatch sidebar by default.
+- Kept Wizmatch staffing pages visible alongside the shared CRM modules.
+- Added `GET /api/wizmatch/dashboard` and the `/wizmatch/dashboard` page for live Wizmatch
+  tenant summaries.
+- Added `GET /api/wizmatch/intelligence` and `POST /api/wizmatch/intelligence/generate` plus the
+  `/wizmatch/intelligence` page for manual Claude-powered staffing analysis.
+
+**Guardrails preserved**
+- Shared modules continue to rely on the authenticated token's `tenantId`.
+- No schema, migration, package, deployment config, auto-outreach, automatic candidate submission,
+  or worker/cron changes.
+- Wizmatch AI Intelligence is manual-only and analyzes staffing data, not Growth marketing/SEO/ads.
+
+**Files changed**
+- `admin/src/App.jsx`
+- `admin/src/lib/auth.js`
+- `admin/src/components/navEntries.js`
+- `admin/src/pages/WizmatchOperatingPages.jsx`
+- `src/routes/wizmatch.ts`
+- `public/admin/` rebuilt by `npm run admin:build`
+- `.ai/CURRENT_TASK.md`
+- `.ai/CURRENT_STATE.md`
+- `.ai/HANDOFF_LOG.md`
+- `.ai/AI_BRIEF.md` regenerated
+
+**Verification**
+- `npm run build` passed.
+- `npm test` passed: 24 files, 222 tests.
+- `npm run admin:build` passed.
+
+**Next**
+- Manual browser validation with real Growth and Wizmatch logins: confirm shared modules show the
+  correct tenant data in both profiles and that Wizmatch-specific staffing modules remain available.
+
 ## 2026-07-07 — Step 22: Facebook Lead Forms -> CRM + Slack — Codex — VERIFIED LOCALLY
 
 **What was done**

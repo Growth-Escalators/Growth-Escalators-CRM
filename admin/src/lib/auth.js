@@ -28,7 +28,7 @@ export function productForTenant(slug = getTenantSlug()) {
 }
 
 export function getProductHome(slug = getTenantSlug()) {
-  return productForTenant(slug) === 'wizmatch' ? '/wizmatch/review-workbench' : '/dashboard';
+  return productForTenant(slug) === 'wizmatch' ? '/wizmatch/dashboard' : '/dashboard';
 }
 
 export function getTenantSlug(explicit) {

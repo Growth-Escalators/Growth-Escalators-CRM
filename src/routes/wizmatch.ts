@@ -1945,6 +1945,140 @@ router.get('/readiness', async (req: Request, res: Response) => {
   res.json({ ...readiness, costControls });
 });
 
+async function buildWizmatchDashboardSnapshot(tenantId: string, userId?: string) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [readiness, workbench, costControls, stats, shared] = await Promise.all([
+    getWizmatchReadiness(pool, tenantId),
+    buildReviewWorkbenchPayload(tenantId, 10),
+    buildContactDiscoveryCostControls(tenantId, userId),
+    optionalWizmatchStatsQuery(
+      'dashboard summary',
+      `SELECT
+         (SELECT COUNT(*)::int FROM wizmatch_requirements WHERE tenant_id = $1 AND status <> 'closed') AS active_requirements,
+         (SELECT COUNT(*)::int FROM wizmatch_requirements WHERE tenant_id = $1 AND status <> 'closed' AND priority = 'urgent') AS urgent_requirements,
+         (SELECT COUNT(*)::int FROM wizmatch_candidates WHERE tenant_id = $1 AND availability_status = 'available') AS available_candidates,
+         (SELECT COUNT(*)::int FROM wizmatch_candidates WHERE tenant_id = $1) AS total_candidates,
+         (SELECT COUNT(*)::int FROM wizmatch_job_signals WHERE tenant_id = $1 AND COALESCE(score, 0) >= 7) AS priority_signals,
+         (SELECT COUNT(*)::int FROM wizmatch_job_signals WHERE tenant_id = $1 AND status = 'matched') AS matched_signals,
+         (SELECT COUNT(*)::int FROM wizmatch_company_intelligence WHERE tenant_id = $1 AND status IN ('qualified', 'needs_review', 'ready_for_discovery', 'discovery_blocked', 'discovered')) AS qualified_companies,
+         (SELECT COUNT(*)::int FROM wizmatch_contact_candidates WHERE tenant_id = $1 AND status IN ('approved', 'linked_to_crm')) AS approved_contacts,
+         (SELECT COUNT(*)::int FROM wizmatch_placements WHERE tenant_id = $1 AND status IN ('submitted', 'interviewing', 'offered', 'started')) AS active_placements,
+         (SELECT COALESCE(SUM(CASE WHEN status = 'started' THEN margin_hourly * 160 ELSE 0 END), 0)::int FROM wizmatch_placements WHERE tenant_id = $1) AS monthly_margin,
+         (SELECT COUNT(*)::int FROM messages WHERE tenant_id = $1 AND sent_at::date = $2 AND channel = 'email' AND direction = 'outbound') AS emails_sent_today,
+         (SELECT COUNT(*)::int FROM wizmatch_job_signals WHERE tenant_id = $1 AND status = 'replied_positive') AS positive_replies`,
+      [tenantId, today],
+      {
+        active_requirements: 0,
+        urgent_requirements: 0,
+        available_candidates: 0,
+        total_candidates: 0,
+        priority_signals: 0,
+        matched_signals: 0,
+        qualified_companies: 0,
+        approved_contacts: 0,
+        active_placements: 0,
+        monthly_margin: 0,
+        emails_sent_today: 0,
+        positive_replies: 0,
+      },
+    ),
+    pool.query(
+      `SELECT
+         (SELECT COUNT(*)::int FROM tasks WHERE tenant_id = $1 AND status <> 'done') AS open_tasks,
+         (SELECT COUNT(*)::int FROM messages WHERE tenant_id = $1 AND direction = 'inbound' AND status = 'received') AS unread_inbox,
+         (SELECT COUNT(*)::int FROM contacts WHERE tenant_id = $1) AS crm_contacts,
+         (SELECT COUNT(*)::int FROM deals WHERE tenant_id = $1 AND stage NOT IN ('won', 'lost', 'Won', 'Lost')) AS open_deals`,
+      [tenantId],
+    ),
+  ]);
+  const row = stats.rows[0] ?? {};
+  const sharedRow = shared.rows[0] ?? {};
+  return {
+    generatedAt: new Date().toISOString(),
+    readiness: readiness.overall,
+    costControls,
+    safetyCenter: workbench.safetyCenter,
+    summary: {
+      activeRequirements: numeric(row.active_requirements),
+      urgentRequirements: numeric(row.urgent_requirements),
+      availableCandidates: numeric(row.available_candidates),
+      totalCandidates: numeric(row.total_candidates),
+      prioritySignals: numeric(row.priority_signals),
+      matchedSignals: numeric(row.matched_signals),
+      qualifiedCompanies: numeric(row.qualified_companies),
+      approvedContacts: numeric(row.approved_contacts),
+      activePlacements: numeric(row.active_placements),
+      monthlyMargin: numeric(row.monthly_margin),
+      emailsSentToday: numeric(row.emails_sent_today),
+      positiveReplies: numeric(row.positive_replies),
+      openTasks: numeric(sharedRow.open_tasks),
+      unreadInbox: numeric(sharedRow.unread_inbox),
+      crmContacts: numeric(sharedRow.crm_contacts),
+      openDeals: numeric(sharedRow.open_deals),
+      reviewActions: workbench.summary?.totalActions || 0,
+      blockedActions: workbench.summary?.blocked || 0,
+      safeActions: workbench.summary?.safeExecutableActions || 0,
+    },
+    priorityActions: (workbench.actions || []).slice(0, 6),
+    guardrails: workbench.guardrails,
+  };
+}
+
+router.get('/dashboard', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  res.json(await buildWizmatchDashboardSnapshot(tenantId, req.user?.id));
+});
+
+router.get('/intelligence', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const snapshot = await buildWizmatchDashboardSnapshot(tenantId, req.user?.id);
+  res.json({
+    snapshot,
+    aiEnabled: Boolean(process.env.WIZMATCH_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY),
+    guidance: [
+      'Use dashboard and readiness first to confirm live Wizmatch data exists.',
+      'Generate AI analysis manually when the team needs staffing priorities.',
+      'No outreach or candidate submission is triggered from intelligence.',
+    ],
+  });
+});
+
+router.post('/intelligence/generate', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const snapshot = await buildWizmatchDashboardSnapshot(tenantId, req.user?.id);
+  const prompt = `You are the Wizmatch operating analyst for Growth Escalators.
+Analyze this staffing-only CRM snapshot and return concise JSON with these keys:
+summary, risks, next_actions, data_gaps, guardrails.
+
+Rules:
+- Focus only on IT/Tech staffing.
+- Do not recommend automatic outreach or automatic candidate submission.
+- Do not recommend paid enrichment unless readiness, qualification, and cost guards allow it.
+- Prioritize India 80% and US 20%.
+- Use the exact numbers from the snapshot.
+
+Snapshot:
+${JSON.stringify(snapshot, null, 2)}`;
+
+  try {
+    const response = await callClaude(prompt, CLAUDE_MODELS.SONNET, 1800);
+    let analysis: unknown;
+    try {
+      analysis = parseClaudeJSON(response.text);
+    } catch {
+      analysis = { summary: response.text, risks: [], next_actions: [], data_gaps: [], guardrails: [] };
+    }
+    res.json({ generatedAt: new Date().toISOString(), aiEnabled: true, tokensUsed: response.raw?.usage, snapshot, analysis });
+  } catch (e) {
+    logger.warn({ err: e }, '[wizmatch] intelligence generation unavailable');
+    res.status(503).json({
+      error: 'Wizmatch AI Intelligence is not available',
+      detail: e instanceof Error ? e.message : 'Claude request failed',
+      snapshot,
+    });
+  }
+});
+
 // ============================================================
 // SECTION 0 — CONTACT INTELLIGENCE PHASE 1 ROUTES
 // ============================================================

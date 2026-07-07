@@ -3,6 +3,7 @@ import {
   Activity,
   AlertTriangle,
   ArrowRight,
+  Brain,
   CheckCircle2,
   ClipboardList,
   Contact,
@@ -12,6 +13,7 @@ import {
   LayoutDashboard,
   ListChecks,
   LockKeyhole,
+  MessageSquare,
   PlayCircle,
   RefreshCw,
   ShieldCheck,
@@ -670,6 +672,252 @@ function ScoreBars({ scores }) {
         </div>
       ))}
     </div>
+  );
+}
+
+function formatINR(amount) {
+  const n = Number(amount || 0);
+  if (n >= 10000000) return `₹${(n / 10000000).toFixed(2)}Cr`;
+  if (n >= 100000) return `₹${(n / 100000).toFixed(1)}L`;
+  if (n >= 1000) return `₹${(n / 1000).toFixed(1)}K`;
+  return `₹${n.toLocaleString('en-IN')}`;
+}
+
+const DEMO_DASHBOARD = {
+  readiness: DEMO_READINESS.overall,
+  summary: {
+    activeRequirements: 7,
+    urgentRequirements: 2,
+    availableCandidates: 18,
+    totalCandidates: 25,
+    prioritySignals: 39,
+    matchedSignals: 11,
+    qualifiedCompanies: 9,
+    approvedContacts: 4,
+    activePlacements: 3,
+    monthlyMargin: 420000,
+    emailsSentToday: 7,
+    positiveReplies: 2,
+    openTasks: 6,
+    unreadInbox: 3,
+    crmContacts: 50,
+    openDeals: 3,
+    reviewActions: 6,
+    blockedActions: 2,
+    safeActions: 4,
+  },
+  priorityActions: DEMO_WORKBENCH.actions,
+  safetyCenter: DEMO_WORKBENCH.safetyCenter,
+  guardrails: DEMO_WORKBENCH.guardrails,
+};
+
+export function WizmatchDashboardPage({ demoMode = false }) {
+  const fallback = useMemo(() => DEMO_DASHBOARD, []);
+  const { data, loading, error, refresh } = useLiveData({
+    demoMode,
+    fallback,
+    loadLive: useCallback(() => apiFetch('/api/wizmatch/dashboard'), []),
+  });
+  const summary = data.summary || {};
+
+  return (
+    <Page
+      eyebrow="Wizmatch CRM"
+      title="Wizmatch Dashboard"
+      description="Tenant-separated staffing CRM overview for requirements, candidates, contacts, outreach, tasks, inbox, placements, and safety readiness."
+      demoMode={demoMode}
+      loading={loading}
+      error={error}
+      onRefresh={refresh}
+    >
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Metric icon={FileText} label="Active requirements" value={summary.activeRequirements || 0} helper={`${summary.urgentRequirements || 0} urgent`} tone="success" />
+        <Metric icon={UserCheck} label="Available candidates" value={summary.availableCandidates || 0} helper={`${summary.totalCandidates || 0} total profiles`} />
+        <Metric icon={Target} label="Priority signals" value={summary.prioritySignals || 0} helper={`${summary.matchedSignals || 0} matched`} />
+        <Metric icon={Contact} label="Qualified companies" value={summary.qualifiedCompanies || 0} helper={`${summary.approvedContacts || 0} approved contacts`} />
+      </div>
+
+      <ReadinessStrip readiness={data.readiness || DEMO_READINESS.overall} demoMode={demoMode} />
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Metric icon={ClipboardList} label="Review actions" value={summary.reviewActions || 0} helper={`${summary.safeActions || 0} safe actions`} />
+        <Metric icon={MessageSquare} label="Unread inbox" value={summary.unreadInbox || 0} helper="Email + WhatsApp" />
+        <Metric icon={CheckCircle2} label="Open tasks" value={summary.openTasks || 0} helper={`${summary.crmContacts || 0} tenant contacts`} />
+        <Metric icon={Activity} label="Monthly margin" value={formatINR(summary.monthlyMargin)} helper={`${summary.activePlacements || 0} active placements`} tone="success" />
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
+        <div className="card p-5">
+          <SectionHeader icon={Zap} title="What needs attention" description="Highest-priority live actions from the Wizmatch operating queue." />
+          <div className="mt-4 grid gap-3">
+            {(data.priorityActions || []).length ? (data.priorityActions || []).slice(0, 6).map((action) => (
+              <div key={action.id} className="rounded-md border border-neutral-100 bg-white px-3 py-3">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <span className={badgeFor(action.priority)}>{action.priority}</span>
+                  <span className="badge-muted">{moduleLabel(action.module)}</span>
+                  <span className={badgeFor(action.actionType)}>{text(action.actionType)}</span>
+                </div>
+                <p className="font-semibold text-neutral-950">{action.title}</p>
+                <p className="mt-1 text-[12.5px] text-neutral-500">{action.subtitle}</p>
+              </div>
+            )) : (
+              <EmptyQueue title="No live review actions yet" description="This is a real empty state for the Wizmatch tenant; add requirements, candidates, signals, or contact intelligence snapshots." />
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="card p-5">
+            <SectionHeader icon={ShieldCheck} title="Guardrails" description="Operational safety status before outreach or discovery." />
+            <span className={badgeFor(data.safetyCenter?.status)}>{data.safetyCenter?.status || 'healthy'}</span>
+            <div className="mt-3 space-y-2">
+              {(data.safetyCenter?.blockers || ['No blockers detected.']).map((item) => (
+                <p key={item} className="rounded-md bg-neutral-50 px-3 py-2 text-[12.5px] text-neutral-700">{item}</p>
+              ))}
+            </div>
+          </div>
+          <div className="card p-5">
+            <SectionHeader icon={LayoutDashboard} title="Open shared modules" description="Same CRM functionality, Wizmatch tenant data." />
+            <div className="grid gap-2">
+              {[
+                ['/wizmatch/contacts', 'Contacts'],
+                ['/wizmatch/pipeline', 'Pipeline'],
+                ['/wizmatch/tasks', 'Tasks'],
+                ['/wizmatch/inbox', 'Inbox'],
+                ['/wizmatch/outreach', 'Outreach'],
+                ['/wizmatch/intelligence', 'AI Intelligence'],
+              ].map(([href, label]) => (
+                <a key={href} href={href} className="flex items-center justify-between rounded-md border border-neutral-100 bg-white px-3 py-2 text-sm font-semibold text-neutral-800 transition hover:border-primary-300 hover:text-primary-700">
+                  {label}
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </a>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </Page>
+  );
+}
+
+function IntelligenceList({ title, items }) {
+  const values = Array.isArray(items) ? items : [];
+  return (
+    <div className="card p-5">
+      <SectionHeader icon={Brain} title={title} description="Generated from live Wizmatch tenant data." />
+      <div className="mt-3 space-y-2">
+        {values.length ? values.map((item, index) => (
+          <p key={`${title}-${index}`} className="rounded-md bg-neutral-50 px-3 py-2 text-[12.5px] leading-5 text-neutral-700">
+            {typeof item === 'string' ? item : JSON.stringify(item)}
+          </p>
+        )) : (
+          <p className="rounded-md bg-neutral-50 px-3 py-2 text-[12.5px] text-neutral-500">No items returned yet.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function WizmatchIntelligencePage({ demoMode = false }) {
+  const fallback = useMemo(() => ({
+    snapshot: DEMO_DASHBOARD,
+    aiEnabled: true,
+    guidance: ['Demo mode shows sample staffing guidance. Open the live page after login for real tenant data.'],
+  }), []);
+  const { data, loading, error, refresh } = useLiveData({
+    demoMode,
+    fallback,
+    loadLive: useCallback(() => apiFetch('/api/wizmatch/intelligence'), []),
+  });
+  const [generating, setGenerating] = useState(false);
+  const [analysis, setAnalysis] = useState(null);
+  const [message, setMessage] = useState('');
+  const summary = data.snapshot?.summary || {};
+
+  async function generate() {
+    setGenerating(true);
+    setMessage('');
+    try {
+      if (demoMode) {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        setAnalysis({
+          summary: 'Demo AI analysis: prioritize urgent India requirements with available candidates, then resolve contact approvals before outreach.',
+          risks: ['Demo data is not live production data.'],
+          next_actions: ['Open Data Readiness.', 'Review hot workbench actions.', 'Approve contacts manually before outreach.'],
+          data_gaps: ['Validate live counts after login.'],
+          guardrails: ['No auto-send.', 'No auto-submit.', 'Paid discovery remains preview-first.'],
+        });
+      } else {
+        const result = await apiFetch('/api/wizmatch/intelligence/generate', { method: 'POST', body: JSON.stringify({}) });
+        setAnalysis(result.analysis || null);
+      }
+    } catch (err) {
+      setMessage(err?.message || 'AI generation failed');
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  return (
+    <Page
+      eyebrow="Claude-powered staffing analysis"
+      title="Wizmatch AI Intelligence"
+      description="Manual Claude analysis for requirements, candidates, matches, placements, contact intelligence, outreach health, and guardrails. It does not send outreach or submit candidates."
+      demoMode={demoMode}
+      loading={loading}
+      error={error}
+      onRefresh={refresh}
+    >
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Metric icon={FileText} label="Requirements" value={summary.activeRequirements || 0} helper={`${summary.urgentRequirements || 0} urgent`} />
+        <Metric icon={UserCheck} label="Candidates" value={summary.availableCandidates || 0} helper={`${summary.totalCandidates || 0} total`} />
+        <Metric icon={Contact} label="Contact readiness" value={summary.qualifiedCompanies || 0} helper={`${summary.approvedContacts || 0} contacts approved`} />
+        <Metric icon={ShieldCheck} label="Blocked actions" value={summary.blockedActions || 0} helper="Must stay manual" tone={summary.blockedActions ? 'danger' : 'success'} />
+      </div>
+
+      <ReadinessStrip readiness={data.snapshot?.readiness || DEMO_READINESS.overall} demoMode={demoMode} />
+
+      <div className="card p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <SectionHeader icon={Brain} title="Generate staffing analysis" description="Uses Claude with Wizmatch tenant data only. Growth marketing, SEO, and Meta Ads are excluded." />
+          <button type="button" onClick={generate} disabled={generating} className="btn-primary btn-compact">
+            {generating ? 'Generating...' : 'Generate with Claude'}
+            <ArrowRight className="h-4 w-4" />
+          </button>
+        </div>
+        {!data.aiEnabled && !demoMode && (
+          <p className="mt-3 rounded-md border border-warning-200 bg-warning-50 px-3 py-2 text-sm text-warning-800">
+            Claude key is not configured. Set WIZMATCH_ANTHROPIC_API_KEY, ANTHROPIC_API_KEY, or CLAUDE_API_KEY.
+          </p>
+        )}
+        {message && <p className="mt-3 rounded-md border border-danger-200 bg-danger-50 px-3 py-2 text-sm text-danger-800">{message}</p>}
+        <div className="mt-3 grid gap-2 md:grid-cols-3">
+          {(data.guidance || []).map((item) => (
+            <p key={item} className="rounded-md bg-neutral-50 px-3 py-2 text-[12.5px] text-neutral-600">{item}</p>
+          ))}
+        </div>
+      </div>
+
+      {analysis ? (
+        <div className="grid gap-4 xl:grid-cols-2">
+          <div className="card p-5 xl:col-span-2">
+            <SectionHeader icon={Brain} title="Summary" description="Claude-generated operating readout." />
+            <p className="mt-3 rounded-md bg-primary-50 px-4 py-3 text-sm leading-6 text-primary-900">
+              {typeof analysis.summary === 'string' ? analysis.summary : JSON.stringify(analysis.summary || analysis)}
+            </p>
+          </div>
+          <IntelligenceList title="Risks" items={analysis.risks} />
+          <IntelligenceList title="Next actions" items={analysis.next_actions || analysis.nextActions} />
+          <IntelligenceList title="Data gaps" items={analysis.data_gaps || analysis.dataGaps} />
+          <IntelligenceList title="Guardrails" items={analysis.guardrails} />
+        </div>
+      ) : (
+        <EmptyQueue
+          title="No AI analysis generated yet"
+          description="Generate manually when the team needs a staffing-focused readout. The page already shows live Wizmatch counts above."
+        />
+      )}
+    </Page>
   );
 }
 

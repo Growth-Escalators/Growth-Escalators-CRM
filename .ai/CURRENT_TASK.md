@@ -2,34 +2,35 @@
 
 ## Active task
 
-**Facebook Lead Forms -> CRM + Slack** — add a safe Facebook Lead Ads ingestion path so connected
-Facebook pages can send lead-form submissions into CRM contacts and notify the BD/Sales Slack
-channel.
+**Growth + Wizmatch tenant-separated CRM correction** — make Wizmatch a full CRM profile that
+reuses the shared Growth CRM modules while showing only Wizmatch tenant data, plus Wizmatch-specific
+staffing pages.
 
-Scope is **webhook ingestion, CRM contact creation/reuse, Slack notification, Social-page setup
-visibility, tests, generated admin bundle, and AI context**. This task does not add schema,
-migrations, auto-outreach, sequence enrollment, candidate submission, paid enrichment, worker/cron
-automation, deployment config, `package.json`, or `package-lock.json` changes.
+Scope is **routing, navigation, tenant-aware product shell, Wizmatch dashboard, manual
+Wizmatch AI Intelligence, generated admin bundle, tests, and AI context**. This task does not add
+schema, migrations, auto-outreach, automatic candidate submission, worker/cron automation, package,
+or deployment config changes.
 
 ## Definition of done
 
-- [x] Add public `GET /webhooks/meta-leads` verification route for Meta Lead Ads.
-- [x] Add public `POST /webhooks/meta-leads` route for Page `leadgen` webhook events.
-- [x] Verify `X-Hub-Signature-256` against `META_APP_SECRET` using the raw request body.
-- [x] Dedupe successful lead events with `processed_events` keys like `facebook_leadgen:<id>`.
-- [x] Fetch lead details from Meta using the connected Facebook Page token in `social_accounts`.
-- [x] Map standard and custom lead form fields into CRM contact metadata.
-- [x] Create or reuse CRM contacts through `findOrCreateContact`.
-- [x] Add `facebook_lead`, `meta_lead_form`, and page tags; update `lastActivityAt`.
-- [x] Send a Slack notification to the existing BD/Sales channel without blocking webhook success.
-- [x] Add Social-page lead-form status/subscription endpoints.
-- [x] Extend Facebook OAuth scopes for `pages_manage_metadata` and `leads_retrieval`.
-- [x] Add Social Accounts UI visibility for webhook/config/page subscription status.
-- [x] Run focused Facebook Lead tests, backend build, full Vitest suite, admin build, and refresh
-  AI brief.
+- [x] Keep Growth routes as-is for Growth Escalators users.
+- [x] Add Wizmatch-prefixed routes for shared modules:
+  `/wizmatch/dashboard`, `/wizmatch/contacts`, `/wizmatch/pipeline`, `/wizmatch/tasks`,
+  `/wizmatch/inbox`, `/wizmatch/billing`, `/wizmatch/finance`, `/wizmatch/emails`,
+  `/wizmatch/whatsapp-templates`, `/wizmatch/discover`, `/wizmatch/outreach`,
+  `/wizmatch/intelligence`, `/wizmatch/settings/permissions`, `/wizmatch/settings/audit`,
+  and `/wizmatch/pipelines/settings`.
+- [x] Route Wizmatch home to `/wizmatch/dashboard`.
+- [x] Redirect Wizmatch users from shared Growth paths to matching `/wizmatch/*` paths.
+- [x] Keep Growth-only marketing modules out of the Wizmatch sidebar by default.
+- [x] Keep Wizmatch staffing pages visible in the Wizmatch profile.
+- [x] Add a live Wizmatch dashboard summary endpoint/page.
+- [x] Add manual Claude-powered Wizmatch AI Intelligence endpoint/page focused on staffing data.
+- [x] Preserve tenant separation through existing authenticated tenant-scoped backend routes.
+- [x] Run backend build, full Vitest suite, admin build, and refresh AI brief.
 
 ## Next task
 
-Configure Meta App/Webhooks in the Meta dashboard and subscribe the connected Facebook Pages from
-the CRM Social page. Then use Meta's Lead Ads testing tool to submit one controlled test lead and
-confirm the CRM contact plus Slack notification.
+Log in as Growth and Wizmatch users on localhost/live and manually confirm that shared modules show
+the correct tenant data in both profiles, especially Contacts, Pipeline, Tasks, Inbox, Templates,
+Billing, Finance, Outreach, and AI Intelligence.

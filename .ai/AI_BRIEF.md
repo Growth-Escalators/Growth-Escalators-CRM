@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-07T04:14:09.943Z_
+_Generated: 2026-07-07T16:12:46.198Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,35 +12,35 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: growth-escalators-backend-v2
 - **Branch**: `feature/contact-intelligence-phase1-adr`
-- **Last commit**: d2e1fec fix(wizmatch): harden analytics against optional schema gaps (9 hours ago)
-- **Uncommitted changes**: 221 file(s)
+- **Last commit**: d98ddad fix(auth): separate product navigation and lead routing (6 hours ago)
+- **Uncommitted changes**: 10 file(s)
 
 ## Current task
 
-**Facebook Lead Forms -> CRM + Slack** — add a safe Facebook Lead Ads ingestion path so connected
-Facebook pages can send lead-form submissions into CRM contacts and notify the BD/Sales Slack
-channel.
+**Growth + Wizmatch tenant-separated CRM correction** — make Wizmatch a full CRM profile that
+reuses the shared Growth CRM modules while showing only Wizmatch tenant data, plus Wizmatch-specific
+staffing pages.
 
-Scope is **webhook ingestion, CRM contact creation/reuse, Slack notification, Social-page setup
-visibility, tests, generated admin bundle, and AI context**. This task does not add schema,
-migrations, auto-outreach, sequence enrollment, candidate submission, paid enrichment, worker/cron
-automation, deployment config, `package.json`, or `package-lock.json` changes.
+Scope is **routing, navigation, tenant-aware product shell, Wizmatch dashboard, manual
+Wizmatch AI Intelligence, generated admin bundle, tests, and AI context**. This task does not add
+schema, migrations, auto-outreach, automatic candidate submission, worker/cron automation, package,
+or deployment config changes.
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
 
 ## Recent commits
 
 ```
+d98ddad fix(auth): separate product navigation and lead routing
+e3d683f fix(admin): serve freshly built login bundle
+ecd140c fix(deploy): install admin dependencies in nixpacks
+352add5 feat(auth): separate Growth and Wizmatch logins
+8a40b52 feat(crm): add Facebook lead form ingestion
 d2e1fec fix(wizmatch): harden analytics against optional schema gaps
 717b167 feat(wizmatch): add candidate profile intake
 20b737c feat(wizmatch): add paid discovery cost guard
 2218a65 feat(wizmatch): add preview-first contact discovery
 d3aa9bf feat(wizmatch): add data readiness workbench
-fdabbd6 feat(wizmatch): polish operating workbench frontend
-5fe0942 feat(wizmatch): add unified operating workbench
-310edb1 feat(wizmatch): add crm-styled v2 admin pages
-402380d fix(wizmatch): normalize contact intelligence channels
-16da4bc feat(wizmatch): add analytics roi feedback loop
 ```
 
 ## npm scripts
