@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar.jsx';
 import { apiFetch } from '../lib/api.js';
-import { editableStageNames, normalizePipelineStages } from '../lib/pipelineStages.js';
+import { createPipelineStageFromName, normalizePipelineStages, serializePipelineStages } from '../lib/pipelineStages.js';
 import { safeLower } from '../lib/safe.js';
 
 const COLORS = [
@@ -15,18 +15,19 @@ const COLORS = [
   { hex: '#94A3B8', label: 'Gray' },
 ];
 
-const DEFAULT_STAGES = ['New Lead', 'Contacted', 'Proposal Sent', 'Won', 'Lost'];
+const DEFAULT_STAGES = serializePipelineStages(['New Lead', 'Contacted', 'Proposal Sent', 'Won', 'Lost']);
 
-function getStageType(name) {
-  const lc = safeLower(name);
-  if (lc.includes('won')) return 'won';
-  if (lc.includes('lost')) return 'lost';
+function getStageType(stage) {
+  if (stage?.outcome === 'won') return 'won';
+  if (stage?.outcome === 'lost') return 'lost';
+  if (stage?.outcome === 'abandoned') return 'abandoned';
   return 'active';
 }
 
 function StageBadge({ type }) {
   if (type === 'won') return <span className="text-xs px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium">won</span>;
   if (type === 'lost') return <span className="text-xs px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 font-medium">lost</span>;
+  if (type === 'abandoned') return <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">abandoned</span>;
   return <span className="text-xs px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 font-medium">active</span>;
 }
 
@@ -46,7 +47,7 @@ function ColorPicker({ value, onChange }) {
   );
 }
 
-function StageConfigModal({ stageName, pipelineId, currentConfig, emailTemplates, onSave, onClose }) {
+function StageConfigModal({ stageId, stageName, currentConfig, emailTemplates, onSave, onClose }) {
   const [probability, setProbability] = useState(currentConfig?.probability ?? '');
   const [emailTemplateId, setEmailTemplateId] = useState(currentConfig?.automation?.sendEmailTemplateId ?? '');
   const [taskTitle, setTaskTitle] = useState(currentConfig?.automation?.createTask?.title ?? '');
@@ -61,7 +62,7 @@ function StageConfigModal({ stageName, pipelineId, currentConfig, emailTemplates
     if (emailTemplateId) automation.sendEmailTemplateId = emailTemplateId;
     if (taskTitle.trim()) automation.createTask = { title: taskTitle.trim(), dueInDays: Number(taskDays) };
     if (Object.keys(automation).length > 0) cfg.automation = automation;
-    await onSave(stageName, cfg);
+    await onSave(stageId, cfg);
     setSaving(false);
     onClose();
   }
@@ -135,13 +136,13 @@ function StageList({ stages, onChange, stageConfigs, onOpenStageConfig }) {
 
   function startEdit(idx) {
     setEditingIdx(idx);
-    setEditVal(stages[idx]);
+    setEditVal(stages[idx]?.name ?? '');
   }
 
   function commitEdit(idx) {
     if (editVal.trim()) {
       const next = [...stages];
-      next[idx] = editVal.trim();
+      next[idx] = { ...next[idx], name: editVal.trim() };
       onChange(next);
     }
     setEditingIdx(null);
@@ -155,7 +156,9 @@ function StageList({ stages, onChange, stageConfigs, onOpenStageConfig }) {
 
   function addStage() {
     if (!newStage.trim()) return;
-    onChange([...stages, newStage.trim()]);
+    const usedIds = new Set(stages.map((stage) => safeLower(stage.id)));
+    const created = createPipelineStageFromName(newStage, usedIds, stages.length);
+    if (created) onChange([...stages, created]);
     setNewStage('');
   }
 
@@ -203,10 +206,10 @@ function StageList({ stages, onChange, stageConfigs, onOpenStageConfig }) {
                   onDoubleClick={() => startEdit(idx)}
                   onClick={() => startEdit(idx)}
                 >
-                  {stage}
-                  {stageConfigs?.[stage]?.probability !== undefined && (
+                  {stage.name}
+                  {stageConfigs?.[stage.id]?.probability !== undefined && (
                     <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-medium ml-1.5">
-                      {stageConfigs[stage].probability}%
+                      {stageConfigs[stage.id].probability}%
                     </span>
                   )}
                 </span>
@@ -263,7 +266,7 @@ function KanbanPreview({ stages, color }) {
       {stages.map((stage, i) => {
         const type = getStageType(stage);
         const bg = type === 'won' ? '#dcfce7' : type === 'lost' ? '#fee2e2' : '#f8fafc';
-        const headerBg = type === 'won' ? '#16a34a' : type === 'lost' ? '#dc2626' : (color ?? '#94A3B8');
+        const headerBg = type === 'won' ? '#16a34a' : type === 'lost' ? '#dc2626' : (stage.color ?? color ?? '#94A3B8');
         return (
           <div
             key={i}
@@ -271,7 +274,7 @@ function KanbanPreview({ stages, color }) {
             style={{ width: 100, background: bg }}
           >
             <div className="px-2 py-1.5 text-white text-[10px] font-semibold truncate" style={{ background: headerBg }}>
-              {stage}
+              {stage.name}
             </div>
             <div className="p-1.5 space-y-1">
               {[1, 2].map((n) => (
@@ -289,7 +292,7 @@ function KanbanPreview({ stages, color }) {
 function PipelineEditor({ pipeline, onSaved, onCancel, stageConfigs, onOpenStageConfig }) {
   const [name, setName] = useState(pipeline.name);
   const [color, setColor] = useState(pipeline.color ?? '#F97316');
-  const initialStages = editableStageNames(pipeline.normalizedStages || pipeline.stages);
+  const initialStages = serializePipelineStages(pipeline.normalizedStages || pipeline.stages);
   const [stages, setStages] = useState(initialStages);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -297,18 +300,19 @@ function PipelineEditor({ pipeline, onSaved, onCancel, stageConfigs, onOpenStage
   useEffect(() => {
     setName(pipeline.name);
     setColor(pipeline.color ?? '#F97316');
-    setStages(editableStageNames(pipeline.normalizedStages || pipeline.stages));
+    setStages(serializePipelineStages(pipeline.normalizedStages || pipeline.stages));
     setError('');
   }, [pipeline.id]);
 
   async function handleSave() {
     if (!name.trim()) { setError('Pipeline name is required'); return; }
-    if (stages.length < 1) { setError('At least one stage is required'); return; }
+    const payloadStages = serializePipelineStages(stages);
+    if (payloadStages.length < 1) { setError('At least one stage is required'); return; }
     setSaving(true);
     setError('');
     const result = await apiFetch(`/api/pipelines/${pipeline.id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ name: name.trim(), stages, color }),
+      body: JSON.stringify({ name: name.trim(), stages: payloadStages, color }),
     });
     setSaving(false);
     if (result?.id) {
@@ -318,7 +322,7 @@ function PipelineEditor({ pipeline, onSaved, onCancel, stageConfigs, onOpenStage
     }
   }
 
-  const hasChanges = name !== pipeline.name || color !== (pipeline.color ?? '#F97316') || JSON.stringify(stages) !== JSON.stringify(editableStageNames(pipeline.normalizedStages || pipeline.stages));
+  const hasChanges = name !== pipeline.name || color !== (pipeline.color ?? '#F97316') || JSON.stringify(serializePipelineStages(stages)) !== JSON.stringify(serializePipelineStages(pipeline.normalizedStages || pipeline.stages));
 
   return (
     <div className="flex flex-col h-full">
@@ -349,7 +353,7 @@ function PipelineEditor({ pipeline, onSaved, onCancel, stageConfigs, onOpenStage
         <div>
           <div className="mb-3">
             <h3 className="text-sm font-semibold text-slate-700">Stages</h3>
-            <p className="text-xs text-slate-400 mt-0.5">Drag to reorder. Stages with "won"/"lost" in the name trigger special actions.</p>
+            <p className="text-xs text-slate-400 mt-0.5">Drag to reorder. Terminal behavior is preserved with each stage.</p>
           </div>
           <StageList stages={stages} onChange={setStages} stageConfigs={stageConfigs} onOpenStageConfig={onOpenStageConfig} />
         </div>
@@ -398,7 +402,7 @@ function PipelineEditor({ pipeline, onSaved, onCancel, stageConfigs, onOpenStage
 function NewPipelineModal({ onCreated, onClose }) {
   const [name, setName] = useState('');
   const [color, setColor] = useState('#F97316');
-  const [stages, setStages] = useState([...DEFAULT_STAGES]);
+  const [stages, setStages] = useState(DEFAULT_STAGES);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -409,7 +413,7 @@ function NewPipelineModal({ onCreated, onClose }) {
     const slug = safeLower(name).trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + Date.now();
     const result = await apiFetch('/api/pipelines', {
       method: 'POST',
-      body: JSON.stringify({ name: name.trim(), slug, stages, color }),
+      body: JSON.stringify({ name: name.trim(), slug, stages: serializePipelineStages(stages), color }),
     });
     setSaving(false);
     if (result?.id) {
@@ -516,8 +520,8 @@ export default function PipelineManagerPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [toast, setToast] = useState(null);
   const [openMenuId, setOpenMenuId] = useState(null);
-  const [stageConfigModal, setStageConfigModal] = useState(null); // { stageName, pipelineId }
-  const [stageConfigs, setStageConfigs] = useState({}); // { [stageName]: { probability, automation } }
+  const [stageConfigModal, setStageConfigModal] = useState(null); // { stageId, stageName, pipelineId }
+  const [stageConfigs, setStageConfigs] = useState({}); // { [stageId]: { probability, automation } }
   const [emailTemplates, setEmailTemplates] = useState([]);
   const dragPipeline = useRef(null);
   const dragOverPipeline = useRef(null);
@@ -594,9 +598,9 @@ export default function PipelineManagerPage() {
     showToast(`"${newPipeline.name}" created`);
   }
 
-  async function handleSaveStageConfig(stageName, cfg) {
-    const newConfigs = { ...stageConfigs, [stageName]: cfg };
-    if (Object.keys(cfg).length === 0) delete newConfigs[stageName];
+  async function handleSaveStageConfig(stageId, cfg) {
+    const newConfigs = { ...stageConfigs, [stageId]: cfg };
+    if (Object.keys(cfg).length === 0) delete newConfigs[stageId];
     await apiFetch(`/api/pipelines/${selectedId}`, {
       method: 'PATCH',
       body: JSON.stringify({ stageConfig: newConfigs }),
@@ -745,7 +749,7 @@ export default function PipelineManagerPage() {
                 onSaved={handleSaved}
                 onCancel={() => {}}
                 stageConfigs={stageConfigs}
-                onOpenStageConfig={(stageName) => setStageConfigModal({ stageName, pipelineId: selectedId })}
+                onOpenStageConfig={(stage) => setStageConfigModal({ stageId: stage.id, stageName: stage.name, pipelineId: selectedId })}
               />
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-center p-8">
@@ -779,9 +783,9 @@ export default function PipelineManagerPage() {
       )}
       {stageConfigModal && (
         <StageConfigModal
+          stageId={stageConfigModal.stageId}
           stageName={stageConfigModal.stageName}
-          pipelineId={stageConfigModal.pipelineId}
-          currentConfig={stageConfigs[stageConfigModal.stageName] ?? {}}
+          currentConfig={stageConfigs[stageConfigModal.stageId] ?? {}}
           emailTemplates={emailTemplates}
           onSave={handleSaveStageConfig}
           onClose={() => setStageConfigModal(null)}

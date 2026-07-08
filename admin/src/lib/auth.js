@@ -50,6 +50,8 @@ const WIZMATCH_SHARED_ROUTE_MAP = {
   '/pipelines/settings': '/wizmatch/pipelines/settings',
 };
 
+const GROWTH_SHARED_PATHS = Object.keys(WIZMATCH_SHARED_ROUTE_MAP);
+
 export function productPath(path, slug = getTenantSlug()) {
   const raw = String(path || '/');
   if (raw.startsWith('/wizmatch') || productForTenant(slug) !== 'wizmatch') return raw;
@@ -69,7 +71,11 @@ export function getTenantSlug(explicit) {
 
   const host = window.location.hostname.toLowerCase();
   if (host.startsWith('wizmatch.') || host.includes('wizmatch')) return 'wizmatch';
-  if (window.location.pathname.toLowerCase().startsWith('/wizmatch')) return 'wizmatch';
+  const pathname = window.location.pathname.toLowerCase();
+  if (pathname.startsWith('/wizmatch')) return 'wizmatch';
+  if (GROWTH_SHARED_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`))) {
+    return 'growth-escalators';
+  }
 
   return normalizeTenantSlug(localStorage.getItem('crm_active_tenant_slug'));
 }
