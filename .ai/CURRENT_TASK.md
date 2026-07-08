@@ -2,42 +2,32 @@
 
 ## Active task
 
-**Pipeline Stage Hardening Follow-ups** — protect Growth and Wizmatch CRM pipelines from stage
-metadata loss, make terminal-stage behavior outcome-driven, narrow Wizmatch optional-schema
-fallbacks, and make tenant selection path-first.
+**Live deploy merged pipeline hardening + Wizmatch readiness** — merge the two reviewed Codex
+branches into `main`, verify the combined tree, push `main` to trigger Railway, and report the
+remaining human-owned data/secrets/migration items.
 
-Scope is **pipeline stage normalization/serialization, Pipeline Manager object-stage editing,
-pipeline/deal analytics and closed-date behavior, Wizmatch optional-schema allowlisting,
-cross-tab tenant routing polish, tests, and AI context**. This task does not add schema,
-migrations, auth/RBAC middleware changes, Cashfree changes, deployment config, worker/cron
-automation, outreach sending, or automatic candidate submission.
+Scope is **git integration, conflict resolution in AI context files, local verification, main push,
+and deployment/status reporting**. This task does not hand-edit schema or migrations, does not run
+`db:migrate` directly against any database, does not set secrets, does not enable scraper
+schedules, does not send outreach, and does not auto-submit candidates.
 
 ## Definition of done
 
-- [x] Stage helpers normalize/persist `{ id, name, color, outcome }`.
-- [x] Outcome is computed in the shared normalization helpers and downstream consumers read that
-  normalized outcome.
-- [x] Flattened stage saves over object-stage pipelines merge by index and preserve existing
-  `id`, `color`, and `outcome`.
-- [x] Pipeline Manager edits full stage objects, displays `name`, keys stage settings by `id`,
-  and saves normalized objects.
-- [x] Pipeline create/PATCH normalize stage payloads before persistence.
-- [x] Kanban stage columns expose `stageOutcome`; drag/drop close modal reads `stageOutcome`.
-- [x] Deal closed-date stamping uses normalized stage outcome for PATCH and add-or-update paths.
-- [x] Pipeline analytics derives open/won/lost/abandoned stage-id lists from normalized stages.
-- [x] Wizmatch optional-schema fallbacks are allowlisted to known optional tables.
-- [x] Tenant slug resolution prefers explicit Growth/Wizmatch paths over stale localStorage.
-- [x] Focused tests added for stage helpers, optional-schema allowlist, frontend outcome helpers,
-  and tenant path-first resolution.
-- [x] `npm run build`, `npm test`, `npm run admin:build`, and `git diff --check` pass.
-- [x] `.ai/HANDOFF_LOG.md`, `.ai/CURRENT_TASK.md`, `.ai/CURRENT_STATE.md`, and `.ai/AI_BRIEF.md`
-  updated.
+- [x] Merge `codex/pipeline-stage-hardening-v2` into local `main`.
+- [x] Merge `codex/wizmatch-operational-readiness` into local `main`.
+- [x] Resolve context-file conflicts so `.ai/*` preserves both completed work units.
+- [ ] Regenerate `.ai/AI_BRIEF.md`.
+- [ ] Run `npm run build`.
+- [ ] Run `npm test`.
+- [ ] Run `npm run admin:build`.
+- [ ] Run `git diff --check`.
+- [ ] Push `main` to `origin/main`.
+- [ ] Check deployment state where available.
+- [ ] Tell Jatin exactly which production data points/secrets/manual checks remain.
 
 ## Next task
 
-- [ ] Manual smoke with a real local/staging database and auth:
-  `/wizmatch/pipelines/settings` rename/save preserves untouched colors, `/wizmatch/pipeline`
-  drag to `Ended` shows close modal and sets `closedAt`, and a Growth custom closing stage such
-  as `Deal Won 🎉` still closes/reports as won.
-- [ ] Review whether Pipeline Manager needs an explicit outcome editor before operators start
-  changing stage semantics, because this pass preserves outcome on rename by design.
+- [ ] Human-owned: repair/apply skipped Wizmatch migrations only after DB state is checked.
+- [ ] Human-owned: set Railway/GitHub secrets without printing or committing values.
+- [ ] Human-owned: enable scraper schedules only after approving cadence.
+- [ ] Human-owned: run authenticated Growth/Wizmatch smoke checks with real users/data.

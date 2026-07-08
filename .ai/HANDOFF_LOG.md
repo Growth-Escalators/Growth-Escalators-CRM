@@ -1186,3 +1186,46 @@ enrichment work.
   `/wizmatch/pipelines/settings` rename/save preserves untouched colors, `/wizmatch/pipeline`
   drag to `Ended` shows close modal and sets `closedAt`, and Growth custom closing stages still
   close/report correctly.
+
+## 2026-07-08 — Step 24: Wizmatch operational readiness prep — Codex — VERIFIED LOCALLY
+
+**What was done**
+- Diagnosed the newer Wizmatch migration gap without querying or writing production DB state.
+- Confirmed `origin/main` contains the newer SQL files, but
+  `src/db/migrations/meta/_journal.json` skips `0020_wizmatch_gin_indexes`,
+  `0020_curvy_silverclaw`, and `0021_contact_intelligence_phase2`, then jumps to
+  `0022_tenant_scoped_user_emails`.
+- Documented the migration-journal finding and safe human repair paths in
+  `docs/wizmatch-operational-readiness.md`.
+- Replaced stale `docs/WIZMATCH_DEPLOYMENT_GUIDE.md` content with current readiness guidance:
+  10 source `wizmatch_*` tables, 26-file/229-test local suite result, approved provider order,
+  manual-gated operations, env readiness, manual scraper dispatch, and post-deploy smoke checks.
+- Added read-only `npm run wizmatch:env-check`, backed by `src/services/wizmatchEnvCheck.ts`, to
+  report required/recommended/optional env-var presence without printing secret values.
+- Added regression tests proving the env check redacts secret values and accepts
+  `INTERNAL_API_TOKEN` as the GitHub Actions secret alias for the backend internal token.
+- Made `.github/workflows/wizmatch-dice.yml` and `.github/workflows/wizmatch-jobspy.yml`
+  manual-dispatch only until schedule approval, switched them to
+  `RAILWAY_INTERNAL_API_URL` / `INTERNAL_API_TOKEN`, and kept them scoped to the existing protected
+  `/api/wizmatch/signals/ingest` path.
+- Updated `docs/wizmatch-staffing-module.md`, `.ai/CURRENT_TASK.md`,
+  `.ai/CURRENT_STATE.md`, `docs/PRODUCT_SYSTEM_BRIEF.md`, and regenerated `.ai/AI_BRIEF.md`.
+
+**Guardrails preserved**
+- No schema edits.
+- No migration edits.
+- No production DB writes.
+- No `db:migrate` run.
+- No auth/RBAC/Cashfree changes.
+- No outreach sending.
+- No automatic candidate submission.
+- No worker/cron automation enabled; scraper schedules are explicitly disabled/manual-only.
+- No deployment config changes.
+
+**Verification**
+- `npx vitest --run src/__tests__/wizmatchEnvCheck.test.ts` passed: 1 file, 2 tests.
+- `npm run build` passed.
+- `npm test` passed: 26 files, 229 tests. Existing `rankTracking.test.ts` nested `vi.mock`
+  warnings remain.
+- `npm run admin:build` passed.
+- `git diff --check` passed.

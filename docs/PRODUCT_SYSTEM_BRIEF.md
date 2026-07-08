@@ -288,6 +288,10 @@ data, but is not yet client-ready operating data. It has 192 GitHub-sourced cont
 192 email channels, 1 bootstrap pipeline, and 3 domain-health rows. It has 0 Wizmatch companies,
 job signals, deals, tasks, messages, templates, billing records, invoices, payments, placements,
 or suppression rows, and production is missing the newer requirements/contact-intelligence tables.
+Readiness diagnosis from 2026-07-08 IST found those newer SQL files exist in the repo, but
+`src/db/migrations/meta/_journal.json` skips the relevant `0020`/`0021` migration tags, so Drizzle's
+journal-based migrator should not be assumed to apply them on a normal deploy until the migration
+repair path is approved.
 
 Portal hardening note from 2026-07-08 IST: shared CRM pipeline pages now support both classic
 string stages and richer stage objects such as `{ id, name, color }`, which matters for Wizmatch

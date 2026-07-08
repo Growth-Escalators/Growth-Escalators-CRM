@@ -1,10 +1,13 @@
 name: Wizmatch Dice Scraper
 
 on:
-  schedule:
-    # Daily at 8 AM IST (2:30 UTC)
-    - cron: '30 2 * * *'
   workflow_dispatch:
+
+# Schedule intentionally disabled until explicit human approval.
+# Proposed cadence after approval:
+#   schedule:
+#     # Daily at 8 AM IST (2:30 UTC)
+#     - cron: '30 2 * * *'
 
 jobs:
   scrape:
@@ -22,8 +25,8 @@ jobs:
 
       - name: Run Dice scraper
         env:
-          API_BASE_URL: ${{ secrets.WIZMATCH_API_BASE_URL }}
-          INTERNAL_TOKEN: ${{ secrets.WIZMATCH_INTERNAL_TOKEN }}
+          API_BASE_URL: ${{ secrets.RAILWAY_INTERNAL_API_URL }}
+          INTERNAL_TOKEN: ${{ secrets.INTERNAL_API_TOKEN }}
         run: |
           node -e '
           const { chromium } = require("playwright");
@@ -35,6 +38,10 @@ jobs:
           ];
 
           (async () => {
+            if (!process.env.API_BASE_URL || !process.env.INTERNAL_TOKEN) {
+              console.error("Missing API_BASE_URL or INTERNAL_TOKEN secret");
+              process.exit(1);
+            }
             const browser = await chromium.launch({ headless: true });
             const allSignals = [];
 
@@ -93,7 +100,9 @@ jobs:
               },
               body: JSON.stringify({ signals: allSignals }),
             });
-            console.log("Ingest response:", await resp.text());
+            const body = await resp.text();
+            if (!resp.ok) { console.error(`Ingest failed ${resp.status}: ${body}`); process.exit(1); }
+            console.log("Ingest response:", body);
             console.log(`Total signals sent: ${allSignals.length}`);
           })().catch(e => { console.error(e); process.exit(1); });
           '
