@@ -257,11 +257,32 @@ function numeric(value: unknown): number {
   return 0;
 }
 
-export function isOptionalWizmatchSchemaError(error: unknown): boolean {
+const OPTIONAL_WIZMATCH_SCHEMA_TABLES = [
+  'wizmatch_requirements',
+  'wizmatch_company_intelligence',
+  'wizmatch_contact_candidates',
+  'wizmatch_discovery_runs',
+] as const;
+
+type OptionalWizmatchSchemaTable = typeof OPTIONAL_WIZMATCH_SCHEMA_TABLES[number];
+
+function isOptionalWizmatchSchemaTable(table: string): table is OptionalWizmatchSchemaTable {
+  return (OPTIONAL_WIZMATCH_SCHEMA_TABLES as readonly string[]).includes(table);
+}
+
+function optionalTablesFromQuery(query: string): OptionalWizmatchSchemaTable[] {
+  const lowerQuery = query.toLowerCase();
+  return OPTIONAL_WIZMATCH_SCHEMA_TABLES.filter((table) => lowerQuery.includes(table));
+}
+
+export function isOptionalWizmatchSchemaError(
+  error: unknown,
+  referencedTables: readonly string[] = [],
+): boolean {
   const pgError = error as { code?: string; message?: string } | null;
   if (!pgError) return false;
-  if (pgError.code === '42P01' || pgError.code === '42703') return true;
-  return /relation "wizmatch_[^"]+" does not exist|column "[^"]+" does not exist/i.test(pgError.message || '');
+  if (pgError.code !== '42P01' && pgError.code !== '42703') return false;
+  return referencedTables.some(isOptionalWizmatchSchemaTable);
 }
 
 async function optionalWizmatchStatsQuery<T extends Record<string, unknown>>(
@@ -270,10 +291,14 @@ async function optionalWizmatchStatsQuery<T extends Record<string, unknown>>(
   params: unknown[],
   fallback: T,
 ): Promise<{ rows: T[] }> {
+  const optionalTables = optionalTablesFromQuery(query);
   try {
     return await pool.query(query, params) as { rows: T[] };
   } catch (e) {
-    if (!isOptionalWizmatchSchemaError(e)) throw e;
+    if (!isOptionalWizmatchSchemaError(e, optionalTables)) {
+      logger.error({ err: e, label, optionalTables }, `[wizmatch] unexpected stats schema error: ${label}`);
+      throw e;
+    }
     logger.warn({ err: e }, `[wizmatch] optional stats unavailable: ${label}`);
     return { rows: [fallback] };
   }
@@ -283,11 +308,15 @@ async function optionalWizmatchValue<T>(
   label: string,
   load: () => Promise<T>,
   fallback: T,
+  optionalTables: readonly OptionalWizmatchSchemaTable[] = [],
 ): Promise<T> {
   try {
     return await load();
   } catch (e) {
-    if (!isOptionalWizmatchSchemaError(e)) throw e;
+    if (!isOptionalWizmatchSchemaError(e, optionalTables)) {
+      logger.error({ err: e, label, optionalTables }, `[wizmatch] unexpected optional data schema error: ${label}`);
+      throw e;
+    }
     logger.warn({ err: e }, `[wizmatch] optional data unavailable: ${label}`);
     return fallback;
   }
@@ -563,7 +592,14 @@ async function fetchPersistedContactIntelligence(tenantId: string, companyId: st
       discoveryRuns: discoveryRuns.rows,
     };
   } catch (e) {
-    if (!isOptionalWizmatchSchemaError(e)) throw e;
+    if (!isOptionalWizmatchSchemaError(e, [
+      'wizmatch_company_intelligence',
+      'wizmatch_contact_candidates',
+      'wizmatch_discovery_runs',
+    ])) {
+      logger.error({ err: e }, '[wizmatch] unexpected persisted contact intelligence schema error');
+      throw e;
+    }
     logger.warn({ err: e }, '[wizmatch] persisted contact intelligence unavailable');
     return { company: null, contactCandidates: [], discoveryRuns: [] };
   }
@@ -768,7 +804,7 @@ async function countPaidDiscoveryRunsInCooldown(
       [tenantId, companyId, cooldownDays],
     );
     return numeric(result.rows[0]?.count);
-  }, 0);
+  }, 0, ['wizmatch_discovery_runs']);
 }
 
 async function buildContactDiscoveryInput(
@@ -1898,8 +1934,13 @@ async function buildReviewWorkbenchPayload(tenantId: string, limit: number) {
   ] = await Promise.all([
     optionalWizmatchValue('workbench contact intelligence companies', () => fetchContactIntelligenceCompanyRows(tenantId, limit), [] as ContactIntelligenceCompanyRow[]),
     optionalWizmatchValue('workbench client discovery signals', () => fetchClientDiscoverySignals(tenantId, limit), [] as ClientDiscoveryInput[]),
-    optionalWizmatchValue('workbench candidate intelligence inputs', () => fetchCandidateIntelligenceInputs(tenantId, limit), [] as CandidateIntelligenceInput[]),
-    optionalWizmatchValue('workbench requirement priority inputs', () => buildRequirementPriorityInputs(tenantId, limit), [] as RequirementPriorityInput[]),
+    optionalWizmatchValue('workbench candidate intelligence inputs', () => fetchCandidateIntelligenceInputs(tenantId, limit), [] as CandidateIntelligenceInput[], ['wizmatch_requirements']),
+    optionalWizmatchValue('workbench requirement priority inputs', () => buildRequirementPriorityInputs(tenantId, limit), [] as RequirementPriorityInput[], [
+      'wizmatch_requirements',
+      'wizmatch_company_intelligence',
+      'wizmatch_contact_candidates',
+      'wizmatch_discovery_runs',
+    ]),
     optionalWizmatchValue('workbench command center metrics', () => fetchCommandCenterMetrics(tenantId), {
       activeSignals: 0,
       prioritySignals: 0,
@@ -1908,7 +1949,7 @@ async function buildReviewWorkbenchPayload(tenantId: string, limit: number) {
       activePlacements: 0,
       pausedDomains: 0,
       suppressedContacts: 0,
-    }),
+    }, ['wizmatch_requirements']),
     fetchOptionalContactIntelligenceRoiStats(tenantId),
   ]);
 
@@ -4129,6 +4170,14 @@ async function fetchOptionalContactIntelligenceRoiStats(tenantId: string): Promi
       costCentsTotal: numeric(row.cost_cents_total),
     };
   } catch (e) {
+    if (!isOptionalWizmatchSchemaError(e, [
+      'wizmatch_company_intelligence',
+      'wizmatch_contact_candidates',
+      'wizmatch_discovery_runs',
+    ])) {
+      logger.error({ err: e }, '[wizmatch] unexpected contact intelligence ROI stats schema error');
+      throw e;
+    }
     logger.warn({ err: e }, '[wizmatch] contact intelligence ROI stats unavailable');
     return {
       companiesQualified: 0,

@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-08T05:39:45.870Z_
+_Generated: 2026-07-08T17:36:09.320Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -11,26 +11,28 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 ## Repository
 
 - **Repo**: growth-escalators-backend-v2
-- **Branch**: `feature/contact-intelligence-phase1-adr`
-- **Last commit**: 4358068 feat(crm): harden Wizmatch shared routes (7 hours ago)
-- **Uncommitted changes**: 26 file(s)
+- **Branch**: `codex/pipeline-stage-hardening-v2`
+- **Last commit**: 061ca2e fix(crm): harden portal rendering and Wizmatch fallbacks (12 hours ago)
+- **Uncommitted changes**: 16 file(s)
 
 ## Current task
 
-**CRM portal error hardening** — stop shared Growth/Wizmatch CRM pages from crashing when live API
-data contains richer/non-string values, and make Wizmatch live operating pages degrade to readiness
-signals instead of page-level 500 fallbacks when optional/newer Wizmatch tables are missing.
+**Pipeline Stage Hardening Follow-ups** — protect Growth and Wizmatch CRM pipelines from stage
+metadata loss, make terminal-stage behavior outcome-driven, narrow Wizmatch optional-schema
+fallbacks, and make tenant selection path-first.
 
-Scope is **pipeline stage normalization, admin frontend display/search hardening, route-level
-error-boundary recovery, Wizmatch optional-schema API fallbacks, tests, browser smoke, and AI
-context**. This task does not add schema, migrations, auto-outreach, automatic candidate
-submission, worker/cron automation, package, or deployment config changes.
+Scope is **pipeline stage normalization/serialization, Pipeline Manager object-stage editing,
+pipeline/deal analytics and closed-date behavior, Wizmatch optional-schema allowlisting,
+cross-tab tenant routing polish, tests, and AI context**. This task does not add schema,
+migrations, auth/RBAC middleware changes, Cashfree changes, deployment config, worker/cron
+automation, outreach sending, or automatic candidate submission.
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
 
 ## Recent commits
 
 ```
+061ca2e fix(crm): harden portal rendering and Wizmatch fallbacks
 4358068 feat(crm): harden Wizmatch shared routes
 3319859 feat(crm): unify Growth and Wizmatch tenant profiles
 d98ddad fix(auth): separate product navigation and lead routing
@@ -40,7 +42,6 @@ ecd140c fix(deploy): install admin dependencies in nixpacks
 8a40b52 feat(crm): add Facebook lead form ingestion
 d2e1fec fix(wizmatch): harden analytics against optional schema gaps
 717b167 feat(wizmatch): add candidate profile intake
-20b737c feat(wizmatch): add paid discovery cost guard
 ```
 
 ## npm scripts

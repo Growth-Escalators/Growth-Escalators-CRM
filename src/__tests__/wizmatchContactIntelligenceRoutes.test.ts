@@ -36,8 +36,22 @@ describe('Wizmatch Contact Intelligence routes', () => {
   });
 
   it('classifies optional Wizmatch schema gaps as recoverable for analytics pages', () => {
-    expect(isOptionalWizmatchSchemaError({ code: '42P01', message: 'relation "wizmatch_requirements" does not exist' })).toBe(true);
-    expect(isOptionalWizmatchSchemaError({ code: '42703', message: 'column "updated_at" does not exist' })).toBe(true);
+    expect(isOptionalWizmatchSchemaError(
+      { code: '42P01', message: 'relation "wizmatch_requirements" does not exist' },
+      ['wizmatch_requirements'],
+    )).toBe(true);
+    expect(isOptionalWizmatchSchemaError(
+      { code: '42703', message: 'column "updated_at" does not exist' },
+      ['wizmatch_contact_candidates'],
+    )).toBe(true);
+    expect(isOptionalWizmatchSchemaError(
+      { code: '42703', message: 'column "typo_column" does not exist' },
+      ['contacts'],
+    )).toBe(false);
+    expect(isOptionalWizmatchSchemaError(
+      { code: '42P01', message: 'relation "wizmatch_typo" does not exist' },
+      ['wizmatch_typo'],
+    )).toBe(false);
     expect(isOptionalWizmatchSchemaError({ code: '23505', message: 'duplicate key value violates unique constraint' })).toBe(false);
   });
 });

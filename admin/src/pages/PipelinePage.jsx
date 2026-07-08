@@ -7,19 +7,21 @@ import ContactSlideIn from '../components/ContactSlideIn.jsx';
 import DealDrawer from '../components/DealDrawer.jsx';
 import { apiFetch } from '../lib/api.js';
 import { productPath } from '../lib/auth.js';
+import { isAbandonedOutcome, isLostOutcome, isTerminalOutcome, isWonOutcome } from '../lib/pipelineStageOutcomes.js';
 import { safeInitial, safeLower, safeText } from '../lib/safe.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-function getStageStyle(stageName, index) {
+function getStageStyle(stageName, index, stageOutcome = 'open') {
   // Named-stage colors per design spec — matched by substring so custom
   // pipelines (Pipeline Manager lets users rename/add stages) still fall
   // back sensibly to the generic palette below.
+  if (stageOutcome === 'won') return { color: '#22c55e', light: 'bg-success-500/10 border-success-500/20' };
+  if (stageOutcome === 'lost') return { color: '#dc2626', light: 'bg-danger-500/10 border-danger-500/20' };
+  if (stageOutcome === 'abandoned') return { color: '#f59e0b', light: 'bg-warning-500/10 border-warning-500/20' };
+
   const lc = safeLower(stageName);
-  if (lc.includes('won')) return { color: '#22c55e', light: 'bg-success-500/10 border-success-500/20' };
-  if (lc.includes('lost')) return { color: '#dc2626', light: 'bg-danger-500/10 border-danger-500/20' };
-  if (lc.includes('abandoned')) return { color: '#f59e0b', light: 'bg-warning-500/10 border-warning-500/20' };
   if (lc.includes('proposal')) return { color: '#f97316', light: 'bg-accent-50 border-accent-200' };
   if (lc.includes('discovery')) return { color: '#1d4ed8', light: 'bg-primary-50 border-primary-200' };
   if (lc.includes('qualified')) return { color: '#3b82f6', light: 'bg-primary-50 border-primary-200' };
@@ -34,14 +36,6 @@ function getStageStyle(stageName, index) {
   ];
   return PALETTE[index % PALETTE.length];
 }
-
-function isTerminalStage(name) {
-  const lc = safeLower(name);
-  return lc.includes('won') || lc.includes('lost') || lc.includes('abandoned');
-}
-function isWonStage(name) { return safeLower(name).includes('won'); }
-function isLostStage(name) { return safeLower(name).includes('lost'); }
-function isAbandonedStage(name) { return safeLower(name).includes('abandoned'); }
 
 function daysAgo(dateStr) {
   if (!dateStr) return 0;
@@ -193,10 +187,10 @@ const LOST_REASONS = [
   'Other',
 ];
 
-function WonLostModal({ stageName, contactName, onConfirm, onCancel }) {
-  const won = isWonStage(stageName);
-  const abandoned = isAbandonedStage(stageName);
-  const lost = !won && !abandoned;
+function WonLostModal({ stageName, stageOutcome, contactName, onConfirm, onCancel }) {
+  const won = isWonOutcome(stageOutcome);
+  const abandoned = isAbandonedOutcome(stageOutcome);
+  const lost = isLostOutcome(stageOutcome);
   const [lostReason, setLostReason] = useState('');
   const [notes, setNotes] = useState('');
   const canConfirm = won || abandoned || !!lostReason;
@@ -567,10 +561,18 @@ export default function PipelinePage() {
     const fromStage = source.droppableId;
     const toStage = destination.droppableId;
     const fromData = kanbanStages.find((s) => s.stageName === fromStage);
+    const toData = kanbanStages.find((s) => s.stageName === toStage);
     const deal = fromData?.deals?.find((d) => d.id === draggableId);
     if (!deal) return;
-    if (isTerminalStage(toStage)) {
-      setWonLostModal({ deal, fromStage, toStage, destIndex: destination.index });
+    if (isTerminalOutcome(toData?.stageOutcome)) {
+      setWonLostModal({
+        deal,
+        fromStage,
+        toStage,
+        toStageLabel: toData.stageLabel || toData.stageName,
+        stageOutcome: toData.stageOutcome,
+        destIndex: destination.index,
+      });
       return;
     }
     applyMove(deal, fromStage, toStage, destination.index);
@@ -775,7 +777,7 @@ export default function PipelinePage() {
             <div className="flex gap-3 px-4 py-4 overflow-x-auto snap-x snap-mandatory md:overflow-x-visible flex-1">
               {kanbanStages.map((stageData, stageIndex) => {
                 const displayStageName = stageData.stageLabel || stageData.stageName;
-                const { color, light } = getStageStyle(displayStageName, stageIndex);
+                const { color, light } = getStageStyle(displayStageName, stageIndex, stageData.stageOutcome);
                 const headerColor = stageData.stageColor || color;
                 const stageDeals = (stageData.deals ?? []).filter(deal => {
                   if (filterAssigned) {
@@ -891,7 +893,8 @@ export default function PipelinePage() {
 
       {wonLostModal && (
         <WonLostModal
-          stageName={wonLostModal.toStage}
+          stageName={wonLostModal.toStageLabel}
+          stageOutcome={wonLostModal.stageOutcome}
           contactName={wonLostModal.deal.contactName ?? 'this contact'}
           onConfirm={confirmWonLost}
           onCancel={() => setWonLostModal(null)}
