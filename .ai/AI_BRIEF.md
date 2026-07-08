@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-08T17:59:31.065Z_
+_Generated: 2026-07-08T18:05:58.192Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,25 +12,25 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: growth-escalators-backend-v2
 - **Branch**: `main`
-- **Last commit**: 46beb17 merge: Wizmatch operational readiness (73 seconds ago)
+- **Last commit**: 7951c28 docs(ai): record main deployment integration (6 minutes ago)
 - **Uncommitted changes**: 3 file(s)
 
 ## Current task
 
-**Live deploy merged pipeline hardening + Wizmatch readiness** — merge the two reviewed Codex
-branches into `main`, verify the combined tree, push `main` to trigger Railway, and report the
-remaining human-owned data/secrets/migration items.
+**Morning Claude handoff after live deploy** — leave the repo ready for the next Claude Code
+session to continue from the deployed state without needing chat history.
 
-Scope is **git integration, conflict resolution in AI context files, local verification, main push,
-and deployment/status reporting**. This task does not hand-edit schema or migrations, does not run
-`db:migrate` directly against any database, does not set secrets, does not enable scraper
-schedules, does not send outreach, and does not auto-submit candidates.
+Scope is **context-only handoff**: record what was deployed, what Railway reported, what local/live
+checks passed, and which data/secrets/manual decisions remain. This task does not edit product
+code, schema, migrations, auth/RBAC middleware, Cashfree, deployment config, worker/cron schedules,
+or production data.
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
 
 ## Recent commits
 
 ```
+7951c28 docs(ai): record main deployment integration
 46beb17 merge: Wizmatch operational readiness
 d82b6fa merge: pipeline stage hardening
 076efc2 chore(wizmatch): prep operational readiness
@@ -40,7 +40,6 @@ d82b6fa merge: pipeline stage hardening
 3319859 feat(crm): unify Growth and Wizmatch tenant profiles
 d98ddad fix(auth): separate product navigation and lead routing
 e3d683f fix(admin): serve freshly built login bundle
-ecd140c fix(deploy): install admin dependencies in nixpacks
 ```
 
 ## npm scripts

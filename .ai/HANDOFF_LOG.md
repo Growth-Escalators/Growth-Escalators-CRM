@@ -1256,3 +1256,69 @@ enrichment work.
   warnings remain.
 - `npm run admin:build` passed.
 - `git diff --check` passed.
+
+## 2026-07-08 — Step 26: Live deploy + morning Claude handoff — Codex — DEPLOYED
+
+**What was done**
+- Pushed local `main` to `origin/main` at commit `7951c28`.
+- Confirmed Railway picked up the push for the `web` service.
+- Polled Railway deployment `9a253c24-f400-4c33-ae88-2ddc35000bbd` until terminal `SUCCESS`.
+- Confirmed the deployed Railway start command resolved to
+  `node dist/scripts/migrate.js && node dist/index.js`.
+- Checked live API health:
+  - `/health` responded.
+  - Database check was `ok`.
+  - Overall status was `degraded` only because `lastWebhook` is stale from `2026-06-29`.
+- Checked live CRM root:
+  - `https://crm.growthescalators.com` returned HTTP 200.
+- Ran the read-only Wizmatch env readiness check through Railway without printing secret values.
+
+**Post-deploy findings for the morning**
+- Required Wizmatch env vars are present:
+  `WIZMATCH_TENANT_ID`, internal token via `INTERNAL_API_TOKEN`,
+  `WIZMATCH_UNSUBSCRIBE_HMAC_SECRET`.
+- Recommended provider/sending vars are mostly present:
+  Claude, GitHub, SerpAPI, Apollo, Snov, Reacher, Serper, Purelymail host/port/users/passwords,
+  `WIZMATCH_JOBSPY_QUERIES`, and `WIZMATCH_WARMUP_CONTACTS`.
+- Missing/needs human setup:
+  - `WIZMATCH_PHYSICAL_ADDRESS`
+  - `WIZMATCH_LEADS_CHANNEL`
+  - `WIZMATCH_DAILY_CHANNEL`
+  - `WIZMATCH_SYSTEM_CHANNEL`
+  - GitHub Actions secrets must be confirmed separately:
+    `RAILWAY_INTERNAL_API_URL` and `INTERNAL_API_TOKEN`.
+- Read-only production table/count verification from local Codex could not connect because
+  Railway provided only `postgres.railway.internal` and no `DATABASE_PUBLIC_URL`. Run the psql
+  commands in Railway shell next.
+- Railway boot logs show existing Wizmatch crons scheduled in-process because
+  `WIZMATCH_TENANT_ID` is set. The current GitHub Actions scrapers remain manual-dispatch only.
+- Railway boot logs also show legacy/automation warnings for `SNOVIO_API_KEY`,
+  `SALESHANDY_API_KEY`, `SALESHANDY_SEQUENCE_ID`, and `PURELYMAIL_PASS_1..6`; check whether these
+  are still required aliases or inactive automation noise.
+
+**Morning DB commands for Claude/Jatin**
+```bash
+psql "$DATABASE_URL" -c "\dt wizmatch*"
+psql "$DATABASE_URL" -c "select * from drizzle.__drizzle_migrations order by created_at desc limit 20;"
+```
+
+Confirm whether these tables exist before running real operations:
+- `wizmatch_requirements`
+- `wizmatch_company_intelligence`
+- `wizmatch_contact_candidates`
+- `wizmatch_discovery_runs`
+
+**Guardrails preserved**
+- No schema edits.
+- No migration edits.
+- No direct production DB writes by Codex.
+- No direct `db:migrate` command run by Codex.
+- No secrets printed.
+- No outreach sent.
+- No automatic candidate submission.
+- No scraper schedules enabled.
+
+**Verification**
+- Railway deployment reached `SUCCESS`.
+- API `/health` responded with database `ok`.
+- CRM root returned HTTP 200.

@@ -2,32 +2,33 @@
 
 ## Active task
 
-**Live deploy merged pipeline hardening + Wizmatch readiness** — merge the two reviewed Codex
-branches into `main`, verify the combined tree, push `main` to trigger Railway, and report the
-remaining human-owned data/secrets/migration items.
+**Morning Claude handoff after live deploy** — leave the repo ready for the next Claude Code
+session to continue from the deployed state without needing chat history.
 
-Scope is **git integration, conflict resolution in AI context files, local verification, main push,
-and deployment/status reporting**. This task does not hand-edit schema or migrations, does not run
-`db:migrate` directly against any database, does not set secrets, does not enable scraper
-schedules, does not send outreach, and does not auto-submit candidates.
+Scope is **context-only handoff**: record what was deployed, what Railway reported, what local/live
+checks passed, and which data/secrets/manual decisions remain. This task does not edit product
+code, schema, migrations, auth/RBAC middleware, Cashfree, deployment config, worker/cron schedules,
+or production data.
 
 ## Definition of done
 
-- [x] Merge `codex/pipeline-stage-hardening-v2` into local `main`.
-- [x] Merge `codex/wizmatch-operational-readiness` into local `main`.
-- [x] Resolve context-file conflicts so `.ai/*` preserves both completed work units.
-- [x] Regenerate `.ai/AI_BRIEF.md`.
-- [x] Run `npm run build`.
-- [x] Run `npm test`.
-- [x] Run `npm run admin:build`.
-- [x] Run `git diff --check`.
-- [x] Push `main` to `origin/main`.
-- [x] Check deployment state where available.
-- [x] Tell Jatin exactly which production data points/secrets/manual checks remain.
+- [x] `main` contains both merged branches:
+  `codex/pipeline-stage-hardening-v2` and `codex/wizmatch-operational-readiness`.
+- [x] `main` pushed to GitHub at `7951c28`.
+- [x] Railway `web` deployment `9a253c24-f400-4c33-ae88-2ddc35000bbd` reached `SUCCESS`.
+- [x] Live API health responded; database check was `ok`.
+- [x] CRM root responded HTTP `200`.
+- [x] Railway env readiness check ran without printing secrets.
+- [x] Remaining human/data items are recorded in `.ai/CURRENT_STATE.md` and `.ai/HANDOFF_LOG.md`.
+- [x] `.ai/AI_BRIEF.md` regenerated for Claude Code.
 
 ## Next task
 
-- [ ] Human-owned: repair/apply skipped Wizmatch migrations only after DB state is checked.
-- [ ] Human-owned: set Railway/GitHub secrets without printing or committing values.
-- [ ] Human-owned: enable scraper schedules only after approving cadence.
-- [ ] Human-owned: run authenticated Growth/Wizmatch smoke checks with real users/data.
+- [ ] In Railway shell, verify production Wizmatch table presence and recent Drizzle migration
+  records.
+- [ ] Decide how to repair/apply skipped `0020`/`0021` Wizmatch migrations if required tables are
+  still missing.
+- [ ] Set missing Wizmatch operational variables/channels.
+- [ ] Run authenticated Growth/Wizmatch smoke checks with real users.
+- [ ] Load real Wizmatch requirements, candidates, companies, job signals, and reviewed contact
+  candidates before any client-facing use.

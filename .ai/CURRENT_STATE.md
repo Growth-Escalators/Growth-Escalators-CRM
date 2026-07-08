@@ -38,6 +38,11 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
 - Local `main` integration on 2026-07-08 merged both pipeline-stage hardening and Wizmatch
   operational-readiness prep, then passed `npm run build`, `npm test` (27 files, 236 tests),
   `npm run admin:build`, and `git diff --check` before the live push.
+- Live deploy on 2026-07-08 IST pushed `main` commit `7951c28` and Railway `web` deployment
+  `9a253c24-f400-4c33-ae88-2ddc35000bbd` reached `SUCCESS`. Live checks after deploy:
+  `https://api.growthescalators.com/health` responded with database `ok` and status `degraded`
+  only because `lastWebhook` was stale from 2026-06-29; `https://crm.growthescalators.com`
+  returned HTTP 200.
 
 ## In progress
 
@@ -168,6 +173,22 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   database and authenticated Growth/Wizmatch users is still pending.
 - Combined live-push verification on 2026-07-08 passed locally before deployment: `npm run build`,
   `npm test` (27 files, 236 tests), `npm run admin:build`, and `git diff --check`.
+- Post-deploy Railway env readiness check showed all required Wizmatch env vars present and one
+  recommended Wizmatch env var missing: `WIZMATCH_PHYSICAL_ADDRESS`. Optional Slack channels are
+  also missing: `WIZMATCH_LEADS_CHANNEL`, `WIZMATCH_DAILY_CHANNEL`, and
+  `WIZMATCH_SYSTEM_CHANNEL`. GitHub Actions secrets still need human confirmation:
+  `RAILWAY_INTERNAL_API_URL` and `INTERNAL_API_TOKEN`.
+- Direct read-only table/count verification could not be completed from local Codex because
+  Railway injected only the internal Postgres hostname (`postgres.railway.internal`) and no
+  `DATABASE_PUBLIC_URL`; run the `psql` checks in Railway shell next.
+- Railway boot logs after deploy showed existing Wizmatch worker crons scheduled in-process
+  because `WIZMATCH_TENANT_ID` is set. This was not newly added by the readiness work, but it is
+  live operating behavior to keep in mind before loading real data or enabling scraper schedules.
+- Railway boot logs still warn about legacy/automation env aliases:
+  `SNOVIO_API_KEY`, `SALESHANDY_API_KEY`, `SALESHANDY_SEQUENCE_ID`, and
+  `PURELYMAIL_PASS_1..6`. The new readiness checker sees the newer Snov and
+  `PURELYMAIL_SMTP_*` variables present, so review whether the warnings are legacy alias noise or
+  truly needed for active flows.
 
 ## How to rebuild context fast
 
