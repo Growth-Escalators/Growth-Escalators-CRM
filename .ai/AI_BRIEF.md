@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-08T05:39:45.870Z_
+_Generated: 2026-07-08T17:49:46.469Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -11,26 +11,28 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 ## Repository
 
 - **Repo**: growth-escalators-backend-v2
-- **Branch**: `feature/contact-intelligence-phase1-adr`
-- **Last commit**: 4358068 feat(crm): harden Wizmatch shared routes (7 hours ago)
-- **Uncommitted changes**: 26 file(s)
+- **Branch**: `codex/wizmatch-operational-readiness`
+- **Last commit**: 061ca2e fix(crm): harden portal rendering and Wizmatch fallbacks (12 hours ago)
+- **Uncommitted changes**: 13 file(s)
 
 ## Current task
 
-**CRM portal error hardening** — stop shared Growth/Wizmatch CRM pages from crashing when live API
-data contains richer/non-string values, and make Wizmatch live operating pages degrade to readiness
-signals instead of page-level 500 fallbacks when optional/newer Wizmatch tables are missing.
+**Wizmatch Operational Readiness** — prepare the repo for a human-reviewed Wizmatch data-readiness
+push after portal/pipeline hardening, without applying production migrations or enabling new
+automation.
 
-Scope is **pipeline stage normalization, admin frontend display/search hardening, route-level
-error-boundary recovery, Wizmatch optional-schema API fallbacks, tests, browser smoke, and AI
-context**. This task does not add schema, migrations, auto-outreach, automatic candidate
-submission, worker/cron automation, package, or deployment config changes.
+Scope is **migration-gap diagnosis, stale deployment-doc cleanup, read-only environment readiness
+checking, manual-dispatch scraper workflow safety, verification, and AI context updates**. This
+task does not edit schema, generate migrations, run `db:migrate`, touch auth/RBAC middleware,
+touch Cashfree, add worker/cron automation, auto-send outreach, auto-submit candidates, or push to
+`main`.
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
 
 ## Recent commits
 
 ```
+061ca2e fix(crm): harden portal rendering and Wizmatch fallbacks
 4358068 feat(crm): harden Wizmatch shared routes
 3319859 feat(crm): unify Growth and Wizmatch tenant profiles
 d98ddad fix(auth): separate product navigation and lead routing
@@ -40,7 +42,6 @@ ecd140c fix(deploy): install admin dependencies in nixpacks
 8a40b52 feat(crm): add Facebook lead form ingestion
 d2e1fec fix(wizmatch): harden analytics against optional schema gaps
 717b167 feat(wizmatch): add candidate profile intake
-20b737c feat(wizmatch): add paid discovery cost guard
 ```
 
 ## npm scripts
@@ -65,6 +66,7 @@ d2e1fec fix(wizmatch): harden analytics against optional schema gaps
 - `npm run build:all` — `npm run client:build && npm run admin:build && npm run build`
 - `npm run seo:doctor` — `npx tsx scripts/seo-doctor.ts`
 - `npm run db:sizes` — `npx tsx scripts/db-table-sizes.ts`
+- `npm run wizmatch:env-check` — `npx tsx scripts/wizmatch-env-check.ts`
 - `npm run ai:brief` — `tsx scripts/generate-ai-brief.ts`
 
 ## Context layer files (tracked)

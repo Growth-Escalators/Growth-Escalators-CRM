@@ -2,59 +2,44 @@
 
 ## Active task
 
-**CRM portal error hardening** — stop shared Growth/Wizmatch CRM pages from crashing when live API
-data contains richer/non-string values, and make Wizmatch live operating pages degrade to readiness
-signals instead of page-level 500 fallbacks when optional/newer Wizmatch tables are missing.
+**Wizmatch Operational Readiness** — prepare the repo for a human-reviewed Wizmatch data-readiness
+push after portal/pipeline hardening, without applying production migrations or enabling new
+automation.
 
-Scope is **pipeline stage normalization, admin frontend display/search hardening, route-level
-error-boundary recovery, Wizmatch optional-schema API fallbacks, tests, browser smoke, and AI
-context**. This task does not add schema, migrations, auto-outreach, automatic candidate
-submission, worker/cron automation, package, or deployment config changes.
+Scope is **migration-gap diagnosis, stale deployment-doc cleanup, read-only environment readiness
+checking, manual-dispatch scraper workflow safety, verification, and AI context updates**. This
+task does not edit schema, generate migrations, run `db:migrate`, touch auth/RBAC middleware,
+touch Cashfree, add worker/cron automation, auto-send outreach, auto-submit candidates, or push to
+`main`.
 
 ## Definition of done
 
-- [x] Normalize pipeline stages so string stages and object stages like
-  `{ id, name, color }` both render safely.
-- [x] Preserve Growth string-stage compatibility while allowing Wizmatch object-stage pipelines.
-- [x] Harden shared CRM frontend string/search/display paths against non-string API values.
-- [x] Make the app error boundary reset on route changes and offer a dashboard recovery action.
-- [x] Make Wizmatch workbench/dashboard/readiness/cost paths tolerate missing optional/newer
-  Wizmatch tables with zeroed fallback/readiness data instead of frontend 500 fallback screens.
-- [x] Add focused regression coverage for pipeline stage normalization and missing
-  `wizmatch_discovery_runs` cost-guard usage.
-- [x] Run backend build, full Vitest suite, admin build, browser smoke, diff check, and refresh AI
-  brief.
+- [x] Confirmed branch baseline from latest `origin/main`.
+- [x] Diagnosed why the newer Wizmatch SQL files may not apply automatically: the files exist on
+  `origin/main`, but `src/db/migrations/meta/_journal.json` skips
+  `0020_wizmatch_gin_indexes`, `0020_curvy_silverclaw`, and
+  `0021_contact_intelligence_phase2`.
+- [x] Documented the migration-journal gap and safe human repair paths in
+  `docs/wizmatch-operational-readiness.md`.
+- [x] Replaced stale `docs/WIZMATCH_DEPLOYMENT_GUIDE.md` content with current readiness,
+  migration, env, manual workflow, and smoke-test guidance.
+- [x] Removed stale provider/test/table-count guidance from the deployment guide and reflected the
+  current 10-table source schema plus 26-file/229-test local suite result.
+- [x] Added read-only `npm run wizmatch:env-check` support that reports presence/absence only and
+  never prints secret values.
+- [x] Added tests for the env-check redaction and internal-token alias behavior.
+- [x] Made Dice/Naukri-style scraper workflows manual-dispatch only and switched their GitHub
+  secret names to `RAILWAY_INTERNAL_API_URL` and `INTERNAL_API_TOKEN`.
+- [x] Confirmed the workflows only call the existing protected
+  `POST /api/wizmatch/signals/ingest` endpoint, which writes job signals/companies.
+- [x] Updated `.ai/CURRENT_STATE.md`, `.ai/HANDOFF_LOG.md`, and regenerated `.ai/AI_BRIEF.md`.
+- [x] Ran `npm run build`, `npm test`, `npm run admin:build`, and `git diff --check`.
 
 ## Next task
 
-- [x] Browser-smoke 15 Wizmatch routes and 15 Growth routes with mocked authenticated sessions and
-  production-like Wizmatch object-stage pipeline data.
-- [ ] Log in with real Growth and Wizmatch users on localhost/live and manually confirm shared
-  modules show the correct tenant data in both profiles once this branch is deployed to a
-  production-like environment.
-- [ ] Review Wizmatch AI Intelligence output after the missing production Wizmatch tables are
-  present and real requirements/client signals/contact candidates exist.
-
-## Production data verification on 2026-07-08 IST
-
-Read-only Railway/Postgres aggregate inspection found:
-
-- `wizmatch` tenant exists and is active.
-- Contacts: 192 rows, all `source = wizmatch_github`, `status = lead`.
-- Contact channels: 192 rows, all email, unverified.
-- Candidates: 192 rows, all `source = github`, `availability_status = available`, latest update
-  `2026-07-06T22:00:30.683Z`.
-- Domain health: 3 rows from the bootstrap seed.
-- Pipeline: 1 bootstrap pipeline.
-- Deals, messages/inbox, tasks, email templates, WhatsApp templates, billing clients, invoices,
-  payments, companies, job signals, placements, suppression list: 0 rows for Wizmatch.
-- Newer branch tables were missing in production: `wizmatch_requirements`,
-  `wizmatch_company_intelligence`, `wizmatch_contact_candidates`, and
-  `wizmatch_discovery_runs`.
-- Demo/test indicators were low in existing production rows: 1 contact matched demo/test text,
-  0 `example.*` contact channels, 0 demo candidate sources.
-
-Conclusion: production Wizmatch is not just dummy data because the 192 GitHub-sourced
-candidate/contact rows look like real sourced data, but it is not yet business-ready/client-ready.
-The CRM operating modules that drive clients and revenue are effectively empty, and the newest
-contact-intelligence/requirements persistence tables are not applied in production.
+- [ ] Human decision: repair/apply the skipped Wizmatch migrations after checking production
+  `drizzle.__drizzle_migrations` and `\dt wizmatch*`.
+- [ ] Human decision: merge/deploy to `main` only when ready for Railway to run the startup
+  command.
+- [ ] Human decision: enable scraper workflow schedules only after ingest cadence is approved.
+- [ ] Set real Railway/GitHub secrets manually; do not commit or print secret values.

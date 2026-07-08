@@ -24,6 +24,7 @@
     "build:all": "npm run client:build && npm run admin:build && npm run build",
     "seo:doctor": "npx tsx scripts/seo-doctor.ts",
     "db:sizes": "npx tsx scripts/db-table-sizes.ts",
+    "wizmatch:env-check": "npx tsx scripts/wizmatch-env-check.ts",
     "ai:brief": "tsx scripts/generate-ai-brief.ts"
   },
   "keywords": [],

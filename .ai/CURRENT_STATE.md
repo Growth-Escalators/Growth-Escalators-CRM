@@ -27,6 +27,9 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
 - CRM portal hardening now supports both classic string pipeline stages and Wizmatch object stages
   like `{ id, name, color }`. Shared admin pages coerce display/search values before calling string
   helpers, and the route error boundary resets on navigation instead of trapping the full SPA.
+- Wizmatch operational-readiness prep now documents the migration-journal gap for skipped
+  `0020`/`0021` Wizmatch SQL files, provides a read-only `npm run wizmatch:env-check` command,
+  and keeps Dice/Naukri-style GitHub Actions scrapers manual-dispatch only until schedule approval.
 
 ## In progress
 
@@ -113,11 +116,19 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
 - Production is also missing `src/db/migrations/0020_curvy_silverclaw.sql`
   (`wizmatch_requirements`) and `src/db/migrations/0021_contact_intelligence_phase2.sql`
   (`wizmatch_company_intelligence`, `wizmatch_contact_candidates`, `wizmatch_discovery_runs`).
-  Do not apply migrations without explicit approval. Until these exist in the target environment,
-  live requirement intake, Contact Intelligence persistence, discovery-run audit/cost tracking,
-  and richer Data Readiness/AI Intelligence cannot use real persisted operating data. The UI/API
-  now explain this as readiness/cost fallback state where possible, but the underlying missing
-  production data remains unresolved.
+  Local diagnosis on 2026-07-08 found the likely root cause: those SQL files exist on `origin/main`,
+  but `src/db/migrations/meta/_journal.json` skips `0020_wizmatch_gin_indexes`,
+  `0020_curvy_silverclaw`, and `0021_contact_intelligence_phase2`, then jumps to
+  `0022_tenant_scoped_user_emails`. Drizzle's journal-based migrator should not be assumed to apply
+  skipped SQL files automatically. Do not apply migrations without explicit approval. Until these
+  tables exist in the target environment, live requirement intake, Contact Intelligence
+  persistence, discovery-run audit/cost tracking, and richer Data Readiness/AI Intelligence cannot
+  use real persisted operating data. The UI/API now explain this as readiness/cost fallback state
+  where possible, but the underlying missing production data remains unresolved.
+- GitHub Actions scraper workflows are intentionally manual-dispatch only in the readiness branch.
+  They require `RAILWAY_INTERNAL_API_URL` and `INTERNAL_API_TOKEN` GitHub secrets and call the
+  existing protected `POST /api/wizmatch/signals/ingest` endpoint. Do not enable schedules without
+  explicit approval.
 - To get real Wizmatch data flowing from the next business day without adding new automation:
   first get explicit approval for applying required migrations/deploying the branch, then load
   5-10 real requirements and 20-30 vetted candidate profiles manually, dispatch existing

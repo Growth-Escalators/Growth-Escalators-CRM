@@ -8,9 +8,12 @@ name: Wizmatch India Job Signals (Naukri)
 # Naukri's DOM and may need occasional maintenance.
 
 on:
-  schedule:
-    - cron: '30 4 * * *' # Daily 10 AM IST
   workflow_dispatch:
+
+# Schedule intentionally disabled until explicit human approval.
+# Proposed cadence after approval:
+#   schedule:
+#     - cron: '30 4 * * *' # Daily 10 AM IST
 
 jobs:
   scrape:
@@ -24,8 +27,8 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Scrape Naukri job signals and ingest
         env:
-          API_BASE_URL: ${{ secrets.WIZMATCH_API_BASE_URL }}
-          INTERNAL_TOKEN: ${{ secrets.WIZMATCH_INTERNAL_TOKEN }}
+          API_BASE_URL: ${{ secrets.RAILWAY_INTERNAL_API_URL }}
+          INTERNAL_TOKEN: ${{ secrets.INTERNAL_API_TOKEN }}
         run: |
           node -e '
           const { chromium } = require("playwright");

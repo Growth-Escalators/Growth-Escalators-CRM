@@ -8,7 +8,7 @@ Wizmatch runs as a **new tenant** inside the existing CRM, adding a full staffin
 
 ```
 Signal (job posting) → Score ($0 TS) → Enrich (email waterfall) → Match ($0 SQL+TS)
-  → Draft (Sonnet on-demand) → Review (admin UI) → Send (multi-domain Purelymail)
+  → Draft (Sonnet on-demand) → Review (admin UI) → manually approved send path
   → Reply (IMAP poll) → Classify (Haiku) → Placement (pipeline)
 ```
 
@@ -17,9 +17,9 @@ Signal (job posting) → Score ($0 TS) → Enrich (email waterfall) → Match ($
 - **Matching**: SQL `&&` array overlap + TS rules ($0) — PRD §5.2
 - **Drafting**: Claude Sonnet on-demand only (when SDR clicks "Generate")
 - **Reply classification**: Reuses existing `classifyReplyWithAI` (Haiku)
-- **Scraping**: Heavy browser scrapers (JobSpy, Dice, Naukri) run in **GitHub Actions**, not Railway
+- **Scraping**: Heavy browser scrapers (Dice/Naukri-style job-signal ingestion) run in **GitHub Actions**, not Railway
 
-## Schema (6 tables)
+## Schema (10 tables in source; production readiness must be checked)
 
 All tables prefixed `wizmatch_*`, UUID PKs, tenant-scoped.
 
@@ -31,6 +31,10 @@ All tables prefixed `wizmatch_*`, UUID PKs, tenant-scoped.
 | `wizmatch_placements` | Placement tracking (margin, contract dates, RTR) |
 | `wizmatch_domain_health` | Sending domain health (SPF/DKIM/DMARC, bounce/reply rates) |
 | `wizmatch_suppression_list` | CAN-SPAM compliance (unsubscribes, bounces) |
+| `wizmatch_requirements` | Requirement intake and requirement-sheet metadata |
+| `wizmatch_company_intelligence` | Company qualification/review state |
+| `wizmatch_contact_candidates` | Manual-reviewed decision-maker/contact candidates |
+| `wizmatch_discovery_runs` | Discovery audit/cost run records |
 
 GIN indexes on `skills` and `keywords` arrays for efficient `&&` overlap queries.
 
@@ -46,7 +50,7 @@ All under `/api/wizmatch/*`, mounted with `requireAuth`.
 - `POST /signals/:id/enrich` — **Internal** — email enrichment waterfall
 - `POST /signals/:id/match` — **Internal** — SQL+TS candidate matching
 - `POST /signals/:id/draft` — Sonnet email drafts (3 variants)
-- `POST /signals/:id/send` — Send via multi-domain mailer + enroll in sequence
+- `POST /signals/:id/send` — Manual approved send path via multi-domain mailer + sequence enrolment
 
 ### Candidates
 - `GET /candidates` — List with filters (skill, visa, availability, source)
@@ -91,11 +95,12 @@ All under `/api/wizmatch/*`, mounted with `requireAuth`.
 
 | Workflow | Schedule | Source |
 |---|---|---|
-| `wizmatch-jobspy.yml` | Every 6h | JobSpy (Python) — Indeed, LinkedIn, Glassdoor |
-| `wizmatch-dice.yml` | Daily 8 AM IST | Dice (Playwright) |
-| `wizmatch-naukri.yml` | Daily 10 AM IST | Naukri candidates (Playwright) |
+| `wizmatch-jobspy.yml` | Manual dispatch only until schedule approval | Naukri-style India job signals (Playwright) |
+| `wizmatch-dice.yml` | Manual dispatch only until schedule approval | Dice job signals (Playwright) |
 
-All workflows POST to `/api/wizmatch/signals/ingest` with `WIZMATCH_INTERNAL_TOKEN`.
+All workflows POST to `/api/wizmatch/signals/ingest` with the `x-internal-secret` header. GitHub
+Actions stores that value as `INTERNAL_API_TOKEN`; Railway must have the same value in
+`WIZMATCH_INTERNAL_TOKEN` or the documented backend fallback.
 
 ## Admin Pages (8)
 
@@ -116,6 +121,10 @@ All workflows POST to `/api/wizmatch/signals/ingest` with `WIZMATCH_INTERNAL_TOK
 ```bash
 npm run db:migrate  # on staging with DATABASE_URL set
 ```
+
+Before doing this against production, read `docs/wizmatch-operational-readiness.md`. The current
+repo has SQL files that are not all represented in Drizzle's migration journal, so a normal
+deploy/migrate must be reviewed before relying on it.
 
 ### 2. Apply GIN indexes
 The `0020_wizmatch_gin_indexes.sql` migration replaces btree indexes on array columns with GIN for `&&` operator support.
@@ -144,8 +153,8 @@ WIZMATCH_WARMUP_CONTACTS=archit@wizmatch.com,jatin@wizmatch.com
 ```
 
 ### 5. Set GitHub Actions secrets
-- `WIZMATCH_API_BASE_URL` — API URL (e.g., `https://api.growthescalators.com`)
-- `WIZMATCH_INTERNAL_TOKEN` — same as backend env
+- `RAILWAY_INTERNAL_API_URL` — API URL (e.g., `https://api.growthescalators.com`)
+- `INTERNAL_API_TOKEN` — same secret value as backend `WIZMATCH_INTERNAL_TOKEN`
 - `WIZMATCH_JOBSPY_QUERIES` — JSON array of search queries
 
 ### 6. Configure DNS for sending domains
@@ -154,7 +163,7 @@ Set up SPF, DKIM, and DMARC on all 3 domains per Purelymail's instructions.
 ## Files Created/Modified
 
 ### New files
-- `src/db/migrations/0019_silly_zodiak.sql` — 6 table migration (drizzle-kit generated)
+- `src/db/migrations/0019_silly_zodiak.sql` — original 6 table migration (drizzle-kit generated)
 - `src/db/migrations/0020_wizmatch_gin_indexes.sql` — GIN index fix for array columns
 - `src/middleware/internalAuth.ts` — `requireInternalToken` middleware
 - `src/services/claudeService.ts` — Claude API helper (raw fetch)
@@ -165,7 +174,7 @@ Set up SPF, DKIM, and DMARC on all 3 domains per Purelymail's instructions.
 - `src/scripts/seedWizmatch.ts` — Tenant/user/pipeline/sequence/domain seed
 - `src/__tests__/wizmatch.test.ts` — 17 unit tests
 - `admin/src/pages/Wizmatch*.jsx` — 8 admin pages
-- `.github/workflows/wizmatch-*.yml` — 3 scraper workflows
+- `.github/workflows/wizmatch-*.yml` — manual-dispatch scraper workflows
 
 ### Modified files
 - `src/db/schema.ts` — Added 6 `wizmatch_*` table definitions
