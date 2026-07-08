@@ -16,14 +16,14 @@ schedules, does not send outreach, and does not auto-submit candidates.
 - [x] Merge `codex/pipeline-stage-hardening-v2` into local `main`.
 - [x] Merge `codex/wizmatch-operational-readiness` into local `main`.
 - [x] Resolve context-file conflicts so `.ai/*` preserves both completed work units.
-- [ ] Regenerate `.ai/AI_BRIEF.md`.
-- [ ] Run `npm run build`.
-- [ ] Run `npm test`.
-- [ ] Run `npm run admin:build`.
-- [ ] Run `git diff --check`.
-- [ ] Push `main` to `origin/main`.
-- [ ] Check deployment state where available.
-- [ ] Tell Jatin exactly which production data points/secrets/manual checks remain.
+- [x] Regenerate `.ai/AI_BRIEF.md`.
+- [x] Run `npm run build`.
+- [x] Run `npm test`.
+- [x] Run `npm run admin:build`.
+- [x] Run `git diff --check`.
+- [x] Push `main` to `origin/main`.
+- [x] Check deployment state where available.
+- [x] Tell Jatin exactly which production data points/secrets/manual checks remain.
 
 ## Next task
 

@@ -1229,3 +1229,30 @@ enrichment work.
   warnings remain.
 - `npm run admin:build` passed.
 - `git diff --check` passed.
+
+## 2026-07-08 — Step 25: Main integration for live deploy — Codex — VERIFIED LOCALLY
+
+**What was done**
+- Merged `codex/pipeline-stage-hardening-v2` into local `main`.
+- Merged `codex/wizmatch-operational-readiness` into local `main`.
+- Resolved `.ai/*` context conflicts by preserving both completed work units and regenerating the
+  auto brief.
+- Prepared `main` for the live push with pipeline hardening, Wizmatch readiness docs/env-check,
+  manual-dispatch scraper workflows, and updated AI context.
+
+**Guardrails preserved**
+- No schema edits.
+- No migration edits.
+- No direct production DB writes.
+- No direct `db:migrate` execution.
+- No auth/RBAC/Cashfree changes.
+- No outreach sending.
+- No automatic candidate submission.
+- No scraper schedules enabled; workflows remain manual-dispatch only.
+
+**Verification**
+- `npm run build` passed.
+- `npm test` passed: 27 files, 236 tests. Existing `rankTracking.test.ts` nested `vi.mock`
+  warnings remain.
+- `npm run admin:build` passed.
+- `git diff --check` passed.

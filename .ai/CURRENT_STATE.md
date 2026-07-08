@@ -35,6 +35,9 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
 - Wizmatch operational-readiness prep now documents the migration-journal gap for skipped
   `0020`/`0021` Wizmatch SQL files, provides a read-only `npm run wizmatch:env-check` command,
   and keeps Dice/Naukri-style GitHub Actions scrapers manual-dispatch only until schedule approval.
+- Local `main` integration on 2026-07-08 merged both pipeline-stage hardening and Wizmatch
+  operational-readiness prep, then passed `npm run build`, `npm test` (27 files, 236 tests),
+  `npm run admin:build`, and `git diff --check` before the live push.
 
 ## In progress
 
@@ -163,6 +166,8 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
 - Pipeline Stage Hardening Follow-ups were verified locally with `npm run build`, `npm test`,
   `npm run admin:build`, and `git diff --check`. Manual smoke against a real local/staging
   database and authenticated Growth/Wizmatch users is still pending.
+- Combined live-push verification on 2026-07-08 passed locally before deployment: `npm run build`,
+  `npm test` (27 files, 236 tests), `npm run admin:build`, and `git diff --check`.
 
 ## How to rebuild context fast
 

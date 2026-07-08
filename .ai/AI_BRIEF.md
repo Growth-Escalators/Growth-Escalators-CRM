@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-08T17:58:12.206Z_
+_Generated: 2026-07-08T17:59:31.065Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,8 +12,8 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: growth-escalators-backend-v2
 - **Branch**: `main`
-- **Last commit**: d82b6fa merge: pipeline stage hardening (56 seconds ago)
-- **Uncommitted changes**: 14 file(s)
+- **Last commit**: 46beb17 merge: Wizmatch operational readiness (73 seconds ago)
+- **Uncommitted changes**: 3 file(s)
 
 ## Current task
 
@@ -31,7 +31,9 @@ schedules, does not send outreach, and does not auto-submit candidates.
 ## Recent commits
 
 ```
+46beb17 merge: Wizmatch operational readiness
 d82b6fa merge: pipeline stage hardening
+076efc2 chore(wizmatch): prep operational readiness
 638e7fe fix(crm): harden pipeline stage outcomes
 061ca2e fix(crm): harden portal rendering and Wizmatch fallbacks
 4358068 feat(crm): harden Wizmatch shared routes
@@ -39,8 +41,6 @@ d82b6fa merge: pipeline stage hardening
 d98ddad fix(auth): separate product navigation and lead routing
 e3d683f fix(admin): serve freshly built login bundle
 ecd140c fix(deploy): install admin dependencies in nixpacks
-352add5 feat(auth): separate Growth and Wizmatch logins
-8a40b52 feat(crm): add Facebook lead form ingestion
 ```
 
 ## npm scripts
@@ -72,16 +72,8 @@ ecd140c fix(deploy): install admin dependencies in nixpacks
 
 ```
 .ai/AI_BRIEF.md
-.ai/AI_BRIEF.md
-.ai/AI_BRIEF.md
-.ai/CURRENT_STATE.md
-.ai/CURRENT_STATE.md
 .ai/CURRENT_STATE.md
 .ai/CURRENT_TASK.md
-.ai/CURRENT_TASK.md
-.ai/CURRENT_TASK.md
-.ai/HANDOFF_LOG.md
-.ai/HANDOFF_LOG.md
 .ai/HANDOFF_LOG.md
 .ai/REVIEW_CHECKLIST.md
 .ai/TOOL_ROLES.md
