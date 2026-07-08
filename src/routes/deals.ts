@@ -2,8 +2,19 @@ import logger from '../utils/logger';
 import { Router } from 'express';
 import { eq, and, sql } from 'drizzle-orm';
 import { db, pool, deals, contacts, pipelines } from '../db/index';
+import { findPipelineStageOutcome } from '../services/pipelineStages';
 
 const router = Router();
+
+async function getPipelineStageOutcome(tenantId: string, pipelineId: string | null | undefined, stage: unknown) {
+  if (!pipelineId) return 'open';
+  const pipelineRows = await db
+    .select({ stages: pipelines.stages })
+    .from(pipelines)
+    .where(and(eq(pipelines.id, pipelineId), eq(pipelines.tenantId, tenantId)))
+    .limit(1);
+  return findPipelineStageOutcome(pipelineRows[0]?.stages, stage);
+}
 
 // ---------------------------------------------------------------------------
 // GET /deals — list deals with optional filters
@@ -113,7 +124,7 @@ router.post('/', async (req, res) => {
 
 // ---------------------------------------------------------------------------
 // PATCH /deals/:id — update deal stage, value, metadata, etc.
-// Auto-sets closedAt when stage is 'Won' or 'Lost'
+// Auto-sets closedAt when the target pipeline stage has a terminal outcome
 // Updates contact lastActivityAt on stage change
 // ---------------------------------------------------------------------------
 router.patch('/:id', async (req, res) => {
@@ -141,9 +152,11 @@ router.patch('/:id', async (req, res) => {
   if (notes !== undefined) updates.notes = notes;
   if (expectedCloseDate !== undefined) updates.expectedCloseDate = expectedCloseDate ? String(expectedCloseDate) : null;
 
-  // Auto-set closedAt on terminal stages (case-insensitive)
-  const stageLC = stage?.toLowerCase();
-  if ((stageLC === 'won' || stageLC === 'lost') && !closedAt) {
+  // Auto-set closedAt on terminal stages based on normalized pipeline stage outcome.
+  const stageOutcome = stage !== undefined
+    ? await getPipelineStageOutcome(tenantId, pipelineId ?? existing[0].pipelineId, stage)
+    : 'open';
+  if (stage !== undefined && stageOutcome !== 'open' && !closedAt) {
     updates.closedAt = new Date();
   } else if (closedAt !== undefined) {
     updates.closedAt = new Date(closedAt);
@@ -394,16 +407,16 @@ router.post('/add-or-update', async (req, res) => {
     .limit(1);
 
   let result;
+  const stageOutcome = await getPipelineStageOutcome(tenantId, pipelineId, stage);
   if (existing.length > 0) {
     // Update existing deal
-    const stageLC = stage.toLowerCase();
     const upd: Partial<typeof deals.$inferInsert> = {
       stage, updatedAt: new Date(),
       ...(assignedTo !== undefined ? { assignedTo } : {}),
       ...(dealValue !== undefined ? { dealValue } : {}),
       ...(notes !== undefined ? { notes } : {}),
     };
-    if (stageLC === 'won' || stageLC === 'lost') upd.closedAt = new Date();
+    if (stageOutcome !== 'open') upd.closedAt = new Date();
 
     const updated = await db.update(deals).set(upd)
       .where(eq(deals.id, existing[0].id)).returning();
@@ -412,6 +425,7 @@ router.post('/add-or-update', async (req, res) => {
     // Create new deal
     const inserted = await db.insert(deals).values({
       tenantId, contactId, pipelineId, stage, title, assignedTo, dealValue, notes,
+      ...(stageOutcome !== 'open' ? { closedAt: new Date() } : {}),
     }).returning();
     result = { deal: inserted[0], action: 'created' };
   }

@@ -1139,3 +1139,50 @@ enrichment work.
   - 15 Growth shared routes rendered.
   - No route hit the app error boundary.
 - `git diff --check` passed.
+
+## 2026-07-08 — Step 23: Pipeline stage hardening follow-ups — Codex — VERIFIED LOCALLY
+
+**What was done**
+- Added normalized pipeline stage outcomes in the shared backend/admin helpers so persisted stage
+  objects now serialize as `{ id, name, color, outcome }`.
+- Preserved Growth string-stage compatibility, including substring outcome inference for custom
+  names like `Deal Won 🎉` and `Client Lost - Competitor`.
+- Added index-based merge protection for flattened stage saves over existing object-stage
+  pipelines, preserving old `id`, `color`, and `outcome` by position.
+- Updated Pipeline Manager to edit full stage objects, display `name`, key stage settings by
+  `id`, and save normalized objects.
+- Normalized pipeline create/PATCH payloads before persistence.
+- Added `stageOutcome` to kanban stage columns and updated Pipeline drag/drop close behavior to
+  consume stage outcomes instead of guessing from stage IDs or labels.
+- Updated deal PATCH/add-or-update closed-date stamping and pipeline analytics to consume
+  normalized stage outcomes. Wizmatch `ended` is treated as terminal success/won.
+- Narrowed Wizmatch optional-schema fallbacks to allowlisted optional tables only:
+  `wizmatch_requirements`, `wizmatch_company_intelligence`, `wizmatch_contact_candidates`, and
+  `wizmatch_discovery_runs`.
+- Made tenant slug resolution path-first so explicit `/dashboard` and `/wizmatch/*` routes beat a
+  stale cross-tab `crm_active_tenant_slug` value.
+- Added tests for stage helper behavior, optional-schema allowlisting, tenant path-first
+  resolution, and frontend stage-outcome terminal detection.
+
+**Guardrails preserved**
+- No schema or migration edits.
+- No auth/RBAC middleware edits.
+- No Cashfree edits.
+- No production DB writes.
+- No outreach sending.
+- No automatic candidate submissions.
+- No worker/cron automation added.
+- No deployment config changes.
+
+**Verification**
+- `npx vitest --run src/__tests__/pipelineStages.test.ts src/__tests__/wizmatchContactIntelligenceRoutes.test.ts src/__tests__/adminFrontendHelpers.test.js` passed.
+- `npm run build` passed.
+- `npm test` passed: 26 files, 234 tests.
+- `npm run admin:build` passed.
+- `git diff --check` passed.
+
+**Still pending**
+- Manual smoke with real local/staging auth and database:
+  `/wizmatch/pipelines/settings` rename/save preserves untouched colors, `/wizmatch/pipeline`
+  drag to `Ended` shows close modal and sets `closedAt`, and Growth custom closing stages still
+  close/report correctly.

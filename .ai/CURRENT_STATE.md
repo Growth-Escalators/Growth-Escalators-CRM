@@ -27,6 +27,11 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
 - CRM portal hardening now supports both classic string pipeline stages and Wizmatch object stages
   like `{ id, name, color }`. Shared admin pages coerce display/search values before calling string
   helpers, and the route error boundary resets on navigation instead of trapping the full SPA.
+- Current branch pipeline follow-ups harden that stage model further: normalized stages now persist
+  as `{ id, name, color, outcome }`, Pipeline Manager edits full stage objects without flattening
+  Wizmatch metadata, deal closing and pipeline analytics consume normalized `outcome`, Wizmatch
+  optional-schema fallbacks are allowlisted to known optional tables, and tenant resolution is
+  path-first to avoid stale cross-tab localStorage redirects.
 
 ## In progress
 
@@ -144,6 +149,9 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   env, cooldown/caps, Apollo/Snov/Google fallback order, Reacher invalid handling, provider
   failures, max-3 candidate cap, dedupe, cost guard budget/provider/user caps, provider-env
   blocks, no-provider-without-token behavior, and route registration.
+- Pipeline Stage Hardening Follow-ups were verified locally with `npm run build`, `npm test`,
+  `npm run admin:build`, and `git diff --check`. Manual smoke against a real local/staging
+  database and authenticated Growth/Wizmatch users is still pending.
 
 ## How to rebuild context fast
 

@@ -3,7 +3,13 @@ import { Router } from 'express';
 import { eq, and, asc } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import { db, pool, pipelines, deals, contacts, contactChannels } from '../db/index';
-import { buildPipelineStageColumns, normalizePipelineStages } from '../services/pipelineStages';
+import {
+  buildPipelineStageColumns,
+  getPipelineStageIdsByOutcome,
+  mergePipelineStagesForSave,
+  normalizePipelineStages,
+  serializePipelineStages,
+} from '../services/pipelineStages';
 
 const router = Router();
 
@@ -194,7 +200,7 @@ router.post('/', async (req, res) => {
   const { name, slug, stages, color, sortOrder } = req.body as {
     name?: string;
     slug?: string;
-    stages?: string[];
+    stages?: unknown[];
     color?: string;
     sortOrder?: number;
   };
@@ -207,7 +213,7 @@ router.post('/', async (req, res) => {
   try {
     const inserted = await db
       .insert(pipelines)
-      .values({ tenantId, name, slug, stages, color, sortOrder })
+      .values({ tenantId, name, slug, stages: serializePipelineStages(stages), color, sortOrder })
       .returning();
     res.status(201).json(inserted[0]);
   } catch (err: unknown) {
@@ -309,23 +315,31 @@ router.patch('/:id', async (req, res) => {
   const tenantId = req.user!.tenantId;
   const { name, stages, color, isActive, sortOrder, stageConfig } = req.body;
 
+  const existing = await db
+    .select()
+    .from(pipelines)
+    .where(and(eq(pipelines.id, id), eq(pipelines.tenantId, tenantId)))
+    .limit(1);
+
+  if (existing.length === 0) {
+    res.status(404).json({ error: 'pipeline not found' });
+    return;
+  }
+
   const updates: Partial<typeof pipelines.$inferInsert> = {};
   if (name !== undefined) updates.name = name;
-  if (stages !== undefined) updates.stages = stages;
+  if (stages !== undefined) updates.stages = mergePipelineStagesForSave(existing[0].stages, stages);
   if (color !== undefined) updates.color = color;
   if (isActive !== undefined) updates.isActive = isActive;
   if (sortOrder !== undefined) updates.sortOrder = sortOrder;
 
-  const updated = await db
-    .update(pipelines)
-    .set(updates)
-    .where(and(eq(pipelines.id, id), eq(pipelines.tenantId, tenantId)))
-    .returning();
-
-  if (updated.length === 0) {
-    res.status(404).json({ error: 'pipeline not found' });
-    return;
-  }
+  const updated = Object.keys(updates).length > 0
+    ? await db
+      .update(pipelines)
+      .set(updates)
+      .where(and(eq(pipelines.id, id), eq(pipelines.tenantId, tenantId)))
+      .returning()
+    : existing;
 
   if (stageConfig !== undefined) {
     await pool.query(
@@ -367,21 +381,34 @@ router.get('/:id/analytics', async (req, res) => {
   const { id } = req.params;
   const days = parseInt((req.query.days as string) || '90', 10);
   try {
+    const pipelineRows = await db
+      .select()
+      .from(pipelines)
+      .where(and(eq(pipelines.id, id), eq(pipelines.tenantId, tenantId)))
+      .limit(1);
+
+    if (pipelineRows.length === 0) {
+      res.status(404).json({ error: 'pipeline not found' });
+      return;
+    }
+
+    const stageIdsByOutcome = getPipelineStageIdsByOutcome(pipelineRows[0].stages, { lowercase: true });
+    const closedStageIds = stageIdsByOutcome.closed;
     const cutoff = new Date(Date.now() - days * 86400000).toISOString();
     const r = await pool.query(`
       SELECT
-        COALESCE(SUM(CASE WHEN LOWER(stage) NOT IN ('won','lost','abandoned') THEN COALESCE(deal_value,0) * COALESCE(probability,50) / 100.0 ELSE 0 END), 0)::int AS forecast,
-        COUNT(*) FILTER (WHERE LOWER(stage) NOT IN ('won','lost','abandoned')) AS open_count,
-        COUNT(*) FILTER (WHERE LOWER(stage) = 'won') AS won_count,
-        COUNT(*) FILTER (WHERE LOWER(stage) = 'lost') AS lost_count,
-        COUNT(*) FILTER (WHERE LOWER(stage) = 'abandoned') AS abandoned_count,
-        COALESCE(SUM(CASE WHEN LOWER(stage) = 'won' THEN COALESCE(deal_value,0) ELSE 0 END), 0)::int AS total_won_value,
-        ROUND(AVG(CASE WHEN LOWER(stage) = 'won' AND closed_at IS NOT NULL THEN EXTRACT(EPOCH FROM (closed_at - created_at))/86400.0 END)::numeric, 1) AS avg_cycle_days
+        COALESCE(SUM(CASE WHEN NOT (LOWER(stage) = ANY($4::text[])) THEN COALESCE(deal_value,0) * COALESCE(probability,50) / 100.0 ELSE 0 END), 0)::int AS forecast,
+        COUNT(*) FILTER (WHERE NOT (LOWER(stage) = ANY($4::text[]))) AS open_count,
+        COUNT(*) FILTER (WHERE LOWER(stage) = ANY($5::text[])) AS won_count,
+        COUNT(*) FILTER (WHERE LOWER(stage) = ANY($6::text[])) AS lost_count,
+        COUNT(*) FILTER (WHERE LOWER(stage) = ANY($7::text[])) AS abandoned_count,
+        COALESCE(SUM(CASE WHEN LOWER(stage) = ANY($5::text[]) THEN COALESCE(deal_value,0) ELSE 0 END), 0)::int AS total_won_value,
+        ROUND(AVG(CASE WHEN LOWER(stage) = ANY($5::text[]) AND closed_at IS NOT NULL THEN EXTRACT(EPOCH FROM (closed_at - created_at))/86400.0 END)::numeric, 1) AS avg_cycle_days
       FROM deals
       WHERE pipeline_id = $1 AND tenant_id = $2
         AND (closed_at IS NULL OR closed_at >= $3)
         AND (metadata->>'archived') IS DISTINCT FROM 'true'
-    `, [id, tenantId, cutoff]);
+    `, [id, tenantId, cutoff, closedStageIds, stageIdsByOutcome.won, stageIdsByOutcome.lost, stageIdsByOutcome.abandoned]);
 
     const byStage = await pool.query(`
       SELECT stage,
@@ -390,10 +417,10 @@ router.get('/:id/analytics', async (req, res) => {
         ROUND(AVG(EXTRACT(EPOCH FROM (NOW() - created_at))/86400.0)::numeric, 1) AS avg_age_days
       FROM deals
       WHERE pipeline_id = $1 AND tenant_id = $2
-        AND LOWER(stage) NOT IN ('won','lost','abandoned')
+        AND NOT (LOWER(stage) = ANY($3::text[]))
         AND (metadata->>'archived') IS DISTINCT FROM 'true'
       GROUP BY stage ORDER BY count DESC
-    `, [id, tenantId]);
+    `, [id, tenantId, closedStageIds]);
 
     const s = r.rows[0];
     const wonCount = Number(s.won_count);

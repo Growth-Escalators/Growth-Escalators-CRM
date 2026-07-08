@@ -2,59 +2,42 @@
 
 ## Active task
 
-**CRM portal error hardening** — stop shared Growth/Wizmatch CRM pages from crashing when live API
-data contains richer/non-string values, and make Wizmatch live operating pages degrade to readiness
-signals instead of page-level 500 fallbacks when optional/newer Wizmatch tables are missing.
+**Pipeline Stage Hardening Follow-ups** — protect Growth and Wizmatch CRM pipelines from stage
+metadata loss, make terminal-stage behavior outcome-driven, narrow Wizmatch optional-schema
+fallbacks, and make tenant selection path-first.
 
-Scope is **pipeline stage normalization, admin frontend display/search hardening, route-level
-error-boundary recovery, Wizmatch optional-schema API fallbacks, tests, browser smoke, and AI
-context**. This task does not add schema, migrations, auto-outreach, automatic candidate
-submission, worker/cron automation, package, or deployment config changes.
+Scope is **pipeline stage normalization/serialization, Pipeline Manager object-stage editing,
+pipeline/deal analytics and closed-date behavior, Wizmatch optional-schema allowlisting,
+cross-tab tenant routing polish, tests, and AI context**. This task does not add schema,
+migrations, auth/RBAC middleware changes, Cashfree changes, deployment config, worker/cron
+automation, outreach sending, or automatic candidate submission.
 
 ## Definition of done
 
-- [x] Normalize pipeline stages so string stages and object stages like
-  `{ id, name, color }` both render safely.
-- [x] Preserve Growth string-stage compatibility while allowing Wizmatch object-stage pipelines.
-- [x] Harden shared CRM frontend string/search/display paths against non-string API values.
-- [x] Make the app error boundary reset on route changes and offer a dashboard recovery action.
-- [x] Make Wizmatch workbench/dashboard/readiness/cost paths tolerate missing optional/newer
-  Wizmatch tables with zeroed fallback/readiness data instead of frontend 500 fallback screens.
-- [x] Add focused regression coverage for pipeline stage normalization and missing
-  `wizmatch_discovery_runs` cost-guard usage.
-- [x] Run backend build, full Vitest suite, admin build, browser smoke, diff check, and refresh AI
-  brief.
+- [x] Stage helpers normalize/persist `{ id, name, color, outcome }`.
+- [x] Outcome is computed in the shared normalization helpers and downstream consumers read that
+  normalized outcome.
+- [x] Flattened stage saves over object-stage pipelines merge by index and preserve existing
+  `id`, `color`, and `outcome`.
+- [x] Pipeline Manager edits full stage objects, displays `name`, keys stage settings by `id`,
+  and saves normalized objects.
+- [x] Pipeline create/PATCH normalize stage payloads before persistence.
+- [x] Kanban stage columns expose `stageOutcome`; drag/drop close modal reads `stageOutcome`.
+- [x] Deal closed-date stamping uses normalized stage outcome for PATCH and add-or-update paths.
+- [x] Pipeline analytics derives open/won/lost/abandoned stage-id lists from normalized stages.
+- [x] Wizmatch optional-schema fallbacks are allowlisted to known optional tables.
+- [x] Tenant slug resolution prefers explicit Growth/Wizmatch paths over stale localStorage.
+- [x] Focused tests added for stage helpers, optional-schema allowlist, frontend outcome helpers,
+  and tenant path-first resolution.
+- [x] `npm run build`, `npm test`, `npm run admin:build`, and `git diff --check` pass.
+- [x] `.ai/HANDOFF_LOG.md`, `.ai/CURRENT_TASK.md`, `.ai/CURRENT_STATE.md`, and `.ai/AI_BRIEF.md`
+  updated.
 
 ## Next task
 
-- [x] Browser-smoke 15 Wizmatch routes and 15 Growth routes with mocked authenticated sessions and
-  production-like Wizmatch object-stage pipeline data.
-- [ ] Log in with real Growth and Wizmatch users on localhost/live and manually confirm shared
-  modules show the correct tenant data in both profiles once this branch is deployed to a
-  production-like environment.
-- [ ] Review Wizmatch AI Intelligence output after the missing production Wizmatch tables are
-  present and real requirements/client signals/contact candidates exist.
-
-## Production data verification on 2026-07-08 IST
-
-Read-only Railway/Postgres aggregate inspection found:
-
-- `wizmatch` tenant exists and is active.
-- Contacts: 192 rows, all `source = wizmatch_github`, `status = lead`.
-- Contact channels: 192 rows, all email, unverified.
-- Candidates: 192 rows, all `source = github`, `availability_status = available`, latest update
-  `2026-07-06T22:00:30.683Z`.
-- Domain health: 3 rows from the bootstrap seed.
-- Pipeline: 1 bootstrap pipeline.
-- Deals, messages/inbox, tasks, email templates, WhatsApp templates, billing clients, invoices,
-  payments, companies, job signals, placements, suppression list: 0 rows for Wizmatch.
-- Newer branch tables were missing in production: `wizmatch_requirements`,
-  `wizmatch_company_intelligence`, `wizmatch_contact_candidates`, and
-  `wizmatch_discovery_runs`.
-- Demo/test indicators were low in existing production rows: 1 contact matched demo/test text,
-  0 `example.*` contact channels, 0 demo candidate sources.
-
-Conclusion: production Wizmatch is not just dummy data because the 192 GitHub-sourced
-candidate/contact rows look like real sourced data, but it is not yet business-ready/client-ready.
-The CRM operating modules that drive clients and revenue are effectively empty, and the newest
-contact-intelligence/requirements persistence tables are not applied in production.
+- [ ] Manual smoke with a real local/staging database and auth:
+  `/wizmatch/pipelines/settings` rename/save preserves untouched colors, `/wizmatch/pipeline`
+  drag to `Ended` shows close modal and sets `closedAt`, and a Growth custom closing stage such
+  as `Deal Won 🎉` still closes/reports as won.
+- [ ] Review whether Pipeline Manager needs an explicit outcome editor before operators start
+  changing stage semantics, because this pass preserves outcome on rename by design.
