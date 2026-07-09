@@ -58,6 +58,7 @@ function providers(overrides: Partial<WizmatchContactDiscoveryProviders> = {}): 
     snovDomainSearch: vi.fn(async () => []),
     reacherVerify: vi.fn(async () => 'unknown' as const),
     googleFallbackSearch: vi.fn(async () => []),
+    genericGuessSearch: vi.fn(async () => []),
     ...overrides,
   };
 }
@@ -120,7 +121,7 @@ describe('Wizmatch Contact Discovery Phase 3', () => {
     expect(preview.blockedReasons.join(' ')).not.toContain('cooldown');
   });
 
-  it('uses Apollo first and saves max 3 deduped candidates', async () => {
+  it('uses paid Apollo only after the free paths are empty, and saves max 3 deduped candidates', async () => {
     const mockProviders = providers({
       apolloPeopleSearch: vi.fn(async () => [
         candidate({ name: 'Asha Rao', title: 'Head of Talent', email: 'asha@example.in', rankingScore: 93, reasons: ['apollo'] }),
@@ -137,27 +138,72 @@ describe('Wizmatch Contact Discovery Phase 3', () => {
     expect(result.status).toBe('succeeded');
     expect(result.candidates).toHaveLength(3);
     expect(result.candidates[0].deliverabilityStatus).toBe('verified');
+    // Free website + named-people (Serper) run before any paid provider.
+    expect(mockProviders.websitePatternSearch).toHaveBeenCalled();
+    expect(mockProviders.googleFallbackSearch).toHaveBeenCalled();
     expect(mockProviders.snovDomainSearch).not.toHaveBeenCalled();
-    expect(mockProviders.googleFallbackSearch).not.toHaveBeenCalled();
   });
 
-  it('falls back from Apollo to Snov, then Google only after provider paths return no contacts', async () => {
+  it('runs the free named-people (Serper) search before any paid provider', async () => {
     const mockProviders = providers({
-      snovDomainSearch: vi.fn(async () => [
-        candidate({ name: 'Snov Contact', source: 'snov', email: 'vendor@example.in', costCents: 5, reasons: ['snov'] }),
-      ]),
-    });
-    const snovResult = await executeWizmatchContactDiscovery(baseInput(), mockProviders, enabledConfig(), { costGuardToken: 'guard-token' });
-    expect(snovResult.candidates[0].source).toBe('snov');
-    expect(mockProviders.googleFallbackSearch).not.toHaveBeenCalled();
-
-    const googleProviders = providers({
       googleFallbackSearch: vi.fn(async () => [
-        candidate({ name: 'LinkedIn Contact', title: 'Public profile match', email: null, linkedinUrl: 'https://linkedin.com/in/demo', source: 'google_fallback', sourceUrl: 'https://linkedin.com/in/demo', deliverabilityStatus: 'unknown', confidenceScore: 3, rankingScore: 58, costCents: 2, reasons: ['google'] }),
+        candidate({ name: 'Priya Sharma', title: 'Talent Acquisition', email: 'priya.sharma@example.in', source: 'google_fallback', deliverabilityStatus: 'verified', rankingScore: 92, reasons: ['named recruiter'], raw: { confidenceTier: 'medium', team: 'Talent Acquisition', roleCategory: 'named_talent', verificationDone: true } }),
+      ]),
+      apolloPeopleSearch: vi.fn(async () => [candidate({ name: 'Apollo Person', email: 'apollo@example.in' })]),
+    });
+
+    const result = await executeWizmatchContactDiscovery(baseInput(), mockProviders, enabledConfig(), { costGuardToken: 'guard-token' });
+
+    expect(result.candidates[0].source).toBe('google_fallback');
+    expect(result.candidates[0].raw?.team).toBe('Talent Acquisition');
+    expect(mockProviders.apolloPeopleSearch).not.toHaveBeenCalled();
+    expect(mockProviders.snovDomainSearch).not.toHaveBeenCalled();
+  });
+
+  it('a generic published inbox does NOT block the named-people search, and named contacts rank above it', async () => {
+    const mockProviders = providers({
+      websitePatternSearch: vi.fn(async () => [
+        candidate({ name: 'Generic inbox', title: 'Generic published email', email: 'info@example.in', source: 'website_manual_pattern', deliverabilityStatus: 'unverified', rankingScore: 38, reasons: ['generic'], raw: { confidenceTier: 'low', team: 'Generic inbox', roleCategory: 'generic', verificationDone: true } }),
+      ]),
+      googleFallbackSearch: vi.fn(async () => [
+        candidate({ name: 'Ravi Recruiter', title: 'Technical Recruiter', email: 'ravi.k@example.in', source: 'google_fallback', deliverabilityStatus: 'verified', rankingScore: 92, reasons: ['named'], raw: { confidenceTier: 'medium', team: 'Talent Acquisition', roleCategory: 'named_talent', verificationDone: true } }),
       ]),
     });
-    const googleResult = await executeWizmatchContactDiscovery(baseInput(), googleProviders, enabledConfig(), { costGuardToken: 'guard-token' });
-    expect(googleResult.candidates[0].source).toBe('google_fallback');
+
+    const result = await executeWizmatchContactDiscovery(baseInput(), mockProviders, enabledConfig(), { costGuardToken: 'guard-token' });
+
+    expect(mockProviders.googleFallbackSearch).toHaveBeenCalledTimes(1); // generic did not short-circuit
+    expect(result.candidates[0].source).toBe('google_fallback'); // named recruiter ranks first
+    expect(result.candidates.map((c) => c.email)).toContain('info@example.in'); // generic kept, but lower
+  });
+
+  it('a role-relevant published inbox (careers@) skips the paid named-people search', async () => {
+    const mockProviders = providers({
+      websitePatternSearch: vi.fn(async () => [
+        candidate({ name: 'Careers inbox (inbox)', title: 'Published Careers inbox', email: 'careers@example.in', source: 'website_manual_pattern', deliverabilityStatus: 'unverified', rankingScore: 76, reasons: ['careers'], raw: { confidenceTier: 'high', team: 'Careers inbox', roleCategory: 'role_inbox_careers', verificationDone: true } }),
+      ]),
+    });
+
+    const result = await executeWizmatchContactDiscovery(baseInput(), mockProviders, enabledConfig(), { costGuardToken: 'guard-token' });
+
+    expect(result.candidates[0].email).toBe('careers@example.in');
+    expect(mockProviders.googleFallbackSearch).not.toHaveBeenCalled(); // saved the ₹1 Serper call
+  });
+
+  it('generic guess is the absolute last resort when everything else is empty', async () => {
+    const mockProviders = providers({
+      genericGuessSearch: vi.fn(async () => [
+        candidate({ name: 'Generic inbox', title: 'Guessed inbox (info)', email: 'info@example.in', source: 'website_manual_pattern', deliverabilityStatus: 'unknown', rankingScore: 30, reasons: ['generic guess'], raw: { confidenceTier: 'low', team: 'Generic inbox', roleCategory: 'generic', verificationDone: true } }),
+      ]),
+    });
+
+    const result = await executeWizmatchContactDiscovery(baseInput(), mockProviders, freeFirstConfig(), { costGuardToken: 'guard-token' });
+
+    expect(mockProviders.websitePatternSearch).toHaveBeenCalled();
+    expect(mockProviders.googleFallbackSearch).toHaveBeenCalled();
+    expect(mockProviders.genericGuessSearch).toHaveBeenCalledTimes(1);
+    expect(result.candidates[0].email).toBe('info@example.in');
+    expect(result.candidates[0].raw?.team).toBe('Generic inbox');
   });
 
   it('marks invalid Reacher emails stale and reports partial when no usable candidate remains', async () => {
