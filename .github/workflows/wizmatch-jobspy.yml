@@ -27,7 +27,7 @@ jobs:
         run: npm install --no-save playwright
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        run: node_modules/.bin/playwright install --with-deps chromium
       - name: Scrape Naukri job signals and ingest
         env:
           API_BASE_URL: ${{ secrets.RAILWAY_INTERNAL_API_URL }}

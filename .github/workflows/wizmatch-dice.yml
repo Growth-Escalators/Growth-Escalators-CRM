@@ -24,7 +24,7 @@ jobs:
         run: npm install --no-save playwright
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        run: node_modules/.bin/playwright install --with-deps chromium
 
       - name: Run Dice scraper
         env:
