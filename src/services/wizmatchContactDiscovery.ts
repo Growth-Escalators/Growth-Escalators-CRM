@@ -277,14 +277,33 @@ export async function executeWizmatchContactDiscovery(
 
   let rawCandidates: WizmatchProviderCandidate[] = [];
 
-  // Rung 1 (FREE, always first): website role-scrape + MX-verified pattern guess.
+  // Rung 1 (FREE): scrape PUBLISHED emails from careers/contact pages, classified by team.
   try {
     rawCandidates = await providers.websitePatternSearch(companyInput);
   } catch (error) {
     errors.push(`website_manual_pattern: ${error instanceof Error ? error.message : 'provider failed'}`);
   }
 
-  // Rung 2 (PAID, off by default): Apollo. Kept in code, gated by WIZMATCH_ENABLE_APOLLO.
+  // Did the website give us a genuinely useful (role-relevant) contact? A generic
+  // info@/hello@ does NOT count — we still want to find a named hiring person.
+  const hasRoleRelevant = rawCandidates.some(
+    (c) => typeof c.raw?.roleCategory === 'string' && c.raw.roleCategory !== 'generic',
+  );
+
+  // Rung 2 (~₹1): named-people search (Serper → Talent/HR/Hiring Mgr/Vendor → guess+verify).
+  // Runs unless we already have a role-relevant published inbox, so a generic guess never
+  // blocks us from finding the right person.
+  if (config.googleFallbackEnabled && !hasRoleRelevant) {
+    try {
+      providerCalls.googleFallback = 1;
+      const named = await providers.googleFallbackSearch(companyInput);
+      rawCandidates = [...rawCandidates, ...named];
+    } catch (error) {
+      errors.push(`google_fallback: ${error instanceof Error ? error.message : 'provider failed'}`);
+    }
+  }
+
+  // Rung 3 (PAID, off by default): Apollo. Only if nothing found at all. Gated by WIZMATCH_ENABLE_APOLLO.
   if (rawCandidates.length === 0 && config.enableApollo) {
     try {
       providerCalls.apollo = 1;
@@ -294,7 +313,7 @@ export async function executeWizmatchContactDiscovery(
     }
   }
 
-  // Rung 3 (PAID, off by default): Snov. Kept in code, gated by WIZMATCH_ENABLE_SNOV.
+  // Rung 4 (PAID, off by default): Snov. Only if still nothing. Gated by WIZMATCH_ENABLE_SNOV.
   if (rawCandidates.length === 0 && config.enableSnov) {
     try {
       providerCalls.snov = 1;
@@ -304,19 +323,18 @@ export async function executeWizmatchContactDiscovery(
     }
   }
 
-  // Rung 4 (cheap ~₹1): Serper LinkedIn fallback, only if enabled and nothing found yet.
-  if (rawCandidates.length === 0 && config.googleFallbackEnabled) {
+  // Rung 5 (FREE, last resort): generic mailbox guesses (info@/hello@) only if nothing else worked.
+  if (rawCandidates.length === 0) {
     try {
-      providerCalls.googleFallback = 1;
-      rawCandidates = await providers.googleFallbackSearch(companyInput);
+      rawCandidates = await providers.genericGuessSearch(companyInput);
     } catch (error) {
-      errors.push(`google_fallback: ${error instanceof Error ? error.message : 'provider failed'}`);
+      errors.push(`generic_guess: ${error instanceof Error ? error.message : 'provider failed'}`);
     }
   }
 
   const candidates = await verifyCandidates(
     dedupe(rawCandidates)
-      .sort((a, b) => b.rankingScore - a.rankingScore)
+      .sort((a, b) => b.rankingScore - a.rankingScore) // named recruiter > careers@ > hr@ > generic
       .slice(0, config.maxContactCandidatesShown),
     providers,
     config,

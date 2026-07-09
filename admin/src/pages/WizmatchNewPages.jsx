@@ -1279,12 +1279,13 @@ export function WizmatchContactIntelligenceNewPage({ demoMode = false }) {
                       </div>
                       <p className="mt-2 text-[12px] text-neutral-500">{candidate.email || 'No email'} - {candidate.source?.replace(/_/g, ' ')} - {candidate.deliverabilityStatus || 'unknown'}</p>
                       <div className="mt-2 flex flex-wrap gap-1.5">
+                        {candidate.team && candidate.team !== 'Generic inbox' && <span className="badge-info">{candidate.team}</span>}
+                        {candidate.team === 'Generic inbox' && <span className="badge-warning">Generic inbox</span>}
                         {candidate.confidenceTier && <span className={badgeFor(candidate.confidenceTier)}>{candidate.confidenceTier} confidence</span>}
-                        {candidate.roleCategory === 'role_inbox' && <span className="badge-success">role inbox</span>}
                         {candidate.mxProvider === 'google' && <span className="badge-muted">Google Workspace</span>}
                         {candidate.mxProvider === 'microsoft' && <span className="badge-muted">Microsoft 365</span>}
                         <span className={badgeFor(candidate.status)}>{candidate.status?.replace(/_/g, ' ')}</span>
-                        {candidate.sourceUrl && <span className="badge-muted">source URL</span>}
+                        {candidate.linkedinUrl && <a href={candidate.linkedinUrl} target="_blank" rel="noreferrer" className="badge-muted underline">LinkedIn</a>}
                         {(candidate.reasons || []).slice(0, 2).map((reason) => <span key={reason} className="badge-muted">{reason}</span>)}
                       </div>
                       {candidate.confidenceTier && CONFIDENCE_TIER_HELP[candidate.confidenceTier] && (

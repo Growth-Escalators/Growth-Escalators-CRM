@@ -371,6 +371,7 @@ function mapPersistedCandidate(row: PersistedContactCandidateRow) {
     confidenceScore,
     confidenceTier: deriveConfidenceTier(raw, confidenceScore),
     roleCategory: typeof raw?.roleCategory === 'string' ? raw.roleCategory : null,
+    team: typeof raw?.team === 'string' ? raw.team : null,
     mxProvider: typeof raw?.mxProvider === 'string' ? raw.mxProvider : null,
     rejectionReason: row.rejection_reason,
     reasons: Array.isArray(row.metadata?.reasons) ? row.metadata.reasons.map(String) : [],
