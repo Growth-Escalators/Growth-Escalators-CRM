@@ -42,6 +42,10 @@ export interface EmailResult {
   confidence: 'high' | 'medium' | 'low';
 }
 
+export interface FindEmailOptions {
+  allowPaidProviders?: boolean;
+}
+
 // ─── Main entry point ─────────────────────────────────────────────────────────
 
 /**
@@ -51,14 +55,17 @@ export interface EmailResult {
  * @param websiteUrl  Full URL or domain of the target company website
  * @param firstName   Optional first name for Apollo people search
  * @param lastName    Optional last name for Apollo people search
+ * @param opts        Paid providers are opt-in; omitted/false keeps the cascade free.
  */
 export async function findEmail(
   websiteUrl: string,
   firstName?: string,
   lastName?: string,
+  opts: FindEmailOptions = {},
 ): Promise<EmailResult | null> {
   const domain = extractDomain(websiteUrl);
   if (!domain) return null;
+  const allowPaidProviders = opts.allowPaidProviders === true;
 
   // ── Step 1: Scrape website ─────────────────────────────────────────────────
   const scraped = await scrapeWebsite(websiteUrl);
@@ -68,7 +75,7 @@ export async function findEmail(
   }
 
   // ── Step 2: Apollo.io ──────────────────────────────────────────────────────
-  if (APOLLO_API_KEY && APOLLO_API_KEY !== 'REPLACE_WITH_APOLLO_API_KEY') {
+  if (allowPaidProviders && APOLLO_API_KEY && APOLLO_API_KEY !== 'REPLACE_WITH_APOLLO_API_KEY') {
     const apollo = await apolloSearch(domain, firstName, lastName);
     if (apollo) {
       logger.debug({ domain, email: apollo }, '[emailExtractor] step2 apollo hit');
@@ -77,7 +84,7 @@ export async function findEmail(
   }
 
   // ── Step 3: Snov.io ────────────────────────────────────────────────────────
-  if (SNOV_CLIENT_ID && SNOV_CLIENT_ID !== 'REPLACE_WITH_SNOV_CLIENT_ID') {
+  if (allowPaidProviders && SNOV_CLIENT_ID && SNOV_CLIENT_ID !== 'REPLACE_WITH_SNOV_CLIENT_ID') {
     const snov = await snovSearch(domain);
     if (snov) {
       logger.debug({ domain, email: snov }, '[emailExtractor] step3 snov hit');

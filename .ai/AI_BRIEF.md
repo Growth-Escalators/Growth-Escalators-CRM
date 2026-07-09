@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-09T04:00:23.107Z_
+_Generated: 2026-07-09T14:41:45.694Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -11,25 +11,27 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 ## Repository
 
 - **Repo**: growth-escalators-backend-v2
-- **Branch**: `main`
-- **Last commit**: b87fa5e fix(ci): pin playwright install to 1.59.1 in Wizmatch scraper workflows (4 minutes ago)
-- **Uncommitted changes**: 3 file(s)
+- **Branch**: `fix/wizmatch-cost-safety`
+- **Last commit**: 453b7fa Merge pull request #13 from Growth-Escalators/docs/wizmatch-cost-audit (7 hours ago)
+- **Uncommitted changes**: 11 file(s)
 
 ## Current task
 
-**Morning Claude handoff after live deploy** — leave the repo ready for the next Claude Code
-session to continue from the deployed state without needing chat history.
+**Wizmatch P0 cost-safety fixes** — implement the two audit-confirmed P0s on
+`fix/wizmatch-cost-safety`, then open a PR against `main`.
 
-Scope is **context-only handoff**: record what was deployed, what Railway reported, what local/live
-checks passed, and which data/secrets/manual decisions remain. This task does not edit product
-code, schema, migrations, auth/RBAC middleware, Cashfree, deployment config, worker/cron schedules,
-or production data.
+Scope is narrow: stop the free/internal enrich path from consuming shared Apollo/Snov quota, and
+alert when all configured Wizmatch sending domains degrade while preserving the mailer's
+fallback-to-all sending behavior.
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
 
 ## Recent commits
 
 ```
+453b7fa Merge pull request #13 from Growth-Escalators/docs/wizmatch-cost-audit
+f8e2aaf docs(wizmatch): add cost-leakage audit + refresh .ai context layer
+d07f7ef docs(ai): record env var setup, smoke check, and scraper CI fix
 b87fa5e fix(ci): pin playwright install to 1.59.1 in Wizmatch scraper workflows
 b4966bb fix(ci): invoke local playwright binary directly to avoid version drift
 ead410a fix(ci): install playwright npm package before running Wizmatch scrapers
@@ -37,9 +39,6 @@ f1b476d docs(ai): record Wizmatch migration-journal repair + deploy
 0f313ba fix(db): repair migration journal gap for Wizmatch operating tables
 46e708d docs(ai): update post-deploy Claude handoff
 7951c28 docs(ai): record main deployment integration
-46beb17 merge: Wizmatch operational readiness
-d82b6fa merge: pipeline stage hardening
-076efc2 chore(wizmatch): prep operational readiness
 ```
 
 ## npm scripts
@@ -87,6 +86,7 @@ docs/prd/002-client-discovery-plan.md
 docs/prd/003-candidate-intelligence-plan.md
 docs/reviews/.gitkeep
 docs/reviews/codex-ai-collaboration-review.md
+docs/reviews/wizmatch-cost-leakage-audit-2026-07-09.md
 ```
 
 ## Where to read next
