@@ -272,14 +272,14 @@ export interface ScrapedWebsiteEmail {
  * contact-discovery cascade can reuse it — a published email needs no SMTP
  * verification because the company put it there to be contacted.
  */
-export async function collectWebsiteEmails(websiteUrl: string): Promise<ScrapedWebsiteEmail[]> {
+export async function collectWebsiteEmails(websiteUrl: string, paths: string[] = CONTACT_PATHS): Promise<ScrapedWebsiteEmail[]> {
   const baseUrl = normalizeUrl(websiteUrl);
   if (!baseUrl) return [];
 
   const allEmails: ScrapedWebsiteEmail[] = [];
   const seen = new Set<string>();
 
-  for (const path of CONTACT_PATHS) {
+  for (const path of paths) {
     try {
       const html = await fetchPage(baseUrl + path);
       if (!html) continue;
