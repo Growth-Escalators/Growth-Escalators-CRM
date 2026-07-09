@@ -5,6 +5,39 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-09 — Step 29: Wizmatch cost-leakage & relevance audit — Claude — DOCS ONLY
+
+**What was done**
+- Verified an external "Cost Leakage & Relevance Audit" brief against the actual source
+  (read-only): all 9 claimed leaks + 6 open questions.
+- Wrote `docs/reviews/wizmatch-cost-leakage-audit-2026-07-09.md` — graded verdicts
+  (CONFIRMED / MITIGATED / REFUTED / MODEL-CORRECTION), answers to the 6 questions, a corrected
+  tunable-variables reference sourced from `wizmatchCostGuard.ts`, and a prioritized P0–P2 backlog.
+- Key findings: the paid Contact-Intelligence path is well-defended (cost guard + advisory lock +
+  preview→confirm); the real *unmetered* spend surface is the FREE enrich Apollo/Snov cascade in
+  `emailExtractorService`, which shares the paid accounts with no counter; no alert fires when all
+  sending domains degrade and the mailer keeps sending anyway; the double-spend race is already
+  mitigated except a narrow cross-user residual (lock key includes userId); match-cost,
+  requirement-priming, draft-on-load, and env-check-ordering claims were refuted/overstated.
+- User decision recorded for the domain backlog item: **alert + keep sending**.
+
+**Guardrails preserved**
+- Docs only — no product code, schema, migrations, crons, mailer, or cost-guard changes.
+- No git push, no deploy, no Railway variable changes.
+- Backlog items are recommendations only; nothing was implemented.
+
+**How to verify**
+- `docs/reviews/wizmatch-cost-leakage-audit-2026-07-09.md` exists; every verdict cites a
+  `file:line` traceable in the doc's Evidence index.
+- `git status --short` shows the new doc + `.ai/` trail edits only; unrelated dirty files
+  (`.ai/AI_BRIEF.md`, `package-lock.json`) left untouched.
+
+**What's next**
+- User pulls items off the P0/P1/P2 backlog when ready. P0s: (1) meter/remove the free enrich
+  Apollo/Snov cascade; (2) add an all-domains-unhealthy Slack alert.
+
+---
+
 ## 2026-07-09 — Step 27: Wizmatch migration-journal repair + deploy — Claude — DEPLOYED
 
 **What was done**
