@@ -148,6 +148,27 @@
       "when": 1783420000000,
       "tag": "0022_tenant_scoped_user_emails",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1783420000001,
+      "tag": "0020_wizmatch_gin_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1783420000002,
+      "tag": "0020_curvy_silverclaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1783420000003,
+      "tag": "0021_contact_intelligence_phase2",
+      "breakpoints": true
     }
   ]
 }
