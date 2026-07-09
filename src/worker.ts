@@ -1473,53 +1473,11 @@ if (process.env.DISABLE_BACKGROUND_JOBS !== 'true' && process.env.WIZMATCH_TENAN
 
   // Domain health monitor — every hour
   cron.schedule('0 * * * *', () => safeCron('Wizmatch Domain Health', async () => {
-    const dns = await import('dns').then(m => m.promises);
     const tenantId = process.env.WIZMATCH_TENANT_ID!;
-    const domains = await pool.query(
-      `SELECT id, domain FROM wizmatch_domain_health WHERE tenant_id = $1 AND status != 'paused'`,
-      [tenantId],
-    );
-    for (const d of domains.rows) {
-      try {
-        // Check SPF
-        let spfOk = false;
-        try {
-          const txt = await dns.resolveTxt(d.domain);
-          spfOk = txt.some((records: string[]) => records.join('').includes('v=spf1'));
-        } catch { /* no TXT */ }
-
-        // Check DMARC
-        let dmarcOk = false;
-        try {
-          const txt = await dns.resolveTxt(`_dmarc.${d.domain}`);
-          dmarcOk = txt.some((records: string[]) => records.join('').includes('v=DMARC1'));
-        } catch { /* no DMARC */ }
-
-        // Calculate bounce/reply rate from messages (last 7 days)
-        const stats = await pool.query(
-          `SELECT
-             COUNT(*) FILTER (WHERE channel = 'email' AND direction = 'outbound') AS sends,
-             COUNT(*) FILTER (WHERE channel = 'email' AND direction = 'inbound') AS replies
-           FROM messages WHERE tenant_id = $1 AND sent_at >= NOW() - INTERVAL '7 days'`,
-          [tenantId],
-        );
-        const sends = stats.rows[0]?.sends || 0;
-        const replies = stats.rows[0]?.replies || 0;
-        const replyRate = sends > 0 ? replies / sends : 0;
-
-        // Update domain health
-        const newStatus = replyRate < 0.03 && sends > 20 ? 'warn' : 'healthy';
-        await pool.query(
-          `UPDATE wizmatch_domain_health
-           SET last_check_at = NOW(), spf_ok = $3, dmarc_ok = $4, reply_rate_7d = $5, sends_7d = $6, status = $7
-           WHERE id = $1 AND tenant_id = $2`,
-          [d.id, tenantId, spfOk, dmarcOk, replyRate, sends, newStatus],
-        );
-      } catch (e) {
-        console.error(`[CRON] domain health check failed for ${d.domain}:`, e);
-      }
-    }
-    console.log(`[CRON] Wizmatch domain health: checked ${domains.rows.length} domains`);
+    const { runWizmatchDomainHealthCheck } = await import('./services/wizmatchDomainHealthService');
+    const result = await runWizmatchDomainHealthCheck(tenantId);
+    const alertStatus = result.alertSent ? ', alert sent' : result.alertThrottled ? ', alert throttled' : '';
+    console.log(`[CRON] Wizmatch domain health: checked ${result.checked} domains (${result.healthy} healthy, ${result.warn} warn${alertStatus})`);
   }), { timezone: 'UTC' });
   console.log('[cron] Wizmatch domain health scheduled — every hour');
 

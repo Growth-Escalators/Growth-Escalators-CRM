@@ -5,6 +5,48 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-09 — Step 30: Wizmatch P0 cost-safety fixes — Codex — VERIFIED LOCALLY
+
+**What was done**
+- Fast-forwarded local `main` to `origin/main` (`453b7fa`) and created
+  `fix/wizmatch-cost-safety`.
+- Made `findEmail` paid-provider opt-in with `opts?: { allowPaidProviders?: boolean }`; omitted
+  options now skip Apollo/Snov and continue through scrape, MX guess, Reacher, and Google.
+- Updated Wizmatch signal enrichment to call `findEmail` with `allowPaidProviders: false`
+  explicitly, so the hourly/internal enrich route cannot drain the shared Apollo/Snov quota used by
+  the manually gated paid discovery path.
+- Extracted the worker domain-health cron body into `runWizmatchDomainHealthCheck`.
+- Domain health now records `warn` for SPF failure, DMARC failure, or low reply rate; no
+  `unhealthy` status was introduced.
+- Added an all-domains-degraded Slack alert to `WIZMATCH_SYSTEM_CHANNEL`, throttled once per
+  tenant per 24 hours by append-only `events.event_type = 'wizmatch_all_domains_unhealthy_alert'`.
+  The marker is inserted only after Slack returns success.
+- Preserved `multiDomainMailer` fallback-to-all behavior when no healthy domains match.
+- Added focused regression tests for the email cascade, domain-health alert/throttle/statuses, and
+  mailer fallback sending.
+
+**Guardrails preserved**
+- No schema or migration edits.
+- No auth/RBAC, Cashfree, SOD/EOD Slack-DM, deployment config, or workflow schedule edits.
+- Paid Contact Intelligence discovery and `wizmatchCostGuard.ts` were not changed.
+- Mailer send behavior still keeps sending via configured inbox fallback when no healthy domains
+  match.
+- No production DB writes, no deploy, no push to `main`.
+
+**Verification**
+- `npm test -- src/__tests__/emailExtractorService.test.ts src/__tests__/wizmatchDomainHealthService.test.ts src/__tests__/multiDomainMailer.test.ts` passed: 3 files, 6 tests.
+- `npm run build` passed.
+- `npm test` passed: 30 files, 242 tests. Existing nested `vi.mock` warnings in
+  `rankTracking.test.ts` remain.
+- `git diff --check` passed.
+
+**Next**
+- Commit the branch, push `fix/wizmatch-cost-safety`, and open the PR against `main`.
+- After merge/deploy, watch the next Wizmatch domain-health run for one alert if all configured
+  domains are degraded; sending should continue by design.
+
+---
+
 ## 2026-07-09 — Step 29: Wizmatch cost-leakage & relevance audit — Claude — DOCS ONLY
 
 **What was done**

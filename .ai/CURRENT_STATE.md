@@ -124,6 +124,12 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   `WIZMATCH_GOOGLE_FALLBACK_ENABLED=false`. Cost guard defaults are conservative:
   ₹5,000/month, ₹500/day, 20 tenant runs/day, 5 user runs/day, and provider daily caps. Confirmed
   blocked discovery attempts are audited as zero-cost `blocked_by_cap` rows.
+- `fix/wizmatch-cost-safety` resolves the two P0 cost-safety audit items locally: the generic
+  `findEmail` cascade defaults Apollo/Snov off unless explicitly opted in, Wizmatch signal
+  enrichment passes the free-only option, and domain-health checks now warn on SPF/DMARC failure or
+  low reply rate. If all non-paused domains are degraded, the worker posts an actionable
+  `WIZMATCH_SYSTEM_CHANNEL` alert once per 24 hours via an append-only `events` marker while
+  preserving the mailer's fallback-to-all sending behavior.
 - **RESOLVED 2026-07-09**: the missing-migration gap diagnosed on 2026-07-08 was fixed. Root cause
   confirmed: `0020_wizmatch_gin_indexes`, `0020_curvy_silverclaw`, and
   `0021_contact_intelligence_phase2` SQL files existed on `main` but were never listed in

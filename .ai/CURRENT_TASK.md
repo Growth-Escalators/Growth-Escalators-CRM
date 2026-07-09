@@ -2,25 +2,35 @@
 
 ## Active task
 
-**Morning Claude handoff after live deploy** — leave the repo ready for the next Claude Code
-session to continue from the deployed state without needing chat history.
+**Wizmatch P0 cost-safety fixes** — implement the two audit-confirmed P0s on
+`fix/wizmatch-cost-safety`, then open a PR against `main`.
 
-Scope is **context-only handoff**: record what was deployed, what Railway reported, what local/live
-checks passed, and which data/secrets/manual decisions remain. This task does not edit product
-code, schema, migrations, auth/RBAC middleware, Cashfree, deployment config, worker/cron schedules,
-or production data.
+Scope is narrow: stop the free/internal enrich path from consuming shared Apollo/Snov quota, and
+alert when all configured Wizmatch sending domains degrade while preserving the mailer's
+fallback-to-all sending behavior.
 
 ## Definition of done
 
-- [x] `main` contains both merged branches:
-  `codex/pipeline-stage-hardening-v2` and `codex/wizmatch-operational-readiness`.
-- [x] `main` pushed to GitHub at `7951c28`.
-- [x] Railway `web` deployment `9a253c24-f400-4c33-ae88-2ddc35000bbd` reached `SUCCESS`.
-- [x] Live API health responded; database check was `ok`.
-- [x] CRM root responded HTTP `200`.
-- [x] Railway env readiness check ran without printing secrets.
-- [x] Remaining human/data items are recorded in `.ai/CURRENT_STATE.md` and `.ai/HANDOFF_LOG.md`.
-- [x] `.ai/AI_BRIEF.md` regenerated for Claude Code.
+- [x] Local `main` fast-forwarded to `origin/main` (`453b7fa`) and branch
+  `fix/wizmatch-cost-safety` created.
+- [x] `findEmail` now takes `opts?: { allowPaidProviders?: boolean }`, defaulting to paid providers
+  disabled.
+- [x] Apollo/Snov steps in `emailExtractorService` run only when `allowPaidProviders === true`.
+- [x] Wizmatch internal signal enrichment calls `findEmail(..., { allowPaidProviders: false })`
+  explicitly.
+- [x] Domain-health cron logic extracted into a testable service.
+- [x] Domain health now uses SPF/DMARC failures and low reply rate as warn reasons, without adding
+  an `unhealthy` status.
+- [x] All-degraded domains post one actionable Slack alert to `WIZMATCH_SYSTEM_CHANNEL`, throttled
+  by append-only `events.event_type = 'wizmatch_all_domains_unhealthy_alert'` once per 24 hours.
+- [x] Mailer fallback-to-all behavior is unchanged and covered by a regression test.
+- [x] No schema/migration/auth/RBAC/Cashfree/SOD-EOD/deployment/workflow-schedule edits.
+- [x] Targeted tests passed:
+  `npm test -- src/__tests__/emailExtractorService.test.ts src/__tests__/wizmatchDomainHealthService.test.ts src/__tests__/multiDomainMailer.test.ts`
+- [x] `npm run build` passed.
+- [x] `npm test` passed: 30 files, 242 tests. Existing nested `vi.mock` warnings in
+  `rankTracking.test.ts` remain.
+- [x] `git diff --check` passed.
 
 ## Cost/relevance audit (2026-07-09, docs-only)
 

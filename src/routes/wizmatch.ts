@@ -3013,7 +3013,7 @@ router.post('/signals/:id/enrich', requireInternalToken, async (req: Request, re
   try {
     // Reuse the existing enrichment waterfall
     const { findEmail } = await import('../services/emailExtractorService');
-    const emailResult = await findEmail(websiteUrl);
+    const emailResult = await findEmail(websiteUrl, undefined, undefined, { allowPaidProviders: false });
 
     if (!emailResult) {
       res.json({ signalId, enriched: false, reason: 'no email found' });
