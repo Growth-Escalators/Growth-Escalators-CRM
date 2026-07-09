@@ -49,6 +49,16 @@ const BADGE = {
   B: 'badge-info',
   C: 'badge-warning',
   Reject: 'badge-danger',
+  high: 'badge-success',
+  medium: 'badge-info',
+  low: 'badge-warning',
+};
+
+// Plain-language guidance shown next to each contact's confidence tier.
+const CONFIDENCE_TIER_HELP = {
+  high: 'Published by the company — safe to email.',
+  medium: 'Verified deliverable — good to email.',
+  low: 'Unconfirmed (guess / Google / Microsoft) — test carefully before bulk send.',
 };
 
 const DEMO_COMMAND = {
@@ -1269,10 +1279,17 @@ export function WizmatchContactIntelligenceNewPage({ demoMode = false }) {
                       </div>
                       <p className="mt-2 text-[12px] text-neutral-500">{candidate.email || 'No email'} - {candidate.source?.replace(/_/g, ' ')} - {candidate.deliverabilityStatus || 'unknown'}</p>
                       <div className="mt-2 flex flex-wrap gap-1.5">
+                        {candidate.confidenceTier && <span className={badgeFor(candidate.confidenceTier)}>{candidate.confidenceTier} confidence</span>}
+                        {candidate.roleCategory === 'role_inbox' && <span className="badge-success">role inbox</span>}
+                        {candidate.mxProvider === 'google' && <span className="badge-muted">Google Workspace</span>}
+                        {candidate.mxProvider === 'microsoft' && <span className="badge-muted">Microsoft 365</span>}
                         <span className={badgeFor(candidate.status)}>{candidate.status?.replace(/_/g, ' ')}</span>
                         {candidate.sourceUrl && <span className="badge-muted">source URL</span>}
                         {(candidate.reasons || []).slice(0, 2).map((reason) => <span key={reason} className="badge-muted">{reason}</span>)}
                       </div>
+                      {candidate.confidenceTier && CONFIDENCE_TIER_HELP[candidate.confidenceTier] && (
+                        <p className="mt-1.5 text-[11.5px] text-neutral-400">{CONFIDENCE_TIER_HELP[candidate.confidenceTier]}</p>
+                      )}
                     </div>
                   )) : (
                     <EmptyPanel title="No contacts yet" description="Run preview first. If eligible and enabled, manual discovery can create up to 3 reviewable candidates without sending outreach." />

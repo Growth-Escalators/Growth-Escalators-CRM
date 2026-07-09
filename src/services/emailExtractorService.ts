@@ -260,11 +260,23 @@ async function reacherVerify(email: string): Promise<boolean> {
 
 // ─── Step 1: Scrape website ───────────────────────────────────────────────────
 
-async function scrapeWebsite(websiteUrl: string): Promise<string | null> {
-  const baseUrl = normalizeUrl(websiteUrl);
-  if (!baseUrl) return null;
+export interface ScrapedWebsiteEmail {
+  email: string;
+  preferred: boolean;
+  generic: boolean;
+}
 
-  const allEmails: Array<{ email: string; preferred: boolean }> = [];
+/**
+ * Collects and classifies ALL emails published on a company's own contact/careers/
+ * team pages. Returns them ranked (preferred first). Exported so the Wizmatch
+ * contact-discovery cascade can reuse it — a published email needs no SMTP
+ * verification because the company put it there to be contacted.
+ */
+export async function collectWebsiteEmails(websiteUrl: string): Promise<ScrapedWebsiteEmail[]> {
+  const baseUrl = normalizeUrl(websiteUrl);
+  if (!baseUrl) return [];
+
+  const allEmails: ScrapedWebsiteEmail[] = [];
   const seen = new Set<string>();
 
   for (const path of CONTACT_PATHS) {
@@ -292,20 +304,24 @@ async function scrapeWebsite(websiteUrl: string): Promise<string | null> {
         const isGeneric = GENERIC_PREFIXES.some(g => prefix === g);
         const isPreferred = PREFERRED_PREFIXES.some(p => prefix.startsWith(p));
         if (!isGeneric || allEmails.length === 0) {
-          allEmails.push({ email, preferred: isPreferred });
+          allEmails.push({ email, preferred: isPreferred, generic: isGeneric });
         }
       }
       if (allEmails.some(e => e.preferred)) break;
     } catch { /* continue */ }
   }
 
-  if (allEmails.length === 0) return null;
   allEmails.sort((a, b) => {
     if (a.preferred && !b.preferred) return -1;
     if (!a.preferred && b.preferred) return 1;
     return 0;
   });
-  return allEmails[0].email;
+  return allEmails;
+}
+
+async function scrapeWebsite(websiteUrl: string): Promise<string | null> {
+  const emails = await collectWebsiteEmails(websiteUrl);
+  return emails.length > 0 ? emails[0].email : null;
 }
 
 // ─── Step 4: MX-validated prefix + personal-pattern guessing ─────────────────
@@ -318,7 +334,7 @@ async function scrapeWebsite(websiteUrl: string): Promise<string | null> {
  *
  * Returns empty array if domain has no MX records.
  */
-async function guessEmailCandidates(
+export async function guessEmailCandidates(
   domain: string,
   firstName?: string | null,
   lastName?: string | null,

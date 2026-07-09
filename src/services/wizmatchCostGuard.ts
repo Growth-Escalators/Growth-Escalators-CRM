@@ -98,7 +98,8 @@ export function getWizmatchCostGuardConfig(env: NodeJS.ProcessEnv = process.env)
     providerCostCents: {
       apollo: intEnv(env.WIZMATCH_APOLLO_COST_CENTS, 1500),
       snov: intEnv(env.WIZMATCH_SNOV_COST_CENTS, 1000),
-      reacher: intEnv(env.WIZMATCH_REACHER_COST_CENTS, 200),
+      // Reacher is self-hosted on Railway — marginal cost per verification is ~0.
+      reacher: intEnv(env.WIZMATCH_REACHER_COST_CENTS, 0),
       googleFallback: intEnv(env.WIZMATCH_GOOGLE_FALLBACK_COST_CENTS, 100),
     },
   };
@@ -114,15 +115,33 @@ export function emptyWizmatchCostGuardUsage(): WizmatchCostGuardUsage {
   };
 }
 
-export function getWizmatchProviderEnvStatus(env: NodeJS.ProcessEnv = process.env, googleFallbackEnabled = false): WizmatchProviderEnvStatus {
+export interface WizmatchProviderEnvOptions {
+  googleFallbackEnabled?: boolean;
+  enableApollo?: boolean;
+  enableSnov?: boolean;
+}
+
+/**
+ * Reports which provider env vars are missing. Only requires keys for providers
+ * that are actually enabled — the free website/pattern + Reacher path needs no
+ * Apollo/Snov keys, so those are only checked when WIZMATCH_ENABLE_APOLLO/SNOV are on.
+ * Accepts a legacy boolean (googleFallbackEnabled) for backward compatibility.
+ */
+export function getWizmatchProviderEnvStatus(
+  env: NodeJS.ProcessEnv = process.env,
+  options: WizmatchProviderEnvOptions | boolean = false,
+): WizmatchProviderEnvStatus {
+  const opts: WizmatchProviderEnvOptions = typeof options === 'boolean' ? { googleFallbackEnabled: options } : options;
   const missing: string[] = [];
-  if (!env.APOLLO_API_KEY) missing.push('APOLLO_API_KEY');
-  const snovClientId = env.SNOV_CLIENT_ID || env.SNOVIO_API_KEY || env.SNOV_API_KEY;
-  const snovClientSecret = env.SNOV_CLIENT_SECRET || env.SNOVIO_CLIENT_SECRET;
-  if (!snovClientId) missing.push('SNOV_CLIENT_ID');
-  if (!snovClientSecret) missing.push('SNOV_CLIENT_SECRET');
+  if (opts.enableApollo && !env.APOLLO_API_KEY) missing.push('APOLLO_API_KEY');
+  if (opts.enableSnov) {
+    const snovClientId = env.SNOV_CLIENT_ID || env.SNOVIO_API_KEY || env.SNOV_API_KEY;
+    const snovClientSecret = env.SNOV_CLIENT_SECRET || env.SNOVIO_CLIENT_SECRET;
+    if (!snovClientId) missing.push('SNOV_CLIENT_ID');
+    if (!snovClientSecret) missing.push('SNOV_CLIENT_SECRET');
+  }
   if (!env.REACHER_BASE_URL) missing.push('REACHER_BASE_URL');
-  if (googleFallbackEnabled && !env.SERPER_API_KEY) missing.push('SERPER_API_KEY');
+  if (opts.googleFallbackEnabled && !env.SERPER_API_KEY) missing.push('SERPER_API_KEY');
   return { missing };
 }
 
@@ -136,12 +155,27 @@ export function calculateWizmatchProviderCostCents(
     + (providerCalls.googleFallback * config.providerCostCents.googleFallback);
 }
 
-export function buildWizmatchDiscoveryProviderEstimate(googleFallbackEnabled: boolean): WizmatchProviderCallCounts {
+export interface WizmatchDiscoveryEstimateOptions {
+  googleFallbackEnabled?: boolean;
+  enableApollo?: boolean;
+  enableSnov?: boolean;
+}
+
+/**
+ * Worst-case provider-call estimate for one discovery run. Only counts paid
+ * providers that are actually enabled — with Apollo/Snov off (default), the
+ * estimate is just Reacher (self-hosted, priced ₹0) + optional Serper (~₹1).
+ * Accepts a legacy boolean (googleFallbackEnabled) for backward compatibility.
+ */
+export function buildWizmatchDiscoveryProviderEstimate(
+  options: WizmatchDiscoveryEstimateOptions | boolean,
+): WizmatchProviderCallCounts {
+  const opts: WizmatchDiscoveryEstimateOptions = typeof options === 'boolean' ? { googleFallbackEnabled: options } : options;
   return providerCounts({
-    apollo: 1,
-    snov: 1,
+    apollo: opts.enableApollo ? 1 : 0,
+    snov: opts.enableSnov ? 1 : 0,
     reacher: 3,
-    googleFallback: googleFallbackEnabled ? 1 : 0,
+    googleFallback: opts.googleFallbackEnabled ? 1 : 0,
   });
 }
 

@@ -27,6 +27,23 @@ function enabledConfig(overrides = {}) {
     ...getWizmatchContactDiscoveryConfig({
       WIZMATCH_PAID_DISCOVERY_ENABLED: 'true',
       WIZMATCH_GOOGLE_FALLBACK_ENABLED: 'true',
+      // Paid providers explicitly enabled here so the legacy Apollo/Snov tests still exercise them;
+      // the production default keeps both off (free-first).
+      WIZMATCH_ENABLE_APOLLO: 'true',
+      WIZMATCH_ENABLE_SNOV: 'true',
+      WIZMATCH_MAX_PAID_DISCOVERY_PER_COMPANY: '1',
+      WIZMATCH_DISCOVERY_COOLDOWN_DAYS: '30',
+    } as NodeJS.ProcessEnv),
+    ...overrides,
+  };
+}
+
+function freeFirstConfig(overrides = {}) {
+  // Production default: paid discovery gate open, but Apollo/Snov OFF.
+  return {
+    ...getWizmatchContactDiscoveryConfig({
+      WIZMATCH_PAID_DISCOVERY_ENABLED: 'true',
+      WIZMATCH_GOOGLE_FALLBACK_ENABLED: 'true',
       WIZMATCH_MAX_PAID_DISCOVERY_PER_COMPANY: '1',
       WIZMATCH_DISCOVERY_COOLDOWN_DAYS: '30',
     } as NodeJS.ProcessEnv),
@@ -36,6 +53,7 @@ function enabledConfig(overrides = {}) {
 
 function providers(overrides: Partial<WizmatchContactDiscoveryProviders> = {}): WizmatchContactDiscoveryProviders {
   return {
+    websitePatternSearch: vi.fn(async () => []),
     apolloPeopleSearch: vi.fn(async () => []),
     snovDomainSearch: vi.fn(async () => []),
     reacherVerify: vi.fn(async () => 'unknown' as const),
@@ -183,5 +201,56 @@ describe('Wizmatch Contact Discovery Phase 3', () => {
     expect(result.status).toBe('blocked_by_cap');
     expect(result.errors.join(' ')).toContain('Cost guard token is required');
     expect(mockProviders.apolloPeopleSearch).not.toHaveBeenCalled();
+  });
+
+  it('runs the FREE website step first and short-circuits paid providers when it finds a contact', async () => {
+    const mockProviders = providers({
+      websitePatternSearch: vi.fn(async () => [
+        candidate({
+          name: 'Careers Team',
+          title: 'Company inbox (careers)',
+          email: 'careers@example.in',
+          source: 'website_manual_pattern',
+          deliverabilityStatus: 'unverified',
+          confidenceScore: 8,
+          rankingScore: 78,
+          costCents: 0,
+          reasons: ['Published role inbox scraped from the company website — safe to contact.'],
+          raw: { confidenceTier: 'high', roleCategory: 'role_inbox', mxProvider: 'other', catchAll: false, verificationDone: true },
+        }),
+      ]),
+    });
+
+    const result = await executeWizmatchContactDiscovery(baseInput(), mockProviders, enabledConfig(), { costGuardToken: 'guard-token' });
+
+    expect(result.status).toBe('succeeded');
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0].raw?.confidenceTier).toBe('high');
+    // The website provider already tiered/verified it, so it is NOT re-verified via Reacher.
+    expect(result.candidates[0].deliverabilityStatus).toBe('unverified');
+    expect(mockProviders.apolloPeopleSearch).not.toHaveBeenCalled();
+    expect(mockProviders.snovDomainSearch).not.toHaveBeenCalled();
+    expect(mockProviders.reacherVerify).not.toHaveBeenCalled();
+    expect(result.costCents).toBe(0);
+  });
+
+  it('does NOT call Apollo or Snov when they are disabled (free-first production default)', async () => {
+    const mockProviders = providers(); // website returns [] by default
+    const result = await executeWizmatchContactDiscovery(baseInput(), mockProviders, freeFirstConfig(), { costGuardToken: 'guard-token' });
+
+    expect(mockProviders.websitePatternSearch).toHaveBeenCalledTimes(1);
+    expect(mockProviders.apolloPeopleSearch).not.toHaveBeenCalled();
+    expect(mockProviders.snovDomainSearch).not.toHaveBeenCalled();
+    // Serper fallback IS enabled in the free-first default, so it is allowed to run.
+    expect(mockProviders.googleFallbackSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it('preview provider order is free-first and omits disabled paid providers', () => {
+    const freeFirst = buildWizmatchContactDiscoveryPreview(baseInput(), freeFirstConfig());
+    expect(freeFirst.providerOrder[0]).toBe('internal_crm_reuse');
+    expect(freeFirst.providerOrder).toContain('website_manual_pattern');
+    expect(freeFirst.providerOrder).not.toContain('apollo');
+    expect(freeFirst.providerOrder).not.toContain('snov');
+    expect(freeFirst.providerOrder).toContain('google_fallback');
   });
 });

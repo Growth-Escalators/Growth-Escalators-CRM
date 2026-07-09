@@ -337,8 +337,23 @@ function splitName(name: string) {
   };
 }
 
+/**
+ * Confidence tier tells us how safely a contact can be emailed. Prefer the tier the
+ * discovery cascade already computed (stored in metadata.raw); fall back to deriving
+ * it from confidenceScore so older rows still render (>=8 high, >=6 medium, else low).
+ */
+function deriveConfidenceTier(raw: Record<string, unknown> | undefined, confidenceScore: number): 'high' | 'medium' | 'low' {
+  const stored = raw?.confidenceTier;
+  if (stored === 'high' || stored === 'medium' || stored === 'low') return stored;
+  if (confidenceScore >= 8) return 'high';
+  if (confidenceScore >= 6) return 'medium';
+  return 'low';
+}
+
 function mapPersistedCandidate(row: PersistedContactCandidateRow) {
   const status = (row.status || 'needs_review') as ContactCandidateStatus;
+  const raw = (row.metadata?.raw ?? undefined) as Record<string, unknown> | undefined;
+  const confidenceScore = numeric(row.confidence_score);
   return {
     id: row.id,
     crmContactId: row.crm_contact_id,
@@ -353,7 +368,10 @@ function mapPersistedCandidate(row: PersistedContactCandidateRow) {
     status,
     rankingScore: numeric(row.ranking_score),
     relationshipScore: numeric(row.relationship_score),
-    confidenceScore: numeric(row.confidence_score),
+    confidenceScore,
+    confidenceTier: deriveConfidenceTier(raw, confidenceScore),
+    roleCategory: typeof raw?.roleCategory === 'string' ? raw.roleCategory : null,
+    mxProvider: typeof raw?.mxProvider === 'string' ? raw.mxProvider : null,
     rejectionReason: row.rejection_reason,
     reasons: Array.isArray(row.metadata?.reasons) ? row.metadata.reasons.map(String) : [],
   };
@@ -848,9 +866,17 @@ async function buildContactDiscoveryCostGuard(
     tenantId,
     userId,
     companyId,
-    estimatedProviderCalls: buildWizmatchDiscoveryProviderEstimate(discoveryConfig.googleFallbackEnabled),
+    estimatedProviderCalls: buildWizmatchDiscoveryProviderEstimate({
+      googleFallbackEnabled: discoveryConfig.googleFallbackEnabled,
+      enableApollo: discoveryConfig.enableApollo,
+      enableSnov: discoveryConfig.enableSnov,
+    }),
     usage,
-    providerEnv: getWizmatchProviderEnvStatus(process.env, discoveryConfig.googleFallbackEnabled),
+    providerEnv: getWizmatchProviderEnvStatus(process.env, {
+      googleFallbackEnabled: discoveryConfig.googleFallbackEnabled,
+      enableApollo: discoveryConfig.enableApollo,
+      enableSnov: discoveryConfig.enableSnov,
+    }),
     config: getWizmatchCostGuardConfig(),
   });
 }

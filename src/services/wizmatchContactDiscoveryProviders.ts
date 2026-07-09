@@ -1,4 +1,6 @@
+import { promises as dns } from 'dns';
 import logger from '../utils/logger';
+import { collectWebsiteEmails, guessEmailCandidates } from './emailExtractorService';
 
 export type WizmatchDiscoveryProviderSource =
   | 'apollo'
@@ -6,6 +8,59 @@ export type WizmatchDiscoveryProviderSource =
   | 'website_manual_pattern'
   | 'reacher'
   | 'google_fallback';
+
+/** Confidence tier drives how safely a contact can be emailed (see dashboard guidance). */
+export type WizmatchConfidenceTier = 'high' | 'medium' | 'low';
+
+/** Which mail provider a domain uses — decides whether SMTP verification is trustworthy. */
+export type WizmatchMxProvider = 'google' | 'microsoft' | 'other' | 'none';
+
+/** Role-based inbox prefixes we treat as high-value staffing contacts when published. */
+const ROLE_INBOX_PREFIXES = ['careers', 'hr', 'talent', 'recruiting', 'recruitment', 'jobs', 'hiring', 'people', 'staffing'];
+
+function roleInboxLabel(prefix: string): string | null {
+  const p = prefix.toLowerCase();
+  if (p.startsWith('careers') || p.startsWith('jobs') || p.startsWith('hiring')) return 'Careers Team';
+  if (p.startsWith('hr') || p.startsWith('people')) return 'HR Team';
+  if (p.startsWith('talent') || p.startsWith('recruit') || p.startsWith('staffing')) return 'Talent Acquisition';
+  return null;
+}
+
+/**
+ * Free DNS lookup that classifies a domain's mail provider. Google Workspace /
+ * Microsoft 365 both defeat SMTP mailbox probing, so a "verified" guess on those
+ * providers cannot be trusted — the caller uses this to cap confidence.
+ */
+export async function classifyMxProvider(domain: string): Promise<WizmatchMxProvider> {
+  try {
+    const records = await dns.resolveMx(domain).catch(() => []);
+    if (!records.length) return 'none';
+    const hosts = records.map((r) => r.exchange.toLowerCase()).join(' ');
+    if (/google\.com|googlemail\.com|aspmx\.l\.google/.test(hosts)) return 'google';
+    if (/outlook\.com|mail\.protection\.outlook\.com|microsoft/.test(hosts)) return 'microsoft';
+    return 'other';
+  } catch {
+    return 'other';
+  }
+}
+
+/**
+ * Detects a catch-all domain by asking Reacher to verify a random non-existent
+ * address. If that "passes", the domain accepts everything, so a "verified" guess
+ * is meaningless — the caller downgrades such contacts to low confidence.
+ * Returns null when we cannot determine (no Reacher configured / error).
+ */
+export async function detectCatchAll(
+  domain: string,
+  reacherVerify: (email: string) => Promise<'verified' | 'invalid' | 'unknown'>,
+): Promise<boolean | null> {
+  if (!process.env.REACHER_BASE_URL) return null;
+  const probe = `wm-no-such-user-${Date.now().toString(36)}@${domain}`;
+  const result = await reacherVerify(probe).catch(() => 'unknown' as const);
+  if (result === 'verified') return true;
+  if (result === 'invalid') return false;
+  return null;
+}
 
 export interface WizmatchProviderCandidate {
   name: string;
@@ -29,6 +84,12 @@ export interface WizmatchProviderCompanyInput {
 }
 
 export interface WizmatchContactDiscoveryProviders {
+  /**
+   * FREE first rung: scrape published company emails (role inboxes like careers@,
+   * hr@) and MX-verified pattern guesses. Runs before any paid provider. Fully
+   * self-hosted / zero external spend.
+   */
+  websitePatternSearch(input: WizmatchProviderCompanyInput): Promise<WizmatchProviderCandidate[]>;
   apolloPeopleSearch(input: WizmatchProviderCompanyInput): Promise<WizmatchProviderCandidate[]>;
   snovDomainSearch(input: WizmatchProviderCompanyInput): Promise<WizmatchProviderCandidate[]>;
   reacherVerify(email: string): Promise<'verified' | 'invalid' | 'unknown'>;
@@ -87,16 +148,127 @@ function candidateFromRaw(
 }
 
 export function createDefaultWizmatchContactDiscoveryProviders(): WizmatchContactDiscoveryProviders {
-  return {
+  const providers: WizmatchContactDiscoveryProviders = {
+    async websitePatternSearch(input) {
+      const websiteUrl = `https://${input.domain}`;
+      const mxProvider = await classifyMxProvider(input.domain);
+      // Google Workspace / Microsoft 365 defeat SMTP probing, so verification is unreliable there.
+      const verifyReliable = mxProvider === 'other';
+      const candidates: WizmatchProviderCandidate[] = [];
+      const seen = new Set<string>();
+
+      // Rung 1 — published emails scraped from the company's own site. No SMTP
+      // verification needed: the company put these there to be contacted.
+      let published: Awaited<ReturnType<typeof collectWebsiteEmails>> = [];
+      try {
+        published = await collectWebsiteEmails(websiteUrl);
+      } catch (error) {
+        logger.warn({ err: error, domain: input.domain }, '[wizmatch-contact-discovery] website scrape failed');
+      }
+      for (const item of published) {
+        if (seen.has(item.email)) continue;
+        seen.add(item.email);
+        const prefix = item.email.split('@')[0] || '';
+        const roleLabel = ROLE_INBOX_PREFIXES.some((r) => prefix.startsWith(r)) ? roleInboxLabel(prefix) : null;
+        const isRoleInbox = Boolean(roleLabel);
+        candidates.push({
+          name: roleLabel || (item.preferred ? 'Company Contact' : 'Published Inbox'),
+          title: isRoleInbox ? `Company inbox (${prefix})` : 'Published company email',
+          email: item.email,
+          linkedinUrl: null,
+          source: 'website_manual_pattern',
+          sourceUrl: websiteUrl,
+          deliverabilityStatus: 'unverified',
+          confidenceScore: isRoleInbox ? 8 : 7,
+          rankingScore: isRoleInbox ? 78 : 70,
+          costCents: 0,
+          reasons: [
+            isRoleInbox
+              ? 'Published role inbox scraped from the company website — safe to contact.'
+              : 'Email published on the company website.',
+          ],
+          raw: {
+            confidenceTier: 'high' as WizmatchConfidenceTier,
+            roleCategory: isRoleInbox ? 'role_inbox' : 'published',
+            mxProvider,
+            catchAll: false,
+            verificationDone: true,
+          },
+        });
+      }
+
+      if (candidates.length > 0) return candidates.slice(0, 5);
+
+      // Rung 2 — MX-verified pattern guesses (no person name for prospect
+      // companies, so this yields role-alias guesses like hello@/info@).
+      let guesses: string[] = [];
+      try {
+        guesses = await guessEmailCandidates(input.domain);
+      } catch (error) {
+        logger.warn({ err: error, domain: input.domain }, '[wizmatch-contact-discovery] pattern guess failed');
+      }
+      if (guesses.length === 0) return [];
+
+      const catchAll = verifyReliable ? await detectCatchAll(input.domain, providers.reacherVerify) : null;
+
+      for (const email of guesses.slice(0, 3)) {
+        if (seen.has(email)) continue;
+        seen.add(email);
+        let deliverabilityStatus: WizmatchProviderCandidate['deliverabilityStatus'] = 'unknown';
+        let tier: WizmatchConfidenceTier = 'low';
+        let confidenceScore = 4;
+        const reasons: string[] = ['MX-validated email pattern guess.'];
+
+        if (verifyReliable && catchAll === false) {
+          const verdict = await providers.reacherVerify(email);
+          if (verdict === 'invalid') continue; // drop guesses the mail server rejects
+          if (verdict === 'verified') {
+            deliverabilityStatus = 'verified';
+            tier = 'medium';
+            confidenceScore = 6;
+            reasons.push('SMTP-verified as deliverable.');
+          }
+        } else if (catchAll === true) {
+          reasons.push('Domain is catch-all — verification cannot confirm this address.');
+        } else if (!verifyReliable) {
+          reasons.push(`Domain uses ${mxProvider === 'google' ? 'Google Workspace' : 'Microsoft 365'} — SMTP verification is unreliable, treat as unconfirmed.`);
+        }
+
+        candidates.push({
+          name: 'Company Contact',
+          title: `Guessed inbox (${email.split('@')[0]})`,
+          email,
+          linkedinUrl: null,
+          source: 'website_manual_pattern',
+          sourceUrl: websiteUrl,
+          deliverabilityStatus,
+          confidenceScore,
+          rankingScore: tier === 'medium' ? 60 : 45,
+          costCents: 0,
+          reasons,
+          raw: {
+            confidenceTier: tier,
+            roleCategory: 'guessed',
+            mxProvider,
+            catchAll: catchAll === true,
+            verificationDone: true,
+          },
+        });
+      }
+      return candidates;
+    },
+
     async apolloPeopleSearch(input) {
       const apiKey = process.env.APOLLO_API_KEY;
       if (!apiKey) return [];
       try {
-        const res = await fetch('https://api.apollo.io/v1/mixed_people/search', {
+        // NOTE: search only confirms a person exists (has_email flag); returning a real
+        // email requires a second, separately-billed people/match reveal call. Apollo is
+        // flag-gated off by default (WIZMATCH_ENABLE_APOLLO) until a paid plan is confirmed.
+        const res = await fetch('https://api.apollo.io/v1/mixed_people/api_search', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+          headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache', 'X-Api-Key': apiKey },
           body: JSON.stringify({
-            api_key: apiKey,
             q_organization_domains: input.domain,
             page: 1,
             per_page: 5,
@@ -105,7 +277,11 @@ export function createDefaultWizmatchContactDiscoveryProviders(): WizmatchContac
           }),
           signal: AbortSignal.timeout(10000),
         });
-        if (!res.ok) return [];
+        if (!res.ok) {
+          const body = await res.text().catch(() => '');
+          logger.warn({ status: res.status, body: body.slice(0, 500), domain: input.domain }, '[wizmatch-contact-discovery] Apollo returned non-OK status');
+          return [];
+        }
         const data = await res.json() as { people?: Array<Record<string, unknown>> };
         return (data.people || [])
           .map((person) => candidateFromRaw('apollo', person, {
@@ -141,7 +317,11 @@ export function createDefaultWizmatchContactDiscoveryProviders(): WizmatchContac
           body: JSON.stringify({ access_token: tokenData.access_token, url: `https://${input.domain}` }),
           signal: AbortSignal.timeout(10000),
         });
-        if (!res.ok) return [];
+        if (!res.ok) {
+          const body = await res.text().catch(() => '');
+          logger.warn({ status: res.status, body: body.slice(0, 500), domain: input.domain }, '[wizmatch-contact-discovery] Snov returned non-OK status');
+          return [];
+        }
         const data = await res.json() as { emails?: Array<Record<string, unknown>> };
         return (data.emails || [])
           .map((email) => candidateFromRaw('snov', email, {
@@ -214,4 +394,5 @@ export function createDefaultWizmatchContactDiscoveryProviders(): WizmatchContac
       }
     },
   };
+  return providers;
 }

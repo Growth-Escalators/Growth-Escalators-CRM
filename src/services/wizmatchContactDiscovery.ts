@@ -20,6 +20,10 @@ import {
 export interface WizmatchContactDiscoveryConfig {
   paidDiscoveryEnabled: boolean;
   googleFallbackEnabled: boolean;
+  // Apollo & Snov are kept in the codebase but OFF by default — Apollo needs a paid
+  // plan for email reveal, Snov's free plan blocks the API. Flip on when paid.
+  enableApollo: boolean;
+  enableSnov: boolean;
   maxPaidDiscoveryPerCompany: number;
   maxContactCandidatesShown: number;
   rediscoveryCooldownDays: number;
@@ -97,6 +101,8 @@ export function getWizmatchContactDiscoveryConfig(env: NodeJS.ProcessEnv = proce
   return {
     paidDiscoveryEnabled: boolEnv(env.WIZMATCH_PAID_DISCOVERY_ENABLED, false),
     googleFallbackEnabled: boolEnv(env.WIZMATCH_GOOGLE_FALLBACK_ENABLED, false),
+    enableApollo: boolEnv(env.WIZMATCH_ENABLE_APOLLO, false),
+    enableSnov: boolEnv(env.WIZMATCH_ENABLE_SNOV, false),
     maxPaidDiscoveryPerCompany: intEnv(env.WIZMATCH_MAX_PAID_DISCOVERY_PER_COMPANY, 1),
     maxContactCandidatesShown: intEnv(env.WIZMATCH_MAX_CONTACT_CANDIDATES_SHOWN, 3),
     rediscoveryCooldownDays: intEnv(env.WIZMATCH_DISCOVERY_COOLDOWN_DAYS, 30),
@@ -131,10 +137,9 @@ export function buildWizmatchContactDiscoveryPreview(
   const blockedReasons: string[] = [];
   const providerOrder = [
     'internal_crm_reuse',
-    'company_metadata',
     'website_manual_pattern',
-    'apollo',
-    'snov',
+    ...(config.enableApollo ? ['apollo'] : []),
+    ...(config.enableSnov ? ['snov'] : []),
     'reacher_verification',
     ...(config.googleFallbackEnabled ? ['google_fallback'] : []),
   ];
@@ -150,8 +155,8 @@ export function buildWizmatchContactDiscoveryPreview(
 
   const eligible = blockedReasons.length === 0;
   const estimatedProviderCalls: WizmatchProviderCallCounts = {
-    apollo: config.maxProviderCallsPerRun.apollo,
-    snov: config.maxProviderCallsPerRun.snov,
+    apollo: config.enableApollo ? config.maxProviderCallsPerRun.apollo : 0,
+    snov: config.enableSnov ? config.maxProviderCallsPerRun.snov : 0,
     reacher: config.maxProviderCallsPerRun.reacher,
     googleFallback: config.googleFallbackEnabled ? config.maxProviderCallsPerRun.googleFallback : 0,
   };
@@ -208,6 +213,17 @@ async function verifyCandidates(
 ) {
   const verified: WizmatchDiscoveryCandidate[] = [];
   for (const candidate of candidates.slice(0, config.maxContactCandidatesShown)) {
+    // The free website/pattern provider already verified + tiered its candidates
+    // (and knows about catch-all / Google-Microsoft SMTP unreliability). Re-verifying
+    // here would waste a probe and collapse that nuance, so pass it through as-is.
+    if (candidate.raw?.verificationDone === true) {
+      verified.push({
+        ...candidate,
+        status: candidate.deliverabilityStatus === 'invalid' ? 'stale' : 'needs_review',
+      });
+      continue;
+    }
+
     let deliverabilityStatus = candidate.deliverabilityStatus;
     if (candidate.email && providerCalls.reacher < config.maxProviderCallsPerRun.reacher) {
       providerCalls.reacher += 1;
@@ -253,39 +269,46 @@ export async function executeWizmatchContactDiscovery(
     };
   }
 
+  const companyInput = {
+    companyName: input.companyName,
+    domain: input.companyDomain,
+    targetRegion: input.targetRegion,
+  };
+
   let rawCandidates: WizmatchProviderCandidate[] = [];
+
+  // Rung 1 (FREE, always first): website role-scrape + MX-verified pattern guess.
   try {
-    providerCalls.apollo = 1;
-    rawCandidates = await providers.apolloPeopleSearch({
-      companyName: input.companyName,
-      domain: input.companyDomain,
-      targetRegion: input.targetRegion,
-    });
+    rawCandidates = await providers.websitePatternSearch(companyInput);
   } catch (error) {
-    errors.push(`apollo: ${error instanceof Error ? error.message : 'provider failed'}`);
+    errors.push(`website_manual_pattern: ${error instanceof Error ? error.message : 'provider failed'}`);
   }
 
-  if (rawCandidates.length === 0) {
+  // Rung 2 (PAID, off by default): Apollo. Kept in code, gated by WIZMATCH_ENABLE_APOLLO.
+  if (rawCandidates.length === 0 && config.enableApollo) {
+    try {
+      providerCalls.apollo = 1;
+      rawCandidates = await providers.apolloPeopleSearch(companyInput);
+    } catch (error) {
+      errors.push(`apollo: ${error instanceof Error ? error.message : 'provider failed'}`);
+    }
+  }
+
+  // Rung 3 (PAID, off by default): Snov. Kept in code, gated by WIZMATCH_ENABLE_SNOV.
+  if (rawCandidates.length === 0 && config.enableSnov) {
     try {
       providerCalls.snov = 1;
-      rawCandidates = await providers.snovDomainSearch({
-        companyName: input.companyName,
-        domain: input.companyDomain,
-        targetRegion: input.targetRegion,
-      });
+      rawCandidates = await providers.snovDomainSearch(companyInput);
     } catch (error) {
       errors.push(`snov: ${error instanceof Error ? error.message : 'provider failed'}`);
     }
   }
 
+  // Rung 4 (cheap ~₹1): Serper LinkedIn fallback, only if enabled and nothing found yet.
   if (rawCandidates.length === 0 && config.googleFallbackEnabled) {
     try {
       providerCalls.googleFallback = 1;
-      rawCandidates = await providers.googleFallbackSearch({
-        companyName: input.companyName,
-        domain: input.companyDomain,
-        targetRegion: input.targetRegion,
-      });
+      rawCandidates = await providers.googleFallbackSearch(companyInput);
     } catch (error) {
       errors.push(`google_fallback: ${error instanceof Error ? error.message : 'provider failed'}`);
     }
