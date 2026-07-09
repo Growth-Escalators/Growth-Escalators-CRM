@@ -33,8 +33,31 @@ or production data.
   `main` with explicit approval, confirmed Railway deploy `e23a4c03` reached `SUCCESS`, and
   re-checked `/wizmatch/readiness` — all 4 tables now show `ready`/`needs data` (0 missing tables,
   score 40 → 81).
-- [ ] Set missing Wizmatch operational variables/channels: `WIZMATCH_PHYSICAL_ADDRESS`,
-  `WIZMATCH_LEADS_CHANNEL`, `WIZMATCH_DAILY_CHANNEL`, `WIZMATCH_SYSTEM_CHANNEL`.
-- [ ] Run authenticated Growth/Wizmatch smoke checks with real users.
+- [x] Set missing Wizmatch operational variables (2026-07-09 IST): `WIZMATCH_PHYSICAL_ADDRESS` and
+  all three Slack channel vars set to the existing BD/Sales channel (`C0AMPEF302G`) to start;
+  Railway redeploy `9869d19d` reached `SUCCESS` with no new missing-env warnings.
+- [x] Ran authenticated Wizmatch smoke check (2026-07-09 IST): logged in as `jatin@wizmatch.com`
+  via `/auth/login` with `tenantSlug: "wizmatch"`, confirmed `/api/wizmatch/readiness` (score 81,
+  `needs_data`), `/client-discovery/queue`, `/candidate-intelligence/queue`, and
+  `/review-workbench` all return 200 with well-formed bodies. Session token discarded after use.
+- [x] Fixed a real CI crash bug in both scraper workflows (2026-07-09 IST, commits `ead410a`,
+  `b4966bb`, `b87fa5e`): `npx playwright install --with-deps chromium` only downloaded the
+  Chromium *browser*, never installed the `playwright` *npm package*, so `require("playwright")`
+  crashed with `MODULE_NOT_FOUND` on every dispatch. Root cause after two more failed attempts:
+  the repo's `package-lock.json` already pins `playwright@1.59.1` via `@playwright/test`; an
+  unpinned `npm install playwright` fetched npm's current `latest` (`1.61.1`) fresh at the top
+  level while `node_modules/.bin/playwright` resolved to the pre-existing nested `1.59.1` copy via
+  hoisting, so the browser build downloaded didn't match what `require()` loaded at runtime.
+  Pinned both workflows to `playwright@1.59.1` explicitly; both `wizmatch-dice.yml` and
+  `wizmatch-jobspy.yml` now run to completion successfully.
+- [ ] **Known issue, not fixed**: both scrapers now run without crashing but find 0 results —
+  `wizmatch-dice.yml` logged "No Dice jobs found"; `wizmatch-jobspy.yml` (Naukri) logged "0 jobs"
+  for all 8 skill/city queries. The CSS selectors used to parse Dice.com/Naukri.com search-result
+  pages appear stale against the sites' current markup (the Naukri workflow's own file header
+  already flagged this as a maintenance risk). Needs live selector inspection against the current
+  DOM of both sites — out of scope for this session; scrapers are not currently a usable real-data
+  source until selectors are rewritten.
 - [ ] Load real Wizmatch requirements, candidates, companies, job signals, and reviewed contact
-  candidates before any client-facing use.
+  candidates before any client-facing use. Given the scraper selector issue above, the reliable
+  path right now is manual Candidate Profile Intake (CSV) plus manual requirement entry, per
+  `docs/wizmatch-daily-operations.md`.

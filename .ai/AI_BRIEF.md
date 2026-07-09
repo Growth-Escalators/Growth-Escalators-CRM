@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-09T03:21:42.782Z_
+_Generated: 2026-07-09T04:00:23.107Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,7 +12,7 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: growth-escalators-backend-v2
 - **Branch**: `main`
-- **Last commit**: 0f313ba fix(db): repair migration journal gap for Wizmatch operating tables (5 minutes ago)
+- **Last commit**: b87fa5e fix(ci): pin playwright install to 1.59.1 in Wizmatch scraper workflows (4 minutes ago)
 - **Uncommitted changes**: 3 file(s)
 
 ## Current task
@@ -30,16 +30,16 @@ or production data.
 ## Recent commits
 
 ```
+b87fa5e fix(ci): pin playwright install to 1.59.1 in Wizmatch scraper workflows
+b4966bb fix(ci): invoke local playwright binary directly to avoid version drift
+ead410a fix(ci): install playwright npm package before running Wizmatch scrapers
+f1b476d docs(ai): record Wizmatch migration-journal repair + deploy
 0f313ba fix(db): repair migration journal gap for Wizmatch operating tables
 46e708d docs(ai): update post-deploy Claude handoff
 7951c28 docs(ai): record main deployment integration
 46beb17 merge: Wizmatch operational readiness
 d82b6fa merge: pipeline stage hardening
 076efc2 chore(wizmatch): prep operational readiness
-638e7fe fix(crm): harden pipeline stage outcomes
-061ca2e fix(crm): harden portal rendering and Wizmatch fallbacks
-4358068 feat(crm): harden Wizmatch shared routes
-3319859 feat(crm): unify Growth and Wizmatch tenant profiles
 ```
 
 ## npm scripts

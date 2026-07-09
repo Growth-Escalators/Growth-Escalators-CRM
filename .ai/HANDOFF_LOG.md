@@ -56,6 +56,63 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 - Load real requirements, vetted candidate profiles, and dispatch scrapers per
   `docs/wizmatch-daily-operations.md` now that the underlying tables exist.
 
+## 2026-07-09 — Step 28: Env vars set + scraper CI crash fixed + smoke check — Claude — VERIFIED LIVE
+
+**What was done**
+- Set `WIZMATCH_PHYSICAL_ADDRESS` and all three Wizmatch Slack channel vars (`WIZMATCH_LEADS_CHANNEL`,
+  `WIZMATCH_DAILY_CHANNEL`, `WIZMATCH_SYSTEM_CHANNEL`) on Railway's `web` service, all pointed at the
+  existing BD/Sales channel (`C0AMPEF302G`) per human decision to start with one channel and split
+  later if it gets noisy. Confirmed via redeploy logs: no new missing-env warnings for any of the 4.
+- Ran the authenticated smoke check via direct API calls (logged in as `jatin@wizmatch.com` with
+  `tenantSlug: "wizmatch"`, discarded the session token after use): `/api/wizmatch/readiness`
+  (score 81, `needs_data`), `/client-discovery/queue`, `/candidate-intelligence/queue`, and
+  `/review-workbench` all returned 200 with well-formed bodies. Nothing regressed post-deploy.
+- Dispatched both Wizmatch scraper GitHub Actions workflows manually (as designed, manual-dispatch
+  only) and found a real crash bug: `require("playwright")` failed with `MODULE_NOT_FOUND` because
+  `npx playwright install --with-deps chromium` only downloads the browser, never the npm package.
+  Fixed in three iterations (see CURRENT_TASK.md for full root-cause trail): missing `npm install`
+  step, then an npx/local-bin version-resolution mismatch, then finally pinning to the exact
+  `playwright@1.59.1` already locked elsewhere in the repo via `@playwright/test`. Both workflows
+  now complete successfully.
+- Found a second, separate, NOT-fixed issue: both scrapers run cleanly now but return 0 results —
+  Dice and Naukri's live page selectors appear stale against current site markup. Documented as a
+  known issue; not attempted this session (needs live DOM inspection of two external sites).
+
+**Guardrails preserved**
+- Explicit human approval obtained before every push (4 pushes: journal-fix docs, playwright fix
+  attempt 1, attempt 2, attempt 3) and before setting Railway variables.
+- Wizmatch login credentials used once via direct API call, session token discarded immediately
+  after, never persisted to disk beyond a scratch temp file that was deleted.
+- No schema, auth/RBAC, or Cashfree changes. No `package.json`/`package-lock.json` changes (all
+  playwright installs used `--no-save`). No new automation — both scrapers remain
+  `workflow_dispatch`-only; no `schedule:` trigger was added or uncommented.
+- No outreach sending or candidate submission triggered by any of the above.
+
+**Files changed**
+- `.github/workflows/wizmatch-dice.yml`
+- `.github/workflows/wizmatch-jobspy.yml`
+- `.ai/CURRENT_TASK.md`
+- `.ai/CURRENT_STATE.md`
+- `.ai/HANDOFF_LOG.md`
+- `.ai/AI_BRIEF.md` regenerated
+
+**Verification**
+- Railway redeploy after setting env vars reached `SUCCESS`; deploy logs showed no new missing-env
+  warnings for the 4 newly-set variables.
+- `wizmatch-dice.yml` run `28992915263`: `SUCCESS`, logged "No Dice jobs found" (selector issue, not
+  a crash).
+- `wizmatch-jobspy.yml` run `28992916211`: `SUCCESS`, logged "0 jobs" for all 8 skill/city queries
+  (selector issue, not a crash).
+- Direct API smoke check (4 endpoints) all returned 200 with well-formed JSON.
+
+**Next**
+- Manually load real requirements + candidate profiles via the existing Candidate Profile Intake
+  CSV flow (`docs/wizmatch-daily-operations.md`) — the reliable path right now, independent of the
+  scraper selector issue.
+- Separately, someone needs to inspect Dice.com's and Naukri.com's current search-result page DOM
+  and rewrite the `page.evaluate()` selectors in both workflow files before the scrapers become a
+  usable data source.
+
 ## 2026-07-07 — Step 23: Growth + Wizmatch tenant-separated CRM profile — Codex — VERIFIED LOCALLY
 
 **What was done**

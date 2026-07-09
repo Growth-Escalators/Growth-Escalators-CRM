@@ -137,6 +137,20 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   exist (`ready`/`needs data`, 0 missing, score 40 → 81). `wizmatch_requirements`,
   `wizmatch_company_intelligence`, `wizmatch_contact_candidates`, and `wizmatch_discovery_runs` are
   now live schema in production, currently empty (0 rows) and ready for real data.
+- **2026-07-09**: `WIZMATCH_PHYSICAL_ADDRESS`, `WIZMATCH_LEADS_CHANNEL`, `WIZMATCH_DAILY_CHANNEL`,
+  and `WIZMATCH_SYSTEM_CHANNEL` are now set on Railway (all three channel vars point at the
+  existing BD/Sales Slack channel to start; can be split into separate channels later with no code
+  change). Authenticated smoke check of `/api/wizmatch/readiness`, `/client-discovery/queue`,
+  `/candidate-intelligence/queue`, and `/review-workbench` confirmed all 4 return 200 post-deploy.
+- **Scraper CI crash fixed, but scrapers still return 0 rows**: `wizmatch-dice.yml` and
+  `wizmatch-jobspy.yml` previously crashed with `MODULE_NOT_FOUND` on every manual dispatch because
+  `npx playwright install --with-deps chromium` never installed the `playwright` npm package
+  itself. Fixed by pinning `npm install --no-save playwright@1.59.1` (matching the version already
+  locked via `@playwright/test`) — both workflows now complete successfully. However, both still
+  return 0 job signals: Dice.com and Naukri.com's live search-result page markup no longer matches
+  the `page.evaluate()` CSS selectors in these workflows. This is a separate, unresolved issue —
+  the scrapers are not currently a usable real-data source until someone inspects the live DOM of
+  both sites and rewrites the selectors.
 - GitHub Actions scraper workflows are intentionally manual-dispatch only in the readiness branch.
   They require `RAILWAY_INTERNAL_API_URL` and `INTERNAL_API_TOKEN` GitHub secrets and call the
   existing protected `POST /api/wizmatch/signals/ingest` endpoint. Do not enable schedules without
