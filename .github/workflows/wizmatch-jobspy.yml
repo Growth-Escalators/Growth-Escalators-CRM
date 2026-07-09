@@ -59,35 +59,88 @@ jobs:
               const page = await browser.newPage();
               try {
                 const url = `https://www.naukri.com/${skill.toLowerCase().replace(/\./g, "")}-jobs-in-${city.toLowerCase().replace(/\s/g, "-")}`;
-                await page.goto(url, { timeout: 20000, waitUntil: "domcontentloaded" });
-                await page.waitForTimeout(3000);
+                await page.goto(url, { timeout: 30000, waitUntil: "domcontentloaded" });
+                // Wait for job cards or fall through to fixed wait.
+                await page.waitForSelector(
+                  "article.jobTuple, div.srp-jobtuple-wrapper, .jobTuple, [class*=\"jobTuple\"], a[href*=\"/job-listings-\"]",
+                  { timeout: 15000 }
+                ).catch(() => {});
+                await page.waitForTimeout(2000);
+                await page.evaluate(() => window.scrollBy(0, 800));
+                await page.waitForTimeout(800);
 
-                const jobs = await page.evaluate(() => {
+                const { jobs, diag } = await page.evaluate(() => {
                   const out = [];
-                  document.querySelectorAll("article.jobTuple, div.srp-jobtuple-wrapper, .jobTuple").forEach(card => {
-                    const titleEl = card.querySelector("a.title, a.title.ellipsis, .title a, .title");
-                    const companyEl = card.querySelector("a.subTitle, .companyInfo .subTitle, .comp-name, .subTitle");
-                    const locEl = card.querySelector(".loc .locWdth, .location .ellipsis, .loc span, .location");
-                    const title = titleEl?.textContent?.trim();
+                  const seen = new Set();
+
+                  // Strategy 1 — legacy + current class-name wrappers.
+                  const cards = document.querySelectorAll(
+                    "article.jobTuple, div.srp-jobtuple-wrapper, .jobTuple, [class*=\"jobTuple\"], [class*=\"srp-jobtuple\"], [data-job-id]"
+                  );
+                  cards.forEach((card) => {
+                    const titleEl = card.querySelector("a.title, a.title.ellipsis, .title a, .title, a[href*=\"/job-listings-\"]");
+                    const companyEl = card.querySelector("a.subTitle, .companyInfo .subTitle, .comp-name, .subTitle, [class*=\"comp-name\"]");
+                    const locEl = card.querySelector(".loc .locWdth, .location .ellipsis, .loc span, .location, [class*=\"loc\"]");
+                    const title = (titleEl?.textContent || "").trim();
                     const jobUrl = titleEl?.getAttribute("href") || "";
-                    const company = companyEl?.textContent?.trim() || "";
-                    const location = locEl?.textContent?.trim() || "";
-                    if (title && jobUrl) out.push({ title, jobUrl, company, location });
+                    const company = (companyEl?.textContent || "").trim();
+                    const location = (locEl?.textContent || "").trim();
+                    if (title && jobUrl && !seen.has(jobUrl)) {
+                      seen.add(jobUrl);
+                      out.push({ title, jobUrl, company, location });
+                    }
                   });
-                  return out.slice(0, 10);
+
+                  // Strategy 2 — URL-pattern fallback if class-based failed.
+                  if (out.length === 0) {
+                    document.querySelectorAll("a[href*=\"/job-listings-\"]").forEach((a) => {
+                      const href = a.getAttribute("href") || "";
+                      const title = (a.textContent || "").trim();
+                      if (!href || !title || seen.has(href)) return;
+                      seen.add(href);
+                      let card = a.parentElement;
+                      for (let i = 0; i < 6 && card; i += 1) {
+                        if (card.querySelector("a.subTitle, .comp-name, .subTitle")) break;
+                        card = card.parentElement;
+                      }
+                      const companyEl = card?.querySelector("a.subTitle, .comp-name, .subTitle, [class*=\"comp-name\"]");
+                      const locEl = card?.querySelector(".loc, .location, [class*=\"loc\"]");
+                      out.push({
+                        title,
+                        jobUrl: href,
+                        company: (companyEl?.textContent || "").trim(),
+                        location: (locEl?.textContent || "").trim(),
+                      });
+                    });
+                  }
+
+                  const diag = {
+                    strategy1Cards: cards.length,
+                    strategy2JobLinks: document.querySelectorAll("a[href*=\"/job-listings-\"]").length,
+                    firstHtml: (document.body?.innerHTML || "").slice(0, 500),
+                  };
+                  return { jobs: out.slice(0, 10), diag };
                 });
+
+                if (jobs.length === 0) {
+                  console.log(`Naukri ${skill} in ${city}: 0 jobs (s1cards=${diag.strategy1Cards}, s2joblinks=${diag.strategy2JobLinks})`);
+                  if (diag.strategy1Cards === 0 && diag.strategy2JobLinks === 0) {
+                    console.log(`  first-500 body html: ${diag.firstHtml.replace(/\s+/g, " ").slice(0, 300)}`);
+                  }
+                } else {
+                  console.log(`Naukri ${skill} in ${city}: ${jobs.length} jobs`);
+                }
 
                 for (const j of jobs) {
                   signals.push({
                     job_title: j.title,
-                    job_url: j.jobUrl,
+                    job_url: j.jobUrl.startsWith("http") ? j.jobUrl : `https://www.naukri.com${j.jobUrl}`,
                     source: "naukri",
                     location: j.location || city,
                     keywords: [skill],
                     company_name: j.company || undefined,
                   });
                 }
-                console.log(`${skill} in ${city}: ${jobs.length} jobs`);
               } catch (e) {
                 console.error(`Naukri scrape failed for ${skill} in ${city}:`, e.message);
               } finally {
@@ -98,7 +151,7 @@ jobs:
             await browser.close();
 
             if (signals.length === 0) {
-              console.log("No Naukri job signals found (selectors may need updating)");
+              console.log("No Naukri job signals found (selectors may need updating — see per-query diag above)");
               process.exit(0);
             }
 

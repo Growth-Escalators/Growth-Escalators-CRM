@@ -93,6 +93,7 @@ import {
 } from '../services/wizmatchRequirementPriority';
 import { buildWizmatchReviewWorkbench } from '../services/wizmatchReviewWorkbench';
 import { getWizmatchReadiness } from '../services/wizmatchReadiness';
+import { parseCsv } from './outbound';
 import {
   buildWizmatchContactDiscoveryPreview,
   executeWizmatchContactDiscovery,
@@ -1492,6 +1493,341 @@ async function fetchCommandCenterMetrics(tenantId: string): Promise<Omit<Command
 // ============================================================
 // SECTION -2 — CLIENT DISCOVERY / COMPANY SIGNALS ROUTES
 // ============================================================
+
+export function normalizeDomain(input: string | null | undefined): string | null {
+  if (!input) return null;
+  const trimmed = String(input).trim();
+  if (!trimmed) return null;
+  const stripped = trimmed.replace(/^https?:\/\//i, '').replace(/^www\./i, '');
+  const host = stripped.split(/[\/\?#]/)[0].toLowerCase();
+  return host || null;
+}
+
+type SeedProspectInput = {
+  tenantId: string;
+  userId: string | undefined;
+  companyName: string;
+  domain: string | null;
+  jobTitle: string;
+  jobUrl: string | null;
+  location: string | null;
+  notes: string | null;
+  targetRegion: string | null;
+  industry: string | null;
+  employeeCount: number | null;
+  linkedinUrl: string | null;
+  keywords: string[];
+};
+
+type SeedProspectResult = {
+  companyId: string;
+  companyExisted: boolean;
+  signalId: string;
+  intelligenceItem: Awaited<ReturnType<typeof persistContactIntelligenceSnapshot>>;
+};
+
+async function seedProspectCompany(input: SeedProspectInput): Promise<SeedProspectResult> {
+  const country =
+    input.targetRegion === 'india' ? 'IN' :
+    input.targetRegion === 'us' ? 'US' :
+    null;
+
+  let companyId: string;
+  let companyExisted = false;
+
+  const existing = await pool.query(
+    `SELECT id FROM wizmatch_companies
+     WHERE tenant_id = $1 AND LOWER(name) = LOWER($2)
+     LIMIT 1`,
+    [input.tenantId, input.companyName],
+  );
+
+  if (existing.rows.length > 0) {
+    companyId = existing.rows[0].id;
+    companyExisted = true;
+    await pool.query(
+      `UPDATE wizmatch_companies SET
+         domain = COALESCE(domain, $1),
+         industry = COALESCE(industry, $2),
+         employee_count = COALESCE(employee_count, $3),
+         country = COALESCE(country, $4),
+         linkedin_url = COALESCE(linkedin_url, $5),
+         notes = COALESCE(notes, $6),
+         updated_at = NOW()
+       WHERE id = $7`,
+      [
+        input.domain,
+        input.industry,
+        input.employeeCount,
+        country,
+        input.linkedinUrl,
+        input.notes,
+        companyId,
+      ],
+    );
+  } else {
+    const inserted = await pool.query(
+      `INSERT INTO wizmatch_companies
+         (tenant_id, name, domain, industry, employee_count, country, linkedin_url, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id`,
+      [
+        input.tenantId,
+        input.companyName,
+        input.domain,
+        input.industry,
+        input.employeeCount,
+        country || 'US',
+        input.linkedinUrl,
+        input.notes,
+      ],
+    );
+    companyId = inserted.rows[0].id;
+  }
+
+  const signalInsert = await pool.query(
+    `INSERT INTO wizmatch_job_signals
+       (tenant_id, company_id, job_title, job_url, source, location, keywords, score, status)
+     VALUES ($1, $2, $3, $4, 'manual', $5, $6, 8, 'scored')
+     RETURNING id`,
+    [
+      input.tenantId,
+      companyId,
+      input.jobTitle,
+      input.jobUrl,
+      input.location,
+      input.keywords,
+    ],
+  );
+  const signalId = signalInsert.rows[0].id;
+
+  const intelligenceItem = await persistContactIntelligenceSnapshot(
+    input.tenantId,
+    input.userId,
+    companyId,
+  );
+
+  return { companyId, companyExisted, signalId, intelligenceItem };
+}
+
+// POST /api/wizmatch/client-discovery/seed-company
+// Manual entry point: creates (or updates) a prospect hiring company + a manual
+// job signal, then runs the Contact Intelligence snapshot so the company appears
+// in the Contact Intelligence queue for review. Does NOT send any outreach —
+// paid contact discovery still requires a separate manual confirm step.
+router.post('/client-discovery/seed-company', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const userId = req.user?.id;
+
+  const companyName = firstString(req.body?.companyName);
+  const jobTitle = firstString(req.body?.jobTitle);
+  if (!companyName || !jobTitle) {
+    res.status(400).json({ error: 'companyName and jobTitle are required' });
+    return;
+  }
+
+  const website = firstString(req.body?.website);
+  const domain = normalizeDomain(website ?? firstString(req.body?.domain));
+  const targetRegionRaw = firstString(req.body?.targetRegion)?.toLowerCase();
+  const targetRegion =
+    targetRegionRaw === 'india' || targetRegionRaw === 'us' ? targetRegionRaw : null;
+
+  const rawKeywords = Array.isArray(req.body?.keywords)
+    ? (req.body.keywords as unknown[]).filter((k): k is string => typeof k === 'string')
+    : null;
+  const keywords =
+    rawKeywords && rawKeywords.length > 0
+      ? rawKeywords.slice(0, 8)
+      : jobTitle.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 4);
+
+  const employeeCountRaw = req.body?.employeeCount;
+  const employeeCount =
+    employeeCountRaw != null && Number.isFinite(Number(employeeCountRaw))
+      ? Math.max(0, Math.floor(Number(employeeCountRaw)))
+      : null;
+
+  try {
+    const result = await seedProspectCompany({
+      tenantId,
+      userId,
+      companyName,
+      domain,
+      jobTitle,
+      jobUrl: firstString(req.body?.jobUrl),
+      location: firstString(req.body?.location),
+      notes: firstString(req.body?.notes),
+      targetRegion,
+      industry: firstString(req.body?.industry),
+      employeeCount,
+      linkedinUrl: firstString(req.body?.linkedinUrl),
+      keywords,
+    });
+    res.json({
+      ok: true,
+      ...result,
+      guardrails: CLIENT_DISCOVERY_GUARDRAILS,
+    });
+  } catch (err) {
+    logger.error({ err, tenantId, companyName }, '[wizmatch/seed-company] failed');
+    res.status(500).json({
+      error: 'Failed to seed prospect company',
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
+// POST /api/wizmatch/client-discovery/seed-company/csv
+// Bulk manual seed via CSV upload. Expected headers:
+//   company_name (required), job_title (required),
+//   website | domain, job_url, location, notes,
+//   target_region, industry, employee_count, linkedin_url, keywords
+// Duplicate company names (case-insensitive per tenant) update the existing row
+// with any new non-null fields; a fresh manual job signal is still inserted so
+// the company re-enters the Contact Intelligence review queue.
+router.post(
+  '/client-discovery/seed-company/csv',
+  requirementUpload.single('file'),
+  async (req: Request, res: Response) => {
+    const tenantId = req.user!.tenantId;
+    const userId = req.user?.id;
+
+    let csvText = '';
+    if (req.file?.buffer) {
+      csvText = req.file.buffer.toString('utf8');
+    } else if (typeof req.body === 'string') {
+      csvText = req.body;
+    } else if (req.body && typeof req.body === 'object' && 'csv' in req.body) {
+      csvText = String((req.body as { csv?: string }).csv ?? '');
+    }
+    if (!csvText.trim()) {
+      res.status(400).json({ error: 'CSV body required (multipart field "file" or { csv } body)' });
+      return;
+    }
+
+    let rows: string[][];
+    try {
+      rows = parseCsv(csvText);
+    } catch (err) {
+      res.status(400).json({ error: 'CSV parse failed', detail: err instanceof Error ? err.message : String(err) });
+      return;
+    }
+    if (rows.length < 2) {
+      res.status(400).json({ error: 'CSV must have a header row and at least one data row' });
+      return;
+    }
+
+    const [headerRow, ...dataRows] = rows;
+    const normHeader = headerRow.map((h) => h.trim().toLowerCase().replace(/\s+/g, '_'));
+    const idxOf = (key: string, aliases: string[] = []): number => {
+      const all = [key, ...aliases];
+      for (const k of all) {
+        const i = normHeader.indexOf(k);
+        if (i >= 0) return i;
+      }
+      return -1;
+    };
+    const columns = {
+      name: idxOf('company_name', ['name', 'company']),
+      jobTitle: idxOf('job_title', ['title', 'role']),
+      website: idxOf('website', ['url', 'domain']),
+      jobUrl: idxOf('job_url'),
+      location: idxOf('location', ['city']),
+      notes: idxOf('notes'),
+      region: idxOf('target_region', ['region']),
+      industry: idxOf('industry'),
+      employees: idxOf('employee_count', ['employees', 'size']),
+      linkedin: idxOf('linkedin_url', ['linkedin']),
+      keywords: idxOf('keywords', ['tags']),
+    };
+    if (columns.name < 0 || columns.jobTitle < 0) {
+      res.status(400).json({
+        error: 'CSV missing required columns',
+        required: ['company_name', 'job_title'],
+        received: headerRow,
+      });
+      return;
+    }
+
+    const summary = {
+      total_rows: dataRows.length,
+      inserted: 0,
+      updated: 0,
+      skipped_invalid: 0,
+      errors: [] as Array<{ row: number; reason: string }>,
+      seeded: [] as Array<{ row: number; companyId: string; companyName: string; signalId: string }>,
+    };
+
+    for (let i = 0; i < dataRows.length; i += 1) {
+      const r = dataRows[i];
+      const lineNo = i + 2;
+      const get = (col: number): string | null => {
+        if (col < 0) return null;
+        const raw = r[col];
+        if (raw == null) return null;
+        const s = String(raw).trim();
+        return s.length > 0 ? s : null;
+      };
+
+      const companyName = get(columns.name);
+      const jobTitle = get(columns.jobTitle);
+      if (!companyName || !jobTitle) {
+        summary.skipped_invalid += 1;
+        summary.errors.push({ row: lineNo, reason: 'missing company_name or job_title' });
+        continue;
+      }
+
+      const targetRegionRaw = get(columns.region)?.toLowerCase() || null;
+      const targetRegion =
+        targetRegionRaw === 'india' || targetRegionRaw === 'us' ? targetRegionRaw : null;
+
+      const employeesRaw = get(columns.employees);
+      const employeeCount =
+        employeesRaw && Number.isFinite(Number(employeesRaw))
+          ? Math.max(0, Math.floor(Number(employeesRaw)))
+          : null;
+
+      const keywordsRaw = get(columns.keywords);
+      const keywords =
+        keywordsRaw
+          ? keywordsRaw.split(/[|,;]/).map((k) => k.trim()).filter(Boolean).slice(0, 8)
+          : jobTitle.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 4);
+
+      try {
+        const result = await seedProspectCompany({
+          tenantId,
+          userId,
+          companyName,
+          domain: normalizeDomain(get(columns.website)),
+          jobTitle,
+          jobUrl: get(columns.jobUrl),
+          location: get(columns.location),
+          notes: get(columns.notes),
+          targetRegion,
+          industry: get(columns.industry),
+          employeeCount,
+          linkedinUrl: get(columns.linkedin),
+          keywords,
+        });
+        if (result.companyExisted) summary.updated += 1;
+        else summary.inserted += 1;
+        summary.seeded.push({
+          row: lineNo,
+          companyId: result.companyId,
+          companyName,
+          signalId: result.signalId,
+        });
+      } catch (err) {
+        summary.skipped_invalid += 1;
+        summary.errors.push({
+          row: lineNo,
+          reason: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    res.json({ ok: true, summary, guardrails: CLIENT_DISCOVERY_GUARDRAILS });
+  },
+);
 
 router.get('/client-discovery/queue', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
