@@ -22,6 +22,15 @@ or production data.
 - [x] Remaining human/data items are recorded in `.ai/CURRENT_STATE.md` and `.ai/HANDOFF_LOG.md`.
 - [x] `.ai/AI_BRIEF.md` regenerated for Claude Code.
 
+## Cost/relevance audit (2026-07-09, docs-only)
+
+- [x] Verified an external "Cost Leakage & Relevance Audit" brief against source and wrote
+  `docs/reviews/wizmatch-cost-leakage-audit-2026-07-09.md` (verdicts + 6-question answers +
+  corrected tunables + P0–P2 backlog). No code changed. See HANDOFF_LOG Step 29. The two P0
+  backlog items to pick up when ready: (1) meter/remove the free enrich Apollo/Snov cascade in
+  `emailExtractorService` (shares paid accounts, unmetered); (2) all-domains-unhealthy Slack alert
+  in the domain-health cron (decision: alert + keep sending).
+
 ## Next task
 
 - [x] Verified production Wizmatch table presence via authenticated `/wizmatch/readiness`
