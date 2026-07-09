@@ -115,10 +115,12 @@ function iso(value: string | Date | null | undefined) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+// Cooldown gates paid discovery *only* by real paid runs. `nextRefreshAt` is a
+// snapshot-refresh scheduler set to NOW+30d by persistContactIntelligenceSnapshot
+// on every qualification pass — using it here would lock every freshly-seeded
+// company out of paid discovery for 30 days despite zero paid runs having happened.
 function inCooldown(input: WizmatchContactDiscoveryInput, config: WizmatchContactDiscoveryConfig) {
-  if ((input.paidRunsInCooldown ?? 0) >= config.maxPaidDiscoveryPerCompany) return true;
-  const nextRefresh = input.nextRefreshAt ? new Date(input.nextRefreshAt) : null;
-  return Boolean(nextRefresh && !Number.isNaN(nextRefresh.getTime()) && nextRefresh > new Date());
+  return (input.paidRunsInCooldown ?? 0) >= config.maxPaidDiscoveryPerCompany;
 }
 
 export function buildWizmatchContactDiscoveryPreview(

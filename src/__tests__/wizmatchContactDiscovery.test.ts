@@ -88,6 +88,20 @@ describe('Wizmatch Contact Discovery Phase 3', () => {
     expect(buildWizmatchContactDiscoveryPreview(baseInput({ paidRunsInCooldown: 1 }), enabledConfig()).blockedReasons.join(' ')).toContain('cooldown');
   });
 
+  it('does NOT block paid discovery just because nextRefreshAt is in the future (snapshot always sets it to NOW+30d)', () => {
+    // Regression: a freshly-seeded company has nextRefreshAt = NOW+30d immediately
+    // after persistContactIntelligenceSnapshot. Without this fix, that alone
+    // marked the company as "in cooldown" and blocked paid discovery for 30 days
+    // even though zero paid runs had happened.
+    const futureRefresh = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const preview = buildWizmatchContactDiscoveryPreview(
+      baseInput({ nextRefreshAt: futureRefresh, paidRunsInCooldown: 0 }),
+      enabledConfig(),
+    );
+    expect(preview.eligible).toBe(true);
+    expect(preview.blockedReasons.join(' ')).not.toContain('cooldown');
+  });
+
   it('uses Apollo first and saves max 3 deduped candidates', async () => {
     const mockProviders = providers({
       apolloPeopleSearch: vi.fn(async () => [
