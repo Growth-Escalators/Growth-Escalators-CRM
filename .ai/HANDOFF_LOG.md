@@ -5,6 +5,57 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-09 — Step 27: Wizmatch migration-journal repair + deploy — Claude — DEPLOYED
+
+**What was done**
+- Verified via authenticated `/wizmatch/readiness` that `wizmatch_requirements`,
+  `wizmatch_company_intelligence`, `wizmatch_contact_candidates`, and `wizmatch_discovery_runs`
+  were genuinely missing in production (matches Codex's Step 24/26 diagnosis).
+- Traced `node_modules/drizzle-orm/pg-core/dialect.js`'s `migrate()` implementation directly to
+  confirm the exact repair mechanics: it compares each journal entry's `when` timestamp only
+  against the single most-recent applied migration's `created_at` (not per-migration hash), so a
+  naive chronologically-ordered insert with earlier timestamps than the already-applied `0022`
+  entry would have been silently skipped again.
+- Appended three entries to `src/db/migrations/meta/_journal.json`
+  (`0020_wizmatch_gin_indexes`, `0020_curvy_silverclaw`, `0021_contact_intelligence_phase2`) with
+  `when` values greater than `0022_tenant_scoped_user_emails`'s, after checking the three SQL
+  files for cross-dependencies (none — safe in any order).
+- Verified locally: `npm run build`, `npm test` (27 files, 236 tests), `npm run admin:build`,
+  `git diff --check`, `git status` confirmed diff scoped to exactly one file.
+- Got explicit human approval before editing (guardrailed path) and again before pushing.
+- Committed as `0f313ba` and pushed to `main`; Railway deployment `e23a4c03` reached `SUCCESS`;
+  deploy logs showed `[migrate] Migration complete` with no errors.
+- Re-checked `/wizmatch/readiness`: all 4 tables now show `ready`/`needs data`, 0 missing tables,
+  overall status `needs migration check` → `needs data`, score 40 → 81.
+
+**Guardrails preserved**
+- Explicit human confirmation obtained before touching `src/db/migrations/` and again before push.
+- No schema hand-edits — only the journal metadata file, no SQL content changed.
+- No outreach sending, candidate submission, or worker/cron automation touched.
+- Full local verification suite passed before push.
+
+**Files changed**
+- `src/db/migrations/meta/_journal.json`
+- `.ai/CURRENT_TASK.md`
+- `.ai/CURRENT_STATE.md`
+- `.ai/HANDOFF_LOG.md`
+- `.ai/AI_BRIEF.md` regenerated
+
+**Verification**
+- `npm run build` passed.
+- `npm test` passed: 27 files, 236 tests.
+- `npm run admin:build` passed.
+- `git diff --check` passed.
+- Railway deployment `e23a4c03` reached `SUCCESS`; deploy logs showed clean migration completion.
+- `/wizmatch/readiness` (authenticated, live) confirmed all 4 tables present post-deploy.
+
+**Next**
+- Set `WIZMATCH_PHYSICAL_ADDRESS`, `WIZMATCH_LEADS_CHANNEL`, `WIZMATCH_DAILY_CHANNEL`,
+  `WIZMATCH_SYSTEM_CHANNEL` on Railway once values are provided.
+- Run authenticated Growth/Wizmatch smoke checks with real users (still pending from Step 23/26).
+- Load real requirements, vetted candidate profiles, and dispatch scrapers per
+  `docs/wizmatch-daily-operations.md` now that the underlying tables exist.
+
 ## 2026-07-07 — Step 23: Growth + Wizmatch tenant-separated CRM profile — Codex — VERIFIED LOCALLY
 
 **What was done**

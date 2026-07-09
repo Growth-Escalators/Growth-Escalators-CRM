@@ -124,20 +124,19 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   `WIZMATCH_GOOGLE_FALLBACK_ENABLED=false`. Cost guard defaults are conservative:
   ₹5,000/month, ₹500/day, 20 tenant runs/day, 5 user runs/day, and provider daily caps. Confirmed
   blocked discovery attempts are audited as zero-cost `blocked_by_cap` rows.
-- Applying `src/db/migrations/0021_contact_intelligence_phase2.sql` to any real database is still
-  a separate environment decision; this session did not touch production DB state.
-- Production is also missing `src/db/migrations/0020_curvy_silverclaw.sql`
-  (`wizmatch_requirements`) and `src/db/migrations/0021_contact_intelligence_phase2.sql`
-  (`wizmatch_company_intelligence`, `wizmatch_contact_candidates`, `wizmatch_discovery_runs`).
-  Local diagnosis on 2026-07-08 found the likely root cause: those SQL files exist on `origin/main`,
-  but `src/db/migrations/meta/_journal.json` skips `0020_wizmatch_gin_indexes`,
-  `0020_curvy_silverclaw`, and `0021_contact_intelligence_phase2`, then jumps to
-  `0022_tenant_scoped_user_emails`. Drizzle's journal-based migrator should not be assumed to apply
-  skipped SQL files automatically. Do not apply migrations without explicit approval. Until these
-  tables exist in the target environment, live requirement intake, Contact Intelligence
-  persistence, discovery-run audit/cost tracking, and richer Data Readiness/AI Intelligence cannot
-  use real persisted operating data. The UI/API now explain this as readiness/cost fallback state
-  where possible, but the underlying missing production data remains unresolved.
+- **RESOLVED 2026-07-09**: the missing-migration gap diagnosed on 2026-07-08 was fixed. Root cause
+  confirmed: `0020_wizmatch_gin_indexes`, `0020_curvy_silverclaw`, and
+  `0021_contact_intelligence_phase2` SQL files existed on `main` but were never listed in
+  `src/db/migrations/meta/_journal.json`, so Drizzle's journal-based migrator silently never
+  applied them across every prior deploy. Fix: three journal entries appended with `when`
+  timestamps greater than the already-applied `0022` entry (Drizzle only compares each entry's
+  `when` against the single most-recent applied migration's `created_at`, not per-migration hash
+  presence, so timestamps had to sort after `0022` regardless of array position). Verified locally
+  (build/test/admin-build/diff-check), pushed as commit `0f313ba` with explicit human approval,
+  Railway deploy `e23a4c03` reached `SUCCESS`, and `/wizmatch/readiness` confirmed all 4 tables now
+  exist (`ready`/`needs data`, 0 missing, score 40 → 81). `wizmatch_requirements`,
+  `wizmatch_company_intelligence`, `wizmatch_contact_candidates`, and `wizmatch_discovery_runs` are
+  now live schema in production, currently empty (0 rows) and ready for real data.
 - GitHub Actions scraper workflows are intentionally manual-dispatch only in the readiness branch.
   They require `RAILWAY_INTERNAL_API_URL` and `INTERNAL_API_TOKEN` GitHub secrets and call the
   existing protected `POST /api/wizmatch/signals/ingest` endpoint. Do not enable schedules without

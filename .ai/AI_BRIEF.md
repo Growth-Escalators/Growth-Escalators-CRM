@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-08T18:05:58.192Z_
+_Generated: 2026-07-09T03:21:42.782Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,7 +12,7 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: growth-escalators-backend-v2
 - **Branch**: `main`
-- **Last commit**: 7951c28 docs(ai): record main deployment integration (6 minutes ago)
+- **Last commit**: 0f313ba fix(db): repair migration journal gap for Wizmatch operating tables (5 minutes ago)
 - **Uncommitted changes**: 3 file(s)
 
 ## Current task
@@ -30,6 +30,8 @@ or production data.
 ## Recent commits
 
 ```
+0f313ba fix(db): repair migration journal gap for Wizmatch operating tables
+46e708d docs(ai): update post-deploy Claude handoff
 7951c28 docs(ai): record main deployment integration
 46beb17 merge: Wizmatch operational readiness
 d82b6fa merge: pipeline stage hardening
@@ -38,8 +40,6 @@ d82b6fa merge: pipeline stage hardening
 061ca2e fix(crm): harden portal rendering and Wizmatch fallbacks
 4358068 feat(crm): harden Wizmatch shared routes
 3319859 feat(crm): unify Growth and Wizmatch tenant profiles
-d98ddad fix(auth): separate product navigation and lead routing
-e3d683f fix(admin): serve freshly built login bundle
 ```
 
 ## npm scripts

@@ -24,11 +24,17 @@ or production data.
 
 ## Next task
 
-- [ ] In Railway shell, verify production Wizmatch table presence and recent Drizzle migration
-  records.
-- [ ] Decide how to repair/apply skipped `0020`/`0021` Wizmatch migrations if required tables are
-  still missing.
-- [ ] Set missing Wizmatch operational variables/channels.
+- [x] Verified production Wizmatch table presence via authenticated `/wizmatch/readiness`
+  (2026-07-09 IST): confirmed `wizmatch_requirements`, `wizmatch_company_intelligence`,
+  `wizmatch_contact_candidates`, `wizmatch_discovery_runs` were genuinely missing.
+- [x] Repaired the skipped `0020`/`0021` Wizmatch migrations: added the three missing entries to
+  `src/db/migrations/meta/_journal.json` (commit `0f313ba`), verified locally
+  (`npm run build`, `npm test` 27/236, `npm run admin:build`, `git diff --check`), pushed to
+  `main` with explicit approval, confirmed Railway deploy `e23a4c03` reached `SUCCESS`, and
+  re-checked `/wizmatch/readiness` — all 4 tables now show `ready`/`needs data` (0 missing tables,
+  score 40 → 81).
+- [ ] Set missing Wizmatch operational variables/channels: `WIZMATCH_PHYSICAL_ADDRESS`,
+  `WIZMATCH_LEADS_CHANNEL`, `WIZMATCH_DAILY_CHANNEL`, `WIZMATCH_SYSTEM_CHANNEL`.
 - [ ] Run authenticated Growth/Wizmatch smoke checks with real users.
 - [ ] Load real Wizmatch requirements, candidates, companies, job signals, and reviewed contact
   candidates before any client-facing use.
