@@ -6,10 +6,11 @@ import {
 } from './auth.js';
 
 export async function apiFetch(path, options = {}) {
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const res = await fetch(path, {
     ...options,
     headers: {
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       Authorization: `Bearer ${getAuthToken()}`,
       ...options.headers,
     },

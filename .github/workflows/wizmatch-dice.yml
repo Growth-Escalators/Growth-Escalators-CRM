@@ -52,22 +52,69 @@ jobs:
               const page = await browser.newPage();
               try {
                 await page.goto(`https://www.dice.com/jobs?q=${encodeURIComponent(query)}&countryCode=US&radius=30&radiusUnit=mi&page=1&pageSize=20`, {
-                  timeout: 15000,
+                  timeout: 30000,
                   waitUntil: "domcontentloaded",
                 });
-                await page.waitForTimeout(2000);
+                // Wait for job cards (JS renders after first paint). Fallback to
+                // fixed wait if the selector never appears.
+                await page.waitForSelector("a[href*=\"/job-detail/\"]", { timeout: 15000 }).catch(() => {});
+                await page.waitForTimeout(1500);
+                // Scroll once to trigger any lazy-load on the search list.
+                await page.evaluate(() => window.scrollBy(0, 800));
+                await page.waitForTimeout(800);
 
-                const jobs = await page.evaluate(() => {
+                const { jobs, diag } = await page.evaluate(() => {
+                  // Selector strategy: URL-pattern based (stable across their
+                  // frontend refactors) with a fallback to legacy id="position-*".
+                  const titleLinks = Array.from(document.querySelectorAll(
+                    "a[href*=\"/job-detail/\"]"
+                  ));
                   const results = [];
-                  document.querySelectorAll("[id^=\"position-\"]").slice(0, 10).forEach(card => {
-                    const title = card.querySelector("a.card-title-link")?.textContent?.trim() || "";
-                    const company = card.querySelector("a.card-company-link")?.textContent?.trim() || "";
-                    const location = card.querySelector(".location span")?.textContent?.trim() || "";
-                    const url = card.querySelector("a.card-title-link")?.href || "";
-                    if (title) results.push({ title, company, location, url });
-                  });
-                  return results;
+                  const seen = new Set();
+                  for (const a of titleLinks) {
+                    const href = a.getAttribute("href") || "";
+                    if (!href || seen.has(href)) continue;
+                    seen.add(href);
+                    const title = (a.textContent || "").trim();
+                    if (!title) continue;
+                    // Walk up to the nearest card container (article, or the
+                    // ancestor that also contains a /company-profile/ link).
+                    let card = a.closest("article, [id^=\"position-\"], [data-cy=\"search-result-card\"], [role=\"listitem\"]");
+                    if (!card) {
+                      let node = a.parentElement;
+                      for (let i = 0; i < 6 && node; i += 1) {
+                        if (node.querySelector("a[href*=\"/company-profile/\"]")) {
+                          card = node;
+                          break;
+                        }
+                        node = node.parentElement;
+                      }
+                    }
+                    const companyEl = card?.querySelector("a[href*=\"/company-profile/\"]");
+                    const company = (companyEl?.textContent || "").trim();
+                    const locEl =
+                      card?.querySelector("[data-cy=\"search-result-location\"], [data-cy*=\"location\"], [aria-label*=\"location\"], .location span, .location");
+                    const location = (locEl?.textContent || "").trim();
+                    const url = href.startsWith("http") ? href : `https://www.dice.com${href}`;
+                    results.push({ title, company, location, url });
+                    if (results.length >= 10) break;
+                  }
+                  const diag = {
+                    titleLinkCount: titleLinks.length,
+                    companyLinkCount: document.querySelectorAll("a[href*=\"/company-profile/\"]").length,
+                    firstHtml: (document.body?.innerHTML || "").slice(0, 500),
+                  };
+                  return { jobs: results, diag };
                 });
+
+                if (jobs.length === 0) {
+                  console.log(`Dice ${query}: 0 jobs (titleLinks=${diag.titleLinkCount}, companyLinks=${diag.companyLinkCount})`);
+                  if (diag.titleLinkCount === 0) {
+                    console.log(`  first-500 body html: ${diag.firstHtml.replace(/\s+/g, " ").slice(0, 300)}`);
+                  }
+                } else {
+                  console.log(`Dice ${query}: ${jobs.length} jobs`);
+                }
 
                 for (const job of jobs) {
                   allSignals.push({
@@ -90,11 +137,10 @@ jobs:
             await browser.close();
 
             if (allSignals.length === 0) {
-              console.log("No Dice jobs found");
+              console.log("No Dice jobs found (selectors may need updating — check per-query diag above)");
               process.exit(0);
             }
 
-            // POST to ingest
             const resp = await fetch(process.env.API_BASE_URL + "/api/wizmatch/signals/ingest", {
               method: "POST",
               headers: {
