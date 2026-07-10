@@ -900,6 +900,10 @@ async function insertContactDiscoveryRunAudit(input: {
   source: string;
   status: string;
   costCents: number;
+  // A run only counts toward the 30-day per-company cooldown when a REAL paid provider
+  // (Apollo/Snov) was used. Free runs (website/Serper/Reacher, cost 0) must NOT lock the
+  // company out of re-running discovery. Defaults true for backward-compatible callers.
+  paidProvider?: boolean;
   userId?: string | null;
   inputSnapshot: Record<string, unknown>;
   resultCounts: Record<string, unknown>;
@@ -924,7 +928,7 @@ async function insertContactDiscoveryRunAudit(input: {
        error_message,
        metadata
      )
-     VALUES ($1, $2, $3, 'paid_discovery', $4, $5, $6, true, $7::uuid, NOW(), NOW(), $8::jsonb, $9::jsonb, $10, $11::jsonb)
+     VALUES ($1, $2, $3, 'paid_discovery', $4, $5, $6, $7, $8::uuid, NOW(), NOW(), $9::jsonb, $10::jsonb, $11, $12::jsonb)
      RETURNING id`,
     [
       input.tenantId,
@@ -933,6 +937,7 @@ async function insertContactDiscoveryRunAudit(input: {
       input.source,
       input.status,
       input.costCents,
+      input.paidProvider ?? true,
       input.userId || null,
       JSON.stringify(input.inputSnapshot),
       JSON.stringify(input.resultCounts),
@@ -2753,6 +2758,9 @@ router.post('/contact-intelligence/companies/:companyId/discover', async (req: R
     const sourceSummary = discovery.candidates.length
       ? Array.from(new Set(discovery.candidates.map((candidate) => candidate.source))).join(',')
       : 'provider_discovery';
+    // Only a genuine PAID provider (Apollo/Snov) locks the company into the 30-day
+    // cooldown. A free run (website/Serper/Reacher) must stay re-runnable.
+    const usedPaidProvider = (discovery.providerCalls.apollo || 0) > 0 || (discovery.providerCalls.snov || 0) > 0;
     const runId = await insertContactDiscoveryRunAudit({
       tenantId,
       companyIntelligenceId: discoveryInput.item!.persisted!.id,
@@ -2760,6 +2768,7 @@ router.post('/contact-intelligence/companies/:companyId/discover', async (req: R
       source: sourceSummary,
       status: discovery.status,
       costCents: discovery.costCents,
+      paidProvider: usedPaidProvider,
       userId: req.user?.id || null,
       inputSnapshot: { preview: { ...discovery.preview, costGuard }, providerOrder: discovery.preview.providerOrder },
       resultCounts: { candidates: discovery.candidates.length, providerCalls: discovery.providerCalls },
