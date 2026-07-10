@@ -109,6 +109,7 @@ import {
   type WizmatchCostGuardEvaluation,
 } from '../services/wizmatchCostGuard';
 import logger from '../utils/logger';
+import { isSafeFetchHost } from '../utils/ssrfGuard';
 
 const router = Router();
 
@@ -1532,7 +1533,12 @@ export function normalizeDomain(input: string | null | undefined): string | null
   if (!trimmed) return null;
   const stripped = trimmed.replace(/^https?:\/\//i, '').replace(/^www\./i, '');
   const host = stripped.split(/[\/\?#]/)[0].toLowerCase();
-  return host || null;
+  if (!host) return null;
+  // SSRF guard: never store or later fetch an internal/private/obfuscated host.
+  // A bad host (localhost, 169.254.169.254, *.railway.internal, user@host, …) is
+  // scrubbed to null rather than persisted — normal public domains pass unchanged.
+  if (!isSafeFetchHost(host)) return null;
+  return host;
 }
 
 type SeedProspectInput = {
@@ -3653,9 +3659,18 @@ router.post('/signals/:id/send', async (req: Request, res: Response) => {
     return;
   }
 
-  // Generate unsubscribe link with HMAC
+  // Generate unsubscribe link with HMAC. Fail closed: with no configured secret
+  // we must NOT mint a link signed with a public default (that is forgeable), so
+  // refuse to send rather than embed a bogus-signed / unverifiable link. Mirrors
+  // the fail-closed posture of src/middleware/internalAuth.ts.
+  const unsubSecret = WIZMATCH_UNSUBSCRIBE_HMAC_SECRET;
+  if (!unsubSecret) {
+    logger.error('[wizmatch] WIZMATCH_UNSUBSCRIBE_HMAC_SECRET not set — refusing to embed a forgeable unsubscribe link');
+    res.status(500).json({ error: 'unsubscribe signing secret not configured' });
+    return;
+  }
   const unsubSig = crypto
-    .createHmac('sha256', WIZMATCH_UNSUBSCRIBE_HMAC_SECRET || 'default-secret')
+    .createHmac('sha256', unsubSecret)
     .update(toEmail)
     .digest('base64url');
 
@@ -4302,13 +4317,25 @@ router.get('/unsubscribe', async (req: Request, res: Response) => {
     return;
   }
 
-  // Verify HMAC
+  // Verify HMAC. Fail closed when no secret is configured (never fall back to the
+  // public 'default-secret'), and compare in constant time — never `!==`, which
+  // short-circuits and leaks length/prefix via timing. Mirrors src/middleware/internalAuth.ts.
+  const unsubSecret = WIZMATCH_UNSUBSCRIBE_HMAC_SECRET;
+  if (!unsubSecret) {
+    logger.error('[wizmatch] WIZMATCH_UNSUBSCRIBE_HMAC_SECRET not set — rejecting unsubscribe as invalid');
+    res.status(403).type('html').send('<h1>Invalid signature</h1>');
+    return;
+  }
+
   const expectedSig = crypto
-    .createHmac('sha256', WIZMATCH_UNSUBSCRIBE_HMAC_SECRET || 'default-secret')
+    .createHmac('sha256', unsubSecret)
     .update(email)
     .digest('base64url');
 
-  if (sig !== expectedSig) {
+  const providedBuf = Buffer.from(sig);
+  const expectedBuf = Buffer.from(expectedSig);
+  // Length-guard first because timingSafeEqual throws on unequal-length buffers.
+  if (providedBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(providedBuf, expectedBuf)) {
     res.status(403).type('html').send('<h1>Invalid signature</h1>');
     return;
   }
