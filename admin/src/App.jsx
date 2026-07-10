@@ -40,6 +40,7 @@ const WizmatchCandidateIntelligenceNewPage = lazy(() => import('./pages/Wizmatch
 const WizmatchCandidateIntelligencePage = lazy(() => import('./pages/WizmatchCandidateIntelligencePage.jsx'));
 const WizmatchCandidatesPage = lazy(() => import('./pages/WizmatchCandidatesPage.jsx'));
 const WizmatchContactIntelligenceNewPage = lazy(() => import('./pages/WizmatchNewPages.jsx').then((module) => ({ default: module.WizmatchContactIntelligenceNewPage })));
+const WizmatchContactIntelligencePage = lazy(() => import('./pages/WizmatchContactIntelligencePage.jsx'));
 const WizmatchDomainsPage = lazy(() => import('./pages/WizmatchDomainsPage.jsx'));
 const WizmatchCompliancePage = lazy(() => import('./pages/WizmatchCompliancePage.jsx'));
 const WizmatchPlacementsPage = lazy(() => import('./pages/WizmatchPlacementsPage.jsx'));
@@ -238,8 +239,8 @@ export default function App() {
             <Route path="/wizmatch/queue" element={<Navigate to="/wizmatch/review-workbench" replace />} />
             <Route path="/wizmatch/contact-intelligence-demo" element={<Navigate to="/wizmatch/contact-intelligence-new-demo" replace />} />
             <Route path="/wizmatch/contact-intelligence-new-demo" element={<WizmatchContactIntelligenceNewPage demoMode />} />
-            <Route path="/wizmatch/contact-intelligence" element={<Navigate to="/wizmatch/contact-intelligence-new" replace />} />
-            <Route path="/wizmatch/contact-intelligence-new" element={<PrivateRoute><AppLayout><WizmatchContactIntelligenceNewPage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/contact-intelligence" element={<PrivateRoute><AppLayout><WizmatchContactIntelligencePage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/contact-intelligence-new" element={<Navigate to="/wizmatch/contact-intelligence" replace />} />
             <Route path="/wizmatch/domains" element={<PrivateRoute><AppLayout><WizmatchDomainsPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/compliance" element={<PrivateRoute><AppLayout><WizmatchCompliancePage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/guardrails-new-demo" element={<WizmatchGuardrailsPage demoMode />} />

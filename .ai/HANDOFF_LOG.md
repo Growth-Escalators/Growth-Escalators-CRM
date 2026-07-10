@@ -5,6 +5,42 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-10 — Wizmatch hardening bundle (RBAC + perf + SSRF/HMAC + panel) — Claude + 3 sub-agents — PR OPEN, MERGE HELD
+
+Branch `feat/wizmatch-hardening` (off `main` @ `ea1c86e`). Driven by an in-depth
+frontend-capability + performance + security review. **Not merged — PR opened, merge held for a
+human go** (contains an auth/RBAC access-control change; `main` auto-deploys).
+
+Workstreams (each built in an isolated git worktree, then integrated + re-verified by Claude):
+- **S1 (Claude — `src/index.ts` + `src/routes/wizmatch.ts`):** `/api/wizmatch` now requires
+  `admin`/`team_lead` (same tier gate as `/api/outbound`), applied *after* the internal-token POST
+  bypass, plus a new public lane for `GET /unsubscribe`. Added `WIZMATCH_SENDING_ENABLED` master
+  kill-switch on the cold-send route — sending is a code-level no-op unless it is `'true'`.
+- **#2/#5 (perf agent):** new `src/services/wizmatchSignalPipeline.ts` holds `scoreSignalById` /
+  `enrichSignalById` / `matchSignalById`; the score/enrich/match route handlers are now thin
+  wrappers (still `requireInternalToken`) and the worker crons call these **in-process** instead of
+  per-signal HTTPS self-calls (`WIZMATCH_API_BASE_URL` removed from `worker.ts`). `command-center`
+  N+1 collapsed ~100 queries → 5 set-based; response shape unchanged. Extraction verified
+  byte-identical vs `main` (status transitions, `candidate_match` insert, Slack alerts, `safeCron` +
+  batch caps preserved).
+- **#3/#6 (secure agent):** unsubscribe HMAC fails closed (no `'default-secret'` fallback) + uses
+  length-guarded `crypto.timingSafeEqual`; new `src/utils/ssrfGuard.ts` blocks
+  private/loopback/link-local/metadata/obfuscated-IP hosts in `normalizeDomain` + at fetch time in
+  the discovery/enrichment scrapers. 14 new SSRF unit tests.
+- **#4 (panel agent — `admin/src/` only):** Contact Intelligence route repointed to the
+  previously-dead action-capable page (approve/reject/link-CRM/manual-contact); Dashboard step-4
+  label corrected; 7 orphaned pages surfaced in the sidebar
+  (Signals/Candidates/Requirements/Placements/Primes/Domains/Compliance).
+
+**Verification (integrated tree):** `npm run build` exit 0 · `npm test` 292/292 (incl. 14 new) ·
+`npm run admin:build` exit 0. Guardrail files untouched. No prod writes, no emails sent.
+
+**Before enabling sending:** set `WIZMATCH_UNSUBSCRIBE_HMAC_SECRET` in Railway (HMAC now fail-closed)
+*before* flipping `WIZMATCH_SENDING_ENABLED=true`. Post-deploy: 30-sec live smoke check of
+`command-center` (the one endpoint without route-handler test coverage).
+
+---
+
 ## 2026-07-10 — Step 33: Wizmatch demand-sourcing pipeline unblocked + new sources — Claude — DONE
 
 Turned the "fix scrapers" ask into a minimum-cost demand-sourcing pipeline. Plan +
