@@ -3602,6 +3602,18 @@ Variant C: Social proof angle — reference similar past placements, then offer 
 
 // POST /api/wizmatch/signals/:id/send — send via multi-domain mailer
 router.post('/signals/:id/send', async (req: Request, res: Response) => {
+  // Master send kill-switch. Cold outreach stays OFF until it is deliberately
+  // turned on: no real email leaves the system unless WIZMATCH_SENDING_ENABLED
+  // === 'true'. This makes "sending is off" a code-level guarantee rather than
+  // an accident of absent SMTP creds or an unrouted UI — flip the env var (and
+  // only then) to go live, one supervised send at a time.
+  if (process.env.WIZMATCH_SENDING_ENABLED !== 'true') {
+    res.status(403).json({
+      error: 'sending_disabled',
+      message: 'Wizmatch cold sending is disabled. Set WIZMATCH_SENDING_ENABLED=true to enable.',
+    });
+    return;
+  }
   const tenantId = req.user!.tenantId;
   const signalId = req.params.id;
   const { variant_message_id } = req.body as { variant_message_id: string };
