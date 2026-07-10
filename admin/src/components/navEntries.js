@@ -280,12 +280,22 @@ export const NAV_ENTRIES = [
     visible: f => f.canWizmatch,
   },
   {
+    id: 'wm-signals', label: 'Signals', to: '/wizmatch/signals',
+    icon: Zap, section: 'Wizmatch', group: null,
+    visible: f => f.canWizmatch,
+  },
+  {
     id: 'wm-candidate-intelligence-new', label: 'Candidate Intelligence', to: '/wizmatch/candidate-intelligence',
     icon: ClipboardList, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
   {
-    id: 'wm-contact-intelligence-new', label: 'Contact Intelligence', to: '/wizmatch/contact-intelligence-new',
+    id: 'wm-candidates', label: 'Candidates', to: '/wizmatch/candidates',
+    icon: UserCheck, section: 'Wizmatch', group: null,
+    visible: f => f.canWizmatch,
+  },
+  {
+    id: 'wm-contact-intelligence-new', label: 'Contact Intelligence', to: '/wizmatch/contact-intelligence',
     icon: Network, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
@@ -295,8 +305,33 @@ export const NAV_ENTRIES = [
     visible: f => f.canWizmatch,
   },
   {
+    id: 'wm-requirements', label: 'Requirements', to: '/wizmatch/requirements',
+    icon: FileText, section: 'Wizmatch', group: null,
+    visible: f => f.canWizmatch,
+  },
+  {
+    id: 'wm-placements', label: 'Placements', to: '/wizmatch/placements',
+    icon: Briefcase, section: 'Wizmatch', group: null,
+    visible: f => f.canWizmatch,
+  },
+  {
+    id: 'wm-primes', label: 'Primes', to: '/wizmatch/primes',
+    icon: Users, section: 'Wizmatch', group: null,
+    visible: f => f.canWizmatch,
+  },
+  {
     id: 'wm-guardrails-new', label: 'Guardrails', to: '/wizmatch/guardrails-new',
     icon: ShieldCheck, section: 'Wizmatch', group: null,
+    visible: f => f.canWizmatch,
+  },
+  {
+    id: 'wm-domains', label: 'Domains', to: '/wizmatch/domains',
+    icon: Network, section: 'Wizmatch', group: null,
+    visible: f => f.canWizmatch,
+  },
+  {
+    id: 'wm-compliance', label: 'Compliance', to: '/wizmatch/compliance',
+    icon: Shield, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
   {

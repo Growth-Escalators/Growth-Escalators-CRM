@@ -1,6 +1,7 @@
 import { promises as dns } from 'dns';
 import logger from '../utils/logger';
 import { collectWebsiteEmails, guessEmailCandidates } from './emailExtractorService';
+import { isSafeFetchUrl } from '../utils/ssrfGuard';
 
 export type WizmatchDiscoveryProviderSource =
   | 'apollo'
@@ -196,6 +197,12 @@ export function createDefaultWizmatchContactDiscoveryProviders(): WizmatchContac
   const providers: WizmatchContactDiscoveryProviders = {
     async websitePatternSearch(input) {
       const websiteUrl = `https://${input.domain}`;
+      // SSRF guard (defence in depth): refuse to scrape internal/private hosts even
+      // if a bad domain reached storage before the input-side guard was in place.
+      if (!isSafeFetchUrl(websiteUrl)) {
+        logger.warn({ domain: input.domain }, '[wizmatch-contact-discovery] refusing to scrape non-public host (SSRF guard)');
+        return [];
+      }
       const mxProvider = await classifyMxProvider(input.domain);
       const candidates: WizmatchProviderCandidate[] = [];
       const seen = new Set<string>();

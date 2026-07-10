@@ -249,16 +249,30 @@ app.use('/api/task-lists', requireAuth, taskListsRouter);
 app.use('/api/team', requireAuth, teamRouter);
 app.use('/api/funnel', funnelRouter);
 app.use('/api/leads', leadsRouter);
-// Wizmatch internal ingest/pipeline endpoints (CI scrapers + the worker's
-// score/enrich/match crons) authenticate with a shared service token via
-// `requireInternalToken` — they have no browser JWT, so they must bypass the
-// JWT wall. Every one of these paths independently enforces the shared secret
-// at the route level, so this only widens access to secret-holders, never
-// anonymously. All other Wizmatch routes stay behind requireAuth.
+// Wizmatch access model (three lanes, in priority order):
+//   1. Internal ingest/pipeline POSTs (CI scrapers + the worker's
+//      score/enrich/match crons) authenticate with a shared service token via
+//      `requireInternalToken` — they have no browser JWT, so they bypass the
+//      JWT wall here. Every one of those paths independently enforces the
+//      shared secret at the route level, so this widens access only to
+//      secret-holders, never anonymously.
+//   2. The recipient-facing `GET /unsubscribe` link is public — the clicker is
+//      an email recipient with no JWT, and the route verifies an HMAC signature
+//      in-handler. Without this lane the unsubscribe link 401s (CAN-SPAM risk).
+//   3. Everything else is an operator action (contact discovery spend, cold
+//      send, data mutations) and requires an authenticated admin/team_lead —
+//      the same tier gate `/api/outbound` uses. Plain `requireAuth` alone let
+//      any tenant user hit money/send routes; that authorization hole is closed
+//      here.
 const WIZMATCH_INTERNAL_POST = /^\/(signals\/ingest|signals\/[^/]+\/(score|enrich|match)|candidates\/ingest|classify-reply)$/;
+const WIZMATCH_PUBLIC_GET = /^\/unsubscribe$/;
+const wizmatchRequireAdmin = requireRole('admin', 'team_lead');
 app.use('/api/wizmatch', (req, res, next) => {
   if (req.method === 'POST' && WIZMATCH_INTERNAL_POST.test(req.path)) return next();
-  return requireAuth(req, res, next);
+  if (req.method === 'GET' && WIZMATCH_PUBLIC_GET.test(req.path)) return next();
+  // requireAuth sends its own 401 and does not call next() on failure, so the
+  // role check only runs once a valid JWT has populated req.user.
+  return requireAuth(req, res, () => wizmatchRequireAdmin(req, res, next));
 }, wizmatchRouter);
 // Funnel-configs: /public/* needs no auth (checkout frontend hits it
 // unauthenticated from ecom.growthescalators.com); everything else is

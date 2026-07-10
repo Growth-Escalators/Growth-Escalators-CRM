@@ -29,8 +29,7 @@ import {
   sequenceEnrolments,
 } from '../db/schema';
 import { requireInternalToken } from '../middleware/internalAuth';
-import { scoreSignal } from '../services/wizmatchScoring';
-import { matchCandidates } from '../services/wizmatchMatching';
+import { scoreSignalById, enrichSignalById, matchSignalById } from '../services/wizmatchSignalPipeline';
 import { callClaude, parseClaudeJSON, CLAUDE_MODELS } from '../services/claudeService';
 import { findOrCreateContact, normalizeChannelValue } from '../services/contactService';
 import { sendSlackMessage } from '../services/slackService';
@@ -109,6 +108,7 @@ import {
   type WizmatchCostGuardEvaluation,
 } from '../services/wizmatchCostGuard';
 import logger from '../utils/logger';
+import { isSafeFetchHost } from '../utils/ssrfGuard';
 
 const router = Router();
 
@@ -450,9 +450,16 @@ async function fetchInternalContactCandidates(
   }));
 }
 
-async function buildContactIntelligenceResult(tenantId: string, row: ContactIntelligenceCompanyRow) {
+async function buildContactIntelligenceResult(
+  tenantId: string,
+  row: ContactIntelligenceCompanyRow,
+  // When the caller has already batch-fetched internal contacts for a page of
+  // companies (see fetchInternalContactCandidatesBatch), it passes them in to avoid
+  // a per-company query. Omitted → this fetches its own, preserving old behavior.
+  internalContactsOverride?: Awaited<ReturnType<typeof fetchInternalContactCandidates>>,
+) {
   const signalContactIds = row.signal_contact_ids?.filter(Boolean) ?? [];
-  const internalContacts = await fetchInternalContactCandidates(
+  const internalContacts = internalContactsOverride ?? await fetchInternalContactCandidates(
     tenantId,
     row.company_name,
     row.company_domain,
@@ -528,7 +535,16 @@ async function buildContactIntelligenceResult(tenantId: string, row: ContactInte
   };
 }
 
-async function fetchPersistedContactIntelligence(tenantId: string, companyId: string) {
+type PersistedContactIntelligence = {
+  company: Record<string, any> | null;
+  contactCandidates: ReturnType<typeof mapPersistedCandidate>[];
+  discoveryRuns: Record<string, any>[];
+};
+
+async function fetchPersistedContactIntelligence(
+  tenantId: string,
+  companyId: string,
+): Promise<PersistedContactIntelligence> {
   try {
     const [company, candidates, discoveryRuns] = await Promise.all([
       pool.query(
@@ -625,8 +641,15 @@ async function fetchPersistedContactIntelligence(tenantId: string, companyId: st
   }
 }
 
-async function withPersistedContactIntelligence(tenantId: string, item: Awaited<ReturnType<typeof buildContactIntelligenceResult>>) {
-  const persisted = await fetchPersistedContactIntelligence(tenantId, item.companyId);
+async function withPersistedContactIntelligence(
+  tenantId: string,
+  item: Awaited<ReturnType<typeof buildContactIntelligenceResult>>,
+  // When the caller has already batch-fetched persisted intelligence for a page of
+  // companies (see fetchPersistedContactIntelligenceBatch), it passes it in to avoid
+  // the per-company 3-query fan-out. Omitted → this fetches its own (old behavior).
+  persistedOverride?: PersistedContactIntelligence,
+) {
+  const persisted = persistedOverride ?? await fetchPersistedContactIntelligence(tenantId, item.companyId);
   if (!persisted.company) {
     return { ...item, persisted: null };
   }
@@ -655,6 +678,249 @@ async function withPersistedContactIntelligence(tenantId: string, item: Awaited<
       discoveryRuns: persisted.discoveryRuns,
     },
   };
+}
+
+/**
+ * Batched replacement for the per-company `fetchInternalContactCandidates` fan-out used
+ * by the command-center handler. Instead of one query per company (N queries), this issues
+ * a SINGLE query: a VALUES list of (company_id, name, domain, signal_contact_ids) joined via
+ * CROSS JOIN LATERAL to the exact same per-company top-10 contact subquery — same match
+ * predicates, same ORDER BY, same LIMIT 10 — so each company's contacts are byte-for-byte
+ * identical to the single-company path, just resolved in one round trip. Returns a map keyed
+ * by company_id; every requested company is present (with `[]` when it has no matches).
+ */
+async function fetchInternalContactCandidatesBatch(
+  tenantId: string,
+  rows: ContactIntelligenceCompanyRow[],
+): Promise<Map<string, Awaited<ReturnType<typeof fetchInternalContactCandidates>>>> {
+  type ContactList = Awaited<ReturnType<typeof fetchInternalContactCandidates>>;
+  const map = new Map<string, ContactList>();
+  if (rows.length === 0) return map;
+  // Seed every company so companies with zero matches still appear with an empty list.
+  for (const row of rows) map.set(row.company_id, []);
+
+  const params: unknown[] = [tenantId];
+  const valuesClauses: string[] = [];
+  for (const row of rows) {
+    const signalContactIds = row.signal_contact_ids?.filter(Boolean) ?? [];
+    const base = params.length; // params already pushed before this company's 4 values
+    params.push(row.company_id, row.company_name, row.company_domain, signalContactIds);
+    valuesClauses.push(`($${base + 1}::uuid, $${base + 2}::text, $${base + 3}::text, $${base + 4}::uuid[])`);
+  }
+
+  const result = await pool.query(
+    `SELECT comp.company_id AS __company_id, ic.*
+     FROM (VALUES ${valuesClauses.join(', ')}) AS comp(company_id, company_name, company_domain, signal_contact_ids)
+     CROSS JOIN LATERAL (
+       SELECT c.id,
+              TRIM(CONCAT(c.first_name, ' ', COALESCE(c.last_name, ''))) AS name,
+              COALESCE(c.metadata->>'title', c.metadata->>'job_title', c.source_detail) AS title,
+              c.do_not_contact,
+              c.source,
+              email.channel_value AS email,
+              email.verified AS email_verified,
+              phone.channel_value AS phone,
+              linkedin.channel_value AS linkedin_url,
+              CASE WHEN c.id = ANY(comp.signal_contact_ids) THEN true ELSE false END AS from_signal,
+              EXISTS (
+                SELECT 1 FROM wizmatch_suppression_list ws
+                WHERE ws.tenant_id = c.tenant_id AND ws.contact_id = c.id
+              ) AS is_suppressed
+       FROM contacts c
+       LEFT JOIN LATERAL (
+         SELECT channel_value, verified
+         FROM contact_channels cc
+         WHERE cc.contact_id = c.id AND cc.channel_type = 'email'
+         ORDER BY cc.is_primary DESC, cc.created_at DESC
+         LIMIT 1
+       ) email ON true
+       LEFT JOIN LATERAL (
+         SELECT channel_value
+         FROM contact_channels cc
+         WHERE cc.contact_id = c.id AND cc.channel_type IN ('phone', 'whatsapp')
+         ORDER BY cc.is_primary DESC, cc.created_at DESC
+         LIMIT 1
+       ) phone ON true
+       LEFT JOIN LATERAL (
+         SELECT channel_value
+         FROM contact_channels cc
+         WHERE cc.contact_id = c.id AND cc.channel_type = 'linkedin'
+         ORDER BY cc.is_primary DESC, cc.created_at DESC
+         LIMIT 1
+       ) linkedin ON true
+       WHERE c.tenant_id = $1
+         AND (
+           c.id = ANY(comp.signal_contact_ids)
+           OR LOWER(COALESCE(c.company_name, '')) = LOWER(comp.company_name)
+           OR (comp.company_domain IS NOT NULL AND LOWER(COALESCE(c.company_name, '')) LIKE '%' || LOWER(comp.company_domain) || '%')
+           OR (comp.company_domain IS NOT NULL AND LOWER(COALESCE(c.metadata->>'company_domain', '')) = LOWER(comp.company_domain))
+         )
+       ORDER BY from_signal DESC, c.last_activity_at DESC NULLS LAST, c.created_at DESC
+       LIMIT 10
+     ) ic`,
+    params,
+  );
+
+  for (const row of result.rows) {
+    const companyId = row.__company_id as string;
+    const mapped = {
+      id: row.id,
+      name: row.name || 'Unknown contact',
+      title: row.title,
+      email: row.email,
+      phone: row.phone,
+      linkedinUrl: row.linkedin_url,
+      verified: row.email_verified,
+      doNotContact: Boolean(row.do_not_contact || row.is_suppressed),
+      source: row.from_signal ? 'prior_wizmatch_signal' : (row.source || 'internal_crm'),
+      relationshipSignals: [
+        row.from_signal ? 'prior_signal_contact' : null,
+        row.email_verified ? 'verified_email' : null,
+      ].filter(Boolean) as string[],
+    };
+    const list = map.get(companyId);
+    if (list) list.push(mapped);
+    else map.set(companyId, [mapped]);
+  }
+
+  return map;
+}
+
+/**
+ * Batched replacement for the per-company `fetchPersistedContactIntelligence` 3-query
+ * fan-out used by the command-center handler. Issues exactly 3 set-based queries across the
+ * whole page of companies (company intelligence, top-10 contact candidates, latest-5 discovery
+ * runs) using `company_id = ANY($2)` + window functions to preserve the identical per-company
+ * ORDER BY / LIMIT, then groups the rows in JS. Same optional-schema degradation as the
+ * single-company version: if any of the optional tables is missing, every company gets an
+ * empty result. Returns a map keyed by company_id.
+ */
+async function fetchPersistedContactIntelligenceBatch(
+  tenantId: string,
+  companyIds: string[],
+): Promise<Map<string, PersistedContactIntelligence>> {
+  const map = new Map<string, PersistedContactIntelligence>();
+  if (companyIds.length === 0) return map;
+
+  try {
+    const [companyRes, candidateRes, discoveryRes] = await Promise.all([
+      pool.query(
+        `SELECT company_id,
+                id,
+                qualification_tier,
+                qualification_score,
+                target_region,
+                is_it_staffing_fit,
+                status,
+                review_status,
+                review_action,
+                reviewed_by,
+                reviewed_at,
+                rejection_reason,
+                review_notes,
+                last_qualified_at,
+                last_discovered_at,
+                next_refresh_at,
+                cost_cents_total,
+                source_summary,
+                metadata
+         FROM wizmatch_company_intelligence
+         WHERE tenant_id = $1 AND company_id = ANY($2::uuid[])`,
+        [tenantId, companyIds],
+      ),
+      pool.query(
+        `SELECT company_id, id, crm_contact_id, name, title, email, phone, linkedin_url,
+                source, source_url, deliverability_status, ranking_score, relationship_score,
+                confidence_score, status, rejection_reason, metadata
+         FROM (
+           SELECT wcc.*,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY wcc.company_id
+                    ORDER BY CASE wcc.status
+                               WHEN 'approved' THEN 0
+                               WHEN 'needs_review' THEN 1
+                               WHEN 'linked_to_crm' THEN 2
+                               WHEN 'new' THEN 3
+                               ELSE 4
+                             END,
+                             wcc.ranking_score DESC NULLS LAST,
+                             wcc.created_at DESC
+                  ) AS __rn
+           FROM wizmatch_contact_candidates wcc
+           WHERE wcc.tenant_id = $1 AND wcc.company_id = ANY($2::uuid[])
+         ) ranked
+         WHERE __rn <= 10
+         ORDER BY company_id, __rn`,
+        [tenantId, companyIds],
+      ),
+      pool.query(
+        `SELECT company_id, id, run_type, source, status, cost_cents, paid_provider,
+                started_at, finished_at, result_counts, error_message, created_at
+         FROM (
+           SELECT wdr.*,
+                  ROW_NUMBER() OVER (PARTITION BY wdr.company_id ORDER BY wdr.created_at DESC) AS __rn
+           FROM wizmatch_discovery_runs wdr
+           WHERE wdr.tenant_id = $1 AND wdr.company_id = ANY($2::uuid[])
+         ) ranked
+         WHERE __rn <= 5
+         ORDER BY company_id, __rn`,
+        [tenantId, companyIds],
+      ),
+    ]);
+
+    // company intelligence — one row per company (original used LIMIT 1); keep first seen.
+    const companyByCompanyId = new Map<string, Record<string, any>>();
+    for (const r of companyRes.rows) {
+      if (!companyByCompanyId.has(r.company_id)) companyByCompanyId.set(r.company_id, r);
+    }
+    const candidatesByCompanyId = new Map<string, PersistedContactCandidateRow[]>();
+    for (const r of candidateRes.rows as PersistedContactCandidateRow[]) {
+      const companyId = (r as unknown as { company_id: string }).company_id;
+      const list = candidatesByCompanyId.get(companyId) ?? [];
+      list.push(r);
+      candidatesByCompanyId.set(companyId, list);
+    }
+    const discoveryByCompanyId = new Map<string, Record<string, any>[]>();
+    for (const r of discoveryRes.rows) {
+      const list = discoveryByCompanyId.get(r.company_id) ?? [];
+      // Project to exactly the original columns (drop company_id) — discovery rows are
+      // serialized verbatim into the response, so the shape must match byte-for-byte.
+      list.push({
+        id: r.id,
+        run_type: r.run_type,
+        source: r.source,
+        status: r.status,
+        cost_cents: r.cost_cents,
+        paid_provider: r.paid_provider,
+        started_at: r.started_at,
+        finished_at: r.finished_at,
+        result_counts: r.result_counts,
+        error_message: r.error_message,
+        created_at: r.created_at,
+      });
+      discoveryByCompanyId.set(r.company_id, list);
+    }
+
+    for (const companyId of companyIds) {
+      map.set(companyId, {
+        company: companyByCompanyId.get(companyId) || null,
+        contactCandidates: (candidatesByCompanyId.get(companyId) ?? []).map(mapPersistedCandidate),
+        discoveryRuns: discoveryByCompanyId.get(companyId) ?? [],
+      });
+    }
+    return map;
+  } catch (e) {
+    if (!isOptionalWizmatchSchemaError(e, [
+      'wizmatch_company_intelligence',
+      'wizmatch_contact_candidates',
+      'wizmatch_discovery_runs',
+    ])) {
+      logger.error({ err: e }, '[wizmatch] unexpected persisted contact intelligence schema error');
+      throw e;
+    }
+    logger.warn({ err: e }, '[wizmatch] persisted contact intelligence unavailable');
+    return new Map();
+  }
 }
 
 async function persistContactIntelligenceSnapshot(tenantId: string, userId: string | undefined, companyId: string) {
@@ -1532,7 +1798,12 @@ export function normalizeDomain(input: string | null | undefined): string | null
   if (!trimmed) return null;
   const stripped = trimmed.replace(/^https?:\/\//i, '').replace(/^www\./i, '');
   const host = stripped.split(/[\/\?#]/)[0].toLowerCase();
-  return host || null;
+  if (!host) return null;
+  // SSRF guard: never store or later fetch an internal/private/obfuscated host.
+  // A bad host (localhost, 169.254.169.254, *.railway.internal, user@host, …) is
+  // scrubbed to null rather than persisted — normal public domains pass unchanged.
+  if (!isSafeFetchHost(host)) return null;
+  return host;
 }
 
 type SeedProspectInput = {
@@ -3083,11 +3354,27 @@ router.get('/command-center', async (req: Request, res: Response) => {
     fetchCommandCenterRequirements(tenantId, limit),
     fetchCommandCenterMetrics(tenantId),
   ]);
+
+  // Batch the two per-company fan-outs into a fixed number of set-based queries so a page
+  // of up to 25 companies costs 2 queries here instead of ~100 (1 + 3 per company) fired in
+  // 75-wide bursts against the 20-connection pool. Results are grouped in JS and fed into the
+  // unchanged builder helpers, so the response JSON is identical.
+  const companyIds = contactRows.map((row) => row.company_id);
+  const [internalContactsByCompany, persistedByCompany] = await Promise.all([
+    fetchInternalContactCandidatesBatch(tenantId, contactRows),
+    fetchPersistedContactIntelligenceBatch(tenantId, companyIds),
+  ]);
+  const emptyPersisted: PersistedContactIntelligence = { company: null, contactCandidates: [], discoveryRuns: [] };
+
   const computedContactIntelligence = await Promise.all(
-    contactRows.map((row) => buildContactIntelligenceResult(tenantId, row)),
+    contactRows.map((row) =>
+      buildContactIntelligenceResult(tenantId, row, internalContactsByCompany.get(row.company_id) ?? []),
+    ),
   );
   const contactIntelligence = await Promise.all(
-    computedContactIntelligence.map((item) => withPersistedContactIntelligence(tenantId, item)),
+    computedContactIntelligence.map((item) =>
+      withPersistedContactIntelligence(tenantId, item, persistedByCompany.get(item.companyId) ?? emptyPersisted),
+    ),
   );
   const metrics: CommandCenterMetricsInput = {
     ...baseMetrics,
@@ -3306,119 +3593,33 @@ router.post('/signals/ingest', requireInternalToken, async (req: Request, res: R
 });
 
 // POST /api/wizmatch/signals/:id/score — deterministic TS scorer (internal)
+// Thin wrapper over scoreSignalById (src/services/wizmatchSignalPipeline.ts); the
+// worker cron calls that same function directly (no HTTP self-request).
 router.post('/signals/:id/score', requireInternalToken, async (req: Request, res: Response) => {
   const tenantId = process.env.WIZMATCH_TENANT_ID!;
-  const signalId = req.params.id;
+  const result = await scoreSignalById(tenantId, String(req.params.id));
 
-  const result = await pool.query(
-    `SELECT s.*, c.h1b_sponsor_count,
-            (SELECT COUNT(*)::int FROM wizmatch_job_signals s2
-             WHERE s2.company_id = s.company_id AND s2.status NOT IN ('dead','placed')) AS company_volume
-     FROM wizmatch_job_signals s
-     LEFT JOIN wizmatch_companies c ON c.id = s.company_id
-     WHERE s.id = $1 AND s.tenant_id = $2`,
-    [signalId, tenantId],
-  );
-
-  if (result.rows.length === 0) {
+  if (result.notFound) {
     res.status(404).json({ error: 'Signal not found' });
     return;
   }
 
-  const row = result.rows[0];
-  const daysOpen = row.days_open || Math.floor((Date.now() - new Date(row.first_seen_at).getTime()) / 86400000);
-
-  const { score, region, breakdown, reasoning, urgencyLevel, strugglingScore, c2cFriendly } = scoreSignal({
-    daysOpen,
-    repostCount: row.repost_count || 0,
-    companyVolumeCount: row.company_volume || 0,
-    employmentType: row.employment_type,
-    keywords: row.keywords,
-    h1bSponsorCount: row.h1b_sponsor_count || 0,
-    location: row.location, // drives India-vs-US rubric selection
-    jobTitle: row.job_title, // scanned for contract/C2C/urgency language
-    rawText: row.raw_text,   // scanned for contract/C2C/urgency language
-  });
-
-  await pool.query(
-    `UPDATE wizmatch_job_signals
-     SET score = $3, score_breakdown = $4::jsonb, status = 'scored', days_open = $5
-     WHERE id = $1 AND tenant_id = $2`,
-    [signalId, tenantId, score, JSON.stringify({ ...breakdown, region, reasoning, urgencyLevel, strugglingScore, c2cFriendly }), daysOpen],
-  );
-
-  // Slack alert for high scores
-  if (score >= 7 && WIZMATCH_LEADS_CHANNEL) {
-    await sendSlackMessage(
-      WIZMATCH_LEADS_CHANNEL,
-      `🎯 *Priority Signal* (score ${score}/10)\n*${row.job_title}* at ${row.company_name || 'Unknown'}\n${reasoning}`,
-      undefined,
-      { allowDuringPause: true }, // client-acquisition alert — fires even while routine Slack is paused
-    ).catch(() => {});
-  }
-
-  res.json({ signalId, score, breakdown, reasoning });
+  res.json({ signalId: result.signalId, score: result.score, breakdown: result.breakdown, reasoning: result.reasoning });
 });
 
 // POST /api/wizmatch/signals/:id/enrich — reuse emailExtractorService (internal)
+// Thin wrapper over enrichSignalById; the enrichment try/catch → 500 mapping lives
+// here so both the route and the worker cron share the same core logic.
 router.post('/signals/:id/enrich', requireInternalToken, async (req: Request, res: Response) => {
   const tenantId = process.env.WIZMATCH_TENANT_ID!;
-  const signalId = req.params.id;
-
-  const signalResult = await pool.query(
-    `SELECT s.*, c.name AS company_name, c.domain AS company_domain
-     FROM wizmatch_job_signals s
-     LEFT JOIN wizmatch_companies c ON c.id = s.company_id
-     WHERE s.id = $1 AND s.tenant_id = $2`,
-    [signalId, tenantId],
-  );
-
-  if (signalResult.rows.length === 0) {
-    res.status(404).json({ error: 'Signal not found' });
-    return;
-  }
-
-  const signal = signalResult.rows[0];
-  const websiteUrl = signal.company_domain ? `https://${signal.company_domain}` : null;
-
-  if (!websiteUrl) {
-    res.json({ signalId, enriched: false, reason: 'no company domain' });
-    return;
-  }
 
   try {
-    // Reuse the existing enrichment waterfall
-    const { findEmail } = await import('../services/emailExtractorService');
-    const emailResult = await findEmail(websiteUrl, undefined, undefined, { allowPaidProviders: false });
-
-    if (!emailResult) {
-      res.json({ signalId, enriched: false, reason: 'no email found' });
+    const result = await enrichSignalById(tenantId, String(req.params.id));
+    if (result.notFound) {
+      res.status(404).json({ error: 'Signal not found' });
       return;
     }
-
-    // Create contact via findOrCreateContact (normalizes email, writes channels)
-    const { contact } = await findOrCreateContact(tenantId, {
-      firstName: 'Hiring',
-      lastName: 'Manager',
-      source: 'wizmatch_enrichment',
-      sourceDetail: `Signal: ${signal.job_title} at ${signal.company_name}`,
-      channels: [{ channelType: 'email', channelValue: emailResult.email, isPrimary: true }],
-    });
-
-    // Link contact to signal
-    await pool.query(
-      `UPDATE wizmatch_job_signals SET contact_id = $3, status = 'enriched' WHERE id = $1 AND tenant_id = $2`,
-      [signalId, tenantId, contact.id],
-    );
-
-    res.json({
-      signalId,
-      enriched: true,
-      contactId: contact.id,
-      email: emailResult.email,
-      confidence: emailResult.confidence,
-      source: emailResult.source,
-    });
+    res.json(result.payload);
   } catch (e) {
     logger.error({ err: e }, '[wizmatch] enrich failed');
     res.status(500).json({ error: 'enrichment failed', detail: e instanceof Error ? e.message : 'unknown' });
@@ -3426,59 +3627,17 @@ router.post('/signals/:id/enrich', requireInternalToken, async (req: Request, re
 });
 
 // POST /api/wizmatch/signals/:id/match — pure SQL+TS matcher (internal)
+// Thin wrapper over matchSignalById; the worker cron calls that function directly.
 router.post('/signals/:id/match', requireInternalToken, async (req: Request, res: Response) => {
   const tenantId = process.env.WIZMATCH_TENANT_ID!;
-  const signalId = req.params.id;
+  const result = await matchSignalById(tenantId, String(req.params.id));
 
-  const signalResult = await pool.query(
-    `SELECT id, tenant_id, job_title, keywords, employment_type, location
-     FROM wizmatch_job_signals
-     WHERE id = $1 AND tenant_id = $2`,
-    [signalId, tenantId],
-  );
-
-  if (signalResult.rows.length === 0) {
+  if (result.notFound) {
     res.status(404).json({ error: 'Signal not found' });
     return;
   }
 
-  const signal = signalResult.rows[0];
-  const matches = await matchCandidates({
-    id: signal.id,
-    tenantId: signal.tenant_id,
-    jobTitle: signal.job_title,
-    keywords: signal.keywords || [],
-    employmentType: signal.employment_type,
-    location: signal.location,
-  });
-
-  const matchedIds = matches.map((m) => m.candidateId);
-
-  await pool.query(
-    `UPDATE wizmatch_job_signals
-     SET matched_candidate_ids = $3::uuid[], status = 'matched'
-     WHERE id = $1 AND tenant_id = $2`,
-    [signalId, tenantId, matchedIds],
-  );
-
-  // Log match event
-  await pool.query(
-    `INSERT INTO events (tenant_id, event_type, channel, direction, payload, source_id, occurred_at)
-     VALUES ($1, 'candidate_match', 'internal', 'outbound', $2::jsonb, $3, NOW())`,
-    [tenantId, JSON.stringify({ signalId, matches: matches.map(m => ({ candidateId: m.candidateId, score: m.matchScore, reasoning: m.reasoning })) }), String(signalId)],
-  );
-
-  // Slack alert
-  if (matches.length > 0 && WIZMATCH_LEADS_CHANNEL) {
-    await sendSlackMessage(
-      WIZMATCH_LEADS_CHANNEL,
-      `✅ *${matches.length} candidate${matches.length > 1 ? 's' : ''} matched* for ${signal.job_title}\n${matches.map((m) => `• Score ${m.matchScore}/10 — ${m.reasoning}`).join('\n')}`,
-      undefined,
-      { allowDuringPause: true }, // client-acquisition alert — fires even while routine Slack is paused
-    ).catch(() => {});
-  }
-
-  res.json({ signalId, matches });
+  res.json(result.payload);
 });
 
 // POST /api/wizmatch/signals/:id/draft — Sonnet on-demand email drafts
@@ -3602,6 +3761,18 @@ Variant C: Social proof angle — reference similar past placements, then offer 
 
 // POST /api/wizmatch/signals/:id/send — send via multi-domain mailer
 router.post('/signals/:id/send', async (req: Request, res: Response) => {
+  // Master send kill-switch. Cold outreach stays OFF until it is deliberately
+  // turned on: no real email leaves the system unless WIZMATCH_SENDING_ENABLED
+  // === 'true'. This makes "sending is off" a code-level guarantee rather than
+  // an accident of absent SMTP creds or an unrouted UI — flip the env var (and
+  // only then) to go live, one supervised send at a time.
+  if (process.env.WIZMATCH_SENDING_ENABLED !== 'true') {
+    res.status(403).json({
+      error: 'sending_disabled',
+      message: 'Wizmatch cold sending is disabled. Set WIZMATCH_SENDING_ENABLED=true to enable.',
+    });
+    return;
+  }
   const tenantId = req.user!.tenantId;
   const signalId = req.params.id;
   const { variant_message_id } = req.body as { variant_message_id: string };
@@ -3653,9 +3824,18 @@ router.post('/signals/:id/send', async (req: Request, res: Response) => {
     return;
   }
 
-  // Generate unsubscribe link with HMAC
+  // Generate unsubscribe link with HMAC. Fail closed: with no configured secret
+  // we must NOT mint a link signed with a public default (that is forgeable), so
+  // refuse to send rather than embed a bogus-signed / unverifiable link. Mirrors
+  // the fail-closed posture of src/middleware/internalAuth.ts.
+  const unsubSecret = WIZMATCH_UNSUBSCRIBE_HMAC_SECRET;
+  if (!unsubSecret) {
+    logger.error('[wizmatch] WIZMATCH_UNSUBSCRIBE_HMAC_SECRET not set — refusing to embed a forgeable unsubscribe link');
+    res.status(500).json({ error: 'unsubscribe signing secret not configured' });
+    return;
+  }
   const unsubSig = crypto
-    .createHmac('sha256', WIZMATCH_UNSUBSCRIBE_HMAC_SECRET || 'default-secret')
+    .createHmac('sha256', unsubSecret)
     .update(toEmail)
     .digest('base64url');
 
@@ -4302,13 +4482,25 @@ router.get('/unsubscribe', async (req: Request, res: Response) => {
     return;
   }
 
-  // Verify HMAC
+  // Verify HMAC. Fail closed when no secret is configured (never fall back to the
+  // public 'default-secret'), and compare in constant time — never `!==`, which
+  // short-circuits and leaks length/prefix via timing. Mirrors src/middleware/internalAuth.ts.
+  const unsubSecret = WIZMATCH_UNSUBSCRIBE_HMAC_SECRET;
+  if (!unsubSecret) {
+    logger.error('[wizmatch] WIZMATCH_UNSUBSCRIBE_HMAC_SECRET not set — rejecting unsubscribe as invalid');
+    res.status(403).type('html').send('<h1>Invalid signature</h1>');
+    return;
+  }
+
   const expectedSig = crypto
-    .createHmac('sha256', WIZMATCH_UNSUBSCRIBE_HMAC_SECRET || 'default-secret')
+    .createHmac('sha256', unsubSecret)
     .update(email)
     .digest('base64url');
 
-  if (sig !== expectedSig) {
+  const providedBuf = Buffer.from(sig);
+  const expectedBuf = Buffer.from(expectedSig);
+  // Length-guard first because timingSafeEqual throws on unequal-length buffers.
+  if (providedBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(providedBuf, expectedBuf)) {
     res.status(403).type('html').send('<h1>Invalid signature</h1>');
     return;
   }

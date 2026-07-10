@@ -19,6 +19,7 @@
 
 import { promises as dns } from 'dns';
 import logger from '../utils/logger';
+import { isSafeFetchUrl } from '../utils/ssrfGuard';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -275,6 +276,12 @@ export interface ScrapedWebsiteEmail {
 export async function collectWebsiteEmails(websiteUrl: string, paths: string[] = CONTACT_PATHS): Promise<ScrapedWebsiteEmail[]> {
   const baseUrl = normalizeUrl(websiteUrl);
   if (!baseUrl) return [];
+  // SSRF guard (defence in depth — the caller may pass an unvalidated domain):
+  // refuse to scrape internal/private/obfuscated hosts server-side.
+  if (!isSafeFetchUrl(baseUrl)) {
+    logger.warn({ websiteUrl }, '[emailExtractor] refusing to scrape non-public host (SSRF guard)');
+    return [];
+  }
 
   const allEmails: ScrapedWebsiteEmail[] = [];
   const seen = new Set<string>();
@@ -398,6 +405,12 @@ async function googleSearchEmail(domain: string): Promise<string | null> {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function fetchPage(url: string): Promise<string | null> {
+  // SSRF guard at the point of fetch — validate the resolved host every time,
+  // not just at input, so no caller can reach internal/private hosts.
+  if (!isSafeFetchUrl(url)) {
+    logger.warn({ url }, '[emailExtractor] refusing to fetch non-public host (SSRF guard)');
+    return null;
+  }
   try {
     const res = await fetch(url, {
       signal: AbortSignal.timeout(5000),

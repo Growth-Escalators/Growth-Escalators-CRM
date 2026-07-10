@@ -753,7 +753,7 @@ export function WizmatchDashboardPage({ demoMode = false }) {
             ['/wizmatch/client-discovery', Target, '1', 'Client Discovery', 'Find & qualify hiring companies'],
             ['/wizmatch/requirement-priority-new', FileText, '2', 'Requirement Priority', 'Rank which roles to work'],
             ['/wizmatch/candidate-intelligence', UserCheck, '3', 'Candidate Intelligence', 'Match & review candidates'],
-            ['/wizmatch/contact-intelligence-new', Contact, '4', 'Contact Intelligence', 'Approve contacts, compose & send'],
+            ['/wizmatch/contact-intelligence', Contact, '4', 'Contact Intelligence', 'Find & approve the decision-maker, link to CRM'],
             ['/wizmatch/analytics', Activity, '5', 'Analytics', 'Outreach & placement performance'],
             ['/wizmatch/guardrails-new', ShieldCheck, '6', 'Guardrails', 'Safety & deliverability checks'],
           ].map(([href, Icon, step, label, description]) => (
