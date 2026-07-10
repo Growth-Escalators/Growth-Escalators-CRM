@@ -1,6 +1,6 @@
 ---
 name: ge-prod-data-mutation
-description: Use before making any one-off write to production data — offboarding a team member, unsticking a row, resetting a cooldown, flipping a flag, backfilling a column, deleting/merging records, or any manual UPDATE/DELETE/INSERT against live Postgres. Triggers include "remove <person> from the CRM", "reassign their contacts/deals", "unblock <company>", "reset the cooldown", "flip paid_provider", "backfill X", "fix this stuck row in prod", "run this SQL on production". Skips: schema changes (use ge-add-migration), read-only queries, local/dev seed scripts, ensure-hook table creation (use ge-add-ensure-table).
+description: Use before making any one-off write to production data — offboarding a team member, unsticking a row, resetting a cooldown, flipping a flag, backfilling a column, deleting/merging records, or any manual UPDATE/DELETE/INSERT against live Postgres. Triggers include "remove a teammate from the CRM", "reassign their contacts/deals", "unblock a company", "reset the cooldown", "flip paid_provider", "backfill a column", "fix this stuck row in prod", "run this SQL on production". Skips: schema changes (use ge-add-migration), read-only queries, local/dev seed scripts, ensure-hook table creation (use ge-add-ensure-table).
 ---
 
 # Production data mutation — safe every time

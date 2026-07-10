@@ -1,6 +1,6 @@
 ---
 name: ge-manage-railway-env
-description: Use when adding, changing, or reviewing a Railway/Vercel environment variable for this repo — enabling a feature flag, pointing a service at a URL, rotating a key, or diagnosing "the env var isn't taking effect". Triggers include "set WIZMATCH_X on railway", "add an env var for Y", "flip the feature flag in prod", "rotate the <service> key", "which service needs this env". Skips: local .env edits only (no deploy impact), code that reads env (that's normal dev), secrets you must never print.
+description: Use when adding, changing, or reviewing a Railway/Vercel environment variable for this repo — enabling a feature flag, pointing a service at a URL, rotating a key, or diagnosing "the env var isn't taking effect". Triggers include "set WIZMATCH_X on railway", "add an env var for Y", "flip the feature flag in prod", "rotate a provider key", "which service needs this env". Skips: local .env edits only (no deploy impact), code that reads env (that's normal dev), secrets you must never print.
 ---
 
 # Managing Railway / Vercel env vars
