@@ -5,6 +5,41 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-10 — Step 31: Wizmatch staged full-detail admin flow (Hybrid) — Claude — VERIFIED LOCALLY
+
+**What was done**
+- Replaced the compact "co-pilot / command center" theme with a staged, one-section-per-screen
+  flow. Restored the orphaned full pages (routes previously redirected away from them):
+  Client Discovery, Candidate Intelligence, Analytics.
+- `admin/src/App.jsx`: base routes `/wizmatch/client-discovery`, `/candidate-intelligence`,
+  `/analytics` now render the restored full pages (in `AppLayout`); their `-new` routes redirect
+  back to base; `/wizmatch/command-center-new` redirects to `/wizmatch/dashboard`.
+- `admin/src/components/navEntries.js`: the three sidebar entries repointed to the clean base
+  routes.
+- `admin/src/pages/WizmatchOperatingPages.jsx`: `WizmatchDashboardPage` (Home) gains a "Wizmatch
+  funnel" stage-navigator card linking each stage in order — same Tailwind `card` / `primary-*`
+  design system, no new frameworks.
+- Contact Intelligence deliberately left on the newer `WizmatchContactIntelligenceNewPage` so the
+  just-built compose + throttled/compliant send last-mile UI is preserved.
+- Design decision recorded in `docs/design/wizmatch-staged-flow.md`.
+
+**Guardrails preserved**
+- Admin-UI only. No backend / `schema.ts` / migrations / auth / RBAC / Cashfree / SOD-EOD /
+  deployment changes.
+- Old compact `-new` pages remain in the tree (still used by `-demo` showcase routes); nothing
+  deleted — can be pruned later once the staged flow is confirmed in use.
+
+**Verification**
+- API-drift check before repointing: every endpoint the restored pages call still exists in
+  `src/routes/wizmatch.ts`.
+- `npm run admin:build` clean; `npm test` passed: 35 files, 282 tests.
+
+**Next**
+- User reviews the restored flow in the live admin, then merge `feat/wizmatch-staged-flow`
+  (stacked on `feat/wizmatch-sending`).
+
+---
+
 ## 2026-07-09 — Step 30: Wizmatch P0 cost-safety fixes — Codex — VERIFIED LOCALLY
 
 **What was done**

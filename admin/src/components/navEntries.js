@@ -275,12 +275,12 @@ export const NAV_ENTRIES = [
     visible: f => f.canWizmatch,
   },
   {
-    id: 'wm-client-discovery-new', label: 'Client Discovery', to: '/wizmatch/client-discovery-new',
+    id: 'wm-client-discovery-new', label: 'Client Discovery', to: '/wizmatch/client-discovery',
     icon: Search, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
   {
-    id: 'wm-candidate-intelligence-new', label: 'Candidate Intelligence', to: '/wizmatch/candidate-intelligence-new',
+    id: 'wm-candidate-intelligence-new', label: 'Candidate Intelligence', to: '/wizmatch/candidate-intelligence',
     icon: ClipboardList, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
@@ -300,7 +300,7 @@ export const NAV_ENTRIES = [
     visible: f => f.canWizmatch,
   },
   {
-    id: 'wm-analytics-new', label: 'Analytics', to: '/wizmatch/analytics-new',
+    id: 'wm-analytics-new', label: 'Analytics', to: '/wizmatch/analytics',
     icon: BarChart3, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },

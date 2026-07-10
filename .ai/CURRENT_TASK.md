@@ -2,35 +2,28 @@
 
 ## Active task
 
-**Wizmatch P0 cost-safety fixes** — implement the two audit-confirmed P0s on
-`fix/wizmatch-cost-safety`, then open a PR against `main`.
+**Wizmatch staged full-detail admin flow (Hybrid)** — replace the compact "co-pilot" theme with
+separate, full-detail per-stage dashboards. Branch `feat/wizmatch-staged-flow` (stacked on
+`feat/wizmatch-sending`). Design decision recorded in `docs/design/wizmatch-staged-flow.md`.
 
-Scope is narrow: stop the free/internal enrich path from consuming shared Apollo/Snov quota, and
-alert when all configured Wizmatch sending domains degrade while preserving the mailer's
-fallback-to-all sending behavior.
+Scope is admin-UI only: restore the orphaned full pages for Client Discovery, Candidate
+Intelligence, and Analytics; keep Contact Intelligence on the newer send-enabled page; add a
+"Wizmatch funnel" stage navigator to the Home dashboard; retire the co-pilot cockpit.
 
 ## Definition of done
 
-- [x] Local `main` fast-forwarded to `origin/main` (`453b7fa`) and branch
-  `fix/wizmatch-cost-safety` created.
-- [x] `findEmail` now takes `opts?: { allowPaidProviders?: boolean }`, defaulting to paid providers
-  disabled.
-- [x] Apollo/Snov steps in `emailExtractorService` run only when `allowPaidProviders === true`.
-- [x] Wizmatch internal signal enrichment calls `findEmail(..., { allowPaidProviders: false })`
-  explicitly.
-- [x] Domain-health cron logic extracted into a testable service.
-- [x] Domain health now uses SPF/DMARC failures and low reply rate as warn reasons, without adding
-  an `unhealthy` status.
-- [x] All-degraded domains post one actionable Slack alert to `WIZMATCH_SYSTEM_CHANNEL`, throttled
-  by append-only `events.event_type = 'wizmatch_all_domains_unhealthy_alert'` once per 24 hours.
-- [x] Mailer fallback-to-all behavior is unchanged and covered by a regression test.
-- [x] No schema/migration/auth/RBAC/Cashfree/SOD-EOD/deployment/workflow-schedule edits.
-- [x] Targeted tests passed:
-  `npm test -- src/__tests__/emailExtractorService.test.ts src/__tests__/wizmatchDomainHealthService.test.ts src/__tests__/multiDomainMailer.test.ts`
-- [x] `npm run build` passed.
-- [x] `npm test` passed: 30 files, 242 tests. Existing nested `vi.mock` warnings in
-  `rankTracking.test.ts` remain.
-- [x] `git diff --check` passed.
+- [x] API-drift check: every endpoint the restored pages call still exists in
+  `src/routes/wizmatch.ts` (checked before repointing; no drift).
+- [x] `admin/src/App.jsx` — base routes for `client-discovery` / `candidate-intelligence` /
+  `analytics` render the restored full pages; their `-new` routes redirect back to base;
+  `command-center-new` redirects to `dashboard`.
+- [x] `admin/src/components/navEntries.js` — three sidebar entries repointed to clean base routes.
+- [x] `admin/src/pages/WizmatchOperatingPages.jsx` — `WizmatchDashboardPage` gains the "Wizmatch
+  funnel" stage-navigator card (same Tailwind `card` / `primary-*` design system).
+- [x] Contact Intelligence unchanged — keeps the compose + throttled/compliant send last-mile UI.
+- [x] No backend / schema / auth / RBAC / Cashfree / deployment changes.
+- [x] `npm run admin:build` clean; `npm test` 282/282 green.
+- [ ] User review of the restored flow in the live admin, then merge `feat/wizmatch-staged-flow`.
 
 ## Cost/relevance audit (2026-07-09, docs-only)
 

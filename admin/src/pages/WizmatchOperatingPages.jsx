@@ -746,6 +746,32 @@ export function WizmatchDashboardPage({ demoMode = false }) {
         <Metric icon={Activity} label="Monthly margin" value={formatINR(summary.monthlyMargin)} helper={`${summary.activePlacements || 0} active placements`} tone="success" />
       </div>
 
+      <div className="card p-5">
+        <SectionHeader icon={ListChecks} title="Wizmatch funnel" description="Work each stage in full on its own screen — from discovery to outreach." />
+        <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {[
+            ['/wizmatch/client-discovery', Target, '1', 'Client Discovery', 'Find & qualify hiring companies'],
+            ['/wizmatch/requirement-priority-new', FileText, '2', 'Requirement Priority', 'Rank which roles to work'],
+            ['/wizmatch/candidate-intelligence', UserCheck, '3', 'Candidate Intelligence', 'Match & review candidates'],
+            ['/wizmatch/contact-intelligence-new', Contact, '4', 'Contact Intelligence', 'Approve contacts, compose & send'],
+            ['/wizmatch/analytics', Activity, '5', 'Analytics', 'Outreach & placement performance'],
+            ['/wizmatch/guardrails-new', ShieldCheck, '6', 'Guardrails', 'Safety & deliverability checks'],
+          ].map(([href, Icon, step, label, description]) => (
+            <a key={href} href={href} className="group flex items-start gap-3 rounded-md border border-neutral-100 bg-white px-3 py-3 transition hover:border-primary-300">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary-50 text-primary-700">
+                <Icon className="h-4 w-4" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Step {step}</span>
+                <span className="block text-sm font-semibold text-neutral-900 group-hover:text-primary-700">{label}</span>
+                <span className="block text-[12px] text-neutral-500">{description}</span>
+              </span>
+              <ArrowRight className="mt-1 h-3.5 w-3.5 shrink-0 text-neutral-300 transition group-hover:text-primary-500" />
+            </a>
+          ))}
+        </div>
+      </div>
+
       <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
         <div className="card p-5">
           <SectionHeader icon={Zap} title="What needs attention" description="Highest-priority live actions from the Wizmatch operating queue." />
