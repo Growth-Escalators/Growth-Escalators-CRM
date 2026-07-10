@@ -75,7 +75,7 @@ jobs:
                     const href = a.getAttribute("href") || "";
                     if (!href || seen.has(href)) continue;
                     seen.add(href);
-                    // Dice's /job-detail/ anchors often carry no direct text
+                    // Dice /job-detail/ anchors often carry no direct text
                     // (the title lives in a nested heading), so derive it from
                     // multiple sources instead of skipping on empty anchor text.
                     let title = (a.textContent || "").trim();
