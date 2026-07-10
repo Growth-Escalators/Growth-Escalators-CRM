@@ -249,7 +249,17 @@ app.use('/api/task-lists', requireAuth, taskListsRouter);
 app.use('/api/team', requireAuth, teamRouter);
 app.use('/api/funnel', funnelRouter);
 app.use('/api/leads', leadsRouter);
-app.use('/api/wizmatch', requireAuth, wizmatchRouter);
+// Wizmatch internal ingest/pipeline endpoints (CI scrapers + the worker's
+// score/enrich/match crons) authenticate with a shared service token via
+// `requireInternalToken` — they have no browser JWT, so they must bypass the
+// JWT wall. Every one of these paths independently enforces the shared secret
+// at the route level, so this only widens access to secret-holders, never
+// anonymously. All other Wizmatch routes stay behind requireAuth.
+const WIZMATCH_INTERNAL_POST = /^\/(signals\/ingest|signals\/[^/]+\/(score|enrich|match)|candidates\/ingest|classify-reply)$/;
+app.use('/api/wizmatch', (req, res, next) => {
+  if (req.method === 'POST' && WIZMATCH_INTERNAL_POST.test(req.path)) return next();
+  return requireAuth(req, res, next);
+}, wizmatchRouter);
 // Funnel-configs: /public/* needs no auth (checkout frontend hits it
 // unauthenticated from ecom.growthescalators.com); everything else is
 // behind requireAuth. The previous hoisted app.get wrapper was a no-op —

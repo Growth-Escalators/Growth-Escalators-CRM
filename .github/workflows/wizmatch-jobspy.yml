@@ -4,8 +4,16 @@ name: Wizmatch India Job Signals (Naukri)
 # wizmatch_job_signals (source=naukri) via the real /signals/ingest endpoint.
 # Previously this logged candidates with placeholder emails and never ingested
 # anything — Naukri search pages are JOB listings, so this now models them as
-# job signals (the actual India-source gap). Selectors are best-effort against
-# Naukri's DOM and may need occasional maintenance.
+# job signals (the actual India-source gap).
+#
+# ⚠️ KNOWN BLOCKED (verified 2026-07-10, run 29076439988): Naukri sits behind
+# Akamai Bot Manager and hard-blocks GitHub Actions datacenter IPs at the edge —
+# every request returns "<h1>Access Denied</h1> … errors.edgesuite.net" BEFORE
+# any job HTML renders. This is an IP-reputation block, NOT a selector problem:
+# no CSS-selector change can fix it. Making this source work needs a residential/
+# rotating proxy (paid, separate decision) or a licensed data feed. Until then,
+# India demand is sourced manually (Client Discovery seed / CSV) + the working
+# auto-engines. Do not waste time "updating selectors".
 
 on:
   workflow_dispatch:
