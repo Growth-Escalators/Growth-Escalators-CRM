@@ -130,6 +130,32 @@ function normalizeDomain(url: string | null | undefined): string | null {
 // Same agency re-scraped under "LLC" vs "Inc" would slip past company-dedup —
 // domain-dedup catches that and frees enrichment quota for new leads.
 // ---------------------------------------------------------------------------
+/**
+ * Ensure an Active outreach_leads row exists for a Wizmatch contact we are emailing,
+ * so the IMAP reply matcher (which keys on status='Active' + email) tracks replies.
+ * Reactivates an existing row by email, else inserts a new one. Deduped by email only
+ * (per-contact tracking — unlike insertOutreachLead which dedupes by company).
+ */
+export async function ensureActiveOutreachLead(lead: {
+  company: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  email: string;
+  sourceDetail?: string | null;
+}): Promise<void> {
+  const updated = await pool.query(
+    `UPDATE outreach_leads SET status = 'Active', updated_at = NOW() WHERE LOWER(email) = LOWER($1)`,
+    [lead.email],
+  );
+  if ((updated.rowCount || 0) === 0) {
+    await pool.query(
+      `INSERT INTO outreach_leads (company, first_name, last_name, email, source, source_detail, status)
+       VALUES ($1, $2, $3, $4, 'wizmatch_outreach', $5, 'Active')`,
+      [lead.company, lead.firstName ?? null, lead.lastName ?? null, lead.email, lead.sourceDetail ?? null],
+    );
+  }
+}
+
 export async function insertOutreachLead(lead: {
   company: string;
   firstName?: string | null;

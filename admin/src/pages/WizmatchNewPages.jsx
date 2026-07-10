@@ -1080,11 +1080,67 @@ export function WizmatchContactIntelligenceNewPage({ demoMode = false }) {
   const [preview, setPreview] = useState(null);
   const [actionMessage, setActionMessage] = useState('');
   const [actionBusy, setActionBusy] = useState(false);
+  // Outreach compose/send state
+  const [templates, setTemplates] = useState([]);
+  const [composeFor, setComposeFor] = useState(null);        // candidateId currently being composed
+  const [composeTemplateId, setComposeTemplateId] = useState('');
+  const [composeDraft, setComposeDraft] = useState(null);    // { draftId, subject, body, to }
+  const [composeBusy, setComposeBusy] = useState(false);
+  const [composeMsg, setComposeMsg] = useState('');
 
   useEffect(() => {
     setPreview(null);
     setActionMessage('');
+    setComposeFor(null);
+    setComposeDraft(null);
+    setComposeMsg('');
   }, [selected?.companyId]);
+
+  useEffect(() => {
+    if (demoMode) return;
+    apiFetch('/api/wizmatch/outreach-templates')
+      .then((r) => {
+        setTemplates(r.templates || []);
+        if (r.templates?.[0]) setComposeTemplateId(r.templates[0].id);
+      })
+      .catch(() => {});
+  }, [demoMode]);
+
+  const reviewContact = async (candidateId, action) => {
+    setComposeBusy(true); setComposeMsg('');
+    try {
+      await apiFetch(`/api/wizmatch/contact-intelligence/contacts/${candidateId}/review`, {
+        method: 'POST', body: JSON.stringify({ action }),
+      });
+      setComposeMsg(action === 'approve_contact' ? 'Contact approved.' : action === 'reject_contact' ? 'Contact rejected.' : 'Marked do-not-contact.');
+      await refresh();
+    } catch (e) { setComposeMsg(e.message || 'Action failed.'); } finally { setComposeBusy(false); }
+  };
+
+  const composeContact = async (candidateId, polish = false) => {
+    if (!composeTemplateId) { setComposeMsg('Create/pick a template first.'); return; }
+    setComposeBusy(true); setComposeMsg('');
+    try {
+      const r = await apiFetch(`/api/wizmatch/contact-intelligence/contacts/${candidateId}/compose`, {
+        method: 'POST', body: JSON.stringify({ templateId: composeTemplateId, polish }),
+      });
+      setComposeDraft({ draftId: r.draftId, subject: r.subject, body: r.body, to: r.to });
+      setComposeMsg(polish ? 'Draft composed (AI-polished). Review before sending.' : 'Draft composed. Review before sending.');
+    } catch (e) { setComposeMsg(e.message || 'Compose failed.'); } finally { setComposeBusy(false); }
+  };
+
+  const sendContact = async (candidateId) => {
+    if (!composeDraft?.draftId) return;
+    setComposeBusy(true); setComposeMsg('');
+    try {
+      const r = await apiFetch(`/api/wizmatch/contact-intelligence/contacts/${candidateId}/send`, {
+        method: 'POST', body: JSON.stringify({ draftId: composeDraft.draftId, body: composeDraft.body }),
+      });
+      setComposeMsg(`✅ Sent from ${r.from}.`);
+      setComposeDraft(null); setComposeFor(null);
+      await refresh();
+    } catch (e) { setComposeMsg(e.message || 'Send failed (is WIZMATCH_SENDING_ENABLED set?).'); } finally { setComposeBusy(false); }
+  };
 
   const runPreview = async () => {
     if (!selected) return;
@@ -1290,6 +1346,45 @@ export function WizmatchContactIntelligenceNewPage({ demoMode = false }) {
                       </div>
                       {candidate.confidenceTier && CONFIDENCE_TIER_HELP[candidate.confidenceTier] && (
                         <p className="mt-1.5 text-[11.5px] text-neutral-400">{CONFIDENCE_TIER_HELP[candidate.confidenceTier]}</p>
+                      )}
+
+                      {!demoMode && candidate.email && (
+                        <div className="mt-3 border-t border-neutral-100 pt-2.5">
+                          <div className="flex flex-wrap gap-2">
+                            {candidate.status !== 'approved' && candidate.status !== 'linked_to_crm' && (
+                              <button className="btn-standard btn-compact" type="button" disabled={composeBusy} onClick={() => reviewContact(candidate.id, 'approve_contact')}>Approve</button>
+                            )}
+                            {candidate.status !== 'rejected' && (
+                              <button className="btn-standard btn-compact" type="button" disabled={composeBusy} onClick={() => reviewContact(candidate.id, 'reject_contact')}>Reject</button>
+                            )}
+                            {(candidate.status === 'approved' || candidate.status === 'linked_to_crm') && (
+                              <button className="btn-primary btn-compact" type="button" disabled={composeBusy} onClick={() => { setComposeFor(composeFor === candidate.id ? null : candidate.id); setComposeDraft(null); setComposeMsg(''); }}>
+                                {composeFor === candidate.id ? 'Close' : 'Compose & Send'}
+                              </button>
+                            )}
+                          </div>
+
+                          {composeFor === candidate.id && (
+                            <div className="mt-2.5 rounded-md border border-neutral-200 bg-neutral-50 p-3 space-y-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <select className="input-compact" value={composeTemplateId} onChange={(e) => setComposeTemplateId(e.target.value)}>
+                                  {templates.length === 0 && <option value="">No templates — create one first</option>}
+                                  {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                                </select>
+                                <button className="btn-standard btn-compact" type="button" disabled={composeBusy || !composeTemplateId} onClick={() => composeContact(candidate.id, false)}>Generate</button>
+                                <button className="btn-standard btn-compact" type="button" disabled={composeBusy || !composeTemplateId} onClick={() => composeContact(candidate.id, true)}>AI polish</button>
+                              </div>
+                              {composeDraft && (
+                                <div className="space-y-1.5">
+                                  <p className="text-[12px] text-neutral-500">To: {composeDraft.to} · Subject: <span className="font-medium text-neutral-800">{composeDraft.subject}</span></p>
+                                  <textarea className="input-compact w-full h-32 font-mono text-[12px]" value={composeDraft.body} onChange={(e) => setComposeDraft({ ...composeDraft, body: e.target.value })} />
+                                  <button className="btn-primary btn-compact" type="button" disabled={composeBusy} onClick={() => sendContact(candidate.id)}>Send email</button>
+                                </div>
+                              )}
+                              {composeMsg && <p className="text-[12px] text-primary-700">{composeMsg}</p>}
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
                   )) : (

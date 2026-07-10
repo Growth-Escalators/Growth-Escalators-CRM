@@ -17,7 +17,7 @@ vi.mock('../db/index', () => ({
 }));
 
 import { pool } from '../db/index';
-import { sendColdEmail } from '../services/multiDomainMailer';
+import { sendColdEmail, AllInboxesAtDailyCapError } from '../services/multiDomainMailer';
 
 describe('multiDomainMailer.sendColdEmail', () => {
   const originalEnv = { ...process.env };
@@ -42,10 +42,11 @@ describe('multiDomainMailer.sendColdEmail', () => {
     process.env = { ...originalEnv };
   });
 
-  it('keeps sending through configured inbox fallback when no healthy domains match', async () => {
+  it('keeps sending through configured inbox fallback when no sendable domains match', async () => {
     vi.mocked(pool.query)
-      .mockResolvedValueOnce({ rows: [] } as any)
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 } as any);
+      .mockResolvedValueOnce({ rows: [] } as any)          // sendable domains: none
+      .mockResolvedValueOnce({ rows: [] } as any)           // today's per-inbox counts: none
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 } as any); // sends_7d bump
 
     const result = await sendColdEmail({
       to: 'candidate@example.com',
@@ -57,16 +58,24 @@ describe('multiDomainMailer.sendColdEmail', () => {
 
     expect(result).toEqual({
       from: 'Archit <sender@warned.example>',
+      fromInbox: 'sender@warned.example',
       domain: 'warned.example',
       messageId: 'message-1',
     });
-    expect(mailerMocks.createTransport).toHaveBeenCalledWith({
-      host: 'smtp.test.local',
-      port: 587,
-      secure: false,
-      auth: { user: 'sender@warned.example', pass: 'secret' },
-    });
     expect(mailerMocks.sendMail).toHaveBeenCalledOnce();
-    expect(vi.mocked(pool.query).mock.calls[0][0]).toContain("status = 'healthy'");
+    // Paused/blacklisted domains must never be used for cold sends.
+    expect(vi.mocked(pool.query).mock.calls[0][0]).toContain("NOT IN ('paused', 'blacklisted')");
+  });
+
+  it('throws AllInboxesAtDailyCapError when the only inbox is already at the daily cap', async () => {
+    process.env.WIZMATCH_MAX_SENDS_PER_INBOX_DAY = '30';
+    vi.mocked(pool.query)
+      .mockResolvedValueOnce({ rows: [] } as any) // sendable domains: none → fallback to all inboxes
+      .mockResolvedValueOnce({ rows: [{ inbox: 'sender@warned.example', c: 30 }] } as any); // already at cap
+
+    await expect(
+      sendColdEmail({ to: 'x@example.com', subject: 's', body: 'b', fromName: 'Archit', tenantId: 'tenant-1' }),
+    ).rejects.toBeInstanceOf(AllInboxesAtDailyCapError);
+    expect(mailerMocks.sendMail).not.toHaveBeenCalled();
   });
 });

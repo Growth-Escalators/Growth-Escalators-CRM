@@ -33,6 +33,12 @@ import { scoreSignal } from '../services/wizmatchScoring';
 import { matchCandidates } from '../services/wizmatchMatching';
 import { callClaude, parseClaudeJSON, CLAUDE_MODELS } from '../services/claudeService';
 import { findOrCreateContact, normalizeChannelValue } from '../services/contactService';
+import { ensureActiveOutreachLead } from '../services/outreachLeadsService';
+import {
+  ensureOutreachTemplatesTable,
+  renderTemplate,
+  ensureCompliancePlaceholders,
+} from '../services/wizmatchOutreachTemplates';
 import { sendSlackMessage } from '../services/slackService';
 import {
   WIZMATCH_LEADS_CHANNEL,
@@ -3678,7 +3684,7 @@ router.post('/signals/:id/send', async (req: Request, res: Response) => {
     // Update message status to sent
     await pool.query(
       `UPDATE messages SET status = 'sent', sent_at = NOW(), metadata = metadata || $3::jsonb WHERE id = $1 AND tenant_id = $2`,
-      [draft.id, tenantId, JSON.stringify({ ...draft.metadata, sent_from: sendResult.from, domain: sendResult.domain })],
+      [draft.id, tenantId, JSON.stringify({ ...draft.metadata, sent_from: sendResult.from, fromInbox: sendResult.fromInbox, domain: sendResult.domain })],
     );
 
     // Update signal status
@@ -3708,6 +3714,206 @@ router.post('/signals/:id/send', async (req: Request, res: Response) => {
     res.json({ messageId: draft.id, sent: true, from: sendResult.from, domain: sendResult.domain });
   } catch (e) {
     logger.error({ err: e }, '[wizmatch] send failed');
+    res.status(500).json({ error: 'send failed', detail: e instanceof Error ? e.message : 'unknown' });
+  }
+});
+
+// ============================================================
+// OUTREACH SENDING — approved contact → template → compliant send
+// All sending is gated by WIZMATCH_SENDING_ENABLED (default off).
+// ============================================================
+
+function wizmatchSendingEnabled(): boolean {
+  return ['1', 'true', 'yes', 'on'].includes((process.env.WIZMATCH_SENDING_ENABLED || '').toLowerCase());
+}
+
+/** Optional AI polish of a rendered template — keeps merge content + compliance tokens intact. */
+async function polishOutreachBody(body: string): Promise<string> {
+  try {
+    const prompt = `You are tightening a cold outreach email from a tech-staffing agency to a hiring contact (Talent Acquisition / HR / hiring manager). Keep it under 120 words, warm and professional, ONE clear ask (a short call). CRITICAL: keep the exact tokens [UNSUBSCRIBE_LINK] and [PHYSICAL_ADDRESS] present and unchanged. Return ONLY the email body text, no preamble.\n\n---\n${body}`;
+    const out = await callClaude(prompt, CLAUDE_MODELS.SONNET, 800);
+    const text = (typeof out === 'string' ? out : '').trim();
+    return text ? ensureCompliancePlaceholders(text) : body;
+  } catch (e) {
+    logger.warn({ err: e }, '[wizmatch] AI polish failed — using template as-is');
+    return body;
+  }
+}
+
+// ---- Templates CRUD ----
+router.get('/outreach-templates', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  await ensureOutreachTemplatesTable(pool);
+  const r = await pool.query(
+    `SELECT id, name, subject, body, active, created_at FROM wizmatch_outreach_templates WHERE tenant_id = $1 ORDER BY created_at DESC`,
+    [tenantId],
+  );
+  res.json({ templates: r.rows });
+});
+
+router.post('/outreach-templates', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const { name, subject, body } = req.body as { name?: string; subject?: string; body?: string };
+  if (!name || !subject || !body) {
+    res.status(400).json({ error: 'name, subject and body are required' });
+    return;
+  }
+  await ensureOutreachTemplatesTable(pool);
+  const r = await pool.query(
+    `INSERT INTO wizmatch_outreach_templates (tenant_id, name, subject, body, created_by)
+     VALUES ($1, $2, $3, $4, $5::uuid)
+     RETURNING id, name, subject, body, active, created_at`,
+    [tenantId, name, subject, ensureCompliancePlaceholders(body), req.user?.id || null],
+  );
+  res.status(201).json({ template: r.rows[0] });
+});
+
+router.patch('/outreach-templates/:id', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const { name, subject, body, active } = req.body as { name?: string; subject?: string; body?: string; active?: boolean };
+  await ensureOutreachTemplatesTable(pool);
+  const r = await pool.query(
+    `UPDATE wizmatch_outreach_templates
+       SET name = COALESCE($3, name), subject = COALESCE($4, subject),
+           body = COALESCE($5, body), active = COALESCE($6, active), updated_at = NOW()
+     WHERE tenant_id = $1 AND id = $2
+     RETURNING id, name, subject, body, active`,
+    [tenantId, req.params.id, name ?? null, subject ?? null, body ? ensureCompliancePlaceholders(body) : null, active ?? null],
+  );
+  if (r.rows.length === 0) {
+    res.status(404).json({ error: 'template not found' });
+    return;
+  }
+  res.json({ template: r.rows[0] });
+});
+
+// ---- Compose: approved contact + template → CRM contact + reply-tracking + draft ----
+router.post('/contact-intelligence/contacts/:candidateId/compose', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const candidateId = String(req.params.candidateId);
+  const { templateId, polish } = req.body as { templateId?: string; polish?: boolean };
+  if (!templateId) {
+    res.status(400).json({ error: 'templateId required' });
+    return;
+  }
+
+  const cr = await pool.query(
+    `SELECT c.id, c.company_id, c.crm_contact_id, c.name, c.title, c.email, c.status, c.metadata, comp.name AS company_name
+     FROM wizmatch_contact_candidates c
+     LEFT JOIN wizmatch_companies comp ON comp.id = c.company_id
+     WHERE c.tenant_id = $1 AND c.id = $2 LIMIT 1`,
+    [tenantId, candidateId],
+  );
+  const cand = cr.rows[0];
+  if (!cand) { res.status(404).json({ error: 'contact candidate not found' }); return; }
+  if (!['approved', 'linked_to_crm'].includes(cand.status)) { res.status(409).json({ error: 'approve the contact before composing' }); return; }
+  if (!cand.email) { res.status(400).json({ error: 'contact has no email' }); return; }
+
+  const supp = await pool.query(`SELECT 1 FROM wizmatch_suppression_list WHERE tenant_id = $1 AND LOWER(email) = LOWER($2)`, [tenantId, cand.email]);
+  if (supp.rows.length > 0) { res.status(400).json({ error: 'contact is on the suppression list' }); return; }
+
+  await ensureOutreachTemplatesTable(pool);
+  const tr = await pool.query(`SELECT subject, body FROM wizmatch_outreach_templates WHERE tenant_id = $1 AND id = $2 AND active = true LIMIT 1`, [tenantId, templateId]);
+  const tpl = tr.rows[0];
+  if (!tpl) { res.status(404).json({ error: 'template not found' }); return; }
+
+  // Find-or-create the CRM contact (same as link-crm-contact) so replies attach to a real contact.
+  const nm = splitName(cand.name || 'Hiring Manager');
+  let crmContactId = cand.crm_contact_id as string | null;
+  if (!crmContactId) {
+    const { contact } = await findOrCreateContact(tenantId, {
+      ...nm,
+      source: 'wizmatch_outreach',
+      sourceDetail: cand.title || 'wizmatch contact intelligence',
+      metadata: { title: cand.title, wizmatch_company_id: cand.company_id, contact_intelligence_candidate_id: cand.id },
+      channels: [{ channelType: 'email', channelValue: normalizeChannelValue('email', cand.email), isPrimary: true }],
+    });
+    crmContactId = contact.id;
+    await pool.query(`UPDATE wizmatch_contact_candidates SET crm_contact_id = $1, status = 'linked_to_crm', updated_at = NOW() WHERE tenant_id = $2 AND id = $3`, [crmContactId, tenantId, candidateId]);
+  }
+  await pool.query(`UPDATE contacts SET last_activity_at = NOW(), updated_at = NOW() WHERE tenant_id = $1 AND id = $2`, [tenantId, crmContactId]);
+
+  const team = (cand.metadata?.raw?.team as string | undefined) ?? (typeof cand.metadata?.team === 'string' ? cand.metadata.team : null);
+  // Register an Active outreach_lead so the IMAP reply matcher tracks replies to this contact.
+  await ensureActiveOutreachLead({ company: cand.company_name || 'Unknown', firstName: nm.firstName, lastName: nm.lastName, email: cand.email, sourceDetail: `wizmatch:${candidateId}` });
+
+  const vars = { firstName: nm.firstName, lastName: nm.lastName, company: cand.company_name, team, title: cand.title };
+  const rendered = renderTemplate(tpl, vars);
+  let bodyOut = rendered.body;
+  if (polish) bodyOut = await polishOutreachBody(bodyOut);
+
+  const dr = await pool.query(
+    `INSERT INTO messages (tenant_id, contact_id, channel, direction, content, message_type, status, metadata)
+     VALUES ($1, $2, 'email', 'outbound', $3, 'wizmatch_outreach', 'draft', $4::jsonb)
+     RETURNING id`,
+    [tenantId, crmContactId, bodyOut, JSON.stringify({ subject: rendered.subject, candidateId, team, templateId })],
+  );
+
+  res.json({ draftId: dr.rows[0].id, subject: rendered.subject, body: bodyOut, crmContactId, to: cand.email });
+});
+
+// ---- Send: compliant + throttled (per-inbox daily cap), gated by WIZMATCH_SENDING_ENABLED ----
+router.post('/contact-intelligence/contacts/:candidateId/send', async (req: Request, res: Response) => {
+  if (!wizmatchSendingEnabled()) {
+    res.status(403).json({ error: 'Sending is disabled. Set WIZMATCH_SENDING_ENABLED=true to enable outreach.' });
+    return;
+  }
+  const tenantId = req.user!.tenantId;
+  const candidateId = String(req.params.candidateId);
+  const { draftId, body: bodyOverride } = req.body as { draftId?: string; body?: string };
+  if (!draftId) { res.status(400).json({ error: 'draftId required' }); return; }
+
+  const mr = await pool.query(`SELECT id, contact_id, content, metadata FROM messages WHERE id = $1 AND tenant_id = $2 AND status = 'draft'`, [draftId, tenantId]);
+  const draft = mr.rows[0];
+  if (!draft) { res.status(404).json({ error: 'draft not found (already sent?)' }); return; }
+
+  const er = await pool.query(`SELECT channel_value FROM contact_channels WHERE contact_id = $1 AND channel_type = 'email' LIMIT 1`, [draft.contact_id]);
+  if (er.rows.length === 0) { res.status(400).json({ error: 'contact has no email channel' }); return; }
+  const toEmail = er.rows[0].channel_value as string;
+
+  const supp = await pool.query(`SELECT 1 FROM wizmatch_suppression_list WHERE tenant_id = $1 AND LOWER(email) = LOWER($2)`, [tenantId, toEmail]);
+  if (supp.rows.length > 0) { res.status(400).json({ error: 'contact is on the suppression list' }); return; }
+
+  // Use the reviewer's edited body if provided, but always guarantee the compliance
+  // placeholders are present before we substitute the real unsubscribe link + address.
+  const sourceContent = typeof bodyOverride === 'string' && bodyOverride.trim()
+    ? ensureCompliancePlaceholders(bodyOverride)
+    : String(draft.content);
+  const unsubSig = crypto.createHmac('sha256', WIZMATCH_UNSUBSCRIBE_HMAC_SECRET || 'default-secret').update(toEmail).digest('base64url');
+  const unsubLink = `https://api.growthescalators.com/api/wizmatch/unsubscribe?email=${encodeURIComponent(toEmail)}&sig=${unsubSig}`;
+  const renderedBody = sourceContent.replace('[UNSUBSCRIBE_LINK]', unsubLink).replace('[PHYSICAL_ADDRESS]', WIZMATCH_PHYSICAL_ADDRESS);
+
+  try {
+    const { sendColdEmail, AllInboxesAtDailyCapError } = await import('../services/multiDomainMailer');
+    let sendResult;
+    try {
+      sendResult = await sendColdEmail({
+        to: toEmail,
+        subject: draft.metadata?.subject || 'Quick question',
+        body: renderedBody,
+        fromName: 'Archit',
+        tenantId,
+      });
+    } catch (capErr) {
+      if (capErr instanceof AllInboxesAtDailyCapError) {
+        res.status(429).json({ error: 'Daily send cap reached on all inboxes — try again tomorrow to protect domain reputation.' });
+        return;
+      }
+      throw capErr;
+    }
+
+    await pool.query(
+      `UPDATE messages SET status = 'sent', sent_at = NOW(), content = $4, metadata = metadata || $3::jsonb WHERE id = $1 AND tenant_id = $2`,
+      [draft.id, tenantId, JSON.stringify({ sent_from: sendResult.from, fromInbox: sendResult.fromInbox, domain: sendResult.domain }), renderedBody],
+    );
+    await pool.query(
+      `UPDATE wizmatch_contact_candidates SET metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb, updated_at = NOW() WHERE tenant_id = $1 AND id = $2`,
+      [tenantId, candidateId, JSON.stringify({ lastOutreachAt: new Date().toISOString(), lastOutreachInbox: sendResult.fromInbox })],
+    );
+
+    res.json({ draftId: draft.id, sent: true, from: sendResult.from, domain: sendResult.domain });
+  } catch (e) {
+    logger.error({ err: e }, '[wizmatch] contact send failed');
     res.status(500).json({ error: 'send failed', detail: e instanceof Error ? e.message : 'unknown' });
   }
 });
