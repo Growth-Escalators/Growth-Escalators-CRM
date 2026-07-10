@@ -75,7 +75,16 @@ jobs:
                     const href = a.getAttribute("href") || "";
                     if (!href || seen.has(href)) continue;
                     seen.add(href);
-                    const title = (a.textContent || "").trim();
+                    // Dice /job-detail/ anchors often carry no direct text
+                    // (the title lives in a nested heading), so derive it from
+                    // multiple sources instead of skipping on empty anchor text.
+                    let title = (a.textContent || "").trim();
+                    if (!title) title = (a.getAttribute("aria-label") || a.getAttribute("title") || "").trim();
+                    if (!title) {
+                      const h = a.closest("article, [id^=\"position-\"], [data-cy=\"search-result-card\"], [role=\"listitem\"], li, div")
+                        ?.querySelector("h1,h2,h3,h4,h5,[data-cy*=\"title\"],[class*=\"title\"]");
+                      title = (h?.textContent || "").trim();
+                    }
                     if (!title) continue;
                     // Walk up to the nearest card container (article, or the
                     // ancestor that also contains a /company-profile/ link).
@@ -102,13 +111,16 @@ jobs:
                   const diag = {
                     titleLinkCount: titleLinks.length,
                     companyLinkCount: document.querySelectorAll("a[href*=\"/company-profile/\"]").length,
+                    emptyTitleCount: titleLinks.filter((a) => !(a.textContent || "").trim()).length,
+                    sampleAnchorHtml: (titleLinks[0]?.outerHTML || "").slice(0, 300),
                     firstHtml: (document.body?.innerHTML || "").slice(0, 500),
                   };
                   return { jobs: results, diag };
                 });
 
                 if (jobs.length === 0) {
-                  console.log(`Dice ${query}: 0 jobs (titleLinks=${diag.titleLinkCount}, companyLinks=${diag.companyLinkCount})`);
+                  console.log(`Dice ${query}: 0 jobs (titleLinks=${diag.titleLinkCount}, companyLinks=${diag.companyLinkCount}, emptyTitles=${diag.emptyTitleCount})`);
+                  console.log(`  sample anchor: ${(diag.sampleAnchorHtml || "").replace(/\s+/g, " ")}`);
                   if (diag.titleLinkCount === 0) {
                     console.log(`  first-500 body html: ${diag.firstHtml.replace(/\s+/g, " ").slice(0, 300)}`);
                   }

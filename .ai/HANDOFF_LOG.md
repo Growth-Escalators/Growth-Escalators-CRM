@@ -5,6 +5,39 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-10 — Step 32: Wizmatch go-live prep (access, templates, scraper truth) — Claude — DONE
+
+**Decisions:** outreach stays manual (sending gated off); demand sourcing "fix scrapers first".
+
+**Prod data mutations (via `railway run --service Postgres` + public DB URL, transactional, count-first):**
+- Reset the **wizmatch-tenant** Kanishk password (`kanishk.khandelwal@growthescalators.com`,
+  row `115f2251…`) to `Kanishk@#2026` (matches his growth login; token_version 1→2). He already
+  existed as **admin** on the wizmatch tenant — no user created. His growth-tenant row untouched.
+- Seeded **3 starter outreach email templates** into `email_templates` for the wizmatch tenant
+  (`wizmatch-intro-role`, `wizmatch-followup`, `wizmatch-value`; idempotent on (tenant_id, name)).
+- One-off scripts were deleted after running (contained the credential); this log is the audit trail.
+
+**Read-only findings (prod):** wizmatch tenant `4b3dd3e2…`; 260 candidates loaded, but demand is
+thin (2 companies, 0 requirements, 2 job signals — both `scored`, scoring pipeline healthy, nothing
+stuck at `new`). Pipeline "Wizmatch Placements" exists (6 stages). WhatsApp inbound **stopped
+2026-06-29** (real webhook break; email replies unaffected).
+
+**Scraper truth (dispatched both workflows):**
+- **Naukri** (`wizmatch-jobspy.yml`, run 29076439988): Akamai **IP-blocks CI** — every request →
+  "Access Denied / errors.edgesuite.net" before any HTML. NOT a selector bug; unfixable without a
+  residential proxy / licensed feed. Header comment corrected to say so.
+- **Dice** (`wizmatch-dice.yml`, run 29076678934): page renders (60 title links) but extracted 0 —
+  real bug: `title = a.textContent` is empty on Dice's job-detail anchors. **Fixed**: derive title
+  from anchor text → aria-label/title → nearest heading; added sharper 0-result diagnostics.
+  (Validation dispatch pending on the branch.)
+
+**Deliverable:** `docs/wizmatch/GO-LIVE-PLAYBOOK.md` — the operator SOP for Kanishk.
+
+**Next:** validate the Dice fix via a branch dispatch; if >0 real jobs ingest, merge. Manual demand
+seeding is the day-1 floor regardless.
+
+---
+
 ## 2026-07-10 — Step 31: Wizmatch staged full-detail admin flow (Hybrid) — Claude — VERIFIED LOCALLY
 
 **What was done**
