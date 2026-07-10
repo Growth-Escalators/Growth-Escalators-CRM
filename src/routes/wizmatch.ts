@@ -3319,7 +3319,7 @@ router.post('/signals/:id/score', requireInternalToken, async (req: Request, res
   const row = result.rows[0];
   const daysOpen = row.days_open || Math.floor((Date.now() - new Date(row.first_seen_at).getTime()) / 86400000);
 
-  const { score, region, breakdown, reasoning } = scoreSignal({
+  const { score, region, breakdown, reasoning, urgencyLevel, strugglingScore } = scoreSignal({
     daysOpen,
     repostCount: row.repost_count || 0,
     companyVolumeCount: row.company_volume || 0,
@@ -3333,7 +3333,7 @@ router.post('/signals/:id/score', requireInternalToken, async (req: Request, res
     `UPDATE wizmatch_job_signals
      SET score = $3, score_breakdown = $4::jsonb, status = 'scored', days_open = $5
      WHERE id = $1 AND tenant_id = $2`,
-    [signalId, tenantId, score, JSON.stringify({ ...breakdown, region, reasoning }), daysOpen],
+    [signalId, tenantId, score, JSON.stringify({ ...breakdown, region, reasoning, urgencyLevel, strugglingScore }), daysOpen],
   );
 
   // Slack alert for high scores

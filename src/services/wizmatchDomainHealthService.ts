@@ -212,7 +212,9 @@ export async function runWizmatchDomainHealthCheck(
     alertThrottled = await hasRecentAllDomainsAlert(pool, tenantId);
     if (!alertThrottled) {
       const tenantLabel = await loadTenantLabel(pool, tenantId);
-      const sent = await sendSlackMessage(systemChannel, buildAllDomainsAlertText(tenantLabel, checkedDomains));
+      // Critical deliverability alert — must fire even while routine Slack notifications
+      // are paused (SLACK_NOTIFICATIONS_PAUSED), otherwise all-domains-down goes unnoticed.
+      const sent = await sendSlackMessage(systemChannel, buildAllDomainsAlertText(tenantLabel, checkedDomains), undefined, { allowDuringPause: true });
       if (sent) {
         await recordAllDomainsAlert(pool, tenantId, tenantLabel, checkedDomains);
         alertSent = true;

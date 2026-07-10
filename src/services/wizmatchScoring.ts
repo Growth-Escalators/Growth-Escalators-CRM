@@ -24,12 +24,26 @@ interface SignalInput {
   location?: string | null;
 }
 
+export type HiringUrgency = 'high' | 'medium' | 'low';
+
 export interface ScoreResult {
   score: number;
   region: Region;
   breakdown: Record<string, number>;
   reasoning: string;
+  /** How strongly this company looks like it is STRUGGLING to hire (staffing-buy signal). */
+  urgencyLevel: HiringUrgency;
+  /** Points behind urgencyLevel: stale days-open + reposts + volume + urgency language. */
+  strugglingScore: number;
 }
+
+// Language that signals a company is struggling / urgently needs to fill roles.
+const URGENCY_KEYWORDS = [
+  'urgent', 'immediate', 'immediate joiner', 'immediate need', 'asap', 'asap joiner',
+  'multiple positions', 'multiple openings', 'multiple roles', 'walk-in', 'walk in',
+  'bench', 'hot requirement', 'quick hire', 'priority', 'backfill', 'notice period',
+  'looking for', 'actively hiring', 'need immediately',
+];
 
 // US staffing/contract signals
 const US_CONTRACT_KEYWORDS = [
@@ -103,7 +117,17 @@ export function scoreSignal(input: SignalInput): ScoreResult {
   }
 
   const score = Math.min(10, Object.values(breakdown).reduce((a, b) => a + b, 0));
+
+  // Derived "struggling to hire" indicator — does NOT change the numeric score (so the
+  // score>=7 enrich gate is unaffected); it just surfaces WHY a company is worth pursuing.
+  const hasUrgencyLanguage = URGENCY_KEYWORDS.some((kw) => allText.includes(kw));
+  const strugglingScore =
+    (breakdown.daysOpen || 0) + (breakdown.repost || 0) + (breakdown.volume || 0) + (hasUrgencyLanguage ? 2 : 0);
+  const urgencyLevel: HiringUrgency = strugglingScore >= 6 ? 'high' : strugglingScore >= 3 ? 'medium' : 'low';
+  if (hasUrgencyLanguage) reasons.push('urgent/immediate hiring language');
+  if (urgencyLevel === 'high') reasons.push('strong "struggling to hire" signal');
+
   const reasoning = reasons.length > 0 ? reasons.join(', ') : 'low priority signal';
 
-  return { score, region, breakdown, reasoning };
+  return { score, region, breakdown, reasoning, urgencyLevel, strugglingScore };
 }

@@ -91,8 +91,10 @@ describe('runWizmatchDomainHealthCheck', () => {
       alertThrottled: false,
     });
     expect(sendSlackMessage).toHaveBeenCalledOnce();
-    const [channel, text] = sendSlackMessage.mock.calls[0] as unknown as [string, string];
+    const [channel, text, , opts] = sendSlackMessage.mock.calls[0] as unknown as [string, string, unknown, { allowDuringPause?: boolean }];
     expect(channel).toBe('C_SYSTEM_TEST');
+    // Critical alert must be sent with allowDuringPause so it fires even when Slack is paused.
+    expect(opts?.allowDuringPause).toBe(true);
     expect(text).toContain('Tenant: Wizmatch (wizmatch)');
     expect(text).toContain('alpha.example: SPF fail, DMARC fail, low reply rate');
     expect(text).toContain('fallback-to-all inbox behavior');

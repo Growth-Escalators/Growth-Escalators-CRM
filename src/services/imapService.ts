@@ -2,6 +2,7 @@ import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import logger from '../utils/logger';
 import { pool } from '../db/index';
+import { parseBounce, recordHardBounce, bounceSuppressionEnabled } from './wizmatchBounceParser';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -134,6 +135,17 @@ async function fetchFromInbox(inbox: InboxConfig): Promise<RawEmail[]> {
           } catch {
             body = msg.source.toString().substring(0, 800);
           }
+        }
+
+        // Detect + (optionally) suppress hard bounces before the generic skip filter,
+        // so "verify by sending" can confirm which guessed emails are undeliverable.
+        const bounce = parseBounce({ from: fromAddr, subject, body });
+        if (bounce.isBounce) {
+          if (bounce.hard && bounce.bouncedRecipient && bounceSuppressionEnabled()) {
+            await recordHardBounce(bounce.bouncedRecipient, { inbox: inbox.user });
+          }
+          await client.messageFlagsAdd([uid], ['\\Seen'], { uid: true });
+          continue;
         }
 
         if (isSpamOrWarmup(fromAddr, subject, body)) {
