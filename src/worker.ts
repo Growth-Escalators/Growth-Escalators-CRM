@@ -1400,23 +1400,19 @@ console.log('[cron] Monthly client benchmarks scheduled — 1st of month 11:00 A
 if (process.env.DISABLE_BACKGROUND_JOBS !== 'true' && process.env.WIZMATCH_TENANT_ID) {
 
   // Signal scoring — every 30 minutes, cap 50/run (pure TS, $0)
+  // Calls scoreSignalById in-process instead of an HTTPS self-request to the public
+  // API. No network hop, no global rate-limiter contention, and a hung/failed signal
+  // can no longer silently wedge the batch — each is isolated by the per-signal catch.
   cron.schedule('*/30 * * * *', () => safeCron('Wizmatch Signal Scoring', async () => {
     const tenantId = process.env.WIZMATCH_TENANT_ID!;
     const signals = await pool.query(
       `SELECT id FROM wizmatch_job_signals WHERE tenant_id = $1 AND status = 'new' LIMIT 50`,
       [tenantId],
     );
-    const token = process.env.WIZMATCH_INTERNAL_TOKEN || process.env.OUTREACH_INTERNAL_SECRET;
-    // Runs in the *worker* service, which serves only a health probe (WORKER_PORT)
-    // — not the Express API. Must call the public `web` service; localhost /
-    // RAILWAY_PUBLIC_DOMAIN would fail and stall every signal at status='new'.
-    const baseUrl = process.env.WIZMATCH_API_BASE_URL || 'https://api.growthescalators.com';
+    const { scoreSignalById } = await import('./services/wizmatchSignalPipeline');
     for (const s of signals.rows) {
       try {
-        await fetch(`${baseUrl}/api/wizmatch/signals/${s.id}/score`, {
-          method: 'POST',
-          headers: { 'x-internal-secret': token! },
-        });
+        await scoreSignalById(tenantId, s.id);
       } catch (e) { console.error('[CRON] wizmatch score failed for', s.id, e); }
     }
     if (signals.rows.length > 0) console.log(`[CRON] Wizmatch: scored ${signals.rows.length} signals`);
@@ -1430,17 +1426,10 @@ if (process.env.DISABLE_BACKGROUND_JOBS !== 'true' && process.env.WIZMATCH_TENAN
       `SELECT id FROM wizmatch_job_signals WHERE tenant_id = $1 AND score >= 7 AND contact_id IS NULL AND status = 'scored' LIMIT 20`,
       [tenantId],
     );
-    const token = process.env.WIZMATCH_INTERNAL_TOKEN || process.env.OUTREACH_INTERNAL_SECRET;
-    // Runs in the *worker* service, which serves only a health probe (WORKER_PORT)
-    // — not the Express API. Must call the public `web` service; localhost /
-    // RAILWAY_PUBLIC_DOMAIN would fail and stall every signal at status='new'.
-    const baseUrl = process.env.WIZMATCH_API_BASE_URL || 'https://api.growthescalators.com';
+    const { enrichSignalById } = await import('./services/wizmatchSignalPipeline');
     for (const s of signals.rows) {
       try {
-        await fetch(`${baseUrl}/api/wizmatch/signals/${s.id}/enrich`, {
-          method: 'POST',
-          headers: { 'x-internal-secret': token! },
-        });
+        await enrichSignalById(tenantId, s.id);
       } catch (e) { console.error('[CRON] wizmatch enrich failed for', s.id, e); }
     }
     if (signals.rows.length > 0) console.log(`[CRON] Wizmatch: enriched ${signals.rows.length} signals`);
@@ -1454,17 +1443,10 @@ if (process.env.DISABLE_BACKGROUND_JOBS !== 'true' && process.env.WIZMATCH_TENAN
       `SELECT id FROM wizmatch_job_signals WHERE tenant_id = $1 AND status = 'enriched' LIMIT 30`,
       [tenantId],
     );
-    const token = process.env.WIZMATCH_INTERNAL_TOKEN || process.env.OUTREACH_INTERNAL_SECRET;
-    // Runs in the *worker* service, which serves only a health probe (WORKER_PORT)
-    // — not the Express API. Must call the public `web` service; localhost /
-    // RAILWAY_PUBLIC_DOMAIN would fail and stall every signal at status='new'.
-    const baseUrl = process.env.WIZMATCH_API_BASE_URL || 'https://api.growthescalators.com';
+    const { matchSignalById } = await import('./services/wizmatchSignalPipeline');
     for (const s of signals.rows) {
       try {
-        await fetch(`${baseUrl}/api/wizmatch/signals/${s.id}/match`, {
-          method: 'POST',
-          headers: { 'x-internal-secret': token! },
-        });
+        await matchSignalById(tenantId, s.id);
       } catch (e) { console.error('[CRON] wizmatch match failed for', s.id, e); }
     }
     if (signals.rows.length > 0) console.log(`[CRON] Wizmatch: matched ${signals.rows.length} signals`);
