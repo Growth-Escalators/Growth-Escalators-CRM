@@ -79,6 +79,8 @@ router.post('/agency', async (req: Request, res: Response): Promise<void> => {
       `• Phone: ${phone}\n` +
       `• Monthly ad-spend managed: ${adSpend || 'N/A'}\n` +
       `• Status: ${created ? 'NEW contact' : 'EXISTING contact'}`,
+      undefined,
+      { allowDuringPause: true }, // new client lead — fires even while routine Slack is paused
     ).catch(() => {});
 
     res.json({ ok: true, contactId: contact.id, created });

@@ -42,9 +42,12 @@ router.get('/health', async (_req, res) => {
     stuckStatus = stuckJobCount > 0 ? 'warning' : 'ok';
   } catch { /* ignore */ }
 
-  // 3. Last webhook (most recent inbound WA message)
-  let lastWebhookAt: string | null = null;
-  let webhookStatus: CheckStatus = 'ok';
+  // 3. Last inbound message (WhatsApp/Meta). INFORMATIONAL ONLY — this is
+  //    traffic-dependent (no inbound messages != a broken service), so it must
+  //    not by itself mark the whole service "degraded". Previously mislabeled
+  //    "lastWebhook", which wrongly implied a payment-webhook failure.
+  let lastInboundAt: string | null = null;
+  let inboundStatus: CheckStatus = 'ok';
   try {
     const [latest] = await db
       .select({ sentAt: messages.sentAt })
@@ -53,16 +56,29 @@ router.get('/health', async (_req, res) => {
       .orderBy(sql`sent_at DESC`)
       .limit(1);
     if (latest?.sentAt) {
-      lastWebhookAt = new Date(latest.sentAt).toISOString();
+      lastInboundAt = new Date(latest.sentAt).toISOString();
       const hoursSince = (Date.now() - new Date(latest.sentAt).getTime()) / (1000 * 60 * 60);
-      webhookStatus = hoursSince > 24 ? 'stale' : 'ok';
+      inboundStatus = hoursSince > 48 ? 'stale' : 'ok';
     }
   } catch { /* ignore */ }
 
-  // Overall status
+  // 4. Last processed Cashfree payment webhook. Also informational — absent when
+  //    there simply have been no recent sales, so it never degrades health.
+  let lastCashfreeAt: string | null = null;
+  try {
+    const result: unknown = await db.execute(
+      sql`SELECT MAX(processed_at) AS latest FROM processed_events WHERE source = 'cashfree'`,
+    );
+    const rows = (result as { rows?: Array<{ latest?: unknown }> }).rows ?? (result as Array<{ latest?: unknown }>);
+    const latest = Array.isArray(rows) ? rows[0]?.latest : undefined;
+    if (latest) lastCashfreeAt = new Date(latest as string).toISOString();
+  } catch { /* ignore */ }
+
+  // Overall status: only real failures degrade it — DB down (unhealthy) or stuck
+  // jobs (degraded). Traffic-dependent freshness signals are reported, not scored.
   let overallStatus: 'healthy' | 'degraded' | 'unhealthy' = 'healthy';
   if (dbStatus === 'error') overallStatus = 'unhealthy';
-  else if (stuckStatus === 'warning' || webhookStatus === 'stale') overallStatus = 'degraded';
+  else if (stuckStatus === 'warning') overallStatus = 'degraded';
 
   res.json({
     status: overallStatus,
@@ -72,7 +88,15 @@ router.get('/health', async (_req, res) => {
     checks: {
       database: { status: dbStatus, ...(dbMessage && { message: dbMessage }) },
       stuckJobs: { status: stuckStatus, count: stuckJobCount },
-      lastWebhook: { status: webhookStatus, lastReceivedAt: lastWebhookAt },
+      lastInboundMessage: {
+        status: inboundStatus,
+        lastReceivedAt: lastInboundAt,
+        note: 'inbound WhatsApp/Meta — traffic-dependent, informational only',
+      },
+      cashfreePayments: {
+        lastProcessedAt: lastCashfreeAt,
+        note: 'last processed payment webhook — absent when no recent sales',
+      },
     },
   });
 });

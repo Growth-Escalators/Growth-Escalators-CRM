@@ -3341,6 +3341,8 @@ router.post('/signals/:id/score', requireInternalToken, async (req: Request, res
     await sendSlackMessage(
       WIZMATCH_LEADS_CHANNEL,
       `🎯 *Priority Signal* (score ${score}/10)\n*${row.job_title}* at ${row.company_name || 'Unknown'}\n${reasoning}`,
+      undefined,
+      { allowDuringPause: true }, // client-acquisition alert — fires even while routine Slack is paused
     ).catch(() => {});
   }
 
@@ -3460,6 +3462,8 @@ router.post('/signals/:id/match', requireInternalToken, async (req: Request, res
     await sendSlackMessage(
       WIZMATCH_LEADS_CHANNEL,
       `✅ *${matches.length} candidate${matches.length > 1 ? 's' : ''} matched* for ${signal.job_title}\n${matches.map((m) => `• Score ${m.matchScore}/10 — ${m.reasoning}`).join('\n')}`,
+      undefined,
+      { allowDuringPause: true }, // client-acquisition alert — fires even while routine Slack is paused
     ).catch(() => {});
   }
 
@@ -4376,6 +4380,8 @@ router.post('/classify-reply', requireInternalToken, async (req: Request, res: R
         await sendSlackMessage(
           WIZMATCH_LEADS_CHANNEL,
           `🔥 *POSITIVE REPLY* from ${contact_email}\nCategory: ${result.category} (${result.confidence}%)\nSummary: ${result.summary}`,
+          undefined,
+          { allowDuringPause: true }, // client-acquisition alert — fires even while routine Slack is paused
         ).catch(() => {});
       }
 

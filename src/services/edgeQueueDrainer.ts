@@ -239,6 +239,8 @@ async function dispatch(event: QueueEvent): Promise<void> {
       if (event.type === 'agency_lead') {
         sendSlackMessage(process.env.SLACK_SALES_BD_CHANNEL || SLACK_SALES_BD_CHANNEL,
           `🤝 *New Agency Lead* (via edge)\n• Name: ${p.name}\n• Agency: ${p.agencyName || 'N/A'}\n• Email: ${p.email}\n• Phone: ${p.phone || 'N/A'}\n• Ad-spend: ${p.adSpend || 'N/A'}\n• Status: ${created ? 'NEW' : 'EXISTING'}`,
+          undefined,
+          { allowDuringPause: true }, // new client lead — fires even while routine Slack is paused
         ).catch(() => {});
       }
       return;

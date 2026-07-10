@@ -1500,6 +1500,8 @@ if (process.env.DISABLE_BACKGROUND_JOBS !== 'true' && process.env.WIZMATCH_TENAN
       const { sendSlackMessage } = await import('./services/slackService');
       await sendSlackMessage(WIZMATCH_LEADS_CHANNEL,
         `📋 ATS Poller: ${result.jobs_inserted} new jobs from ${result.companies_polled} companies`,
+        undefined,
+        { allowDuringPause: true }, // new hiring-company signals — client-acquisition alert
       ).catch(() => {});
     }
   }), { timezone: 'UTC' });

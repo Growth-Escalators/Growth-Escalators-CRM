@@ -135,6 +135,8 @@ export async function syncOutreachToCrm(): Promise<{ synced: number; errors: num
   if (synced > 0) {
     await sendSlackMessage(SLACK_SALES_BD_CHANNEL,
       `📋 *CRM Sync*: Added ${synced} new white-label prospects to contacts and pipeline.`,
+      undefined,
+      { allowDuringPause: true }, // new client prospects — fires even while routine Slack is paused
     ).catch(() => {});
   }
 
