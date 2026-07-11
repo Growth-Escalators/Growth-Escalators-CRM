@@ -342,47 +342,57 @@ function useLiveData({ demoMode, fallback, loadLive }) {
   return { data, loading, error, refresh, setData };
 }
 
-function Page({ eyebrow, title, description, demoMode, loading, error, onRefresh, children }) {
+function Page({ eyebrow, title, description, demoMode, loading, error, onRefresh, children, embedded = false }) {
+  // `embedded` renders the same header/content without the full-viewport page
+  // shell (min-h-screen + outer background/padding) — used when this component
+  // is reused as a tab's content inside another page (e.g. the Wizmatch System
+  // page) instead of as a standalone route.
+  const body = (
+    <div className={embedded ? 'space-y-5' : 'mx-auto max-w-[1540px] space-y-5'}>
+      <div className="card overflow-hidden">
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral-100 bg-white px-5 py-5">
+          <div>
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span className="badge-info">{eyebrow}</span>
+              {demoMode && <span className="badge-warning">Demo mode</span>}
+              {loading && <span className="badge-muted">Loading</span>}
+            </div>
+            <h1 className="text-[28px] font-bold tracking-tight text-neutral-950">{title}</h1>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-neutral-500">{description}</p>
+          </div>
+          <button type="button" onClick={onRefresh} className="btn-secondary btn-compact">
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </button>
+        </div>
+        <div className="grid gap-3 bg-neutral-50 px-5 py-3 md:grid-cols-4">
+          {[
+            ['Manual approval', 'Required before outreach'],
+            ['Paid discovery', 'Preview-first manual only'],
+            ['Candidate submit', 'Never automatic'],
+            ['Logic mode', 'Deterministic first'],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-md border border-neutral-200 bg-white px-3 py-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-400">{label}</p>
+              <p className="mt-0.5 text-[12.5px] font-semibold text-neutral-800">{value}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+      {error && (
+        <div className="rounded-md border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-800">
+          {error}. Showing safe demo fallback.
+        </div>
+      )}
+      {children}
+    </div>
+  );
+
+  if (embedded) return body;
+
   return (
     <div className="min-h-screen bg-neutral-50 px-4 py-4 sm:px-5 lg:px-8">
-      <div className="mx-auto max-w-[1540px] space-y-5">
-        <div className="card overflow-hidden">
-          <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral-100 bg-white px-5 py-5">
-            <div>
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                <span className="badge-info">{eyebrow}</span>
-                {demoMode && <span className="badge-warning">Demo mode</span>}
-                {loading && <span className="badge-muted">Loading</span>}
-              </div>
-              <h1 className="text-[28px] font-bold tracking-tight text-neutral-950">{title}</h1>
-              <p className="mt-1 max-w-3xl text-sm leading-6 text-neutral-500">{description}</p>
-            </div>
-            <button type="button" onClick={onRefresh} className="btn-secondary btn-compact">
-              <RefreshCw className="h-4 w-4" />
-              Refresh
-            </button>
-          </div>
-          <div className="grid gap-3 bg-neutral-50 px-5 py-3 md:grid-cols-4">
-            {[
-              ['Manual approval', 'Required before outreach'],
-              ['Paid discovery', 'Preview-first manual only'],
-              ['Candidate submit', 'Never automatic'],
-              ['Logic mode', 'Deterministic first'],
-            ].map(([label, value]) => (
-              <div key={label} className="rounded-md border border-neutral-200 bg-white px-3 py-2">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-400">{label}</p>
-                <p className="mt-0.5 text-[12.5px] font-semibold text-neutral-800">{value}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-        {error && (
-          <div className="rounded-md border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-800">
-            {error}. Showing safe demo fallback.
-          </div>
-        )}
-        {children}
-      </div>
+      {body}
     </div>
   );
 }
@@ -1238,7 +1248,7 @@ export function WizmatchRequirementPriorityPage({ demoMode = false }) {
   );
 }
 
-export function WizmatchGuardrailsPage({ demoMode = false }) {
+export function WizmatchGuardrailsPage({ demoMode = false, embedded = false }) {
   const fallback = useMemo(() => DEMO_GUARDRAILS, []);
   const { data, loading, error, refresh } = useLiveData({
     demoMode,
@@ -1254,6 +1264,7 @@ export function WizmatchGuardrailsPage({ demoMode = false }) {
       loading={loading}
       error={error}
       onRefresh={refresh}
+      embedded={embedded}
     >
       <div className="grid gap-4 md:grid-cols-4">
         <Metric icon={ShieldCheck} label="Safety" value={data.safetyCenter?.status || 'healthy'} helper="Current posture" tone={data.safetyCenter?.status === 'blocked' ? 'danger' : 'success'} />
@@ -1292,7 +1303,7 @@ export function WizmatchGuardrailsPage({ demoMode = false }) {
   );
 }
 
-export function WizmatchReadinessPage({ demoMode = false }) {
+export function WizmatchReadinessPage({ demoMode = false, embedded = false }) {
   const fallback = useMemo(() => DEMO_READINESS, []);
   const { data, loading, error, refresh } = useLiveData({
     demoMode,
@@ -1313,6 +1324,7 @@ export function WizmatchReadinessPage({ demoMode = false }) {
       loading={loading}
       error={error}
       onRefresh={refresh}
+      embedded={embedded}
     >
       <div className="grid gap-4 md:grid-cols-5">
         <Metric icon={DatabaseZap} label="Overall" value={text(data.overall?.status || 'needs_data')} helper={data.overall?.primaryIssue || 'Readiness pending'} tone={data.overall?.status === 'ready' ? 'success' : data.overall?.status === 'blocked' ? 'danger' : 'neutral'} />

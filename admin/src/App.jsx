@@ -41,8 +41,6 @@ const WizmatchCandidateIntelligencePage = lazy(() => import('./pages/WizmatchCan
 const WizmatchCandidatesPage = lazy(() => import('./pages/WizmatchCandidatesPage.jsx'));
 const WizmatchContactIntelligenceNewPage = lazy(() => import('./pages/WizmatchNewPages.jsx').then((module) => ({ default: module.WizmatchContactIntelligenceNewPage })));
 const WizmatchContactIntelligencePage = lazy(() => import('./pages/WizmatchContactIntelligencePage.jsx'));
-const WizmatchDomainsPage = lazy(() => import('./pages/WizmatchDomainsPage.jsx'));
-const WizmatchCompliancePage = lazy(() => import('./pages/WizmatchCompliancePage.jsx'));
 const WizmatchPlacementsPage = lazy(() => import('./pages/WizmatchPlacementsPage.jsx'));
 const WizmatchPrimesPage = lazy(() => import('./pages/WizmatchPrimesPage.jsx'));
 const WizmatchAnalyticsNewPage = lazy(() => import('./pages/WizmatchNewPages.jsx').then((module) => ({ default: module.WizmatchAnalyticsNewPage })));
@@ -54,6 +52,7 @@ const WizmatchRequirementPriorityPage = lazy(() => import('./pages/WizmatchOpera
 const WizmatchGuardrailsPage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchGuardrailsPage })));
 const WizmatchReadinessPage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchReadinessPage })));
 const WizmatchLocalDemoFlowPage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchLocalDemoFlowPage })));
+const WizmatchSystemPage = lazy(() => import('./pages/WizmatchSystemPage.jsx'));
 const AppLayout = lazy(() => import('./components/AppLayout.jsx'));
 
 class ErrorBoundary extends React.Component {
@@ -241,12 +240,16 @@ export default function App() {
             <Route path="/wizmatch/contact-intelligence-new-demo" element={<WizmatchContactIntelligenceNewPage demoMode />} />
             <Route path="/wizmatch/contact-intelligence" element={<PrivateRoute><AppLayout><WizmatchContactIntelligencePage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/contact-intelligence-new" element={<Navigate to="/wizmatch/contact-intelligence" replace />} />
-            <Route path="/wizmatch/domains" element={<PrivateRoute><AppLayout><WizmatchDomainsPage /></AppLayout></PrivateRoute>} />
-            <Route path="/wizmatch/compliance" element={<PrivateRoute><AppLayout><WizmatchCompliancePage /></AppLayout></PrivateRoute>} />
+            {/* Diagnostics — folded into the single System page (Workstream B). Old
+                standalone routes redirect to the matching System tab; -demo variants
+                (no auth, sample data) are unaffected. */}
+            <Route path="/wizmatch/domains" element={<Navigate to="/wizmatch/system?tab=domains" replace />} />
+            <Route path="/wizmatch/compliance" element={<Navigate to="/wizmatch/system?tab=compliance" replace />} />
             <Route path="/wizmatch/guardrails-new-demo" element={<WizmatchGuardrailsPage demoMode />} />
-            <Route path="/wizmatch/guardrails-new" element={<PrivateRoute><AppLayout><WizmatchGuardrailsPage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/guardrails-new" element={<Navigate to="/wizmatch/system?tab=guardrails" replace />} />
             <Route path="/wizmatch/readiness-demo" element={<WizmatchReadinessPage demoMode />} />
-            <Route path="/wizmatch/readiness" element={<PrivateRoute><AppLayout><WizmatchReadinessPage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/readiness" element={<Navigate to="/wizmatch/system?tab=readiness" replace />} />
+            <Route path="/wizmatch/system" element={<PrivateRoute><AppLayout><WizmatchSystemPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/placements" element={<PrivateRoute><AppLayout><WizmatchPlacementsPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/primes" element={<PrivateRoute><AppLayout><WizmatchPrimesPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/analytics-demo" element={<Navigate to="/wizmatch/analytics-new-demo" replace />} />

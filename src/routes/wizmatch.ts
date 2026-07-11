@@ -92,6 +92,7 @@ import {
 } from '../services/wizmatchRequirementPriority';
 import { buildWizmatchReviewWorkbench } from '../services/wizmatchReviewWorkbench';
 import { getWizmatchReadiness } from '../services/wizmatchReadiness';
+import { buildWizmatchEnvReport } from '../services/wizmatchEnvCheck';
 import { parseCsv } from './outbound';
 import {
   buildWizmatchContactDiscoveryPreview,
@@ -4470,6 +4471,15 @@ router.post('/suppression', async (req: Request, res: Response) => {
   } catch (e) {
     res.status(500).json({ error: 'Failed to suppress', detail: e instanceof Error ? e.message : 'unknown' });
   }
+});
+
+// GET /api/wizmatch/env-check — read-only diagnostics for the System page's
+// "System Health / Env" tab. Presence-only: never returns secret values, only
+// which alias (if any) satisfied each check.
+router.get('/env-check', async (_req: Request, res: Response) => {
+  const checks = buildWizmatchEnvReport();
+  const groups = Array.from(new Set(checks.map((c) => c.group)));
+  res.json({ checks, groups, generatedAt: new Date().toISOString() });
 });
 
 // GET /api/wizmatch/unsubscribe — public, HMAC-verified

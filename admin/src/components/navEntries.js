@@ -2,7 +2,7 @@ import {
   Calendar, Home, Users, Kanban, CheckSquare, MessageSquare, TrendingUp,
   Megaphone, Share2, Target, Search, FileText, Brain, MapPin, Zap, Mail,
   Link as LinkIcon, CreditCard, Receipt, Shield, ShieldCheck, ClipboardList, Settings,
-  Briefcase, UserCheck, BarChart3, Network, DatabaseZap,
+  Briefcase, UserCheck, BarChart3, Network,
 } from 'lucide-react';
 
 // Permission flag bag — derived from user role + per-user permission overrides.
@@ -320,25 +320,11 @@ export const NAV_ENTRIES = [
     icon: BarChart3, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
-  // ── Diagnostics (out of the daily funnel; Workstream B folds these into one "System" page) ──
+  // ── Diagnostics (out of the daily funnel; Workstream B folds Readiness, Guardrails,
+  //    Domains, and Compliance into one tabbed "System" page/nav entry) ──
   {
-    id: 'wm-readiness', label: 'Data Readiness', to: '/wizmatch/readiness',
-    icon: DatabaseZap, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-guardrails-new', label: 'Guardrails', to: '/wizmatch/guardrails-new',
-    icon: ShieldCheck, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-domains', label: 'Domains', to: '/wizmatch/domains',
-    icon: Network, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-compliance', label: 'Compliance', to: '/wizmatch/compliance',
-    icon: Shield, section: 'Wizmatch', group: null,
+    id: 'wm-system', label: 'System', to: '/wizmatch/system',
+    icon: Settings, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
 
