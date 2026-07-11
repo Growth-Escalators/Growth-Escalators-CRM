@@ -806,13 +806,11 @@ export function WizmatchDashboardPage({ demoMode = false }) {
         <Metric icon={Contact} label="Qualified companies" value={summary.qualifiedCompanies || 0} helper={`${summary.approvedContacts || 0} approved contacts`} />
       </div>
 
-      <ReadinessStrip readiness={data.readiness || DEMO_READINESS.overall} demoMode={demoMode} />
-
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Metric icon={ClipboardList} label="Review actions" value={summary.reviewActions || 0} helper={`${summary.safeActions || 0} safe actions`} />
         <Metric icon={MessageSquare} label="Unread inbox" value={summary.unreadInbox || 0} helper="Email + WhatsApp" />
         <Metric icon={CheckCircle2} label="Open tasks" value={summary.openTasks || 0} helper={`${summary.crmContacts || 0} tenant contacts`} />
-        <Metric icon={Activity} label="Monthly margin" value={formatINR(summary.monthlyMargin)} helper={`${summary.activePlacements || 0} active placements`} tone="success" />
+        <Metric icon={CheckCircle2} label="Active placements" value={summary.activePlacements || 0} helper="In progress now" tone="success" />
       </div>
 
       <div className="card p-5">
@@ -820,11 +818,11 @@ export function WizmatchDashboardPage({ demoMode = false }) {
         <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {[
             ['/wizmatch/client-discovery', Target, '1', 'Client Discovery', 'Find & qualify hiring companies'],
-            ['/wizmatch/requirement-priority-new', FileText, '2', 'Requirement Priority', 'Rank which roles to work'],
-            ['/wizmatch/candidate-intelligence', UserCheck, '3', 'Candidate Intelligence', 'Match & review candidates'],
-            ['/wizmatch/contact-intelligence', Contact, '4', 'Contact Intelligence', 'Find & approve the decision-maker, link to CRM'],
-            ['/wizmatch/analytics', Activity, '5', 'Analytics', 'Outreach & placement performance'],
-            ['/wizmatch/guardrails-new', ShieldCheck, '6', 'Guardrails', 'Safety & deliverability checks'],
+            ['/wizmatch/contact-intelligence', Contact, '2', 'Contact Intelligence', 'Approve the decision-maker, link to CRM'],
+            ['/wizmatch/requirement-priority-new', FileText, '3', 'Requirement Priority', 'Rank which roles to work'],
+            ['/wizmatch/candidate-intelligence', UserCheck, '4', 'Candidate Intelligence', 'Match & review candidates'],
+            ['/wizmatch/placements', CheckCircle2, '5', 'Placements', 'Track placements & outcomes'],
+            ['/wizmatch/analytics', Activity, '6', 'Analytics', 'Outreach & placement performance'],
           ].map(([href, Icon, step, label, description]) => (
             <a key={href} href={href} className="group flex items-start gap-3 rounded-md border border-neutral-100 bg-white px-3 py-3 transition hover:border-primary-300">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary-50 text-primary-700">
@@ -846,15 +844,16 @@ export function WizmatchDashboardPage({ demoMode = false }) {
           <SectionHeader icon={Zap} title="What needs attention" description="Highest-priority live actions from the Wizmatch operating queue." />
           <div className="mt-4 grid gap-3">
             {(data.priorityActions || []).length ? (data.priorityActions || []).slice(0, 6).map((action) => (
-              <div key={action.id} className="rounded-md border border-neutral-100 bg-white px-3 py-3">
+              <a key={action.id} href="/wizmatch/review-workbench" className="group block rounded-md border border-neutral-100 bg-white px-3 py-3 transition hover:border-primary-300">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <span className={badgeFor(action.priority)}>{action.priority}</span>
                   <span className="badge-muted">{moduleLabel(action.module)}</span>
                   <span className={badgeFor(action.actionType)}>{text(action.actionType)}</span>
                 </div>
-                <p className="font-semibold text-neutral-950">{action.title}</p>
+                <p className="font-semibold text-neutral-950 group-hover:text-primary-700">{action.title}</p>
                 <p className="mt-1 text-[12.5px] text-neutral-500">{action.subtitle}</p>
-              </div>
+                <span className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-primary-600">Act in Review Workbench <ArrowRight className="h-3 w-3" /></span>
+              </a>
             )) : (
               <EmptyQueue title="No live review actions yet" description="This is a real empty state for the Wizmatch tenant; add requirements, candidates, signals, or contact intelligence snapshots." />
             )}
@@ -862,15 +861,6 @@ export function WizmatchDashboardPage({ demoMode = false }) {
         </div>
 
         <div className="space-y-4">
-          <div className="card p-5">
-            <SectionHeader icon={ShieldCheck} title="Guardrails" description="Operational safety status before outreach or discovery." />
-            <span className={badgeFor(data.safetyCenter?.status)}>{data.safetyCenter?.status || 'healthy'}</span>
-            <div className="mt-3 space-y-2">
-              {(data.safetyCenter?.blockers || ['No blockers detected.']).map((item) => (
-                <p key={item} className="rounded-md bg-neutral-50 px-3 py-2 text-[12.5px] text-neutral-700">{item}</p>
-              ))}
-            </div>
-          </div>
           <div className="card p-5">
             <SectionHeader icon={LayoutDashboard} title="Open shared modules" description="Same CRM functionality, Wizmatch tenant data." />
             <div className="grid gap-2">
@@ -969,8 +959,6 @@ export function WizmatchIntelligencePage({ demoMode = false }) {
         <Metric icon={Contact} label="Contact readiness" value={summary.qualifiedCompanies || 0} helper={`${summary.approvedContacts || 0} contacts approved`} />
         <Metric icon={ShieldCheck} label="Blocked actions" value={summary.blockedActions || 0} helper="Must stay manual" tone={summary.blockedActions ? 'danger' : 'success'} />
       </div>
-
-      <ReadinessStrip readiness={data.snapshot?.readiness || DEMO_READINESS.overall} demoMode={demoMode} />
 
       <div className="card p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -1083,8 +1071,6 @@ export function WizmatchReviewWorkbenchPage({ demoMode = false }) {
         <Metric icon={CheckCircle2} label="Safe actions" value={data.summary?.safeExecutableActions || 0} helper="No sending/submits" tone="success" />
       </div>
 
-      <ReadinessStrip readiness={data.readiness || DEMO_READINESS.overall} demoMode={demoMode} />
-
       {message && <div className="rounded-md border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-800">{message}</div>}
 
       <div className="grid gap-3 xl:grid-cols-[1fr_1fr]">
@@ -1092,38 +1078,15 @@ export function WizmatchReviewWorkbenchPage({ demoMode = false }) {
         <FilterBar label="Priority" options={PRIORITY_FILTERS} value={priorityFilter} onChange={setPriorityFilter} />
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
-        <div className="grid gap-3">
-          {filteredActions.length ? filteredActions.map((action) => (
-            <ActionCard key={action.id} action={action} onRun={runAction} running={runningId === action.id} result={resultById[action.id]} />
-          )) : (
-            <EmptyQueue
-              title="No actions match these filters"
-              description="The safe queue is still intact; change module or priority filters to see other items."
-            />
-          )}
-        </div>
-        <div className="space-y-4">
-          <MetricRail actions={actions} />
-          <div className="card p-5">
-            <SectionHeader icon={ShieldCheck} title="Safety center" description="Blockers stay explanatory until a human resolves them." />
-            <span className={badgeFor(data.safetyCenter?.status)}>{data.safetyCenter?.status || 'healthy'}</span>
-            <div className="mt-3 space-y-2">
-              {(data.safetyCenter?.blockers || ['No blockers detected.']).map((item) => (
-                <p key={item} className="rounded-md bg-neutral-50 px-3 py-2 text-[12.5px] text-neutral-700">{item}</p>
-              ))}
-            </div>
-          </div>
-          <div className="card p-5">
-            <SectionHeader icon={DatabaseZap} title="Guardrails" description="Every safe action respects these caps." />
-            <div className="space-y-2">
-              {Object.entries(data.guardrails || {}).map(([key, value]) => (
-                <GuardrailRow key={key} label={key} value={value} />
-              ))}
-            </div>
-          </div>
-          <OperatingLinks />
-        </div>
+      <div className="grid gap-3">
+        {filteredActions.length ? filteredActions.map((action) => (
+          <ActionCard key={action.id} action={action} onRun={runAction} running={runningId === action.id} result={resultById[action.id]} />
+        )) : (
+          <EmptyQueue
+            title="No actions match these filters"
+            description="The safe queue is still intact; change module or priority filters to see other items."
+          />
+        )}
       </div>
     </Page>
   );
