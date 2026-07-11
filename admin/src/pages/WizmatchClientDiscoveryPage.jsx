@@ -414,6 +414,7 @@ export default function WizmatchClientDiscoveryPage({ demoMode = false }) {
   const [loading, setLoading] = useState(!demoMode);
   const [error, setError] = useState('');
   const [actionMessage, setActionMessage] = useState('');
+  const [sentIds, setSentIds] = useState(() => new Set());
   const [actionLoading, setActionLoading] = useState('');
 
   const load = useCallback(async () => {
@@ -460,7 +461,8 @@ export default function WizmatchClientDiscoveryPage({ demoMode = false }) {
         setActionMessage('Demo handoff completed locally. In live mode this saves a Contact Intelligence snapshot.');
       } else {
         await apiFetch(`/api/wizmatch/client-discovery/companies/${selected.companyId}/send-to-contact-intelligence`, { method: 'POST' });
-        setActionMessage('Sent to Contact Intelligence review queue.');
+        setSentIds((prev) => new Set(prev).add(selected.companyId));
+        setActionMessage(`Sent "${selected.companyName || 'this company'}" to Contact Intelligence — go there to find the decision-maker.`);
       }
     } catch (e) {
       setActionMessage(e.message || 'Handoff failed');
@@ -537,16 +539,25 @@ export default function WizmatchClientDiscoveryPage({ demoMode = false }) {
                 <button
                   type="button"
                   className="btn-primary btn-compact"
-                  disabled={actionLoading === 'handoff' || selected.nextAction !== 'send_to_contact_intelligence'}
+                  disabled={actionLoading === 'handoff' || sentIds.has(selected.companyId) || selected.nextAction !== 'send_to_contact_intelligence'}
                   onClick={handoff}
                 >
-                  <ArrowRight className="w-3.5 h-3.5" /> Send to Contact Intel
+                  {sentIds.has(selected.companyId)
+                    ? '✓ Sent'
+                    : actionLoading === 'handoff'
+                    ? 'Sending…'
+                    : <><ArrowRight className="w-3.5 h-3.5" /> Send to Contact Intel</>}
                 </button>
               </div>
 
               {actionMessage && (
                 <div className="mt-4 rounded-lg border border-primary-100 bg-primary-50 px-4 py-3 text-sm text-primary-800">
-                  {actionMessage}
+                  <p>{actionMessage}</p>
+                  {sentIds.has(selected.companyId) && (
+                    <a href="/wizmatch/contact-intelligence" className="mt-1 inline-flex items-center gap-1 font-semibold text-primary-700 hover:underline">
+                      View in Contact Intelligence <ArrowRight className="h-3.5 w-3.5" />
+                    </a>
+                  )}
                 </div>
               )}
 

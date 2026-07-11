@@ -264,14 +264,10 @@ export const NAV_ENTRIES = [
     icon: Settings, section: 'Settings', group: 'settings', product: 'wizmatch',
     visible: f => f.isAdmin,
   },
+  // ── Wizmatch funnel (canonical order: start → source → contact → rank → match → place → measure) ──
   {
     id: 'wm-review-workbench', label: 'Review Workbench', to: '/wizmatch/review-workbench',
     icon: ClipboardList, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-readiness', label: 'Data Readiness', to: '/wizmatch/readiness',
-    icon: DatabaseZap, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
   {
@@ -282,16 +278,6 @@ export const NAV_ENTRIES = [
   {
     id: 'wm-signals', label: 'Signals', to: '/wizmatch/signals',
     icon: Zap, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-candidate-intelligence-new', label: 'Candidate Intelligence', to: '/wizmatch/candidate-intelligence',
-    icon: ClipboardList, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-candidates', label: 'Candidates', to: '/wizmatch/candidates',
-    icon: UserCheck, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
   {
@@ -310,6 +296,16 @@ export const NAV_ENTRIES = [
     visible: f => f.canWizmatch,
   },
   {
+    id: 'wm-candidate-intelligence-new', label: 'Candidate Intelligence', to: '/wizmatch/candidate-intelligence',
+    icon: ClipboardList, section: 'Wizmatch', group: null,
+    visible: f => f.canWizmatch,
+  },
+  {
+    id: 'wm-candidates', label: 'Candidates', to: '/wizmatch/candidates',
+    icon: UserCheck, section: 'Wizmatch', group: null,
+    visible: f => f.canWizmatch,
+  },
+  {
     id: 'wm-placements', label: 'Placements', to: '/wizmatch/placements',
     icon: Briefcase, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
@@ -317,6 +313,17 @@ export const NAV_ENTRIES = [
   {
     id: 'wm-primes', label: 'Primes', to: '/wizmatch/primes',
     icon: Users, section: 'Wizmatch', group: null,
+    visible: f => f.canWizmatch,
+  },
+  {
+    id: 'wm-analytics-new', label: 'Analytics', to: '/wizmatch/analytics',
+    icon: BarChart3, section: 'Wizmatch', group: null,
+    visible: f => f.canWizmatch,
+  },
+  // ── Diagnostics (out of the daily funnel; Workstream B folds these into one "System" page) ──
+  {
+    id: 'wm-readiness', label: 'Data Readiness', to: '/wizmatch/readiness',
+    icon: DatabaseZap, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
   {
@@ -332,11 +339,6 @@ export const NAV_ENTRIES = [
   {
     id: 'wm-compliance', label: 'Compliance', to: '/wizmatch/compliance',
     icon: Shield, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-analytics-new', label: 'Analytics', to: '/wizmatch/analytics',
-    icon: BarChart3, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,
   },
 

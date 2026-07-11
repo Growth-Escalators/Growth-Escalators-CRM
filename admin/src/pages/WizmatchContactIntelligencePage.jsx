@@ -497,24 +497,6 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
           </div>
           <p className="text-2xl font-bold text-primary-700 mt-2">{summary.contacts}</p>
         </div>
-        <div className="card p-4">
-          <div className="flex items-center gap-2 text-neutral-500 text-[12px] font-semibold uppercase tracking-wider">
-            <ShieldCheck className="w-4 h-4" /> Paid Calls
-          </div>
-          <p className="text-2xl font-bold text-neutral-900 mt-2">0</p>
-        </div>
-      </div>
-
-      <div className="mb-5 card p-4 bg-primary-50 border-primary-100">
-        <div className="flex items-start gap-3">
-          <ShieldCheck className="w-5 h-5 text-primary-700 mt-0.5" />
-          <div>
-            <p className="font-semibold text-primary-900">Phase 1 guardrails are active</p>
-            <p className="text-[12.5px] text-primary-800 mt-1">
-              Paid enrichment disabled: {String(costControls?.paidDiscoveryEnabled ?? false)} · max paid discovery/company: {costControls?.maxPaidDiscoveryPerCompany ?? 0} · shown candidates/company: {costControls?.maxContactCandidatesShown ?? 3} · rediscovery cooldown: {costControls?.rediscoveryCooldownDays ?? 30} days
-            </p>
-          </div>
-        </div>
       </div>
 
       {error && (
@@ -656,12 +638,9 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
                     <button className="btn-standard btn-compact" disabled={Boolean(actionLoading)} onClick={() => reviewCompany('watchlist_company')}>
                       Watchlist
                     </button>
-                    <button className="btn-standard btn-compact" disabled={Boolean(actionLoading)} onClick={() => reviewCompany('request_paid_discovery')}>
-                      Request discovery
-                    </button>
                   </div>
                   <p className="text-[12px] text-neutral-400 mt-2">
-                    Company/contact actions persist review state only. Request discovery stays blocked by the zero-paid-enrichment cap.
+                    Company/contact actions persist review state only — no outreach is sent.
                   </p>
 
                   <h3 className="text-[15px] font-semibold text-neutral-800 mt-6 mb-3">Add Manual Contact</h3>
