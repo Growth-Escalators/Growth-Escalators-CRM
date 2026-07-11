@@ -606,8 +606,56 @@ function ModuleReadinessCard({ module }) {
   );
 }
 
-function ActionCard({ action, onRun, running }) {
+// Plain-language meaning per action type: what the item is / what running it does,
+// the action-specific button label, and the message shown after it runs.
+const ACTION_META = {
+  approve_contact: {
+    verb: 'Approve contact',
+    what: 'A decision-maker was discovered for this company. Approving moves the contact into Contact Intelligence, ready to link to the CRM and reach out.',
+    done: 'Contact approved — open Contact Intelligence to link it to the CRM.',
+  },
+  send_to_contact_intelligence: {
+    verb: 'Send to Contact Intelligence',
+    what: 'This hiring company looks qualified. Sending it hands the company to Contact Intelligence to find the named decision-maker to pitch.',
+    done: 'Sent to Contact Intelligence — decision-maker discovery is queued.',
+  },
+  review_candidate: {
+    verb: 'Mark reviewed',
+    what: 'A sourced candidate is waiting to be vetted. Marking reviewed records that you have looked at them — it does not create a submission.',
+    done: 'Candidate marked as reviewed.',
+  },
+  mark_reviewed: {
+    verb: 'Mark reviewed',
+    what: 'A sourced candidate is waiting to be vetted. Marking reviewed records that you have looked at them — it does not create a submission.',
+    done: 'Candidate marked as reviewed.',
+  },
+  shortlist: {
+    verb: 'Shortlist candidate',
+    what: 'A strong candidate match. Shortlisting flags them as a top pick for the matched requirement — it does not create a submission.',
+    done: 'Candidate shortlisted.',
+  },
+  prioritize_requirement: {
+    verb: 'Prioritize requirement',
+    what: 'An open requirement to rank. Prioritizing prepares a review plan and ordering — it does not change the requirement status.',
+    done: 'Requirement prioritized — review plan prepared.',
+  },
+  resolve_safety: {
+    verb: 'Resolve blocker',
+    what: 'A safety or data blocker is holding this item back. It stays explanatory until a human resolves the underlying issue.',
+    done: 'Blocker acknowledged — resolve the underlying issue to fully unblock.',
+  },
+  watch: {
+    verb: 'Keep watching',
+    what: 'Not yet actionable — kept on the watch list until it gains enough signal to act on.',
+    done: 'Kept on the watch list.',
+  },
+};
+const DEFAULT_ACTION_META = { verb: 'Run safe action', what: 'A manual, non-sending action.', done: 'Done.' };
+function actionMeta(actionType) { return ACTION_META[actionType] || DEFAULT_ACTION_META; }
+
+function ActionCard({ action, onRun, running, result }) {
   const Icon = moduleIcon(action.module);
+  const meta = actionMeta(action.actionType);
   return (
     <div className={`card card-hover overflow-hidden ${action.priority === 'hot' ? 'border-success-200' : action.priority === 'blocked' ? 'border-danger-200' : ''}`}>
       <div className={`h-1 ${action.priority === 'hot' ? 'bg-success-500' : action.priority === 'blocked' ? 'bg-danger-500' : action.priority === 'warm' ? 'bg-primary-500' : 'bg-neutral-300'}`} />
@@ -632,11 +680,32 @@ function ActionCard({ action, onRun, running }) {
             <p className="text-[11px] uppercase tracking-wider text-neutral-400">score</p>
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {(action.reasons || []).slice(0, 3).map((reason) => (
-            <span key={reason} className="badge-muted">{reason}</span>
-          ))}
-        </div>
+        {/* What this is / what running it does */}
+        <p className="mt-3 rounded-md bg-neutral-50 px-3 py-2 text-[12.5px] leading-relaxed text-neutral-600">{meta.what}</p>
+
+        {/* Why it's here — the full reason list */}
+        {(action.reasons || []).length > 0 && (
+          <div className="mt-3">
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-neutral-400">Why it&apos;s here</p>
+            <ul className="space-y-1">
+              {(action.reasons || []).map((reason, i) => (
+                <li key={`${reason}-${i}`} className="flex gap-1.5 text-[12.5px] text-neutral-600">
+                  <span className="mt-0.5 text-neutral-300">•</span>
+                  <span>{reason}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Inline result of the last run — shown on the card the operator clicked */}
+        {result && (
+          <div className={`mt-3 flex items-start gap-2 rounded-md px-3 py-2 text-[12.5px] ${result.status === 'error' ? 'border border-danger-200 bg-danger-50 text-danger-700' : 'border border-success-200 bg-success-50 text-success-700'}`}>
+            {result.status === 'error' ? <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+            <span>{result.message}</span>
+          </div>
+        )}
+
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-neutral-100 pt-3">
           <p className="flex items-center gap-1.5 text-[12px] text-neutral-500">
             <LockKeyhole className="h-3.5 w-3.5 text-neutral-400" />
@@ -644,12 +713,12 @@ function ActionCard({ action, onRun, running }) {
           </p>
           <button
             type="button"
-            disabled={!action.allowed || running}
+            disabled={!action.allowed || running || result?.status === 'success'}
             onClick={() => onRun(action)}
             className={action.allowed ? 'btn-primary btn-compact' : 'btn-secondary btn-compact opacity-60'}
           >
-            {action.allowed ? (running ? 'Working...' : 'Run safe action') : 'Blocked'}
-            <ArrowRight className="h-4 w-4" />
+            {!action.allowed ? 'Blocked' : running ? 'Working…' : result?.status === 'success' ? 'Done' : meta.verb}
+            {action.allowed && !running && result?.status !== 'success' && <ArrowRight className="h-4 w-4" />}
           </button>
         </div>
       </div>
@@ -956,6 +1025,7 @@ export function WizmatchReviewWorkbenchPage({ demoMode = false }) {
   });
   const [runningId, setRunningId] = useState(null);
   const [message, setMessage] = useState('');
+  const [resultById, setResultById] = useState({});
   const [moduleFilter, setModuleFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
   const actions = data.actions || [];
@@ -965,20 +1035,32 @@ export function WizmatchReviewWorkbenchPage({ demoMode = false }) {
   )), [actions, moduleFilter, priorityFilter]);
 
   async function runAction(action) {
+    const meta = actionMeta(action.actionType);
     setRunningId(action.id);
+    setResultById((prev) => ({ ...prev, [action.id]: undefined }));
     setMessage('');
     try {
+      let apiMessage = '';
       if (demoMode) {
         await new Promise((resolve) => setTimeout(resolve, 350));
-        setMessage(`Demo action completed: ${action.title}`);
       } else if (action.endpoint && action.method === 'POST') {
-        await apiFetch(action.endpoint, { method: 'POST', body: JSON.stringify(action.payload || {}) });
-        setMessage(`Completed: ${action.title}`);
+        const res = await apiFetch(action.endpoint, { method: 'POST', body: JSON.stringify(action.payload || {}) });
+        apiMessage = res?.message || '';
+      }
+      const doneMsg = apiMessage || meta.done;
+      setResultById((prev) => ({ ...prev, [action.id]: { status: 'success', message: doneMsg } }));
+      setMessage(`✓ ${action.title} — ${doneMsg}`);
+      setRunningId(null);
+      // Hold the ✓ on the card briefly so the operator sees what happened, then
+      // refresh the queue (which drops the now-actioned item).
+      if (!demoMode) {
+        await new Promise((resolve) => setTimeout(resolve, 1100));
         await refresh();
       }
     } catch (err) {
-      setMessage(err?.message || 'Action failed');
-    } finally {
+      const msg = err?.message || 'Action failed — nothing was changed.';
+      setResultById((prev) => ({ ...prev, [action.id]: { status: 'error', message: msg } }));
+      setMessage(msg);
       setRunningId(null);
     }
   }
@@ -1013,7 +1095,7 @@ export function WizmatchReviewWorkbenchPage({ demoMode = false }) {
       <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
         <div className="grid gap-3">
           {filteredActions.length ? filteredActions.map((action) => (
-            <ActionCard key={action.id} action={action} onRun={runAction} running={runningId === action.id} />
+            <ActionCard key={action.id} action={action} onRun={runAction} running={runningId === action.id} result={resultById[action.id]} />
           )) : (
             <EmptyQueue
               title="No actions match these filters"
