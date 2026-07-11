@@ -38,6 +38,10 @@ interface FindOrCreateData {
   sourceDetail?: string;
   metadata?: object;
   channels: ChannelInput[];
+  /** Optional classification set ONLY on create (never overwrites an existing contact). */
+  companyName?: string;
+  businessType?: string;
+  tags?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -94,6 +98,11 @@ export async function findOrCreateContact(
         source: data.source,
         sourceDetail: data.sourceDetail,
         metadata: data.metadata ?? {},
+        // Optional classification — Drizzle omits undefined, so unset fields fall
+        // back to their column defaults (tags → []). Only applied on create.
+        companyName: data.companyName,
+        businessType: data.businessType,
+        tags: data.tags,
       })
       .returning();
 

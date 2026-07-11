@@ -60,6 +60,19 @@ const SMART_LISTS = [
   { id: 'outreach', label: 'Cold Outreach', filters: { source: 'outreach' } },
 ];
 
+// Live lifecycle chip derived from a contact's current `status` (NOT stored as a
+// tag, so it never goes stale). Rendered alongside the stored type tags.
+const STATUS_CHIP = {
+  qualified: { label: 'Hot Lead', cls: 'bg-success-500/10 text-success-700' },
+  lead:      { label: 'Uncontacted', cls: 'bg-warning-500/10 text-warning-700' },
+  new:       { label: 'Uncontacted', cls: 'bg-warning-500/10 text-warning-700' },
+  contacted: { label: 'Contacted', cls: 'bg-primary-100 text-primary-700' },
+  replied:   { label: 'Replied', cls: 'bg-accent-50 text-accent-700' },
+  won:       { label: 'Client', cls: 'bg-accent-100 text-accent-700' },
+  customer:  { label: 'Client', cls: 'bg-accent-100 text-accent-700' },
+  lost:      { label: 'Lost', cls: 'bg-neutral-100 text-neutral-500' },
+};
+
 const LIMIT_OPTIONS = [20, 50, 100];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -967,6 +980,11 @@ export default function ContactsPage() {
                       {/* Tags */}
                       <td className="px-3 py-1.5 cursor-pointer overflow-hidden" onClick={() => setSelectedContact(c)}>
                         <div className="flex flex-wrap gap-1">
+                          {STATUS_CHIP[c.status] && (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${STATUS_CHIP[c.status].cls}`}>
+                              {STATUS_CHIP[c.status].label}
+                            </span>
+                          )}
                           {(c.tags ?? []).slice(0, 2).map((tag) => (
                             <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary-100 text-primary-700 font-medium truncate max-w-[80px]">
                               {tag}

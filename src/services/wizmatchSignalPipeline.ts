@@ -139,6 +139,8 @@ export async function enrichSignalById(tenantId: string, signalId: string): Prom
     source: 'wizmatch_enrichment',
     sourceDetail: `Signal: ${signal.job_title} at ${signal.company_name}`,
     channels: [{ channelType: 'email', channelValue: emailResult.email, isPrimary: true }],
+    tags: ['Client Lead'],
+    companyName: signal.company_name || undefined,
   });
 
   // Link contact to signal

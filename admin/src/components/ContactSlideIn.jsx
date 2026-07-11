@@ -151,7 +151,7 @@ function ConversationItem({ item }) {
 
 export default function ContactSlideIn({ contact: initialContact, onClose, onUpdated }) {
   const [contact, setContact] = useState(initialContact);
-  const [activeTab, setActiveTab] = useState('conversation');
+  const [activeTab, setActiveTab] = useState('details');
   const [channels, setChannels] = useState([]);
   const [deals, setDeals] = useState([]);
   const [conversation, setConversation] = useState([]);
@@ -204,7 +204,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
   }, [id]);
 
   useEffect(() => {
-    if (activeTab === 'notes') loadNotes();
+    if (activeTab === 'activity') loadNotes();
   }, [activeTab, loadNotes]);
 
   const loadTasks = useCallback(async () => {
@@ -218,7 +218,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
   }, [id]);
 
   useEffect(() => {
-    if (activeTab === 'tasks') loadTasks();
+    if (activeTab === 'activity') loadTasks();
   }, [activeTab, loadTasks]);
 
   useEffect(() => {
@@ -271,10 +271,9 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
   const initials = ((contact?.firstName?.[0] ?? '') + (contact?.lastName?.[0] ?? '')).toUpperCase() || '?';
 
   const TABS = [
-    { id: 'conversation', label: 'Conversation' },
     { id: 'details', label: 'Details' },
-    { id: 'notes', label: 'Notes' },
-    { id: 'tasks', label: `Tasks${tasks.length > 0 ? ` (${tasks.length})` : ''}` },
+    { id: 'conversation', label: 'Conversation' },
+    { id: 'activity', label: `Notes & Tasks${tasks.length > 0 ? ` (${tasks.length})` : ''}` },
     { id: 'deals', label: `Deals${deals.length > 0 ? ` (${deals.length})` : ''}` },
   ];
 
@@ -512,8 +511,8 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
             </div>
           )}
 
-          {/* NOTES TAB */}
-          {activeTab === 'notes' && (
+          {/* NOTES & TASKS TAB (merged: note composer + notes on top, ClickUp tasks below) */}
+          {activeTab === 'activity' && (
             <div className="flex-1 overflow-y-auto flex flex-col">
               <div className="px-5 py-4 border-b border-neutral-100 shrink-0">
                 <textarea
@@ -534,6 +533,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3">
+                <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Notes</h3>
                 {notesLoading ? (
                   <p className="text-sm text-neutral-400 text-center py-4">Loading…</p>
                 ) : notes.length === 0 ? (
@@ -591,14 +591,8 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                     </div>
                   ))
                 )}
-              </div>
-            </div>
-          )}
-
-          {/* TASKS TAB */}
-          {activeTab === 'tasks' && (
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
-              {tasksLoading ? (
+                <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide pt-4 mt-2 border-t border-neutral-100">Tasks</h3>
+                {tasksLoading ? (
                 <div className="flex justify-center py-8 text-neutral-400 text-sm">Loading tasks…</div>
               ) : tasks.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-neutral-300">
@@ -656,6 +650,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                   </div>
                 ))
               )}
+              </div>
             </div>
           )}
 

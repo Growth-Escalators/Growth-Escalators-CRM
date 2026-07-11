@@ -204,6 +204,7 @@ export async function mineGithubCandidates(maxQueries = 3): Promise<MineResult> 
             source: 'wizmatch_github',
             sourceDetail: `GitHub: ${user.login} (${user.public_repos} repos, ${user.followers} followers)`,
             channels: [{ channelType: 'email', channelValue: user.email.toLowerCase(), isPrimary: true }],
+            tags: ['Candidate'],
           });
 
           await db.insert(wizmatchCandidates).values({
