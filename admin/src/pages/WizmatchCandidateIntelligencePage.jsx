@@ -121,6 +121,7 @@ export default function WizmatchCandidateIntelligencePage({ demoMode = false }) 
   const [loading, setLoading] = useState(!demoMode);
   const [error, setError] = useState('');
   const [actionMessage, setActionMessage] = useState('');
+  const [reviewStateById, setReviewStateById] = useState({});
   const [actionLoading, setActionLoading] = useState('');
   const [intakeText, setIntakeText] = useState('');
   const [intakeLoading, setIntakeLoading] = useState('');
@@ -173,8 +174,9 @@ export default function WizmatchCandidateIntelligencePage({ demoMode = false }) 
           method: 'POST',
           body: JSON.stringify({ action }),
         });
-        setActionMessage(result.message || 'Review plan saved.');
+        setActionMessage(result.message || (action === 'shortlist' ? 'Candidate shortlisted.' : 'Candidate marked as reviewed.'));
       }
+      setReviewStateById((prev) => ({ ...prev, [selected.id]: action === 'shortlist' ? 'Shortlisted' : 'Reviewed' }));
     } catch (e) {
       setActionMessage(e.message || 'Review action failed');
     } finally {
@@ -359,6 +361,7 @@ export default function WizmatchCandidateIntelligencePage({ demoMode = false }) 
                     <span className={PRIORITY_BADGE[selected.priority] || 'badge-muted'}>{selected.priority}</span>
                     <span className="badge-muted">{selected.region?.toUpperCase()}</span>
                     <span className="badge-muted">{selected.availabilityStatus || 'unknown'}</span>
+                    {reviewStateById[selected.id] && <span className="badge-success">✓ {reviewStateById[selected.id]}</span>}
                   </div>
                 </div>
                 <div className="flex gap-2">
