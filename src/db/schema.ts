@@ -1236,6 +1236,7 @@ export const wizmatchCandidates = pgTable(
     skills: text('skills').array().notNull(),
     location: text('location'),
     visaStatus: text('visa_status'), // H1B | GC | USC | OPT | TN | H4EAD | unknown
+    experienceYears: integer('experience_years'),
     rateHourly: integer('rate_hourly'),
     rateCurrency: text('rate_currency').default('USD'),
     availabilityDate: date('availability_date'),
