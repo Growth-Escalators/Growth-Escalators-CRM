@@ -98,7 +98,10 @@ function inferVisaStatus(location: string | null): string {
 
 // ── Main miner ───────────────────────────────────────────────────────────────
 
-export async function mineGithubCandidates(maxQueries = 3): Promise<MineResult> {
+export async function mineGithubCandidates(
+  maxQueries = 3,
+  adhocQuery?: { skill: string; location: string },
+): Promise<MineResult> {
   const tenantId = process.env.WIZMATCH_TENANT_ID;
   const githubToken = process.env.GITHUB_TOKEN;
 
@@ -107,12 +110,22 @@ export async function mineGithubCandidates(maxQueries = 3): Promise<MineResult> 
     return { queries_run: 0, users_found: 0, candidates_created: 0, skipped_no_email: 0, skipped_exists: 0, errors: 0 };
   }
 
-  // Rotate queries day-by-day
-  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
-  const startIdx = (dayOfYear * maxQueries) % SEARCH_QUERIES.length;
-  const todayQueries = Array.from({ length: Math.min(maxQueries, SEARCH_QUERIES.length) }, (_, i) =>
-    SEARCH_QUERIES[(startIdx + i) % SEARCH_QUERIES.length],
-  );
+  let todayQueries: SearchQuery[];
+  if (adhocQuery) {
+    // On-demand path (recruiter-triggered "Source now"): run exactly ONE query for
+    // the requested skill+location. Does not touch the daily rotating cron set below.
+    todayQueries = [{
+      q: `location:"${adhocQuery.location}" language:${adhocQuery.skill}`,
+      label: `Adhoc: ${adhocQuery.skill} in ${adhocQuery.location}`,
+    }];
+  } else {
+    // Rotate queries day-by-day
+    const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
+    const startIdx = (dayOfYear * maxQueries) % SEARCH_QUERIES.length;
+    todayQueries = Array.from({ length: Math.min(maxQueries, SEARCH_QUERIES.length) }, (_, i) =>
+      SEARCH_QUERIES[(startIdx + i) % SEARCH_QUERIES.length],
+    );
+  }
 
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github.v3+json',

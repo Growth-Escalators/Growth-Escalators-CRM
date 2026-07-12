@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Clock, RefreshCw, ShieldCheck, Sparkles, Users } from 'lucide-react';
+import { AlertTriangle, ArrowRight, CheckCircle2, Clock, RefreshCw, ShieldCheck, Sparkles, Users } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
 
 const TIER_BADGE = {
@@ -243,6 +243,7 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
   const [actionMessage, setActionMessage] = useState('');
   const [reviewNotes, setReviewNotes] = useState('');
   const [manualContact, setManualContact] = useState({ name: '', title: '', email: '', phone: '', linkedinUrl: '', notes: '' });
+  const [pipelineLinkContactId, setPipelineLinkContactId] = useState(null);
 
   const loadQueue = useCallback(async () => {
     setLoading(true);
@@ -300,6 +301,7 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
     if (!selected) return;
     setActionLoading('snapshot');
     setActionMessage('');
+    setPipelineLinkContactId(null);
     try {
       if (demoMode) {
         updateSelectedInMemory((prev) => ({
@@ -328,6 +330,7 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
     if (!selected) return;
     setActionLoading(action);
     setActionMessage('');
+    setPipelineLinkContactId(null);
     try {
       if (demoMode) {
         const status =
@@ -365,6 +368,7 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
     if (!selected) return;
     setActionLoading(`${action}:${candidate.id}`);
     setActionMessage('');
+    setPipelineLinkContactId(null);
     const nextStatus =
       action === 'approve_contact' ? 'approved'
         : action === 'mark_do_not_contact' ? 'do_not_contact'
@@ -396,6 +400,7 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
   const linkCrmContact = useCallback(async (candidate) => {
     setActionLoading(`link:${candidate.id}`);
     setActionMessage('');
+    setPipelineLinkContactId(null);
     try {
       if (demoMode) {
         updateSelectedInMemory((prev) => ({
@@ -405,12 +410,14 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
           ),
         }));
         setActionMessage('Demo CRM link created.');
+        setPipelineLinkContactId(candidate.id);
       } else {
         const result = await apiFetch(`/api/wizmatch/contact-intelligence/contacts/${candidate.id}/link-crm-contact`, {
           method: 'POST',
         });
         await loadQueue();
         setActionMessage(`CRM contact linked: ${result.crmContactId}`);
+        setPipelineLinkContactId(candidate.id);
       }
     } catch (e) {
       setActionMessage(e.message || 'CRM linking failed');
@@ -423,6 +430,7 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
     if (!selected || !manualContact.name.trim()) return;
     setActionLoading('manual-contact');
     setActionMessage('');
+    setPipelineLinkContactId(null);
     try {
       if (demoMode) {
         const candidate = {
@@ -549,7 +557,12 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
 
               {actionMessage && (
                 <div className="mb-5 rounded-lg border border-primary-100 bg-primary-50 px-3 py-2 text-[13px] text-primary-900">
-                  {actionMessage}
+                  <p>{actionMessage}</p>
+                  {pipelineLinkContactId && (
+                    <a href="/wizmatch/pipeline" className="mt-1 inline-flex items-center gap-1 font-semibold text-primary-700 hover:underline">
+                      Open in Pipeline <ArrowRight className="h-3.5 w-3.5" />
+                    </a>
+                  )}
                 </div>
               )}
 

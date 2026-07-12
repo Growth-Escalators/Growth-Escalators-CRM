@@ -110,6 +110,8 @@ import {
 } from '../services/wizmatchCostGuard';
 import logger from '../utils/logger';
 import { isSafeFetchHost } from '../utils/ssrfGuard';
+import { mineGithubCandidates } from '../services/wizmatchGithubMiner';
+import { runXrayScrape } from '../services/wizmatchXrayScraper';
 
 const router = Router();
 
@@ -5318,6 +5320,57 @@ router.post('/requirements/:id/sheet', async (req: Request, res: Response) => {
   const result = await generateRequirementSheet(String(req.params.id), tenantId);
   if (!result.success) { res.status(500).json({ error: result.error }); return; }
   res.json({ sheet_url: result.sheet_url });
+});
+
+// ── On-demand candidate sourcing ─────────────────────────────────────────────
+// POST /candidates/source-now — recruiter-triggered "Source now" button. Runs the
+// GitHub miner or LinkedIn X-ray scraper live for one skill+location instead of
+// waiting for the daily cron (see worker.ts, which still calls these with no
+// adhoc arg on its own schedule — unaffected by this route).
+//
+// SAFETY: this spends real external API quota — GitHub is 5000/hr with a token,
+// but SerpAPI's free tier is only ~100 searches/MONTH. Never loop this; each
+// call below runs exactly one query and returns the miner's own result counts.
+router.post('/candidates/source-now', async (req: Request, res: Response) => {
+  const body = req.body as { provider?: string; skill?: string; location?: string };
+  const { provider } = body;
+  const skill = typeof body.skill === 'string' ? body.skill.trim() : '';
+  const location = typeof body.location === 'string' ? body.location.trim() : '';
+
+  if (provider !== 'github' && provider !== 'xray') {
+    res.status(400).json({ error: "provider must be 'github' or 'xray'" });
+    return;
+  }
+  if (!skill || !location) {
+    res.status(400).json({ error: 'skill and location are required' });
+    return;
+  }
+
+  try {
+    if (provider === 'github') {
+      const result = await mineGithubCandidates(1, { skill, location });
+      res.json({
+        ok: true,
+        provider,
+        created: result.candidates_created,
+        found: result.users_found,
+        skipped: result.skipped_exists,
+      });
+      return;
+    }
+
+    const result = await runXrayScrape(1, { skill, location });
+    res.json({
+      ok: true,
+      provider,
+      created: result.candidates_created,
+      found: result.candidates_found,
+      skipped: result.skipped_exists,
+    });
+  } catch (e) {
+    logger.error('[wizmatch] candidates/source-now failed:', e instanceof Error ? e.message : String(e));
+    res.status(500).json({ error: e instanceof Error ? e.message : 'On-demand sourcing failed' });
+  }
 });
 
 export default router;
