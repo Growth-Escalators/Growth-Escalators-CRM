@@ -546,6 +546,9 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                     {wizmatchCandidate.location && (
                       <div><span className="text-xs text-neutral-400 block">Location</span>{wizmatchCandidate.location}</div>
                     )}
+                    {wizmatchCandidate.experienceYears != null && (
+                      <div><span className="text-xs text-neutral-400 block">Experience</span>{wizmatchCandidate.experienceYears} yrs</div>
+                    )}
                     {wizmatchCandidate.visaStatus && wizmatchCandidate.visaStatus !== 'unknown' && (
                       <div><span className="text-xs text-neutral-400 block">Visa</span>{wizmatchCandidate.visaStatus}</div>
                     )}
