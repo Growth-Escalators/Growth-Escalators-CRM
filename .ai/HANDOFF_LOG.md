@@ -1646,3 +1646,11 @@ Confirm whether these tables exist before running real operations:
 - Railway deployment reached `SUCCESS`.
 - API `/health` responded with database `ok`.
 - CRM root returned HTTP 200.
+
+## 2026-07-12 — Wizmatch operator-clarity plan: Workstreams B + C shipped
+- **PR #37** (merged af74b59): AI Intelligence upgrade — `buildWizmatchDashboardSnapshot` enriched with row-level data (top signals, open requirements w/ skills+budget, candidate skill-supply histogram, company tier counts, recent placement margins), reuses `buildWizmatchRoiAnalytics` instead of re-deriving ROI math. Staffing rules moved into a real Anthropic `system` prompt; `max_tokens` 1800→6000. Output JSON shape unchanged, no frontend change needed.
+- **PR #38** (merged 57ae14c): consolidated 4 diagnostic pages (Readiness/Guardrails/Domains/Compliance) into one tabbed `/wizmatch/system` page + new read-only `GET /api/wizmatch/env-check` route (presence-only, no secret values). Old routes redirect into the tabbed page; nav collapsed 4 entries → 1 ("System"). Added missing "add suppression entry" form to Compliance.
+- Both built in parallel via isolated git worktrees (non-overlapping edit regions in `src/routes/wizmatch.ts`, confirmed by hunk-range diff + merge-tree dry run before merging). Both reviewed independently (build clean, 292/292 tests) before merge.
+- Completes the A→B→C operator-clarity plan (A: PR #36, canonical funnel + declutter, shipped 2026-07-11).
+- Railway deployed `57ae14c` successfully (coalesced both pushes into one deploy).
+- Note: GitHub repo renamed `growth-escalators-backend-v2` → `Growth-Escalators-CRM` (same owner, auto-redirects); both pushes/deploys worked fine, no action needed but worth a sanity check next main push.
