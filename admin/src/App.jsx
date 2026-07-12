@@ -39,6 +39,7 @@ const WizmatchSignalsPage = lazy(() => import('./pages/WizmatchSignalsPage.jsx')
 const WizmatchCandidateIntelligenceNewPage = lazy(() => import('./pages/WizmatchNewPages.jsx').then((module) => ({ default: module.WizmatchCandidateIntelligenceNewPage })));
 const WizmatchCandidateIntelligencePage = lazy(() => import('./pages/WizmatchCandidateIntelligencePage.jsx'));
 const WizmatchCandidatesPage = lazy(() => import('./pages/WizmatchCandidatesPage.jsx'));
+const WizmatchSourceCandidatesPage = lazy(() => import('./pages/WizmatchSourceCandidatesPage.jsx'));
 const WizmatchContactIntelligenceNewPage = lazy(() => import('./pages/WizmatchNewPages.jsx').then((module) => ({ default: module.WizmatchContactIntelligenceNewPage })));
 const WizmatchContactIntelligencePage = lazy(() => import('./pages/WizmatchContactIntelligencePage.jsx'));
 const WizmatchPlacementsPage = lazy(() => import('./pages/WizmatchPlacementsPage.jsx'));
@@ -235,6 +236,7 @@ export default function App() {
             <Route path="/wizmatch/candidate-intelligence" element={<PrivateRoute><AppLayout><WizmatchCandidateIntelligencePage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/candidate-intelligence-new" element={<Navigate to="/wizmatch/candidate-intelligence" replace />} />
             <Route path="/wizmatch/candidates" element={<PrivateRoute><AppLayout><WizmatchCandidatesPage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/source-candidates" element={<PrivateRoute><AppLayout><WizmatchSourceCandidatesPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/queue" element={<Navigate to="/wizmatch/review-workbench" replace />} />
             <Route path="/wizmatch/contact-intelligence-demo" element={<Navigate to="/wizmatch/contact-intelligence-new-demo" replace />} />
             <Route path="/wizmatch/contact-intelligence-new-demo" element={<WizmatchContactIntelligenceNewPage demoMode />} />

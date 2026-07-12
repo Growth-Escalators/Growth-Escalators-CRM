@@ -306,6 +306,11 @@ export const NAV_ENTRIES = [
     visible: f => f.canWizmatch,
   },
   {
+    id: 'wm-source-candidates', label: 'Source Candidates', to: '/wizmatch/source-candidates',
+    icon: Search, section: 'Wizmatch', group: null,
+    visible: f => f.canWizmatch,
+  },
+  {
     id: 'wm-placements', label: 'Placements', to: '/wizmatch/placements',
     icon: Briefcase, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,

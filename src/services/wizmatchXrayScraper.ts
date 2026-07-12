@@ -132,7 +132,10 @@ function parseNameFromTitle(title: string): { firstName: string; lastName: strin
 
 // ── Main scraper ─────────────────────────────────────────────────────────────
 
-export async function runXrayScrape(maxQueries = 3): Promise<XrayResult> {
+export async function runXrayScrape(
+  maxQueries = 3,
+  adhocQuery?: { skill: string; location: string },
+): Promise<XrayResult> {
   const tenantId = process.env.WIZMATCH_TENANT_ID;
   const serpApiKey = process.env.SERPAPI_API_KEY;
 
@@ -146,12 +149,24 @@ export async function runXrayScrape(maxQueries = 3): Promise<XrayResult> {
     return { queries_run: 0, candidates_found: 0, candidates_created: 0, skipped_exists: 0, errors: 0 };
   }
 
-  // Rotate queries day-by-day
-  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
-  const startIdx = (dayOfYear * maxQueries) % XRAY_QUERIES.length;
-  const todayQueries = Array.from({ length: Math.min(maxQueries, XRAY_QUERIES.length) }, (_, i) =>
-    XRAY_QUERIES[(startIdx + i) % XRAY_QUERIES.length],
-  );
+  let todayQueries: XrayQuery[];
+  if (adhocQuery) {
+    // On-demand path (recruiter-triggered "Source now"): run exactly ONE query for
+    // the requested skill+location. Does not touch the daily rotating cron set below.
+    // SerpAPI free tier is ~100 searches/month — callers must not loop this.
+    todayQueries = [{
+      q: `site:linkedin.com/in "${adhocQuery.skill} developer" "${adhocQuery.location}" "open to work"`,
+      label: `Adhoc: ${adhocQuery.skill} in ${adhocQuery.location}`,
+      skills: [adhocQuery.skill.toLowerCase()],
+    }];
+  } else {
+    // Rotate queries day-by-day
+    const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
+    const startIdx = (dayOfYear * maxQueries) % XRAY_QUERIES.length;
+    todayQueries = Array.from({ length: Math.min(maxQueries, XRAY_QUERIES.length) }, (_, i) =>
+      XRAY_QUERIES[(startIdx + i) % XRAY_QUERIES.length],
+    );
+  }
 
   let totalFound = 0;
   let totalCreated = 0;
