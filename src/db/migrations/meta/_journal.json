@@ -169,6 +169,13 @@
       "when": 1783420000003,
       "tag": "0021_contact_intelligence_phase2",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1783420000004,
+      "tag": "0023_wizmatch_candidate_experience",
+      "breakpoints": true
     }
   ]
 }

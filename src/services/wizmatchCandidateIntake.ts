@@ -14,6 +14,7 @@ export interface CandidateIntakeRawProfile {
   skills?: string[] | string;
   location?: string;
   visa_status?: string;
+  experience_years?: number | string;
   rate_hourly?: number | string;
   rate_currency?: string;
   availability_date?: string;
@@ -31,6 +32,7 @@ export interface CandidateIntakeProfile {
   skills: string[];
   location?: string;
   visaStatus?: string;
+  experienceYears?: number;
   rateHourly?: number;
   rateCurrency: string;
   availabilityDate?: string;
@@ -73,6 +75,10 @@ const HEADER_ALIASES: Record<string, keyof CandidateIntakeRawProfile> = {
   city: 'location',
   visa: 'visa_status',
   visa_status: 'visa_status',
+  experience: 'experience_years',
+  experience_years: 'experience_years',
+  years_experience: 'experience_years',
+  yoe: 'experience_years',
   rate: 'rate_hourly',
   rate_hourly: 'rate_hourly',
   hourly_rate: 'rate_hourly',
@@ -192,6 +198,7 @@ export function normalizeCandidateIntakeProfile(raw: CandidateIntakeRawProfile):
   if (!raw.resume_url) warnings.push('No resume URL supplied.');
 
   const rateHourly = Number(raw.rate_hourly);
+  const experienceYears = Number(raw.experience_years);
 
   return {
     name,
@@ -200,6 +207,7 @@ export function normalizeCandidateIntakeProfile(raw: CandidateIntakeRawProfile):
     skills,
     location: clean(raw.location),
     visaStatus: clean(raw.visa_status),
+    experienceYears: Number.isFinite(experienceYears) && experienceYears >= 0 ? Math.round(experienceYears) : undefined,
     rateHourly: Number.isFinite(rateHourly) && rateHourly > 0 ? Math.round(rateHourly) : undefined,
     rateCurrency: clean(raw.rate_currency) || 'INR',
     availabilityDate: clean(raw.availability_date),

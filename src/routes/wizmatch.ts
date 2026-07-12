@@ -2242,6 +2242,7 @@ router.post('/candidate-intelligence/intake', async (req: Request, res: Response
         'skills',
         'location',
         'visa_status',
+        'experience_years',
         'rate_hourly',
         'rate_currency',
         'availability_status',
@@ -2357,6 +2358,7 @@ router.post('/candidate-intelligence/intake', async (req: Request, res: Response
           skills: profile.skills,
           location: profile.location,
           visaStatus: profile.visaStatus,
+          experienceYears: profile.experienceYears,
           rateHourly: profile.rateHourly,
           rateCurrency: profile.rateCurrency,
           availabilityDate: profile.availabilityDate,
@@ -4184,6 +4186,15 @@ router.get('/candidates', async (req: Request, res: Response) => {
     conditions.push(`wc.source = $${paramIdx++}`);
     params.push(req.query.source);
   }
+  if (req.query.location) {
+    conditions.push(`wc.location ILIKE '%' || $${paramIdx++} || '%'`);
+    params.push(req.query.location);
+  }
+  const minExperience = Number(req.query.min_experience);
+  if (req.query.min_experience && Number.isFinite(minExperience)) {
+    conditions.push(`wc.experience_years >= $${paramIdx++}`);
+    params.push(minExperience);
+  }
 
   const whereClause = conditions.join(' AND ');
   const dataResult = await pool.query(
@@ -4210,6 +4221,7 @@ router.post('/candidates', async (req: Request, res: Response) => {
     name: string; email: string; skills: string[]; location?: string;
     visa_status?: string; rate_hourly?: number; availability_date?: string;
     source?: string; linkedin_url?: string; github_url?: string;
+    experience_years?: number;
   };
 
   // Create contact via findOrCreateContact
@@ -4229,6 +4241,7 @@ router.post('/candidates', async (req: Request, res: Response) => {
       skills: body.skills,
       location: body.location,
       visaStatus: body.visa_status,
+      experienceYears: body.experience_years,
       rateHourly: body.rate_hourly,
       availabilityDate: body.availability_date,
       source: body.source || 'manual',
