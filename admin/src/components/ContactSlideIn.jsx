@@ -37,6 +37,41 @@ function formatDateTime(dateStr) {
   });
 }
 
+// A handful of source slugs read oddly when title-cased word-by-word
+// (acronyms, brand names) — override those, fall back to Title Case for the rest.
+const SOURCE_LABEL_OVERRIDES = {
+  wizmatch_github: 'GitHub (Wizmatch)',
+  wizmatch_xray: 'LinkedIn X-Ray (Wizmatch)',
+  wizmatch_enrichment: 'Wizmatch Enrichment',
+  wizmatch_contact_intelligence: 'Wizmatch Contact Intelligence',
+  wizmatch_candidate_intake: 'Wizmatch Candidate Intake',
+  wizmatch_manual: 'Wizmatch Manual',
+  github: 'GitHub',
+  xray: 'X-Ray',
+  csv_import: 'CSV Import',
+  theirstack: 'TheirStack',
+  remoteok: 'RemoteOK',
+};
+
+function formatSourceLabel(source) {
+  if (!source) return '—';
+  if (SOURCE_LABEL_OVERRIDES[source]) return SOURCE_LABEL_OVERRIDES[source];
+  return source
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+// Business Type + lead Score are Growth-Escalators D2C concepts (agency/ecom/
+// healthcare lead classification) — they never apply to a Wizmatch-sourced
+// contact (a job-signal company or a sourced candidate), so hide them there
+// instead of showing a permanently-empty "Unknown"/"0/100".
+function isWizmatchSourcedContact(contact) {
+  if (contact?.source?.startsWith('wizmatch_')) return true;
+  return (contact?.tags ?? []).some((t) => t === 'Candidate' || t === 'Client Lead');
+}
+
 function stringToColor(str = '') {
   let hash = 0;
   for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
@@ -267,6 +302,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
   const phone = channels.find((c) => c.channelType === 'whatsapp' || c.channelType === 'phone')?.channelValue;
   const email = channels.find((c) => c.channelType === 'email')?.channelValue;
   const btType = BUSINESS_TYPES.find((b) => b.value === contact?.businessType);
+  const isWizmatchContact = isWizmatchSourcedContact(contact);
   const fullName = `${contact?.firstName ?? ''} ${contact?.lastName ?? ''}`.trim();
   const initials = ((contact?.firstName?.[0] ?? '') + (contact?.lastName?.[0] ?? '')).toUpperCase() || '?';
 
@@ -415,35 +451,39 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                 )}
                 <div className="flex items-center gap-3">
                   <span className="text-xs text-neutral-400 w-20 shrink-0">Source</span>
-                  <span className="text-sm text-neutral-700 capitalize">{contact?.source ?? '—'}</span>
+                  <span className="text-sm text-neutral-700">{formatSourceLabel(contact?.source)}</span>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-neutral-400 w-20 shrink-0">Score</span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                    (contact?.score ?? 0) >= 70
-                      ? 'bg-success-500/10 text-success-700'
-                      : (contact?.score ?? 0) >= 40
-                      ? 'bg-warning-500/10 text-warning-700'
-                      : 'bg-neutral-100 text-neutral-500'
-                  }`}>
-                    {contact?.score ?? 0}/100
-                  </span>
-                </div>
+                {!isWizmatchContact && (
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-neutral-400 w-20 shrink-0">Score</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                      (contact?.score ?? 0) >= 70
+                        ? 'bg-success-500/10 text-success-700'
+                        : (contact?.score ?? 0) >= 40
+                        ? 'bg-warning-500/10 text-warning-700'
+                        : 'bg-neutral-100 text-neutral-500'
+                    }`}>
+                      {contact?.score ?? 0}/100
+                    </span>
+                  </div>
+                )}
               </div>
 
-              <div className="space-y-2">
-                <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Business Type</h3>
-                <select
-                  value={contact?.businessType ?? ''}
-                  onChange={(e) => patchContact({ businessType: e.target.value || null })}
-                  className="w-full border border-neutral-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="">Unknown</option>
-                  {BUSINESS_TYPES.map((b) => (
-                    <option key={b.value} value={b.value}>{b.label}</option>
-                  ))}
-                </select>
-              </div>
+              {!isWizmatchContact && (
+                <div className="space-y-2">
+                  <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Business Type</h3>
+                  <select
+                    value={contact?.businessType ?? ''}
+                    onChange={(e) => patchContact({ businessType: e.target.value || null })}
+                    className="w-full border border-neutral-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  >
+                    <option value="">Unknown</option>
+                    {BUSINESS_TYPES.map((b) => (
+                      <option key={b.value} value={b.value}>{b.label}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Assigned To</h3>
