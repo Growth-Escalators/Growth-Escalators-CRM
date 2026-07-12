@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { FileText, Upload, Sparkles, X, Download } from 'lucide-react';
+import { FileText, Upload, Sparkles, X, Download, Users } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
 
 const STATUS_BADGE = {
@@ -9,6 +9,13 @@ const STATUS_BADGE = {
   closed: 'badge-muted',
 };
 const REGION_BADGE = { india: 'badge-warning', us: 'badge-info' };
+const TIER_BADGE = { A: 'badge-success', B: 'badge-warning', C: 'badge-muted', Reject: 'badge-danger' };
+const MATCH_PRIORITY_BADGE = { hot: 'badge-success', warm: 'badge-info', watch: 'badge-warning', blocked: 'badge-danger' };
+
+const EMPTY_FILTERS = {
+  company: '', skill: '', min_experience: '', location: '',
+  work_mode: '', region: '', employment_type: '', priority: '', status: '',
+};
 
 function fmtBudget(r) {
   if (r.budget_min == null && r.budget_max == null) return '—';
@@ -40,15 +47,21 @@ export default function WizmatchRequirementsPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showDrawer, setShowDrawer] = useState(false);
+  const [selected, setSelected] = useState(null);
+  const [matchesFor, setMatchesFor] = useState(null);
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const setFilter = (k, v) => setFilters((f) => ({ ...f, [k]: v }));
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await apiFetch('/api/wizmatch/requirements?limit=100');
+      const params = new URLSearchParams({ limit: 100 });
+      Object.entries(filters).forEach(([k, v]) => { if (v !== '' && v != null) params.set(k, v); });
+      const data = await apiFetch(`/api/wizmatch/requirements?${params}`);
       setItems(data.items || []);
       setTotal(data.total || 0);
     } catch (e) { console.error(e); } finally { setLoading(false); }
-  }, []);
+  }, [filters]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -77,36 +90,76 @@ export default function WizmatchRequirementsPage() {
         Turn a client JD (paste or upload) into a branded requirement sheet to share with sub-vendors.
       </p>
 
+      <div className="mb-4 flex flex-wrap gap-2.5">
+        <input placeholder="Company…" value={filters.company} onChange={e => setFilter('company', e.target.value)} className="input w-[150px]" />
+        <input placeholder="Skill…" value={filters.skill} onChange={e => setFilter('skill', e.target.value)} className="input w-[130px]" />
+        <input type="number" placeholder="Min exp (yrs)" value={filters.min_experience} onChange={e => setFilter('min_experience', e.target.value)} className="input w-[130px]" />
+        <input placeholder="Location…" value={filters.location} onChange={e => setFilter('location', e.target.value)} className="input w-[130px]" />
+        <select value={filters.work_mode} onChange={e => setFilter('work_mode', e.target.value)} className="input w-auto">
+          <option value="">Any Work Mode</option>
+          <option value="onsite">Onsite</option><option value="hybrid">Hybrid</option><option value="remote">Remote</option>
+        </select>
+        <select value={filters.region} onChange={e => setFilter('region', e.target.value)} className="input w-auto">
+          <option value="">Any Region</option>
+          <option value="india">India</option><option value="us">US</option>
+        </select>
+        <select value={filters.employment_type} onChange={e => setFilter('employment_type', e.target.value)} className="input w-auto">
+          <option value="">Any Employment</option>
+          <option value="contract">Contract</option><option value="contract_c2c">Contract — C2C</option>
+          <option value="contract_w2">Contract — W2</option><option value="permanent">Permanent</option>
+        </select>
+        <select value={filters.priority} onChange={e => setFilter('priority', e.target.value)} className="input w-auto">
+          <option value="">Any Priority</option>
+          <option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option>
+        </select>
+        <select value={filters.status} onChange={e => setFilter('status', e.target.value)} className="input w-auto">
+          <option value="">Any Status</option>
+          <option value="draft">Draft</option><option value="sheet_ready">Sheet Ready</option>
+          <option value="shared">Shared</option><option value="closed">Closed</option>
+        </select>
+        {Object.values(filters).some(Boolean) && (
+          <button onClick={() => setFilters(EMPTY_FILTERS)} className="text-[12.5px] text-neutral-400 hover:text-neutral-600">Clear filters</button>
+        )}
+      </div>
+
       <div className="card overflow-hidden">
         <table className="table-fluent">
           <thead>
             <tr>
               <th>Requirement</th>
+              <th>Client</th>
               <th>Location</th>
               <th className="text-center">Positions</th>
               <th className="text-right">Budget</th>
               <th>Region</th>
               <th>Status</th>
               <th className="text-right">Sheet</th>
+              <th className="text-right">Candidates</th>
             </tr>
           </thead>
           <tbody>
-            {loading ? <tr><td colSpan="7" className="px-4 py-8 text-center text-neutral-400">Loading...</td></tr>
-            : items.length === 0 ? <tr><td colSpan="7" className="px-4 py-8 text-center text-neutral-400">No requirements yet — create one from a client JD.</td></tr>
+            {loading ? <tr><td colSpan="9" className="px-4 py-8 text-center text-neutral-400">Loading...</td></tr>
+            : items.length === 0 ? <tr><td colSpan="9" className="px-4 py-8 text-center text-neutral-400">No requirements match these filters.</td></tr>
             : items.map(r => (
-              <tr key={r.id}>
+              <tr key={r.id} onClick={() => setSelected(r)} className="cursor-pointer hover:bg-neutral-50">
                 <td>
                   <div className="font-medium text-neutral-900">{r.title}</div>
                   {r.required_skills?.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1">{r.required_skills.slice(0, 4).map((s, i) => <span key={i} className="badge-info text-[10px]">{s}</span>)}</div>
                   )}
                 </td>
+                <td>
+                  <div className="font-medium text-neutral-900">{r.company_name || '—'}</div>
+                  <span className={`${TIER_BADGE[r.company_tier] || 'badge-muted'} text-[10px] mt-1 inline-flex`}>
+                    {r.company_tier ? `Tier ${r.company_tier}` : '—'}
+                  </span>
+                </td>
                 <td>{r.location || '—'}{r.work_mode ? ` · ${r.work_mode}` : ''}</td>
                 <td className="text-center">{r.positions || 1}</td>
                 <td className="text-right font-mono text-neutral-900">{fmtBudget(r)}</td>
                 <td><span className={REGION_BADGE[r.region] || 'badge-muted'}>{r.region || '—'}</span></td>
                 <td><span className={STATUS_BADGE[r.status] || 'badge-muted'}>{r.status?.replace(/_/g, ' ')}</span></td>
-                <td className="text-right">
+                <td className="text-right" onClick={e => e.stopPropagation()}>
                   {r.sheet_url ? (
                     <div className="flex gap-2 justify-end">
                       <a href={r.sheet_url} target="_blank" rel="noreferrer" className="text-[12.5px] font-semibold text-primary-700 inline-flex items-center gap-1">
@@ -117,6 +170,11 @@ export default function WizmatchRequirementsPage() {
                   ) : (
                     <button onClick={() => generateSheet(r.id)} className="btn-standard btn-compact">Generate</button>
                   )}
+                </td>
+                <td className="text-right" onClick={e => e.stopPropagation()}>
+                  <button onClick={() => setMatchesFor(r)} className="btn-standard btn-compact">
+                    <Users className="w-3.5 h-3.5" /> Find
+                  </button>
                 </td>
               </tr>
             ))}
@@ -129,6 +187,19 @@ export default function WizmatchRequirementsPage() {
           onClose={() => setShowDrawer(false)}
           onSaved={(created) => { setShowDrawer(false); load(); if (created?.id) generateSheet(created.id); }}
         />
+      )}
+
+      {selected && (
+        <RequirementDetailDrawer
+          requirement={selected}
+          onClose={() => setSelected(null)}
+          onSaved={() => { setSelected(null); load(); }}
+          onFindCandidates={() => setMatchesFor(selected)}
+        />
+      )}
+
+      {matchesFor && (
+        <CandidateMatchesModal requirement={matchesFor} onClose={() => setMatchesFor(null)} />
       )}
     </div>
   );
@@ -319,6 +390,290 @@ function RequirementDrawer({ onClose, onSaved }) {
           <button onClick={save} disabled={saving} className="btn-primary disabled:opacity-50">
             {saving ? 'Saving…' : 'Save & Generate Sheet'}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const STATUS_OPTIONS = ['draft', 'sheet_ready', 'shared', 'closed'];
+
+function toDetailFormState(r) {
+  return {
+    title: r.title || '',
+    region: r.region || 'india',
+    location: r.location || '',
+    work_mode: r.work_mode || 'onsite',
+    employment_type: r.employment_type || 'contract',
+    min_experience: r.min_experience ?? '',
+    max_experience: r.max_experience ?? '',
+    budget_min: r.budget_min ?? '',
+    budget_max: r.budget_max ?? '',
+    budget_currency: r.budget_currency || 'INR',
+    budget_period: r.budget_period || 'monthly',
+    positions: r.positions ?? 1,
+    priority: r.priority || 'normal',
+    mask_client: r.mask_client !== false,
+    required_skills: (r.required_skills || []).join(', '),
+    nice_to_have_skills: (r.nice_to_have_skills || []).join(', '),
+    vendor_notes: r.vendor_notes || '',
+    raw_jd: r.raw_jd || '',
+    status: r.status || 'draft',
+  };
+}
+
+// Detail/edit drawer for an existing requirement — modeled on RequirementDrawer above,
+// but preloaded from the row and saved via PUT /requirements/:id (existing allowlisted route).
+function RequirementDetailDrawer({ requirement, onClose, onSaved, onFindCandidates }) {
+  const [form, setForm] = useState(() => toDetailFormState(requirement));
+  const [saving, setSaving] = useState(false);
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const buildPayload = (overrides = {}) => ({
+    ...form,
+    ...overrides,
+    required_skills: form.required_skills.split(',').map(s => s.trim()).filter(Boolean),
+    nice_to_have_skills: form.nice_to_have_skills.split(',').map(s => s.trim()).filter(Boolean),
+    min_experience: form.min_experience === '' ? null : Number(form.min_experience),
+    max_experience: form.max_experience === '' ? null : Number(form.max_experience),
+    budget_min: form.budget_min === '' ? null : Number(form.budget_min),
+    budget_max: form.budget_max === '' ? null : Number(form.budget_max),
+    positions: Number(form.positions) || 1,
+  });
+
+  const save = async () => {
+    if (!form.title.trim()) { alert('Title is required'); return; }
+    setSaving(true);
+    try {
+      await apiFetch(`/api/wizmatch/requirements/${requirement.id}`, { method: 'PUT', body: JSON.stringify(buildPayload()) });
+      onSaved();
+    } catch (e) { alert('Save failed: ' + e.message); } finally { setSaving(false); }
+  };
+
+  const closeRequirement = async () => {
+    if (!confirm('Close this requirement? It will stop showing in open pipelines.')) return;
+    setSaving(true);
+    try {
+      await apiFetch(`/api/wizmatch/requirements/${requirement.id}`, { method: 'PUT', body: JSON.stringify({ status: 'closed' }) });
+      onSaved();
+    } catch (e) { alert('Failed to close: ' + e.message); } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex justify-end" onClick={onClose}>
+      <div className="bg-white w-[560px] max-w-[95vw] h-full overflow-y-auto shadow-modal" onClick={e => e.stopPropagation()}>
+        <div className="sticky top-0 bg-white border-b border-neutral-100 px-6 py-4 flex justify-between items-center z-10">
+          <div className="min-w-0">
+            <h2 className="text-[18px] font-bold text-neutral-900 truncate">{requirement.title}</h2>
+            <p className="text-[12px] text-neutral-500 mt-0.5">
+              {requirement.company_name || 'No client on file'}
+              {requirement.company_tier ? ` · Tier ${requirement.company_tier}` : ''}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600 shrink-0"><X className="w-5 h-5" /></button>
+        </div>
+
+        <div className="p-6 space-y-5">
+          <div className="flex justify-between items-center">
+            <button onClick={onFindCandidates} className="btn-standard btn-compact">
+              <Users className="w-3.5 h-3.5" /> Find candidates
+            </button>
+            {form.status !== 'closed' && (
+              <button onClick={closeRequirement} disabled={saving} className="text-[12.5px] font-semibold text-danger-600 hover:text-danger-700">
+                Close requirement
+              </button>
+            )}
+          </div>
+
+          <div className="border-t border-neutral-100 pt-4 space-y-3">
+            <div>
+              <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Title *</label>
+              <input value={form.title} onChange={e => set('title', e.target.value)} className="input w-full mt-1" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Status</label>
+                <select value={form.status} onChange={e => set('status', e.target.value)} className="input w-full mt-1">
+                  {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Region</label>
+                <select value={form.region} onChange={e => set('region', e.target.value)} className="input w-full mt-1">
+                  <option value="india">India</option><option value="us">US</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Location</label>
+                <input value={form.location} onChange={e => set('location', e.target.value)} className="input w-full mt-1" />
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Work Mode</label>
+                <select value={form.work_mode} onChange={e => set('work_mode', e.target.value)} className="input w-full mt-1">
+                  <option value="onsite">Onsite</option><option value="hybrid">Hybrid</option><option value="remote">Remote</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Employment</label>
+                <select value={form.employment_type} onChange={e => set('employment_type', e.target.value)} className="input w-full mt-1">
+                  <option value="contract">Contract</option><option value="contract_c2c">Contract — C2C</option>
+                  <option value="contract_w2">Contract — W2</option><option value="permanent">Permanent</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Priority</label>
+                <select value={form.priority} onChange={e => set('priority', e.target.value)} className="input w-full mt-1">
+                  <option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Min Exp (yrs)</label>
+                <input type="number" value={form.min_experience} onChange={e => set('min_experience', e.target.value)} className="input w-full mt-1" />
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Max Exp (yrs)</label>
+                <input type="number" value={form.max_experience} onChange={e => set('max_experience', e.target.value)} className="input w-full mt-1" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-4 gap-3">
+              <div className="col-span-1">
+                <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Currency</label>
+                <select value={form.budget_currency} onChange={e => set('budget_currency', e.target.value)} className="input w-full mt-1">
+                  <option value="INR">INR</option><option value="USD">USD</option>
+                </select>
+              </div>
+              <div><label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Budget Min</label><input type="number" value={form.budget_min} onChange={e => set('budget_min', e.target.value)} className="input w-full mt-1" /></div>
+              <div><label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Budget Max</label><input type="number" value={form.budget_max} onChange={e => set('budget_max', e.target.value)} className="input w-full mt-1" /></div>
+              <div>
+                <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Per</label>
+                <select value={form.budget_period} onChange={e => set('budget_period', e.target.value)} className="input w-full mt-1">
+                  <option value="monthly">Month</option><option value="hourly">Hour</option><option value="annual">Year</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Positions</label><input type="number" value={form.positions} onChange={e => set('positions', e.target.value)} className="input w-full mt-1" /></div>
+              <label className="flex items-center gap-2 text-[12.5px] text-neutral-600 self-end pb-2.5">
+                <input type="checkbox" checked={form.mask_client} onChange={e => set('mask_client', e.target.checked)} />
+                Mask end-client name
+              </label>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Must-have Skills (comma-sep)</label>
+              <input value={form.required_skills} onChange={e => set('required_skills', e.target.value)} className="input w-full mt-1" placeholder="Java, Spring Boot, AWS" />
+            </div>
+            <div>
+              <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Nice-to-have Skills (comma-sep)</label>
+              <input value={form.nice_to_have_skills} onChange={e => set('nice_to_have_skills', e.target.value)} className="input w-full mt-1" placeholder="Kafka, Kubernetes" />
+            </div>
+            <div>
+              <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Notes for Vendors</label>
+              <textarea value={form.vendor_notes} onChange={e => set('vendor_notes', e.target.value)} rows={2} className="input w-full mt-1 resize-y" />
+            </div>
+            <div>
+              <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Raw JD</label>
+              <textarea value={form.raw_jd} onChange={e => set('raw_jd', e.target.value)} rows={8} className="input w-full mt-1 resize-y font-mono text-[12px]" />
+            </div>
+          </div>
+        </div>
+
+        <div className="sticky bottom-0 bg-white border-t border-neutral-100 px-6 py-3 flex justify-end gap-2">
+          <button onClick={onClose} className="btn-standard">Cancel</button>
+          <button onClick={save} disabled={saving} className="btn-primary disabled:opacity-50">
+            {saving ? 'Saving…' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// The candidate-intelligence matches endpoint returns CandidateIntelligenceResult rows
+// (id, name, score, priority, topRequirementMatches[]) rather than a flat
+// { candidateId, matchedSkills, missingSkills } shape — read both defensively so this
+// keeps working if the endpoint's shape is ever flattened.
+function extractMatchDetails(m, requirementId) {
+  const requirementMatches = m.topRequirementMatches || [];
+  const scoped = requirementMatches.find(x => x.requirementId === requirementId) || requirementMatches[0] || {};
+  const reasons = (m.reasons && m.reasons.length ? m.reasons : scoped.reasons) || [];
+  return {
+    candidateId: m.candidateId || m.id,
+    name: m.name || 'Unknown candidate',
+    score: m.score ?? 0,
+    priority: m.priority || 'watch',
+    matchedSkills: m.matchedSkills || scoped.matchedSkills || [],
+    missingSkills: m.missingSkills || scoped.missingSkills || [],
+    reasons: reasons.slice(0, 3),
+  };
+}
+
+// Read-only ranked candidate list for one requirement. No submission or outreach action here.
+function CandidateMatchesModal({ requirement, onClose }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [matches, setMatches] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const data = await apiFetch(`/api/wizmatch/candidate-intelligence/requirements/${requirement.id}/matches`);
+        if (!cancelled) setMatches((data.matches || []).map(m => extractMatchDetails(m, requirement.id)));
+      } catch (e) {
+        if (!cancelled) setError(e.message || 'Failed to load candidate matches');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [requirement.id]);
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white w-[640px] max-w-[95vw] max-h-[85vh] overflow-y-auto rounded-xl shadow-modal" onClick={e => e.stopPropagation()}>
+        <div className="sticky top-0 bg-white border-b border-neutral-100 px-6 py-4 flex justify-between items-center z-10">
+          <div className="min-w-0">
+            <h2 className="text-[18px] font-bold text-neutral-900">Candidate matches</h2>
+            <p className="text-[12px] text-neutral-500 mt-0.5 truncate">{requirement.title} · read-only ranking, no outreach or submission</p>
+          </div>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600 shrink-0"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-6 space-y-3">
+          {loading ? (
+            <p className="text-center text-neutral-400 py-8">Loading candidate matches...</p>
+          ) : error ? (
+            <p className="text-center text-danger-600 py-8">{error}</p>
+          ) : matches.length === 0 ? (
+            <p className="text-center text-neutral-400 py-8">No candidate matches found yet.</p>
+          ) : matches.map(m => (
+            <div key={m.candidateId} className="rounded-lg border border-neutral-200 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <p className="font-semibold text-neutral-900 text-sm">{m.name}</p>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className={MATCH_PRIORITY_BADGE[m.priority] || 'badge-muted'}>{m.priority}</span>
+                  <span className="inline-flex items-center justify-center min-w-9 h-8 rounded-md bg-neutral-900 text-white text-[13px] font-bold">{m.score}</span>
+                </div>
+              </div>
+              {(m.matchedSkills.length > 0 || m.missingSkills.length > 0) && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {m.matchedSkills.slice(0, 6).map(s => <span key={`match-${s}`} className="badge-success text-[10px]">{s}</span>)}
+                  {m.missingSkills.slice(0, 5).map(s => <span key={`miss-${s}`} className="badge-muted text-[10px]">missing {s}</span>)}
+                </div>
+              )}
+              {m.reasons.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {m.reasons.map((reason, i) => (
+                    <p key={i} className="text-[12px] text-neutral-500">{reason}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       </div>
     </div>
