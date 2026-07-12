@@ -1619,9 +1619,12 @@ async function fetchCandidateIntelligenceRequirements(tenantId: string, limit: n
             r.budget_max,
             r.budget_currency,
             r.priority,
-            r.status
+            r.status,
+            ci.qualification_tier AS company_tier
      FROM wizmatch_requirements r
      LEFT JOIN wizmatch_companies comp ON comp.id = r.company_id
+     LEFT JOIN wizmatch_company_intelligence ci
+       ON ci.company_id = r.company_id AND ci.tenant_id = r.tenant_id
      WHERE r.tenant_id = $1
        AND r.status <> 'closed'
        ${requirementFilter}
@@ -1630,7 +1633,13 @@ async function fetchCandidateIntelligenceRequirements(tenantId: string, limit: n
      LIMIT $${params.length}`,
     params,
   );
-  return (result.rows as CandidateRequirementRow[]).map(mapCandidateRequirement);
+  // Account-quality priority scoring (see wizmatchRequirementPriority.scoreRequirementPriority)
+  // needs the client's qualification tier; carry it alongside the standard mapped fields
+  // without touching the shared CandidateRequirementRow/mapCandidateRequirement contract.
+  return (result.rows as (CandidateRequirementRow & { company_tier: string | null })[]).map((row) => ({
+    ...mapCandidateRequirement(row),
+    companyTier: row.company_tier ?? null,
+  }));
 }
 
 async function fetchCandidateIntelligenceSignals(tenantId: string, limit: number) {
@@ -2521,6 +2530,7 @@ async function buildRequirementPriorityInputs(
 
   return requirements.map((requirement) => ({
     ...requirement,
+    companyTier: requirement.companyTier ?? null,
     candidateMatches: candidates,
     contactApprovedCount: contactStats.contactsApproved,
     contactBlockedCount: contactStats.paidRunsBlocked,
@@ -5208,19 +5218,38 @@ router.get('/requirements', async (req: Request, res: Response) => {
   let paramIdx = 2;
   if (req.query.status) { conditions.push(`r.status = $${paramIdx++}`); params.push(req.query.status); }
   if (req.query.region) { conditions.push(`r.region = $${paramIdx++}`); params.push(req.query.region); }
+  if (req.query.company) { conditions.push(`comp.name ILIKE $${paramIdx++}`); params.push(`%${req.query.company}%`); }
+  if (req.query.skill) { conditions.push(`$${paramIdx++} = ANY(r.required_skills)`); params.push(req.query.skill); }
+  if (req.query.location) { conditions.push(`r.location ILIKE $${paramIdx++}`); params.push(`%${req.query.location}%`); }
+  if (req.query.work_mode) { conditions.push(`r.work_mode = $${paramIdx++}`); params.push(req.query.work_mode); }
+  if (req.query.employment_type) { conditions.push(`r.employment_type = $${paramIdx++}`); params.push(req.query.employment_type); }
+  if (req.query.priority) { conditions.push(`r.priority = $${paramIdx++}`); params.push(req.query.priority); }
+  const minExperienceRaw = req.query.min_experience;
+  if (minExperienceRaw !== undefined && minExperienceRaw !== '') {
+    const minExperience = Number(minExperienceRaw);
+    if (Number.isFinite(minExperience)) {
+      conditions.push(`COALESCE(r.max_experience, r.min_experience) >= $${paramIdx++}`);
+      params.push(minExperience);
+    }
+  }
 
   const whereClause = conditions.join(' AND ');
   const dataResult = await pool.query(
-    `SELECT r.*, comp.name AS company_name
+    `SELECT r.*, comp.name AS company_name, ci.qualification_tier AS company_tier
      FROM wizmatch_requirements r
      LEFT JOIN wizmatch_companies comp ON comp.id = r.company_id
+     LEFT JOIN wizmatch_company_intelligence ci
+       ON ci.company_id = r.company_id AND ci.tenant_id = r.tenant_id
      WHERE ${whereClause}
      ORDER BY r.created_at DESC
      LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
     [...params, limit, offset],
   );
   const countResult = await pool.query(
-    `SELECT COUNT(*)::int AS total FROM wizmatch_requirements r WHERE ${whereClause}`,
+    `SELECT COUNT(*)::int AS total
+     FROM wizmatch_requirements r
+     LEFT JOIN wizmatch_companies comp ON comp.id = r.company_id
+     WHERE ${whereClause}`,
     params,
   );
   res.json({ items: dataResult.rows, total: countResult.rows[0]?.total ?? 0 });

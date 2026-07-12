@@ -13,6 +13,8 @@ export interface RequirementPriorityInput extends CandidateRequirementInput {
   contactBlockedCount?: number | null;
   domainStatus?: string | null;
   hasSuppression?: boolean | null;
+  /** Client company qualification tier (A | B | C | Reject) from wizmatch_company_intelligence. */
+  companyTier?: string | null;
 }
 
 export interface RequirementPriorityResult {
@@ -30,6 +32,7 @@ export interface RequirementPriorityResult {
     contactReadiness: number;
     requirementQuality: number;
     safety: number;
+    accountQuality: number;
   };
   topCandidateMatches: Array<{
     candidateId: string;
@@ -162,6 +165,25 @@ export function scoreRequirementPriority(input: RequirementPriorityInput): Requi
     return 10;
   })();
 
+  const accountQuality = (() => {
+    switch (input.companyTier) {
+      case 'A':
+        reasons.push('Tier A client account.');
+        return 15;
+      case 'B':
+        reasons.push('Tier B client account.');
+        return 8;
+      case 'C':
+        reasons.push('Tier C client account.');
+        return 3;
+      case 'Reject':
+        reasons.push('Client account is Reject-tier.');
+        return 0;
+      default:
+        return 0;
+    }
+  })();
+
   for (const blocker of blockers) {
     if (blocker === 'closed_requirement') reasons.push('Blocked: requirement is closed.');
     if (blocker === 'missing_required_skills') reasons.push('Blocked: required skills are missing.');
@@ -169,7 +191,8 @@ export function scoreRequirementPriority(input: RequirementPriorityInput): Requi
     if (blocker === 'unsafe_domain') reasons.push(`Blocked: domain health is ${input.domainStatus}.`);
   }
 
-  const rawScore = urgency + indiaFirst + candidateCoverage + contactReadiness + requirementQuality + safety;
+  const rawScore =
+    urgency + indiaFirst + candidateCoverage + contactReadiness + requirementQuality + safety + accountQuality;
   const score = blockers.length > 0 ? Math.min(clamp(rawScore), 44) : clamp(rawScore);
   const priority = priorityFor(score, blockers);
 
@@ -188,6 +211,7 @@ export function scoreRequirementPriority(input: RequirementPriorityInput): Requi
       contactReadiness,
       requirementQuality,
       safety,
+      accountQuality,
     },
     topCandidateMatches: rankedCandidates.map((candidate) => ({
       candidateId: candidate.id,
