@@ -2655,9 +2655,146 @@ router.get('/readiness', async (req: Request, res: Response) => {
   res.json({ ...readiness, costControls });
 });
 
+/**
+ * Reuses buildWizmatchRoiAnalytics (see wizmatchRoiAnalytics.ts, also used by the
+ * GET /analytics/roi route) so the AI Intelligence snapshot gets the same funnel/KPI
+ * math instead of a second hand-rolled ROI calculation. Mirrors the ROI route's
+ * default 30-day window. Read-only; no writes.
+ */
+async function buildWizmatchRoiSummaryForSnapshot(tenantId: string) {
+  const from = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const to = new Date().toISOString().slice(0, 10);
+  const toEnd = `${to} 23:59:59`;
+
+  const [signalStats, contactIntelligence, candidateStats, requirementStats, placementStats, sourceStats] = await Promise.all([
+    pool.query(
+      `SELECT
+         COUNT(*)::int AS total,
+         COUNT(*) FILTER (WHERE COALESCE(score, 0) >= 7)::int AS priority,
+         COUNT(*) FILTER (WHERE LOWER(COALESCE(location, '') || ' ' || COALESCE(source, '')) LIKE ANY (ARRAY['%india%','%bangalore%','%bengaluru%','%hyderabad%','%pune%','%chennai%','%mumbai%','%delhi%','%noida%','%gurgaon%','%gurugram%']))::int AS india,
+         COUNT(*) FILTER (WHERE NOT (LOWER(COALESCE(location, '') || ' ' || COALESCE(source, '')) LIKE ANY (ARRAY['%india%','%bangalore%','%bengaluru%','%hyderabad%','%pune%','%chennai%','%mumbai%','%delhi%','%noida%','%gurgaon%','%gurugram%'])))::int AS us,
+         COUNT(*) FILTER (WHERE status = 'matched')::int AS matched,
+         COUNT(*) FILTER (WHERE status = 'drafted')::int AS drafted,
+         COUNT(*) FILTER (WHERE status = 'sent')::int AS sent,
+         COUNT(*) FILTER (WHERE status = 'replied_positive')::int AS positive_replies
+       FROM wizmatch_job_signals
+       WHERE tenant_id = $1 AND created_at >= $2 AND created_at <= $3`,
+      [tenantId, from, toEnd],
+    ),
+    fetchOptionalContactIntelligenceRoiStats(tenantId),
+    pool.query(
+      `SELECT
+         COUNT(*)::int AS total,
+         COUNT(*) FILTER (WHERE availability_status = 'available')::int AS available,
+         COUNT(*) FILTER (WHERE is_wizmatch_certified = true)::int AS certified,
+         COUNT(*) FILTER (WHERE LOWER(COALESCE(location, '')) LIKE ANY (ARRAY['%india%','%bangalore%','%bengaluru%','%hyderabad%','%pune%','%chennai%','%mumbai%','%delhi%','%noida%','%gurgaon%','%gurugram%']))::int AS india,
+         COUNT(*) FILTER (WHERE NOT (LOWER(COALESCE(location, '')) LIKE ANY (ARRAY['%india%','%bangalore%','%bengaluru%','%hyderabad%','%pune%','%chennai%','%mumbai%','%delhi%','%noida%','%gurgaon%','%gurugram%'])))::int AS us
+       FROM wizmatch_candidates
+       WHERE tenant_id = $1`,
+      [tenantId],
+    ),
+    optionalWizmatchStatsQuery(
+      'requirements ROI (ai snapshot)',
+      `SELECT
+         COUNT(*) FILTER (WHERE status <> 'closed')::int AS open,
+         COUNT(*) FILTER (WHERE status <> 'closed' AND priority = 'urgent')::int AS urgent,
+         COUNT(*) FILTER (WHERE status = 'sheet_ready')::int AS sheet_ready,
+         COUNT(*) FILTER (WHERE status = 'shared')::int AS shared,
+         COUNT(*) FILTER (WHERE status = 'closed')::int AS closed
+       FROM wizmatch_requirements
+       WHERE tenant_id = $1`,
+      [tenantId],
+      { open: 0, urgent: 0, sheet_ready: 0, shared: 0, closed: 0 },
+    ),
+    pool.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE status IN ('submitted', 'interviewing', 'offered', 'started'))::int AS active,
+         COUNT(*) FILTER (WHERE status = 'submitted')::int AS submitted,
+         COUNT(*) FILTER (WHERE status = 'interviewing')::int AS interviewing,
+         COUNT(*) FILTER (WHERE status = 'offered')::int AS offered,
+         COUNT(*) FILTER (WHERE status = 'started')::int AS started,
+         COUNT(*) FILTER (WHERE status = 'lost')::int AS lost,
+         COALESCE(SUM(CASE WHEN status = 'started' THEN margin_hourly * 160 ELSE 0 END), 0)::int AS monthly_margin
+       FROM wizmatch_placements
+       WHERE tenant_id = $1`,
+      [tenantId],
+    ),
+    pool.query(
+      `SELECT source, COUNT(*)::int AS count, COALESCE(AVG(score), 0)::real AS avg_score
+       FROM wizmatch_job_signals
+       WHERE tenant_id = $1 AND created_at >= $2 AND created_at <= $3
+       GROUP BY source
+       ORDER BY count DESC
+       LIMIT 10`,
+      [tenantId, from, toEnd],
+    ),
+  ]);
+
+  const signalsRow = signalStats.rows[0] ?? {};
+  const candidatesRow = candidateStats.rows[0] ?? {};
+  const requirementsRow = requirementStats.rows[0] ?? {};
+  const placementsRow = placementStats.rows[0] ?? {};
+
+  return buildWizmatchRoiAnalytics({
+    from,
+    to,
+    signals: {
+      total: numeric(signalsRow.total),
+      priority: numeric(signalsRow.priority),
+      india: numeric(signalsRow.india),
+      us: numeric(signalsRow.us),
+      matched: numeric(signalsRow.matched),
+      drafted: numeric(signalsRow.drafted),
+      sent: numeric(signalsRow.sent),
+      positiveReplies: numeric(signalsRow.positive_replies),
+    },
+    contactIntelligence,
+    candidates: {
+      total: numeric(candidatesRow.total),
+      available: numeric(candidatesRow.available),
+      certified: numeric(candidatesRow.certified),
+      india: numeric(candidatesRow.india),
+      us: numeric(candidatesRow.us),
+    },
+    requirements: {
+      open: numeric(requirementsRow.open),
+      urgent: numeric(requirementsRow.urgent),
+      sheetReady: numeric(requirementsRow.sheet_ready),
+      shared: numeric(requirementsRow.shared),
+      closed: numeric(requirementsRow.closed),
+    },
+    placements: {
+      active: numeric(placementsRow.active),
+      submitted: numeric(placementsRow.submitted),
+      interviewing: numeric(placementsRow.interviewing),
+      offered: numeric(placementsRow.offered),
+      started: numeric(placementsRow.started),
+      lost: numeric(placementsRow.lost),
+      monthlyMargin: numeric(placementsRow.monthly_margin),
+    },
+    sourceBreakdown: sourceStats.rows.map((row) => ({
+      source: row.source,
+      count: numeric(row.count),
+      avgScore: numeric(row.avg_score),
+    })),
+  });
+}
+
 async function buildWizmatchDashboardSnapshot(tenantId: string, userId?: string) {
   const today = new Date().toISOString().slice(0, 10);
-  const [readiness, workbench, costControls, stats, shared] = await Promise.all([
+  const [
+    readiness,
+    workbench,
+    costControls,
+    stats,
+    shared,
+    topSignalsResult,
+    topRequirementsResult,
+    skillSupplyResult,
+    companyTierResult,
+    recentPlacementsResult,
+    roiSummary,
+  ] = await Promise.all([
     getWizmatchReadiness(pool, tenantId),
     buildReviewWorkbenchPayload(tenantId, 10),
     buildContactDiscoveryCostControls(tenantId, userId),
@@ -2700,6 +2837,71 @@ async function buildWizmatchDashboardSnapshot(tenantId: string, userId?: string)
          (SELECT COUNT(*)::int FROM deals WHERE tenant_id = $1 AND stage NOT IN ('won', 'lost', 'Won', 'Lost')) AS open_deals`,
       [tenantId],
     ),
+    // --- Row-level enrichment for AI Intelligence (bounded top-N, tenant-scoped, read-only) ---
+    pool.query(
+      `SELECT
+         s.id,
+         s.job_title,
+         s.score,
+         s.employment_type,
+         s.keywords,
+         s.days_open,
+         s.location,
+         s.status,
+         c.name AS company_name,
+         (LOWER(COALESCE(s.employment_type, '')) = 'c2c') AS c2c_friendly
+       FROM wizmatch_job_signals s
+       LEFT JOIN wizmatch_companies c ON c.id = s.company_id
+       WHERE s.tenant_id = $1 AND s.status NOT IN ('dead', 'placed')
+       ORDER BY s.score DESC NULLS LAST, s.created_at DESC
+       LIMIT 15`,
+      [tenantId],
+    ),
+    optionalWizmatchValue(
+      'top requirements snapshot',
+      async () => (await pool.query(
+        `SELECT id, title, required_skills, budget_min, budget_max, budget_currency, budget_period, positions, region, priority, employment_type, status
+         FROM wizmatch_requirements
+         WHERE tenant_id = $1 AND status <> 'closed'
+         ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, created_at DESC
+         LIMIT 15`,
+        [tenantId],
+      )).rows,
+      [] as Array<Record<string, unknown>>,
+      ['wizmatch_requirements'],
+    ),
+    pool.query(
+      `SELECT skill, COUNT(*)::int AS candidate_count
+       FROM (SELECT UNNEST(skills) AS skill FROM wizmatch_candidates WHERE tenant_id = $1) sub
+       WHERE skill IS NOT NULL AND skill <> ''
+       GROUP BY skill
+       ORDER BY candidate_count DESC
+       LIMIT 15`,
+      [tenantId],
+    ),
+    optionalWizmatchValue(
+      'company tier counts snapshot',
+      async () => (await pool.query(
+        `SELECT COALESCE(qualification_tier, 'Unscored') AS tier, COUNT(*)::int AS count
+         FROM wizmatch_company_intelligence
+         WHERE tenant_id = $1
+         GROUP BY qualification_tier
+         ORDER BY count DESC`,
+        [tenantId],
+      )).rows,
+      [] as Array<Record<string, unknown>>,
+      ['wizmatch_company_intelligence'],
+    ),
+    pool.query(
+      `SELECT p.id, p.placement_type, p.margin_hourly, p.bill_rate_hourly, p.pay_rate_hourly, p.status, p.contract_start_date, c.name AS company_name
+       FROM wizmatch_placements p
+       LEFT JOIN wizmatch_companies c ON c.id = p.company_id
+       WHERE p.tenant_id = $1
+       ORDER BY p.created_at DESC
+       LIMIT 15`,
+      [tenantId],
+    ),
+    buildWizmatchRoiSummaryForSnapshot(tenantId),
   ]);
   const row = stats.rows[0] ?? {};
   const sharedRow = shared.rows[0] ?? {};
@@ -2731,6 +2933,50 @@ async function buildWizmatchDashboardSnapshot(tenantId: string, userId?: string)
     },
     priorityActions: (workbench.actions || []).slice(0, 6),
     guardrails: workbench.guardrails,
+    // --- Row-level detail so Claude can reason about actual skills/budgets/margins ---
+    topSignals: topSignalsResult.rows.map((r) => ({
+      id: r.id,
+      jobTitle: r.job_title,
+      score: numeric(r.score),
+      employmentType: r.employment_type,
+      keywords: r.keywords || [],
+      daysOpen: numeric(r.days_open),
+      location: r.location,
+      status: r.status,
+      companyName: r.company_name,
+      c2cFriendly: Boolean(r.c2c_friendly),
+    })),
+    topRequirements: topRequirementsResult.map((r) => ({
+      id: r.id,
+      title: r.title,
+      requiredSkills: r.required_skills || [],
+      budgetMin: r.budget_min !== null && r.budget_min !== undefined ? numeric(r.budget_min) : null,
+      budgetMax: r.budget_max !== null && r.budget_max !== undefined ? numeric(r.budget_max) : null,
+      budgetCurrency: r.budget_currency,
+      budgetPeriod: r.budget_period,
+      positions: numeric(r.positions),
+      region: r.region,
+      priority: r.priority,
+      employmentType: r.employment_type,
+      status: r.status,
+    })),
+    candidateSkillSupply: {
+      topSkills: skillSupplyResult.rows.map((r) => ({ skill: r.skill, candidateCount: numeric(r.candidate_count) })),
+      availableCandidates: numeric(row.available_candidates),
+      totalCandidates: numeric(row.total_candidates),
+    },
+    companyTierCounts: companyTierResult.map((r) => ({ tier: r.tier, count: numeric(r.count) })),
+    recentPlacements: recentPlacementsResult.rows.map((r) => ({
+      id: r.id,
+      companyName: r.company_name,
+      placementType: r.placement_type,
+      marginHourly: r.margin_hourly !== null && r.margin_hourly !== undefined ? numeric(r.margin_hourly) : null,
+      billRateHourly: r.bill_rate_hourly !== null && r.bill_rate_hourly !== undefined ? numeric(r.bill_rate_hourly) : null,
+      payRateHourly: r.pay_rate_hourly !== null && r.pay_rate_hourly !== undefined ? numeric(r.pay_rate_hourly) : null,
+      status: r.status,
+      contractStartDate: r.contract_start_date,
+    })),
+    roiSummary,
   };
 }
 
@@ -2756,22 +3002,24 @@ router.get('/intelligence', async (req: Request, res: Response) => {
 router.post('/intelligence/generate', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const snapshot = await buildWizmatchDashboardSnapshot(tenantId, req.user?.id);
-  const prompt = `You are the Wizmatch operating analyst for Growth Escalators.
-Analyze this staffing-only CRM snapshot and return concise JSON with these keys:
-summary, risks, next_actions, data_gaps, guardrails.
+  const system = `You are the Wizmatch operating analyst for Growth Escalators, an internal IT/Tech staffing CRM copilot.
 
 Rules:
 - Focus only on IT/Tech staffing.
 - Do not recommend automatic outreach or automatic candidate submission.
 - Do not recommend paid enrichment unless readiness, qualification, and cost guards allow it.
 - Prioritize India 80% and US 20%.
-- Use the exact numbers from the snapshot.
+- Use the exact numbers from the snapshot — never invent figures.
+- Reason over the row-level detail in the snapshot (topSignals' skills/employment type/company, topRequirements' requiredSkills/budgets, candidateSkillSupply, companyTierCounts, recentPlacements, roiSummary) to give concrete, specific guidance — e.g. which roles to prioritize and why, which open requirements are unmatched against current candidate skill supply, and where placement margins are healthy or thin. Do not just restate the aggregate counts.
+- Respond with concise JSON only, using exactly these keys: summary, risks, next_actions, data_gaps, guardrails.`;
+  const prompt = `Analyze this staffing-only CRM snapshot and return your analysis as JSON with keys:
+summary, risks, next_actions, data_gaps, guardrails.
 
 Snapshot:
 ${JSON.stringify(snapshot, null, 2)}`;
 
   try {
-    const response = await callClaude(prompt, CLAUDE_MODELS.SONNET, 1800);
+    const response = await callClaude(prompt, CLAUDE_MODELS.SONNET, 6000, system);
     let analysis: unknown;
     try {
       analysis = parseClaudeJSON(response.text);
