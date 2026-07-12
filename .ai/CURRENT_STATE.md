@@ -2,6 +2,26 @@
 
 _Update this when the working state of the repo meaningfully changes. Keep it short and true._
 
+## 2026-07-12 snapshot (current)
+
+- `main` @ `6d659ec`, local == origin, working tree has only unrelated SEO/tooling WIP (see
+  CURRENT_TASK.md "Dirty working tree"). `npm run build`, `npm test` (292), `npm run admin:build` all green.
+- Git remote now points at the canonical `Growth-Escalators/Growth-Escalators-CRM` (repo was renamed
+  from `growth-escalators-backend-v2`; same owner, Railway auto-deploy unaffected). No more "repository moved" push warnings.
+- **`npm run db:generate` works normally again** (was emitting destructive migrations from a drifted
+  snapshot baseline; fixed in PR #42 by adding `meta/0024_snapshot.json`). Deploy still auto-runs
+  `node dist/scripts/migrate.js && node dist/index.js`, so keep migrations additive/idempotent.
+- Wizmatch client-acquisition funnel is substantially built out: Review Workbench, Client Discovery,
+  Signals, Contact Intelligence, Requirement Priority + Requirements (filters/edit drawer/find-candidates/
+  tier-weighted priority), Candidates (filters/pagination/experience), Source Candidates (on-demand),
+  Placements, Analytics, AI Intelligence (row-level context), and a consolidated `/wizmatch/system`
+  diagnostics page. Contact drawer shows full candidate/client-lead/company detail.
+- Authoritative dataflow map: `docs/wizmatch/DATAFLOW.md` (corrected 2026-07-12 — GitHub/X-Ray are
+  candidate-supply sourcing, not demand; requirements are only created manually; RemoteOK/TheirStack
+  importers live). Client-funnel test plan: `docs/wizmatch/CLIENT_FUNNEL_TEST_PLAN.md`.
+- **Not yet done:** real Wizmatch data still needs loading before client-facing use (scrapers return 0;
+  use manual intake / Source Candidates). Sending stays gated (`WIZMATCH_SENDING_ENABLED`).
+
 ## What works (baseline)
 
 - CRM + API live on Railway. Repo-local docs describe a single Express + Socket.io + node-cron

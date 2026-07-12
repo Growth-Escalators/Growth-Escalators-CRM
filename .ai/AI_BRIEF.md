@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-09T14:41:45.694Z_
+_Generated: 2026-07-12T18:15:34.971Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -11,34 +11,35 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 ## Repository
 
 - **Repo**: growth-escalators-backend-v2
-- **Branch**: `fix/wizmatch-cost-safety`
-- **Last commit**: 453b7fa Merge pull request #13 from Growth-Escalators/docs/wizmatch-cost-audit (7 hours ago)
-- **Uncommitted changes**: 11 file(s)
+- **Branch**: `main`
+- **Last commit**: 6d659ec chore(db): repair drizzle snapshot baseline so db:generate works safely again (#42) (11 minutes ago)
+- **Uncommitted changes**: 20 file(s)
 
 ## Current task
 
-**Wizmatch P0 cost-safety fixes** — implement the two audit-confirmed P0s on
-`fix/wizmatch-cost-safety`, then open a PR against `main`.
+**Wizmatch staged full-detail admin flow (Hybrid)** — replace the compact "co-pilot" theme with
+separate, full-detail per-stage dashboards. Branch `feat/wizmatch-staged-flow` (stacked on
+`feat/wizmatch-sending`). Design decision recorded in `docs/design/wizmatch-staged-flow.md`.
 
-Scope is narrow: stop the free/internal enrich path from consuming shared Apollo/Snov quota, and
-alert when all configured Wizmatch sending domains degrade while preserving the mailer's
-fallback-to-all sending behavior.
+Scope is admin-UI only: restore the orphaned full pages for Client Discovery, Candidate
+Intelligence, and Analytics; keep Contact Intelligence on the newer send-enabled page; add a
+"Wizmatch funnel" stage navigator to the Home dashboard; retire the co-pilot cockpit.
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
 
 ## Recent commits
 
 ```
-453b7fa Merge pull request #13 from Growth-Escalators/docs/wizmatch-cost-audit
-f8e2aaf docs(wizmatch): add cost-leakage audit + refresh .ai context layer
-d07f7ef docs(ai): record env var setup, smoke check, and scraper CI fix
-b87fa5e fix(ci): pin playwright install to 1.59.1 in Wizmatch scraper workflows
-b4966bb fix(ci): invoke local playwright binary directly to avoid version drift
-ead410a fix(ci): install playwright npm package before running Wizmatch scrapers
-f1b476d docs(ai): record Wizmatch migration-journal repair + deploy
-0f313ba fix(db): repair migration journal gap for Wizmatch operating tables
-46e708d docs(ai): update post-deploy Claude handoff
-7951c28 docs(ai): record main deployment integration
+6d659ec chore(db): repair drizzle snapshot baseline so db:generate works safely again (#42)
+69e91b0 docs(ai): log client-acquisition workbench (PRs #39/#40/#41) + drizzle drift finding
+b3c2435 wizmatch: candidates location filter, pagination, experience field (#40)
+0e87e36 feat(wizmatch): on-demand candidate sourcing + pipeline hand-off link (#39)
+0498408 feat(wizmatch): requirements filter bar, detail drawer, candidate matches, tier-weighted priority (#41)
+9ef29d9 feat(crm): surface full candidate/client-lead/company detail in contact drawer
+02ff73f fix(crm): show GitHub/LinkedIn profile, skills, and visa status on candidate contacts
+ef81cf0 docs(wizmatch): add client-acquisition funnel test plan
+624ef01 fix(crm): hide D2C-only fields and format raw source slugs in contact drawer
+fd0f791 docs(wizmatch): correct DATAFLOW.md — GitHub/X-ray are supply not demand
 ```
 
 ## npm scripts
@@ -74,6 +75,7 @@ f1b476d docs(ai): record Wizmatch migration-journal repair + deploy
 .ai/CURRENT_TASK.md
 .ai/HANDOFF_LOG.md
 .ai/REVIEW_CHECKLIST.md
+.ai/TEST_PLAN.md
 .ai/TOOL_ROLES.md
 docs/decisions/.gitkeep
 docs/decisions/ADR-001-ai-collaboration-workflow.md

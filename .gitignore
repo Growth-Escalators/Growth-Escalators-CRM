@@ -15,3 +15,9 @@ test-results/
 
 # Meta App Review — reviewer credentials must never be committed
 scripts/meta-app-review/REVIEWER_CREDENTIALS.md
+
+# Generated tool/skill artifacts (not source)
+graphify-out/
+**/graphify-out/
+__pycache__/
+*.pyc
