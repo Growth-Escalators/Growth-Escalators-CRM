@@ -1,7 +1,7 @@
 import logger from '../utils/logger';
 import { Router } from 'express';
 import { eq, and, desc, ilike, or, gte, sql } from 'drizzle-orm';
-import { db, contacts, contactChannels, sequences, sequenceEnrolments, contactNotes } from '../db/index';
+import { db, contacts, contactChannels, sequences, sequenceEnrolments, contactNotes, wizmatchCandidates } from '../db/index';
 
 const router = Router();
 
@@ -312,7 +312,12 @@ router.get('/:id', async (req, res) => {
   }
 
   const channels = await db.select().from(contactChannels).where(eq(contactChannels.contactId, id));
-  res.json({ contact: contactRows[0], channels });
+
+  // Wizmatch-sourced contacts have a linked candidate row (skills, GitHub/LinkedIn
+  // URL, visa status, rate) that the generic contacts table doesn't carry.
+  const candidateRows = await db.select().from(wizmatchCandidates).where(eq(wizmatchCandidates.contactId, id)).limit(1);
+
+  res.json({ contact: contactRows[0], channels, wizmatchCandidate: candidateRows[0] ?? null });
   } catch (e: unknown) {
     logger.error('[contacts] GET /:id error:', e);
     res.status(500).json({ error: 'Something went wrong. Please try again.' });

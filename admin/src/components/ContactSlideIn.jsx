@@ -188,6 +188,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
   const [contact, setContact] = useState(initialContact);
   const [activeTab, setActiveTab] = useState('details');
   const [channels, setChannels] = useState([]);
+  const [wizmatchCandidate, setWizmatchCandidate] = useState(null);
   const [deals, setDeals] = useState([]);
   const [conversation, setConversation] = useState([]);
   const [notes, setNotes] = useState([]);
@@ -208,6 +209,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
     apiFetch(`/api/contacts/${id}`).then((d) => {
       if (d?.contact) setContact((prev) => ({ ...prev, ...d.contact }));
       if (d?.channels) setChannels(d.channels);
+      setWizmatchCandidate(d?.wizmatchCandidate ?? null);
     });
     apiFetch(`/api/deals?contactId=${id}&limit=20`).then((d) => {
       if (d?.deals) setDeals(d.deals);
@@ -482,6 +484,57 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                       <option key={b.value} value={b.value}>{b.label}</option>
                     ))}
                   </select>
+                </div>
+              )}
+
+              {wizmatchCandidate && (
+                <div className="space-y-3">
+                  <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Candidate Info</h3>
+                  {(wizmatchCandidate.githubUrl || wizmatchCandidate.linkedinUrl) && (
+                    <div className="flex flex-wrap gap-3">
+                      {wizmatchCandidate.githubUrl && (
+                        <a
+                          href={wizmatchCandidate.githubUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-sm text-primary-600 hover:underline"
+                        >
+                          GitHub profile ↗
+                        </a>
+                      )}
+                      {wizmatchCandidate.linkedinUrl && (
+                        <a
+                          href={wizmatchCandidate.linkedinUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-sm text-primary-600 hover:underline"
+                        >
+                          LinkedIn ↗
+                        </a>
+                      )}
+                    </div>
+                  )}
+                  {wizmatchCandidate.skills?.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {wizmatchCandidate.skills.map((s) => (
+                        <span key={s} className="text-xs px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600">{s}</span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    {wizmatchCandidate.location && (
+                      <div><span className="text-xs text-neutral-400 block">Location</span>{wizmatchCandidate.location}</div>
+                    )}
+                    {wizmatchCandidate.visaStatus && wizmatchCandidate.visaStatus !== 'unknown' && (
+                      <div><span className="text-xs text-neutral-400 block">Visa</span>{wizmatchCandidate.visaStatus}</div>
+                    )}
+                    {wizmatchCandidate.availabilityStatus && (
+                      <div><span className="text-xs text-neutral-400 block">Availability</span>{wizmatchCandidate.availabilityStatus}</div>
+                    )}
+                    {wizmatchCandidate.rateHourly != null && (
+                      <div><span className="text-xs text-neutral-400 block">Rate</span>{wizmatchCandidate.rateCurrency ?? 'USD'} {wizmatchCandidate.rateHourly}/hr</div>
+                    )}
+                  </div>
                 </div>
               )}
 
