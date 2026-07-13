@@ -197,6 +197,13 @@
       "when": 1783929007695,
       "tag": "0027_brainy_orphan",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1783930836001,
+      "tag": "0028_strong_cammi",
+      "breakpoints": true
     }
   ]
 }

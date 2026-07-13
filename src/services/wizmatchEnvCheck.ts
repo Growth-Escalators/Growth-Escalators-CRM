@@ -154,6 +154,12 @@ export const WIZMATCH_ENV_CHECKS: WizmatchEnvCheckDefinition[] = [
     group: 'Email',
     note: 'Comma-separated friendly inboxes for warmup flows.',
   },
+  {
+    key: 'WIZMATCH_DKIM_SELECTORS',
+    requirement: 'optional',
+    group: 'Email',
+    note: 'JSON map of sending domain to DKIM selectors. When absent, DKIM evidence is reported as unknown.',
+  },
 ];
 
 function hasUsableValue(value: string | undefined): boolean {

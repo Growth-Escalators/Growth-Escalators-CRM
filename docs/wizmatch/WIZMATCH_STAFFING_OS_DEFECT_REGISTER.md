@@ -44,15 +44,15 @@ the evidence explicitly says otherwise. Never promote a status based only on an 
 | D-14 | P2 | 0 | `verified_local` | Empty Requirement Priority explains the dependency and links to Add Requirement; mocked Chromium covers the zero-item path. | Authenticated empty-state smoke after release. |
 | D-15 | P2 | 0/1 | `verified_local` | Requirement Priority review plans now create a shared task, staffing task link and append-only timeline event transactionally. A supplied due date also becomes the requirement next action; no submission or outreach occurs. | Apply Gate A migration only after separate approval, then smoke the authenticated button. |
 | D-16 | P2 | 0 | `verified_local` | Canonical Contact Intelligence renders live cost-control state. The remaining active Client Discovery `cost ₹0` label describes only its zero-provider snapshot handoff; older universal-cap copy is confined to development-only demo components. | Authenticated patched-build cost-control smoke; do not enable a provider. |
-| D-17 | P2 | 0/1 | `deferred` | Requirement sheets can expose confidential client data through public object URLs. | Owner decision on signed/private document policy, then architecture proposal. |
+| D-17 | P2 | 0/1 | `verified_local` | Requirement source/sheet and consent/RTR objects use private `r2://` references; authenticated access returns five-minute signed URLs. | Live R2 smoke requires separate staging credentials/approval; do not upload real client/candidate documents during QA. |
 | D-18 | P2 | 0 | `in_progress` | DATAFLOW schema, scoring transport, topology, and supply/demand errors corrected locally. | Re-verify live Dice/TheirStack configuration and counts before calling either source healthy. |
 | D-19 | P3 | 0 | `verified_local` | Readiness now reports schema status separately from usable-funnel status and states that table presence alone is insufficient. | Authenticated patched-build readiness smoke. |
 | D-20 | P3 | 0 | `verified_local` | Open Tasks helper describes tasks instead of displaying the unrelated tenant-contact count; mocked dashboard check passes. | Authenticated dashboard smoke after release. |
 | D-21 | P3 | 0 | `verified_local` | Dashboard work order follows the canonical sidebar sequence and includes omitted stages; mocked dashboard check passes. | Responsive authenticated dashboard smoke after release. |
-| D-22 | P3 | 0/5 | `open` | Mixed currency presentation remains. | Approve currency normalization policy before cross-module changes. |
+| D-22 | P3 | 0/5 | `in_progress` | Gate B/C preserve original amount/currency/period and optional conversion rate/source/date; staffing commercial analytics use stored facts. Older non-staffing screens are not globally normalized. | Pilot admin must enter approved rates; validate display and reconciliation in staging before expanding normalization. |
 | D-23 | P3 | 0 | `verified_local` | CRM-link success reports created/existing in plain language and never exposes a raw UUID. Focused service tests cover both newly-created and deduplicated CRM contacts. | Authenticated created/existing branch smoke after release. |
-| D-24 | P3 | 0 | `open` | DKIM health is not represented. | Confirm available DNS/provider evidence before adding a check. |
-| D-25 | P3 | 0 | `open` | Same role under multiple URLs can produce duplicate signals/actions. | Define canonical signal identity and safe dedupe/backfill plan. |
+| D-24 | P3 | 0 | `verified_local` | Domain health resolves configured DKIM selectors and stores/displays pass/fail; without selector evidence it explicitly displays `unknown`. | Configure only approved selectors, then verify DNS evidence in staging/live diagnostics. |
+| D-25 | P3 | 0 | `verified_local` | Signal ingest deduplicates provider ID first, then normalized company/title/location fingerprint, with partial tenant-scoped uniqueness. | Count-only production collision preview before any historical dedupe/backfill. |
 | D-26 | P0 | 0 | `verified_local` | Authenticated Dashboard, Workbench, Requirement Priority, Client Discovery, Candidate Intelligence, Analytics, AI Intelligence and System use honest error/empty states; failed live data never enables demo-ID actions. Shared forced-outage Chromium coverage passes. | Authenticated patched-build outage smoke after release. |
 | D-27 | P1 | 0 | `verified_local` | Pipeline list/deal loads have catch/finally handling, clear stale rows and render Retry. Mocked Chromium failure passes. | Authenticated patched-build smoke. |
 | D-28 | P2 | 0 | `verified_local` | All 11 demo routes are compiled only in Vite development mode; production bundle inspection finds no demo route paths. | Keep the production-bundle route check in release QA. |
@@ -62,8 +62,10 @@ the evidence explicitly says otherwise. Never promote a status based only on an 
 
 ## Release gates for the current local bundle
 
-- No schema, migration, auth/RBAC middleware, payment, scheduled Slack-DM, deployment, environment,
-  sending, provider-enable, cap, budget, or production-data change is included.
+- Additive schema/migrations and a feature-gated zero-cost staffing reminder cron are included
+  locally under the approved three-phase plan. No auth/RBAC middleware, payment processor,
+  scheduled Slack-DM, deployment, environment, sending, provider-enable, cap, budget, or
+  production-data change was executed.
 - A real Contact Intelligence discovery run can spend configured provider budget and is not part of
   safe verification.
 - A real uploaded requirement can write a source file and call the AI provider; start with a pasted,
