@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-13T04:50:36.318Z_
+_Generated: 2026-07-13T04:51:47.102Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,8 +12,8 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: Growth-Escalators/Growth-Escalators-CRM
 - **Branch**: `codex/wizmatch-phase0-trust`
-- **Last commit**: 03f8bf7 Merge pull request #43 from Growth-Escalators/feat/viewer-role (23 minutes ago)
-- **Uncommitted changes**: 55 file(s)
+- **Last commit**: 7e31971 docs(wizmatch): persist staffing os handoff context (17 seconds ago)
+- **Uncommitted changes**: 1 file(s)
 
 ## Current task
 
@@ -93,6 +93,8 @@ D-13/D-15 and the core staffing relationship model require the explicit Gate A a
 ## Recent commits
 
 ```
+7e31971 docs(wizmatch): persist staffing os handoff context
+a60361d fix(wizmatch): harden phase zero trust paths
 03f8bf7 Merge pull request #43 from Growth-Escalators/feat/viewer-role
 02f7e44 feat(auth): add read-only viewer role for Command Deck sync
 ba4be81 chore(repo): refresh .ai context layer + gitignore generated artifacts
@@ -101,8 +103,6 @@ ba4be81 chore(repo): refresh .ai context layer + gitignore generated artifacts
 b3c2435 wizmatch: candidates location filter, pagination, experience field (#40)
 0e87e36 feat(wizmatch): on-demand candidate sourcing + pipeline hand-off link (#39)
 0498408 feat(wizmatch): requirements filter bar, detail drawer, candidate matches, tier-weighted priority (#41)
-9ef29d9 feat(crm): surface full candidate/client-lead/company detail in contact drawer
-02ff73f fix(crm): show GitHub/LinkedIn profile, skills, and visa status on candidate contacts
 ```
 
 ## npm scripts
@@ -144,14 +144,22 @@ docs/decisions/.gitkeep
 docs/decisions/ADR-001-ai-collaboration-workflow.md
 docs/decisions/ADR-002-contact-intelligence-phase1-architecture.md
 docs/decisions/ADR-003-contact-intelligence-review-persistence.md
+docs/decisions/ADR-004-wizmatch-staffing-domain-spine.md
 docs/prd/.gitkeep
 docs/prd/001-contact-intelligence-phase1-plan.md
 docs/prd/001-contact-intelligence.md
 docs/prd/002-client-discovery-plan.md
 docs/prd/003-candidate-intelligence-plan.md
+docs/prd/004-phase-01-core-staffing-domain-spine.md
+docs/prd/004-wizmatch-staffing-operating-system.md
 docs/reviews/.gitkeep
 docs/reviews/codex-ai-collaboration-review.md
+docs/reviews/wizmatch-client-funnel-audit-2026-07-12.md
 docs/reviews/wizmatch-cost-leakage-audit-2026-07-09.md
+docs/wizmatch/README.md
+docs/wizmatch/WIZMATCH_STAFFING_OS_CLAUDE_CODE_KICKOFF.md
+docs/wizmatch/WIZMATCH_STAFFING_OS_DEFECT_REGISTER.md
+docs/wizmatch/WIZMATCH_STAFFING_OS_OWNER_INPUTS.md
 ```
 
 ## Where to read next
