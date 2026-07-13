@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-13T05:50:45.740Z_
+_Generated: 2026-07-13T06:50:20.789Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,12 +12,12 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: Growth-Escalators/Growth-Escalators-CRM
 - **Branch**: `codex/wizmatch-phase0-trust`
-- **Last commit**: 14e0585 docs(wizmatch): close phase zero defect audit (21 seconds ago)
-- **Uncommitted changes**: 1 file(s)
+- **Last commit**: b43017e feat(admin): add Wizmatch staffing workspaces (24 seconds ago)
+- **Uncommitted changes**: 5 file(s)
 
 ## Current task
 
-**Wizmatch Staffing Operating System — Phase 0 trust branch in progress as of 2026-07-13. Worktree:
+**Wizmatch Staffing Operating System — Phase 1 Gate A implemented and verified locally as of 2026-07-13. Worktree:
 `../v2-wizmatch-phase0-trust`; branch: `codex/wizmatch-phase0-trust`. Nothing pushed, deployed,
 sent, spent, migrated, or written to production.**
 
@@ -38,11 +38,10 @@ revenue, and margin. The PRD also preserves future concepts without putting them
 Current remediation status is canonical in
 [`WIZMATCH_STAFFING_OS_DEFECT_REGISTER.md`](../docs/wizmatch/WIZMATCH_STAFFING_OS_DEFECT_REGISTER.md).
 
-**Current verified Phase 0 slice:** D-1–D-7, D-9–D-12, D-14, D-19–D-21,
-D-26–D-31 are locally verified. D-18 still requires live configuration evidence; all other
-non-gated Phase 0 defects are locally verified. Items D-13/D-15/D-17/D-22/D-24/D-25
-require later schema, storage, commercial or infrastructure gates; D-13/D-15 and the staffing
-domain spine specifically remain behind Gate A. See the defect register for the exact evidence and
+**Current verified slice:** D-1–D-7, D-9–D-15, D-19–D-21,
+D-26–D-31 are locally verified. D-13 and D-15 are now locally verified through Gate A. D-18 still
+requires live configuration evidence; D-17/D-22/D-24/D-25 require later storage, commercial or
+infrastructure gates. See the defect register for the exact evidence and
 next action for every item.
 
 **Implemented locally in the current Phase 0 candidate bundle:**
@@ -82,30 +81,30 @@ secure env injection. The live credential has **not** been rotated and Git histo
 rewritten. Rotation is the essential containment step but requires explicit production-mutation
 approval; history remediation is a separate coordinated decision.
 
-**Phase 1 approval required:** ADR-004 proposes the company-contact, requirement-contact,
-assignment, activity, task-link, skill/match, and delivery spine needed for Person A→SAP and
-Person B→Java. Do not edit schema/migrations until the owner records the approval in
-`WIZMATCH_STAFFING_OS_OWNER_INPUTS.md`.
+**Gate A local implementation complete:** ADR-004 Gate A approval is recorded in
+`WIZMATCH_STAFFING_OS_OWNER_INPUTS.md`. The branch includes the additive schema/migration,
+transactional relationship/attribution/assignment/task/timeline APIs, Company/Hiring Contact/
+Requirement 360 and My Work. Migration apply, production data, push and deployment remain unapproved.
 
-**Exact next step:** Phase 0 code/release validation is complete locally. D-13/D-15 and the core staffing
-relationship model require the explicit Gate A approval below. D-17/D-22/D-24/D-25 are naturally
-implemented with the later private-document, commercial-currency and dedupe schema slices.
+**Exact next step:** review the scoped local Gate A commits, then separately approve or reject
+migration application. After an approved scratch/staging rollout and authenticated smoke, prepare
+the Gate B canonical-skills/matching proposal; do not begin Gate B schema work by implication.
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
 
 ## Recent commits
 
 ```
-14e0585 docs(wizmatch): close phase zero defect audit
-b1cde95 chore(ai): record canonical workbench totals
-60dea44 fix(wizmatch): canonicalize workbench totals
-6d0807f chore(ai): record final phase zero QA
-ab3a6dd test(wizmatch): cover AI and query recovery failures
-5a4b379 chore(ai): refresh wizmatch branch brief
-7e31971 docs(wizmatch): persist staffing os handoff context
-a60361d fix(wizmatch): harden phase zero trust paths
-03f8bf7 Merge pull request #43 from Growth-Escalators/feat/viewer-role
-02f7e44 feat(auth): add read-only viewer role for Command Deck sync
+b43017e feat(admin): add Wizmatch staffing workspaces
+14b51f5 feat(wizmatch): implement Gate A staffing operations
+8cd20c6 feat(wizmatch): add Gate A staffing schema
+0a8931d chore(ai): finalize phase zero handoff
+55165fd docs(wizmatch): close phase zero defect audit
+fac674b chore(ai): record canonical workbench totals
+317a061 fix(wizmatch): canonicalize workbench totals
+b27c01b chore(ai): record final phase zero QA
+807018b test(wizmatch): cover AI and query recovery failures
+3c1a002 chore(ai): refresh wizmatch branch brief
 ```
 
 ## npm scripts
