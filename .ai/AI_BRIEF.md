@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-13T08:43:19.966Z_
+_Generated: 2026-07-13T09:32:53.341Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,14 +12,16 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: Growth-Escalators/Growth-Escalators-CRM
 - **Branch**: `codex/wizmatch-phase0-trust`
-- **Last commit**: 3f6679a docs(ai): record production flag verification (0 seconds ago)
-- **Uncommitted changes**: 0 file(s)
+- **Last commit**: ff9f696 docs(ai): record Wizmatch release review (9 seconds ago)
+- **Uncommitted changes**: 1 file(s)
 
 ## Current task
 
-**Wizmatch Staffing OS — all three planned local implementation phases are complete and verified on
+**Wizmatch Staffing OS — all three planned local implementation phases and the release-integrity
+review are complete and verified on
 `codex/wizmatch-phase0-trust` in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust`.
-The exact next task is release review and separately approved staging/production rollout.**
+The exact next task is separately approved Railway staging creation, followed by separately approved
+staging deployment and migration application.**
 
 Nothing from this branch has been pushed, deployed, migrated, sent, spent, written to production,
 or used to rotate a credential. The original dirty workspace at
@@ -30,6 +32,9 @@ or used to rotate a credential. The original dirty workspace at
 ## Recent commits
 
 ```
+ff9f696 docs(ai): record Wizmatch release review
+605d6cd fix(wizmatch): enforce delivery reference integrity
+f293c05 chore(ai): refresh clean release snapshot
 3f6679a docs(ai): record production flag verification
 3ef1903 chore(ai): refresh Wizmatch release brief
 0acea59 docs(ai): hand off Wizmatch release context
@@ -37,9 +42,6 @@ or used to rotate a credential. The original dirty workspace at
 a5ac3e8 feat(wizmatch): add Gate B candidate matching
 1997e31 feat(wizmatch): harden Phase 1 operations
 353221b chore(ai): record Gate A migrator verification
-5e733a6 chore(ai): hand off Wizmatch Gate A
-b43017e feat(admin): add Wizmatch staffing workspaces
-14b51f5 feat(wizmatch): implement Gate A staffing operations
 ```
 
 ## npm scripts
@@ -94,6 +96,7 @@ docs/reviews/.gitkeep
 docs/reviews/codex-ai-collaboration-review.md
 docs/reviews/wizmatch-client-funnel-audit-2026-07-12.md
 docs/reviews/wizmatch-cost-leakage-audit-2026-07-09.md
+docs/reviews/wizmatch-staffing-release-readiness-2026-07-13.md
 docs/wizmatch/README.md
 docs/wizmatch/WIZMATCH_STAFFING_OS_CLAUDE_CODE_KICKOFF.md
 docs/wizmatch/WIZMATCH_STAFFING_OS_DEFECT_REGISTER.md
