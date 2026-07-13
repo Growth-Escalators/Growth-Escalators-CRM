@@ -55,7 +55,7 @@ function createPool(overrides: {
 function updateStatuses(query: ReturnType<typeof vi.fn>) {
   return query.mock.calls
     .filter(([sql]) => String(sql).includes('UPDATE wizmatch_domain_health'))
-    .map(([, params]) => (params as unknown[])[6]);
+    .map(([, params]) => (params as unknown[])[7]);
 }
 
 describe('runWizmatchDomainHealthCheck', () => {
@@ -144,5 +144,32 @@ describe('runWizmatchDomainHealthCheck', () => {
     expect(result.warn).toBe(0);
     expect(updateStatuses(pool.query)).toEqual(['healthy']);
     expect(sendSlackMessage).not.toHaveBeenCalled();
+  });
+
+  it('records DKIM evidence when selectors are configured and leaves it unknown otherwise', async () => {
+    const pool = createPool({ sends: 10, replies: 1 });
+    const resolveTxt = vi.fn(async (hostname: string) => {
+      if (hostname === 'wm._domainkey.alpha.example') return [['v=DKIM1; p=public-key']];
+      if (hostname.startsWith('_dmarc.')) return [['v=DMARC1; p=none']];
+      return [['v=spf1 include:_spf.example ~all']];
+    });
+    const withEvidence = await runWizmatchDomainHealthCheck('tenant-1', {
+      pool,
+      resolveTxt,
+      dkimSelectors: { 'alpha.example': ['wm'] },
+      systemChannel: '',
+    });
+    expect(withEvidence.domains[0].dkimOk).toBe(true);
+    const updateParams = pool.query.mock.calls.find(([sql]) => String(sql).includes('UPDATE wizmatch_domain_health'))?.[1] as unknown[];
+    expect(updateParams[3]).toBe(true);
+
+    const unknownPool = createPool({ sends: 10, replies: 1 });
+    const unknown = await runWizmatchDomainHealthCheck('tenant-1', {
+      pool: unknownPool,
+      resolveTxt,
+      dkimSelectors: {},
+      systemChannel: '',
+    });
+    expect(unknown.domains[0].dkimOk).toBeNull();
   });
 });

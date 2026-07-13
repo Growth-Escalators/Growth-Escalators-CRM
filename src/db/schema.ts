@@ -1302,6 +1302,11 @@ export const wizmatchPlacements = pgTable(
     status: text('status').default('submitted'), // submitted | interviewing | offered | started | ended | lost
     rtrDocumentUrl: text('rtr_document_url'),
     contractDocumentUrl: text('contract_document_url'),
+    requirementId: uuid('requirement_id').references(() => wizmatchRequirements.id),
+    submissionId: uuid('submission_id').references(() => wizmatchSubmissions.id),
+    offerId: uuid('offer_id').references(() => wizmatchOffers.id),
+    billingClientId: uuid('billing_client_id').references(() => billingClients.id),
+    invoiceId: uuid('invoice_id').references(() => invoices.id),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
   },
@@ -1558,6 +1563,10 @@ export const wizmatchStaffingEvents = pgTable(
     contactId: uuid('contact_id').references(() => contacts.id),
     companyContactId: uuid('company_contact_id').references(() => wizmatchCompanyContacts.id),
     requirementId: uuid('requirement_id').references(() => wizmatchRequirements.id),
+    candidateId: uuid('candidate_id').references(() => wizmatchCandidates.id),
+    matchId: uuid('match_id').references(() => wizmatchCandidateRequirementMatches.id),
+    submissionId: uuid('submission_id').references(() => wizmatchSubmissions.id),
+    placementId: uuid('placement_id').references(() => wizmatchPlacements.id),
     payload: jsonb('payload').notNull().default({}),
     occurredAt: timestamp('occurred_at').notNull().defaultNow(),
     createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -1567,6 +1576,9 @@ export const wizmatchStaffingEvents = pgTable(
     requirementIdx: index('wizmatch_staffing_events_requirement_idx').on(t.tenantId, t.requirementId, t.occurredAt),
     companyIdx: index('wizmatch_staffing_events_company_idx').on(t.tenantId, t.companyId, t.occurredAt),
     companyContactIdx: index('wizmatch_staffing_events_company_contact_idx').on(t.tenantId, t.companyContactId, t.occurredAt),
+    candidateIdx: index('wizmatch_staffing_events_candidate_idx').on(t.tenantId, t.candidateId, t.occurredAt),
+    submissionIdx: index('wizmatch_staffing_events_submission_idx').on(t.tenantId, t.submissionId, t.occurredAt),
+    placementIdx: index('wizmatch_staffing_events_placement_idx').on(t.tenantId, t.placementId, t.occurredAt),
   }),
 );
 
@@ -1584,12 +1596,16 @@ export const wizmatchTaskLinks = pgTable(
     contactId: uuid('contact_id').references(() => contacts.id),
     companyContactId: uuid('company_contact_id').references(() => wizmatchCompanyContacts.id),
     requirementId: uuid('requirement_id').references(() => wizmatchRequirements.id),
+    candidateId: uuid('candidate_id').references(() => wizmatchCandidates.id),
+    submissionId: uuid('submission_id').references(() => wizmatchSubmissions.id),
     createdAt: timestamp('created_at').defaultNow(),
   },
   (t) => ({
     tenantTaskUniq: uniqueIndex('wizmatch_task_links_task_idx').on(t.tenantId, t.taskId),
     requirementIdx: index('wizmatch_task_links_requirement_idx').on(t.tenantId, t.requirementId),
     companyIdx: index('wizmatch_task_links_company_idx').on(t.tenantId, t.companyId),
+    candidateIdx: index('wizmatch_task_links_candidate_idx').on(t.tenantId, t.candidateId),
+    submissionIdx: index('wizmatch_task_links_submission_idx').on(t.tenantId, t.submissionId),
   }),
 );
 
@@ -1825,3 +1841,170 @@ export const wizmatchMatchSnapshots = pgTable('wizmatch_match_snapshots', {
   matchVersionUniq: uniqueIndex('wizmatch_match_snapshots_version_idx').on(t.tenantId, t.matchId, t.version),
   pairIdx: index('wizmatch_match_snapshots_pair_idx').on(t.tenantId, t.requirementId, t.candidateId),
 }));
+
+// ---------------------------------------------------------------------------
+// GATE C — consent, delivery and commercial close
+// ---------------------------------------------------------------------------
+export const wizmatchCandidateConsents = pgTable('wizmatch_candidate_consents', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  candidateId: uuid('candidate_id').notNull().references(() => wizmatchCandidates.id),
+  requirementId: uuid('requirement_id').notNull().references(() => wizmatchRequirements.id),
+  status: text('status').notNull().default('requested'),
+  consentType: text('consent_type').notNull().default('rtr'),
+  terms: jsonb('terms').notNull().default({}),
+  documentReference: text('document_reference'),
+  requestedBy: uuid('requested_by').references(() => users.id),
+  requestedAt: timestamp('requested_at').notNull().defaultNow(),
+  grantedAt: timestamp('granted_at'),
+  expiresAt: timestamp('expires_at'),
+  revokedAt: timestamp('revoked_at'),
+  revocationReason: text('revocation_reason'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (t) => ({
+  pairIdx: index('wizmatch_consents_pair_idx').on(t.tenantId, t.requirementId, t.candidateId),
+  activeConsentUniq: uniqueIndex('wizmatch_consents_active_idx').on(t.tenantId, t.requirementId, t.candidateId)
+    .where(sql`${t.status} IN ('requested','granted')`),
+}));
+
+export const wizmatchSubmissions = pgTable('wizmatch_submissions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  requirementId: uuid('requirement_id').notNull().references(() => wizmatchRequirements.id),
+  candidateId: uuid('candidate_id').notNull().references(() => wizmatchCandidates.id),
+  matchId: uuid('match_id').references(() => wizmatchCandidateRequirementMatches.id),
+  consentId: uuid('consent_id').references(() => wizmatchCandidateConsents.id),
+  status: text('status').notNull().default('draft'),
+  version: integer('version').notNull().default(1),
+  resendCount: integer('resend_count').notNull().default(0),
+  submissionPayload: jsonb('submission_payload').notNull().default({}),
+  preparedBy: uuid('prepared_by').references(() => users.id),
+  preparedAt: timestamp('prepared_at').notNull().defaultNow(),
+  approvedBy: uuid('approved_by').references(() => users.id),
+  approvedAt: timestamp('approved_at'),
+  firstSentAt: timestamp('first_sent_at'),
+  lastSentAt: timestamp('last_sent_at'),
+  withdrawnAt: timestamp('withdrawn_at'),
+  withdrawalReason: text('withdrawal_reason'),
+  nextAction: text('next_action'),
+  nextActionDueAt: timestamp('next_action_due_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (t) => ({
+  requirementIdx: index('wizmatch_submissions_requirement_idx').on(t.tenantId, t.requirementId, t.status),
+  candidateIdx: index('wizmatch_submissions_candidate_idx').on(t.tenantId, t.candidateId),
+  activePairUniq: uniqueIndex('wizmatch_submissions_active_pair_idx').on(t.tenantId, t.requirementId, t.candidateId)
+    .where(sql`${t.status} NOT IN ('withdrawn','rejected','closed')`),
+}));
+
+export const wizmatchSubmissionRecipients = pgTable('wizmatch_submission_recipients', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  submissionId: uuid('submission_id').notNull().references(() => wizmatchSubmissions.id),
+  companyContactId: uuid('company_contact_id').references(() => wizmatchCompanyContacts.id),
+  name: text('name').notNull(),
+  email: text('email'),
+  role: text('role').notNull().default('recipient'),
+  createdBy: uuid('created_by').references(() => users.id),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (t) => ({ submissionIdx: index('wizmatch_submission_recipients_submission_idx').on(t.tenantId, t.submissionId) }));
+
+export const wizmatchSubmissionEvents = pgTable('wizmatch_submission_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  submissionId: uuid('submission_id').notNull().references(() => wizmatchSubmissions.id),
+  eventType: text('event_type').notNull(),
+  version: integer('version').notNull(),
+  actorUserId: uuid('actor_user_id').references(() => users.id),
+  payload: jsonb('payload').notNull().default({}),
+  occurredAt: timestamp('occurred_at').notNull().defaultNow(),
+}, (t) => ({ submissionVersionUniq: uniqueIndex('wizmatch_submission_events_version_idx').on(t.tenantId, t.submissionId, t.version) }));
+
+export const wizmatchInterviewRounds = pgTable('wizmatch_interview_rounds', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  submissionId: uuid('submission_id').notNull().references(() => wizmatchSubmissions.id),
+  roundNumber: integer('round_number').notNull(),
+  roundType: text('round_type').notNull().default('client'),
+  status: text('status').notNull().default('scheduled'),
+  scheduledAt: timestamp('scheduled_at'),
+  timezone: text('timezone').default('Asia/Kolkata'),
+  feedback: text('feedback'),
+  outcome: text('outcome'),
+  nextAction: text('next_action'),
+  nextActionDueAt: timestamp('next_action_due_at'),
+  createdBy: uuid('created_by').references(() => users.id),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (t) => ({ roundUniq: uniqueIndex('wizmatch_interview_rounds_number_idx').on(t.tenantId, t.submissionId, t.roundNumber) }));
+
+export const wizmatchInterviewParticipants = pgTable('wizmatch_interview_participants', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  interviewRoundId: uuid('interview_round_id').notNull().references(() => wizmatchInterviewRounds.id),
+  companyContactId: uuid('company_contact_id').references(() => wizmatchCompanyContacts.id),
+  userId: uuid('user_id').references(() => users.id),
+  name: text('name').notNull(),
+  email: text('email'),
+  role: text('role').notNull().default('participant'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (t) => ({ roundIdx: index('wizmatch_interview_participants_round_idx').on(t.tenantId, t.interviewRoundId) }));
+
+export const wizmatchOffers = pgTable('wizmatch_offers', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  submissionId: uuid('submission_id').notNull().references(() => wizmatchSubmissions.id),
+  revision: integer('revision').notNull(),
+  status: text('status').notNull().default('draft'),
+  amount: integer('amount'),
+  currency: text('currency').notNull().default('INR'),
+  period: text('period').notNull().default('annual'),
+  startDate: date('start_date'),
+  expiresAt: timestamp('expires_at'),
+  terms: jsonb('terms').notNull().default({}),
+  createdBy: uuid('created_by').references(() => users.id),
+  approvedBy: uuid('approved_by').references(() => users.id),
+  approvedAt: timestamp('approved_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (t) => ({ revisionUniq: uniqueIndex('wizmatch_offers_revision_idx').on(t.tenantId, t.submissionId, t.revision) }));
+
+export const wizmatchStaffingCommercials = pgTable('wizmatch_staffing_commercials', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  placementId: uuid('placement_id').notNull().references(() => wizmatchPlacements.id),
+  model: text('model').notNull(),
+  originalAmount: integer('original_amount'),
+  originalCurrency: text('original_currency').notNull(),
+  originalPeriod: text('original_period').notNull(),
+  billAmount: integer('bill_amount'),
+  payAmount: integer('pay_amount'),
+  loadedCost: integer('loaded_cost'),
+  grossMarginAmount: integer('gross_margin_amount'),
+  grossMarginPercent: numeric('gross_margin_percent', { precision: 7, scale: 2 }),
+  normalizedCurrency: text('normalized_currency'),
+  conversionRate: numeric('conversion_rate', { precision: 18, scale: 6 }),
+  conversionSource: text('conversion_source'),
+  conversionDate: date('conversion_date'),
+  replacementEndsAt: date('replacement_ends_at'),
+  createdBy: uuid('created_by').references(() => users.id),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (t) => ({ placementUniq: uniqueIndex('wizmatch_staffing_commercials_placement_idx').on(t.tenantId, t.placementId) }));
+
+export const wizmatchStaffingAdjustments = pgTable('wizmatch_staffing_adjustments', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  placementId: uuid('placement_id').notNull().references(() => wizmatchPlacements.id),
+  invoiceId: uuid('invoice_id').references(() => invoices.id),
+  paymentId: uuid('payment_id').references(() => payments.id),
+  type: text('type').notNull(),
+  status: text('status').notNull().default('open'),
+  amount: integer('amount'),
+  currency: text('currency'),
+  reason: text('reason').notNull(),
+  resolvedAt: timestamp('resolved_at'),
+  createdBy: uuid('created_by').references(() => users.id),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (t) => ({ placementIdx: index('wizmatch_staffing_adjustments_placement_idx').on(t.tenantId, t.placementId, t.status) }));

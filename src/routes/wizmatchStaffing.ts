@@ -3,8 +3,16 @@ import { StaffingDomainError, wizmatchStaffingService } from '../services/wizmat
 import { createSignedR2Url } from '../utils/r2';
 import { pool } from '../db';
 import { MATCH_DECISIONS, wizmatchMatchingService } from '../services/wizmatchMatchingDomain';
+import { wizmatchDeliveryService } from '../services/wizmatchDeliveryDomain';
+import multer from 'multer';
+import { uploadPrivateToR2 } from '../utils/r2';
 
 const router = Router();
+const consentDocumentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, done) => done(null, ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(file.mimetype)),
+});
 
 export function isStaffingPhaseEnabled(phase: 'A' | 'B' | 'C'): boolean {
   const key = `WIZMATCH_STAFFING_GATE_${phase}_ENABLED`;
@@ -26,6 +34,12 @@ function actor(req: Request) {
 function requireLead(req: Request) {
   const current = actor(req);
   if (!['admin', 'team_lead'].includes(current.role)) throw new StaffingDomainError(403, 'forbidden', 'Team lead or admin approval is required');
+  return current;
+}
+
+function requireAdmin(req: Request) {
+  const current = actor(req);
+  if (current.role !== 'admin') throw new StaffingDomainError(403, 'forbidden', 'Admin or finance approval is required');
   return current;
 }
 
@@ -229,6 +243,109 @@ router.get('/staffing/candidates/:candidateId', requirePhase('B'), async (req, r
 
 router.get('/staffing/recruiter-work', requirePhase('B'), async (req, res) => {
   try { const current = actor(req); return res.json(await wizmatchMatchingService.recruiterWork(current.tenantId, current.userId)); }
+  catch (error) { return handle(error, res); }
+});
+
+router.post('/staffing/consents', requirePhase('C'), async (req, res) => {
+  try { return res.status(201).json(await wizmatchDeliveryService.createConsent(actor(req), req.body ?? {})); }
+  catch (error) { return handle(error, res); }
+});
+
+router.post('/staffing/consent-documents', requirePhase('C'), consentDocumentUpload.single('file'), async (req, res) => {
+  try {
+    const current = actor(req);
+    if (!req.file) throw new StaffingDomainError(400, 'validation_error', 'A PDF, DOC or DOCX consent document is required');
+    const reference = await uploadPrivateToR2(req.file.buffer, `wizmatch/consents/${current.tenantId}/${Date.now()}-${req.file.originalname || 'consent-document'}`, req.file.mimetype);
+    return res.status(201).json({ reference, access: 'private_signed_only' });
+  } catch (error) { return handle(error, res); }
+});
+
+router.post('/staffing/consents/:consentId/grant', requirePhase('C'), async (req, res) => {
+  try { return res.json(await wizmatchDeliveryService.grantConsent(actor(req), routeParam(req.params.consentId), req.body ?? {})); }
+  catch (error) { return handle(error, res); }
+});
+
+router.post('/staffing/consents/:consentId/revoke', requirePhase('C'), async (req, res) => {
+  try { return res.json(await wizmatchDeliveryService.revokeConsent(actor(req), routeParam(req.params.consentId), req.body?.reason)); }
+  catch (error) { return handle(error, res); }
+});
+
+router.get('/staffing/consents/:consentId/document/access', requirePhase('C'), async (req, res) => {
+  try {
+    const current = actor(req);
+    const result = await pool.query(`SELECT document_reference FROM wizmatch_candidate_consents WHERE tenant_id=$1 AND id=$2`, [current.tenantId, routeParam(req.params.consentId)]);
+    if (!result.rowCount || !result.rows[0].document_reference) throw new StaffingDomainError(404, 'not_found', 'Consent document was not found');
+    return res.json({ url: await createSignedR2Url(result.rows[0].document_reference, 300), expiresInSeconds: 300 });
+  } catch (error) { return handle(error, res); }
+});
+
+router.post('/staffing/submissions', requirePhase('C'), async (req, res) => {
+  try { return res.status(201).json(await wizmatchDeliveryService.createSubmissionDraft(actor(req), req.body ?? {})); }
+  catch (error) { return handle(error, res); }
+});
+
+router.post('/staffing/submissions/:submissionId/approve', requirePhase('C'), async (req, res) => {
+  try { return res.json(await wizmatchDeliveryService.approveSubmission(requireLead(req), routeParam(req.params.submissionId))); }
+  catch (error) { return handle(error, res); }
+});
+
+router.post('/staffing/submissions/:submissionId/record-sent', requirePhase('C'), async (req, res) => {
+  try { return res.json(await wizmatchDeliveryService.recordSent(requireLead(req), routeParam(req.params.submissionId), req.body ?? {})); }
+  catch (error) { return handle(error, res); }
+});
+
+router.post('/staffing/submissions/:submissionId/withdraw', requirePhase('C'), async (req, res) => {
+  try { return res.json(await wizmatchDeliveryService.withdrawSubmission(requireLead(req), routeParam(req.params.submissionId), req.body?.reason)); }
+  catch (error) { return handle(error, res); }
+});
+
+router.post('/staffing/submissions/:submissionId/interviews', requirePhase('C'), async (req, res) => {
+  try { return res.status(201).json(await wizmatchDeliveryService.addInterview(actor(req), routeParam(req.params.submissionId), req.body ?? {})); }
+  catch (error) { return handle(error, res); }
+});
+
+router.put('/staffing/interviews/:interviewId', requirePhase('C'), async (req, res) => {
+  try { return res.json(await wizmatchDeliveryService.updateInterview(actor(req), routeParam(req.params.interviewId), req.body ?? {})); }
+  catch (error) { return handle(error, res); }
+});
+
+router.post('/staffing/submissions/:submissionId/offers', requirePhase('C'), async (req, res) => {
+  try { return res.status(201).json(await wizmatchDeliveryService.addOffer(requireLead(req), routeParam(req.params.submissionId), req.body ?? {})); }
+  catch (error) { return handle(error, res); }
+});
+
+router.put('/staffing/offers/:offerId/status', requirePhase('C'), async (req, res) => {
+  try { return res.json(await wizmatchDeliveryService.updateOfferStatus(requireLead(req), routeParam(req.params.offerId), req.body?.status)); }
+  catch (error) { return handle(error, res); }
+});
+
+router.post('/staffing/submissions/:submissionId/placement', requirePhase('C'), async (req, res) => {
+  try { return res.status(201).json(await wizmatchDeliveryService.createPlacement(requireAdmin(req), routeParam(req.params.submissionId), req.body ?? {})); }
+  catch (error) { return handle(error, res); }
+});
+
+router.post('/staffing/placements/:placementId/link-invoice', requirePhase('C'), async (req, res) => {
+  try { return res.json(await wizmatchDeliveryService.linkInvoice(requireAdmin(req), routeParam(req.params.placementId), req.body ?? {})); }
+  catch (error) { return handle(error, res); }
+});
+
+router.post('/staffing/placements/:placementId/adjustments', requirePhase('C'), async (req, res) => {
+  try { return res.status(201).json(await wizmatchDeliveryService.createAdjustment(requireAdmin(req), routeParam(req.params.placementId), req.body ?? {})); }
+  catch (error) { return handle(error, res); }
+});
+
+router.post('/staffing/adjustments/:adjustmentId/resolve', requirePhase('C'), async (req, res) => {
+  try { return res.json(await wizmatchDeliveryService.resolveAdjustment(requireAdmin(req), routeParam(req.params.adjustmentId))); }
+  catch (error) { return handle(error, res); }
+});
+
+router.get('/staffing/delivery-board', requirePhase('C'), async (req, res) => {
+  try { return res.json(await wizmatchDeliveryService.deliveryBoard(actor(req).tenantId)); }
+  catch (error) { return handle(error, res); }
+});
+
+router.get('/staffing/analytics', requirePhase('C'), async (req, res) => {
+  try { return res.json(await wizmatchDeliveryService.analytics(actor(req).tenantId)); }
   catch (error) { return handle(error, res); }
 });
 

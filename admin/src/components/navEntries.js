@@ -4,6 +4,7 @@ import {
   Link as LinkIcon, CreditCard, Receipt, Shield, ShieldCheck, ClipboardList, Settings,
   Briefcase, UserCheck, BarChart3, Network,
 } from 'lucide-react';
+import { staffingPhaseUi } from '../lib/staffingPhases.js';
 
 // Permission flag bag — derived from user role + per-user permission overrides.
 // Matches the gating that lived inline in Sidebar.jsx pre-refactor.
@@ -269,12 +270,12 @@ export const NAV_ENTRIES = [
   {
     id: 'wm-my-work', label: 'My Work', to: '/wizmatch/my-work',
     icon: CheckSquare, section: 'Wizmatch', group: null, product: 'wizmatch',
-    visible: f => f.canStaffing,
+    visible: f => f.canStaffing && staffingPhaseUi.A,
   },
   {
     id: 'wm-relationships', label: 'Companies & Contacts', to: '/wizmatch/relationships',
     icon: Users, section: 'Wizmatch', group: null, product: 'wizmatch',
-    visible: f => f.canWizmatch,
+    visible: f => f.canWizmatch && staffingPhaseUi.A,
   },
   {
     id: 'wm-review-workbench', label: 'Review Workbench', to: '/wizmatch/review-workbench',
@@ -319,7 +320,12 @@ export const NAV_ENTRIES = [
   {
     id: 'wm-talent-matching', label: 'Talent Matching', to: '/wizmatch/talent-matching',
     icon: Target, section: 'Wizmatch', group: null, product: 'wizmatch',
-    visible: f => f.canStaffing,
+    visible: f => f.canStaffing && staffingPhaseUi.B,
+  },
+  {
+    id: 'wm-delivery', label: 'Submissions & Delivery', to: '/wizmatch/delivery',
+    icon: Briefcase, section: 'Wizmatch', group: null, product: 'wizmatch',
+    visible: f => f.canStaffing && staffingPhaseUi.C,
   },
   {
     id: 'wm-source-candidates', label: 'Source Candidates', to: '/wizmatch/source-candidates',

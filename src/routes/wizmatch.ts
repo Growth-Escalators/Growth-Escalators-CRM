@@ -29,6 +29,7 @@ import {
   sequenceEnrolments,
 } from '../db/schema';
 import { requireInternalToken } from '../middleware/internalAuth';
+import { isStaffingPhaseEnabled } from './wizmatchStaffing';
 import { scoreSignalById, enrichSignalById, matchSignalById } from '../services/wizmatchSignalPipeline';
 import { scoreSignal } from '../services/wizmatchScoring';
 import { callClaude, parseClaudeJSON, CLAUDE_MODELS } from '../services/claudeService';
@@ -4443,7 +4444,7 @@ router.put('/candidates/:id', async (req: Request, res: Response) => {
     'github_url', 'resume_url', 'is_wizmatch_certified', 'india_specific',
   ];
 
-  const setClauses: string[] = ['updated_at = NOW()', 'last_activity_at = NOW()'];
+  const setClauses: string[] = ['updated_at = NOW()'];
   const params: unknown[] = [req.params.id, tenantId];
   let paramIdx = 3;
 
@@ -4836,10 +4837,45 @@ router.post('/suppression', async (req: Request, res: Response) => {
 // GET /api/wizmatch/env-check — read-only diagnostics for the System page's
 // "System Health / Env" tab. Presence-only: never returns secret values, only
 // which alias (if any) satisfied each check.
-router.get('/env-check', async (_req: Request, res: Response) => {
+router.get('/env-check', async (req: Request, res: Response) => {
   const checks = buildWizmatchEnvReport();
   const groups = Array.from(new Set(checks.map((c) => c.group)));
-  res.json({ checks, groups, generatedAt: new Date().toISOString() });
+  let sourceRows: Array<{ source: string; count: number; lastSeen: string | null }> = [];
+  let sourceHealthError: string | null = null;
+  try {
+    const tenantId = req.user?.tenantId;
+    if (tenantId) {
+      const sourceResult = await pool.query(
+        `SELECT source,COUNT(*)::int AS count,MAX(created_at) AS last_seen
+         FROM wizmatch_job_signals WHERE tenant_id=$1 GROUP BY source ORDER BY source`,
+        [tenantId],
+      );
+      sourceRows = sourceResult.rows.map((row) => ({ source: row.source, count: Number(row.count || 0), lastSeen: row.last_seen || null }));
+    }
+  } catch {
+    sourceHealthError = 'Source counts are temporarily unavailable';
+  }
+  const sourceByName = new Map(sourceRows.map((row) => [String(row.source).toLowerCase(), row]));
+  const diceEvidence = sourceByName.get('dice');
+  const theirStackEvidence = sourceByName.get('theirstack');
+  const sourceHealth = [
+    { source: 'dice', configuration: 'external_ci_secret_unverifiable', count: diceEvidence?.count || 0, lastSeen: diceEvidence?.lastSeen || null },
+    { source: 'theirstack', configuration: process.env.THEIRSTACK_API_KEY ? 'configured' : 'not_configured', count: theirStackEvidence?.count || 0, lastSeen: theirStackEvidence?.lastSeen || null },
+    ...sourceRows.filter((row) => !['dice', 'theirstack'].includes(String(row.source).toLowerCase())).map((row) => ({ ...row, configuration: 'observed_rows' })),
+  ];
+  res.json({
+    checks,
+    groups,
+    staffingPhases: {
+      gateA: isStaffingPhaseEnabled('A'),
+      gateB: isStaffingPhaseEnabled('B'),
+      gateC: isStaffingPhaseEnabled('C'),
+    },
+    documentAccess: 'private_signed_urls',
+    sourceHealth,
+    sourceHealthError,
+    generatedAt: new Date().toISOString(),
+  });
 });
 
 // GET /api/wizmatch/unsubscribe — public, HMAC-verified

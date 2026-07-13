@@ -38,6 +38,7 @@ export default function WizmatchDomainsPage() {
             </div>
             <div className="grid grid-cols-2 gap-2 text-xs mb-3 text-neutral-600">
               <div><span className="font-medium text-neutral-700">SPF:</span> {d.spf_ok === null ? '—' : d.spf_ok ? '✅' : '❌'}</div>
+              <div><span className="font-medium text-neutral-700">DKIM:</span> {d.dkim_ok === null ? 'unknown' : d.dkim_ok ? '✅' : '❌'}</div>
               <div><span className="font-medium text-neutral-700">DMARC:</span> {d.dmarc_ok === null ? '—' : d.dmarc_ok ? '✅' : '❌'}</div>
               <div><span className="font-medium text-neutral-700">Sends 7d:</span> {d.sends_7d}</div>
               <div><span className="font-medium text-neutral-700">Reply rate:</span> {(d.reply_rate_7d * 100).toFixed(1)}%</div>

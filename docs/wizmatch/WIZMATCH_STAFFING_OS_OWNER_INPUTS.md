@@ -28,7 +28,7 @@ the approved CRM, password manager or secure document system.
 | Engineering approver | TBD |
 | Operations owner | TBD |
 | PRD 004 product direction approved? | Approved for phased local implementation on 2026-07-13 |
-| Approved current implementation phase | Phase 1 Gate A local implementation and additive migration generation approved; migration apply, production data, push and deployment remain separately gated |
+| Approved current implementation phase | Gates A/B/C local implementation and additive migration generation approved; migration apply, production data, environment flags, push and deployment remain separately gated |
 | Local commit approver | TBD |
 | Final schema/migration approver | TBD |
 | Final production/deployment approver | TBD |
@@ -45,8 +45,8 @@ the approved CRM, password manager or secure document system.
 | Number of accepted requirements | 5–10 proposed |
 | Pilot skill families | SAP and Java proposed |
 | Number of vetted candidates | 20–30 proposed |
-| India/US operating priority | India-first, selective US proposed; confirm |
-| Permanent, contract, or mixed | TBD |
+| India/US operating priority | India-first SAP and Java pilot approved as implementation default; expansion remains TBD |
+| Permanent, contract, or mixed | Mixed permanent and contract support approved for implementation |
 | Explicit pilot exclusions | TBD |
 
 ## 3. Team roles
@@ -131,9 +131,9 @@ planning ranges.
 | Automatic client outreach | Disabled unless separately approved |
 | Automatic candidate submission | Disabled |
 | Paid contact discovery | Preview-first and manually approved; exact caps TBD |
-| Automatic matching recalculation | Future phase; TBD |
-| Next-action reminders | Future safe automation; TBD |
-| Candidate availability reminders | Future safe automation; TBD |
+| Automatic matching recalculation | Deterministic recalculation approved; no provider calls |
+| Next-action reminders | Deterministic task creation approved behind Gate C; no outreach |
+| Candidate availability reminders | Deterministic review tasks approved behind Gate C; no outreach |
 | Cold-email sending enablement | Separate go-live approval required |
 
 ## 9. Reporting targets
@@ -156,11 +156,11 @@ Planning numbers are not guarantees. Calibrate them with 60–90-day cohorts and
 |---|---|---|
 | Existing events/tasks versus dedicated staffing timeline | Gate A direction approved for local implementation | `docs/decisions/ADR-004-wizmatch-staffing-domain-spine.md` |
 | Requirement-contact persistence model | Gate A direction approved for local implementation | `docs/decisions/ADR-004-wizmatch-staffing-domain-spine.md` |
-| Skill taxonomy ownership | TBD | |
-| Submission/interview/offer table boundaries | TBD | |
-| Private/signed document policy | TBD | |
-| Historical attribution/backfill policy | TBD | |
-| Feature-flag/dual-read strategy | Additive compatibility direction approved for Gate A local implementation | `docs/decisions/ADR-004-wizmatch-staffing-domain-spine.md` |
+| Skill taxonomy ownership | Pilot seed is admin-reviewed; operational owner remains TBD | Gate B implementation |
+| Submission/interview/offer table boundaries | Approved for local implementation | `docs/decisions/ADR-004-wizmatch-staffing-domain-spine.md` |
+| Private/signed document policy | Private R2 references with short-lived signed access approved for implementation | Phase 1/3 plan |
+| Historical attribution/backfill policy | Pilot-only manual cleanup; unknown people/owners stay unknown; count-only preview before writes | Phase 1 plan |
+| Feature-flag/dual-read strategy | Additive schema, legacy requirement status compatibility and production-off Gate A/B/C flags approved locally | `docs/decisions/ADR-004-wizmatch-staffing-domain-spine.md` |
 | Post-pilot geography and operating mix | TBD | |
 
 Non-obvious approved architecture decisions should be recorded in a numbered ADR under
@@ -174,3 +174,4 @@ here.
 | Date | Proposed guarded action | Proposal/ADR | Decision | Approver |
 |---|---|---|---|---|
 | 2026-07-13 | Implement Phase 1 Gate A locally and generate one additive migration | ADR-004 / PRD 004 Phase 1 | Approved by the user through “Please plan the next phase and get them done as well”; does not approve applying the migration, production writes, push, deployment, sending or paid providers | Product owner (chat instruction) |
+| 2026-07-13 | Implement the complete three-phase Staffing OS locally | ADR-004 / PRD 004 / three-phase production plan | Approved through explicit “PLEASE IMPLEMENT THIS PLAN”; production migrations, production data, environment changes, credential rotation and each push to `main` still require separate approval | Product owner (chat instruction) |

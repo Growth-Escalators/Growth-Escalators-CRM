@@ -25,6 +25,7 @@
     "seo:doctor": "npx tsx scripts/seo-doctor.ts",
     "db:sizes": "npx tsx scripts/db-table-sizes.ts",
     "wizmatch:env-check": "npx tsx scripts/wizmatch-env-check.ts",
+    "wizmatch:staffing-backfill-preview": "tsx scripts/wizmatch-staffing-backfill-preview.ts",
     "ai:brief": "tsx scripts/generate-ai-brief.ts"
   },
   "keywords": [],

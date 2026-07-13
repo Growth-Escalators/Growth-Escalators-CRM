@@ -26,12 +26,14 @@ export interface WizmatchDomainHealthCheckDeps {
   resolveTxt?: (hostname: string) => Promise<string[][]>;
   sendSlackMessage?: SlackSender;
   systemChannel?: string;
+  dkimSelectors?: Record<string, string[]>;
 }
 
 export interface WizmatchDomainHealthDomainResult {
   id: string;
   domain: string;
   spfOk: boolean;
+  dkimOk: boolean | null;
   dmarcOk: boolean;
   replyRate: number;
   sends: number;
@@ -68,6 +70,29 @@ async function resolveTxtOk(
   } catch {
     return false;
   }
+}
+
+function configuredDkimSelectors(raw = process.env.WIZMATCH_DKIM_SELECTORS || ''): Record<string, string[]> {
+  if (!raw.trim()) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return Object.fromEntries(Object.entries(parsed).map(([domain, selectors]) => [
+      domain.toLowerCase(),
+      (Array.isArray(selectors) ? selectors : [selectors]).filter((value): value is string => typeof value === 'string' && Boolean(value.trim())).map((value) => value.trim()),
+    ]));
+  } catch {
+    console.error('[CRON] WIZMATCH_DKIM_SELECTORS must be a JSON object of domain to selector list');
+    return {};
+  }
+}
+
+async function resolveDkimEvidence(resolveTxt: (hostname: string) => Promise<string[][]>, domain: string, selectors: Record<string, string[]>): Promise<boolean | null> {
+  const configured = selectors[domain.toLowerCase()] || selectors['*'] || [];
+  if (!configured.length) return null;
+  for (const selector of configured) {
+    if (await resolveTxtOk(resolveTxt, `${selector}._domainkey.${domain}`, 'p=')) return true;
+  }
+  return false;
 }
 
 async function loadTenantLabel(pool: Queryable, tenantId: string): Promise<string> {
@@ -149,6 +174,7 @@ export async function runWizmatchDomainHealthCheck(
   const resolveTxt = deps.resolveTxt || dns.resolveTxt;
   const sendSlackMessage = deps.sendSlackMessage || defaultSendSlackMessage;
   const systemChannel = deps.systemChannel ?? WIZMATCH_SYSTEM_CHANNEL;
+  const dkimSelectors = deps.dkimSelectors ?? configuredDkimSelectors();
 
   const domainsResult = await pool.query(
     `SELECT id, domain FROM wizmatch_domain_health WHERE tenant_id = $1 AND status != 'paused' ORDER BY domain`,
@@ -173,9 +199,11 @@ export async function runWizmatchDomainHealthCheck(
   for (const row of domains) {
     try {
       const spfOk = await resolveTxtOk(resolveTxt, row.domain, 'v=spf1');
+      const dkimOk = await resolveDkimEvidence(resolveTxt, row.domain, dkimSelectors);
       const dmarcOk = await resolveTxtOk(resolveTxt, `_dmarc.${row.domain}`, 'v=DMARC1');
       const reasons = [
         !spfOk ? 'SPF fail' : null,
+        dkimOk === false ? 'DKIM fail' : null,
         !dmarcOk ? 'DMARC fail' : null,
         lowReplyRate ? 'low reply rate' : null,
       ].filter((reason): reason is string => Boolean(reason));
@@ -183,15 +211,16 @@ export async function runWizmatchDomainHealthCheck(
 
       await pool.query(
         `UPDATE wizmatch_domain_health
-         SET last_check_at = NOW(), spf_ok = $3, dmarc_ok = $4, reply_rate_7d = $5, sends_7d = $6, status = $7
+         SET last_check_at = NOW(), spf_ok = $3, dkim_ok = $4, dmarc_ok = $5, reply_rate_7d = $6, sends_7d = $7, status = $8
          WHERE id = $1 AND tenant_id = $2`,
-        [row.id, tenantId, spfOk, dmarcOk, replyRate, sends, status],
+        [row.id, tenantId, spfOk, dkimOk, dmarcOk, replyRate, sends, status],
       );
 
       checkedDomains.push({
         id: row.id,
         domain: row.domain,
         spfOk,
+        dkimOk,
         dmarcOk,
         replyRate,
         sends,

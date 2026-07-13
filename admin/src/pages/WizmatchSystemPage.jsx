@@ -78,6 +78,40 @@ function EnvCheckPanel() {
         </div>
       </div>
 
+      {report && (
+        <div className="card p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-400">Staffing OS release gates</p>
+          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+            {Object.entries(report.staffingPhases || {}).map(([gate, enabled]) => (
+              <span key={gate} className={enabled ? 'badge-success' : 'badge-muted'}>{gate}: {enabled ? 'enabled' : 'off'}</span>
+            ))}
+            <span className="badge-success">Documents: private signed access</span>
+          </div>
+        </div>
+      )}
+
+      {report && (
+        <div className="card overflow-hidden">
+          <div className="border-b border-neutral-100 bg-neutral-50 px-4 py-2">
+            <h3 className="text-[12.5px] font-semibold text-neutral-700">Demand-source evidence</h3>
+            <p className="text-[11px] text-neutral-500">Database counts are evidence of imported rows. CI secret presence cannot be read by the application.</p>
+          </div>
+          {report.sourceHealthError ? <p className="p-4 text-xs text-danger-600">{report.sourceHealthError}</p> : (
+            <table className="table-fluent">
+              <thead><tr><th>Source</th><th>Configuration</th><th>Rows</th><th>Last seen</th></tr></thead>
+              <tbody>{(report.sourceHealth || []).map(source => (
+                <tr key={source.source}>
+                  <td className="font-medium text-neutral-900">{source.source}</td>
+                  <td className="text-neutral-500">{source.configuration.replaceAll('_', ' ')}</td>
+                  <td>{source.count}</td>
+                  <td className="text-neutral-500">{source.lastSeen ? new Date(source.lastSeen).toLocaleString() : 'no rows observed'}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          )}
+        </div>
+      )}
+
       {loading && !report && <p className="text-sm text-neutral-400">Loading environment checks...</p>}
 
       {groups.map(group => (

@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
-  testMatch: ['wizmatch-phase0-local.spec.ts', 'wizmatch-gate-a-local.spec.ts'],
+  testMatch: ['wizmatch-phase0-local.spec.ts', 'wizmatch-gate-a-local.spec.ts', 'wizmatch-gate-bc-local.spec.ts'],
   fullyParallel: false,
   workers: 1,
   retries: 0,
