@@ -3860,6 +3860,7 @@ router.post('/signals/ingest', requireInternalToken, async (req: Request, res: R
     raw_text?: string;
     company_name?: string;
     company_domain?: string;
+    provider_id?: string;
   }>;
 
   if (!Array.isArray(incomingSignals)) {
@@ -3890,15 +3891,19 @@ router.post('/signals/ingest', requireInternalToken, async (req: Request, res: R
         companyId = companyResult.rows[0].id;
       }
 
-      // Dedupe by job_url — update last_seen_at if exists
-      if (sig.job_url) {
+      const { normalizeProviderId, signalIdentityFingerprint } = await import('../services/wizmatchSignalIdentity');
+      const providerId = normalizeProviderId(sig.provider_id);
+      const identityFingerprint = signalIdentityFingerprint({ companyName: sig.company_name || sig.company_domain, jobTitle: sig.job_title, location: sig.location });
+
+      // Prefer provider identity, then URL, then normalized company/title/location.
+      if (providerId || sig.job_url || identityFingerprint) {
         const existing = await pool.query(
           `UPDATE wizmatch_job_signals
            SET last_seen_at = NOW(),
                days_open = GREATEST(days_open, EXTRACT(EPOCH FROM (NOW() - first_seen_at))/86400)::int
-           WHERE tenant_id = $1 AND job_url = $2
+           WHERE tenant_id = $1 AND ((source=$2 AND provider_id=$3 AND $3 IS NOT NULL) OR (job_url=$4 AND $4 IS NOT NULL) OR (identity_fingerprint=$5 AND $5 IS NOT NULL))
            RETURNING id`,
-          [tenantId, sig.job_url],
+          [tenantId, sig.source, providerId, sig.job_url || null, identityFingerprint],
         );
         if (existing.rows.length > 0) {
           updated++;
@@ -3908,15 +3913,17 @@ router.post('/signals/ingest', requireInternalToken, async (req: Request, res: R
 
       await pool.query(
         `INSERT INTO wizmatch_job_signals
-         (tenant_id, company_id, job_title, job_url, source, posted_at,
+         (tenant_id, company_id, job_title, job_url, source, provider_id, identity_fingerprint, posted_at,
           employment_type, keywords, location, raw_text, status, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'new', NOW())`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'new', NOW())`,
         [
           tenantId,
           companyId,
           sig.job_title,
           sig.job_url || null,
           sig.source,
+          providerId,
+          identityFingerprint,
           sig.posted_at || null,
           sig.employment_type || null,
           sig.keywords || [],
@@ -5288,8 +5295,8 @@ router.post('/requirements/parse', requirementUpload.single('file'), async (req:
     let sourceFileUrl: string | null = null;
     if (file) {
       try {
-        const { uploadToR2 } = await import('../utils/r2');
-        sourceFileUrl = await uploadToR2(file.buffer, file.originalname || 'jd', file.mimetype);
+        const { uploadPrivateToR2 } = await import('../utils/r2');
+        sourceFileUrl = await uploadPrivateToR2(file.buffer, `wizmatch/requirements/sources/${Date.now()}-${file.originalname || 'jd'}`, file.mimetype);
       } catch (e) {
         logger.warn(`[wizmatch-req] source file upload skipped: ${e instanceof Error ? e.message : 'unknown'}`);
       }

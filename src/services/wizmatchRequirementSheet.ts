@@ -12,7 +12,7 @@
 
 import PDFDocument from 'pdfkit';
 import { pool } from '../db/index';
-import { uploadToR2 } from '../utils/r2';
+import { uploadPrivateToR2 } from '../utils/r2';
 import { callClaude, callClaudeWithContent, parseClaudeJSON, CLAUDE_MODELS, type ClaudeContentBlock } from './claudeService';
 import {
   WIZMATCH_BRAND_NAME,
@@ -272,7 +272,7 @@ export async function generateRequirementSheet(requirementId: string, tenantId: 
   try {
     const pdfBuffer = await buildPdfBuffer(row);
     const filename = `wizmatch/requirements/${requirementId}/${Date.now()}.pdf`;
-    const sheetUrl = await uploadToR2(pdfBuffer, filename, 'application/pdf');
+    const sheetUrl = await uploadPrivateToR2(pdfBuffer, filename, 'application/pdf');
 
     await pool.query(
       `UPDATE wizmatch_requirements

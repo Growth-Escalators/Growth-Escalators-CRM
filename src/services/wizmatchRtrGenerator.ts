@@ -9,7 +9,7 @@
 
 import PDFDocument from 'pdfkit';
 import { pool } from '../db/index';
-import { uploadToR2 } from '../utils/r2';
+import { uploadPrivateToR2 } from '../utils/r2';
 import logger from '../utils/logger';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -205,7 +205,7 @@ export async function generateRtrPdf(placementId: string): Promise<GenerateResul
 
     // Upload to R2
     const filename = `wizmatch/rtrs/${placementId}/${Date.now()}.pdf`;
-    const rtrUrl = await uploadToR2(pdfBuffer, filename, 'application/pdf');
+    const rtrUrl = await uploadPrivateToR2(pdfBuffer, filename, 'application/pdf');
 
     // Update placement
     await pool.query(

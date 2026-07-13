@@ -42,6 +42,60 @@ export async function uploadToR2(
   return `https://${bucket}.r2.dev/${filename}`;
 }
 
+export async function uploadPrivateToR2(
+  file: Buffer,
+  originalName: string,
+  mimeType: string,
+): Promise<string> {
+  const client = getClient();
+  if (!client) throw new Error('R2 not configured — set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY');
+  const bucket = process.env.R2_BUCKET_NAME || 'ge-media';
+  const safeName = originalName.replace(/[^a-zA-Z0-9._/-]+/g, '-').replace(/^\/+/, '');
+  const key = safeName.includes('/') ? safeName : `private/${crypto.randomUUID()}-${Date.now()}-${safeName}`;
+  await client.send(new PutObjectCommand({
+    Bucket: bucket,
+    Key: key,
+    Body: file,
+    ContentType: mimeType,
+  }));
+  return `r2://${bucket}/${key}`;
+}
+
+export function parsePrivateR2Reference(reference: string): { bucket: string; key: string } | null {
+  const match = /^r2:\/\/([^/]+)\/(.+)$/.exec(reference);
+  return match ? { bucket: match[1], key: match[2] } : null;
+}
+
+export async function createSignedR2Url(reference: string, expiresInSeconds = 300): Promise<string> {
+  const parsed = parsePrivateR2Reference(reference);
+  if (!parsed) throw new Error('Document is not stored as a private R2 object');
+  const accountId = process.env.R2_ACCOUNT_ID;
+  const accessKeyId = process.env.R2_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+  if (!accountId || !accessKeyId || !secretAccessKey) throw new Error('R2 not configured');
+  const expiresIn = Math.max(60, Math.min(expiresInSeconds, 900));
+  const now = new Date();
+  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
+  const dateStamp = amzDate.slice(0, 8);
+  const scope = `${dateStamp}/auto/s3/aws4_request`;
+  const host = `${accountId}.r2.cloudflarestorage.com`;
+  const canonicalUri = `/${encodeURIComponent(parsed.bucket)}/${parsed.key.split('/').map(encodeURIComponent).join('/')}`;
+  const query = new URLSearchParams({
+    'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
+    'X-Amz-Credential': `${accessKeyId}/${scope}`,
+    'X-Amz-Date': amzDate,
+    'X-Amz-Expires': String(expiresIn),
+    'X-Amz-SignedHeaders': 'host',
+  });
+  query.sort();
+  const canonicalRequest = ['GET', canonicalUri, query.toString(), `host:${host}\n`, 'host', 'UNSIGNED-PAYLOAD'].join('\n');
+  const stringToSign = ['AWS4-HMAC-SHA256', amzDate, scope, crypto.createHash('sha256').update(canonicalRequest).digest('hex')].join('\n');
+  const hmac = (key: crypto.BinaryLike, value: string) => crypto.createHmac('sha256', key).update(value).digest();
+  const signingKey = hmac(hmac(hmac(hmac(`AWS4${secretAccessKey}`, dateStamp), 'auto'), 's3'), 'aws4_request');
+  const signature = crypto.createHmac('sha256', signingKey).update(stringToSign).digest('hex');
+  return `https://${host}${canonicalUri}?${query.toString()}&X-Amz-Signature=${signature}`;
+}
+
 export async function deleteFromR2(filename: string): Promise<void> {
   const client = getClient();
   if (!client) return;

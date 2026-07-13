@@ -1,7 +1,21 @@
 import { Router, type Request, type Response } from 'express';
 import { StaffingDomainError, wizmatchStaffingService } from '../services/wizmatchStaffingDomain';
+import { createSignedR2Url } from '../utils/r2';
+import { pool } from '../db';
 
 const router = Router();
+
+export function isStaffingPhaseEnabled(phase: 'A' | 'B' | 'C'): boolean {
+  const key = `WIZMATCH_STAFFING_GATE_${phase}_ENABLED`;
+  const configured = process.env[key];
+  if (configured !== undefined) return ['1', 'true', 'yes', 'on'].includes(configured.toLowerCase());
+  return process.env.NODE_ENV !== 'production';
+}
+
+router.use((req, res, next) => {
+  if (!isStaffingPhaseEnabled('A')) return res.status(404).json({ error: 'staffing_phase_disabled' });
+  return next();
+});
 
 function actor(req: Request) {
   if (!req.user) throw new StaffingDomainError(401, 'unauthorised', 'Authentication is required');
@@ -121,6 +135,21 @@ router.post('/requirements/:requirementId/next-action', async (req, res) => {
 router.get('/requirements/:requirementId/timeline', async (req, res) => {
   try { return res.json({ items: await wizmatchStaffingService.getTimeline(actor(req).tenantId, req.params.requirementId) }); }
   catch (error) { return handle(error, res); }
+});
+
+router.get('/requirements/:requirementId/documents/:kind/access', async (req, res) => {
+  try {
+    const current = actor(req);
+    if (!['source', 'sheet'].includes(req.params.kind)) throw new StaffingDomainError(400, 'validation_error', 'Document kind is invalid');
+    const column = req.params.kind === 'source' ? 'source_file_url' : 'sheet_url';
+    const result = await pool.query(
+      `SELECT ${column} AS reference FROM wizmatch_requirements WHERE tenant_id=$1 AND id=$2`,
+      [current.tenantId, req.params.requirementId],
+    );
+    if (!result.rowCount || !result.rows[0].reference) throw new StaffingDomainError(404, 'not_found', 'Document was not found');
+    const url = await createSignedR2Url(result.rows[0].reference, 300);
+    return res.json({ url, expiresInSeconds: 300 });
+  } catch (error) { return handle(error, res); }
 });
 
 router.get('/staffing/my-work', async (req, res) => {

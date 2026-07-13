@@ -1198,6 +1198,8 @@ export const wizmatchJobSignals = pgTable(
     jobTitle: text('job_title').notNull(),
     jobUrl: text('job_url'),
     source: text('source').notNull(), // jobspy | greenhouse | lever | ashby | dice | manual
+    providerId: text('provider_id'),
+    identityFingerprint: text('identity_fingerprint'),
     postedAt: timestamp('posted_at'),
     firstSeenAt: timestamp('first_seen_at').defaultNow(),
     lastSeenAt: timestamp('last_seen_at').defaultNow(),
@@ -1222,6 +1224,12 @@ export const wizmatchJobSignals = pgTable(
     companyIdx: index('wizmatch_job_signals_company_idx').on(t.companyId),
     keywordsIdx: index('wizmatch_job_signals_keywords_idx').on(t.keywords),
     tenantJobUrlUniq: uniqueIndex('wizmatch_job_signals_tenant_job_url_idx').on(t.tenantId, t.jobUrl),
+    tenantProviderUniq: uniqueIndex('wizmatch_job_signals_tenant_provider_idx')
+      .on(t.tenantId, t.source, t.providerId)
+      .where(sql`${t.providerId} IS NOT NULL`),
+    tenantFingerprintUniq: uniqueIndex('wizmatch_job_signals_tenant_fingerprint_idx')
+      .on(t.tenantId, t.identityFingerprint)
+      .where(sql`${t.identityFingerprint} IS NOT NULL`),
   }),
 );
 

@@ -1,0 +1,4 @@
+ALTER TABLE "wizmatch_job_signals" ADD COLUMN "provider_id" text;--> statement-breakpoint
+ALTER TABLE "wizmatch_job_signals" ADD COLUMN "identity_fingerprint" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "wizmatch_job_signals_tenant_provider_idx" ON "wizmatch_job_signals" USING btree ("tenant_id","source","provider_id") WHERE "wizmatch_job_signals"."provider_id" IS NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "wizmatch_job_signals_tenant_fingerprint_idx" ON "wizmatch_job_signals" USING btree ("tenant_id","identity_fingerprint") WHERE "wizmatch_job_signals"."identity_fingerprint" IS NOT NULL;
