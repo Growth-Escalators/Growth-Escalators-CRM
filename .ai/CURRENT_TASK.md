@@ -24,9 +24,11 @@ Current remediation status is canonical in
 [`WIZMATCH_STAFFING_OS_DEFECT_REGISTER.md`](../docs/wizmatch/WIZMATCH_STAFFING_OS_DEFECT_REGISTER.md).
 
 **Current verified Phase 0 slice:** D-1–D-7, D-9–D-12, D-14, D-19–D-21,
-D-26–D-31 are locally verified. D-16, D-18 and D-23 are partially complete or
-need one remaining verification/design slice. D-13/D-15 and the staffing domain spine remain behind
-Gate A. See the defect register for the exact evidence and next action for every item.
+D-26–D-31 are locally verified. D-18 still requires live configuration evidence; all other
+non-gated Phase 0 defects are locally verified. Items D-13/D-15/D-17/D-22/D-24/D-25
+require later schema, storage, commercial or infrastructure gates; D-13/D-15 and the staffing
+domain spine specifically remain behind Gate A. See the defect register for the exact evidence and
+next action for every item.
 
 **Implemented locally in the current Phase 0 candidate bundle:**
 
@@ -70,7 +72,7 @@ assignment, activity, task-link, skill/match, and delivery spine needed for Pers
 Person B→Java. Do not edit schema/migrations until the owner records the approval in
 `WIZMATCH_STAFFING_OS_OWNER_INPUTS.md`.
 
-**Exact next step:** Phase 0 release validation is complete locally. D-13/D-15 and the core staffing
+**Exact next step:** Phase 0 code/release validation is complete locally. D-13/D-15 and the core staffing
 relationship model require the explicit Gate A approval below. D-17/D-22/D-24/D-25 are naturally
 implemented with the later private-document, commercial-currency and dedupe schema slices.
 

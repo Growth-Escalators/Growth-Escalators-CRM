@@ -43,14 +43,14 @@ the evidence explicitly says otherwise. Never promote a status based only on an 
 | D-13 | P2 | 1 | `open` | Requirement form still lacks explicit company and source-contact attribution. | Requires approved Phase 1 domain/schema proposal; do not hide in JSON. |
 | D-14 | P2 | 0 | `verified_local` | Empty Requirement Priority explains the dependency and links to Add Requirement; mocked Chromium covers the zero-item path. | Authenticated empty-state smoke after release. |
 | D-15 | P2 | 0/1 | `open` | Review-plan action still produces no durable plan artifact. | Decide whether to create a real task/shortlist plan or remove/rename the action. |
-| D-16 | P2 | 0 | `in_progress` | Canonical Contact Intelligence no longer asserts universal ₹0/paid-disabled behavior; other surfaces may still do so. | Inventory remaining zero-cost copy against live cost-control data. |
+| D-16 | P2 | 0 | `verified_local` | Canonical Contact Intelligence renders live cost-control state. The remaining active Client Discovery `cost ₹0` label describes only its zero-provider snapshot handoff; older universal-cap copy is confined to development-only demo components. | Authenticated patched-build cost-control smoke; do not enable a provider. |
 | D-17 | P2 | 0/1 | `deferred` | Requirement sheets can expose confidential client data through public object URLs. | Owner decision on signed/private document policy, then architecture proposal. |
 | D-18 | P2 | 0 | `in_progress` | DATAFLOW schema, scoring transport, topology, and supply/demand errors corrected locally. | Re-verify live Dice/TheirStack configuration and counts before calling either source healthy. |
 | D-19 | P3 | 0 | `verified_local` | Readiness now reports schema status separately from usable-funnel status and states that table presence alone is insufficient. | Authenticated patched-build readiness smoke. |
 | D-20 | P3 | 0 | `verified_local` | Open Tasks helper describes tasks instead of displaying the unrelated tenant-contact count; mocked dashboard check passes. | Authenticated dashboard smoke after release. |
 | D-21 | P3 | 0 | `verified_local` | Dashboard work order follows the canonical sidebar sequence and includes omitted stages; mocked dashboard check passes. | Responsive authenticated dashboard smoke after release. |
 | D-22 | P3 | 0/5 | `open` | Mixed currency presentation remains. | Approve currency normalization policy before cross-module changes. |
-| D-23 | P3 | 0 | `implemented_local` | CRM-link success now reports created/existing in plain language; it no longer exposes a raw UUID. | Verify created and existing-link branches. |
+| D-23 | P3 | 0 | `verified_local` | CRM-link success reports created/existing in plain language and never exposes a raw UUID. Focused service tests cover both newly-created and deduplicated CRM contacts. | Authenticated created/existing branch smoke after release. |
 | D-24 | P3 | 0 | `open` | DKIM health is not represented. | Confirm available DNS/provider evidence before adding a check. |
 | D-25 | P3 | 0 | `open` | Same role under multiple URLs can produce duplicate signals/actions. | Define canonical signal identity and safe dedupe/backfill plan. |
 | D-26 | P0 | 0 | `verified_local` | Authenticated Dashboard, Workbench, Requirement Priority, Client Discovery, Candidate Intelligence, Analytics, AI Intelligence and System use honest error/empty states; failed live data never enables demo-ID actions. Shared forced-outage Chromium coverage passes. | Authenticated patched-build outage smoke after release. |
@@ -68,4 +68,5 @@ the evidence explicitly says otherwise. Never promote a status based only on an 
   safe verification.
 - A real uploaded requirement can write a source file and call the AI provider; start with a pasted,
   sanitized JD in a patched local/staging build.
-- The worktree contains unrelated user WIP. Stage only explicitly reviewed paths, never `git add .`.
+- This branch lives in a separate clean worktree; the original dirty workspace remains preserved.
+  Continue staging by explicit path and never use `git add .`.
