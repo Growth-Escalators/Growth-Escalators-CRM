@@ -24,7 +24,7 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
     role scoring rejects known false positives and keeps company evidence separate; manual seeds are
     deterministically scored; queue totals and readiness semantics are truthful; AI is bounded.
   - Full local verification passed: TypeScript build, **38 Vitest files / 316 tests**, admin
-    production build, **8/8** mocked Chromium paths, production-bundle demo-route absence, and
+    production build, **10/10** mocked Chromium paths, production-bundle demo-route absence, and
     `git diff --check`, all without external provider or production calls.
 - **Persistent context:** PRD 004 remains a draft target; the defect register is the remediation
   status source. ADR-004 and the Phase 1 plan propose the first-class relationships required for
@@ -37,7 +37,7 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   blocked states, refresh controls, product selection, and password-recovery navigation. Builds,
   304 tests, and 5 authenticated mocked Chromium paths passed again.
 - **Remaining Phase 0 work:** D-8 still needs an exact workbench total independent of its computed
-  row bound; D-6/D-31 need dedicated mocked timeout/query-crash tests; D-17/D-22/D-24/D-25 require
+  row bound; D-17/D-22/D-24/D-25 require
   storage, schema or commercial model work and therefore remain behind later approval gates.
 - **Security:** plaintext credential values were removed from the current versions of the handoff,
   operator docs, playbook, and onboarding script; the script now requires secure environment

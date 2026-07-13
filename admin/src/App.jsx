@@ -162,6 +162,14 @@ function HomeRedirect() {
   return <Navigate to={getProductHome(user?.tenantSlug || activeTenantSlug)} replace />;
 }
 
+function QueryBoundaryQaPage() {
+  const location = useLocation();
+  if (new URLSearchParams(location.search).get('tab') === 'crash') {
+    throw new Error('Intentional query-boundary QA crash');
+  }
+  return <h1>Query boundary recovered</h1>;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -169,6 +177,7 @@ export default function App() {
         <Suspense fallback={<div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh'}}><p>Loading...</p></div>}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            {import.meta.env.DEV && <Route path="/__qa/query-boundary" element={<QueryBoundaryQaPage />} />}
             <Route path="/dashboard" element={<PrivateRoute><DashboardPage /></PrivateRoute>} />
             <Route path="/contacts" element={<PrivateRoute><ContactsPage /></PrivateRoute>} />
             <Route path="/pipeline" element={<PrivateRoute><PipelinePage /></PrivateRoute>} />

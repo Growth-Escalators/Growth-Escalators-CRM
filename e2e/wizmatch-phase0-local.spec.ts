@@ -269,3 +269,30 @@ test('direct Wizmatch navigation preserves product and return path at login', as
   await expect(page.getByRole('heading', { name: 'Wizmatch' })).toBeVisible();
   await expect(page.getByText('Operating Dashboard')).toBeVisible();
 });
+
+test('AI provider failure exposes safe detail and never substitutes demo analysis', async ({ page }) => {
+  await installWizmatchSession(page);
+  await installGenericApiFallback(page);
+  await page.route('**/api/wizmatch/intelligence', (route) => fulfillJson(route, {
+    aiEnabled: true,
+    snapshot: { summary: {} },
+    guidance: [],
+  }));
+  await page.route('**/api/wizmatch/intelligence/generate', (route) => fulfillJson(route, {
+    error: 'Wizmatch AI Intelligence is not available',
+    detail: 'The analysis exceeded the 20-second response limit. Retry once; if it repeats, check provider health.',
+    reasonCode: 'provider_timeout',
+  }, 503));
+
+  await page.goto('/wizmatch/intelligence');
+  await page.getByRole('button', { name: 'Generate with Claude' }).click();
+  await expect(page.getByText(/exceeded the 20-second response limit/)).toBeVisible();
+  await expect(page.getByText(/Demo AI analysis/)).toHaveCount(0);
+});
+
+test('query-string navigation resets a crashed route error boundary', async ({ page }) => {
+  await page.goto('/__qa/query-boundary?tab=crash');
+  await expect(page.getByRole('heading', { name: 'Something went wrong' })).toBeVisible();
+  await page.goto('/__qa/query-boundary?tab=recovered');
+  await expect(page.getByRole('heading', { name: 'Query boundary recovered' })).toBeVisible();
+});

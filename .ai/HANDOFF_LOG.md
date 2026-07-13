@@ -1898,7 +1898,8 @@ Built in parallel via 3 isolated-worktree subagents, reviewed + merged + deploye
 - `npm run build` passed.
 - `npm run admin:build` passed.
 - `npm test` passed: 38 files, 316 tests.
-- `npx playwright test --config=playwright.wizmatch-local.config.ts` passed: 8/8 Chromium scenarios.
+- `npx playwright test --config=playwright.wizmatch-local.config.ts` passed: 10/10 Chromium scenarios,
+  including safe AI timeout detail and query-string boundary recovery.
 - Production admin bundle contains no Wizmatch demo route paths.
 - `git diff --check` passed.
 
