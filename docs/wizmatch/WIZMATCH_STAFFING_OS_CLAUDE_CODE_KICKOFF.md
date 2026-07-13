@@ -1,7 +1,7 @@
 # Wizmatch Staffing OS — Claude Code Kickoff
 
 - **Status:** Canonical reusable release/resume prompt
-- **Updated:** 2026-07-13
+- **Updated:** 2026-07-14
 - **Context index:** [`README.md`](README.md)
 - **Product contract:** [`../prd/004-wizmatch-staffing-operating-system.md`](../prd/004-wizmatch-staffing-operating-system.md)
 
@@ -46,11 +46,13 @@ Mandatory startup
 4. Run pwd, git branch --show-current, git status --short, git diff --stat and git log -10 --oneline.
 5. Run git fetch origin. Do not pull, merge, rebase, reset, clean, restore, switch worktrees or
    discard anything while files are dirty.
-6. Confirm the three existing scoped commits:
+6. Confirm the existing scoped release commits, including:
    - 1997e31 feat(wizmatch): harden Phase 1 operations
    - a5ac3e8 feat(wizmatch): add Gate B candidate matching
    - 48b1a88 feat(wizmatch): complete Gate C delivery operations
    - 605d6cd fix(wizmatch): enforce delivery reference integrity
+   - ef2112f fix(wizmatch): verify staging delivery economics
+   - 9f4c0f4 fix(wizmatch): enforce staffing pilot access policy
 7. Inspect the context-only diff. Review only files recorded in CURRENT_TASK. Never use git add .
    or git add -A.
 
@@ -59,7 +61,7 @@ Current release truth
 - Phase 0, Gate A, Gate B and Gate C are implemented locally.
 - Migrations 0025–0028 are additive. 0028_strong_cammi.sql passed a production-shaped scratch apply
   on top of the committed Gate B schema.
-- The local verification baseline is: backend build green, 44 Vitest files / 352 tests green,
+- The local verification baseline is: backend build green, 45 Vitest files / 360 tests green,
   admin build green and 16/16 mocked Chromium scenarios green.
 - API and UI phase flags default off in production. Server flags are
   WIZMATCH_STAFFING_GATE_A/B/C_ENABLED; matching Vite build flags are
@@ -72,24 +74,26 @@ Current release truth
 
 Your first task
 
-The release-integrity review and isolated staging Gate A/B/C exercise are complete. Do not repeat
-them unless branch contents or staging data changed. Resume at the release gate:
+The release-integrity review, full fictional Gate A/B/C exercise, commercial-label repair and final
+named-pilot access qualification are complete. Do not repeat them unless code or staging changed.
+Resume at the first production gate:
 
-1. Confirm the branch is clean, 0 behind `origin/main`, and contains the four scoped implementation
-   commits listed above plus the latest context commits.
-2. Re-read the current task/state and release-readiness review; report any contradiction before an
-   external action.
-3. Review the local permanent-fee/contract-margin label repair and its tests.
-4. Ask for explicit approval to deploy that repair to the existing isolated staging service.
-5. Do not deploy, configure, push, read production data or rotate a credential from this startup
-   prompt alone.
+1. Confirm the branch is clean, 0 behind `origin/main`, and includes `9f4c0f4` plus the latest
+   context commit.
+2. Re-read CURRENT_TASK/CURRENT_STATE and report any contradiction before an external action.
+3. Ask for separate explicit approval to rotate the previously exposed live credential through the
+   approved secret channel. Never print or store the value.
+4. After verified rotation, stop for another approval before any production health/topology read or
+   count-only backfill preview.
+5. Do not migrate production, push, change flags or import data from this startup prompt alone.
 
 Current infrastructure truth
 
 - Railway has isolated `production` and `staging` environments. Staging contains `web-staging` and
   `Postgres-Bhky`; Gate A/B/C are on there with fictional data. No worker exists in either environment.
-- The exact next gate is approval to deploy the local commercial-label repair to `web-staging` and
-  smoke the Placements page. Production remains a later, separate release sequence.
+- Exact `9f4c0f4` is live on `web-staging` as deployment
+  `54b9ff52-8fed-43eb-974c-bb2ddaab72f6` (`SUCCESS`). Its 15-check direct-API access matrix and
+  read-only staffing-chain/economics reconciliation passed.
 - Production `web` remains on `b05ac015eff8444edc217563fdb93ac5ef836639` from the latest read-only
   inspection. Recompute the branch position at startup rather than relying on a saved ahead count.
 - Deployment documentation references `railway.worker.json`, but the file is absent in this clean
@@ -161,7 +165,7 @@ Final report format
 - Approval gate reached
 - One exact next action
 
-Begin now with mandatory startup verification and report the isolated-staging creation approval
-gate. Do not redo Gates A/B/C and do not perform a production-sensitive action from this prompt
-alone.
+Begin now with mandatory startup verification and report the live-credential rotation approval
+gate. Do not redo staging Gates A/B/C and do not perform a production-sensitive action from this
+prompt alone.
 ```

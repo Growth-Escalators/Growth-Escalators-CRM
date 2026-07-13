@@ -2,18 +2,35 @@
 
 ## Active task
 
-**Wizmatch Staffing OS — Gate A/B/C and the permanent-fee/contract-margin display repair are now
-deployed and smoke-tested in the isolated Railway staging environment. The next release-readiness
-unit is the mandatory owner-policy workshop plus the explicit migration-owner decision on ADR-005.**
+**Wizmatch Staffing OS — the final named-pilot access policy is implemented, committed and fully
+qualified in the isolated Railway staging environment. The next unit is the separately approved
+production security/release sequence; production remains untouched.**
 
 Work only in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust` on
 `codex/wizmatch-phase0-trust`. Preserve the unrelated dirty workspace at
 `/Users/jatinagrawal/repo-comparison/v2`.
 
-## Verified staging result
+## Verified release candidate
 
-- Staging remains isolated from production: `web-staging` + `Postgres-Bhky`, migration journal
-  0000–0028 applied (29 entries), Gate A/B/C on, worker/sending/paid discovery/provider calls off.
+- Final hardening commit `9f4c0f4` enforces a production-fail-closed named roster, excludes viewers,
+  scopes recruiters/account owners to assigned requirements, separates recruiter/lead/admin
+  capabilities, filters recruiter workspaces, and restricts commercial visibility/mutations.
+- `GET /api/wizmatch/staffing/access` reports the caller's phase/role/access/capabilities without
+  exposing the roster. Admin navigation uses the same server-resolved pilot decision.
+- Consent defaults to a maximum 30 days. Permanent placement requires a positive fee. Contract
+  placement requires bill amount and loaded cost; margin below 20% requires an admin exception.
+- The approved provisional role/SLA/privacy/commercial policy pack is recorded in owner inputs and
+  ADR-005 accepts only the one-time `a810d08` fresh-install migration exception. Neither is push or
+  production-action approval.
+- Staging remains isolated: `web-staging` + `Postgres-Bhky`, migration journal 0000–0028 applied
+  (29 entries), Gate A/B/C on, worker/sending/paid discovery/Google fallback/provider calls off.
+- Railway CLI is 5.26.1. Exact commit `9f4c0f4` was deployed after the pilot roster was set;
+  deployment `54b9ff52-8fed-43eb-974c-bb2ddaab72f6` reached terminal `SUCCESS`; `/health` is 200
+  with database `ok`.
+- Direct-API access smoke passed every case: pilot admin/lead/recruiter admitted; viewer and
+  non-pilot users rejected; assigned recruiter SAP access allowed but unassigned Java access
+  rejected; recruiter approval/commercial access rejected; lead finance mutation rejected; admin
+  commercial access allowed; legacy commercial endpoints also reject viewers.
 - Gate A: Company A has distinct Person A→SAP and Person B→Java source attribution, assignments,
   SLA, next action, 360 views and timelines.
 - Gate B: the live exercise found that the earlier report had not persisted canonical skill rows.
@@ -34,13 +51,19 @@ Work only in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust` on
   Authenticated browser smoke verified the aggregate and cards show `₹500/hr contract margin` and
   `₹2,50,000 permanent fee(s)`, with no permanent amount shown as hourly.
 
-## Current local verification
+## Current verification
 
 - `npm run build` passed.
-- `npm test` passed: 44 files / 352 tests.
+- `npm test` passed: 45 files / 360 tests.
 - `npm run admin:build` passed.
 - Wizmatch Playwright passed: 16/16 Chromium scenarios.
 - `git diff --check` passed.
+- Post-deploy read-only reconciliation passed: Person A/SAP and Person B/Java have distinct primary
+  contacts; both consent→submission→offer→placement chains are complete; permanent fee is INR
+  250000; contract economics are INR 2000 bill / 1500 loaded cost / 500 margin / 25%; invoice links
+  remain separate from placements; three resolved SAP adjustment records remain traceable.
+- R2 is intentionally absent on staging. Private-document configuration failure remains honest;
+  no document upload/provider call was attempted in this qualification.
 - Staging credentials/sessions used for QA were rotated/revoked and temporary session files removed.
 - One generated staging password was included in an internal browser snapshot during QA; it was
   immediately treated as compromised, rotated, revoked and cleared. Never copy it into context.
@@ -59,13 +82,14 @@ Pause for a separate explicit approval immediately before each of:
 5. Import approved pilot production data.
 6. Rotate any live credential, send/outreach, enable paid providers or deploy a worker.
 
-Before production Gate C activation, the owner must still fill the mandatory role, SLA, consent,
-privacy, permission and commercial-policy decisions in
-`docs/wizmatch/WIZMATCH_STAFFING_OS_OWNER_INPUTS.md`.
+The provisional role, SLA, consent, privacy, permission and commercial-policy pack required for the
+controlled pilot is approved and recorded. Named human owners, the production roster and reviewed
+pilot import manifest still must be supplied before their dependent launch steps.
 
 ## Exact next action
 
-Run the owner workshop and record explicit decisions in
-`docs/wizmatch/WIZMATCH_STAFFING_OS_OWNER_INPUTS.md`; separately obtain the migration owner's
-accept/reject decision for proposed ADR-005. Do not infer either decision and do not begin a
-production read, migration, push, flag change or data import from this context alone.
+Obtain a separate explicit approval to rotate the previously exposed live credential using the
+approved secret channel. Never print or store its value. After rotation is verified, stop for a
+separate approval before the read-only production health/topology and count-only backfill preview.
+Production migrations, the push to `main`, each gate flag change and the pilot import each remain
+their own later approval gate.

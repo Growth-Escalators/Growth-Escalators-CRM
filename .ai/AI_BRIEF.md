@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-13T19:48:38.212Z_
+_Generated: 2026-07-13T20:37:30.033Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,14 +12,14 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: Growth-Escalators/Growth-Escalators-CRM
 - **Branch**: `codex/wizmatch-phase0-trust`
-- **Last commit**: ef2112f fix(wizmatch): verify staging delivery economics (6 minutes ago)
-- **Uncommitted changes**: 5 file(s)
+- **Last commit**: 9f4c0f4 fix(wizmatch): enforce staffing pilot access policy (20 minutes ago)
+- **Uncommitted changes**: 4 file(s)
 
 ## Current task
 
-**Wizmatch Staffing OS — Gate A/B/C and the permanent-fee/contract-margin display repair are now
-deployed and smoke-tested in the isolated Railway staging environment. The next release-readiness
-unit is the mandatory owner-policy workshop plus the explicit migration-owner decision on ADR-005.**
+**Wizmatch Staffing OS — the final named-pilot access policy is implemented, committed and fully
+qualified in the isolated Railway staging environment. The next unit is the separately approved
+production security/release sequence; production remains untouched.**
 
 Work only in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust` on
 `codex/wizmatch-phase0-trust`. Preserve the unrelated dirty workspace at
@@ -30,6 +30,8 @@ Work only in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust` on
 ## Recent commits
 
 ```
+9f4c0f4 fix(wizmatch): enforce staffing pilot access policy
+a5863d8 chore(ai): record staging placements smoke
 ef2112f fix(wizmatch): verify staging delivery economics
 5a4abe0 chore(ai): record staging Gate A pilot evidence + a810d08 guardrail review
 a810d08 fix(migrations): make 0008/0014 idempotent for fresh-database apply
@@ -38,8 +40,6 @@ a810d08 fix(migrations): make 0008/0014 idempotent for fresh-database apply
 2085b84 chore(ai): snapshot clean release state
 09722b9 chore(ai): refresh Wizmatch release brief
 ff9f696 docs(ai): record Wizmatch release review
-605d6cd fix(wizmatch): enforce delivery reference integrity
-f293c05 chore(ai): refresh clean release snapshot
 ```
 
 ## npm scripts

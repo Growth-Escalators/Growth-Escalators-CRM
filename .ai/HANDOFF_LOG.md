@@ -6,6 +6,31 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-14 — Final named-pilot access hardening and staging qualification — Codex — LIVE STAGING + LOCAL
+
+- Added and committed the fail-closed named-pilot policy as `9f4c0f4`: role capabilities, assigned-
+  requirement isolation, restricted commercial data/actions, `/staffing/access`, 30-day consent,
+  required permanent/contract economics and below-20%-margin admin exceptions.
+- Recorded the approved provisional policy pack and accepted ADR-005's one-time `a810d08`
+  exception. This does not approve a push or any production operation.
+- Verification passed locally: backend build; 45 files / 360 Vitest tests; admin production build;
+  16/16 Wizmatch Playwright scenarios; `git diff --check`.
+- Upgraded Railway CLI to 5.26.1 and redeployed exact commit `9f4c0f4` to isolated `web-staging`
+  after its fictional named roster was configured. Deployment
+  `54b9ff52-8fed-43eb-974c-bb2ddaab72f6` reached terminal `SUCCESS`; health returned database `ok`.
+- Direct-API access qualification passed all 15 assertions: pilot admin/lead/recruiter admitted;
+  non-pilot/viewer denied; assigned recruiter isolation held; recruiter approval/commercial and
+  lead finance writes were denied; admin commercial access succeeded.
+- Read-only staging reconciliation confirmed distinct Person A/SAP and Person B/Java attribution,
+  complete consent→submission→offer→placement traces, INR 250000 permanent fee, INR 500/25%
+  contract margin, separate invoice links and traceable adjustments. R2 remained intentionally
+  unset; sending, paid providers, Google fallback, background jobs and production stayed untouched.
+- Exact next gate: separately approve rotation of the previously exposed live credential. Then
+  stop again for production read/count-only preview approval; migrations, push, flags and imports
+  remain separately gated.
+
+---
+
 ## 2026-07-14 — Staging deployment and Placements commercial-label smoke — Codex — LIVE STAGING
 
 - With explicit staging-only approval, deployed exact commit `ef2112f` directly to Railway
