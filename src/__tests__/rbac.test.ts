@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { requirePermission, hasPermission } from '../middleware/rbac';
+import { requirePermission, hasPermission, isAdminTier } from '../middleware/rbac';
 
 // Minimal Express-shaped fakes — enough to exercise the middleware contract.
 function makeReq(role: string) {
@@ -52,5 +52,32 @@ describe('hasPermission (fail-closed)', () => {
 
   it('returns false for unknown permission name', () => {
     expect(hasPermission('admin', 'NONEXISTENT_FOO')).toBe(false);
+  });
+});
+
+describe('viewer role (read-only, comprehensive read access)', () => {
+  it('can read across all business domains', () => {
+    for (const perm of ['CONTACTS_VIEW', 'DEALS_VIEW', 'QUALIFICATION_VIEW', 'SEQUENCES_VIEW',
+      'AUTOMATIONS_VIEW', 'ADS_VIEW', 'REPORTS_VIEW', 'SOCIAL_VIEW', 'INBOX_VIEW', 'HEALTH_VIEW',
+      'MARKETING_VIEW', 'DISCOVERY_VIEW']) {
+      expect(hasPermission('viewer', perm)).toBe(true);
+    }
+  });
+
+  it('cannot edit / export / delete / manage / post', () => {
+    for (const perm of ['CONTACTS_EXPORT', 'CONTACTS_BULK_DELETE', 'DEALS_EDIT', 'SEQUENCES_EDIT',
+      'AUTOMATIONS_EDIT', 'ADS_MANAGE', 'SOCIAL_POST', 'MARKETING_MANAGE']) {
+      expect(hasPermission('viewer', perm)).toBe(false);
+    }
+  });
+
+  it('is not granted sensitive admin-only reads (billing / permissions / audit)', () => {
+    for (const perm of ['BILLING_VIEW', 'PERMISSIONS_VIEW', 'AUDIT_VIEW']) {
+      expect(hasPermission('viewer', perm)).toBe(false);
+    }
+  });
+
+  it('is admin-tier for READ access to Growth OS / Intelligence (writes still blocked in requireAuth)', () => {
+    expect(isAdminTier('viewer')).toBe(true);
   });
 });

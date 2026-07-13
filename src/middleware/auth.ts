@@ -44,6 +44,12 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
       return;
     }
     req.user = payload;
+    // Read-only 'viewer' service role may issue only safe (read) methods. Additive and gated on
+    // a role no human user holds, so this cannot change any existing flow.
+    if (payload.role === 'viewer' && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+      res.status(403).json({ error: 'forbidden', message: 'viewer role is read-only' });
+      return;
+    }
     next();
   } catch {
     res.status(401).json({ error: 'invalid or expired token' });
@@ -64,6 +70,11 @@ export function optionalAuth(req: Request, _res: Response, next: NextFunction): 
         }
       } catch { /* token invalid — continue without user */ }
     }
+  }
+  // Same read-only guard for the 'viewer' service role on optional-auth routes.
+  if (req.user?.role === 'viewer' && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    _res.status(403).json({ error: 'forbidden', message: 'viewer role is read-only' });
+    return;
   }
   next();
 }

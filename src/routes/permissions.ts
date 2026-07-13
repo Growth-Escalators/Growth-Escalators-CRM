@@ -7,7 +7,7 @@ import crypto from 'crypto';
 
 const router = Router();
 
-const VALID_ROLES = ['admin', 'manager_ops', 'manager_ads', 'team_lead', 'sales', 'staff', 'creative_assistant'];
+const VALID_ROLES = ['admin', 'manager_ops', 'manager_ads', 'team_lead', 'sales', 'staff', 'creative_assistant', 'viewer'];
 
 function generatePassword(): string {
   // 12 chars: mixed case + digits — readable but reasonable entropy.
