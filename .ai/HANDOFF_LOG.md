@@ -1,7 +1,156 @@
 # HANDOFF_LOG.md
 
-Append-only log of completed units of work. Newest first. One entry per coherent change.
+Immutable completed-unit log. Newest entries are inserted below this header. Existing entries are
+not rewritten except to redact exposed sensitive values. One entry per coherent change.
 Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed, how to verify, what's next).
+
+---
+
+## 2026-07-13 — Wizmatch deep local browser and route-matrix QA — Codex — COMPLETED LOCALLY
+
+- Walked all 10 primary public demo modules in the visible local browser and exercised safe controls:
+  prospect intake, candidate sample/preview/import, Review Workbench handoff/approval/review/priority
+  actions and filters, requirement review plan, contact discovery preview, blocked states, refresh,
+  tenant selector, and password-recovery navigation. Demo writes remained simulated and discovery
+  stayed disabled where its guardrail said disabled.
+- Exercised all 57 Wizmatch source routes with local mocked APIs: 29 authenticated routes, 11 demo
+  routes, and 17 redirects. No ErrorBoundary route-mount crash; all redirects/auth boundaries
+  resolved. Pipeline produced one unhandled load rejection when `/api/pipelines` failed.
+- Forced API outage exposed a release-blocking cross-page trust defect: several authenticated live
+  routes substitute plausible demo records and retain action controls. Added D-26–D-31 to the
+  canonical register; D-26 honest failure handling is now the next safe slice.
+- Verification rerun: `npm run build` exit 0; `npm test` 37 files / 304 tests; `npm run admin:build`
+  exit 0 / 1,937 modules; local authenticated Playwright 5/5. Browser console had no application
+  errors; only repeated React Router v7 future-flag warnings.
+- No production login, data, outreach, provider, AI/R2, payment, environment, deploy, commit, push,
+  or guarded schema/auth/RBAC action was performed.
+
+---
+
+## 2026-07-13 — PRD 004 Phase 0 trust bundle + durable Claude handoff — Codex — VERIFIED LOCALLY, NOT COMMITTED
+
+This entry supersedes the implementation details in the immediately following D-2 intermediate
+handoff. That earlier draft used raw fetch/direct token handling; the final local candidate uses the
+canonical `apiFetch(FormData)` path and adds focused/browser coverage.
+
+**Phase 0 product repairs:**
+
+- **D-1 Contact Intelligence:** merged read-only discovery preview and explicit confirmed manual
+  discovery into the canonical live page without route-flipping away company/contact review,
+  manual-add, CRM-link, or Pipeline handoff. The preview shows eligibility, provider order, budget,
+  caps, configuration, blockers, and estimated cost. A separate checkbox is required before the
+  run button enables. Authenticated load failure now clears live data and shows Error + Retry rather
+  than plausible demo companies. No provider call, environment, budget, or cap change was made.
+- **D-2 requirement parse:** `WizmatchRequirementsPage` now sends FormData through tenant-aware
+  `apiFetch`, preserving multipart boundaries and canonical 401 cleanup. Missing input is a status
+  message without Retry; real request failure is an alert with Retry; feedback clears on edit/mode.
+- **D-9 linked hiring contacts:** new `wizmatchClientLeadLink` service normalizes channels, uses
+  `findOrCreateContact`, and classifies new/deduplicated/existing links with `Client Lead`, company
+  name, provenance metadata, tenant-scoped update, and `last_activity_at` bump.
+- **D-10 contact search:** shared Contacts search matches combined full name plus tenant-scoped
+  email/phone/WhatsApp channels through a correlated EXISTS.
+- **D-11 action queue:** non-executable qualification/safety outcomes no longer consume Review
+  Workbench cards; blockers remain visible in Safety Center.
+- **D-12/D-14/D-20/D-21/D-23:** truthful handoff result, Requirement Priority zero-state/add link,
+  Open Tasks helper, canonical dashboard work order, and plain-language CRM-link result.
+
+**Persistent context and architecture:**
+
+- Added canonical D-1–D-25 defect/remediation register.
+- Corrected DATAFLOW schema authority, in-process scoring, topology uncertainty, and supply/demand
+  separation; corrected the product brief's source/table statements.
+- Added proposed ADR-004 and Phase 1 plan for company-contact roles, requirement attribution,
+  assignments, timeline/task links, canonical skills/matches, and delivery records. This is a
+  proposal only; no schema/migration edit was made by this task.
+- Updated AGENTS/CLAUDE/kickoff/index/owner inputs/current task/state/generator so a future agent
+  resumes from repo context, not chat history.
+
+**Security remediation:**
+
+- Removed plaintext credential values from the current working versions of the handoff, playbook,
+  operator guide, and onboarding script. The script now requires secure environment injection and
+  does not print the value. Added a repository-wide rule prohibiting credentials/PII/private
+  payloads in code or context.
+- The credential remains exposed in committed Git history and was not rotated. Live rotation needs
+  explicit production-mutation approval. History rewriting is a separate disruptive approval gate.
+
+**Verification:**
+
+- `npm run build` — exit 0.
+- `npm test` — **37 files, 304/304 passed**. Existing non-top-level `vi.mock` warnings in
+  `rankTracking.test.ts` remain pre-existing; no new failing test.
+- `npm run admin:build` — exit 0; 1,937 modules transformed.
+- `npx playwright test --config=playwright.wizmatch-local.config.ts` — **5/5 passed** against local
+  Vite with mocked APIs only; no production, AI, R2, provider, sending, or data mutation.
+- `git diff --check` — clean across the worktree.
+
+**Known limits / gates:**
+
+- All work is local, uncommitted, unpushed, undeployed, and not production-smoked.
+- A real requirement upload may call AI/write R2; a real confirmed discovery may spend configured
+  provider budget. Neither was executed.
+- D-8 truthful totals is the next safe Phase 0 design/implementation slice.
+- Person A→SAP / Person B→Java and the first-class delivery chain require ADR-004 Gate A owner/schema
+  approval before editing guarded schema/migration paths.
+- During this task another process modified guarded schema/auth/RBAC/permissions files. Those edits
+  are not part of this unit and must not be staged or reverted with it.
+
+---
+
+## 2026-07-13 — PRD 004 Phase 0 slice 1: Wizmatch "Parse with AI" 401 fix (D-2) — Claude — VERIFIED LOCALLY, NOT COMMITTED
+
+Smallest safe Phase 0 vertical slice from PRD 004 (`docs/prd/004-wizmatch-staffing-operating-system.md`
+§14 "Requirement parsing using the canonical tenant-aware authentication helper" and §10.8 UX trust
+requirements). Directly addresses P0 defect **D-2** in `docs/reviews/wizmatch-client-funnel-audit-2026-07-12.md`.
+
+**What changed** — one file, `admin/src/pages/WizmatchRequirementsPage.jsx`:
+- Import `getAuthToken` from `../lib/auth.js`.
+- `parseRequirementApi()` now reads the token via `getAuthToken()` instead of the hard-coded
+  `localStorage.getItem('ge_crm_token')`. Sends the header only when a token is present. Surfaces the
+  server's `error.message` (matches `apiFetch`'s dual-shape handling in `lib/api.js`).
+- `runParse()` replaces three blocking `alert()` calls (empty-text, empty-file, parse-failure) with
+  an inline `parseError` state rendered next to the "Parse with AI" button, with a Retry affordance.
+  The rest of the drawer stays interactive.
+
+**Why this fixes the bug** — `admin/src/lib/auth.js:9-15` gives Wizmatch tenants storage prefix
+`wizmatch_crm` (so the token lives at `wizmatch_crm_token`); Growth uses `ge_crm`. The canonical
+`getAuthToken()` at `auth.js:95-97` resolves the correct key per tenant, and this is exactly what
+`apiFetch` at `lib/api.js:14` already does for every other authenticated call. Wizmatch-tenant
+"Parse with AI" was sending `Authorization: Bearer null` and 100%-401'ing; Growth was fine but the
+same helper handles both, so no Growth regression.
+
+**Guardrails** — nothing in the "do not touch without approval" list was edited: no schema,
+migrations, `auth.ts`, `rbac.ts`, `cashfree.ts`, `sodEodService.ts` Slack logic, deployment config,
+env vars, prod data mutation, sending, paid-provider, or Cashfree code. Admin SPA only. No API
+contract or backend behavior changed; endpoint `POST /api/wizmatch/requirements/parse` unchanged.
+
+**Verification (local)**:
+- `git diff --check` — clean.
+- `git diff --stat admin/src/pages/WizmatchRequirementsPage.jsx` — 1 file, +40/-8.
+- `npm run build` — exit 0 (tsc no errors).
+- `npm run admin:build` — exit 0, `WizmatchRequirementsPage-*.js` rebuilt (32.49 kB).
+- `npm test` — 35 files, 292/292 tests pass.
+- Automated coverage note: the JSX component has no existing unit tests in the suite; the change is
+  a single-branch swap of one helper and one alert-→-state replacement. A live authenticated smoke
+  in a Wizmatch session is the required user-path verification and is **not** performed here (no
+  deploy this session).
+
+**What was preserved** — every other feature of the file:
+requirement list/filters, `RequirementDetailDrawer`, `CandidateMatchesModal`, sheet generation,
+`Save & Generate Sheet` path. The multipart bypass of `apiFetch` remains (its reason for existing is
+that `apiFetch` forces JSON content-type — reaffirmed in the code comment).
+
+**Not committed, not pushed, not deployed.** Only file modified in this session:
+`admin/src/pages/WizmatchRequirementsPage.jsx`. All other dirty-worktree changes belong to prior
+sessions (SEO WIP, `.ai/` planning updates, seed-script edits, PRD/handoff files) — untouched.
+
+**Next Phase 0 candidate slice** — recommend **D-12** next: the "Send to Contact Intelligence"
+success banner reads *"decision-maker discovery is queued"* but nothing is queued
+(`admin/src/pages/WizmatchOperatingPages.jsx:630` per the audit). Fix is a copy change in one file
+that doesn't touch any guarded path. **Do not** attempt D-1 (Contact Intelligence route
+consolidation — larger and risks losing manual-add / CRM-link / cost-guard functionality per PRD §14)
+or D-3 (signal scoring + hardcoded manual-signal score — backend behavior + analytics denominators;
+needs a scoped plan first) without a proposal.
 
 ---
 
@@ -83,12 +232,10 @@ list with real client-type companies.
 **Decisions:** outreach stays manual (sending gated off); demand sourcing "fix scrapers first".
 
 **Prod data mutations (via `railway run --service Postgres` + public DB URL, transactional, count-first):**
-- Reset the **wizmatch-tenant** Kanishk password (`kanishk.khandelwal@growthescalators.com`,
-  row `115f2251…`) to `Kanishk@#2026` (matches his growth login; token_version 1→2). He already
-  existed as **admin** on the wizmatch tenant — no user created. His growth-tenant row untouched.
+- Rotated the password for the existing Wizmatch-tenant admin account. The credential value is intentionally omitted; the Growth-tenant account was untouched.
 - Seeded **3 starter outreach email templates** into `email_templates` for the wizmatch tenant
   (`wizmatch-intro-role`, `wizmatch-followup`, `wizmatch-value`; idempotent on (tenant_id, name)).
-- One-off scripts were deleted after running (contained the credential); this log is the audit trail.
+- One-off mutation scripts were deleted after running. This log records the action and outcome only; credential values must never be stored in repository context.
 
 **Read-only findings (prod):** wizmatch tenant `4b3dd3e2…`; 260 candidates loaded, but demand is
 thin (2 companies, 0 requirements, 2 job signals — both `scored`, scoring pipeline healthy, nothing
@@ -1661,3 +1808,101 @@ Built in parallel via 3 isolated-worktree subagents, reviewed + merged + deploye
 - **PR #39** (items 8, 10): Contact Intelligence "Open in Pipeline →" after approve+link; new on-demand candidate sourcing — POST /candidates/source-now + WizmatchSourceCandidatesPage, runs GitHub/X-Ray miners live for one skill+location (miners refactored with optional adhocQuery, cron path unchanged). SerpAPI free tier ~100/mo — one query per click.
 - **PR #40** (items 6, 7, 9): Candidates location filter, real pagination (was fake — Prev disabled, Next no-op), and experience_years.
 - **Migration integrity finding (important):** drizzle `db:generate` is BROKEN in this repo — meta/ snapshots stop at 0019 while SQL/journal run through 0022, so it diffs a stale baseline and emits a destructive migration (re-CREATE TABLE, DROP CONSTRAINT). Subagent correctly refused to commit it. Deploy auto-runs `node dist/scripts/migrate.js && node dist/index.js`, so a bad migration = no boot = outage. Safe path used: hand-written idempotent `ALTER TABLE wizmatch_candidates ADD COLUMN IF NOT EXISTS experience_years integer` (0023) + journal entry (migrator applies off the journal, not snapshots). Verified applied in prod deploy logs ([migrate] complete). The 0020–0022 snapshot drift is still unfixed — any future schema change must hand-write migrations until it's reconciled.
+
+## 2026-07-13 — Wizmatch Staffing Operating System canonical brief — Codex — DOCS ONLY
+
+**What was done**
+- Added `docs/prd/004-wizmatch-staffing-operating-system.md` as the canonical future-state product
+  contract for the complete company → hiring contact → requirement → candidate → submission →
+  interview → placement → revenue chain.
+- Captured strict funnel definitions, personas, ownership, target data contracts, state machines,
+  separate scoring models, operating screens, daily/weekly workflow, SLAs, KPI formulas, illustrative
+  planning scenarios, commercial formulas, phased implementation, migration/backfill requirements,
+  security controls, acceptance scenarios, 30/60/90 rollout, and future concepts.
+- Distinguished current source/live-audit findings from target behavior and deferred concepts.
+- Linked the future-state PRD from `docs/PRODUCT_SYSTEM_BRIEF.md` and made it the next planned focus
+  in `.ai/CURRENT_TASK.md` / `.ai/CURRENT_STATE.md`.
+
+**Guardrails preserved**
+- Documentation and context only; no product code changed.
+- No schema, migration, auth/RBAC, deployment, environment, production data, paid-provider, sending,
+  or candidate-submission action.
+- No staging, commit, push, or deploy.
+- Existing unrelated dirty-worktree changes were preserved.
+
+**Verification / follow-up**
+- Documentation links and formatting must be checked after regenerating `.ai/AI_BRIEF.md`.
+- Next agent should start with an inspect-first gap/dependency map and the smallest safe Phase 0
+  trust repair; guarded changes require a specific proposal and explicit human approval.
+
+**Post-entry verification (same docs-only unit)**
+- `npm run ai:brief` passed and regenerated `.ai/AI_BRIEF.md`.
+- Required handoff/source files exist; the new PRD has no trailing whitespace.
+- `git diff --check` passed for the tracked context/product-brief changes.
+- Product build/test suites were not rerun because this unit changes documentation only.
+
+## 2026-07-13 — Collision-free Claude Code handoff package — Codex — DOCS ONLY
+
+**What was done**
+- Added `docs/wizmatch/README.md` as the canonical Wizmatch documentation/source-of-truth index.
+- Added `docs/wizmatch/WIZMATCH_STAFFING_OS_CLAUDE_CODE_KICKOFF.md` as the single reusable Claude
+  Code startup prompt.
+- Added `docs/wizmatch/WIZMATCH_STAFFING_OS_OWNER_INPUTS.md` so human-owned business, SLA,
+  commercial, permission, privacy, automation, and architecture decisions remain separate from the
+  product contract and are never invented by an agent.
+- Added safe startup reading, source precedence, phase-gated references, restricted-path policy,
+  naming rules, and the persistent context-update loop.
+- Removed the byte-identical untracked PRD copy from the repository root. The only canonical PRD is
+  `docs/prd/004-wizmatch-staffing-operating-system.md`.
+- Updated PRD 004, the product brief, current task, and current state to link the new entry point.
+
+**Guardrails preserved**
+- Documentation/context only; no product code, schema, migration, auth/RBAC, deployment,
+  environment, production data, paid-provider, sending, or candidate-submission change.
+- Restricted paths were classified by filename and were not copied into the handoff.
+- No staging, commit, push, PR, deployment, spend, send, or production mutation.
+- Unrelated dirty-worktree files were preserved.
+
+**Verification / follow-up**
+- Regenerate `.ai/AI_BRIEF.md` and validate every new local Markdown link, whitespace, and scoped
+  diff before handing off to Claude Code.
+
+**Post-entry verification (same docs-only unit)**
+- `npm run ai:brief` passed and regenerated `.ai/AI_BRIEF.md`.
+- Local Markdown-link validation passed across the index, kickoff, owner-input template, PRD,
+  product brief, current task, and current state.
+- Confirmed exactly one `004-wizmatch-staffing-operating-system.md` remains, at the canonical
+  `docs/prd/` path.
+- `git diff --check` passed for tracked handoff/context changes; new Markdown files have no trailing
+  whitespace.
+- Product build/test suites were not rerun because this unit changes documentation/context only.
+
+## 2026-07-13 — Wizmatch Phase 0 trust hardening — Codex — LOCAL BRANCH
+
+**What was done**
+- Created clean worktree `../v2-wizmatch-phase0-trust` on `codex/wizmatch-phase0-trust` from fresh
+  `origin/main`; copied only reviewed Wizmatch/product/context paths from the original dirty tree.
+- Completed honest authenticated failure states, Pipeline Retry/finally handling, development-only
+  demos, current-build-only admin serving, Wizmatch-aware login return paths, and query-aware error
+  boundary reset.
+- Added deterministic role relevance used by ATS, Client Discovery, Contact Intelligence and manual
+  seed scoring. Company vocabulary no longer supplies role fit. Added SAP/Java and false-positive
+  regression fixtures plus attainable hot/warm/watch fixtures.
+- Bounded AI Intelligence input/output/time and mapped provider failures to safe operator details.
+- Added independent database totals to primary queues and split schema readiness from usable-funnel
+  readiness. Workbench exact total remains open and is recorded as D-8 `in_progress`.
+- Preserved provider/spend/sending defaults and made no schema, migration, auth/RBAC, deployment,
+  environment or production-data change.
+
+**Verification**
+- `npm run build` passed.
+- `npm run admin:build` passed.
+- `npm test` passed: 38 files, 316 tests.
+- `npx playwright test --config=playwright.wizmatch-local.config.ts` passed: 8/8 Chromium scenarios.
+- Production admin bundle contains no Wizmatch demo route paths.
+- `git diff --check` passed.
+
+**Approval boundary / next work**
+- Nothing was pushed or deployed and no real provider, AI, R2, sending or production write ran.
+- Before editing `src/db/schema.ts` or generating Gate A migrations, require the exact owner approval
+  recorded in the owner-input file. Credential rotation is a separate production-sensitive action.

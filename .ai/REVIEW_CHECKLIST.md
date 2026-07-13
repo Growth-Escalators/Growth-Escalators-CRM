@@ -26,7 +26,8 @@ risky paths) works top-to-bottom. Save notable reviews under `docs/reviews/`.
 ## Scope & hygiene
 
 - [ ] Diff is one coherent unit; nothing unrelated snuck in.
-- [ ] Secrets/keys not hard-coded; env vars used.
+- [ ] No credential value appears in code, scripts, docs, screenshots, `.ai/` context, or logs;
+      approved secret injection / environment variables are used instead.
 - [ ] Follows surrounding code style (naming, structure, comment density).
 
 ## Trail

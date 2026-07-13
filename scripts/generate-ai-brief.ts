@@ -71,7 +71,10 @@ const branch = safe('git rev-parse --abbrev-ref HEAD', 'unknown');
 const lastCommit = safe('git log -1 --pretty=format:"%h %s (%cr)"');
 const recentCommits = safe('git log --oneline -10');
 const dirtyCount = safe('git status --porcelain', '').split('\n').filter(Boolean).length;
-const trackedAiFiles = safe('git ls-files .ai docs/prd docs/decisions docs/reviews', '(none)');
+const trackedAiFiles = safe(
+  'git ls-files .ai docs/prd docs/decisions docs/reviews docs/wizmatch/README.md "docs/wizmatch/WIZMATCH_STAFFING_OS_*.md"',
+  '(none)',
+);
 
 const brief = `# AI_BRIEF.md — auto-generated context snapshot
 
@@ -85,7 +88,7 @@ chat can rebuild context from the repo alone. For durable guidance read \`AGENTS
 
 ## Repository
 
-- **Repo**: growth-escalators-backend-v2
+- **Repo**: Growth-Escalators/Growth-Escalators-CRM
 - **Branch**: \`${branch}\`
 - **Last commit**: ${lastCommit}
 - **Uncommitted changes**: ${dirtyCount} file(s)

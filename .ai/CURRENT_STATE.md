@@ -2,10 +2,49 @@
 
 _Update this when the working state of the repo meaningfully changes. Keep it short and true._
 
-## 2026-07-12 snapshot (current)
+## 2026-07-13 snapshot (current)
 
-- `main` @ `6d659ec`, local == origin, working tree has only unrelated SEO/tooling WIP (see
-  CURRENT_TASK.md "Dirty working tree"). `npm run build`, `npm test` (292), `npm run admin:build` all green.
+- **Deployed baseline for this worktree:** fresh `origin/main` at `03f8bf7`; branch
+  `codex/wizmatch-phase0-trust`. No branch change has been pushed, deployed, sent, spent, migrated,
+  or written to production.
+- **Local Phase 0 candidate bundle:**
+  - D-1 canonical Contact Intelligence now combines company/contact review, manual add, CRM linking,
+    Pipeline handoff, read-only discovery preview, explicit cost acknowledgement, and confirmed
+    manual discovery. Authenticated API failure shows an honest empty/error/Retry state, not demo
+    companies. No real provider run was executed and Apollo/Snov/env/budgets remain unchanged.
+  - D-2 requirement parsing delegates FormData to canonical tenant-aware `apiFetch`; validation and
+    request failures render separately and request errors offer Retry.
+  - D-9/D-10/D-11 classify linked hiring contacts consistently, search CRM contacts by full name or
+    tenant-scoped channel, and keep non-executable blocker outcomes out of the action queue while
+    retaining them in the Safety Center.
+  - D-12/D-14/D-20/D-21/D-23 correct misleading handoff copy, empty-state guidance, unrelated task
+    helper copy, dashboard work order, and raw CRM-link identifiers.
+  - Authenticated failure states are honest across the core pages; Pipeline recovers with Retry;
+    demo routes are development-only; current admin build is mandatory; login preserves Wizmatch;
+    role scoring rejects known false positives and keeps company evidence separate; manual seeds are
+    deterministically scored; queue totals and readiness semantics are truthful; AI is bounded.
+  - Full local verification passed: TypeScript build, **38 Vitest files / 316 tests**, admin
+    production build, **8/8** mocked Chromium paths, production-bundle demo-route absence, and
+    `git diff --check`, all without external provider or production calls.
+- **Persistent context:** PRD 004 remains a draft target; the defect register is the remediation
+  status source. ADR-004 and the Phase 1 plan propose the first-class relationships required for
+  company/contact/requirement ownership and the later match/delivery chain. They do not approve a
+  schema change.
+- **Deep local QA:** the complete source route matrix (57 Wizmatch routes) mounted without an
+  ErrorBoundary crash under mocked APIs; all 17 redirects and 29 unauthenticated auth boundaries
+  resolved. The visible browser walked all 10 primary demo modules and exercised prospect intake,
+  candidate preview/import, workbench actions/filters, requirement planning, discovery preview,
+  blocked states, refresh controls, product selection, and password-recovery navigation. Builds,
+  304 tests, and 5 authenticated mocked Chromium paths passed again.
+- **Remaining Phase 0 work:** D-8 still needs an exact workbench total independent of its computed
+  row bound; D-6/D-31 need dedicated mocked timeout/query-crash tests; D-17/D-22/D-24/D-25 require
+  storage, schema or commercial model work and therefore remain behind later approval gates.
+- **Security:** plaintext credential values were removed from the current versions of the handoff,
+  operator docs, playbook, and onboarding script; the script now requires secure environment
+  injection and does not print the value. The credential remains exposed in Git history and has not
+  been rotated. Rotation and any history rewrite require separate explicit approval.
+- **Original dirty workspace:** preserved at `/Users/jatinagrawal/repo-comparison/v2`. This clean
+  worktree intentionally excludes its unrelated package/SEO/n8n/seed and guarded-file WIP.
 - Git remote now points at the canonical `Growth-Escalators/Growth-Escalators-CRM` (repo was renamed
   from `growth-escalators-backend-v2`; same owner, Railway auto-deploy unaffected). No more "repository moved" push warnings.
 - **`npm run db:generate` works normally again** (was emitting destructive migrations from a drifted
@@ -16,9 +55,10 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   tier-weighted priority), Candidates (filters/pagination/experience), Source Candidates (on-demand),
   Placements, Analytics, AI Intelligence (row-level context), and a consolidated `/wizmatch/system`
   diagnostics page. Contact drawer shows full candidate/client-lead/company detail.
-- Authoritative dataflow map: `docs/wizmatch/DATAFLOW.md` (corrected 2026-07-12 — GitHub/X-Ray are
-  candidate-supply sourcing, not demand; requirements are only created manually; RemoteOK/TheirStack
-  importers live). Client-funnel test plan: `docs/wizmatch/CLIENT_FUNNEL_TEST_PLAN.md`.
+- Dated dataflow reference: `docs/wizmatch/DATAFLOW.md` (corrected through 2026-07-13 for schema
+  authority, in-process signal scoring, topology uncertainty, and supply/demand separation).
+  Re-verify it before production-sensitive work. Client-funnel test plan:
+  `docs/wizmatch/CLIENT_FUNNEL_TEST_PLAN.md`.
 - **Not yet done:** real Wizmatch data still needs loading before client-facing use (scrapers return 0;
   use manual intake / Source Candidates). Sending stays gated (`WIZMATCH_SENDING_ENABLED`).
 

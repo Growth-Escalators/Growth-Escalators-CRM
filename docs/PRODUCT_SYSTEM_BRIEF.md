@@ -190,8 +190,19 @@ temporarily unavailable.
 
 Wizmatch turns the CRM into a staffing operating system:
 
-- Job signals from sources such as JobSpy, Dice, Naukri, ATS polling, GitHub mining, X-Ray search,
-  and LCA/import flows.
+> Future-state product contract and phased implementation blueprint:
+> [`docs/prd/004-wizmatch-staffing-operating-system.md`](prd/004-wizmatch-staffing-operating-system.md).
+> It describes the target product; the current-state notes below remain the shipped baseline until
+> the corresponding phases are implemented and verified.
+>
+> Claude Code implementation entry point:
+> [`docs/wizmatch/README.md`](wizmatch/README.md), with the canonical reusable prompt in
+> [`WIZMATCH_STAFFING_OS_CLAUDE_CODE_KICKOFF.md`](wizmatch/WIZMATCH_STAFFING_OS_CLAUDE_CODE_KICKOFF.md).
+
+- Demand signals from manual intake, ATS polling, RemoteOK, TheirStack, Dice/other import paths,
+  with LCA data enriching companies rather than creating signals.
+- Candidate supply from manual intake, GitHub mining, and X-Ray search. These profiles are not job
+  signals and must not be counted as client demand.
 - Candidate records linked to CRM contacts.
 - Requirement intake and branded requirement sheet generation.
 - Client Discovery to identify and rank target companies.
@@ -374,9 +385,9 @@ The platform is moving from a Growth-only CRM into a multi-profile operating sys
 1. Growth remains the stable agency CRM.
 2. Wizmatch now has matching shared CRM routes under `/wizmatch`.
 3. Wizmatch has staffing-specific intelligence and review workflows.
-4. The live production Wizmatch dataset is still thin: useful candidate/contact seed exists, but
-   client/revenue workflows need real requirements, companies, job signals, templates, tasks,
-   pipeline data, and missing production tables.
+4. The production migrations for the current Wizmatch foundation were verified present on
+   2026-07-09. The operating dataset is still thin, and the future Staffing OS relationships for
+   source contact → requirement → submission → interview → offer → start are not yet first-class.
 5. The next business milestone is to get real Wizmatch data flowing through manual, reviewed
    workflows before enabling any broader automation.
 

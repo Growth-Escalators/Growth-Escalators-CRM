@@ -1,7 +1,7 @@
 # AGENTS.md — Universal instructions for AI coding agents
 
 This is the single source of truth for **any** AI coding agent (Claude Code, Codex,
-Cursor, etc.) working in `growth-escalators-backend-v2`. Read this first, every session.
+Cursor, etc.) working in `Growth-Escalators/Growth-Escalators-CRM`. Read this first, every session.
 Tool-specific addenda live in `CLAUDE.md` (Claude) and `.ai/TOOL_ROLES.md` (role split).
 
 The goal of this file and the `.ai/` folder is a **persistent, chat-independent context
@@ -10,7 +10,8 @@ alone, without relying on prior conversation history.
 
 ## Repository at a glance
 
-- **Repo**: `growth-escalators-backend-v2`
+- **Repo**: `Growth-Escalators/Growth-Escalators-CRM` (historical package/docs may still use
+  `growth-escalators-backend-v2`)
 - **Live**: `crm.growthescalators.com` (CRM) · `api.growthescalators.com` (API) · `ecom.growthescalators.com` (D2C, Vercel)
 - **Local**: `~/repo-comparison/v2`
 - **Stack**: Node 20 · Express · TypeScript · Drizzle (Postgres) · Vitest · React (admin + client SPAs)
@@ -39,6 +40,17 @@ alone, without relying on prior conversation history.
   unless the user explicitly instructs it for that exact operation.
 - Every commit includes only the files relevant to the task at hand — check `git status` and
   `git diff --stat` before committing and stage by path, not with `git add -A` / `git add .`.
+
+## Credential hygiene
+
+- Never store passwords, API keys, access tokens, recovery codes, candidate/client PII, private JDs,
+  contracts, production payloads, or other sensitive values in source files, scripts,
+  documentation, screenshots, `.ai/` context, or handoff logs.
+- Operational records may state that a credential was created, rotated, or revoked, but must omit
+  the value. Use an approved secret manager or secure ephemeral environment injection instead.
+- Treat any credential found in the repository or Git history as compromised: redact it from the
+  current tree immediately, report the exposure, and obtain explicit human approval before rotating
+  a live account or rewriting shared Git history.
 
 ## Where context lives (`.ai/`)
 

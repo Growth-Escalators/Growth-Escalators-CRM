@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-12T18:15:34.971Z_
+_Generated: 2026-07-13T04:50:36.318Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -10,26 +10,92 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 ## Repository
 
-- **Repo**: growth-escalators-backend-v2
-- **Branch**: `main`
-- **Last commit**: 6d659ec chore(db): repair drizzle snapshot baseline so db:generate works safely again (#42) (11 minutes ago)
-- **Uncommitted changes**: 20 file(s)
+- **Repo**: Growth-Escalators/Growth-Escalators-CRM
+- **Branch**: `codex/wizmatch-phase0-trust`
+- **Last commit**: 03f8bf7 Merge pull request #43 from Growth-Escalators/feat/viewer-role (23 minutes ago)
+- **Uncommitted changes**: 55 file(s)
 
 ## Current task
 
-**Wizmatch staged full-detail admin flow (Hybrid)** — replace the compact "co-pilot" theme with
-separate, full-detail per-stage dashboards. Branch `feat/wizmatch-staged-flow` (stacked on
-`feat/wizmatch-sending`). Design decision recorded in `docs/design/wizmatch-staged-flow.md`.
+**Wizmatch Staffing Operating System — Phase 0 trust branch in progress as of 2026-07-13. Worktree:
+`../v2-wizmatch-phase0-trust`; branch: `codex/wizmatch-phase0-trust`. Nothing pushed, deployed,
+sent, spent, migrated, or written to production.**
 
-Scope is admin-UI only: restore the orphaned full pages for Client Discovery, Candidate
-Intelligence, and Analytics; keep Contact Intelligence on the newer send-enabled page; add a
-"Wizmatch funnel" stage navigator to the Home dashboard; retire the co-pilot cockpit.
+Canonical product contract:
+[`docs/prd/004-wizmatch-staffing-operating-system.md`](../docs/prd/004-wizmatch-staffing-operating-system.md).
+
+Claude Code entry point:
+[`docs/wizmatch/README.md`](../docs/wizmatch/README.md) →
+[`WIZMATCH_STAFFING_OS_CLAUDE_CODE_KICKOFF.md`](../docs/wizmatch/WIZMATCH_STAFFING_OS_CLAUDE_CODE_KICKOFF.md).
+Human-owned decisions live in
+[`WIZMATCH_STAFFING_OS_OWNER_INPUTS.md`](../docs/wizmatch/WIZMATCH_STAFFING_OS_OWNER_INPUTS.md)
+and must not be invented by an agent.
+
+The target chain is: company → named hiring contact → confirmed requirement → candidate match →
+recruiter shortlist → consent/RTR → submission → interview → offer → joining/placement → invoice,
+revenue, and margin. The PRD also preserves future concepts without putting them into the MVP.
+
+Current remediation status is canonical in
+[`WIZMATCH_STAFFING_OS_DEFECT_REGISTER.md`](../docs/wizmatch/WIZMATCH_STAFFING_OS_DEFECT_REGISTER.md).
+
+**Current verified Phase 0 slice:** D-1–D-5, D-7, D-9–D-12, D-14, D-19–D-21,
+D-26–D-30 are locally verified. D-6, D-8, D-16, D-18, D-23 and D-31 are partially complete or
+need one remaining verification/design slice. D-13/D-15 and the staffing domain spine remain behind
+Gate A. See the defect register for the exact evidence and next action for every item.
+
+**Implemented locally in the current Phase 0 candidate bundle:**
+
+- **D-1:** the canonical Contact Intelligence page now preserves review/manual-add/CRM-link/Pipeline
+  workflows while adding read-only discovery preview, explicit cost acknowledgement, confirmed
+  manual discovery, and honest authenticated error/Retry behavior. No provider was called and no
+  provider/env/budget setting changed.
+- **D-2:** requirement parsing uses canonical `apiFetch(FormData)`. Focused tests prove Wizmatch
+  token selection, browser multipart handling, and tenant-specific 401 session cleanup. Validation
+  and real parse failures have distinct inline feedback; Retry appears only for request failures.
+- **D-9/D-10/D-11:** CRM-linked hiring contacts receive Client Lead/company/provenance classification
+  on both create and dedup paths; shared Contacts search matches full name and tenant-scoped channel
+  values; disabled outcome cards no longer consume the Review Workbench action queue.
+- **D-12, D-14, D-20, D-21, D-23:** truthful Contact Intelligence handoff copy, useful
+  Requirement Priority empty state, accurate Open Tasks helper, canonical dashboard work order, and
+  plain-language CRM-link results.
+- **D-3/D-4/D-5/D-7:** manual signals use deterministic scoring; ATS ingestion accepts explicit
+  IT-role evidence only; company vocabulary is separate from role fit; SAP ABAP/FICO, Java and
+  JavaScript plus known false-positive fixtures pass; hot/warm/watch are all attainable.
+- **D-6/D-8/D-19:** AI analysis is bounded to 40 KB/1,500 tokens/20 seconds with safe failure
+  details; four primary queue endpoints return true database totals plus returned counts; readiness
+  separates schema health from usable-funnel health. Workbench total counting is still open.
+- **D-26–D-31:** authenticated outages never substitute demo records or enable dependent actions;
+  Pipeline has Retry/finally behavior; demo routes are development-only; the server requires a
+  current admin build; login preserves Wizmatch/return path; query-string tabs reset boundaries.
+- Local Playwright coverage uses an isolated port 5184 clean-branch Vite server: **8/8 passed**.
+- Full local verification: `npm run build`, `npm run admin:build`, `npm test` (**38 files / 316
+  tests**), Playwright **8/8**, production-bundle demo-route absence, and `git diff --check` passed.
+- Persistent context was hardened: canonical defect register, corrected dataflow/product brief,
+  proposed ADR-004 + Phase 1 plan, improved Claude kickoff, and current-tree credential redaction.
+
+**Security approval required:** a plaintext login credential existed in committed history and four
+tracked files. The current working tree redacts/removes it and the onboarding script now requires
+secure env injection. The live credential has **not** been rotated and Git history has **not** been
+rewritten. Rotation is the essential containment step but requires explicit production-mutation
+approval; history remediation is a separate coordinated decision.
+
+**Phase 1 approval required:** ADR-004 proposes the company-contact, requirement-contact,
+assignment, activity, task-link, skill/match, and delivery spine needed for Person A→SAP and
+Person B→Java. Do not edit schema/migrations until the owner records the approval in
+`WIZMATCH_STAFFING_OS_OWNER_INPUTS.md`.
+
+**Exact next safe code slice:** finish D-8 with an exact server-side executable-workbench count
+contract, then add the mocked AI timeout/rejection and query-tab recovery tests for D-6/D-31.
+D-13/D-15 and the core staffing relationship model require the explicit Gate A approval below.
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
 
 ## Recent commits
 
 ```
+03f8bf7 Merge pull request #43 from Growth-Escalators/feat/viewer-role
+02f7e44 feat(auth): add read-only viewer role for Command Deck sync
+ba4be81 chore(repo): refresh .ai context layer + gitignore generated artifacts
 6d659ec chore(db): repair drizzle snapshot baseline so db:generate works safely again (#42)
 69e91b0 docs(ai): log client-acquisition workbench (PRs #39/#40/#41) + drizzle drift finding
 b3c2435 wizmatch: candidates location filter, pagination, experience field (#40)
@@ -37,9 +103,6 @@ b3c2435 wizmatch: candidates location filter, pagination, experience field (#40)
 0498408 feat(wizmatch): requirements filter bar, detail drawer, candidate matches, tier-weighted priority (#41)
 9ef29d9 feat(crm): surface full candidate/client-lead/company detail in contact drawer
 02ff73f fix(crm): show GitHub/LinkedIn profile, skills, and visa status on candidate contacts
-ef81cf0 docs(wizmatch): add client-acquisition funnel test plan
-624ef01 fix(crm): hide D2C-only fields and format raw source slugs in contact drawer
-fd0f791 docs(wizmatch): correct DATAFLOW.md — GitHub/X-ray are supply not demand
 ```
 
 ## npm scripts

@@ -8,7 +8,7 @@
 ## 0. Your access
 
 - **URL:** https://crm.growthescalators.com  → log in with **tenant / product = Wizmatch**.
-- **Login:** `kanishk.khandelwal@growthescalators.com` / `Kanishk@#2026`
+- **Login account:** `kanishk.khandelwal@growthescalators.com` — obtain or reset the password through the approved secure channel; credentials are never stored in this repo.
   → **change this password after first login** (profile / forgot-password).
 - **Role:** admin on the Wizmatch tenant — you can edit pipeline stages, add email
   templates, and manage everything in the Wizmatch nav.

@@ -20,7 +20,7 @@ You win when a demand signal (a hiring company) meets a matching candidate and y
 ## 2. Logging in
 
 - URL: **https://crm.growthescalators.com** → choose product/tenant **Wizmatch**.
-- Login: `kanishk.khandelwal@growthescalators.com` / `Kanishk@#2026` → **change the password after first login**.
+- Login account: `kanishk.khandelwal@growthescalators.com` — obtain or reset the password through the approved secure channel; credentials are never stored in this repo.
 - You are **admin** on the Wizmatch tenant (full access: pipeline, templates, all Wizmatch screens).
 
 ---

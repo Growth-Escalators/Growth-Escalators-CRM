@@ -1,13 +1,12 @@
-# Wizmatch — verified dataflow (code-traced 2026-07-10, corrected 2026-07-12)
+# Wizmatch — dated dataflow reference (code-traced 2026-07-10, corrected through 2026-07-13)
 
-This is the **authoritative** map of how data moves through the Wizmatch staffing/outreach system,
-traced from the actual code (worker crons, services, routes, and the tables they touch) — not from
-memory. Use it to (a) ground the Cockpit redesign and (b) feed Claude design when the repo is attached.
+This is a dated, code-traced map of how data moves through the Wizmatch staffing/outreach system.
+Current code and verified environment evidence take precedence when this document drifts. Re-verify
+the selected path before a production-sensitive change.
 
 > Honesty note: an earlier "5-stage funnel" sketch was directionally right but **incomplete**. It
 > missed the automated sourcing engines, the fact that Wizmatch and Growth use **different**
-> senders, that the candidate-supply side is a **separate** funnel, and that Wizmatch tables live in
-> ensure-hooks (not `schema.ts`). This doc corrects all four.
+> senders, and that the candidate-supply side is a **separate** funnel.
 >
 > **2026-07-12 correction:** the original pass mislabeled two crons and one automatic pipeline step.
 > Re-verified against the actual service code:
@@ -41,23 +40,26 @@ memory. Use it to (a) ground the Cockpit redesign and (b) feed Claude design whe
 
 ---
 
-## 1. The real tables (all created via `CREATE TABLE IF NOT EXISTS` ensure-hooks in services — NOT in `schema.ts`)
+## 1. Current persisted data model
 
-| Table | Funnel role |
-|---|---|
-| `wizmatch_job_signals` | Raw hiring signals (a detected open role / hiring event). `status='new'` until scored. |
-| `wizmatch_companies` | Target companies (the orgs we might pitch). |
-| `wizmatch_company_intelligence` | Per-company qualification snapshot: `qualification_tier` (A/B/C/Reject), `qualification_score`, status. |
-| `wizmatch_requirements` | Parsed roles / job descriptions (structured). |
-| `wizmatch_contact_candidates` | Discovered contacts per company (name/role inbox, confidence tier, team, MX) — output of the discovery cascade. |
-| `wizmatch_discovery_runs` | Audit of each discovery run (cost, `paid_provider`, provider calls) — powers the cost guard + cooldown. |
-| `wizmatch_domain_health` | Sending domains + health/warmup state. |
-| `wizmatch_suppression_list` | Do-not-contact list (manual + auto hard-bounce). |
-| `wizmatch_outreach_templates` | Outreach templates with merge fields (PR #24). |
-| `wizmatch_candidates`, `wizmatch_candidate_intake`, `wizmatch_certified` | Candidate-supply side (talent pool + certification). |
-| `wizmatch_placements` | Placements / closed staffing deals. |
-| `outreach_leads` | Reply-tracking bridge — a Wizmatch contact is inserted here as `status='Active'` so the IMAP reply matcher tracks replies. (Table is shared with Growth outreach; the two are distinguished by `source`.) |
-| `messages` | Email drafts + sent records (reused CRM table; `metadata` holds candidateId, fromInbox, etc.). |
+Core Wizmatch tables are declared in `src/db/schema.ts` and changed through the approved Drizzle
+migration workflow. Do not add an ensure-hook as a shortcut around that guardrail.
+
+| Table | Funnel role | Current schema authority |
+|---|---|---|
+| `wizmatch_job_signals` | Raw hiring signals (a detected open role / hiring event). `status='new'` until scored. | `src/db/schema.ts` |
+| `wizmatch_companies` | Target companies (the orgs we might pitch). | `src/db/schema.ts` |
+| `wizmatch_company_intelligence` | Per-company qualification snapshot: tier, score, status. | `src/db/schema.ts` |
+| `wizmatch_requirements` | Human-confirmed structured roles / job descriptions. | `src/db/schema.ts` |
+| `wizmatch_contact_candidates` | Reviewable discovered or manually added contacts per company. | `src/db/schema.ts` |
+| `wizmatch_discovery_runs` | Discovery cost/provider/guard audit and cooldown evidence. | `src/db/schema.ts` |
+| `wizmatch_domain_health` | Sending domains and health/warmup state. | `src/db/schema.ts` |
+| `wizmatch_suppression_list` | Do-not-contact list (manual and automatic hard-bounce). | `src/db/schema.ts` |
+| `wizmatch_candidates` | Candidate supply, intake provenance, certification flag, skills and availability. | `src/db/schema.ts` |
+| `wizmatch_placements` | Existing placement / closed staffing records. | `src/db/schema.ts` |
+| `email_templates` | Shared tenant-scoped email templates used by Wizmatch where applicable. | `src/db/schema.ts` |
+| `outreach_leads` | Shared reply-tracking bridge, separated by tenant/source. | `src/db/schema.ts` |
+| `messages` | Shared tenant-scoped message drafts and sent/inbound records. | `src/db/schema.ts` |
 
 ---
 
@@ -67,7 +69,7 @@ If `WIZMATCH_TENANT_ID` is unset, **none of these run** (that's the master on/of
 
 | Cron | Schedule | Stage | What it does |
 |---|---|---|---|
-| Wizmatch Signal Scoring | every 30 min | QUALIFY | Reads `wizmatch_job_signals` `status='new'` (≤50), scores → tier, marks processed. Calls the **public web** service via `WIZMATCH_API_BASE_URL` (localhost would stall it — known gotcha). |
+| Wizmatch Signal Scoring | every 30 min | QUALIFY | Reads `wizmatch_job_signals` `status='new'` (≤50) and calls `scoreSignalById()` in-process. |
 | Wizmatch Enrichment | hourly | QUALIFY/CONTACT | Enriches signals/companies (company metadata) before contact discovery. |
 | Wizmatch Matching | every 2 h | SUPPLY | Matches `wizmatch_candidates` ↔ `wizmatch_requirements`. (candidate funnel) |
 | Wizmatch Domain Health | hourly | SEND infra | Recomputes `wizmatch_domain_health`. |
@@ -142,12 +144,12 @@ If `WIZMATCH_TENANT_ID` is unset, **none of these run** (that's the master on/of
 ## 4. Candidate / supply funnel (separate — NOT in the Cockpit)
 
 ```
-manual intake · GitHub Miner (daily) · X-Ray Scraper (daily) ─▶ wizmatch_candidates / wizmatch_candidate_intake
+manual intake · GitHub Miner (daily) · X-Ray Scraper (daily) ─▶ contacts + wizmatch_candidates
                          │  Matching cron (every 2h)
                          ▼
-                    wizmatch_requirements  ──▶ match/shortlist ──▶ wizmatch_certified
-                         │                                              │
-                         └──────────────▶ RTR generator (right-to-represent) ──▶ wizmatch_placements
+                    wizmatch_requirements  ──▶ match/review intent ──▶ candidate certification flag
+                         │
+                         └──────────────▶ existing RTR generator / placements foundation
 ```
 
 - **GitHub Miner** (daily 03:30) — GitHub Search API by location+language, keeps only profiles with a
@@ -164,30 +166,29 @@ Reference data: `wizmatchPrimes` (prime vendors).
 
 ## 5. Gotchas that shape the dataflow (record these)
 
-- **Tables aren't in `schema.ts`** — they're ensure-hook `CREATE TABLE IF NOT EXISTS` inside the
-  services. To change a table you edit the service's ensure-hook, not a migration.
+- **Core Wizmatch tables are in `schema.ts`.** Any approved schema change must use
+  `npm run db:generate`; never introduce a service ensure-hook to bypass migrations.
 - **Master switch:** the whole cron pipeline only runs when `WIZMATCH_TENANT_ID` is set and
   `DISABLE_BACKGROUND_JOBS !== 'true'`.
-- **Worker→web callback:** signal-scoring (and similar) run in the *worker* service and must reach the
-  *web* service over `WIZMATCH_API_BASE_URL` — never localhost.
+- **Worker behavior differs by job:** signal scoring calls `scoreSignalById()` in-process. RemoteOK
+  and TheirStack ingestion use the protected public API through `WIZMATCH_API_BASE_URL`; never assume
+  every job follows the same transport.
 - **Two senders:** Wizmatch = `multiDomainMailer` (Purelymail SMTP); Growth = Saleshandy. Metrics like
   `saleshandy_uploaded` belong to the Growth funnel, not Wizmatch.
 - **CONTACT is manual + cost-guarded** by design (never auto-spends): needs a cost-guard token and
   human review before a contact is used.
 - **Sending is gated off** (`WIZMATCH_SENDING_ENABLED=false`) until explicitly enabled.
-- **Only one Railway service** (`web`) runs everything, verified 2026-07-12 — there is no separate
-  `worker` service in this project. All crons in `worker.ts` run in-process, gated by
-  `WIZMATCH_TENANT_ID` being set and `DISABLE_BACKGROUND_JOBS` NOT being `'true'` (both true today).
-  `WIZMATCH_API_BASE_URL` is unset, so `postSignals()` falls back to the public
-  `api.growthescalators.com` — harmless here since it's a single service, but would need setting if a
-  second (worker) service is ever split out.
+- **Railway topology is environment state, not a code invariant.** One `web` service was observed on
+  2026-07-12, but production may later split `web` and `worker`. Verify the Railway UI before relying
+  on that topology. `DISABLE_BACKGROUND_JOBS` and `WIZMATCH_TENANT_ID` determine cron behavior.
 - **The Daily Digest cron is currently a silent no-op for Slack** — `SLACK_NOTIFICATIONS_PAUSED=true`
   is set account-wide, and the digest's `sendSlackMessage()` call doesn't pass
   `{ allowDuringPause: true }` (unlike the domain-health and Cashfree-sale alerts, which do). The cron
   still runs and logs "sent," but nothing reaches Slack until either the pause is lifted or the call is
   updated to bypass it.
-- **TheirStack is live, not dormant** — `THEIRSTACK_API_KEY` is configured in production (verified
-  2026-07-12), so the weekly importer actually runs; it isn't waiting on a key to be added.
+- **TheirStack configuration is a dated observation:** a key was present on 2026-07-12, while the
+  dated audit observed zero contributed signals. Re-verify configuration, logs, and imported rows
+  before treating it as a working demand source.
 
 ---
 

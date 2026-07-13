@@ -26,7 +26,7 @@ split in [`.ai/TOOL_ROLES.md`](.ai/TOOL_ROLES.md)):
 
 ## Repository
 
-- **Repo**: `growth-escalators-backend-v2`
+- **Repo**: `Growth-Escalators/Growth-Escalators-CRM`
 - **Live**: `crm.growthescalators.com` (CRM) · `api.growthescalators.com` (API) · `ecom.growthescalators.com` (D2C, Vercel)
 - **Local**: `~/repo-comparison/v2`
 - **Stack**: Node 20 · Express · TypeScript · Drizzle (Postgres) · Vitest · React (admin + client SPAs)
@@ -90,7 +90,9 @@ When the user mentions "content frontend" or "rendering workflow", work in the r
   clearly calls for it; never push without explicit human confirmation, and never push to
   `main` unless explicitly approved for that push — production deploys are sensitive.
 - After completing a change: recap what changed, how to test it, what else was touched.
-- **Exception**: pause and confirm before edits to `src/db/schema.ts`, `src/middleware/auth.ts`, `src/middleware/rbac.ts`, or `src/routes/cashfree.ts` — these match the "Don't touch without asking" table and the autonomy default does not override it.
+- **Exception**: pause and confirm before any guarded path or action listed in `AGENTS.md`, including
+  schema/migrations, auth/RBAC, Cashfree, scheduled Slack-DM logic, deployment/environment changes,
+  production data, sending, and paid-provider/cap changes. The autonomy default does not override it.
 
 ## Quick orientation
 

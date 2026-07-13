@@ -3,13 +3,15 @@
  * One-shot: replace Tushar Jangid with Kanishk Khandelwal.
  *
  * - Creates user Kanishk.khandelwal@growthescalators.com (role=team_lead,
- *   same tenant as Tushar) with password 'Kanishk@#2026'. Idempotent on
+ *   same tenant as Tushar) using a password supplied through KANISHK_INITIAL_PASSWORD. Idempotent on
  *   email — re-running updates the password + role.
  * - Reassigns all of Tushar's open tasks (tasks.assigned_to) to Kanishk.
  * - Soft-deletes Tushar: is_active=false + token_version+1 (invalidates any
  *   existing JWT). Preserves audit_events + historical references.
  *
  * Run:
+ *   Provide KANISHK_INITIAL_PASSWORD through an approved secure environment-injection method.
+ *   Never place the value in this file, shell history, documentation, or a handoff log.
  *   railway run --service web npx tsx scripts/onboarding/replace-tushar-with-kanishk.ts
  *   (or set DATABASE_URL=$DATABASE_PUBLIC_URL when running from a laptop)
  */
@@ -25,11 +27,15 @@ const TUSHAR_ID = 'dcdeda02-479a-4d54-949d-b138d4dd30a8';
 // would silently make login fail.
 const KANISHK_EMAIL = 'kanishk.khandelwal@growthescalators.com';
 const KANISHK_NAME = 'Kanishk Khandelwal';
-const KANISHK_PASSWORD = 'Kanishk@#2026';
 
 async function main() {
   if (!process.env.DATABASE_URL) {
     console.error('DATABASE_URL not set. Run via `railway run --service web ...` or export DATABASE_PUBLIC_URL as DATABASE_URL.');
+    process.exit(1);
+  }
+  const initialPassword = process.env.KANISHK_INITIAL_PASSWORD?.trim();
+  if (!initialPassword) {
+    console.error('KANISHK_INITIAL_PASSWORD not set. Supply it through an approved secure environment-injection method.');
     process.exit(1);
   }
 
@@ -47,7 +53,7 @@ async function main() {
     console.log(`[replace] Tushar: tenant=${tenantId} role=${tusharRole} is_active=${tushar.rows[0].is_active}`);
 
     // 2) Upsert Kanishk with the same tenant + role.
-    const passwordHash = await hash(KANISHK_PASSWORD);
+    const passwordHash = await hash(initialPassword);
     const upsert = await client.query(
       `INSERT INTO users (tenant_id, name, email, password_hash, role, is_active)
        VALUES ($1, $2, $3, $4, $5, true)
@@ -82,7 +88,7 @@ async function main() {
 
     await client.query('COMMIT');
     console.log('\n✅ Done.');
-    console.log(`   New login: ${KANISHK_EMAIL}  /  ${KANISHK_PASSWORD}`);
+    console.log(`   Login account: ${KANISHK_EMAIL} (password value is not printed)`);
     console.log(`   Tushar (${TUSHAR_ID}) deactivated; ${reassign.rowCount} task(s) reassigned.`);
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
