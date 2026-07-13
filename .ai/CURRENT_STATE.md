@@ -2,7 +2,31 @@
 
 _Update this when the working state of the repo meaningfully changes. Keep it short and true._
 
-## 2026-07-14 Staging Gate C and browser-QA snapshot (current)
+## 2026-07-14 Final access-policy staging qualification (current)
+
+- Commit `9f4c0f4` implements the final pilot authorization policy. Production fails closed without
+  a named roster or explicit all-users switch; viewers are excluded; staff/sales access is scoped
+  to assigned requirements; submission approval/offers are lead/admin operations; placements and
+  finance mutations are admin-only; commercial analytics are lead/admin-only.
+- The isolated staging service was redeployed after setting its fictional named roster. Railway
+  deployment `54b9ff52-8fed-43eb-974c-bb2ddaab72f6` reached `SUCCESS`; health is HTTP 200 and the
+  isolated database is `ok`. Sending, paid discovery, Google fallback and background jobs remain
+  disabled; no worker or R2 configuration exists.
+- A direct-API role matrix passed 15/15 assertions, including pilot/non-pilot admission, viewer
+  exclusion, assigned/unassigned recruiter isolation, recruiter submission/commercial denial,
+  lead commercial-read/finance-write separation and admin finance access.
+- Read-only reconciliation passed after deployment: Person A→SAP and Person B→Java are distinct;
+  both exact-consent chains reach accepted offer and started placement; permanent fee = INR 250000;
+  contract bill/cost/margin = INR 2000/1500/500 (25%); invoice linkage is separate; adjustments are
+  traceable. R2 remained intentionally unset, so no private-document upload was attempted.
+- Current release suite: backend build passed; 45 Vitest files / 360 tests passed; admin production
+  build passed; Wizmatch Playwright 16/16 passed; `git diff --check` passed. ADR-005 is accepted and
+  the provisional pilot policy pack is recorded.
+- Production remains untouched and on the prior main release according to the last approved
+  inspection. No production read, credential action, migration, push, flag or data import was
+  performed. The next exact gate is separate approval for live credential rotation.
+
+## 2026-07-14 Staging Gate C and browser-QA snapshot (superseded where noted above)
 
 - The complete fictional Gate A→B→C workflow now passes on isolated Railway staging. SAP permanent
   and Java contract both reached placement; live analytics reported 2 starts, 570000 invoiced,
