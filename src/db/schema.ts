@@ -12,6 +12,7 @@ import {
   index,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 // ---------------------------------------------------------------------------
 // TABLE 1 — tenants
@@ -1382,6 +1383,16 @@ export const wizmatchRequirements = pgTable(
     sheetUrl: text('sheet_url'), // generated branded PDF in R2
     vendorNotes: text('vendor_notes'),
     status: text('status').default('draft'), // draft | sheet_ready | shared | closed
+    attributionStatus: text('attribution_status').notNull().default('needs_attribution'), // needs_attribution | attributed
+    stage: text('stage').notNull().default('draft'), // Phase 1 operating stage; legacy status remains during compatibility rollout
+    stageEnteredAt: timestamp('stage_entered_at').defaultNow(),
+    receivedAt: timestamp('received_at'),
+    acceptedAt: timestamp('accepted_at'),
+    lastActivityAt: timestamp('last_activity_at').defaultNow(),
+    nextAction: text('next_action'),
+    nextActionDueAt: timestamp('next_action_due_at'),
+    slaDueAt: timestamp('sla_due_at'),
+    closureReason: text('closure_reason'),
     createdBy: uuid('created_by').references(() => users.id),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
@@ -1390,6 +1401,175 @@ export const wizmatchRequirements = pgTable(
     tenantStatusIdx: index('wizmatch_requirements_tenant_status_idx').on(t.tenantId, t.status),
     companyIdx: index('wizmatch_requirements_company_idx').on(t.companyId),
     regionIdx: index('wizmatch_requirements_region_idx').on(t.region),
+    stageIdx: index('wizmatch_requirements_stage_idx').on(t.tenantId, t.stage),
+    nextActionIdx: index('wizmatch_requirements_next_action_idx').on(t.tenantId, t.nextActionDueAt),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE 54A — wizmatch_company_contacts
+// Durable tenant-scoped relationship between a company and canonical CRM contact.
+// ---------------------------------------------------------------------------
+export const wizmatchCompanyContacts = pgTable(
+  'wizmatch_company_contacts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    companyId: uuid('company_id').notNull().references(() => wizmatchCompanies.id),
+    contactId: uuid('contact_id').notNull().references(() => contacts.id),
+    relationshipStage: text('relationship_stage').notNull().default('active'), // active | inactive | do_not_contact
+    businessUnit: text('business_unit'),
+    seniority: text('seniority'),
+    ownerUserId: uuid('owner_user_id').references(() => users.id),
+    sourceType: text('source_type').notNull().default('manual'),
+    sourceId: text('source_id'),
+    sourceConfidence: integer('source_confidence'),
+    lastActivityAt: timestamp('last_activity_at').defaultNow(),
+    nextAction: text('next_action'),
+    nextActionDueAt: timestamp('next_action_due_at'),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (t) => ({
+    tenantCompanyIdx: index('wizmatch_company_contacts_tenant_company_idx').on(t.tenantId, t.companyId),
+    tenantContactIdx: index('wizmatch_company_contacts_tenant_contact_idx').on(t.tenantId, t.contactId),
+    nextActionIdx: index('wizmatch_company_contacts_next_action_idx').on(t.tenantId, t.nextActionDueAt),
+    relationshipUniq: uniqueIndex('wizmatch_company_contacts_relationship_idx').on(t.tenantId, t.companyId, t.contactId),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE 54B — wizmatch_company_contact_roles
+// A person may carry several durable roles without overwriting prior meaning.
+// ---------------------------------------------------------------------------
+export const wizmatchCompanyContactRoles = pgTable(
+  'wizmatch_company_contact_roles',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    companyContactId: uuid('company_contact_id').notNull().references(() => wizmatchCompanyContacts.id),
+    role: text('role').notNull(),
+    active: boolean('active').notNull().default(true),
+    addedBy: uuid('added_by').references(() => users.id),
+    addedAt: timestamp('added_at').defaultNow(),
+    deactivatedBy: uuid('deactivated_by').references(() => users.id),
+    deactivatedAt: timestamp('deactivated_at'),
+  },
+  (t) => ({
+    tenantRelationshipIdx: index('wizmatch_company_contact_roles_relationship_idx').on(t.tenantId, t.companyContactId),
+    roleUniq: uniqueIndex('wizmatch_company_contact_roles_unique_idx').on(t.tenantId, t.companyContactId, t.role),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE 54C — wizmatch_requirement_contacts
+// Explicit attribution: which person supplied or manages which requirement.
+// ---------------------------------------------------------------------------
+export const wizmatchRequirementContacts = pgTable(
+  'wizmatch_requirement_contacts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    requirementId: uuid('requirement_id').notNull().references(() => wizmatchRequirements.id),
+    companyContactId: uuid('company_contact_id').notNull().references(() => wizmatchCompanyContacts.id),
+    role: text('role').notNull().default('source'),
+    isPrimarySource: boolean('is_primary_source').notNull().default(false),
+    active: boolean('active').notNull().default(true),
+    receivedChannel: text('received_channel'),
+    notes: text('notes'),
+    attributedBy: uuid('attributed_by').references(() => users.id),
+    attributedAt: timestamp('attributed_at').defaultNow(),
+    deactivatedBy: uuid('deactivated_by').references(() => users.id),
+    deactivatedAt: timestamp('deactivated_at'),
+  },
+  (t) => ({
+    tenantRequirementIdx: index('wizmatch_requirement_contacts_requirement_idx').on(t.tenantId, t.requirementId),
+    companyContactIdx: index('wizmatch_requirement_contacts_company_contact_idx').on(t.companyContactId),
+    attributionUniq: uniqueIndex('wizmatch_requirement_contacts_unique_idx').on(t.tenantId, t.requirementId, t.companyContactId, t.role),
+    primarySourceUniq: uniqueIndex('wizmatch_requirement_contacts_primary_idx')
+      .on(t.tenantId, t.requirementId)
+      .where(sql`${t.active} = true AND ${t.isPrimarySource} = true`),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE 54D — wizmatch_requirement_assignments
+// Separate account, delivery and recruiter ownership with preserved history.
+// ---------------------------------------------------------------------------
+export const wizmatchRequirementAssignments = pgTable(
+  'wizmatch_requirement_assignments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    requirementId: uuid('requirement_id').notNull().references(() => wizmatchRequirements.id),
+    userId: uuid('user_id').notNull().references(() => users.id),
+    role: text('role').notNull(), // account_owner | delivery_owner | recruiter
+    active: boolean('active').notNull().default(true),
+    assignedBy: uuid('assigned_by').references(() => users.id),
+    assignedAt: timestamp('assigned_at').defaultNow(),
+    unassignedBy: uuid('unassigned_by').references(() => users.id),
+    unassignedAt: timestamp('unassigned_at'),
+  },
+  (t) => ({
+    tenantRequirementIdx: index('wizmatch_requirement_assignments_requirement_idx').on(t.tenantId, t.requirementId),
+    tenantUserIdx: index('wizmatch_requirement_assignments_user_idx').on(t.tenantId, t.userId),
+    activeAssignmentUniq: uniqueIndex('wizmatch_requirement_assignments_active_idx')
+      .on(t.tenantId, t.requirementId, t.userId, t.role)
+      .where(sql`${t.active} = true`),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE 54E — wizmatch_staffing_events
+// Append-only business timeline. Later gates add candidate/delivery links.
+// ---------------------------------------------------------------------------
+export const wizmatchStaffingEvents = pgTable(
+  'wizmatch_staffing_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    actorUserId: uuid('actor_user_id').references(() => users.id),
+    eventType: text('event_type').notNull(),
+    channel: text('channel'),
+    direction: text('direction'),
+    source: text('source').notNull().default('staffing_os'),
+    sourceId: text('source_id'),
+    companyId: uuid('company_id').references(() => wizmatchCompanies.id),
+    contactId: uuid('contact_id').references(() => contacts.id),
+    companyContactId: uuid('company_contact_id').references(() => wizmatchCompanyContacts.id),
+    requirementId: uuid('requirement_id').references(() => wizmatchRequirements.id),
+    payload: jsonb('payload').notNull().default({}),
+    occurredAt: timestamp('occurred_at').notNull().defaultNow(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantOccurredIdx: index('wizmatch_staffing_events_occurred_idx').on(t.tenantId, t.occurredAt),
+    requirementIdx: index('wizmatch_staffing_events_requirement_idx').on(t.tenantId, t.requirementId, t.occurredAt),
+    companyIdx: index('wizmatch_staffing_events_company_idx').on(t.tenantId, t.companyId, t.occurredAt),
+    companyContactIdx: index('wizmatch_staffing_events_company_contact_idx').on(t.tenantId, t.companyContactId, t.occurredAt),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE 54F — wizmatch_task_links
+// Keeps the shared task system while adding foreign-key-backed staffing context.
+// ---------------------------------------------------------------------------
+export const wizmatchTaskLinks = pgTable(
+  'wizmatch_task_links',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    taskId: uuid('task_id').notNull().references(() => tasks.id),
+    companyId: uuid('company_id').references(() => wizmatchCompanies.id),
+    contactId: uuid('contact_id').references(() => contacts.id),
+    companyContactId: uuid('company_contact_id').references(() => wizmatchCompanyContacts.id),
+    requirementId: uuid('requirement_id').references(() => wizmatchRequirements.id),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    tenantTaskUniq: uniqueIndex('wizmatch_task_links_task_idx').on(t.tenantId, t.taskId),
+    requirementIdx: index('wizmatch_task_links_requirement_idx').on(t.tenantId, t.requirementId),
+    companyIdx: index('wizmatch_task_links_company_idx').on(t.tenantId, t.companyId),
   }),
 );
 

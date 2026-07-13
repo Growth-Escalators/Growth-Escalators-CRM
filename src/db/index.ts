@@ -96,4 +96,11 @@ export {
   wizmatchPlacements,
   wizmatchDomainHealth,
   wizmatchSuppressionList,
+  wizmatchRequirements,
+  wizmatchCompanyContacts,
+  wizmatchCompanyContactRoles,
+  wizmatchRequirementContacts,
+  wizmatchRequirementAssignments,
+  wizmatchStaffingEvents,
+  wizmatchTaskLinks,
 } from './schema';

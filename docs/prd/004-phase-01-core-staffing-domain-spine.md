@@ -1,6 +1,6 @@
 # PRD 004 Phase 1 Plan: Core Staffing Domain Spine
 
-- **Status:** Proposed; blocked on ADR-004/owner/schema approval
+- **Status:** Implemented and verified locally; migration apply/release remains separately gated
 - **Date:** 2026-07-13
 - **Parent PRD:** `docs/prd/004-wizmatch-staffing-operating-system.md`
 - **Architecture:** `docs/decisions/ADR-004-wizmatch-staffing-domain-spine.md`
@@ -21,8 +21,9 @@ finance records. Those remain Phase 2/3 contracts.
 
 ## Approval gate
 
-Before editing `src/db/schema.ts`, obtain an explicit decision for ADR-004 Gate A and record it in
-`docs/wizmatch/WIZMATCH_STAFFING_OS_OWNER_INPUTS.md`. Then follow `ge-add-migration`: edit schema,
+ADR-004 Gate A local implementation was approved and recorded in
+`docs/wizmatch/WIZMATCH_STAFFING_OS_OWNER_INPUTS.md` on 2026-07-13. Migration apply, production
+data, push and deployment are not approved. The implementation followed `ge-add-migration`: edit schema,
 run `npm run db:generate`, inspect generated SQL for drops/unsafe constraints, and keep schema and
 migration together. Do not hand-write or edit an already-applied migration.
 

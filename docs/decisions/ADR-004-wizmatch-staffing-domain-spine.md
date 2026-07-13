@@ -1,6 +1,6 @@
 # ADR-004: Wizmatch Staffing Domain Spine
 
-- **Status:** Proposed — owner and schema approval required
+- **Status:** Accepted for local Gate A implementation — migration apply and production release require separate approval
 - **Date:** 2026-07-13
 - **Product contract:** `docs/prd/004-wizmatch-staffing-operating-system.md`
 - **Implementation plan:** `docs/prd/004-phase-01-core-staffing-domain-spine.md`
@@ -22,8 +22,8 @@ The existing `events` table references only contacts/deals, and `tasks` referenc
 contacts/deals with a string assignee. They cannot provide foreign-key-backed requirement and future
 submission timelines without either cross-cutting shared-table changes or a staffing-specific link.
 
-This ADR is a proposal only. It records the recommended architecture before any guarded edit to
-`src/db/schema.ts` or migration generation.
+The Gate A direction was approved for local implementation on 2026-07-13. Gate B, Gate C,
+migration application, production data changes, push and deployment remain separately gated.
 
 ## Decision proposal
 

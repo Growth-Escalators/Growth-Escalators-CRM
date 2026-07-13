@@ -27,8 +27,8 @@ the approved CRM, password manager or secure document system.
 | Product owner | TBD |
 | Engineering approver | TBD |
 | Operations owner | TBD |
-| PRD 004 product direction approved? | TBD — draft target only until owner confirms |
-| Approved current implementation phase | Phase 0 trust repairs may continue independently; Phase 1+ TBD |
+| PRD 004 product direction approved? | Approved for phased local implementation on 2026-07-13 |
+| Approved current implementation phase | Phase 1 Gate A local implementation and additive migration generation approved; migration apply, production data, push and deployment remain separately gated |
 | Local commit approver | TBD |
 | Final schema/migration approver | TBD |
 | Final production/deployment approver | TBD |
@@ -154,13 +154,13 @@ Planning numbers are not guarantees. Calibrate them with 60–90-day cohorts and
 
 | Decision | Status | Owner note or decision record |
 |---|---|---|
-| Existing events/tasks versus dedicated staffing timeline | Proposed; owner decision required | `docs/decisions/ADR-004-wizmatch-staffing-domain-spine.md` |
-| Requirement-contact persistence model | Proposed; owner/schema approval required | `docs/decisions/ADR-004-wizmatch-staffing-domain-spine.md` |
+| Existing events/tasks versus dedicated staffing timeline | Gate A direction approved for local implementation | `docs/decisions/ADR-004-wizmatch-staffing-domain-spine.md` |
+| Requirement-contact persistence model | Gate A direction approved for local implementation | `docs/decisions/ADR-004-wizmatch-staffing-domain-spine.md` |
 | Skill taxonomy ownership | TBD | |
 | Submission/interview/offer table boundaries | TBD | |
 | Private/signed document policy | TBD | |
 | Historical attribution/backfill policy | TBD | |
-| Feature-flag/dual-read strategy | Proposed additive compatibility rollout; confirm | `docs/decisions/ADR-004-wizmatch-staffing-domain-spine.md` |
+| Feature-flag/dual-read strategy | Additive compatibility direction approved for Gate A local implementation | `docs/decisions/ADR-004-wizmatch-staffing-domain-spine.md` |
 | Post-pilot geography and operating mix | TBD | |
 
 Non-obvious approved architecture decisions should be recorded in a numbered ADR under
@@ -173,4 +173,4 @@ here.
 
 | Date | Proposed guarded action | Proposal/ADR | Decision | Approver |
 |---|---|---|---|---|
-| | | | | |
+| 2026-07-13 | Implement Phase 1 Gate A locally and generate one additive migration | ADR-004 / PRD 004 Phase 1 | Approved by the user through “Please plan the next phase and get them done as well”; does not approve applying the migration, production writes, push, deployment, sending or paid providers | Product owner (chat instruction) |
