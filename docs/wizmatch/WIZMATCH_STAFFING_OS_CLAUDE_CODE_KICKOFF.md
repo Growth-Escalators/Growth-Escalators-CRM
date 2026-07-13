@@ -72,29 +72,27 @@ Current release truth
 
 Your first task
 
-Perform a release-readiness review, not a feature rewrite:
+The release-integrity review is complete in commit `605d6cd` and its saved review/context commits.
+Do not repeat it unless branch contents changed. Resume at the release gate:
 
-1. Review the current scoped diff and migration 0028 for tenant isolation, transactionality,
-   duplicate protection, consent enforcement, traceability and non-destructive SQL.
-2. Re-run:
-   - npm run build
-   - npm test
-   - npm run admin:build
-   - npx playwright test --config=playwright.wizmatch-local.config.ts
-   - git diff --check
-3. Verify the production bundle keeps Gate A/B/C navigation off when VITE flags are absent.
-4. Do not call real AI, R2, providers, senders, payments, production APIs or production databases.
-5. If the context-only handoff remains uncommitted and review is clean, create one scoped local
-   commit only if I explicitly ask you to commit. Do not push.
-6. Report the exact next approval required. The default next gate is staging migration application,
-   not production.
+1. Confirm the branch is clean, 0 behind `origin/main`, and contains the four scoped implementation
+   commits listed above plus the latest context commits.
+2. Re-read the current task/state and release-readiness review; report any contradiction before an
+   external action.
+3. Ask for explicit approval to create an isolated Railway `staging` environment and empty Postgres.
+4. Do not create, deploy, migrate, configure, push, read production data or rotate a credential from
+   this startup prompt alone.
 
 Current infrastructure truth
 
 - Railway has only `production`, with `web` and Postgres services. There is no staging environment
   and no worker service.
-- The exact next gate is approval to create isolated staging. Deployment and migration application
-  are later, separate approvals.
+- The exact next gate is approval to create isolated staging and empty staging Postgres. Migration
+  application and application deployment are later, separate approvals.
+- Production `web` remains on `b05ac015eff8444edc217563fdb93ac5ef836639` from the latest read-only
+  inspection. The release branch was 0 behind / 25 ahead when this handoff was prepared.
+- Deployment documentation references `railway.worker.json`, but the file is absent in this clean
+  worktree. Do not create or deploy a worker during the initial pilot.
 
 Approval gates — stop immediately before each
 
@@ -110,17 +108,31 @@ explicit human “yes” immediately before each action:
 - Upload real JDs, RTRs, resumes or contracts.
 - Call paid providers, enable sending/outreach, or send/submit a candidate.
 
+When staging creation is explicitly approved
+
+1. Create only an isolated `staging` environment and empty Postgres in the existing Railway project.
+2. Do not deploy code or apply migrations under the creation approval.
+3. Verify by read-back that staging has no production database reference/data, no worker, no phase
+   flags, no sending and no paid-provider enablement.
+4. Update the persistent handoff and stop for the separate migration approval.
+
 When staging migration is explicitly approved
 
 1. Verify actual Railway topology; do not assume web+worker or a single service.
-2. Apply schema first with the real deployment migrator and verify the migration journal.
+2. Apply the complete migration journal to the empty staging database with the real deployment
+   migrator and verify the journal.
 3. Keep all phase flags off.
-4. Use fictional records only: Company A, Person A/SAP ABAP, Person B/Java and fictional candidates.
-5. Exercise attribution, matching, consent, approval, manual sent-record, interview, offer, placement,
+4. Stop for a separate application-deployment approval after journal verification.
+
+When staging deployment is explicitly approved
+
+1. Deploy this clean worktree directly to staging without pushing `main`; observe terminal `SUCCESS`.
+2. Use fictional records only: Company A, Person A/SAP ABAP, Person B/Java and fictional candidates.
+3. Exercise attribution, matching, consent, approval, manual sent-record, interview, offer, placement,
    invoice link and collection analytics; do not send anything.
-6. Verify tenant isolation, role gates, outage behavior, mobile/desktop layout and application-code
+4. Verify tenant isolation, role gates, outage behavior, mobile/desktop layout and application-code
    rollback while leaving additive schema intact.
-7. Record exact evidence in CURRENT_STATE, CURRENT_TASK and HANDOFF_LOG; regenerate AI_BRIEF.
+5. Record exact evidence in CURRENT_STATE, CURRENT_TASK and HANDOFF_LOG; regenerate AI_BRIEF.
 
 When production count-only access is explicitly approved
 
@@ -148,6 +160,7 @@ Final report format
 - Approval gate reached
 - One exact next action
 
-Begin now with the mandatory startup and release-readiness review. Do not redo Gates A/B/C and do
-not perform a production-sensitive action from this prompt alone.
+Begin now with mandatory startup verification and report the isolated-staging creation approval
+gate. Do not redo Gates A/B/C and do not perform a production-sensitive action from this prompt
+alone.
 ```

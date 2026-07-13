@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-13T09:33:04.986Z_
+_Generated: 2026-07-13T10:14:19.688Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,26 +12,29 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: Growth-Escalators/Growth-Escalators-CRM
 - **Branch**: `codex/wizmatch-phase0-trust`
-- **Last commit**: 09722b9 chore(ai): refresh Wizmatch release brief (12 seconds ago)
-- **Uncommitted changes**: 0 file(s)
+- **Last commit**: 2085b84 chore(ai): snapshot clean release state (41 minutes ago)
+- **Uncommitted changes**: 6 file(s)
 
 ## Current task
 
-**Wizmatch Staffing OS — all three planned local implementation phases and the release-integrity
-review are complete and verified on
-`codex/wizmatch-phase0-trust` in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust`.
-The exact next task is separately approved Railway staging creation, followed by separately approved
-staging deployment and migration application.**
+**Wizmatch Staffing OS — prepare and execute a controlled same-day Gate A–C pilot from the clean
+release worktree. Local implementation and release-integrity review are complete. The exact next
+action is separately approved creation of an isolated Railway `staging` environment and empty
+Postgres instance.**
+
+Work only in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust` on
+`codex/wizmatch-phase0-trust`. Preserve the unrelated dirty workspace at
+`/Users/jatinagrawal/repo-comparison/v2`.
 
 Nothing from this branch has been pushed, deployed, migrated, sent, spent, written to production,
-or used to rotate a credential. The original dirty workspace at
-`/Users/jatinagrawal/repo-comparison/v2` remains untouched.
+or used to rotate a credential.
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
 
 ## Recent commits
 
 ```
+2085b84 chore(ai): snapshot clean release state
 09722b9 chore(ai): refresh Wizmatch release brief
 ff9f696 docs(ai): record Wizmatch release review
 605d6cd fix(wizmatch): enforce delivery reference integrity
@@ -41,7 +44,6 @@ f293c05 chore(ai): refresh clean release snapshot
 0acea59 docs(ai): hand off Wizmatch release context
 48b1a88 feat(wizmatch): complete Gate C delivery operations
 a5ac3e8 feat(wizmatch): add Gate B candidate matching
-1997e31 feat(wizmatch): harden Phase 1 operations
 ```
 
 ## npm scripts

@@ -5,7 +5,8 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
 ## 2026-07-13 Staffing OS three-phase snapshot (current)
 
 - Clean worktree `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust`, branch
-  `codex/wizmatch-phase0-trust`; original dirty workspace preserved. No push, deployment, production
+  `codex/wizmatch-phase0-trust`; original dirty workspace preserved. After the latest fetch it is
+  0 commits behind and 25 commits ahead of `origin/main`. No push, deployment, production
   migration/data write, sending, paid call or credential operation occurred.
 - Phase 0 + Gate A are committed as `1997e31`; Gate B as `a5ac3e8`; Gate C as `48b1a88`.
 - Release review repair `605d6cd` validates linked recipients/participants against the actor tenant
@@ -33,11 +34,17 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   clean. A headless check against the production admin bundle with all Vite staffing flags absent
   redirected `/wizmatch/talent-matching` to Dashboard and confirmed Gate A/B/C nav labels were absent.
 - Read-only Railway inspection confirms production currently has one `web` service plus Postgres,
-  no staging environment and no worker service. Gate A/B/C server and Vite variables are absent.
-  No Railway state changed during release review.
+  no staging environment and no worker service. Production `web` remains on commit
+  `b05ac015eff8444edc217563fdb93ac5ef836639`; its latest deployment reported `SUCCESS`. Gate A/B/C
+  server and Vite variables are absent. Deployment docs reference `railway.worker.json`, but that
+  file is absent from this worktree and worker deployment is post-pilot. No Railway state changed
+  during release review or handoff preparation.
 - Remaining work is release/environment work, not additional local feature construction: live
   Dice/TheirStack evidence, staging/production migrations, pilot data, feature flags, authenticated
   live smoke, credential rotation and push/deploy all require their own explicit approvals.
+- The owner selected a controlled full Gate A–C pilot as the same-day target and required Claude to
+  pause at every guarded action. Named pilot users may begin after Gate C smoke; unrestricted
+  team-wide use still requires 48 hours of stable monitoring.
 
 ## 2026-07-13 snapshot (historical — before Gates B/C)
 

@@ -2,75 +2,63 @@
 
 ## Active task
 
-**Wizmatch Staffing OS — all three planned local implementation phases and the release-integrity
-review are complete and verified on
-`codex/wizmatch-phase0-trust` in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust`.
-The exact next task is separately approved Railway staging creation, followed by separately approved
-staging deployment and migration application.**
+**Wizmatch Staffing OS — prepare and execute a controlled same-day Gate A–C pilot from the clean
+release worktree. Local implementation and release-integrity review are complete. The exact next
+action is separately approved creation of an isolated Railway `staging` environment and empty
+Postgres instance.**
+
+Work only in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust` on
+`codex/wizmatch-phase0-trust`. Preserve the unrelated dirty workspace at
+`/Users/jatinagrawal/repo-comparison/v2`.
 
 Nothing from this branch has been pushed, deployed, migrated, sent, spent, written to production,
-or used to rotate a credential. The original dirty workspace at
-`/Users/jatinagrawal/repo-comparison/v2` remains untouched.
+or used to rotate a credential.
 
-### Local commits already created
+### Verified local release candidate
 
-- `1997e31 feat(wizmatch): harden Phase 1 operations`
-- `a5ac3e8 feat(wizmatch): add Gate B candidate matching`
-- `48b1a88 feat(wizmatch): complete Gate C delivery operations`
-- `605d6cd fix(wizmatch): enforce delivery reference integrity`
-- This context update is the only current working unit; inspect `git status` and the latest log
-  before continuing.
-
-### What is implemented locally
-
-- Phase 0 trust/hardening: honest outage states, development-only demo routes, private signed
-  requirement documents, signal deduplication, true totals, tenant-aware parsing and safe AI limits.
-- Gate A: company/contact relationships, person-specific requirement attribution, assignments,
-  SLA/next action, task links, timelines, My Work and Company/Contact/Requirement 360.
-- Gate B: canonical skills/aliases, requirement and candidate evidence, immutable match snapshots,
-  explainable deterministic matching and persistent shortlist/watch/reject decisions.
-- Gate C: exact-requirement consent/RTR, private consent documents, submissions/recipients/history,
-  interviews, offer revisions, traceable placements, permanent/contract economics, invoice links,
-  adjustments, delivery analytics and production-off phase flags.
-- Safe automation: feature-gated deterministic shared tasks for overdue requirement SLAs,
-  submission follow-ups and stale candidate availability. It never sends outreach or submissions.
-
-### Verified evidence
-
-- Additive migrations `0025`–`0028`; `0028_strong_cammi.sql` contains no destructive SQL.
-- Production-shaped scratch migration applied `0028` on top of the committed Gate B schema and
-  verified all nine Gate C tables, traceability columns and journal advancement.
+- Phase 0 trust/hardening and Gate A: `1997e31`.
+- Gate B canonical skills/matching: `a5ac3e8`.
+- Gate C delivery/commercial close: `48b1a88`.
+- Delivery reference-integrity repair: `605d6cd`.
+- Additive migrations `0025`–`0028`; no destructive SQL found.
 - `npm run build` passed.
 - `npm test` passed: 43 files / 349 tests.
 - `npm run admin:build` passed.
-- Local mocked Chromium passed 16/16, including Person A/SAP versus Person B/Java and the delivery
-  chain through placement. No live provider, R2, send, payment or production call was made.
-- `git diff --check` must be rerun immediately before the Gate C commit/release handoff.
+- Wizmatch Playwright passed 16/16 mocked Chromium scenarios.
+- Production-off bundle hid Gate A/B/C navigation and redirected guarded routes.
 
-### Exact next sequence — do not skip approvals
+### Same-day execution sequence — pause at every guarded action
 
-1. Obtain explicit approval to create an isolated Railway `staging` environment and empty Postgres
-   instance. Current Railway has production only (`web` + Postgres), with no worker.
-2. Obtain separate approval for staging deployment and migration application. Apply schema first and smoke fictional
-   Company A / Person A SAP / Person B Java plus one fictional candidate delivery chain.
-3. Run `npm run wizmatch:staffing-backfill-preview` against production only after read-only access is
-   approved. It is count-only and never writes.
-4. Obtain a separate explicit approval for each production migration, production-data write,
-   environment/feature-flag change, credential rotation, and push to `main`.
-5. After schema verification, push the reviewed application only with explicit approval, then enable
-   Gate A for the Wizmatch pilot. Gate B and C remain off until their separate pilot checks pass.
-6. Re-verify live Dice/TheirStack counts and configuration. Current code reports observed rows but
-   cannot inspect the Dice GitHub Actions secret.
+1. Obtain explicit approval to create isolated Railway `staging` and an empty Postgres instance.
+2. Verify staging has no production database/data, worker, sending, paid-provider or staffing flags.
+3. Obtain separate approval to apply the complete migration journal to staging.
+4. Obtain separate approval to deploy this clean worktree directly to staging.
+5. Run the fictional Company A / Person A SAP / Person B Java workflow through match, consent,
+   submission record, interview, offer, placement, invoice link and collection reporting.
+6. Require human owner sign-off for roles, SLAs, consent, permissions, privacy and commercial rules
+   before Gate C production activation. Do not invent missing decisions.
+7. Obtain separate approvals for credential rotation, production count-only preview, production
+   migrations, the exact push to `main`, every Gate A/B/C server/Vite flag change and every pilot
+   data write.
+8. Permit named pilot users after the Gate C smoke test; team-wide release requires 48 hours of
+   stable monitored operation.
+
+### Infrastructure truth
+
+- Railway project `GE-Backend-Server` currently has only `production`, with `web` and Postgres.
+- Production `web` is on `b05ac015eff8444edc217563fdb93ac5ef836639` and reported `SUCCESS` in
+  the latest read-only inspection.
+- There is no staging environment and no worker service.
+- `railway.worker.json` is referenced by deployment documentation but is absent from this worktree;
+  worker automation is a post-pilot implementation unit.
+- Gate A/B/C server and Vite flags are absent in production.
+
+### Approval boundaries
+
+The same-day pilot directive does not pre-authorize a guarded operation. Stop immediately before
+each migration, Railway environment/configuration change, credential operation, production-data
+access/write, push/deployment, feature-flag activation, sending or paid-provider action and request
+an explicit confirmation for that exact action.
 
 Canonical context starts at `docs/wizmatch/README.md`. The reusable Claude prompt is
 `docs/wizmatch/WIZMATCH_STAFFING_OS_CLAUDE_CODE_KICKOFF.md`.
-
-### Remaining external/human gates
-
-- Live credential rotation and any Git-history remediation.
-- Staging and production migration application.
-- Production count-only preview and any later pilot backfill.
-- Railway/Vite feature flags and actual Railway topology verification.
-- Push/deployment and authenticated production smoke.
-- Team names, SLAs, commercial policy, pilot records and candidate/client data.
-- Sending, outreach, paid providers and automatic submissions remain disabled and separately gated.

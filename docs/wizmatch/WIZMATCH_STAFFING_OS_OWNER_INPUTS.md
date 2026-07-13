@@ -28,7 +28,7 @@ the approved CRM, password manager or secure document system.
 | Engineering approver | TBD |
 | Operations owner | TBD |
 | PRD 004 product direction approved? | Approved for phased local implementation on 2026-07-13 |
-| Approved current implementation phase | Gates A/B/C local implementation and additive migration generation approved; migration apply, production data, environment flags, push and deployment remain separately gated |
+| Approved current implementation phase | Controlled full Gate A/B/C pilot is the same-day target; migration apply, production data, environment flags, credential operations, push and deployment remain separately gated |
 | Local commit approver | TBD |
 | Final schema/migration approver | TBD |
 | Final production/deployment approver | TBD |
@@ -39,7 +39,7 @@ the approved CRM, password manager or secure document system.
 
 | Input | Owner decision |
 |---|---|
-| Pilot start date | TBD |
+| Pilot start date | 2026-07-13 target, conditional on staging, mandatory policy sign-off and production smoke gates |
 | Pilot duration | 60–90 days proposed |
 | Pilot companies | Use internal CRM IDs or fictional labels; TBD |
 | Number of accepted requirements | 5–10 proposed |
@@ -176,3 +176,4 @@ here.
 | 2026-07-13 | Implement Phase 1 Gate A locally and generate one additive migration | ADR-004 / PRD 004 Phase 1 | Approved by the user through “Please plan the next phase and get them done as well”; does not approve applying the migration, production writes, push, deployment, sending or paid providers | Product owner (chat instruction) |
 | 2026-07-13 | Implement the complete three-phase Staffing OS locally | ADR-004 / PRD 004 / three-phase production plan | Approved through explicit “PLEASE IMPLEMENT THIS PLAN”; production migrations, production data, environment changes, credential rotation and each push to `main` still require separate approval | Product owner (chat instruction) |
 | 2026-07-13 | Perform local release review and prepare progressive rollout | Release-readiness plan | Approved through explicit “PLEASE IMPLEMENT THIS PLAN”; Railway staging creation, deployment, migrations, production access, flags and push remain separate approval gates | Product owner (chat instruction) |
+| 2026-07-13 | Prepare same-day controlled full Gate A–C pilot handoff | Same-day Claude handoff plan | Approved through explicit “PLEASE IMPLEMENT THIS PLAN”; Claude must pause before every guarded action and Gate C remains blocked until mandatory owner-policy sign-off | Product owner (chat instruction) |

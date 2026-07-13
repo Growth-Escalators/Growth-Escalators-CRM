@@ -6,6 +6,22 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-13 — Same-day Claude release handoff prepared — Codex — LOCAL ONLY
+
+- Reframed the completed local release candidate for a controlled same-day Gate A–C pilot from the
+  clean `codex/wizmatch-phase0-trust` worktree; the original dirty workspace remains excluded.
+- Recorded the verified baseline (43 Vitest files / 349 tests, admin/API builds, 16/16 Chromium),
+  branch position (0 behind / 25 ahead), production-only Railway topology and absent worker config.
+- Updated the canonical Claude kickoff so it resumes at staging creation rather than repeating the
+  already-completed release-integrity review.
+- Recorded only explicit owner intent: full A–C pilot target, mandatory business-policy sign-off and
+  a pause immediately before every guarded migration, environment, credential, production-data,
+  push/deployment or feature-flag action.
+- No Railway state, production data, secret, migration, flag, deployment or remote Git state was
+  changed. Exact next gate: explicit approval to create isolated staging and empty staging Postgres.
+
+---
+
 ## 2026-07-13 — Wizmatch release-readiness integrity review — Codex — VERIFIED LOCALLY
 
 - Reviewed Gate A/B/C tenant isolation, transactionality, consent, duplicate protection, delivery
