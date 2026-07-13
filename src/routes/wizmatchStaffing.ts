@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { StaffingDomainError, wizmatchStaffingService } from '../services/wizmatchStaffingDomain';
 import { createSignedR2Url } from '../utils/r2';
 import { pool } from '../db';
+import { MATCH_DECISIONS, wizmatchMatchingService } from '../services/wizmatchMatchingDomain';
 
 const router = Router();
 
@@ -19,7 +20,24 @@ router.use((req, res, next) => {
 
 function actor(req: Request) {
   if (!req.user) throw new StaffingDomainError(401, 'unauthorised', 'Authentication is required');
-  return { tenantId: req.user.tenantId, userId: req.user.id };
+  return { tenantId: req.user.tenantId, userId: req.user.id, role: req.user.role };
+}
+
+function requireLead(req: Request) {
+  const current = actor(req);
+  if (!['admin', 'team_lead'].includes(current.role)) throw new StaffingDomainError(403, 'forbidden', 'Team lead or admin approval is required');
+  return current;
+}
+
+function requirePhase(phase: 'B' | 'C') {
+  return (_req: Request, res: Response, next: () => void) => {
+    if (!isStaffingPhaseEnabled(phase)) return res.status(404).json({ error: 'staffing_phase_disabled' });
+    return next();
+  };
+}
+
+function routeParam(value: string | string[]): string {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 function handle(error: unknown, res: Response) {
@@ -154,6 +172,63 @@ router.get('/requirements/:requirementId/documents/:kind/access', async (req, re
 
 router.get('/staffing/my-work', async (req, res) => {
   try { const current = actor(req); return res.json(await wizmatchStaffingService.getMyWork(current.tenantId, current.userId)); }
+  catch (error) { return handle(error, res); }
+});
+
+router.get('/staffing/skills', requirePhase('B'), async (req, res) => {
+  try { return res.json({ items: await wizmatchMatchingService.listSkills(actor(req).tenantId) }); }
+  catch (error) { return handle(error, res); }
+});
+
+router.post('/staffing/skills', requirePhase('B'), async (req, res) => {
+  try { return res.status(201).json(await wizmatchMatchingService.createSkill(requireLead(req), req.body ?? {})); }
+  catch (error) { return handle(error, res); }
+});
+
+router.post('/staffing/skills/seed-pilot', requirePhase('B'), async (req, res) => {
+  try { return res.json(await wizmatchMatchingService.seedPilotTaxonomy(requireLead(req))); }
+  catch (error) { return handle(error, res); }
+});
+
+router.post('/staffing/skills/:skillId/aliases', requirePhase('B'), async (req, res) => {
+  try { return res.status(201).json(await wizmatchMatchingService.addAlias(requireLead(req), routeParam(req.params.skillId), req.body ?? {})); }
+  catch (error) { return handle(error, res); }
+});
+
+router.put('/staffing/requirements/:requirementId/skills', requirePhase('B'), async (req, res) => {
+  try { return res.json(await wizmatchMatchingService.replaceRequirementSkills(actor(req), routeParam(req.params.requirementId), Array.isArray(req.body?.skills) ? req.body.skills : [])); }
+  catch (error) { return handle(error, res); }
+});
+
+router.put('/staffing/candidates/:candidateId/skills', requirePhase('B'), async (req, res) => {
+  try { return res.json(await wizmatchMatchingService.replaceCandidateSkills(actor(req), routeParam(req.params.candidateId), Array.isArray(req.body?.skills) ? req.body.skills : [])); }
+  catch (error) { return handle(error, res); }
+});
+
+router.post('/staffing/requirements/:requirementId/matches/recalculate', requirePhase('B'), async (req, res) => {
+  try { return res.json(await wizmatchMatchingService.recalculateRequirement(actor(req), routeParam(req.params.requirementId))); }
+  catch (error) { return handle(error, res); }
+});
+
+router.get('/staffing/requirements/:requirementId/matches', requirePhase('B'), async (req, res) => {
+  try { return res.json({ items: await wizmatchMatchingService.listRequirementMatches(actor(req).tenantId, routeParam(req.params.requirementId)) }); }
+  catch (error) { return handle(error, res); }
+});
+
+router.post('/staffing/matches/:matchId/decision', requirePhase('B'), async (req, res) => {
+  try {
+    if (!MATCH_DECISIONS.includes(req.body?.decision)) throw new StaffingDomainError(400, 'validation_error', 'Decision is invalid');
+    return res.json(await wizmatchMatchingService.decide(actor(req), routeParam(req.params.matchId), req.body ?? {}));
+  } catch (error) { return handle(error, res); }
+});
+
+router.get('/staffing/candidates/:candidateId', requirePhase('B'), async (req, res) => {
+  try { return res.json(await wizmatchMatchingService.candidate360(actor(req).tenantId, routeParam(req.params.candidateId))); }
+  catch (error) { return handle(error, res); }
+});
+
+router.get('/staffing/recruiter-work', requirePhase('B'), async (req, res) => {
+  try { const current = actor(req); return res.json(await wizmatchMatchingService.recruiterWork(current.tenantId, current.userId)); }
   catch (error) { return handle(error, res); }
 });
 

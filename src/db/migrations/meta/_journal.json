@@ -190,6 +190,13 @@
       "when": 1783928559448,
       "tag": "0026_flashy_sersi",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1783929007695,
+      "tag": "0027_brainy_orphan",
+      "breakpoints": true
     }
   ]
 }

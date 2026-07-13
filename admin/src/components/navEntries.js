@@ -317,6 +317,11 @@ export const NAV_ENTRIES = [
     visible: f => f.canWizmatch,
   },
   {
+    id: 'wm-talent-matching', label: 'Talent Matching', to: '/wizmatch/talent-matching',
+    icon: Target, section: 'Wizmatch', group: null, product: 'wizmatch',
+    visible: f => f.canStaffing,
+  },
+  {
     id: 'wm-source-candidates', label: 'Source Candidates', to: '/wizmatch/source-candidates',
     icon: Search, section: 'Wizmatch', group: null,
     visible: f => f.canWizmatch,

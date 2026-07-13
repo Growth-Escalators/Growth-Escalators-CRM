@@ -1248,6 +1248,12 @@ export const wizmatchCandidates = pgTable(
     experienceYears: integer('experience_years'),
     rateHourly: integer('rate_hourly'),
     rateCurrency: text('rate_currency').default('USD'),
+    ratePeriod: text('rate_period').default('hourly'),
+    normalizedAnnualRate: integer('normalized_annual_rate'),
+    normalizationCurrency: text('normalization_currency'),
+    conversionRate: numeric('conversion_rate', { precision: 18, scale: 6 }),
+    conversionSource: text('conversion_source'),
+    conversionDate: date('conversion_date'),
     availabilityDate: date('availability_date'),
     availabilityStatus: text('availability_status').default('available'), // available | submitted | interviewing | placed | benched
     source: text('source'), // xray | github | naukri | bench_network | referral | manual
@@ -1384,6 +1390,12 @@ export const wizmatchRequirements = pgTable(
     budgetMax: integer('budget_max'),
     budgetCurrency: text('budget_currency').default('INR'),
     budgetPeriod: text('budget_period').default('monthly'), // hourly | monthly | annual
+    normalizedBudgetMinAnnual: integer('normalized_budget_min_annual'),
+    normalizedBudgetMaxAnnual: integer('normalized_budget_max_annual'),
+    normalizationCurrency: text('normalization_currency'),
+    conversionRate: numeric('conversion_rate', { precision: 18, scale: 6 }),
+    conversionSource: text('conversion_source'),
+    conversionDate: date('conversion_date'),
     positions: integer('positions').default(1),
     priority: text('priority').default('normal'), // low | normal | high | urgent
     maskClient: boolean('mask_client').default(true), // hide end-client name on the vendor sheet
@@ -1700,3 +1712,116 @@ export const wizmatchDiscoveryRuns = pgTable(
     createdAtIdx: index('wizmatch_dr_created_at_idx').on(t.createdAt),
   }),
 );
+
+// ---------------------------------------------------------------------------
+// GATE B — canonical skills and persistent candidate/requirement decisions
+// ---------------------------------------------------------------------------
+export const wizmatchSkills = pgTable('wizmatch_skills', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  family: text('family').notNull(),
+  specialization: text('specialization').notNull(),
+  platformVersion: text('platform_version'),
+  canonicalLabel: text('canonical_label').notNull(),
+  active: boolean('active').notNull().default(true),
+  createdBy: uuid('created_by').references(() => users.id),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (t) => ({
+  tenantLabelUniq: uniqueIndex('wizmatch_skills_tenant_label_idx').on(t.tenantId, t.canonicalLabel),
+  familyIdx: index('wizmatch_skills_family_idx').on(t.tenantId, t.family, t.specialization),
+}));
+
+export const wizmatchSkillAliases = pgTable('wizmatch_skill_aliases', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  skillId: uuid('skill_id').notNull().references(() => wizmatchSkills.id),
+  rawAlias: text('raw_alias').notNull(),
+  normalizedAlias: text('normalized_alias').notNull(),
+  provenance: text('provenance').notNull().default('manual'),
+  reviewedBy: uuid('reviewed_by').references(() => users.id),
+  reviewedAt: timestamp('reviewed_at').defaultNow(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (t) => ({
+  tenantAliasUniq: uniqueIndex('wizmatch_skill_aliases_tenant_alias_idx').on(t.tenantId, t.normalizedAlias),
+  skillIdx: index('wizmatch_skill_aliases_skill_idx').on(t.tenantId, t.skillId),
+}));
+
+export const wizmatchRequirementSkills = pgTable('wizmatch_requirement_skills', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  requirementId: uuid('requirement_id').notNull().references(() => wizmatchRequirements.id),
+  skillId: uuid('skill_id').notNull().references(() => wizmatchSkills.id),
+  importance: text('importance').notNull().default('mandatory'),
+  minimumYears: integer('minimum_years'),
+  evidence: text('evidence'),
+  allowBroadFamily: boolean('allow_broad_family').notNull().default(false),
+  createdBy: uuid('created_by').references(() => users.id),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (t) => ({
+  tenantRequirementIdx: index('wizmatch_requirement_skills_requirement_idx').on(t.tenantId, t.requirementId),
+  requirementSkillUniq: uniqueIndex('wizmatch_requirement_skills_unique_idx').on(t.tenantId, t.requirementId, t.skillId),
+}));
+
+export const wizmatchCandidateSkills = pgTable('wizmatch_candidate_skills', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  candidateId: uuid('candidate_id').notNull().references(() => wizmatchCandidates.id),
+  skillId: uuid('skill_id').notNull().references(() => wizmatchSkills.id),
+  experienceYears: integer('experience_years'),
+  lastUsedAt: date('last_used_at'),
+  evidence: text('evidence'),
+  confidence: integer('confidence'),
+  verified: boolean('verified').notNull().default(false),
+  verifiedBy: uuid('verified_by').references(() => users.id),
+  verifiedAt: timestamp('verified_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (t) => ({
+  tenantCandidateIdx: index('wizmatch_candidate_skills_candidate_idx').on(t.tenantId, t.candidateId),
+  candidateSkillUniq: uniqueIndex('wizmatch_candidate_skills_unique_idx').on(t.tenantId, t.candidateId, t.skillId),
+}));
+
+export const wizmatchCandidateRequirementMatches = pgTable('wizmatch_candidate_requirement_matches', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  requirementId: uuid('requirement_id').notNull().references(() => wizmatchRequirements.id),
+  candidateId: uuid('candidate_id').notNull().references(() => wizmatchCandidates.id),
+  scoreVersion: text('score_version').notNull().default('gate-b-v1'),
+  score: integer('score').notNull().default(0),
+  dimensions: jsonb('dimensions').notNull().default({}),
+  blockers: jsonb('blockers').notNull().default([]),
+  missingEvidence: jsonb('missing_evidence').notNull().default([]),
+  humanDecision: text('human_decision').notNull().default('unreviewed'),
+  decisionReason: text('decision_reason'),
+  reviewedBy: uuid('reviewed_by').references(() => users.id),
+  reviewedAt: timestamp('reviewed_at'),
+  snapshotVersion: integer('snapshot_version').notNull().default(1),
+  recalculatedAt: timestamp('recalculated_at').notNull().defaultNow(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (t) => ({
+  pairUniq: uniqueIndex('wizmatch_matches_pair_idx').on(t.tenantId, t.requirementId, t.candidateId),
+  requirementScoreIdx: index('wizmatch_matches_requirement_score_idx').on(t.tenantId, t.requirementId, t.score),
+  candidateIdx: index('wizmatch_matches_candidate_idx').on(t.tenantId, t.candidateId),
+}));
+
+export const wizmatchMatchSnapshots = pgTable('wizmatch_match_snapshots', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  matchId: uuid('match_id').notNull().references(() => wizmatchCandidateRequirementMatches.id),
+  requirementId: uuid('requirement_id').notNull().references(() => wizmatchRequirements.id),
+  candidateId: uuid('candidate_id').notNull().references(() => wizmatchCandidates.id),
+  version: integer('version').notNull(),
+  scoreVersion: text('score_version').notNull(),
+  inputEvidence: jsonb('input_evidence').notNull(),
+  outputEvidence: jsonb('output_evidence').notNull(),
+  score: integer('score').notNull(),
+  blockers: jsonb('blockers').notNull().default([]),
+  createdBy: uuid('created_by').references(() => users.id),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (t) => ({
+  matchVersionUniq: uniqueIndex('wizmatch_match_snapshots_version_idx').on(t.tenantId, t.matchId, t.version),
+  pairIdx: index('wizmatch_match_snapshots_pair_idx').on(t.tenantId, t.requirementId, t.candidateId),
+}));
