@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { scoreCandidateIntelligence } from '../services/wizmatchCandidateIntelligence';
 import { scoreClientDiscoveryOpportunity } from '../services/wizmatchClientDiscovery';
 import { qualifyCompanyForContactIntelligence } from '../services/wizmatchContactIntelligence';
-import { buildWizmatchReviewWorkbench } from '../services/wizmatchReviewWorkbench';
+import { buildWizmatchReviewWorkbench, paginateWizmatchReviewWorkbench } from '../services/wizmatchReviewWorkbench';
 import { scoreRequirementPriority } from '../services/wizmatchRequirementPriority';
 
 describe('Wizmatch Review Workbench', () => {
@@ -155,5 +155,24 @@ describe('Wizmatch Review Workbench', () => {
     expect(result.safetyCenter.status).toBe('blocked');
     expect(result.safetyCenter.blockers.some((reason) => reason.includes('Candidate Intelligence'))).toBe(true);
     expect(result.safetyCenter.blockers.some((reason) => reason.includes('requirement priority'))).toBe(true);
+  });
+
+  it('keeps canonical totals unchanged when a response returns fewer action cards', () => {
+    const result = buildWizmatchReviewWorkbench({
+      clientDiscovery: [],
+      contactIntelligence: [],
+      candidates: Array.from({ length: 6 }, (_, index) => scoreCandidateIntelligence({
+        ...candidate,
+        id: `candidate-${index}`,
+        contactId: `contact-${index}`,
+        name: `Candidate ${index}`,
+      })),
+      requirements: [],
+    });
+    const page = paginateWizmatchReviewWorkbench(result, 2);
+    expect(page.actions).toHaveLength(2);
+    expect(page.returnedActions).toBe(2);
+    expect(page.summary.totalActions).toBe(6);
+    expect(page.summary.safeExecutableActions).toBe(6);
   });
 });

@@ -271,3 +271,9 @@ export function buildWizmatchReviewWorkbench(input: ReviewWorkbenchInput): Revie
     },
   };
 }
+
+export function paginateWizmatchReviewWorkbench(result: ReviewWorkbenchResult, requestedLimit: number) {
+  const limit = Math.min(Math.max(Math.trunc(requestedLimit) || 30, 1), 30);
+  const actions = result.actions.slice(0, limit);
+  return { ...result, actions, returnedActions: actions.length };
+}

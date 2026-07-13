@@ -1890,14 +1890,15 @@ Built in parallel via 3 isolated-worktree subagents, reviewed + merged + deploye
   regression fixtures plus attainable hot/warm/watch fixtures.
 - Bounded AI Intelligence input/output/time and mapped provider failures to safe operator details.
 - Added independent database totals to primary queues and split schema readiness from usable-funnel
-  readiness. Workbench exact total remains open and is recorded as D-8 `in_progress`.
+  readiness. Dashboard, Workbench and Guardrails now use one canonical 30-action queue; response
+  pagination reports returned cards without changing canonical summary totals.
 - Preserved provider/spend/sending defaults and made no schema, migration, auth/RBAC, deployment,
   environment or production-data change.
 
 **Verification**
 - `npm run build` passed.
 - `npm run admin:build` passed.
-- `npm test` passed: 38 files, 316 tests.
+- `npm test` passed: 38 files, 318 tests.
 - `npx playwright test --config=playwright.wizmatch-local.config.ts` passed: 10/10 Chromium scenarios,
   including safe AI timeout detail and query-string boundary recovery.
 - Production admin bundle contains no Wizmatch demo route paths.

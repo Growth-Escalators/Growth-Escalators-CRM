@@ -23,7 +23,7 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
     demo routes are development-only; current admin build is mandatory; login preserves Wizmatch;
     role scoring rejects known false positives and keeps company evidence separate; manual seeds are
     deterministically scored; queue totals and readiness semantics are truthful; AI is bounded.
-  - Full local verification passed: TypeScript build, **38 Vitest files / 316 tests**, admin
+  - Full local verification passed: TypeScript build, **38 Vitest files / 318 tests**, admin
     production build, **10/10** mocked Chromium paths, production-bundle demo-route absence, and
     `git diff --check`, all without external provider or production calls.
 - **Persistent context:** PRD 004 remains a draft target; the defect register is the remediation
@@ -36,9 +36,8 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   candidate preview/import, workbench actions/filters, requirement planning, discovery preview,
   blocked states, refresh controls, product selection, and password-recovery navigation. Builds,
   304 tests, and 5 authenticated mocked Chromium paths passed again.
-- **Remaining Phase 0 work:** D-8 still needs an exact workbench total independent of its computed
-  row bound; D-17/D-22/D-24/D-25 require
-  storage, schema or commercial model work and therefore remain behind later approval gates.
+- **Remaining gated work:** D-17/D-22/D-24/D-25 require storage, schema or commercial model work
+  and therefore remain behind later approval gates. Phase 0 release validation is locally green.
 - **Security:** plaintext credential values were removed from the current versions of the handoff,
   operator docs, playbook, and onboarding script; the script now requires secure environment
   injection and does not print the value. The credential remains exposed in Git history and has not

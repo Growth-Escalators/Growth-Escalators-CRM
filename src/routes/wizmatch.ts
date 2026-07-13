@@ -92,7 +92,7 @@ import {
   scoreRequirementPriority,
   type RequirementPriorityInput,
 } from '../services/wizmatchRequirementPriority';
-import { buildWizmatchReviewWorkbench } from '../services/wizmatchReviewWorkbench';
+import { buildWizmatchReviewWorkbench, paginateWizmatchReviewWorkbench } from '../services/wizmatchReviewWorkbench';
 import { getWizmatchReadiness } from '../services/wizmatchReadiness';
 import { buildWizmatchEnvReport } from '../services/wizmatchEnvCheck';
 import { parseCsv } from './outbound';
@@ -2611,7 +2611,9 @@ router.post('/requirement-priority/:requirementId/review-plan', async (req: Requ
 // SECTION -1B — UNIFIED REVIEW WORKBENCH / SAFETY CENTER ROUTES
 // ============================================================
 
-async function buildReviewWorkbenchPayload(tenantId: string, limit: number) {
+const REVIEW_WORKBENCH_SOURCE_LIMIT = 75;
+
+async function buildReviewWorkbenchPayload(tenantId: string) {
   const [
     contactRows,
     clientRows,
@@ -2620,10 +2622,10 @@ async function buildReviewWorkbenchPayload(tenantId: string, limit: number) {
     baseMetrics,
     contactStats,
   ] = await Promise.all([
-    optionalWizmatchValue('workbench contact intelligence companies', () => fetchContactIntelligenceCompanyRows(tenantId, limit), [] as ContactIntelligenceCompanyRow[]),
-    optionalWizmatchValue('workbench client discovery signals', () => fetchClientDiscoverySignals(tenantId, limit), [] as ClientDiscoveryInput[]),
-    optionalWizmatchValue('workbench candidate intelligence inputs', () => fetchCandidateIntelligenceInputs(tenantId, limit), [] as CandidateIntelligenceInput[], ['wizmatch_requirements']),
-    optionalWizmatchValue('workbench requirement priority inputs', () => buildRequirementPriorityInputs(tenantId, limit), [] as RequirementPriorityInput[], [
+    optionalWizmatchValue('workbench contact intelligence companies', () => fetchContactIntelligenceCompanyRows(tenantId, REVIEW_WORKBENCH_SOURCE_LIMIT), [] as ContactIntelligenceCompanyRow[]),
+    optionalWizmatchValue('workbench client discovery signals', () => fetchClientDiscoverySignals(tenantId, REVIEW_WORKBENCH_SOURCE_LIMIT), [] as ClientDiscoveryInput[]),
+    optionalWizmatchValue('workbench candidate intelligence inputs', () => fetchCandidateIntelligenceInputs(tenantId, REVIEW_WORKBENCH_SOURCE_LIMIT), [] as CandidateIntelligenceInput[], ['wizmatch_requirements']),
+    optionalWizmatchValue('workbench requirement priority inputs', () => buildRequirementPriorityInputs(tenantId, REVIEW_WORKBENCH_SOURCE_LIMIT), [] as RequirementPriorityInput[], [
       'wizmatch_requirements',
       'wizmatch_company_intelligence',
       'wizmatch_contact_candidates',
@@ -2663,19 +2665,23 @@ async function buildReviewWorkbenchPayload(tenantId: string, limit: number) {
 
 router.get('/review-workbench', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const limit = Math.min(Number(req.query.limit) || 30, 75);
+  const responseLimit = Number(req.query.limit) || 30;
   const [workbench, readiness, costControls] = await Promise.all([
-    buildReviewWorkbenchPayload(tenantId, limit),
+    buildReviewWorkbenchPayload(tenantId),
     getWizmatchReadiness(pool, tenantId),
     buildContactDiscoveryCostControls(tenantId, req.user?.id),
   ]);
-  res.json({ ...workbench, readiness: readiness.overall, costControls });
+  res.json({
+    ...paginateWizmatchReviewWorkbench(workbench, responseLimit),
+    readiness: readiness.overall,
+    costControls,
+  });
 });
 
 router.get('/guardrails', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const [workbench, readiness, costControls] = await Promise.all([
-    buildReviewWorkbenchPayload(tenantId, 30),
+    buildReviewWorkbenchPayload(tenantId),
     getWizmatchReadiness(pool, tenantId),
     buildContactDiscoveryCostControls(tenantId, req.user?.id),
   ]);
@@ -2845,7 +2851,7 @@ async function buildWizmatchDashboardSnapshot(tenantId: string, userId?: string)
     roiSummary,
   ] = await Promise.all([
     getWizmatchReadiness(pool, tenantId),
-    buildReviewWorkbenchPayload(tenantId, 10),
+    buildReviewWorkbenchPayload(tenantId),
     buildContactDiscoveryCostControls(tenantId, userId),
     optionalWizmatchStatsQuery(
       'dashboard summary',
