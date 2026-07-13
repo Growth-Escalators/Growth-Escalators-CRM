@@ -2,7 +2,7 @@
 
 ## Active task
 
-**Wizmatch Staffing Operating System — Phase 0 trust branch in progress as of 2026-07-13. Worktree:
+**Wizmatch Staffing Operating System — Phase 1 Gate A implemented and verified locally as of 2026-07-13. Worktree:
 `../v2-wizmatch-phase0-trust`; branch: `codex/wizmatch-phase0-trust`. Nothing pushed, deployed,
 sent, spent, migrated, or written to production.**
 
@@ -23,11 +23,10 @@ revenue, and margin. The PRD also preserves future concepts without putting them
 Current remediation status is canonical in
 [`WIZMATCH_STAFFING_OS_DEFECT_REGISTER.md`](../docs/wizmatch/WIZMATCH_STAFFING_OS_DEFECT_REGISTER.md).
 
-**Current verified Phase 0 slice:** D-1–D-7, D-9–D-12, D-14, D-19–D-21,
-D-26–D-31 are locally verified. D-18 still requires live configuration evidence; all other
-non-gated Phase 0 defects are locally verified. Items D-13/D-15/D-17/D-22/D-24/D-25
-require later schema, storage, commercial or infrastructure gates; D-13/D-15 and the staffing
-domain spine specifically remain behind Gate A. See the defect register for the exact evidence and
+**Current verified slice:** D-1–D-7, D-9–D-15, D-19–D-21,
+D-26–D-31 are locally verified. D-13 and D-15 are now locally verified through Gate A. D-18 still
+requires live configuration evidence; D-17/D-22/D-24/D-25 require later storage, commercial or
+infrastructure gates. See the defect register for the exact evidence and
 next action for every item.
 
 **Implemented locally in the current Phase 0 candidate bundle:**
@@ -67,14 +66,14 @@ secure env injection. The live credential has **not** been rotated and Git histo
 rewritten. Rotation is the essential containment step but requires explicit production-mutation
 approval; history remediation is a separate coordinated decision.
 
-**Phase 1 approval required:** ADR-004 proposes the company-contact, requirement-contact,
-assignment, activity, task-link, skill/match, and delivery spine needed for Person A→SAP and
-Person B→Java. Do not edit schema/migrations until the owner records the approval in
-`WIZMATCH_STAFFING_OS_OWNER_INPUTS.md`.
+**Gate A local implementation complete:** ADR-004 Gate A approval is recorded in
+`WIZMATCH_STAFFING_OS_OWNER_INPUTS.md`. The branch includes the additive schema/migration,
+transactional relationship/attribution/assignment/task/timeline APIs, Company/Hiring Contact/
+Requirement 360 and My Work. Migration apply, production data, push and deployment remain unapproved.
 
-**Exact next step:** Phase 0 code/release validation is complete locally. D-13/D-15 and the core staffing
-relationship model require the explicit Gate A approval below. D-17/D-22/D-24/D-25 are naturally
-implemented with the later private-document, commercial-currency and dedupe schema slices.
+**Exact next step:** review the scoped local Gate A commits, then separately approve or reject
+migration application. After an approved scratch/staging rollout and authenticated smoke, prepare
+the Gate B canonical-skills/matching proposal; do not begin Gate B schema work by implication.
 
 ### Last shipped product unit (2026-07-12) — Wizmatch client-acquisition workbench + repo hardening
 All on `main` (product changes through `6d659ec`; current repo head `ba4be81` adds context/gitignore
@@ -114,6 +113,7 @@ housekeeping), each verified (build + 292 tests) and deployed:
 This branch was created from fresh `origin/main` in a separate clean worktree. The original
 `/Users/jatinagrawal/repo-comparison/v2` dirty workspace remains untouched and must not be used for
 staging this branch. Local `node_modules` symlinks are setup-only and must be removed before staging.
-No guarded schema/auth/RBAC/payment/Slack/deployment paths were edited in this branch.
+Gate A intentionally edits `src/db/schema.ts` and adds one generated migration under the recorded
+approval. Auth/RBAC/payment/Slack/deployment files remain untouched.
 
 Never use `git add .`/`git add -A`. Re-run `git status --short` immediately before any staging.

@@ -4,7 +4,7 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
 
 ## 2026-07-13 snapshot (current)
 
-- **Deployed baseline for this worktree:** fresh `origin/main` at `03f8bf7`; branch
+- **Deployed baseline for this worktree:** rebased `origin/main` at `b05ac01`; branch
   `codex/wizmatch-phase0-trust`. No branch change has been pushed, deployed, sent, spent, migrated,
   or written to production.
 - **Local Phase 0 candidate bundle:**
@@ -26,10 +26,21 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   - Full local verification passed: TypeScript build, **38 Vitest files / 318 tests**, admin
     production build, **10/10** mocked Chromium paths, production-bundle demo-route absence, and
     `git diff --check`, all without external provider or production calls.
-- **Persistent context:** PRD 004 remains a draft target; the defect register is the remediation
-  status source. ADR-004 and the Phase 1 plan propose the first-class relationships required for
-  company/contact/requirement ownership and the later match/delivery chain. They do not approve a
-  schema change.
+- **Local Phase 1 Gate A bundle:**
+  - Six additive tenant-scoped tables model company-contact relationships and roles, requirement
+    attribution, assignments, append-only staffing events and shared-task links. Requirements gain
+    additive attribution/stage/SLA/activity/next-action fields while legacy status remains.
+  - Transactional APIs power Company, Hiring Contact and Requirement 360 plus My Work. Every write
+    validates tenant ownership and records the business mutation and staffing event together.
+  - Admin pages require company selection, show Person A→SAP versus Person B→Java, manage source/
+    team/next action/stage, and expose recruiter work without widening legacy send/spend routes.
+  - Generated migration `0025_cynical_brother_voodoo.sql` contains no destructive statement and
+    applied cleanly over an `origin/main` schema in a disposable local Postgres database.
+  - Verification: **40 Vitest files / 325 tests**, backend/admin builds, **14/14 Playwright** paths,
+    authenticated scratch HTTP workflow, relationship uniqueness/history checks and `git diff --check`.
+- **Persistent context:** PRD 004 direction and ADR-004 Gate A are approved for local phased
+  implementation. Migration apply, production data, push/deploy and Gate B/C schema work remain
+  separately gated in the owner-input file.
 - **Deep local QA:** the complete source route matrix (57 Wizmatch routes) mounted without an
   ErrorBoundary crash under mocked APIs; all 17 redirects and 29 unauthenticated auth boundaries
   resolved. The visible browser walked all 10 primary demo modules and exercised prospect intake,
@@ -38,7 +49,7 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   304 tests, and 5 authenticated mocked Chromium paths passed again.
 - **Remaining gated/external work:** D-17/D-22/D-24/D-25 require storage, schema or commercial
   model work; D-18 needs live Dice/TheirStack evidence. Phase 0 code/release validation is locally
-  green.
+  green. Gate B canonical skills/matching is the next proposed product phase after Gate A rollout.
 - **Security:** plaintext credential values were removed from the current versions of the handoff,
   operator docs, playbook, and onboarding script; the script now requires secure environment
   injection and does not print the value. The credential remains exposed in Git history and has not

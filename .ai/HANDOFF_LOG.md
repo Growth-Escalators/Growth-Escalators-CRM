@@ -1908,3 +1908,31 @@ Built in parallel via 3 isolated-worktree subagents, reviewed + merged + deploye
 - Nothing was pushed or deployed and no real provider, AI, R2, sending or production write ran.
 - Before editing `src/db/schema.ts` or generating Gate A migrations, require the exact owner approval
   recorded in the owner-input file. Credential rotation is a separate production-sensitive action.
+
+## 2026-07-13 — Wizmatch Phase 1 Gate A staffing spine — Codex — LOCAL BRANCH
+
+**What was done**
+- Recorded the user’s local Gate A approval in owner inputs and accepted ADR-004 for local Gate A.
+- Added one generated additive migration with durable company-contact roles, requirement-contact
+  attribution, requirement assignments, append-only staffing events, task links and additive
+  requirement operating fields. No migration was applied outside a disposable local database.
+- Added tenant-scoped transactional services and APIs for relationship/attribution/assignment CRUD,
+  requirement transitions, dated next actions, linked review-plan tasks, timelines and My Work.
+- Added Company 360, Hiring Contact 360, Requirement 360, My Work and required-company workflows in
+  the Wizmatch admin. Recruiter-level access is isolated to Gate A routes and does not open legacy
+  signal/send/spend endpoints.
+
+**Verification**
+- Generated SQL review: no drop, rename, delete, truncate or type rewrite.
+- Applied `origin/main` schema plus migration 0025 to disposable local Postgres and proved Company A:
+  Person A→SAP ABAP, Person B→Java; editing B left A unchanged; duplicate relationship and second
+  active primary-source constraints rejected invalid rows.
+- Authenticated scratch HTTP check proved My Work, linked next-action task, accepted-stage gate and
+  Requirement 360; a recruiter received 403 on legacy `/api/wizmatch/signals`.
+- `npm run build`, `npm run admin:build`, `npm test` (40 files / 325 tests), Playwright (14/14) and
+  `git diff --check` passed. In-app browser route navigation was blocked by the browser client; the
+  original Vite process/tab was restored and automated Chromium covered the new UI paths.
+
+**Approval boundary / next work**
+- Nothing pushed, deployed, sent, spent or written to production. Migration apply, production data,
+  credential rotation, push/deploy and Gate B/C schema work require separate approval.
