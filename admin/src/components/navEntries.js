@@ -52,7 +52,7 @@ export function computeFlags(role, perms = {}, tenantSlug = 'growth-escalators')
     canMarketing:  ['admin', 'manager_ads'].includes(role),
     canSEO:        ['admin', 'manager_ops', 'manager_ads'].includes(role),
     canWizmatch:   product === 'wizmatch' && isAdminTier,
-    canStaffing:   product === 'wizmatch' && ['admin', 'manager_ops', 'team_lead', 'sales', 'staff'].includes(role),
+    canStaffing:   product === 'wizmatch' && perms.staffingPilotAccess === true && ['admin', 'manager_ops', 'team_lead', 'sales', 'staff'].includes(role),
   };
 }
 
@@ -275,7 +275,7 @@ export const NAV_ENTRIES = [
   {
     id: 'wm-relationships', label: 'Companies & Contacts', to: '/wizmatch/relationships',
     icon: Users, section: 'Wizmatch', group: null, product: 'wizmatch',
-    visible: f => f.canWizmatch && staffingPhaseUi.A,
+    visible: f => f.canStaffing && staffingPhaseUi.A,
   },
   {
     id: 'wm-review-workbench', label: 'Review Workbench', to: '/wizmatch/review-workbench',

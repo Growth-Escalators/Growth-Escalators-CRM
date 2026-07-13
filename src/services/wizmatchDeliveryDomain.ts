@@ -4,6 +4,8 @@ import { StaffingDomainError } from './wizmatchStaffingDomain';
 
 export const CONSENT_STATUSES = ['requested', 'granted', 'revoked', 'expired'] as const;
 export const SUBMISSION_STATUSES = ['draft', 'approved', 'submitted', 'interviewing', 'offered', 'placed', 'rejected', 'withdrawn', 'closed'] as const;
+export const CONSENT_VALIDITY_DAYS = 30;
+export const MINIMUM_CONTRACT_MARGIN_PERCENT = 20;
 
 function required(value: unknown, name: string) {
   if (typeof value !== 'string' || !value.trim()) throw new StaffingDomainError(400, 'validation_error', `${name} is required`);
@@ -14,6 +16,14 @@ function integer(value: unknown, name: string, nullable = false): number | null 
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 0) throw new StaffingDomainError(400, 'validation_error', `${name} must be a non-negative integer`);
   return parsed;
+}
+function consentExpiry(value: unknown): string {
+  const now = Date.now();
+  const maximum = now + CONSENT_VALIDITY_DAYS * 24 * 60 * 60 * 1000;
+  const parsed = value ? new Date(String(value)).getTime() : maximum;
+  if (!Number.isFinite(parsed) || parsed <= now) throw new StaffingDomainError(400, 'validation_error', 'Consent expiry must be a future date');
+  if (parsed > maximum + 60_000) throw new StaffingDomainError(400, 'consent_validity_exceeded', `Consent cannot be valid for more than ${CONSENT_VALIDITY_DAYS} days`);
+  return new Date(parsed).toISOString();
 }
 async function tx<T>(dbPool: Pool, fn: (client: PoolClient) => Promise<T>) {
   const client = await dbPool.connect();
@@ -65,6 +75,7 @@ export function createWizmatchDeliveryService(dbPool: Pool = pool) {
       const candidateId = required(input.candidateId, 'candidateId');
       const requirementId = required(input.requirementId, 'requirementId');
       const documentReference = privateDocumentReference(input.documentReference);
+      const expiresAt = consentExpiry(input.expiresAt);
       return tx(dbPool, async (client) => {
         await row(client, 'wizmatch_candidates', actor.tenantId, candidateId);
         await row(client, 'wizmatch_requirements', actor.tenantId, requirementId);
@@ -73,7 +84,7 @@ export function createWizmatchDeliveryService(dbPool: Pool = pool) {
         if (current.rowCount) throw new StaffingDomainError(409, 'active_consent_exists', 'An active consent record already exists for this candidate and requirement');
         let result;
         try {
-          result = await client.query(`INSERT INTO wizmatch_candidate_consents (tenant_id,candidate_id,requirement_id,consent_type,status,terms,document_reference,requested_by,granted_at,expires_at) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,CASE WHEN $5='granted' THEN NOW() ELSE NULL END,$9) RETURNING *`, [actor.tenantId, candidateId, requirementId, input.consentType || 'rtr', input.status === 'granted' ? 'granted' : 'requested', JSON.stringify(input.terms || {}), documentReference, actor.userId, input.expiresAt || null]);
+          result = await client.query(`INSERT INTO wizmatch_candidate_consents (tenant_id,candidate_id,requirement_id,consent_type,status,terms,document_reference,requested_by,granted_at,expires_at) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,CASE WHEN $5='granted' THEN NOW() ELSE NULL END,$9) RETURNING *`, [actor.tenantId, candidateId, requirementId, input.consentType || 'rtr', input.status === 'granted' ? 'granted' : 'requested', JSON.stringify(input.terms || {}), documentReference, actor.userId, expiresAt]);
         } catch (error) {
           if ((error as { code?: string }).code === '23505') throw new StaffingDomainError(409, 'active_consent_exists', 'An active consent record already exists for this candidate and requirement');
           throw error;
@@ -85,10 +96,11 @@ export function createWizmatchDeliveryService(dbPool: Pool = pool) {
 
     async grantConsent(actor: { tenantId: string; userId: string }, consentId: string, input: Record<string, unknown>) {
       const documentReference = privateDocumentReference(input.documentReference);
+      const expiresAt = consentExpiry(input.expiresAt);
       return tx(dbPool, async (client) => {
         const consent = await row(client, 'wizmatch_candidate_consents', actor.tenantId, consentId, true);
         if (consent.status === 'revoked') throw new StaffingDomainError(409, 'invalid_transition', 'Revoked consent cannot be granted again');
-        const result = await client.query(`UPDATE wizmatch_candidate_consents SET status='granted',terms=COALESCE($3::jsonb,terms),document_reference=COALESCE($4,document_reference),granted_at=NOW(),expires_at=$5,updated_at=NOW() WHERE tenant_id=$1 AND id=$2 RETURNING *`, [actor.tenantId, consentId, input.terms ? JSON.stringify(input.terms) : null, documentReference, input.expiresAt || null]);
+        const result = await client.query(`UPDATE wizmatch_candidate_consents SET status='granted',terms=COALESCE($3::jsonb,terms),document_reference=COALESCE($4,document_reference),granted_at=NOW(),expires_at=$5,updated_at=NOW() WHERE tenant_id=$1 AND id=$2 RETURNING *`, [actor.tenantId, consentId, input.terms ? JSON.stringify(input.terms) : null, documentReference, expiresAt]);
         await staffingEvent(client, actor, 'candidate_consent_granted', consent.requirement_id, { consentId, candidateId: consent.candidate_id });
         return result.rows[0];
       });
@@ -253,13 +265,19 @@ export function createWizmatchDeliveryService(dbPool: Pool = pool) {
         const payAmount = integer(input.payAmount, 'payAmount', true);
         const loadedCost = integer(input.loadedCost, 'loadedCost', true);
         const feeAmount = integer(input.feeAmount, 'feeAmount', true);
+        if (model === 'permanent' && (!feeAmount || feeAmount <= 0)) throw new StaffingDomainError(400, 'fee_required', 'Permanent placements require a positive fee amount');
+        if (model === 'contract' && (!billAmount || billAmount <= 0 || loadedCost === null)) throw new StaffingDomainError(400, 'contract_economics_required', 'Contract placements require a positive bill rate and loaded cost');
         const economics = calculateStaffingEconomics({ model, billAmount, payAmount, loadedCost, feeAmount });
+        const marginExceptionReason = typeof input.marginExceptionReason === 'string' ? input.marginExceptionReason.trim() : '';
+        if (model === 'contract' && economics.grossMarginPercent < MINIMUM_CONTRACT_MARGIN_PERCENT && !marginExceptionReason) {
+          throw new StaffingDomainError(409, 'margin_exception_required', `Contract gross margin below ${MINIMUM_CONTRACT_MARGIN_PERCENT}% requires an admin-recorded exception`);
+        }
         const placement = await client.query(`INSERT INTO wizmatch_placements (tenant_id,candidate_id,company_id,requirement_id,submission_id,offer_id,placement_type,status,currency,contract_start_date,contract_end_date,bill_rate_hourly,pay_rate_hourly,margin_hourly,perm_fee_amount,perm_ctc_annual) VALUES ($1,$2,$3,$4,$5,$6,$7,'started',$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`, [actor.tenantId, submission.candidate_id, requirement.company_id, submission.requirement_id, submissionId, offerId, model === 'contract' ? 'contract' : 'permanent', input.currency || offer.currency || 'INR', input.startDate || offer.start_date || null, input.endDate || null, billAmount, payAmount, economics.grossMarginAmount, feeAmount, input.annualCtc || null]);
         await client.query(`INSERT INTO wizmatch_staffing_commercials (tenant_id,placement_id,model,original_amount,original_currency,original_period,bill_amount,pay_amount,loaded_cost,gross_margin_amount,gross_margin_percent,normalized_currency,conversion_rate,conversion_source,conversion_date,replacement_ends_at,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`, [actor.tenantId, placement.rows[0].id, model, input.originalAmount ?? feeAmount ?? billAmount, input.currency || offer.currency || 'INR', input.period || offer.period || (model === 'contract' ? 'hourly' : 'annual'), billAmount, payAmount, loadedCost, economics.grossMarginAmount, economics.grossMarginPercent, input.normalizedCurrency || null, input.conversionRate || null, input.conversionSource || null, input.conversionDate || null, input.replacementEndsAt || null, actor.userId]);
         await client.query(`UPDATE wizmatch_submissions SET status='placed',updated_at=NOW() WHERE tenant_id=$1 AND id=$2`, [actor.tenantId, submissionId]);
         await client.query(`UPDATE wizmatch_requirements SET stage='filled',stage_entered_at=NOW(),status='closed',last_activity_at=NOW(),updated_at=NOW() WHERE tenant_id=$1 AND id=$2`, [actor.tenantId, submission.requirement_id]);
-        await submissionEvent(client, actor, submissionId, 'placement_started', { placementId: placement.rows[0].id, offerId, economics });
-        await staffingEvent(client, actor, 'placement_started', submission.requirement_id, { submissionId, placementId: placement.rows[0].id, candidateId: submission.candidate_id, economics });
+        await submissionEvent(client, actor, submissionId, 'placement_started', { placementId: placement.rows[0].id, offerId, economics, marginExceptionReason: marginExceptionReason || null });
+        await staffingEvent(client, actor, 'placement_started', submission.requirement_id, { submissionId, placementId: placement.rows[0].id, candidateId: submission.candidate_id, economics, marginExceptionReason: marginExceptionReason || null });
         return { placement: placement.rows[0], economics };
       });
     },

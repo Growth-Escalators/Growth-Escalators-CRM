@@ -124,4 +124,52 @@ describe('Gate C delivery invariants', () => {
       candidateId: 'candidate-1', requirementId: 'requirement-1', documentReference: 'https://public.example/rtr.pdf',
     })).rejects.toMatchObject({ code: 'private_document_required' });
   });
+
+  it('defaults exact-requirement consent to 30 days and rejects longer validity', async () => {
+    const params: unknown[][] = [];
+    const client = {
+      query: async (sql: string, values?: unknown[]) => {
+        if (values) params.push(values);
+        if (sql.includes('FROM wizmatch_candidates')) return { rowCount: 1, rows: [{ id: 'candidate-1' }] };
+        if (sql.includes('FROM wizmatch_requirements')) return { rowCount: 1, rows: [{ id: 'requirement-1' }] };
+        if (sql.includes("status IN ('requested','granted')")) return { rowCount: 0, rows: [] };
+        if (sql.includes('INSERT INTO wizmatch_candidate_consents')) return { rowCount: 1, rows: [{ id: 'consent-1', status: 'requested' }] };
+        return { rowCount: 0, rows: [] };
+      },
+      release: () => {},
+    };
+    const service = createWizmatchDeliveryService({ connect: async () => client } as any);
+    const started = Date.now();
+    await service.createConsent({ tenantId: 'tenant-a', userId: 'recruiter-1' }, { candidateId: 'candidate-1', requirementId: 'requirement-1' });
+    const insertParams = params.find((value) => value[0] === 'tenant-a' && value[1] === 'candidate-1' && value.length === 9);
+    const expiry = new Date(String(insertParams?.[8])).getTime();
+    expect(expiry).toBeGreaterThanOrEqual(started + 30 * 86400000 - 1_000);
+    expect(expiry).toBeLessThanOrEqual(Date.now() + 30 * 86400000 + 1_000);
+
+    await expect(service.createConsent({ tenantId: 'tenant-a', userId: 'recruiter-1' }, {
+      candidateId: 'candidate-1', requirementId: 'requirement-1', expiresAt: new Date(Date.now() + 31 * 86400000).toISOString(),
+    })).rejects.toMatchObject({ code: 'consent_validity_exceeded' });
+  });
+
+  it('requires complete contract economics and an exception below 20 percent margin', async () => {
+    const statements: string[] = [];
+    const client = {
+      query: async (sql: string) => {
+        statements.push(sql);
+        if (sql.includes('FROM wizmatch_submissions')) return { rowCount: 1, rows: [{ id: 'submission-1', status: 'offered', candidate_id: 'candidate-1', requirement_id: 'requirement-1' }] };
+        if (sql.includes('FROM wizmatch_offers')) return { rowCount: 1, rows: [{ id: 'offer-1', submission_id: 'submission-1', status: 'accepted', currency: 'INR', period: 'hourly' }] };
+        if (sql.includes('FROM wizmatch_requirements')) return { rowCount: 1, rows: [{ id: 'requirement-1', company_id: 'company-1' }] };
+        return { rowCount: 0, rows: [] };
+      },
+      release: () => {},
+    };
+    const service = createWizmatchDeliveryService({ connect: async () => client } as any);
+    await expect(service.createPlacement({ tenantId: 'tenant-a', userId: 'admin-1' }, 'submission-1', {
+      offerId: 'offer-1', model: 'contract', billAmount: 1000,
+    })).rejects.toMatchObject({ code: 'contract_economics_required' });
+    await expect(service.createPlacement({ tenantId: 'tenant-a', userId: 'admin-1' }, 'submission-1', {
+      offerId: 'offer-1', model: 'contract', billAmount: 1000, loadedCost: 850,
+    })).rejects.toMatchObject({ code: 'margin_exception_required' });
+    expect(statements.some(sql => sql.includes('INSERT INTO wizmatch_placements'))).toBe(false);
+  });
 });

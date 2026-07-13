@@ -4492,6 +4492,10 @@ async function ensureWizmatchPipeline(tenantId: string): Promise<string> {
 }
 
 router.get('/placements', async (req: Request, res: Response) => {
+  if (!['admin', 'team_lead'].includes(req.user!.role)) {
+    res.status(403).json({ error: 'commercial_access_requires_lead' });
+    return;
+  }
   const tenantId = req.user!.tenantId;
   const limit = Math.min(Number(req.query.limit) || 50, 200);
   const offset = Number(req.query.offset) || 0;
@@ -5067,6 +5071,10 @@ router.get('/digest', async (req: Request, res: Response) => {
 });
 
 router.get('/analytics', async (req: Request, res: Response) => {
+  if (!['admin', 'team_lead'].includes(req.user!.role)) {
+    res.status(403).json({ error: 'commercial_access_requires_lead' });
+    return;
+  }
   const tenantId = req.user!.tenantId;
   const from = (req.query.from as string) || new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
   const to = (req.query.to as string) || new Date().toISOString().slice(0, 10);
@@ -5169,6 +5177,10 @@ async function fetchOptionalContactIntelligenceRoiStats(tenantId: string): Promi
 }
 
 router.get('/analytics/roi', async (req: Request, res: Response) => {
+  if (!['admin', 'team_lead'].includes(req.user!.role)) {
+    res.status(403).json({ error: 'commercial_access_requires_lead' });
+    return;
+  }
   const tenantId = req.user!.tenantId;
   const from = (req.query.from as string) || new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
   const to = (req.query.to as string) || new Date().toISOString().slice(0, 10);

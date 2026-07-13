@@ -1,6 +1,6 @@
 import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { getAuthToken, getAuthUser, getProductHome, getTenantSlug, normalizeTenantSlug } from './lib/auth.js';
+import { getAuthPermissions, getAuthToken, getAuthUser, getProductHome, getTenantSlug, normalizeTenantSlug } from './lib/auth.js';
 import { staffingPhaseUi } from './lib/staffingPhases.js';
 
 const LoginPage = lazy(() => import('./pages/LoginPage.jsx'));
@@ -168,7 +168,8 @@ function HomeRedirect() {
 }
 
 function StaffingPhaseRoute({ phase, children }) {
-  return staffingPhaseUi[phase] ? children : <Navigate to="/wizmatch/dashboard" replace />;
+  const pilotAccess = getAuthPermissions('wizmatch').staffingPilotAccess === true;
+  return staffingPhaseUi[phase] && pilotAccess ? children : <Navigate to="/wizmatch/dashboard" replace />;
 }
 
 function QueryBoundaryQaPage() {

@@ -14,7 +14,7 @@ async function setup(page: Page) {
     localStorage.setItem('crm_active_tenant_slug', 'wizmatch');
     localStorage.setItem('wizmatch_crm_token', value.token);
     localStorage.setItem('wizmatch_crm_user', JSON.stringify(value.user));
-    localStorage.setItem('wizmatch_crm_permissions', '{}');
+    localStorage.setItem('wizmatch_crm_permissions', JSON.stringify({ staffingPilotAccess: true }));
   }, session);
   await page.route('**/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname;

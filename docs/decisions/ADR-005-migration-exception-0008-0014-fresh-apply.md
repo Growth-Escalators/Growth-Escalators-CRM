@@ -1,8 +1,8 @@
 # ADR-005 — One-time migration-owner exception: idempotency edits to historical migrations 0008/0014
 
-- **Status:** Proposed — explicit migration-owner confirmation still required
+- **Status:** Accepted — one-time exception approved 2026-07-14
 - **Date:** 2026-07-13
-- **Deciders:** Jatin (migration owner) — pending; Claude — implemented/analysed
+- **Deciders:** Jatin (migration owner) — approved through the Final Hardening and Production Launch plan; Claude — implemented/analysed
 - **Supersedes/related:** review at
   [`../reviews/wizmatch-migration-guardrail-review-2026-07-13.md`](../reviews/wizmatch-migration-guardrail-review-2026-07-13.md);
   guardrail in `AGENTS.md` (`src/db/migrations/` = "Already-applied SQL — editing breaks prod Postgres state").
@@ -28,10 +28,10 @@ because two historical migrations are not replayable from scratch:
 Production was migrated **incrementally** over time and never performed a from-scratch replay, so it
 was unaffected; but no fresh clone / staging / new environment could apply the chain.
 
-## Proposed decision
+## Decision
 
 Approve a **one-time, documented exception** to the historical-migration guardrail to keep commit
-`a810d08`, which makes those statements idempotent. This proposal is not approval to push:
+`a810d08`, which makes those statements idempotent. This decision is not approval to push:
 
 - `0008`: `CREATE TABLE IF NOT EXISTS` (×2), `ADD COLUMN IF NOT EXISTS` (×3), and
   `DO $$ … pg_constraint …$$` guards on the 3 social FK constraints (matching `0009`'s own pattern).
