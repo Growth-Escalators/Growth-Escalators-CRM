@@ -24,7 +24,7 @@ Current remediation status is canonical in
 [`WIZMATCH_STAFFING_OS_DEFECT_REGISTER.md`](../docs/wizmatch/WIZMATCH_STAFFING_OS_DEFECT_REGISTER.md).
 
 **Current verified Phase 0 slice:** D-1–D-7, D-9–D-12, D-14, D-19–D-21,
-D-26–D-31 are locally verified. D-8, D-16, D-18 and D-23 are partially complete or
+D-26–D-31 are locally verified. D-16, D-18 and D-23 are partially complete or
 need one remaining verification/design slice. D-13/D-15 and the staffing domain spine remain behind
 Gate A. See the defect register for the exact evidence and next action for every item.
 
@@ -47,13 +47,14 @@ Gate A. See the defect register for the exact evidence and next action for every
   IT-role evidence only; company vocabulary is separate from role fit; SAP ABAP/FICO, Java and
   JavaScript plus known false-positive fixtures pass; hot/warm/watch are all attainable.
 - **D-6/D-8/D-19:** AI analysis is bounded to 40 KB/1,500 tokens/20 seconds with safe failure
-  details; four primary queue endpoints return true database totals plus returned counts; readiness
-  separates schema health from usable-funnel health. Workbench total counting is still open.
+  details; four primary queue endpoints return true database totals plus returned counts; the same
+  canonical server-side action queue supplies Dashboard/Workbench/Guardrails totals; readiness
+  separates schema health from usable-funnel health.
 - **D-26–D-31:** authenticated outages never substitute demo records or enable dependent actions;
   Pipeline has Retry/finally behavior; demo routes are development-only; the server requires a
   current admin build; login preserves Wizmatch/return path; query-string tabs reset boundaries.
 - Local Playwright coverage uses an isolated port 5184 clean-branch Vite server: **10/10 passed**.
-- Full local verification: `npm run build`, `npm run admin:build`, `npm test` (**38 files / 316
+- Full local verification: `npm run build`, `npm run admin:build`, `npm test` (**38 files / 318
   tests**), Playwright **10/10**, production-bundle demo-route absence, and `git diff --check` passed.
 - Persistent context was hardened: canonical defect register, corrected dataflow/product brief,
   proposed ADR-004 + Phase 1 plan, improved Claude kickoff, and current-tree credential redaction.
@@ -69,9 +70,9 @@ assignment, activity, task-link, skill/match, and delivery spine needed for Pers
 Person B→Java. Do not edit schema/migrations until the owner records the approval in
 `WIZMATCH_STAFFING_OS_OWNER_INPUTS.md`.
 
-**Exact next safe code slice:** finish D-8 with an exact server-side executable-workbench count
-contract. D-13/D-15 and the core staffing relationship model require the explicit Gate A approval
-below.
+**Exact next step:** Phase 0 release validation is complete locally. D-13/D-15 and the core staffing
+relationship model require the explicit Gate A approval below. D-17/D-22/D-24/D-25 are naturally
+implemented with the later private-document, commercial-currency and dedupe schema slices.
 
 ### Last shipped product unit (2026-07-12) — Wizmatch client-acquisition workbench + repo hardening
 All on `main` (product changes through `6d659ec`; current repo head `ba4be81` adds context/gitignore
