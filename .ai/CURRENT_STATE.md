@@ -35,7 +35,9 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   - Admin pages require company selection, show Person A→SAP versus Person B→Java, manage source/
     team/next action/stage, and expose recruiter work without widening legacy send/spend routes.
   - Generated migration `0025_cynical_brother_voodoo.sql` contains no destructive statement and
-    applied cleanly over an `origin/main` schema in a disposable local Postgres database.
+    applied cleanly over an `origin/main` schema in a disposable local Postgres database. The
+    actual deployment entry point, `src/scripts/migrate.ts`, also applied only 0025 when seeded with
+    the production-shaped prior migration timestamp and recorded the new journal timestamp.
   - Verification: **40 Vitest files / 325 tests**, backend/admin builds, **14/14 Playwright** paths,
     authenticated scratch HTTP workflow, relationship uniqueness/history checks and `git diff --check`.
 - **Persistent context:** PRD 004 direction and ADR-004 Gate A are approved for local phased

@@ -1927,6 +1927,9 @@ Built in parallel via 3 isolated-worktree subagents, reviewed + merged + deploye
 - Applied `origin/main` schema plus migration 0025 to disposable local Postgres and proved Company A:
   Person A→SAP ABAP, Person B→Java; editing B left A unchanged; duplicate relationship and second
   active primary-source constraints rejected invalid rows.
+- Verified the real deployment migrator (`src/scripts/migrate.ts`) against a second disposable
+  `origin/main` baseline with the prior journal timestamp: it applied only migration 0025, created
+  the Gate A tables/columns and recorded timestamp `1783922500159`.
 - Authenticated scratch HTTP check proved My Work, linked next-action task, accepted-stage gate and
   Requirement 360; a recruiter received 403 on legacy `/api/wizmatch/signals`.
 - `npm run build`, `npm run admin:build`, `npm test` (40 files / 325 tests), Playwright (14/14) and
