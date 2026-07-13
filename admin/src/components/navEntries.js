@@ -51,6 +51,7 @@ export function computeFlags(role, perms = {}, tenantSlug = 'growth-escalators')
     canMarketing:  ['admin', 'manager_ads'].includes(role),
     canSEO:        ['admin', 'manager_ops', 'manager_ads'].includes(role),
     canWizmatch:   product === 'wizmatch' && isAdminTier,
+    canStaffing:   product === 'wizmatch' && ['admin', 'manager_ops', 'team_lead', 'sales', 'staff'].includes(role),
   };
 }
 
@@ -265,6 +266,16 @@ export const NAV_ENTRIES = [
     visible: f => f.isAdmin,
   },
   // ── Wizmatch funnel (canonical order: start → source → contact → rank → match → place → measure) ──
+  {
+    id: 'wm-my-work', label: 'My Work', to: '/wizmatch/my-work',
+    icon: CheckSquare, section: 'Wizmatch', group: null, product: 'wizmatch',
+    visible: f => f.canStaffing,
+  },
+  {
+    id: 'wm-relationships', label: 'Companies & Contacts', to: '/wizmatch/relationships',
+    icon: Users, section: 'Wizmatch', group: null, product: 'wizmatch',
+    visible: f => f.canWizmatch,
+  },
   {
     id: 'wm-review-workbench', label: 'Review Workbench', to: '/wizmatch/review-workbench',
     icon: ClipboardList, section: 'Wizmatch', group: null,

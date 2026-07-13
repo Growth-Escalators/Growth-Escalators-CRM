@@ -123,6 +123,8 @@ export default function WizmatchRequirementsPage() {
             <tr>
               <th>Requirement</th>
               <th>Client</th>
+              <th>Source person</th>
+              <th>Assigned team</th>
               <th>Location</th>
               <th className="text-center">Positions</th>
               <th className="text-right">Budget</th>
@@ -133,8 +135,8 @@ export default function WizmatchRequirementsPage() {
             </tr>
           </thead>
           <tbody>
-            {loading ? <tr><td colSpan="9" className="px-4 py-8 text-center text-neutral-400">Loading...</td></tr>
-            : items.length === 0 ? <tr><td colSpan="9" className="px-4 py-8 text-center text-neutral-400">No requirements match these filters.</td></tr>
+            {loading ? <tr><td colSpan="11" className="px-4 py-8 text-center text-neutral-400">Loading...</td></tr>
+            : items.length === 0 ? <tr><td colSpan="11" className="px-4 py-8 text-center text-neutral-400">No requirements match these filters.</td></tr>
             : items.map(r => (
               <tr key={r.id} onClick={() => setSelected(r)} className="cursor-pointer hover:bg-neutral-50">
                 <td>
@@ -149,11 +151,13 @@ export default function WizmatchRequirementsPage() {
                     {r.company_tier ? `Tier ${r.company_tier}` : '—'}
                   </span>
                 </td>
+                <td><div className="font-medium">{r.primary_source_name || <span className="text-warning-700">Needs attribution</span>}</div><div className="text-[11px] text-neutral-500">{r.primary_source_email || ''}</div></td>
+                <td>{(r.assignments || []).length ? (r.assignments || []).map(a => <div key={a.id} className="text-[11.5px]"><span className="font-medium">{a.name}</span> · {a.role.replace(/_/g, ' ')}</div>) : <span className="text-warning-700">Unassigned</span>}</td>
                 <td>{r.location || '—'}{r.work_mode ? ` · ${r.work_mode}` : ''}</td>
                 <td className="text-center">{r.positions || 1}</td>
                 <td className="text-right font-mono text-neutral-900">{fmtBudget(r)}</td>
                 <td><span className={REGION_BADGE[r.region] || 'badge-muted'}>{r.region || '—'}</span></td>
-                <td><span className={STATUS_BADGE[r.status] || 'badge-muted'}>{r.status?.replace(/_/g, ' ')}</span></td>
+                <td><span className="badge-info">{(r.stage || 'draft').replace(/_/g, ' ')}</span><div className="mt-1"><span className={STATUS_BADGE[r.status] || 'badge-muted'}>{r.status?.replace(/_/g, ' ')}</span></div></td>
                 <td className="text-right" onClick={e => e.stopPropagation()}>
                   {r.sheet_url ? (
                     <div className="flex gap-2 justify-end">
@@ -201,7 +205,7 @@ export default function WizmatchRequirementsPage() {
 }
 
 const EMPTY = {
-  title: '', region: 'india', location: '', work_mode: 'onsite', employment_type: 'contract',
+  company_id: '', title: '', region: 'india', location: '', work_mode: 'onsite', employment_type: 'contract',
   min_experience: '', max_experience: '', budget_min: '', budget_max: '', budget_currency: 'INR',
   budget_period: 'monthly', positions: 1, priority: 'normal', mask_client: true,
   required_skills: '', nice_to_have_skills: '', vendor_notes: '', raw_jd: '', source_file_url: null,
@@ -215,7 +219,16 @@ function RequirementDrawer({ onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [parseFeedback, setParseFeedback] = useState(null);
   const [form, setForm] = useState(EMPTY);
+  const [companies, setCompanies] = useState([]);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  useEffect(() => {
+    apiFetch('/api/wizmatch/staffing/companies').then(data => {
+      const options = data.items || [];
+      setCompanies(options);
+      setForm(f => ({ ...f, company_id: f.company_id || options[0]?.id || '' }));
+    }).catch(() => setCompanies([]));
+  }, []);
 
   const runParse = async () => {
     setParseFeedback(null);
@@ -259,6 +272,7 @@ function RequirementDrawer({ onClose, onSaved }) {
 
   const save = async () => {
     if (!form.title.trim()) { alert('Title is required'); return; }
+    if (!form.company_id) { alert('Company is required'); return; }
     setSaving(true);
     try {
       const payload = {
@@ -330,6 +344,14 @@ function RequirementDrawer({ onClose, onSaved }) {
           </div>
 
           <div className="border-t border-neutral-100 pt-4 space-y-3">
+            <div>
+              <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Company *</label>
+              <select value={form.company_id} onChange={e => set('company_id', e.target.value)} className="input w-full mt-1">
+                <option value="">Select the company that supplied this role</option>
+                {companies.map(company => <option value={company.id} key={company.id}>{company.name}</option>)}
+              </select>
+              {!companies.length && <p className="text-[11.5px] text-warning-700 mt-1">No company is available. Add or qualify the company before creating its requirement.</p>}
+            </div>
             <div>
               <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Title *</label>
               <input value={form.title} onChange={e => set('title', e.target.value)} className="input w-full mt-1" placeholder="e.g. Senior Java Developer" />
@@ -503,6 +525,7 @@ function RequirementDetailDrawer({ requirement, onClose, onSaved, onFindCandidat
         </div>
 
         <div className="p-6 space-y-5">
+          <RequirementOperations requirement={requirement} />
           <div className="flex justify-between items-center">
             <button onClick={onFindCandidates} className="btn-standard btn-compact">
               <Users className="w-3.5 h-3.5" /> Find candidates
@@ -618,6 +641,31 @@ function RequirementDetailDrawer({ requirement, onClose, onSaved, onFindCandidat
       </div>
     </div>
   );
+}
+
+const OPERATING_STAGES = ['draft','qualifying','accepted','sourcing','covered','submitted','interviewing','offer','filled','on_hold','closed_lost','cancelled'];
+
+function RequirementOperations({ requirement }) {
+  const [data,setData]=useState(null); const [companyContacts,setCompanyContacts]=useState([]); const [users,setUsers]=useState([]);
+  const [sourceId,setSourceId]=useState(''); const [assignmentRole,setAssignmentRole]=useState('recruiter'); const [userId,setUserId]=useState('');
+  const [nextAction,setNextAction]=useState(''); const [dueAt,setDueAt]=useState(''); const [slaAt,setSlaAt]=useState(''); const [targetStage,setTargetStage]=useState(requirement.stage || 'draft');
+  const [busy,setBusy]=useState(false); const [feedback,setFeedback]=useState('');
+  const load=useCallback(async()=>{try{const [detail,contacts,team]=await Promise.all([apiFetch(`/api/wizmatch/staffing/requirements/${requirement.id}`),apiFetch(`/api/wizmatch/companies/${requirement.company_id}/contacts`),apiFetch('/api/wizmatch/staffing/users')]);setData(detail);setCompanyContacts(contacts.items||[]);setUsers(team.items||[]);setSourceId(v=>v||contacts.items?.[0]?.id||'');setUserId(v=>v||team.items?.[0]?.id||'');setTargetStage(detail.requirement.stage||'draft');}catch(e){setFeedback(e.message);}},[requirement.id,requirement.company_id]);
+  useEffect(()=>{load();},[load]);
+  const run=async(action,success)=>{setBusy(true);setFeedback('');try{await action();setFeedback(success);await load();}catch(e){setFeedback(e.message);}finally{setBusy(false);}};
+  if(!data) return <div className="card p-4 text-[12px] text-neutral-500">Loading staffing ownership… {feedback}</div>;
+  return <section className="card p-4 border-primary-200 bg-primary-50/30 space-y-4">
+    <div><h3 className="font-bold text-neutral-900">Requirement 360</h3><p className="text-[11.5px] text-neutral-500">Source person, owners, SLA, next action and stage are audited independently from the legacy sheet status.</p></div>
+    {feedback&&<div role="status" className="text-[12px] bg-white border rounded p-2">{feedback}</div>}
+    <div><div className="text-[11px] uppercase font-semibold text-neutral-500 mb-1">Source contact</div>{data.contacts.filter(c=>c.active).map(c=><div key={c.id} className="text-[12px] mb-1"><span className="font-semibold">{[c.first_name,c.last_name].filter(Boolean).join(' ')}</span> · {c.role}{c.is_primary_source?' · primary source':''}</div>)}
+      <div className="flex gap-2 mt-2"><select className="input flex-1" value={sourceId} onChange={e=>setSourceId(e.target.value)}><option value="">Select linked hiring contact</option>{companyContacts.filter(c=>c.relationship_stage==='active').map(c=><option key={c.id} value={c.id}>{[c.first_name,c.last_name].filter(Boolean).join(' ')} · {(c.roles||[]).join(', ')}</option>)}</select><button className="btn-standard btn-compact" disabled={busy||!sourceId} onClick={()=>run(()=>apiFetch(`/api/wizmatch/requirements/${requirement.id}/contacts`,{method:'POST',body:JSON.stringify({companyContactId:sourceId,role:'source',isPrimarySource:true,receivedChannel:'manual'})}),'Source person attributed')}>Set primary</button></div>
+      {!companyContacts.length&&<div className="text-warning-700 text-[11.5px] mt-1">Link a hiring contact to this company from Companies & Contacts first.</div>}
+    </div>
+    <div><div className="text-[11px] uppercase font-semibold text-neutral-500 mb-1">Assigned team</div>{data.assignments.filter(a=>a.active).map(a=><div key={a.id} className="text-[12px] mb-1 flex justify-between"><span><b>{a.name}</b> · {a.role.replaceAll('_',' ')}</span><button className="text-danger-600" disabled={busy} onClick={()=>run(()=>apiFetch(`/api/wizmatch/requirements/${requirement.id}/assignments/${a.id}`,{method:'DELETE'}),'Assignment removed')}>Remove</button></div>)}<div className="grid grid-cols-[1fr_1fr_auto] gap-2 mt-2"><select className="input" value={userId} onChange={e=>setUserId(e.target.value)}>{users.map(u=><option key={u.id} value={u.id}>{u.name} · {u.role}</option>)}</select><select className="input" value={assignmentRole} onChange={e=>setAssignmentRole(e.target.value)}><option value="account_owner">Account owner</option><option value="delivery_owner">Delivery owner</option><option value="recruiter">Recruiter</option></select><button className="btn-standard btn-compact" disabled={busy||!userId} onClick={()=>run(()=>apiFetch(`/api/wizmatch/requirements/${requirement.id}/assignments`,{method:'POST',body:JSON.stringify({userId,role:assignmentRole})}),'Team member assigned')}>Assign</button></div></div>
+    <div><div className="text-[11px] uppercase font-semibold text-neutral-500 mb-1">Dated next action and SLA</div><input className="input w-full mb-2" placeholder="Example: Call Priya for Java shortlist feedback" value={nextAction} onChange={e=>setNextAction(e.target.value)}/><div className="grid grid-cols-2 gap-2"><label className="text-[11px]">Next action due<input type="datetime-local" className="input w-full mt-1" value={dueAt} onChange={e=>setDueAt(e.target.value)}/></label><label className="text-[11px]">Requirement SLA due<input type="datetime-local" className="input w-full mt-1" value={slaAt} onChange={e=>setSlaAt(e.target.value)}/></label></div><button className="btn-standard btn-compact mt-2" disabled={busy||!nextAction.trim()||!dueAt} onClick={()=>run(()=>apiFetch(`/api/wizmatch/requirements/${requirement.id}/next-action`,{method:'POST',body:JSON.stringify({nextAction,nextActionDueAt:new Date(dueAt).toISOString(),slaDueAt:slaAt?new Date(slaAt).toISOString():undefined})}),'Next action and linked task created')}>Save next action</button></div>
+    <div><div className="text-[11px] uppercase font-semibold text-neutral-500 mb-1">Operating stage</div><div className="flex gap-2"><select className="input flex-1" value={targetStage} onChange={e=>setTargetStage(e.target.value)}>{OPERATING_STAGES.map(s=><option key={s} value={s}>{s.replaceAll('_',' ')}</option>)}</select><button className="btn-primary btn-compact" disabled={busy||targetStage===data.requirement.stage} onClick={()=>run(()=>apiFetch(`/api/wizmatch/requirements/${requirement.id}/transition`,{method:'POST',body:JSON.stringify({stage:targetStage,closureReason:['closed_lost','cancelled'].includes(targetStage)?prompt('Closure reason')||'':undefined})}),'Stage updated')}>Move stage</button></div><p className="text-[11px] text-neutral-500 mt-1">Acceptance is blocked until primary source, account owner, recruiter, SLA and dated next action are all present.</p></div>
+    <div><div className="text-[11px] uppercase font-semibold text-neutral-500 mb-1">Recent timeline</div>{data.events.slice(0,5).map(e=><div key={e.id} className="text-[11.5px] border-l-2 border-primary-200 pl-2 py-1"><b>{e.event_type.replaceAll('_',' ')}</b> · {new Date(e.occurred_at).toLocaleString()}</div>)}</div>
+  </section>;
 }
 
 // The candidate-intelligence matches endpoint returns CandidateIntelligenceResult rows

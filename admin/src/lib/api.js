@@ -32,7 +32,8 @@ export async function apiFetch(path, options = {}) {
     // can show alert(err.message) without rendering "[object Object]".
     const raw = data?.error;
     const msg =
-      typeof raw === 'string'      ? raw
+      typeof data?.message === 'string' ? data.message
+      : typeof raw === 'string'      ? raw
       : raw && typeof raw === 'object' && typeof raw.message === 'string' ? raw.message
       : `Request failed (${res.status})`;
     const error = new Error(msg);

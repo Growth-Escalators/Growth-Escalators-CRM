@@ -35,6 +35,8 @@ const WizmatchCommandCenterNewPage = lazy(() => import('./pages/WizmatchNewPages
 const WizmatchClientDiscoveryNewPage = lazy(() => import('./pages/WizmatchNewPages.jsx').then((module) => ({ default: module.WizmatchClientDiscoveryNewPage })));
 const WizmatchClientDiscoveryPage = lazy(() => import('./pages/WizmatchClientDiscoveryPage.jsx'));
 const WizmatchRequirementsPage = lazy(() => import('./pages/WizmatchRequirementsPage.jsx'));
+const WizmatchMyWorkPage = lazy(() => import('./pages/WizmatchMyWorkPage.jsx'));
+const WizmatchRelationshipsPage = lazy(() => import('./pages/WizmatchRelationshipsPage.jsx'));
 const WizmatchSignalsPage = lazy(() => import('./pages/WizmatchSignalsPage.jsx'));
 const WizmatchCandidateIntelligenceNewPage = lazy(() => import('./pages/WizmatchNewPages.jsx').then((module) => ({ default: module.WizmatchCandidateIntelligenceNewPage })));
 const WizmatchCandidateIntelligencePage = lazy(() => import('./pages/WizmatchCandidateIntelligencePage.jsx'));
@@ -239,6 +241,8 @@ export default function App() {
             <Route path="/wizmatch/client-discovery" element={<PrivateRoute><AppLayout><WizmatchClientDiscoveryPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/client-discovery-new" element={<Navigate to="/wizmatch/client-discovery" replace />} />
             <Route path="/wizmatch/requirements" element={<PrivateRoute><AppLayout><WizmatchRequirementsPage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/my-work" element={<PrivateRoute><AppLayout><WizmatchMyWorkPage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/relationships" element={<PrivateRoute><AppLayout><WizmatchRelationshipsPage /></AppLayout></PrivateRoute>} />
             {import.meta.env.DEV && <Route path="/wizmatch/requirement-priority-new-demo" element={<WizmatchRequirementPriorityPage demoMode />} />}
             <Route path="/wizmatch/requirement-priority-new" element={<PrivateRoute><AppLayout><WizmatchRequirementPriorityPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/signals" element={<PrivateRoute><AppLayout><WizmatchSignalsPage /></AppLayout></PrivateRoute>} />
