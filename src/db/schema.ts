@@ -444,7 +444,7 @@ export const users = pgTable(
     name: text('name').notNull(),
     email: text('email').notNull(),
     passwordHash: text('password_hash').notNull(),
-    role: text('role').default('staff'), // admin | manager_ops | manager_ads | sales | staff
+    role: text('role').default('staff'), // admin | manager_ops | manager_ads | team_lead | sales | staff | creative_assistant | viewer (read-only)
     tokenVersion: integer('token_version').default(1),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },

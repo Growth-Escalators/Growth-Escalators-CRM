@@ -11,36 +11,42 @@ import { eq } from 'drizzle-orm';
 // gated only by requireAuth on /api/tasks) + Inbox + Meta Ads (view & manage) +
 // Social (view & post) + the external Content link. Explicitly excluded from
 // Contacts/Deals/Reports/Billing/Sequences/Discovery/Marketing/Health/etc.
+// 'viewer' is a read-only service role (used by the Command Deck sync). It is added to every
+// *_VIEW (read) permission below, and to nothing that edits/exports/deletes/manages. requireAuth
+// separately blocks the viewer role from any non-GET request, so read-only holds by construction.
 const PERMISSION_MAP: Record<string, string[]> = {
-  CONTACTS_VIEW:       ['admin', 'manager_ops', 'team_lead', 'sales'],
+  CONTACTS_VIEW:       ['admin', 'manager_ops', 'team_lead', 'sales', 'viewer'],
   CONTACTS_EXPORT:     ['admin'],
   CONTACTS_BULK_DELETE: ['admin'],
-  DEALS_VIEW:          ['admin', 'manager_ops', 'team_lead', 'sales'],
+  DEALS_VIEW:          ['admin', 'manager_ops', 'team_lead', 'sales', 'viewer'],
   DEALS_EDIT:          ['admin', 'manager_ops', 'team_lead', 'sales'],
-  QUALIFICATION_VIEW:  ['admin', 'manager_ops', 'team_lead', 'sales'],
-  SEQUENCES_VIEW:      ['admin', 'manager_ops', 'team_lead', 'sales'],
+  QUALIFICATION_VIEW:  ['admin', 'manager_ops', 'team_lead', 'sales', 'viewer'],
+  SEQUENCES_VIEW:      ['admin', 'manager_ops', 'team_lead', 'sales', 'viewer'],
   SEQUENCES_EDIT:      ['admin', 'manager_ops', 'team_lead'],
-  AUTOMATIONS_VIEW:    ['admin', 'manager_ops', 'team_lead', 'sales'],
+  AUTOMATIONS_VIEW:    ['admin', 'manager_ops', 'team_lead', 'sales', 'viewer'],
   AUTOMATIONS_EDIT:    ['admin', 'manager_ops', 'team_lead'],
-  ADS_VIEW:            ['admin', 'manager_ads', 'team_lead', 'creative_assistant'],
+  ADS_VIEW:            ['admin', 'manager_ads', 'team_lead', 'creative_assistant', 'viewer'],
   ADS_MANAGE:          ['admin', 'manager_ads', 'team_lead', 'creative_assistant'],
-  REPORTS_VIEW:        ['admin', 'manager_ops', 'manager_ads'],
-  SOCIAL_VIEW:         ['admin', 'manager_ops', 'team_lead', 'staff', 'creative_assistant'],
+  REPORTS_VIEW:        ['admin', 'manager_ops', 'manager_ads', 'viewer'],
+  SOCIAL_VIEW:         ['admin', 'manager_ops', 'team_lead', 'staff', 'creative_assistant', 'viewer'],
   SOCIAL_POST:         ['admin', 'manager_ops', 'team_lead', 'staff', 'creative_assistant'],
-  INBOX_VIEW:          ['admin', 'manager_ops', 'team_lead', 'sales', 'creative_assistant'],
+  INBOX_VIEW:          ['admin', 'manager_ops', 'team_lead', 'sales', 'creative_assistant', 'viewer'],
   BILLING_VIEW:        ['admin'],
-  HEALTH_VIEW:         ['admin', 'manager_ops', 'team_lead', 'sales'],
+  HEALTH_VIEW:         ['admin', 'manager_ops', 'team_lead', 'sales', 'viewer'],
   PERMISSIONS_VIEW:    ['admin'],
   AUDIT_VIEW:          ['admin'],
-  MARKETING_VIEW:      ['admin', 'manager_ads'],
+  MARKETING_VIEW:      ['admin', 'manager_ads', 'viewer'],
   MARKETING_MANAGE:    ['admin', 'manager_ads'],
-  DISCOVERY_VIEW:      ['admin', 'manager_ops', 'team_lead', 'sales'],
+  DISCOVERY_VIEW:      ['admin', 'manager_ops', 'team_lead', 'sales', 'viewer'],
 };
 
 // Roles that get admin-tier operational tools (Outreach, AI Intelligence,
 // Growth OS) — gated separately from PERMISSION_MAP because these are
 // inline-checked in route handlers rather than via requirePermission.
-export const ADMIN_TIER_ROLES = ['admin', 'team_lead'];
+// `viewer` is included for READ access to admin-tier surfaces (Growth OS, AI Intelligence,
+// Outreach). Safe because requireAuth blocks the viewer role from any non-GET method — viewer
+// can read these but can never trigger their writes.
+export const ADMIN_TIER_ROLES = ['admin', 'team_lead', 'viewer'];
 export function isAdminTier(role: string | undefined): boolean {
   return ADMIN_TIER_ROLES.includes(role || '');
 }
