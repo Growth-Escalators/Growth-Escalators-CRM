@@ -2,9 +2,9 @@
 
 ## Active task
 
-**Wizmatch Staffing OS — Gate A/B/C are now exercised end to end in the isolated Railway staging
-environment. The exact next technical action is a separately approved staging deployment of the
-local permanent-fee/contract-margin display repair, followed by one Placements-page smoke test.**
+**Wizmatch Staffing OS — Gate A/B/C and the permanent-fee/contract-margin display repair are now
+deployed and smoke-tested in the isolated Railway staging environment. The next release-readiness
+unit is the mandatory owner-policy workshop plus the explicit migration-owner decision on ADR-005.**
 
 Work only in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust` on
 `codex/wizmatch-phase0-trust`. Preserve the unrelated dirty workspace at
@@ -29,8 +29,10 @@ Work only in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust` on
   resolved. Invoice, collection and placement remain separate records.
 - Browser: live Delivery, My Work, Relationships, Requirements, Talent Matching, Placements,
   Analytics and System paths were checked. Mobile Delivery at 390×844 has no page-level overflow.
-- The old Placements view misleadingly labelled a permanent fee as hourly margin. A local repair now
-  formats permanent fees and contract hourly margins separately, with three focused tests.
+- The old Placements view misleadingly labelled a permanent fee as hourly margin. Commit `ef2112f`
+  is deployed to staging as Railway deployment `52508e6f-8fdd-475c-a58e-84d31b82d142` (`SUCCESS`).
+  Authenticated browser smoke verified the aggregate and cards show `₹500/hr contract margin` and
+  `₹2,50,000 permanent fee(s)`, with no permanent amount shown as hourly.
 
 ## Current local verification
 
@@ -50,13 +52,12 @@ written to production. Do not push or deploy from this context alone.
 
 Pause for a separate explicit approval immediately before each of:
 
-1. Deploy the local commercial-label repair to staging.
-2. Read production data for the count-only backfill preview.
-3. Apply migrations 0025–0028 to production with all gates off.
-4. Push this reviewed branch to `main` (Railway auto-deploys).
-5. Enable production Gate A, Gate B or Gate C flags.
-6. Import approved pilot production data.
-7. Rotate any live credential, send/outreach, enable paid providers or deploy a worker.
+1. Read production data for the count-only backfill preview.
+2. Apply migrations 0025–0028 to production with all gates off.
+3. Push this reviewed branch to `main` (Railway auto-deploys).
+4. Enable production Gate A, Gate B or Gate C flags.
+5. Import approved pilot production data.
+6. Rotate any live credential, send/outreach, enable paid providers or deploy a worker.
 
 Before production Gate C activation, the owner must still fill the mandatory role, SLA, consent,
 privacy, permission and commercial-policy decisions in
@@ -64,6 +65,7 @@ privacy, permission and commercial-policy decisions in
 
 ## Exact next action
 
-Ask the owner for: **“Approve deploying the current clean release worktree to the isolated Railway
-staging `web-staging` service to verify the permanent-fee/contract-margin display repair; no
-production service, data, sending, provider or flag will be touched.”**
+Run the owner workshop and record explicit decisions in
+`docs/wizmatch/WIZMATCH_STAFFING_OS_OWNER_INPUTS.md`; separately obtain the migration owner's
+accept/reject decision for proposed ADR-005. Do not infer either decision and do not begin a
+production read, migration, push, flag change or data import from this context alone.

@@ -6,6 +6,25 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-14 — Staging deployment and Placements commercial-label smoke — Codex — LIVE STAGING
+
+- With explicit staging-only approval, deployed exact commit `ef2112f` directly to Railway
+  `web-staging`; deployment `52508e6f-8fdd-475c-a58e-84d31b82d142` reached terminal `SUCCESS`.
+- Verified `GET /health` returned HTTP 200 with `status: healthy` and `database: ok`.
+- Authenticated browser smoke loaded `/wizmatch/placements` and its API at HTTP 200, rendered two
+  started fictional placements, and confirmed `₹500/hr contract margin`, `₹2,50,000 permanent
+  fee(s)`, and the absence of the incorrect permanent `/hr` and legacy USD labels. Visual layout
+  matched the assertions.
+- Used an in-memory staging-only password and a mode-0600 temporary session for QA. Immediately
+  rotated the pilot account again, bumped token version, and removed all temporary session and
+  screenshot files. No credential value entered the repo or handoff.
+- Production was not accessed or changed: no remote Git push, production deployment, database
+  read/write, migration, flag, sending, provider, worker or production-data operation occurred.
+- Exact next unit: mandatory owner-policy workshop plus explicit accept/reject decision for
+  proposed ADR-005. Production read/migration/push/flags/import remain separate approval gates.
+
+---
+
 ## 2026-07-14 — Full staging Gate C, browser QA and commercial-label repair — Codex — LIVE STAGING + LOCAL
 
 - Corrected missing fictional Gate B evidence through tenant-scoped APIs, then proved four separate

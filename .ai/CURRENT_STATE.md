@@ -14,17 +14,21 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
 - Live browser QA covered My Work, Relationships, Requirements, Talent Matching, Delivery,
   Placements, Analytics and System. Delivery at 390×844 had no page-level overflow. No console
   errors were observed on the verified high-value pages.
-- Browser QA found one honest local defect: the legacy Placements page labelled permanent fees as
-  hourly margin. The local UI now formats permanent fees and contract hourly margins separately.
-  Three focused tests pass; this small repair is not yet deployed to staging.
+- Browser QA found one honest defect: the legacy Placements page labelled permanent fees as hourly
+  margin. The repair in `ef2112f` is now live on isolated staging via Railway deployment
+  `52508e6f-8fdd-475c-a58e-84d31b82d142` (`SUCCESS`). Authenticated Placements smoke returned page
+  and API HTTP 200, rendered 2 started placements, `₹500/hr contract margin` and `₹2,50,000
+  permanent fee(s)`, and contained neither the old permanent `/hr` label nor the legacy USD label.
 - Current verification: backend build passed; 44 Vitest files / 352 tests passed; admin production
   build passed; Wizmatch Playwright 16/16 passed; `git diff --check` passed.
 - A generated staging browser password appeared in an internal automation snapshot. It was
   immediately treated as compromised: password rotated, token version bumped, browser/session
   revoked, in-memory value cleared and temporary files removed. No credential value is retained.
-- Production remains untouched and continues on the old `main` release. The next guarded action is
-  approval to deploy the local display repair to isolated staging; production migration/push/flags/
-  data remain separate later approvals. Mandatory owner policies still block production Gate C.
+- The smoke-test login was generated in memory, used only against staging, then rotated/revoked;
+  all temporary session and screenshot files were removed. Production remains untouched and
+  continues on the old `main` release. Mandatory owner policies and the proposed ADR-005
+  migration-owner decision are next; production read/migration/push/flags/data remain separately
+  approval-gated.
 
 ## 2026-07-13 Staffing OS three-phase snapshot (superseded where noted above)
 

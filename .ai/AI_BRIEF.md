@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-13T19:42:19.120Z_
+_Generated: 2026-07-13T19:48:38.212Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,14 +12,14 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: Growth-Escalators/Growth-Escalators-CRM
 - **Branch**: `codex/wizmatch-phase0-trust`
-- **Last commit**: 10126d6 fix(wizmatch): verify staging delivery economics (9 seconds ago)
-- **Uncommitted changes**: 0 file(s)
+- **Last commit**: ef2112f fix(wizmatch): verify staging delivery economics (6 minutes ago)
+- **Uncommitted changes**: 5 file(s)
 
 ## Current task
 
-**Wizmatch Staffing OS — Gate A/B/C are now exercised end to end in the isolated Railway staging
-environment. The exact next technical action is a separately approved staging deployment of the
-local permanent-fee/contract-margin display repair, followed by one Placements-page smoke test.**
+**Wizmatch Staffing OS — Gate A/B/C and the permanent-fee/contract-margin display repair are now
+deployed and smoke-tested in the isolated Railway staging environment. The next release-readiness
+unit is the mandatory owner-policy workshop plus the explicit migration-owner decision on ADR-005.**
 
 Work only in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust` on
 `codex/wizmatch-phase0-trust`. Preserve the unrelated dirty workspace at
@@ -30,7 +30,7 @@ Work only in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust` on
 ## Recent commits
 
 ```
-10126d6 fix(wizmatch): verify staging delivery economics
+ef2112f fix(wizmatch): verify staging delivery economics
 5a4abe0 chore(ai): record staging Gate A pilot evidence + a810d08 guardrail review
 a810d08 fix(migrations): make 0008/0014 idempotent for fresh-database apply
 08f1ef6 chore(ai): refresh same-day pilot brief

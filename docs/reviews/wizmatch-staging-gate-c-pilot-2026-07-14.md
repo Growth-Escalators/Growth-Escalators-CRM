@@ -42,9 +42,10 @@ were opened and resolved against the fictional permanent-placement evidence.
    through the product APIs: taxonomy seed, requirement skills, candidate skills, verification and
    reconciled pilot location. The correct pairs then ranked independently.
 2. The old Placements page rendered the permanent fee stored for compatibility as an hourly margin.
-   A local repair now displays permanent fees separately from contract hourly margins and keeps
+   Commit `ef2112f` displays permanent fees separately from contract hourly margins and keeps
    currency labels. Three regression tests cover permanent, contract and aggregate presentation.
-   This UI repair has not yet been deployed to staging.
+   It was deployed to isolated staging as Railway deployment
+   `52508e6f-8fdd-475c-a58e-84d31b82d142`, which reached terminal `SUCCESS`.
 3. R2 is not required for manual consent evidence. It remains required only for exercising private
    document upload/signed-access behavior. R2 and Anthropic stayed intentionally unset.
 
@@ -57,6 +58,11 @@ were opened and resolved against the fictional permanent-placement evidence.
 - Delivery at 390×844 reported no page-level horizontal overflow.
 - Signed-out direct navigation preserved `tenant=wizmatch` and the exact `/wizmatch/delivery`
   return path.
+- Post-deploy authenticated Placements smoke returned page and placements API HTTP 200, rendered
+  two started placements, and visually confirmed `₹500/hr contract margin` for Priya plus
+  `₹2,50,000 permanent fee` for Rahul. Aggregate copy separates contract margin from permanent
+  fees. Neither `₹2,50,000/hr` nor the legacy `$250000/hr margin` appeared.
+- Post-deploy `/health` returned HTTP 200 with `status: healthy` and `database: ok`.
 
 ## Credential hygiene
 
@@ -75,8 +81,8 @@ were removed. No credential value is stored in this report or the repository.
 
 ## Remaining approval gates
 
-1. Deploy the commercial-label repair to isolated staging and smoke Placements.
-2. Complete mandatory owner decisions for production roles, SLAs, consent, permissions, privacy,
+1. Complete mandatory owner decisions for production roles, SLAs, consent, permissions, privacy,
    permanent-fee, replacement/refund and contract-margin policies.
+2. Record the migration owner's accept/reject decision for proposed ADR-005 before any push.
 3. Separately approve production count-only preview, migrations, push to `main`, Gate A/B/C flags
    and approved pilot-data import.
