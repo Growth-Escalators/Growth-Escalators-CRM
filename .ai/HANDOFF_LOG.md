@@ -6,6 +6,36 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-13 — Wizmatch Staffing OS Gates B/C and release hardening — Codex — VERIFIED LOCALLY
+
+- Implemented canonical skill evidence, deterministic/explainable matching, immutable snapshots,
+  persistent shortlist/watch/reject decisions and recruiter/Candidate 360 workspaces (Gate B).
+- Implemented exact-requirement consent/RTR with private signed documents, submission approval and
+  recipient/resend history, interviews, offer revisions, traceable placement, permanent/contract
+  economics, invoice/payment analytics, disputes/replacements/refunds and delivery exceptions
+  (Gate C). No code path automatically sends a candidate.
+- Added production-off API/UI Gate A/B/C flags, source-count/System evidence, selector-backed DKIM
+  with explicit unknown state, provider/fingerprint signal dedupe, and read-only pilot backfill
+  preview tooling.
+- Added feature-gated deterministic task automation for overdue requirement SLAs, overdue
+  submission follow-ups and availability evidence older than 30 days. It creates tasks/events only,
+  is $0, and never contacts anyone.
+- Generated additive `0027_brainy_orphan.sql` and `0028_strong_cammi.sql`. A disposable Postgres
+  production-shaped apply verified 0028 on the committed Gate B schema: all nine Gate C tables,
+  event/task trace links and journal advancement passed; no destructive SQL was found.
+- Verification: `npm run build` passed; `npm test` passed 43 files / 344 tests; `npm run
+  admin:build` passed; local mocked Chromium passed 16/16 including Person A/SAP vs Person B/Java
+  and draft→approval→manual sent record→interview→offer→acceptance→placement. Existing rank-tracking
+  mock warnings/noisy missing-SERPER logs remain pre-existing and unrelated.
+- Commits present: `1997e31` (Phase 1 hardening), `a5ac3e8` (Gate B), and `48b1a88` (Gate C). No
+  push, deployment, production migration/data write, real R2/AI/
+  provider/payment call, sending, outreach, credential rotation or history rewrite occurred.
+- Exact next gate: review the three local commits, then request separate approval for staging migration
+  application. Production migration, count-only data access, feature flags, push/deploy and
+  credential rotation each remain separately gated.
+
+---
+
 ## 2026-07-13 — Wizmatch deep local browser and route-matrix QA — Codex — COMPLETED LOCALLY
 
 - Walked all 10 primary public demo modules in the visible local browser and exercised safe controls:

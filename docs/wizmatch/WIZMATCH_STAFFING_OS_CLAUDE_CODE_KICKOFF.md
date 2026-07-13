@@ -1,200 +1,145 @@
 # Wizmatch Staffing OS — Claude Code Kickoff
 
-- **Status:** Canonical reusable kickoff prompt
+- **Status:** Canonical reusable release/resume prompt
 - **Updated:** 2026-07-13
 - **Context index:** [`README.md`](README.md)
 - **Product contract:** [`../prd/004-wizmatch-staffing-operating-system.md`](../prd/004-wizmatch-staffing-operating-system.md)
 
-Paste the text inside the block below into a Claude Code session opened at
-`/Users/jatinagrawal/repo-comparison/v2`.
+Open Claude Code in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust` and paste the
+block below. Do not start this release task in the original dirty workspace.
 
 ```text
-You are the senior implementation lead for the Wizmatch Staffing Operating System.
+You are the senior release and implementation lead for the Wizmatch Staffing Operating System.
 
-Repository:
+Working repository:
+  /Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust
+
+Expected branch:
+  codex/wizmatch-phase0-trust
+
+Preserved original dirty workspace — inspect only if explicitly required; never copy its unrelated
+changes into this release:
   /Users/jatinagrawal/repo-comparison/v2
 
-Durable Wizmatch context index:
+Durable context starts at:
   docs/wizmatch/README.md
 
 Canonical product contract:
   docs/prd/004-wizmatch-staffing-operating-system.md
 
-The repository is the source of long-term memory. Do not depend on prior chat context. The product
-goal is the complete, traceable chain:
+The complete local target is implemented:
 
-Company
-→ named hiring contact
-→ confirmed requirement
-→ candidate match
-→ recruiter-verified shortlist
-→ candidate consent / RTR
-→ client submission
-→ interview and feedback
-→ offer
-→ joining / placement
-→ invoice, collection, revenue and margin
+Company → named hiring contact → requirement → candidate evidence/match → human shortlist → exact-
+requirement consent/RTR → approved manual submission record → interview → offer revision → joining/
+placement → existing invoice/payment linkage → collection and margin analytics.
 
-The system must distinguish Person A’s SAP requirement from Person B’s Java requirement even when
-both people work at the same company. Every active item must have an owner, status, last activity,
-next action, due date, provenance and auditable history.
+Person A’s SAP requirement and Person B’s Java requirement at the same company must always remain
+distinct. A signal is not a requirement; a score is not a shortlist; a shortlist is not a
+submission; an offer is not a start; a placement is not an invoice; an invoice is not collection.
 
-Required context
+Mandatory startup
 
-1. Read AGENTS.md completely. It is authoritative.
-2. Read CLAUDE.md completely.
-3. Read docs/wizmatch/README.md completely.
-4. Follow its required-reading allowlist and source-precedence rules.
-5. Read the canonical PRD completely.
-6. Read .ai/CURRENT_TASK.md and .ai/CURRENT_STATE.md to determine the real resume point.
-7. Read docs/wizmatch/WIZMATCH_STAFFING_OS_DEFECT_REGISTER.md for current defect status.
-8. Use current source code and tests to verify AS-IS behavior. Dated documents are evidence, not
-   guaranteed current truth.
-9. Do not open, copy, summarize, upload, print or modify paths classified as restricted by the
-   context index. If a restricted path is genuinely necessary, stop and request explicit approval
-   without inspecting or revealing its contents.
+1. Read AGENTS.md and CLAUDE.md completely.
+2. Read docs/wizmatch/README.md and follow its required-reading order and restricted-path rules.
+3. Read .ai/CURRENT_TASK.md, .ai/CURRENT_STATE.md, the latest .ai/HANDOFF_LOG.md entry,
+   docs/wizmatch/WIZMATCH_STAFFING_OS_DEFECT_REGISTER.md, ADR-004 and PRD 004.
+4. Run pwd, git branch --show-current, git status --short, git diff --stat and git log -10 --oneline.
+5. Run git fetch origin. Do not pull, merge, rebase, reset, clean, restore, switch worktrees or
+   discard anything while files are dirty.
+6. Confirm the three existing scoped commits:
+   - 1997e31 feat(wizmatch): harden Phase 1 operations
+   - a5ac3e8 feat(wizmatch): add Gate B candidate matching
+   - 48b1a88 feat(wizmatch): complete Gate C delivery operations
+7. Inspect the context-only diff. Review only files recorded in CURRENT_TASK. Never use git add .
+   or git add -A.
 
-Safety inspection
+Current release truth
 
-Before changing anything:
+- Phase 0, Gate A, Gate B and Gate C are implemented locally.
+- Migrations 0025–0028 are additive. 0028_strong_cammi.sql passed a production-shaped scratch apply
+  on top of the committed Gate B schema.
+- The local verification baseline is: backend build green, 43 Vitest files / 344 tests green,
+  admin build green and 16/16 mocked Chromium scenarios green.
+- API and UI phase flags default off in production. Server flags are
+  WIZMATCH_STAFFING_GATE_A/B/C_ENABLED; matching Vite build flags are
+  VITE_WIZMATCH_STAFFING_GATE_A/B/C_ENABLED.
+- Requirement and consent documents use private R2 references and short-lived signed access.
+- Deterministic reminders create shared tasks only. They never message candidates or clients.
+- Sending, outreach, automatic submission and paid discovery are not authorized by this prompt.
+- Live Dice/TheirStack health is not proven. The System page reports observed database rows, while
+  Dice CI secret presence remains externally unverifiable from the application.
 
-1. Run:
-   - pwd
-   - git branch --show-current
-   - git status --short
-   - git diff --stat
-   - git log -10 --oneline
-2. Run git fetch origin.
-3. Do not pull, merge, rebase, switch branches, clean, reset, restore, discard or overwrite
-   anything. This worktree contains unrelated modified and untracked files.
-   If a clean release unit is needed, propose a separate worktree/branch from `origin/main`; do not
-   stash or clean this workspace.
-4. Inventory the pre-existing dirty files and clearly separate:
-   - Wizmatch planning/context files
-   - Unrelated user work
-   - Sensitive, restricted or unknown untracked files
-5. Treat every pre-existing change as user-owned. Before editing an already-dirty file, inspect its
-   scoped diff. If the intended work overlaps unrelated changes, choose another safe slice or stop
-   and report the conflict.
-6. Never expose secret values, credentials, candidate PII, private client material or production
-   exports in terminal output, documentation, logs or chat.
+Your first task
 
-Resume logic
+Perform a release-readiness review, not a feature rewrite:
 
-- Always continue from the exact next incomplete unit in `.ai/CURRENT_TASK.md`, cross-checked
-  against the defect register and current diff.
-- Do not redo completed work.
-- Do not attempt the full PRD as one rewrite.
-- Blank fields in WIZMATCH_STAFFING_OS_OWNER_INPUTS.md are TBD. Do not invent owner decisions. A
-  blank decision should block only work whose behavior materially depends on it.
+1. Review the current scoped diff and migration 0028 for tenant isolation, transactionality,
+   duplicate protection, consent enforcement, traceability and non-destructive SQL.
+2. Re-run:
+   - npm run build
+   - npm test
+   - npm run admin:build
+   - npx playwright test --config=playwright.wizmatch-local.config.ts
+   - git diff --check
+3. Verify the production bundle keeps Gate A/B/C navigation off when VITE flags are absent.
+4. Do not call real AI, R2, providers, senders, payments, production APIs or production databases.
+5. If the context-only handoff remains uncommitted and review is clean, create one scoped local
+   commit only if I explicitly ask you to commit. Do not push.
+6. Report the exact next approval required. The default next gate is staging migration application,
+   not production.
 
-Before product edits
+Approval gates — stop immediately before each
 
-Produce a concise implementation map containing:
+The local implementation approval does not authorize any of the following. Obtain a separate,
+explicit human “yes” immediately before each action:
 
-- Current behavior verified from code
-- PRD requirement-to-code gap map
-- Relevant routes, services, pages, tables, tests and dependencies
-- Existing behavior that must be preserved
-- Guarded or production-sensitive impacts
-- Compatibility, backfill and rollback considerations
-- The smallest safe vertical slice
-- Its exact acceptance criteria and verification plan
+- Apply a staging or production migration.
+- Read or mutate production data, including the count-only preview.
+- Set/change Railway, Vercel, GitHub Actions or Vite environment variables.
+- Rotate the exposed credential or rewrite Git history.
+- Push any branch; pushing main auto-deploys and needs approval for that exact push.
+- Enable Gate A, B or C in production.
+- Upload real JDs, RTRs, resumes or contracts.
+- Call paid providers, enable sending/outreach, or send/submit a candidate.
 
-Show the map briefly, then continue implementing the selected safe slice in the same session. Do
-not stop after planning unless an approval gate, missing owner decision or genuine file conflict
-blocks meaningful progress.
+When staging migration is explicitly approved
 
-Phase 0 priority
+1. Verify actual Railway topology; do not assume web+worker or a single service.
+2. Apply schema first with the real deployment migrator and verify the migration journal.
+3. Keep all phase flags off.
+4. Use fictional records only: Company A, Person A/SAP ABAP, Person B/Java and fictional candidates.
+5. Exercise attribution, matching, consent, approval, manual sent-record, interview, offer, placement,
+   invoice link and collection analytics; do not send anything.
+6. Verify tenant isolation, role gates, outage behavior, mobile/desktop layout and application-code
+   rollback while leaving additive schema intact.
+7. Record exact evidence in CURRENT_STATE, CURRENT_TASK and HANDOFF_LOG; regenerate AI_BRIEF.
 
-Start with the safest currently unblocked trust/correctness item confirmed by code, such as:
+When production count-only access is explicitly approved
 
-- Authenticated pages showing honest error/empty states rather than plausible demo data
-- Any current defect-register item explicitly named by `.ai/CURRENT_TASK.md`
-- Correct message/event/activity fields and conversation queries
-- Reliable contact/outreach/reply/last-activity tracking
-- True totals rather than current page-size counts
-- Consolidation planning for live and newer Contact Intelligence behavior without losing discovery,
-  review, manual-add, CRM-link or cost-guard functionality
+Run only:
+  npm run wizmatch:staffing-backfill-preview
 
-Re-verify the dated audit before editing related code. Select only one coherent vertical slice.
+It is read-only. Do not create a write mode, infer historical contacts/owners, or update pilot rows
+without a later, separate production-data approval and an explicit reviewed input list.
 
-Approval gates
+Persistent handoff after every completed unit
 
-AGENTS.md, the context index and PRD define the complete gates. At minimum, do not edit or execute
-changes involving these without presenting an exact proposal and receiving explicit human approval:
-
-- Database schema or migrations
-- Authentication middleware or RBAC
-- Cashfree/payment processing
-- Scheduled Slack-DM behavior
-- Railway/Vercel configuration
-- Environment variables
-- Production data mutation, cleanup, backfill or deletion
-- Real client/candidate outreach or candidate submissions
-- Sending enablement or expansion
-- Paid-provider enablement, calls, caps or budgets
-
-For a schema-dependent unit, stop before editing and present the model, tenant scoping,
-relationships, constraints, indexes, generated-migration plan, backfill, compatibility, rollback and
-tests. Do not bypass an approval gate with raw SQL, ad hoc table creation, hidden JSON persistence,
-alternate storage or a temporary production write.
-
-Implementation rules
-
-- Make one small, coherent, independently testable vertical slice at a time.
-- Prefer additive and backward-compatible changes.
-- Preserve tenant isolation, provenance, auditability, contact normalization and lastActivityAt.
-- A signal is not a confirmed requirement; a match is not a shortlist; a shortlist is not a client
-  submission; an offer is not a joining; a joining is not collected revenue.
-- Keep relationship chance, requirement fillability, candidate readiness and candidate-role fit as
-  separate explainable concepts.
-- Do not overwrite historical candidate–requirement decisions with one latest JSON value.
-- Do not perform unrelated refactors, formatting, dependency changes or cleanup.
-- Do not silently change the PRD target to match current limitations.
-- Authenticated failures must never display plausible demo data.
-- Do not make external writes or production-sensitive calls during verification.
-
-Verification for each completed unit
-
-1. Review the complete scoped diff and current git status.
-2. Confirm no unrelated file changed.
-3. Add focused tests for the new behavior.
-4. Run relevant targeted tests.
-5. Run npm run build.
-6. Run npm test when appropriate.
-7. Run npm run admin:build when the admin SPA changed.
-8. Run git diff --check and distinguish pre-existing issues from regressions.
-9. Perform local/manual user-path verification where practical.
-10. Verify relevant tenant, permission, loading, empty, error and retry behavior.
-11. Report exact command outcomes and anything skipped.
-
-Persistent handoff
-
-Only after a unit is genuinely complete:
-
-- Update .ai/CURRENT_TASK.md with the exact next unit.
+- Update .ai/CURRENT_TASK.md with one exact next step.
 - Update .ai/CURRENT_STATE.md with verified facts only.
-- Add a new immutable entry below the .ai/HANDOFF_LOG.md header. Do not rewrite history except to
-  redact exposed sensitive values.
+- Insert a new immutable entry near the top of .ai/HANDOFF_LOG.md.
 - Run npm run ai:brief; never hand-edit .ai/AI_BRIEF.md.
-- Update affected PRD/ADR/operating docs only when implementation changes their truth.
+- Update the defect register/ADR/owner inputs only when evidence changes their truth.
 
-Final report
+Final report format
 
-Report:
+- What is verified now
+- Exact files changed
+- Exact commands/results
+- Pre-existing noise versus new regressions
+- External checks skipped and why
+- Approval gate reached
+- One exact next action
 
-- What now works
-- Files changed
-- Verification performed and exact outcomes
-- Pre-existing failures versus new regressions
-- Known limitations
-- Approval gates reached
-- Exact next recommended slice
-
-Do not stage, commit, push, open a pull request, deploy, send messages, spend money, rotate live
-credentials, rewrite Git history, or mutate production unless I explicitly request that exact action.
-
-Begin now with the safety inspection, required context reading, gap/dependency map and the smallest
-safe current implementation slice.
+Begin now with the mandatory startup and release-readiness review. Do not redo Gates A/B/C and do
+not perform a production-sensitive action from this prompt alone.
 ```
