@@ -2,7 +2,37 @@
 
 _Update this when the working state of the repo meaningfully changes. Keep it short and true._
 
-## 2026-07-13 snapshot (current)
+## 2026-07-13 Staffing OS three-phase snapshot (current)
+
+- Clean worktree `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust`, branch
+  `codex/wizmatch-phase0-trust`; original dirty workspace preserved. No push, deployment, production
+  migration/data write, sending, paid call or credential operation occurred.
+- Phase 0 + Gate A are committed as `1997e31`; Gate B as `a5ac3e8`; Gate C as `48b1a88`.
+- Additive schema now covers the complete traceable chain from named hiring contact and requirement
+  through canonical candidate matching, consent/RTR, submission, interviews, offers, placement,
+  invoice linkage, collection reporting and gross margin. Legacy requirement status and existing
+  finance records remain compatible; unknown historical attribution stays unknown.
+- New production-off UI/API flags are `WIZMATCH_STAFFING_GATE_A/B/C_ENABLED` and matching build-time
+  `VITE_WIZMATCH_STAFFING_GATE_A/B/C_ENABLED`. All outreach and actual submission sending remains
+  manual and separately gated.
+- Private R2 references plus short-lived signed access cover requirement and consent documents.
+  System diagnostics expose document policy, phase status, observed demand-source row counts, and
+  DKIM as pass/fail only when selectors are configured; otherwise DKIM is `unknown`.
+- Deterministic Gate C automation creates idempotent shared tasks for overdue requirement SLAs,
+  overdue submission next actions and candidate availability evidence older than 30 days. It is
+  Gate-C-controlled, $0, and performs no communication.
+- Migration `0028_strong_cammi.sql` passed production-shaped scratch application on the committed
+  Gate B schema. Nine Gate C tables, staffing event/task trace links and journal advancement were
+  verified. A fresh full historical chain still has a pre-existing old `social_accounts` duplicate
+  issue; it is unrelated to 0028 and was not modified.
+- Verification: TypeScript build passed; 43 Vitest files / 344 tests passed; admin production build
+  passed; 16/16 local mocked Chromium scenarios passed through placement; `git diff --check` was
+  clean before context edits and must be rerun before commit.
+- Remaining work is release/environment work, not additional local feature construction: live
+  Dice/TheirStack evidence, staging/production migrations, pilot data, feature flags, authenticated
+  live smoke, credential rotation and push/deploy all require their own explicit approvals.
+
+## 2026-07-13 snapshot (historical — before Gates B/C)
 
 - **Deployed baseline for this worktree:** rebased `origin/main` at `b05ac01`; branch
   `codex/wizmatch-phase0-trust`. No branch change has been pushed, deployed, sent, spent, migrated,
