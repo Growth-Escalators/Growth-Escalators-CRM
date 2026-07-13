@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-13T04:51:47.102Z_
+_Generated: 2026-07-13T05:46:11.945Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,7 +12,7 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: Growth-Escalators/Growth-Escalators-CRM
 - **Branch**: `codex/wizmatch-phase0-trust`
-- **Last commit**: 7e31971 docs(wizmatch): persist staffing os handoff context (17 seconds ago)
+- **Last commit**: ab3a6dd test(wizmatch): cover AI and query recovery failures (9 seconds ago)
 - **Uncommitted changes**: 1 file(s)
 
 ## Current task
@@ -38,8 +38,8 @@ revenue, and margin. The PRD also preserves future concepts without putting them
 Current remediation status is canonical in
 [`WIZMATCH_STAFFING_OS_DEFECT_REGISTER.md`](../docs/wizmatch/WIZMATCH_STAFFING_OS_DEFECT_REGISTER.md).
 
-**Current verified Phase 0 slice:** D-1–D-5, D-7, D-9–D-12, D-14, D-19–D-21,
-D-26–D-30 are locally verified. D-6, D-8, D-16, D-18, D-23 and D-31 are partially complete or
+**Current verified Phase 0 slice:** D-1–D-7, D-9–D-12, D-14, D-19–D-21,
+D-26–D-31 are locally verified. D-8, D-16, D-18 and D-23 are partially complete or
 need one remaining verification/design slice. D-13/D-15 and the staffing domain spine remain behind
 Gate A. See the defect register for the exact evidence and next action for every item.
 
@@ -67,9 +67,9 @@ Gate A. See the defect register for the exact evidence and next action for every
 - **D-26–D-31:** authenticated outages never substitute demo records or enable dependent actions;
   Pipeline has Retry/finally behavior; demo routes are development-only; the server requires a
   current admin build; login preserves Wizmatch/return path; query-string tabs reset boundaries.
-- Local Playwright coverage uses an isolated port 5184 clean-branch Vite server: **8/8 passed**.
+- Local Playwright coverage uses an isolated port 5184 clean-branch Vite server: **10/10 passed**.
 - Full local verification: `npm run build`, `npm run admin:build`, `npm test` (**38 files / 316
-  tests**), Playwright **8/8**, production-bundle demo-route absence, and `git diff --check` passed.
+  tests**), Playwright **10/10**, production-bundle demo-route absence, and `git diff --check` passed.
 - Persistent context was hardened: canonical defect register, corrected dataflow/product brief,
   proposed ADR-004 + Phase 1 plan, improved Claude kickoff, and current-tree credential redaction.
 
@@ -85,14 +85,16 @@ Person B→Java. Do not edit schema/migrations until the owner records the appro
 `WIZMATCH_STAFFING_OS_OWNER_INPUTS.md`.
 
 **Exact next safe code slice:** finish D-8 with an exact server-side executable-workbench count
-contract, then add the mocked AI timeout/rejection and query-tab recovery tests for D-6/D-31.
-D-13/D-15 and the core staffing relationship model require the explicit Gate A approval below.
+contract. D-13/D-15 and the core staffing relationship model require the explicit Gate A approval
+below.
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
 
 ## Recent commits
 
 ```
+ab3a6dd test(wizmatch): cover AI and query recovery failures
+5a4b379 chore(ai): refresh wizmatch branch brief
 7e31971 docs(wizmatch): persist staffing os handoff context
 a60361d fix(wizmatch): harden phase zero trust paths
 03f8bf7 Merge pull request #43 from Growth-Escalators/feat/viewer-role
@@ -101,8 +103,6 @@ ba4be81 chore(repo): refresh .ai context layer + gitignore generated artifacts
 6d659ec chore(db): repair drizzle snapshot baseline so db:generate works safely again (#42)
 69e91b0 docs(ai): log client-acquisition workbench (PRs #39/#40/#41) + drizzle drift finding
 b3c2435 wizmatch: candidates location filter, pagination, experience field (#40)
-0e87e36 feat(wizmatch): on-demand candidate sourcing + pipeline hand-off link (#39)
-0498408 feat(wizmatch): requirements filter bar, detail drawer, candidate matches, tier-weighted priority (#41)
 ```
 
 ## npm scripts
