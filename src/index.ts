@@ -59,6 +59,7 @@ import { ensureOutreachLeadsTable } from './services/outreachLeadsService';
 import outboundRouter from './routes/outbound';
 import leadsRouter from './routes/leads';
 import wizmatchRouter from './routes/wizmatch';
+import wizmatchStaffingRouter from './routes/wizmatchStaffing';
 // Workers and cron jobs now run via src/worker.ts (see railway.json)
 import analyticsRouter from './routes/analytics';
 import whatsappTemplatesRouter from './routes/whatsappTemplates';
@@ -270,6 +271,11 @@ const WIZMATCH_PUBLIC_GET = /^\/unsubscribe$/;
 // Wizmatch data. Safe because requireAuth (below) blocks the viewer role on any
 // non-GET method, so viewer can read the Wizmatch surfaces but never trigger a write.
 const wizmatchRequireAdmin = requireRole('admin', 'team_lead', 'viewer');
+// Gate A operational endpoints are isolated from legacy send/spend routes. Recruiter-level
+// operators can use My Work and staffing relationships without gaining access to outreach,
+// provider or other admin mutations. Viewer remains read-only through requireAuth.
+const wizmatchRequireStaffing = requireRole('admin', 'team_lead', 'manager_ops', 'sales', 'staff', 'viewer');
+app.use('/api/wizmatch', (req, res, next) => requireAuth(req, res, () => wizmatchRequireStaffing(req, res, next)), wizmatchStaffingRouter);
 app.use('/api/wizmatch', (req, res, next) => {
   if (req.method === 'POST' && WIZMATCH_INTERNAL_POST.test(req.path)) return next();
   if (req.method === 'GET' && WIZMATCH_PUBLIC_GET.test(req.path)) return next();

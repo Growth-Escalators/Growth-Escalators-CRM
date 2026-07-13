@@ -94,6 +94,7 @@ import {
 } from '../services/wizmatchRequirementPriority';
 import { buildWizmatchReviewWorkbench, paginateWizmatchReviewWorkbench } from '../services/wizmatchReviewWorkbench';
 import { getWizmatchReadiness } from '../services/wizmatchReadiness';
+import { wizmatchStaffingService } from '../services/wizmatchStaffingDomain';
 import { buildWizmatchEnvReport } from '../services/wizmatchEnvCheck';
 import { parseCsv } from './outbound';
 import {
@@ -116,6 +117,7 @@ import { mineGithubCandidates } from '../services/wizmatchGithubMiner';
 import { runXrayScrape } from '../services/wizmatchXrayScraper';
 
 const router = Router();
+
 
 // In-memory upload for requirement JD files (parsed by Claude, then discarded).
 const requirementUpload = multer({
@@ -1426,7 +1428,7 @@ async function fetchCommandCenterRequirements(tenantId: string, limit: number): 
             r.budget_max,
             r.budget_currency
      FROM wizmatch_requirements r
-     LEFT JOIN wizmatch_companies comp ON comp.id = r.company_id
+     LEFT JOIN wizmatch_companies comp ON comp.id = r.company_id AND comp.tenant_id = r.tenant_id
      WHERE r.tenant_id = $1
        AND r.status <> 'closed'
      ORDER BY CASE r.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 ELSE 2 END,
@@ -1626,7 +1628,7 @@ async function fetchCandidateIntelligenceRequirements(tenantId: string, limit: n
             r.status,
             ci.qualification_tier AS company_tier
      FROM wizmatch_requirements r
-     LEFT JOIN wizmatch_companies comp ON comp.id = r.company_id
+     LEFT JOIN wizmatch_companies comp ON comp.id = r.company_id AND comp.tenant_id = r.tenant_id
      LEFT JOIN wizmatch_company_intelligence ci
        ON ci.company_id = r.company_id AND ci.tenant_id = r.tenant_id
      WHERE r.tenant_id = $1
@@ -2597,12 +2599,21 @@ router.post('/requirement-priority/:requirementId/review-plan', async (req: Requ
     return;
   }
   const item = scoreRequirementPriority(inputs[0]);
+  const plan = await wizmatchStaffingService.createReviewPlan(
+    { tenantId, userId: req.user!.id },
+    String(req.params.requirementId),
+    { action, notes, dueAt: req.body?.dueAt },
+  );
   res.json({
-    persisted: false,
+    persisted: true,
     action,
     notes,
     item,
-    message: 'Requirement priority review is planning-only. No candidate submission, outreach, schema, or status update was performed.',
+    task: plan.task,
+    nextActionUpdated: plan.nextActionUpdated,
+    message: plan.nextActionUpdated
+      ? 'Review plan saved as a linked task and dated next action. No candidate submission or outreach was performed.'
+      : 'Review plan saved as a linked task. Add a due date to make it the requirement next action. No candidate submission or outreach was performed.',
     guardrails: REQUIREMENT_PRIORITY_GUARDRAILS,
   });
 });
@@ -4425,7 +4436,7 @@ router.put('/candidates/:id', async (req: Request, res: Response) => {
     'github_url', 'resume_url', 'is_wizmatch_certified', 'india_specific',
   ];
 
-  const setClauses: string[] = ['updated_at = NOW()'];
+  const setClauses: string[] = ['updated_at = NOW()', 'last_activity_at = NOW()'];
   const params: unknown[] = [req.params.id, tenantId];
   let paramIdx = 3;
 
@@ -5301,6 +5312,8 @@ router.get('/requirements', async (req: Request, res: Response) => {
   const params: unknown[] = [tenantId];
   let paramIdx = 2;
   if (req.query.status) { conditions.push(`r.status = $${paramIdx++}`); params.push(req.query.status); }
+  if (req.query.stage) { conditions.push(`r.stage = $${paramIdx++}`); params.push(req.query.stage); }
+  if (req.query.attribution_status) { conditions.push(`r.attribution_status = $${paramIdx++}`); params.push(req.query.attribution_status); }
   if (req.query.region) { conditions.push(`r.region = $${paramIdx++}`); params.push(req.query.region); }
   if (req.query.company) { conditions.push(`comp.name ILIKE $${paramIdx++}`); params.push(`%${req.query.company}%`); }
   if (req.query.skill) { conditions.push(`$${paramIdx++} = ANY(r.required_skills)`); params.push(req.query.skill); }
@@ -5308,6 +5321,14 @@ router.get('/requirements', async (req: Request, res: Response) => {
   if (req.query.work_mode) { conditions.push(`r.work_mode = $${paramIdx++}`); params.push(req.query.work_mode); }
   if (req.query.employment_type) { conditions.push(`r.employment_type = $${paramIdx++}`); params.push(req.query.employment_type); }
   if (req.query.priority) { conditions.push(`r.priority = $${paramIdx++}`); params.push(req.query.priority); }
+  if (req.query.source_contact) {
+    conditions.push(`EXISTS (SELECT 1 FROM wizmatch_requirement_contacts src_rc JOIN wizmatch_company_contacts src_cc ON src_cc.id=src_rc.company_contact_id JOIN contacts src_c ON src_c.id=src_cc.contact_id WHERE src_rc.tenant_id=r.tenant_id AND src_rc.requirement_id=r.id AND src_rc.active AND concat_ws(' ',src_c.first_name,src_c.last_name) ILIKE $${paramIdx++})`);
+    params.push(`%${req.query.source_contact}%`);
+  }
+  if (req.query.assigned_user_id) {
+    conditions.push(`EXISTS (SELECT 1 FROM wizmatch_requirement_assignments ra_filter WHERE ra_filter.tenant_id=r.tenant_id AND ra_filter.requirement_id=r.id AND ra_filter.active AND ra_filter.user_id=$${paramIdx++})`);
+    params.push(req.query.assigned_user_id);
+  }
   const minExperienceRaw = req.query.min_experience;
   if (minExperienceRaw !== undefined && minExperienceRaw !== '') {
     const minExperience = Number(minExperienceRaw);
@@ -5319,11 +5340,29 @@ router.get('/requirements', async (req: Request, res: Response) => {
 
   const whereClause = conditions.join(' AND ');
   const dataResult = await pool.query(
-    `SELECT r.*, comp.name AS company_name, ci.qualification_tier AS company_tier
+    `SELECT r.*, comp.name AS company_name, ci.qualification_tier AS company_tier,
+            source_person.company_contact_id AS primary_source_relationship_id,
+            source_person.contact_id AS primary_source_contact_id,
+            source_person.source_name AS primary_source_name,
+            source_person.source_email AS primary_source_email,
+            COALESCE(team.assignments, '[]'::jsonb) AS assignments
      FROM wizmatch_requirements r
-     LEFT JOIN wizmatch_companies comp ON comp.id = r.company_id
+     LEFT JOIN wizmatch_companies comp ON comp.id = r.company_id AND comp.tenant_id = r.tenant_id
      LEFT JOIN wizmatch_company_intelligence ci
        ON ci.company_id = r.company_id AND ci.tenant_id = r.tenant_id
+     LEFT JOIN LATERAL (
+       SELECT cc.id AS company_contact_id,c.id AS contact_id,concat_ws(' ',c.first_name,c.last_name) AS source_name,
+              (SELECT channel_value FROM contact_channels ch WHERE ch.tenant_id=r.tenant_id AND ch.contact_id=c.id AND ch.channel_type='email' ORDER BY ch.is_primary DESC,ch.created_at LIMIT 1) AS source_email
+       FROM wizmatch_requirement_contacts rc
+       JOIN wizmatch_company_contacts cc ON cc.id=rc.company_contact_id AND cc.tenant_id=rc.tenant_id
+       JOIN contacts c ON c.id=cc.contact_id AND c.tenant_id=rc.tenant_id
+       WHERE rc.tenant_id=r.tenant_id AND rc.requirement_id=r.id AND rc.active AND rc.is_primary_source LIMIT 1
+     ) source_person ON true
+     LEFT JOIN LATERAL (
+       SELECT jsonb_agg(jsonb_build_object('id',a.id,'user_id',u.id,'name',u.name,'email',u.email,'role',a.role) ORDER BY a.role,u.name) AS assignments
+       FROM wizmatch_requirement_assignments a JOIN users u ON u.id=a.user_id AND u.tenant_id=a.tenant_id
+       WHERE a.tenant_id=r.tenant_id AND a.requirement_id=r.id AND a.active
+     ) team ON true
      WHERE ${whereClause}
      ORDER BY r.created_at DESC
      LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
@@ -5332,7 +5371,7 @@ router.get('/requirements', async (req: Request, res: Response) => {
   const countResult = await pool.query(
     `SELECT COUNT(*)::int AS total
      FROM wizmatch_requirements r
-     LEFT JOIN wizmatch_companies comp ON comp.id = r.company_id
+     LEFT JOIN wizmatch_companies comp ON comp.id = r.company_id AND comp.tenant_id = r.tenant_id
      WHERE ${whereClause}`,
     params,
   );
@@ -5345,7 +5384,7 @@ router.get('/requirements/:id', async (req: Request, res: Response) => {
   const result = await pool.query(
     `SELECT r.*, comp.name AS company_name
      FROM wizmatch_requirements r
-     LEFT JOIN wizmatch_companies comp ON comp.id = r.company_id
+     LEFT JOIN wizmatch_companies comp ON comp.id = r.company_id AND comp.tenant_id = r.tenant_id
      WHERE r.id = $1 AND r.tenant_id = $2`,
     [req.params.id, tenantId],
   );
@@ -5359,18 +5398,28 @@ router.post('/requirements', async (req: Request, res: Response) => {
   const b = req.body as Record<string, unknown>;
 
   if (!b.title) { res.status(400).json({ error: 'title required' }); return; }
+  if (!b.company_id) { res.status(400).json({ error: 'company_id required' }); return; }
 
-  const result = await pool.query(
-    `INSERT INTO wizmatch_requirements
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const company = await client.query(`SELECT id FROM wizmatch_companies WHERE id=$1 AND tenant_id=$2`, [b.company_id, tenantId]);
+    if (!company.rowCount) {
+      await client.query('ROLLBACK');
+      res.status(400).json({ error: 'invalid company_id' });
+      return;
+    }
+    const result = await client.query(
+      `INSERT INTO wizmatch_requirements
      (tenant_id, company_id, title, raw_jd, required_skills, nice_to_have_skills,
       min_experience, max_experience, location, work_mode, employment_type, region,
       budget_min, budget_max, budget_currency, budget_period, positions, priority,
-      mask_client, source_file_url, vendor_notes, created_by, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NOW(),NOW())
+      mask_client, source_file_url, vendor_notes, created_by, received_at, last_activity_at, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NOW(),NOW(),NOW(),NOW())
      RETURNING *`,
-    [
+      [
       tenantId,
-      b.company_id || null,
+      b.company_id,
       b.title,
       b.raw_jd || null,
       (b.required_skills as string[]) || [],
@@ -5391,9 +5440,21 @@ router.post('/requirements', async (req: Request, res: Response) => {
       b.source_file_url || null,
       b.vendor_notes || null,
       req.user!.id || null,
-    ],
-  );
-  res.json(result.rows[0]);
+      ],
+    );
+    await client.query(
+      `INSERT INTO wizmatch_staffing_events (tenant_id,actor_user_id,event_type,company_id,requirement_id,payload)
+       VALUES ($1,$2,'requirement.created',$3,$4,$5::jsonb)`,
+      [tenantId, req.user!.id, b.company_id, result.rows[0].id, JSON.stringify({ title: b.title, stage: 'draft' })],
+    );
+    await client.query('COMMIT');
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 });
 
 // PUT /requirements/:id — edit fields / status (allowlist, like PUT /candidates)
@@ -5417,12 +5478,48 @@ router.put('/requirements/:id', async (req: Request, res: Response) => {
       params.push(value);
     }
   }
-  const result = await pool.query(
-    `UPDATE wizmatch_requirements SET ${setClauses.join(', ')} WHERE id = $1 AND tenant_id = $2 RETURNING *`,
-    params,
-  );
-  if (result.rows.length === 0) { res.status(404).json({ error: 'Requirement not found' }); return; }
-  res.json(result.rows[0]);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    if (updates.company_id) {
+      const company = await client.query(`SELECT id FROM wizmatch_companies WHERE id=$1 AND tenant_id=$2`, [updates.company_id, tenantId]);
+      if (!company.rowCount) {
+        await client.query('ROLLBACK');
+        res.status(400).json({ error: 'invalid company_id' });
+        return;
+      }
+      const current = await client.query(`SELECT company_id FROM wizmatch_requirements WHERE id=$1 AND tenant_id=$2`, [req.params.id, tenantId]);
+      if (current.rowCount && current.rows[0].company_id !== updates.company_id) {
+        const attributed = await client.query(`SELECT 1 FROM wizmatch_requirement_contacts WHERE tenant_id=$1 AND requirement_id=$2 AND active LIMIT 1`, [tenantId, req.params.id]);
+        if (attributed.rowCount) {
+          await client.query('ROLLBACK');
+          res.status(409).json({ error: 'active attribution exists', message: 'Deactivate or reassign requirement contacts before changing the company' });
+          return;
+        }
+      }
+    }
+    const result = await client.query(
+      `UPDATE wizmatch_requirements SET ${setClauses.join(', ')} WHERE id = $1 AND tenant_id = $2 RETURNING *`,
+      params,
+    );
+    if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
+      res.status(404).json({ error: 'Requirement not found' });
+      return;
+    }
+    await client.query(
+      `INSERT INTO wizmatch_staffing_events (tenant_id,actor_user_id,event_type,company_id,requirement_id,payload)
+       VALUES ($1,$2,'requirement.updated',$3,$4,$5::jsonb)`,
+      [tenantId, req.user!.id, result.rows[0].company_id, req.params.id, JSON.stringify({ fields: Object.keys(updates) })],
+    );
+    await client.query('COMMIT');
+    res.json(result.rows[0]);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 });
 
 // POST /requirements/:id/sheet — generate the branded PDF
