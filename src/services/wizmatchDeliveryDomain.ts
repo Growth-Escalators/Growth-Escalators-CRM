@@ -22,7 +22,7 @@ async function tx<T>(dbPool: Pool, fn: (client: PoolClient) => Promise<T>) {
   finally { client.release(); }
 }
 async function row(client: Pick<PoolClient, 'query'>, table: string, tenantId: string, id: string, lock = false) {
-  const allowed = new Set(['wizmatch_requirements', 'wizmatch_candidates', 'wizmatch_candidate_requirement_matches', 'wizmatch_candidate_consents', 'wizmatch_submissions', 'wizmatch_interview_rounds', 'wizmatch_offers', 'wizmatch_placements', 'billing_clients', 'invoices', 'payments']);
+  const allowed = new Set(['wizmatch_requirements', 'wizmatch_candidates', 'wizmatch_candidate_requirement_matches', 'wizmatch_candidate_consents', 'wizmatch_submissions', 'wizmatch_interview_rounds', 'wizmatch_offers', 'wizmatch_placements', 'wizmatch_company_contacts', 'billing_clients', 'invoices', 'payments', 'users']);
   if (!allowed.has(table)) throw new Error('Unsafe tenant table');
   const result = await client.query(`SELECT * FROM ${table} WHERE tenant_id=$1 AND id=$2${lock ? ' FOR UPDATE' : ''}`, [tenantId, id]);
   if (!result.rowCount) throw new StaffingDomainError(404, 'not_found', 'Referenced record was not found');
@@ -52,28 +52,43 @@ export function assertCurrentConsent(consent: { status: string; expires_at?: Dat
   if (consent.expires_at && new Date(consent.expires_at).getTime() <= Date.now()) throw new StaffingDomainError(409, 'consent_expired', 'Candidate consent has expired');
 }
 
+function privateDocumentReference(value: unknown) {
+  if (value === null || value === undefined || value === '') return null;
+  const reference = required(value, 'documentReference');
+  if (!reference.startsWith('r2://')) throw new StaffingDomainError(400, 'private_document_required', 'Consent documents must use private object storage');
+  return reference;
+}
+
 export function createWizmatchDeliveryService(dbPool: Pool = pool) {
   return {
     async createConsent(actor: { tenantId: string; userId: string }, input: Record<string, unknown>) {
       const candidateId = required(input.candidateId, 'candidateId');
       const requirementId = required(input.requirementId, 'requirementId');
+      const documentReference = privateDocumentReference(input.documentReference);
       return tx(dbPool, async (client) => {
         await row(client, 'wizmatch_candidates', actor.tenantId, candidateId);
         await row(client, 'wizmatch_requirements', actor.tenantId, requirementId);
         await client.query(`UPDATE wizmatch_candidate_consents SET status='expired',updated_at=NOW() WHERE tenant_id=$1 AND candidate_id=$2 AND requirement_id=$3 AND status='granted' AND expires_at IS NOT NULL AND expires_at<=NOW()`, [actor.tenantId, candidateId, requirementId]);
         const current = await client.query(`SELECT id,status FROM wizmatch_candidate_consents WHERE tenant_id=$1 AND candidate_id=$2 AND requirement_id=$3 AND status IN ('requested','granted') LIMIT 1`, [actor.tenantId, candidateId, requirementId]);
         if (current.rowCount) throw new StaffingDomainError(409, 'active_consent_exists', 'An active consent record already exists for this candidate and requirement');
-        const result = await client.query(`INSERT INTO wizmatch_candidate_consents (tenant_id,candidate_id,requirement_id,consent_type,status,terms,document_reference,requested_by,granted_at,expires_at) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,CASE WHEN $5='granted' THEN NOW() ELSE NULL END,$9) RETURNING *`, [actor.tenantId, candidateId, requirementId, input.consentType || 'rtr', input.status === 'granted' ? 'granted' : 'requested', JSON.stringify(input.terms || {}), input.documentReference || null, actor.userId, input.expiresAt || null]);
+        let result;
+        try {
+          result = await client.query(`INSERT INTO wizmatch_candidate_consents (tenant_id,candidate_id,requirement_id,consent_type,status,terms,document_reference,requested_by,granted_at,expires_at) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,CASE WHEN $5='granted' THEN NOW() ELSE NULL END,$9) RETURNING *`, [actor.tenantId, candidateId, requirementId, input.consentType || 'rtr', input.status === 'granted' ? 'granted' : 'requested', JSON.stringify(input.terms || {}), documentReference, actor.userId, input.expiresAt || null]);
+        } catch (error) {
+          if ((error as { code?: string }).code === '23505') throw new StaffingDomainError(409, 'active_consent_exists', 'An active consent record already exists for this candidate and requirement');
+          throw error;
+        }
         await staffingEvent(client, actor, 'candidate_consent_created', requirementId, { consentId: result.rows[0].id, candidateId, status: result.rows[0].status });
         return result.rows[0];
       });
     },
 
     async grantConsent(actor: { tenantId: string; userId: string }, consentId: string, input: Record<string, unknown>) {
+      const documentReference = privateDocumentReference(input.documentReference);
       return tx(dbPool, async (client) => {
         const consent = await row(client, 'wizmatch_candidate_consents', actor.tenantId, consentId, true);
         if (consent.status === 'revoked') throw new StaffingDomainError(409, 'invalid_transition', 'Revoked consent cannot be granted again');
-        const result = await client.query(`UPDATE wizmatch_candidate_consents SET status='granted',terms=COALESCE($3::jsonb,terms),document_reference=COALESCE($4,document_reference),granted_at=NOW(),expires_at=$5,updated_at=NOW() WHERE tenant_id=$1 AND id=$2 RETURNING *`, [actor.tenantId, consentId, input.terms ? JSON.stringify(input.terms) : null, input.documentReference || null, input.expiresAt || null]);
+        const result = await client.query(`UPDATE wizmatch_candidate_consents SET status='granted',terms=COALESCE($3::jsonb,terms),document_reference=COALESCE($4,document_reference),granted_at=NOW(),expires_at=$5,updated_at=NOW() WHERE tenant_id=$1 AND id=$2 RETURNING *`, [actor.tenantId, consentId, input.terms ? JSON.stringify(input.terms) : null, documentReference, input.expiresAt || null]);
         await staffingEvent(client, actor, 'candidate_consent_granted', consent.requirement_id, { consentId, candidateId: consent.candidate_id });
         return result.rows[0];
       });
@@ -131,8 +146,14 @@ export function createWizmatchDeliveryService(dbPool: Pool = pool) {
         assertCurrentConsent(consent);
         const recipients = Array.isArray(input.recipients) ? input.recipients as Record<string, unknown>[] : [];
         if (!recipients.length) throw new StaffingDomainError(400, 'recipient_required', 'At least one named recipient is required');
+        const requirement = await row(client, 'wizmatch_requirements', actor.tenantId, submission.requirement_id);
         for (const recipient of recipients) {
-          await client.query(`INSERT INTO wizmatch_submission_recipients (tenant_id,submission_id,company_contact_id,name,email,role,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [actor.tenantId, submissionId, recipient.companyContactId || null, required(recipient.name, 'recipient name'), recipient.email || null, recipient.role || 'recipient', actor.userId]);
+          const companyContactId = recipient.companyContactId ? required(recipient.companyContactId, 'companyContactId') : null;
+          if (companyContactId) {
+            const companyContact = await row(client, 'wizmatch_company_contacts', actor.tenantId, companyContactId);
+            if (companyContact.company_id !== requirement.company_id) throw new StaffingDomainError(400, 'invalid_reference', 'Recipient contact does not belong to the requirement company');
+          }
+          await client.query(`INSERT INTO wizmatch_submission_recipients (tenant_id,submission_id,company_contact_id,name,email,role,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [actor.tenantId, submissionId, companyContactId, required(recipient.name, 'recipient name'), recipient.email || null, recipient.role || 'recipient', actor.userId]);
         }
         const resend = submission.status === 'submitted';
         const result = await client.query(`UPDATE wizmatch_submissions SET status='submitted',resend_count=resend_count+$3,first_sent_at=COALESCE(first_sent_at,NOW()),last_sent_at=NOW(),next_action=$4,next_action_due_at=$5,updated_at=NOW() WHERE tenant_id=$1 AND id=$2 RETURNING *`, [actor.tenantId, submissionId, resend ? 1 : 0, input.nextAction || 'Follow up for submission feedback', input.nextActionDueAt || null]);
@@ -161,7 +182,17 @@ export function createWizmatchDeliveryService(dbPool: Pool = pool) {
         const roundResult = await client.query(`SELECT COALESCE(MAX(round_number),0)+1 AS round_number FROM wizmatch_interview_rounds WHERE tenant_id=$1 AND submission_id=$2`, [actor.tenantId, submissionId]);
         const result = await client.query(`INSERT INTO wizmatch_interview_rounds (tenant_id,submission_id,round_number,round_type,status,scheduled_at,timezone,next_action,next_action_due_at,created_by) VALUES ($1,$2,$3,$4,'scheduled',$5,$6,$7,$8,$9) RETURNING *`, [actor.tenantId, submissionId, roundResult.rows[0].round_number, input.roundType || 'client', input.scheduledAt || null, input.timezone || 'Asia/Kolkata', input.nextAction || null, input.nextActionDueAt || null, actor.userId]);
         await client.query(`UPDATE wizmatch_submissions SET status='interviewing',updated_at=NOW() WHERE tenant_id=$1 AND id=$2`, [actor.tenantId, submissionId]);
-        for (const participant of (Array.isArray(input.participants) ? input.participants as Record<string, unknown>[] : [])) await client.query(`INSERT INTO wizmatch_interview_participants (tenant_id,interview_round_id,company_contact_id,user_id,name,email,role) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [actor.tenantId, result.rows[0].id, participant.companyContactId || null, participant.userId || null, required(participant.name, 'participant name'), participant.email || null, participant.role || 'participant']);
+        const requirement = await row(client, 'wizmatch_requirements', actor.tenantId, submission.requirement_id);
+        for (const participant of (Array.isArray(input.participants) ? input.participants as Record<string, unknown>[] : [])) {
+          const companyContactId = participant.companyContactId ? required(participant.companyContactId, 'companyContactId') : null;
+          const userId = participant.userId ? required(participant.userId, 'userId') : null;
+          if (companyContactId) {
+            const companyContact = await row(client, 'wizmatch_company_contacts', actor.tenantId, companyContactId);
+            if (companyContact.company_id !== requirement.company_id) throw new StaffingDomainError(400, 'invalid_reference', 'Interview contact does not belong to the requirement company');
+          }
+          if (userId) await row(client, 'users', actor.tenantId, userId);
+          await client.query(`INSERT INTO wizmatch_interview_participants (tenant_id,interview_round_id,company_contact_id,user_id,name,email,role) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [actor.tenantId, result.rows[0].id, companyContactId, userId, required(participant.name, 'participant name'), participant.email || null, participant.role || 'participant']);
+        }
         await submissionEvent(client, actor, submissionId, 'interview_scheduled', { interviewRoundId: result.rows[0].id, roundNumber: result.rows[0].round_number });
         await staffingEvent(client, actor, 'interview_scheduled', submission.requirement_id, { submissionId, interviewRoundId: result.rows[0].id, candidateId: submission.candidate_id });
         return result.rows[0];
@@ -175,7 +206,7 @@ export function createWizmatchDeliveryService(dbPool: Pool = pool) {
         const status = input.status ? required(input.status, 'status') : interview.status;
         if (!allowedStatuses.includes(status)) throw new StaffingDomainError(400, 'validation_error', 'Interview status is invalid');
         const result = await client.query(`UPDATE wizmatch_interview_rounds SET status=$3,feedback=COALESCE($4,feedback),outcome=COALESCE($5,outcome),next_action=COALESCE($6,next_action),next_action_due_at=COALESCE($7,next_action_due_at),updated_at=NOW() WHERE tenant_id=$1 AND id=$2 RETURNING *`, [actor.tenantId, interviewId, status, input.feedback || null, input.outcome || null, input.nextAction || null, input.nextActionDueAt || null]);
-        const submission = await row(client, 'wizmatch_submissions', actor.tenantId, interview.submission_id);
+        const submission = await row(client, 'wizmatch_submissions', actor.tenantId, interview.submission_id, true);
         await submissionEvent(client, actor, interview.submission_id, 'interview_updated', { interviewId, status, outcome: input.outcome || null });
         await staffingEvent(client, actor, 'interview_updated', submission.requirement_id, { submissionId: interview.submission_id, interviewId, status, outcome: input.outcome || null });
         return result.rows[0];
@@ -201,7 +232,7 @@ export function createWizmatchDeliveryService(dbPool: Pool = pool) {
       return tx(dbPool, async (client) => {
         const offer = await row(client, 'wizmatch_offers', actor.tenantId, offerId, true);
         const result = await client.query(`UPDATE wizmatch_offers SET status=$3,approved_by=CASE WHEN $3 IN ('presented','accepted') THEN $4 ELSE approved_by END,approved_at=CASE WHEN $3 IN ('presented','accepted') THEN NOW() ELSE approved_at END WHERE tenant_id=$1 AND id=$2 RETURNING *`, [actor.tenantId, offerId, status, actor.userId]);
-        const submission = await row(client, 'wizmatch_submissions', actor.tenantId, offer.submission_id);
+        const submission = await row(client, 'wizmatch_submissions', actor.tenantId, offer.submission_id, true);
         await submissionEvent(client, actor, offer.submission_id, 'offer_status_changed', { offerId, revision: offer.revision, status });
         await staffingEvent(client, actor, 'offer_status_changed', submission.requirement_id, { submissionId: offer.submission_id, offerId, revision: offer.revision, status });
         return result.rows[0];
@@ -211,6 +242,8 @@ export function createWizmatchDeliveryService(dbPool: Pool = pool) {
     async createPlacement(actor: { tenantId: string; userId: string }, submissionId: string, input: Record<string, unknown>) {
       return tx(dbPool, async (client) => {
         const submission = await row(client, 'wizmatch_submissions', actor.tenantId, submissionId, true);
+        if (submission.status === 'placed') throw new StaffingDomainError(409, 'duplicate_placement', 'A placement already exists for this submission');
+        if (submission.status !== 'offered') throw new StaffingDomainError(409, 'accepted_offer_required', 'An offered submission is required before placement');
         const offerId = required(input.offerId, 'offerId');
         const offer = await row(client, 'wizmatch_offers', actor.tenantId, offerId);
         if (offer.submission_id !== submissionId || offer.status !== 'accepted') throw new StaffingDomainError(409, 'accepted_offer_required', 'An accepted offer for this submission is required');
@@ -236,8 +269,10 @@ export function createWizmatchDeliveryService(dbPool: Pool = pool) {
         const placement = await row(client, 'wizmatch_placements', actor.tenantId, placementId, true);
         const invoiceId = required(input.invoiceId, 'invoiceId');
         const invoice = await row(client, 'invoices', actor.tenantId, invoiceId);
-        if (input.billingClientId) await row(client, 'billing_clients', actor.tenantId, String(input.billingClientId));
-        const result = await client.query(`UPDATE wizmatch_placements SET invoice_id=$3,billing_client_id=COALESCE($4,billing_client_id),updated_at=NOW() WHERE tenant_id=$1 AND id=$2 RETURNING *`, [actor.tenantId, placementId, invoice.id, input.billingClientId || null]);
+        const billingClientId = input.billingClientId ? required(input.billingClientId, 'billingClientId') : invoice.client_id;
+        await row(client, 'billing_clients', actor.tenantId, billingClientId);
+        if (invoice.client_id !== billingClientId) throw new StaffingDomainError(400, 'invalid_reference', 'Invoice does not belong to the selected billing client');
+        const result = await client.query(`UPDATE wizmatch_placements SET invoice_id=$3,billing_client_id=$4,updated_at=NOW() WHERE tenant_id=$1 AND id=$2 RETURNING *`, [actor.tenantId, placementId, invoice.id, billingClientId]);
         await staffingEvent(client, actor, 'placement_invoice_linked', placement.requirement_id, { placementId, invoiceId });
         return result.rows[0];
       });
@@ -248,9 +283,14 @@ export function createWizmatchDeliveryService(dbPool: Pool = pool) {
       if (!['dispute', 'replacement', 'refund'].includes(type)) throw new StaffingDomainError(400, 'validation_error', 'Adjustment type is invalid');
       return tx(dbPool, async (client) => {
         const placement = await row(client, 'wizmatch_placements', actor.tenantId, placementId);
-        if (input.invoiceId) await row(client, 'invoices', actor.tenantId, String(input.invoiceId));
-        if (input.paymentId) await row(client, 'payments', actor.tenantId, String(input.paymentId));
-        const result = await client.query(`INSERT INTO wizmatch_staffing_adjustments (tenant_id,placement_id,invoice_id,payment_id,type,status,amount,currency,reason,created_by) VALUES ($1,$2,$3,$4,$5,'open',$6,$7,$8,$9) RETURNING *`, [actor.tenantId, placementId, input.invoiceId || null, input.paymentId || null, type, integer(input.amount, 'amount', true), input.currency || null, required(input.reason, 'reason'), actor.userId]);
+        const requestedInvoiceId = input.invoiceId ? required(input.invoiceId, 'invoiceId') : null;
+        const paymentId = input.paymentId ? required(input.paymentId, 'paymentId') : null;
+        const payment = paymentId ? await row(client, 'payments', actor.tenantId, paymentId) : null;
+        const invoiceId = requestedInvoiceId || payment?.invoice_id || placement.invoice_id || null;
+        const invoice = invoiceId ? await row(client, 'invoices', actor.tenantId, invoiceId) : null;
+        if (placement.invoice_id && invoiceId && placement.invoice_id !== invoiceId) throw new StaffingDomainError(400, 'invalid_reference', 'Adjustment invoice does not match the placement invoice');
+        if (payment && invoice && (payment.invoice_id !== invoice.id || payment.client_id !== invoice.client_id)) throw new StaffingDomainError(400, 'invalid_reference', 'Payment does not belong to the adjustment invoice and billing client');
+        const result = await client.query(`INSERT INTO wizmatch_staffing_adjustments (tenant_id,placement_id,invoice_id,payment_id,type,status,amount,currency,reason,created_by) VALUES ($1,$2,$3,$4,$5,'open',$6,$7,$8,$9) RETURNING *`, [actor.tenantId, placementId, invoiceId, paymentId, type, integer(input.amount, 'amount', true), input.currency || null, required(input.reason, 'reason'), actor.userId]);
         await staffingEvent(client, actor, `placement_${type}_opened`, placement.requirement_id, { placementId, adjustmentId: result.rows[0].id, amount: result.rows[0].amount, currency: result.rows[0].currency });
         return result.rows[0];
       });
