@@ -2,9 +2,11 @@
 
 ## Active task
 
-**Wizmatch Staffing OS — all three planned local implementation phases are complete and verified on
+**Wizmatch Staffing OS — all three planned local implementation phases and the release-integrity
+review are complete and verified on
 `codex/wizmatch-phase0-trust` in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust`.
-The exact next task is release review and separately approved staging/production rollout.**
+The exact next task is separately approved Railway staging creation, followed by separately approved
+staging deployment and migration application.**
 
 Nothing from this branch has been pushed, deployed, migrated, sent, spent, written to production,
 or used to rotate a credential. The original dirty workspace at
@@ -15,6 +17,7 @@ or used to rotate a credential. The original dirty workspace at
 - `1997e31 feat(wizmatch): harden Phase 1 operations`
 - `a5ac3e8 feat(wizmatch): add Gate B candidate matching`
 - `48b1a88 feat(wizmatch): complete Gate C delivery operations`
+- `605d6cd fix(wizmatch): enforce delivery reference integrity`
 - This context update is the only current working unit; inspect `git status` and the latest log
   before continuing.
 
@@ -38,7 +41,7 @@ or used to rotate a credential. The original dirty workspace at
 - Production-shaped scratch migration applied `0028` on top of the committed Gate B schema and
   verified all nine Gate C tables, traceability columns and journal advancement.
 - `npm run build` passed.
-- `npm test` passed: 43 files / 344 tests.
+- `npm test` passed: 43 files / 349 tests.
 - `npm run admin:build` passed.
 - Local mocked Chromium passed 16/16, including Person A/SAP versus Person B/Java and the delivery
   chain through placement. No live provider, R2, send, payment or production call was made.
@@ -46,8 +49,9 @@ or used to rotate a credential. The original dirty workspace at
 
 ### Exact next sequence — do not skip approvals
 
-1. Review the three scoped local commits and this context-only handoff commit.
-2. Obtain explicit approval for the staging migration. Apply schema first and smoke fictional
+1. Obtain explicit approval to create an isolated Railway `staging` environment and empty Postgres
+   instance. Current Railway has production only (`web` + Postgres), with no worker.
+2. Obtain separate approval for staging deployment and migration application. Apply schema first and smoke fictional
    Company A / Person A SAP / Person B Java plus one fictional candidate delivery chain.
 3. Run `npm run wizmatch:staffing-backfill-preview` against production only after read-only access is
    approved. It is count-only and never writes.

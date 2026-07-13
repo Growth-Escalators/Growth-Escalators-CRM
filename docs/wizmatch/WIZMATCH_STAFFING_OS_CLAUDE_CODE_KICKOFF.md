@@ -50,6 +50,7 @@ Mandatory startup
    - 1997e31 feat(wizmatch): harden Phase 1 operations
    - a5ac3e8 feat(wizmatch): add Gate B candidate matching
    - 48b1a88 feat(wizmatch): complete Gate C delivery operations
+   - 605d6cd fix(wizmatch): enforce delivery reference integrity
 7. Inspect the context-only diff. Review only files recorded in CURRENT_TASK. Never use git add .
    or git add -A.
 
@@ -58,7 +59,7 @@ Current release truth
 - Phase 0, Gate A, Gate B and Gate C are implemented locally.
 - Migrations 0025–0028 are additive. 0028_strong_cammi.sql passed a production-shaped scratch apply
   on top of the committed Gate B schema.
-- The local verification baseline is: backend build green, 43 Vitest files / 344 tests green,
+- The local verification baseline is: backend build green, 43 Vitest files / 349 tests green,
   admin build green and 16/16 mocked Chromium scenarios green.
 - API and UI phase flags default off in production. Server flags are
   WIZMATCH_STAFFING_GATE_A/B/C_ENABLED; matching Vite build flags are
@@ -87,6 +88,13 @@ Perform a release-readiness review, not a feature rewrite:
    commit only if I explicitly ask you to commit. Do not push.
 6. Report the exact next approval required. The default next gate is staging migration application,
    not production.
+
+Current infrastructure truth
+
+- Railway has only `production`, with `web` and Postgres services. There is no staging environment
+  and no worker service.
+- The exact next gate is approval to create isolated staging. Deployment and migration application
+  are later, separate approvals.
 
 Approval gates — stop immediately before each
 

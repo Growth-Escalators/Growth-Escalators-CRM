@@ -8,6 +8,9 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   `codex/wizmatch-phase0-trust`; original dirty workspace preserved. No push, deployment, production
   migration/data write, sending, paid call or credential operation occurred.
 - Phase 0 + Gate A are committed as `1997e31`; Gate B as `a5ac3e8`; Gate C as `48b1a88`.
+- Release review repair `605d6cd` validates linked recipients/participants against the actor tenant
+  and requirement company, blocks duplicate placement creation, reconciles invoice/client/payment
+  references, requires private consent-document references and serializes versioned delivery events.
 - Additive schema now covers the complete traceable chain from named hiring contact and requirement
   through canonical candidate matching, consent/RTR, submission, interviews, offers, placement,
   invoice linkage, collection reporting and gross margin. Legacy requirement status and existing
@@ -25,10 +28,13 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   Gate B schema. Nine Gate C tables, staffing event/task trace links and journal advancement were
   verified. A fresh full historical chain still has a pre-existing old `social_accounts` duplicate
   issue; it is unrelated to 0028 and was not modified.
-- Verification: TypeScript build passed; 43 Vitest files / 344 tests passed; admin production build
+- Verification: TypeScript build passed; 43 Vitest files / 349 tests passed; admin production build
   passed; 16/16 local mocked Chromium scenarios passed through placement; `git diff --check` was
   clean. A headless check against the production admin bundle with all Vite staffing flags absent
   redirected `/wizmatch/talent-matching` to Dashboard and confirmed Gate A/B/C nav labels were absent.
+- Read-only Railway inspection confirms production currently has one `web` service plus Postgres,
+  no staging environment and no worker service. Gate A/B/C server and Vite variables are absent.
+  No Railway state changed during release review.
 - Remaining work is release/environment work, not additional local feature construction: live
   Dice/TheirStack evidence, staging/production migrations, pilot data, feature flags, authenticated
   live smoke, credential rotation and push/deploy all require their own explicit approvals.

@@ -6,6 +6,23 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-13 — Wizmatch release-readiness integrity review — Codex — VERIFIED LOCALLY
+
+- Reviewed Gate A/B/C tenant isolation, transactionality, consent, duplicate protection, delivery
+  traceability, migrations and finance linkage. Migrations remained untouched and non-destructive.
+- Fixed linked submission-recipient and interview-participant tenant/company validation, duplicate
+  placement creation, invoice/billing-client mismatch, payment/invoice mismatch, public consent
+  references and concurrent versioned delivery-event locking in commit `605d6cd`.
+- Verification: backend build passed; 43 Vitest files / 349 tests passed; admin build passed; 16/16
+  mocked Chromium scenarios passed; production-off bundle redirected Gate B to Dashboard and hid
+  Gate A/B/C navigation; `git diff --check` passed.
+- Read-only Railway inspection confirmed production-only topology (`web` + Postgres), no staging or
+  worker, and absent Gate A/B/C server/Vite variables. No Railway state, data or secrets changed.
+- Exact next gate: explicit approval to create an isolated Railway staging environment and empty
+  Postgres. Staging deployment and migration application remain separately approval-gated.
+
+---
+
 ## 2026-07-13 — Wizmatch Staffing OS Gates B/C and release hardening — Codex — VERIFIED LOCALLY
 
 - Implemented canonical skill evidence, deterministic/explainable matching, immutable snapshots,
