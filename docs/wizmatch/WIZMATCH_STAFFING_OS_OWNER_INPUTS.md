@@ -1,7 +1,7 @@
 # Wizmatch Staffing OS — Owner Inputs
 
-- **Status:** Owner-maintained template; incomplete fields are `TBD`
-- **Updated:** 2026-07-13
+- **Status:** Provisional pilot policy pack approved; named owners and pilot records remain `TBD`
+- **Updated:** 2026-07-14
 - **Product contract:** [`../prd/004-wizmatch-staffing-operating-system.md`](../prd/004-wizmatch-staffing-operating-system.md)
 
 This file stores business decisions that cannot be inferred safely from code. Claude or another agent
@@ -63,20 +63,34 @@ Record role ownership without credentials or sensitive contact details.
 | Commercial / finance | TBD | TBD |
 | Product/system administration | TBD | TBD |
 
+Approved platform-role mapping for the controlled pilot:
+
+| Existing role | Staffing responsibility |
+|---|---|
+| `staff` | Recruiter; assigned requirements, evidence, matching decisions, consent and submission drafts |
+| `sales` | Account owner; assigned client/requirement relationships |
+| `manager_ops` | Operations and data quality |
+| `team_lead` | Delivery, submission approval, offers and commercial visibility |
+| `admin` | Administration, finance, placements and commercial mutations |
+| `viewer` | Excluded from pilot staffing access and mutations |
+
+Production access is restricted to `WIZMATCH_STAFFING_PILOT_USER_IDS` and fails closed when the
+roster is absent. `WIZMATCH_STAFFING_PILOT_ALL_USERS=true` is the explicit post-pilot expansion.
+
 ## 4. Workflow and stage decisions
 
 | Decision | Owner choice |
 |---|---|
 | Minimum facts required for a confirmed requirement | TBD |
 | Minimum facts required to accept a requirement | TBD |
-| Who can accept/reject requirements | TBD |
-| Who can shortlist candidates | TBD |
-| Who approves candidate submissions | TBD |
-| Consent/RTR policy | TBD |
+| Who can accept/reject requirements | Operations, team leads and admins under the pilot role map |
+| Who can shortlist candidates | Assigned recruiters, operations, team leads and admins |
+| Who approves candidate submissions | Team leads and admins; recruiters prepare drafts only |
+| Consent/RTR policy | Exact requirement only; revocable; maximum/default validity 30 days |
 | Duplicate-submission handling | TBD |
 | Interview feedback ownership | TBD |
-| Offer and joining confirmation owner | TBD |
-| Placement/invoice closure owner | TBD |
+| Offer and joining confirmation owner | Team leads/admins manage offers; admins create placements |
+| Placement/invoice closure owner | Admin/finance only |
 
 Use PRD 004 state machines as the default proposal. Record only approved deviations here.
 
@@ -84,16 +98,16 @@ Use PRD 004 state machines as the default proposal. Record only approved deviati
 
 | Activity | Proposed default | Approved target |
 |---|---:|---:|
-| Inbound client reply acknowledgement | 2 working hours | TBD |
-| Complete requirement intake | 4 working hours | TBD |
-| Requirement acceptance/recruiter assignment | Same business day | TBD |
-| First shortlist, common role | 24 hours | TBD |
-| First shortlist, niche/SAP role | 48 hours | TBD |
-| Submission feedback follow-up | 24 working hours | TBD |
+| Inbound client reply acknowledgement | 2 working hours | 2 working hours |
+| Complete requirement intake | 4 working hours | 4 working hours |
+| Requirement acceptance/recruiter assignment | Same business day | Same business day |
+| First shortlist, common role | 24 hours | 24 hours |
+| First shortlist, niche/SAP role | 48 hours | 48 hours |
+| Submission feedback follow-up | 24 working hours | 24 working hours |
 | Interview scheduling | Same business day | TBD |
 | Interview feedback request | Within 2 hours | TBD |
-| Requirement inactivity risk threshold | 3 business days | TBD |
-| Client no-response escalation | 5 business days | TBD |
+| Requirement inactivity risk threshold | 3 business days | 3 business days |
+| Client no-response escalation | 5 business days | 5 business days |
 
 ## 6. Commercial decisions
 
@@ -102,12 +116,12 @@ planning ranges.
 
 | Decision | Owner choice |
 |---|---|
-| Permanent placement fee policy | TBD |
+| Permanent placement fee policy | Invoice begins on joining, subject to the client contract |
 | Replacement/refund reserve policy | TBD |
-| Contract bill/pay/margin policy | TBD |
-| Loaded pay-cost definition | TBD |
+| Contract bill/pay/margin policy | Bill rate, loaded cost, currency and period required; target gross margin >=20%; admin must record an exception below target |
+| Loaded pay-cost definition | Approved all-in cost for the same period as bill rate; client-specific composition stays in the commercial record |
 | Currency conversion policy/source | TBD |
-| Invoice trigger | TBD |
+| Invoice trigger | Joining for permanent placements under the client contract; contract invoicing follows the approved billing period |
 | Collection/DSO owner | TBD |
 | Revenue versus gross-margin reporting priority | TBD |
 
@@ -115,13 +129,13 @@ planning ranges.
 
 | Decision | Owner choice |
 |---|---|
-| Roles allowed to view candidate PII | TBD |
-| Roles allowed to view commercial terms | TBD |
-| Export/bulk-action permissions | TBD |
-| Candidate consent retention | TBD |
-| Candidate data retention/deletion policy | TBD |
-| Client JD/document access policy | TBD |
-| Resume/RTR/contract access policy | TBD |
+| Roles allowed to view candidate PII | Assigned recruiters, operations/data quality, team leads and admins |
+| Roles allowed to view commercial terms | Team leads and admins |
+| Export/bulk-action permissions | Admin only |
+| Candidate consent retention | Retain with the candidate operational record and audit trail, subject to revocation and approved deletion/legal exceptions |
+| Candidate data retention/deletion policy | 24 months after last activity, subject to approved deletion and legal-retention exceptions |
+| Client JD/document access policy | Private storage; five-minute signed URLs; tenant and role checks required |
+| Resume/RTR/contract access policy | Private storage; five-minute signed URLs; assigned/approved roles only |
 | Audit-log retention | TBD |
 
 ## 8. Automation and cost gates
@@ -178,3 +192,4 @@ here.
 | 2026-07-13 | Perform local release review and prepare progressive rollout | Release-readiness plan | Approved through explicit “PLEASE IMPLEMENT THIS PLAN”; Railway staging creation, deployment, migrations, production access, flags and push remain separate approval gates | Product owner (chat instruction) |
 | 2026-07-13 | Prepare same-day controlled full Gate A–C pilot handoff | Same-day Claude handoff plan | Approved through explicit “PLEASE IMPLEMENT THIS PLAN”; Claude must pause before every guarded action and Gate C remains blocked until mandatory owner-policy sign-off | Product owner (chat instruction) |
 | 2026-07-14 | Complete the fictional isolated-staging Gate C exercise and local QA repairs | Staging pilot handoff | Approved through explicit “take on the charge from here and get all this finished”; does not approve a new deployment, production access, migration, push, flags, production data, sending or paid providers | Product owner (chat instruction) |
+| 2026-07-14 | Adopt provisional pilot role, access, SLA, consent, privacy and commercial policies; accept the one-time `a810d08` exception | Final Hardening and Production Launch plan / ADR-005 | Approved through explicit “PLEASE IMPLEMENT THIS PLAN”; production reads, credential rotation, migrations, push, environment changes and imports remain separately gated | Product and migration owner (chat instruction) |

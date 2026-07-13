@@ -8,6 +8,7 @@ function routeExists(path: string, method: string) {
 describe('Wizmatch staffing Gate A routes', () => {
   it('registers the operating workspaces and relationship CRUD contract', () => {
     const routes = [
+      ['/staffing/access', 'get'],
       ['/staffing/companies', 'get'], ['/staffing/users', 'get'], ['/staffing/contacts', 'get'],
       ['/staffing/companies/:companyId', 'get'], ['/staffing/company-contacts/:companyContactId', 'get'],
       ['/staffing/requirements/:requirementId', 'get'], ['/staffing/my-work', 'get'],

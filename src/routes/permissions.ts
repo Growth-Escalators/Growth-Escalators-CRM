@@ -4,6 +4,7 @@ import { userPermissions, users } from '../db/schema';
 import { and, eq, sql } from 'drizzle-orm';
 import { hash } from '@node-rs/argon2';
 import crypto from 'crypto';
+import { resolveStaffingAccess } from '../services/wizmatchStaffingAccess';
 
 const router = Router();
 
@@ -26,16 +27,29 @@ db.execute(sql`ALTER TABLE user_permissions ADD COLUMN IF NOT EXISTS access_soci
 router.get('/me', async (req: Request, res: Response) => {
   const userId = req.user!.id;
   try {
+    const staffing = resolveStaffingAccess({
+      tenantId: req.user!.tenantId,
+      userId,
+      role: req.user!.role,
+    });
     const [p] = await db.select().from(userPermissions)
       .where(eq(userPermissions.userId, userId))
       .limit(1);
 
     if (!p) {
-      res.json({ permissions: { isOwner: false } });
+      res.json({ permissions: {
+        isOwner: false,
+        staffingPilotAccess: staffing.allowed,
+        staffingCapabilities: staffing.capabilities,
+      } });
       return;
     }
 
-    res.json({ permissions: p });
+    res.json({ permissions: {
+      ...p,
+      staffingPilotAccess: staffing.allowed,
+      staffingCapabilities: staffing.capabilities,
+    } });
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
