@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Download } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
 import { Modal, Button } from '../components/ui/index.js';
+import { formatPlacementCommercial, summarizePlacementCommercials } from '../lib/wizmatchPlacementCommercials.js';
 
 const STAGES = ['submitted', 'interviewing', 'offered', 'started', 'ended', 'lost'];
 const STAGE_LABELS = { submitted: 'Submitted', interviewing: 'Interviewing', offered: 'Offered', started: 'Started', ended: 'Ended', lost: 'Lost' };
@@ -58,7 +59,7 @@ export default function WizmatchPlacementsPage() {
     [placements],
   );
   const filteredPlacements = roleFilter ? placements.filter(p => p.job_title === roleFilter) : placements;
-  const totalMargin = filteredPlacements.reduce((sum, p) => sum + Number(p.margin_hourly || 0), 0);
+  const commercialSummary = summarizePlacementCommercials(filteredPlacements);
 
   if (loading) return <div className="p-6"><p className="text-neutral-400">Loading...</p></div>;
 
@@ -71,7 +72,7 @@ export default function WizmatchPlacementsPage() {
           {roles.map(r => <option key={r} value={r}>{r}</option>)}
         </select>
         <span className="text-[12.5px] font-semibold text-primary-700 bg-primary-500/10 border border-primary-500/20 px-2.5 py-0.5 rounded-full">
-          {filteredPlacements.length} placements · ${totalMargin}/hr margin
+          {filteredPlacements.length} placements · {commercialSummary}
         </span>
         <button type="button" disabled className="h-8 px-3 text-[12.5px] font-medium text-neutral-700 bg-white border border-neutral-300 rounded-sm disabled:opacity-100 disabled:cursor-not-allowed">
           All recruiters
@@ -93,7 +94,7 @@ export default function WizmatchPlacementsPage() {
         <div className="flex gap-3 pt-[18px] px-6 pb-6 items-start min-w-max">
           {STAGES.map(stage => {
             const stageDeals = filteredPlacements.filter(p => p.status === stage);
-            const stageMargin = stageDeals.reduce((sum, p) => sum + Number(p.margin_hourly || 0), 0);
+            const stageCommercialSummary = summarizePlacementCommercials(stageDeals);
             return (
               <div
                 key={stage}
@@ -112,7 +113,7 @@ export default function WizmatchPlacementsPage() {
                   </span>
                 </div>
                 <p className={`px-3 pb-2 text-[11px] font-medium ${SUBTOTAL_TEXT[stage] || 'text-neutral-400'}`}>
-                  ${stageMargin}/hr margin
+                  {stageCommercialSummary}
                 </p>
                 <div className="px-2.5 pb-2.5 space-y-2">
                   {stageDeals.map(p => (
@@ -130,9 +131,9 @@ export default function WizmatchPlacementsPage() {
                           <span className="text-xs font-semibold text-neutral-500">Contract ended</span>
                         ) : stage === 'lost' ? (
                           <span className="text-[11.5px] font-medium text-danger-600">Lost</span>
-                        ) : p.margin_hourly ? (
-                          <span className="text-xs font-semibold text-success-600">${p.margin_hourly}/hr margin</span>
-                        ) : <span />}
+                        ) : (
+                          <span className="text-xs font-semibold text-success-600">{formatPlacementCommercial(p)}</span>
+                        )}
                       </div>
                     </div>
                   ))}

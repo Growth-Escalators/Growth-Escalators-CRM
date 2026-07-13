@@ -2,7 +2,31 @@
 
 _Update this when the working state of the repo meaningfully changes. Keep it short and true._
 
-## 2026-07-13 Staffing OS three-phase snapshot (current)
+## 2026-07-14 Staging Gate C and browser-QA snapshot (current)
+
+- The complete fictional Gate A→B→C workflow now passes on isolated Railway staging. SAP permanent
+  and Java contract both reached placement; live analytics reported 2 starts, 570000 invoiced,
+  570000 collected and 250500 gross margin. Wrong-requirement consent, duplicate active submission,
+  duplicate placement and unauthenticated access were rejected.
+- The live run corrected missing staging Gate B evidence through the tenant-scoped APIs. Canonical
+  SAP ABAP, SAP FICO, Java and JavaScript taxonomy rows exist; requirement/candidate evidence is
+  persisted; Rahul→SAP and Priya→Java are shortlisted; cross-role pairs remain separate and blocked.
+- Live browser QA covered My Work, Relationships, Requirements, Talent Matching, Delivery,
+  Placements, Analytics and System. Delivery at 390×844 had no page-level overflow. No console
+  errors were observed on the verified high-value pages.
+- Browser QA found one honest local defect: the legacy Placements page labelled permanent fees as
+  hourly margin. The local UI now formats permanent fees and contract hourly margins separately.
+  Three focused tests pass; this small repair is not yet deployed to staging.
+- Current verification: backend build passed; 44 Vitest files / 352 tests passed; admin production
+  build passed; Wizmatch Playwright 16/16 passed; `git diff --check` passed.
+- A generated staging browser password appeared in an internal automation snapshot. It was
+  immediately treated as compromised: password rotated, token version bumped, browser/session
+  revoked, in-memory value cleared and temporary files removed. No credential value is retained.
+- Production remains untouched and continues on the old `main` release. The next guarded action is
+  approval to deploy the local display repair to isolated staging; production migration/push/flags/
+  data remain separate later approvals. Mandatory owner policies still block production Gate C.
+
+## 2026-07-13 Staffing OS three-phase snapshot (superseded where noted above)
 
 - Clean worktree `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust`, branch
   `codex/wizmatch-phase0-trust`; original dirty workspace preserved. It is 0 commits behind and
@@ -94,20 +118,19 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   persisting — a score is not a shortlist); deterministic matching routed Rahul→SAP(Person A) and
   Priya→Java(Person B); Rahul shortlisted while `wizmatch_submissions/placements/offers = 0` (a
   shortlist is not a submission).
-- Requirement-sheet PDFs and Gate C consent/RTR documents need R2 (intentionally unset in staging →
-  honest "R2 not configured" error; the requirement record still persists). "Parse with AI" needs
-  Anthropic (also intentionally unset). **Gate C is NOT authorized** — do not provision R2 or begin
-  Gate C without separate explicit approval. Only fictional pilot rows exist in the staging DB.
+- Requirement-sheet PDFs and private consent/RTR uploads need R2 (intentionally unset in staging →
+  honest "R2 not configured" error). Manual requirement-specific consent evidence does not require
+  R2 and was used for the fictional Gate C exercise. "Parse with AI" needs Anthropic and stayed off.
 - Done on staging (separately approved, isolated): staging create + empty Postgres, full migration,
-  deploy, fictional Gate A/B pilot data + exercise, staging pilot login rotation. Still gated and NOT
-  done: Gate C / staging R2 provisioning, production migrations, production data access/write, the
+  deploy, fictional Gate A/B/C pilot data + exercise, staging pilot login rotation. Still gated and
+  NOT done: optional staging R2 document smoke, production migrations, production data access/write, the
   exact push of any branch to a remote (and thus `main` auto-deploy), and enabling Gate A/B/C in
   PRODUCTION — each needs its own explicit approval.
 - The owner selected a controlled Gate A–C pilot and required Claude to pause at every guarded
   action. Named pilot users may begin after Gate C smoke; unrestricted team-wide use still requires
   48 hours of stable monitoring.
 
-## 2026-07-13 snapshot (historical — before Gates B/C)
+## 2026-07-13 snapshot (historical — before completed Gate C exercise)
 
 - **Deployed baseline for this worktree:** rebased `origin/main` at `b05ac01`; branch
   `codex/wizmatch-phase0-trust`. No branch change has been pushed, deployed, sent, spent, migrated,

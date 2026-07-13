@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-13T18:36:30.295Z_
+_Generated: 2026-07-13T19:42:19.120Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,39 +12,26 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: Growth-Escalators/Growth-Escalators-CRM
 - **Branch**: `codex/wizmatch-phase0-trust`
-- **Last commit**: a810d08 fix(migrations): make 0008/0014 idempotent for fresh-database apply (7 hours ago)
-- **Uncommitted changes**: 7 file(s)
+- **Last commit**: 10126d6 fix(wizmatch): verify staging delivery economics (9 seconds ago)
+- **Uncommitted changes**: 0 file(s)
 
 ## Current task
 
-**Wizmatch Staffing OS — a controlled Gate A–C pilot is running on an ISOLATED Railway `staging`
-environment. Local implementation and release-integrity review are complete. Staging holds its own
-Postgres (`Postgres-Bhky`, full journal 0000–0028 applied) and a `web` service (`web-staging`)
-running this worktree, healthy, with Gate A/B/C flags ON, sending + paid-discovery + background jobs
-OFF. Staging URL: https://web-staging-staging-1d24.up.railway.app.**
-
-**Gates A and B are exercised with fictional records and DB-verified. Gate A is now COMPLETE with
-REAL relationship/attribution records: Person A → SAP requirement and Person B → Java requirement,
-each with a company-contact relationship, primary-source attribution, account-owner + recruiter
-assignments, dated next action + SLA, moved to `qualifying`. The exposed staging pilot password has
-been rotated (new value never printed/stored). The exact next action is Gate C, which is BLOCKED on
-staging R2 (consent/RTR/submission documents) and is NOT authorized yet — awaiting separate
-staging-R2 approval.**
+**Wizmatch Staffing OS — Gate A/B/C are now exercised end to end in the isolated Railway staging
+environment. The exact next technical action is a separately approved staging deployment of the
+local permanent-fee/contract-margin display repair, followed by one Placements-page smoke test.**
 
 Work only in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust` on
 `codex/wizmatch-phase0-trust`. Preserve the unrelated dirty workspace at
 `/Users/jatinagrawal/repo-comparison/v2`.
-
-**Production is untouched:** nothing from this branch has been pushed to a remote, deployed to
-production, applied to the production database, sent, spent, or written to production data. Staging
-(a separate isolated environment) HAS been created, migrated, deployed and populated with fictional
-pilot data, and the staging pilot login password was rotated — none of which affects production.
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
 
 ## Recent commits
 
 ```
+10126d6 fix(wizmatch): verify staging delivery economics
+5a4abe0 chore(ai): record staging Gate A pilot evidence + a810d08 guardrail review
 a810d08 fix(migrations): make 0008/0014 idempotent for fresh-database apply
 08f1ef6 chore(ai): refresh same-day pilot brief
 89bcbb2 docs(ai): prepare same-day Wizmatch pilot handoff
@@ -53,8 +40,6 @@ a810d08 fix(migrations): make 0008/0014 idempotent for fresh-database apply
 ff9f696 docs(ai): record Wizmatch release review
 605d6cd fix(wizmatch): enforce delivery reference integrity
 f293c05 chore(ai): refresh clean release snapshot
-3f6679a docs(ai): record production flag verification
-3ef1903 chore(ai): refresh Wizmatch release brief
 ```
 
 ## npm scripts
@@ -98,6 +83,7 @@ docs/decisions/ADR-001-ai-collaboration-workflow.md
 docs/decisions/ADR-002-contact-intelligence-phase1-architecture.md
 docs/decisions/ADR-003-contact-intelligence-review-persistence.md
 docs/decisions/ADR-004-wizmatch-staffing-domain-spine.md
+docs/decisions/ADR-005-migration-exception-0008-0014-fresh-apply.md
 docs/prd/.gitkeep
 docs/prd/001-contact-intelligence-phase1-plan.md
 docs/prd/001-contact-intelligence.md
@@ -109,7 +95,15 @@ docs/reviews/.gitkeep
 docs/reviews/codex-ai-collaboration-review.md
 docs/reviews/wizmatch-client-funnel-audit-2026-07-12.md
 docs/reviews/wizmatch-cost-leakage-audit-2026-07-09.md
+docs/reviews/wizmatch-migration-guardrail-review-2026-07-13.md
 docs/reviews/wizmatch-staffing-release-readiness-2026-07-13.md
+docs/reviews/wizmatch-staging-gate-c-pilot-2026-07-14.md
+docs/reviews/wizmatch-staging-pilot-2026-07-13/wizmatch-staging-gateA-company360.png
+docs/reviews/wizmatch-staging-pilot-2026-07-13/wizmatch-staging-gateA-contact360-personA.png
+docs/reviews/wizmatch-staging-pilot-2026-07-13/wizmatch-staging-gateA-relationships.png
+docs/reviews/wizmatch-staging-pilot-2026-07-13/wizmatch-staging-gateA-requirements-attributed.png
+docs/reviews/wizmatch-staging-pilot-2026-07-13/wizmatch-staging-gateB-match-shortlist.png
+docs/reviews/wizmatch-staging-pilot-2026-07-13/wizmatch-staging-two-distinct-requirements.png
 docs/wizmatch/README.md
 docs/wizmatch/WIZMATCH_STAFFING_OS_CLAUDE_CODE_KICKOFF.md
 docs/wizmatch/WIZMATCH_STAFFING_OS_DEFECT_REGISTER.md

@@ -1,7 +1,7 @@
 # Wizmatch Staffing OS — Defect and Remediation Register
 
 - **Status:** Canonical current remediation register
-- **Updated:** 2026-07-13
+- **Updated:** 2026-07-14
 - **Evidence source:** [`../reviews/wizmatch-client-funnel-audit-2026-07-12.md`](../reviews/wizmatch-client-funnel-audit-2026-07-12.md)
 - **Product target:** [`../prd/004-wizmatch-staffing-operating-system.md`](../prd/004-wizmatch-staffing-operating-system.md)
 
@@ -49,7 +49,7 @@ the evidence explicitly says otherwise. Never promote a status based only on an 
 | D-19 | P3 | 0 | `verified_local` | Readiness now reports schema status separately from usable-funnel status and states that table presence alone is insufficient. | Authenticated patched-build readiness smoke. |
 | D-20 | P3 | 0 | `verified_local` | Open Tasks helper describes tasks instead of displaying the unrelated tenant-contact count; mocked dashboard check passes. | Authenticated dashboard smoke after release. |
 | D-21 | P3 | 0 | `verified_local` | Dashboard work order follows the canonical sidebar sequence and includes omitted stages; mocked dashboard check passes. | Responsive authenticated dashboard smoke after release. |
-| D-22 | P3 | 0/5 | `in_progress` | Gate B/C preserve original amount/currency/period and optional conversion rate/source/date; staffing commercial analytics use stored facts. Older non-staffing screens are not globally normalized. | Pilot admin must enter approved rates; validate display and reconciliation in staging before expanding normalization. |
+| D-22 | P3 | 0/5 | `in_progress` | Gate B/C preserve original amount/currency/period and optional conversion rate/source/date; the live staging Gate C exercise reconciled permanent fee, contract margin, invoice and collection. The legacy Placements page mislabelled permanent fees as hourly margin; a focused local repair now separates permanent fees from contract hourly margins. Older non-staffing screens are not globally normalized. | Deploy the display repair to isolated staging under separate approval and smoke the Placements page; pilot admin must still enter approved FX rates where conversion is required. |
 | D-23 | P3 | 0 | `verified_local` | CRM-link success reports created/existing in plain language and never exposes a raw UUID. Focused service tests cover both newly-created and deduplicated CRM contacts. | Authenticated created/existing branch smoke after release. |
 | D-24 | P3 | 0 | `verified_local` | Domain health resolves configured DKIM selectors and stores/displays pass/fail; without selector evidence it explicitly displays `unknown`. | Configure only approved selectors, then verify DNS evidence in staging/live diagnostics. |
 | D-25 | P3 | 0 | `verified_local` | Signal ingest deduplicates provider ID first, then normalized company/title/location fingerprint, with partial tenant-scoped uniqueness. | Count-only production collision preview before any historical dedupe/backfill. |

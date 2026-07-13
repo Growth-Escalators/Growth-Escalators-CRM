@@ -6,6 +6,27 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-14 — Full staging Gate C, browser QA and commercial-label repair — Codex — LIVE STAGING + LOCAL
+
+- Corrected missing fictional Gate B evidence through tenant-scoped APIs, then proved four separate
+  candidate/requirement pairs: Rahul→SAP and Priya→Java shortlisted; cross-role pairs blocked.
+- Exercised exact-requirement consent → draft → approval → fictional manual delivery record →
+  interview → accepted offer → placement for SAP permanent and Java contract. Negative checks
+  blocked wrong consent, duplicate submission, duplicate placement and unauthenticated access.
+- Linked fictional staging invoices/payments and reconciled 2 starts, 570000 invoiced, 570000
+  collected and 250500 gross margin. Opened/resolved dispute, replacement and refund records.
+- Live browser QA covered the high-value staffing workspaces and 390×844 Delivery layout. Found the
+  legacy Placements page labelling a permanent fee as hourly margin; added a local formatter that
+  separates permanent fees from contract hourly margins plus three regression tests.
+- Verification: build passed; 44/352 Vitest passed; admin build passed; Playwright 16/16 passed;
+  `git diff --check` passed. Staging sending/provider/R2/AI/background jobs remained off.
+- Credential hygiene: an ephemeral staging password appeared in an internal browser snapshot and
+  was immediately rotated/revoked; temporary session artifacts and the in-memory value were removed.
+- Production untouched. Exact next gate: approve one isolated-staging deployment for the display
+  repair, then smoke Placements. Production policies/migrations/push/flags/data remain separately gated.
+
+---
+
 ## 2026-07-13 — Staging login rotated + Gate A completed with real records + a810d08 guardrail review — Claude — LIVE STAGING
 
 - **Rotated the exposed staging pilot login:** generated a new password in-memory, updated the hash,

@@ -59,7 +59,7 @@ Current release truth
 - Phase 0, Gate A, Gate B and Gate C are implemented locally.
 - Migrations 0025–0028 are additive. 0028_strong_cammi.sql passed a production-shaped scratch apply
   on top of the committed Gate B schema.
-- The local verification baseline is: backend build green, 43 Vitest files / 349 tests green,
+- The local verification baseline is: backend build green, 44 Vitest files / 352 tests green,
   admin build green and 16/16 mocked Chromium scenarios green.
 - API and UI phase flags default off in production. Server flags are
   WIZMATCH_STAFFING_GATE_A/B/C_ENABLED; matching Vite build flags are
@@ -72,25 +72,26 @@ Current release truth
 
 Your first task
 
-The release-integrity review is complete in commit `605d6cd` and its saved review/context commits.
-Do not repeat it unless branch contents changed. Resume at the release gate:
+The release-integrity review and isolated staging Gate A/B/C exercise are complete. Do not repeat
+them unless branch contents or staging data changed. Resume at the release gate:
 
 1. Confirm the branch is clean, 0 behind `origin/main`, and contains the four scoped implementation
    commits listed above plus the latest context commits.
 2. Re-read the current task/state and release-readiness review; report any contradiction before an
    external action.
-3. Ask for explicit approval to create an isolated Railway `staging` environment and empty Postgres.
-4. Do not create, deploy, migrate, configure, push, read production data or rotate a credential from
-   this startup prompt alone.
+3. Review the local permanent-fee/contract-margin label repair and its tests.
+4. Ask for explicit approval to deploy that repair to the existing isolated staging service.
+5. Do not deploy, configure, push, read production data or rotate a credential from this startup
+   prompt alone.
 
 Current infrastructure truth
 
-- Railway has only `production`, with `web` and Postgres services. There is no staging environment
-  and no worker service.
-- The exact next gate is approval to create isolated staging and empty staging Postgres. Migration
-  application and application deployment are later, separate approvals.
+- Railway has isolated `production` and `staging` environments. Staging contains `web-staging` and
+  `Postgres-Bhky`; Gate A/B/C are on there with fictional data. No worker exists in either environment.
+- The exact next gate is approval to deploy the local commercial-label repair to `web-staging` and
+  smoke the Placements page. Production remains a later, separate release sequence.
 - Production `web` remains on `b05ac015eff8444edc217563fdb93ac5ef836639` from the latest read-only
-  inspection. The release branch was 0 behind / 25 ahead when this handoff was prepared.
+  inspection. Recompute the branch position at startup rather than relying on a saved ahead count.
 - Deployment documentation references `railway.worker.json`, but the file is absent in this clean
   worktree. Do not create or deploy a worker during the initial pilot.
 
