@@ -266,7 +266,10 @@ app.use('/api/leads', leadsRouter);
 //      here.
 const WIZMATCH_INTERNAL_POST = /^\/(signals\/ingest|signals\/[^/]+\/(score|enrich|match)|candidates\/ingest|classify-reply)$/;
 const WIZMATCH_PUBLIC_GET = /^\/unsubscribe$/;
-const wizmatchRequireAdmin = requireRole('admin', 'team_lead');
+// `viewer` (the read-only Command Deck sync account) is included for GET access to
+// Wizmatch data. Safe because requireAuth (below) blocks the viewer role on any
+// non-GET method, so viewer can read the Wizmatch surfaces but never trigger a write.
+const wizmatchRequireAdmin = requireRole('admin', 'team_lead', 'viewer');
 app.use('/api/wizmatch', (req, res, next) => {
   if (req.method === 'POST' && WIZMATCH_INTERNAL_POST.test(req.path)) return next();
   if (req.method === 'GET' && WIZMATCH_PUBLIC_GET.test(req.path)) return next();
