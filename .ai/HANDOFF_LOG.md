@@ -26,7 +26,9 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 - Verification: `npm run build` passed; `npm test` passed 43 files / 344 tests; `npm run
   admin:build` passed; local mocked Chromium passed 16/16 including Person A/SAP vs Person B/Java
   and draft→approval→manual sent record→interview→offer→acceptance→placement. Existing rank-tracking
-  mock warnings/noisy missing-SERPER logs remain pre-existing and unrelated.
+  mock warnings/noisy missing-SERPER logs remain pre-existing and unrelated. The production bundle,
+  with all Vite staffing flags absent, redirected a direct Gate B URL to Dashboard and omitted all
+  Gate A/B/C navigation entries.
 - Commits present: `1997e31` (Phase 1 hardening), `a5ac3e8` (Gate B), and `48b1a88` (Gate C). No
   push, deployment, production migration/data write, real R2/AI/
   provider/payment call, sending, outreach, credential rotation or history rewrite occurred.

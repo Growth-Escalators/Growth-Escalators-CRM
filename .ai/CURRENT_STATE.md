@@ -27,7 +27,8 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   issue; it is unrelated to 0028 and was not modified.
 - Verification: TypeScript build passed; 43 Vitest files / 344 tests passed; admin production build
   passed; 16/16 local mocked Chromium scenarios passed through placement; `git diff --check` was
-  clean before context edits and must be rerun before commit.
+  clean. A headless check against the production admin bundle with all Vite staffing flags absent
+  redirected `/wizmatch/talent-matching` to Dashboard and confirmed Gate A/B/C nav labels were absent.
 - Remaining work is release/environment work, not additional local feature construction: live
   Dice/TheirStack evidence, staging/production migrations, pilot data, feature flags, authenticated
   live smoke, credential rotation and push/deploy all require their own explicit approvals.
