@@ -43,7 +43,7 @@ CREATE TABLE "discovery_searches" (
 	"created_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "social_accounts" (
+CREATE TABLE IF NOT EXISTS "social_accounts" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"tenant_id" uuid NOT NULL,
 	"platform" text NOT NULL,
@@ -55,7 +55,7 @@ CREATE TABLE "social_accounts" (
 	"created_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "social_posts" (
+CREATE TABLE IF NOT EXISTS "social_posts" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"tenant_id" uuid NOT NULL,
 	"social_account_id" uuid NOT NULL,
@@ -70,16 +70,28 @@ CREATE TABLE "social_posts" (
 	"created_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-ALTER TABLE "billing_clients" ADD COLUMN "meta_ad_account_id" text;--> statement-breakpoint
-ALTER TABLE "messages" ADD COLUMN "message_type" text DEFAULT 'text';--> statement-breakpoint
-ALTER TABLE "messages" ADD COLUMN "media_url" text;--> statement-breakpoint
+ALTER TABLE "billing_clients" ADD COLUMN IF NOT EXISTS "meta_ad_account_id" text;--> statement-breakpoint
+ALTER TABLE "messages" ADD COLUMN IF NOT EXISTS "message_type" text DEFAULT 'text';--> statement-breakpoint
+ALTER TABLE "messages" ADD COLUMN IF NOT EXISTS "media_url" text;--> statement-breakpoint
 ALTER TABLE "discovery_api_usage" ADD CONSTRAINT "discovery_api_usage_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "discovery_results" ADD CONSTRAINT "discovery_results_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "discovery_results" ADD CONSTRAINT "discovery_results_search_id_discovery_searches_id_fk" FOREIGN KEY ("search_id") REFERENCES "public"."discovery_searches"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "discovery_searches" ADD CONSTRAINT "discovery_searches_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "social_accounts" ADD CONSTRAINT "social_accounts_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "social_posts" ADD CONSTRAINT "social_posts_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "social_posts" ADD CONSTRAINT "social_posts_social_account_id_social_accounts_id_fk" FOREIGN KEY ("social_account_id") REFERENCES "public"."social_accounts"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'social_accounts_tenant_id_tenants_id_fk') THEN
+    ALTER TABLE "social_accounts" ADD CONSTRAINT "social_accounts_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE no action ON UPDATE no action;
+  END IF;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'social_posts_tenant_id_tenants_id_fk') THEN
+    ALTER TABLE "social_posts" ADD CONSTRAINT "social_posts_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE no action ON UPDATE no action;
+  END IF;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'social_posts_social_account_id_social_accounts_id_fk') THEN
+    ALTER TABLE "social_posts" ADD CONSTRAINT "social_posts_social_account_id_social_accounts_id_fk" FOREIGN KEY ("social_account_id") REFERENCES "public"."social_accounts"("id") ON DELETE no action ON UPDATE no action;
+  END IF;
+END $$;--> statement-breakpoint
 CREATE UNIQUE INDEX "discovery_usage_tenant_month_idx" ON "discovery_api_usage" USING btree ("tenant_id","month_year");--> statement-breakpoint
 CREATE INDEX "discovery_results_search_idx" ON "discovery_results" USING btree ("search_id");--> statement-breakpoint
 CREATE INDEX "discovery_results_tenant_idx" ON "discovery_results" USING btree ("tenant_id");--> statement-breakpoint
