@@ -288,27 +288,29 @@ function discoveryStatusFor(companyStatus: CompanyIntelligenceStatus, contactCou
 }
 
 function scoreItTechFit(input: ContactIntelligenceInput, reasons: string[], hardBlocks: string[]) {
-  const combined = [
-    input.company.name,
-    input.company.industry,
-    input.signal?.jobTitle,
-    ...(input.signal?.keywords ?? []),
-  ].filter(Boolean).join(' ');
+  const roleText = [input.signal?.jobTitle, ...(input.signal?.keywords ?? [])].filter(Boolean).join(' ');
+  const roleRelevance = classifyWizmatchRoleRelevance({
+    title: input.signal?.jobTitle,
+    skills: input.signal?.keywords,
+  });
 
-  if (textIncludesAny(combined, NON_TECH_TERMS)) {
+  if (roleRelevance === 'irrelevant' || textIncludesAny(roleText, NON_TECH_TERMS)) {
     hardBlocks.push('non_tech');
     reasons.push('Rejected: non-tech/HRMS/payroll/attendance signal detected.');
     return 0;
   }
 
-  let score = 6;
-  if (textIncludesAny(combined, TECH_TERMS)) {
-    score += 14;
+  let score = 0;
+  if (roleRelevance === 'relevant') {
+    score += 20;
     reasons.push('Strong IT/Tech role or skills detected.');
+  } else {
+    reasons.push('IT/Tech role evidence is missing; company vocabulary was not used as a substitute.');
   }
-  if (/staff|talent|consult|vendor|systems integrator|gcc|technology|software/i.test(combined)) {
+  const companyText = [input.company.name, input.company.industry].filter(Boolean).join(' ');
+  if (/staff|talent|consult|vendor|systems integrator|gcc|technology|software/i.test(companyText)) {
     score += 5;
-    reasons.push('Company/signal fits IT staffing or technology ecosystem.');
+    reasons.push('Company ecosystem fit is separate supporting evidence.');
   }
   return clamp(score, 25);
 }
@@ -602,3 +604,4 @@ export function resolveContactIntelligenceReviewAction(
   reasons.push('Action is not valid for this entity.');
   return { ...result, allowed: false };
 }
+import { classifyWizmatchRoleRelevance } from './wizmatchRoleRelevance';

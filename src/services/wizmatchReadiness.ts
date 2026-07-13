@@ -31,6 +31,8 @@ export interface WizmatchReadinessResult {
   };
   overall: {
     status: WizmatchReadinessStatus;
+    schemaStatus: 'ready' | 'needs_migration_check' | 'blocked';
+    usableFunnelStatus: WizmatchReadinessStatus;
     score: number;
     primaryIssue: string;
   };
@@ -243,6 +245,14 @@ export function evaluateWizmatchReadiness(
     : missingRequired.length > 0
       ? 'needs_migration_check'
       : minStatus(moduleStatuses);
+  const schemaStatus = databaseStatus.status === 'error'
+    ? 'blocked'
+    : missingRequired.length > 0
+      ? 'needs_migration_check'
+      : 'ready';
+  const usableFunnelStatus = databaseStatus.status === 'error'
+    ? 'blocked'
+    : minStatus(moduleStatuses);
   const score = databaseStatus.status === 'error'
     ? 0
     : Math.round(modules.reduce((sum, module) => sum + module.score, 0) / Math.max(1, modules.length));
@@ -257,14 +267,14 @@ export function evaluateWizmatchReadiness(
   return {
     generatedAt: new Date().toISOString(),
     database: databaseStatus,
-    overall: { status: overallStatus, score, primaryIssue },
+    overall: { status: overallStatus, schemaStatus, usableFunnelStatus, score, primaryIssue },
     tables,
     modules,
     operatorNotes: [
       'Open /wizmatch/readiness first when validating live data.',
       'Demo pages are labeled demo mode and use fixed sample data.',
       'Live pages require CRM login and protected /api/wizmatch routes.',
-      'A healthy state means required tables exist and at least one live source record exists for the module.',
+      'Schema readiness and usable-funnel readiness are reported separately; existing tables alone do not make the funnel usable.',
       'Empty states should explain whether data, migration, auth, or review input is missing.',
     ],
     guardedItems: GUARDED_ITEMS,

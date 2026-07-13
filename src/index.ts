@@ -328,11 +328,15 @@ app.post('/api/feedback', requireAuth, async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // `clientDist` (D2C landing pages) was removed when the SPA moved to Vercel.
 // Admin SPA still ships from this process for crm.growthescalators.com.
-const builtAdminDist = path.join(__dirname, 'public', 'admin');
-const sourceAdminDist = path.join(__dirname, '..', 'public', 'admin');
-const adminDist = fs.existsSync(path.join(builtAdminDist, 'index.html'))
-  ? builtAdminDist
-  : sourceAdminDist;
+// `npm run admin:build` is the only supported source of the served CRM SPA.
+// Do not fall back to the tracked `public/admin` snapshot: it can drift behind
+// current routes and silently serve an older security/tenant model.
+const adminDist = path.resolve(process.cwd(), 'dist', 'public', 'admin');
+const adminBundleReady = fs.existsSync(path.join(adminDist, 'index.html'));
+
+if (!adminBundleReady) {
+  console.warn('Admin bundle missing. Run `npm run admin:build` before serving the CRM host.');
+}
 
 console.log('Admin dist:', adminDist);
 
@@ -361,6 +365,10 @@ app.get('/crm/{*path}', (req: Request, res: Response) => {
 // Hostname-based: crm.growthescalators.com at root
 app.use((req: Request, res: Response, next: NextFunction) => {
   if (CRM_HOSTS.includes(req.hostname)) {
+    if (!adminBundleReady) {
+      if (API_PREFIXES.some((p) => req.path.startsWith(p))) return next();
+      return res.status(503).type('text/plain').send('CRM admin bundle is unavailable. Run the admin build and restart the service.');
+    }
     express.static(adminDist)(req, res, () => {
       if (API_PREFIXES.some((p) => req.path.startsWith(p))) return next();
       res.sendFile(path.join(adminDist, 'index.html'));

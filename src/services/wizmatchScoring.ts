@@ -107,6 +107,15 @@ export function scoreSignal(input: SignalInput): ScoreResult {
   const breakdown: Record<string, number> = {};
   const reasons: string[] = [];
 
+  const roleRelevance = classifyWizmatchRoleRelevance({
+    title: input.jobTitle,
+    description: input.rawText,
+    skills: input.keywords,
+  });
+  breakdown.roleRelevance = roleRelevance === 'relevant' ? 3 : 0;
+  if (roleRelevance === 'relevant') reasons.push('relevant IT/Tech role');
+  else if (roleRelevance === 'irrelevant') reasons.push('non-technical role');
+
   // Shared: days open + volume
   if (input.daysOpen >= 30) { breakdown.daysOpen = 3; reasons.push(`open ${input.daysOpen}d (stale)`); }
   else if (input.daysOpen >= 14) { breakdown.daysOpen = 2; reasons.push(`open ${input.daysOpen}d`); }
@@ -158,3 +167,4 @@ export function scoreSignal(input: SignalInput): ScoreResult {
 
   return { score, region, breakdown, reasoning, urgencyLevel, strugglingScore, c2cFriendly };
 }
+import { classifyWizmatchRoleRelevance } from './wizmatchRoleRelevance';

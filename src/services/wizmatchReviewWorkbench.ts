@@ -241,6 +241,10 @@ export function buildWizmatchReviewWorkbench(input: ReviewWorkbenchInput): Revie
     ...candidateActions(input.candidates),
     ...requirementActions(input.requirements),
   ]
+    // The workbench is an action queue. Non-executable qualification outcomes and
+    // safety conditions belong in safetyCenter; rendering them as disabled cards
+    // creates permanent dead ends that consume the operator's limited queue.
+    .filter((action) => action.allowed && Boolean(action.endpoint))
     .sort((a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority] || b.score - a.score)
     .slice(0, 30);
 
@@ -253,7 +257,7 @@ export function buildWizmatchReviewWorkbench(input: ReviewWorkbenchInput): Revie
       warm: actions.filter((action) => action.priority === 'warm').length,
       watch: actions.filter((action) => action.priority === 'watch').length,
       blocked: actions.filter((action) => action.priority === 'blocked').length,
-      safeExecutableActions: actions.filter((action) => action.allowed && action.endpoint).length,
+      safeExecutableActions: actions.length,
     },
     actions,
     safetyCenter: buildSafetyCenter(input),

@@ -159,10 +159,10 @@ export default function WizmatchAnalyticsPage({ demoMode = false }) {
       setRoi(r);
     } catch (e) {
       console.error(e);
-      setAnalytics(DEMO_ANALYTICS);
-      setRoi(DEMO_ROI);
-      setDigest({ stats: { signals_captured: 126, signals_priority: 39, sends: 7, positive_replies: 2, candidates_sourced: 92 } });
-      setError(`${e.message || 'Failed to load analytics'} · showing demo data`);
+      setAnalytics(null);
+      setRoi(null);
+      setDigest({ stats: {} });
+      setError(e.message || 'Failed to load analytics');
     } finally {
       setLoading(false);
     }

@@ -30,8 +30,10 @@ import {
 } from '../db/schema';
 import { requireInternalToken } from '../middleware/internalAuth';
 import { scoreSignalById, enrichSignalById, matchSignalById } from '../services/wizmatchSignalPipeline';
+import { scoreSignal } from '../services/wizmatchScoring';
 import { callClaude, parseClaudeJSON, CLAUDE_MODELS } from '../services/claudeService';
 import { findOrCreateContact, normalizeChannelValue } from '../services/contactService';
+import { classifyWizmatchClientLead, linkApprovedWizmatchClientLead } from '../services/wizmatchClientLeadLink';
 import { sendSlackMessage } from '../services/slackService';
 import {
   WIZMATCH_LEADS_CHANNEL,
@@ -1900,10 +1902,21 @@ async function seedProspectCompany(input: SeedProspectInput): Promise<SeedProspe
     companyId = inserted.rows[0].id;
   }
 
+  const manualScore = scoreSignal({
+    daysOpen: 0,
+    repostCount: 0,
+    companyVolumeCount: 1,
+    employmentType: null,
+    keywords: input.keywords,
+    h1bSponsorCount: 0,
+    location: input.location,
+    jobTitle: input.jobTitle,
+    rawText: input.notes,
+  });
   const signalInsert = await pool.query(
     `INSERT INTO wizmatch_job_signals
        (tenant_id, company_id, job_title, job_url, source, location, keywords, score, status)
-     VALUES ($1, $2, $3, $4, 'manual', $5, $6, 8, 'scored')
+     VALUES ($1, $2, $3, $4, 'manual', $5, $6, $7, 'scored')
      RETURNING id`,
     [
       input.tenantId,
@@ -1912,6 +1925,7 @@ async function seedProspectCompany(input: SeedProspectInput): Promise<SeedProspe
       input.jobUrl,
       input.location,
       input.keywords,
+      manualScore.score,
     ],
   );
   const signalId = signalInsert.rows[0].id;
@@ -2147,13 +2161,21 @@ router.post(
 router.get('/client-discovery/queue', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const limit = Math.min(Number(req.query.limit) || 50, 100);
-  const rows = await fetchClientDiscoverySignals(tenantId, limit);
+  const [rows, totalResult] = await Promise.all([
+    fetchClientDiscoverySignals(tenantId, limit),
+    pool.query(
+      `SELECT COUNT(*)::int AS total FROM wizmatch_job_signals
+       WHERE tenant_id = $1 AND status NOT IN ('dead', 'placed')`,
+      [tenantId],
+    ),
+  ]);
   const items = rankClientDiscoveryQueue(rows);
   const selected = selectCompaniesForContactIntelligence(items);
 
   res.json({
     items,
-    total: items.length,
+    total: numeric(totalResult.rows[0]?.total),
+    returned: items.length,
     selectedForContactIntelligence: selected.length,
     guardrails: CLIENT_DISCOVERY_GUARDRAILS,
   });
@@ -2423,11 +2445,15 @@ router.post('/candidate-intelligence/intake', async (req: Request, res: Response
 router.get('/candidate-intelligence/queue', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const limit = Math.min(Number(req.query.limit) || 50, 100);
-  const inputs = await fetchCandidateIntelligenceInputs(tenantId, limit);
+  const [inputs, totalResult] = await Promise.all([
+    fetchCandidateIntelligenceInputs(tenantId, limit),
+    pool.query('SELECT COUNT(*)::int AS total FROM wizmatch_candidates WHERE tenant_id = $1', [tenantId]),
+  ]);
   const items = rankCandidateIntelligenceQueue(inputs);
   res.json({
     items,
-    total: items.length,
+    total: numeric(totalResult.rows[0]?.total),
+    returned: items.length,
     guardrails: CANDIDATE_INTELLIGENCE_GUARDRAILS,
   });
 });
@@ -2544,11 +2570,19 @@ async function buildRequirementPriorityInputs(
 router.get('/requirement-priority/queue', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const limit = Math.min(Number(req.query.limit) || 50, 100);
-  const inputs = await buildRequirementPriorityInputs(tenantId, limit);
+  const [inputs, totalResult] = await Promise.all([
+    buildRequirementPriorityInputs(tenantId, limit),
+    pool.query(
+      `SELECT COUNT(*)::int AS total FROM wizmatch_requirements
+       WHERE tenant_id = $1 AND status <> 'closed'`,
+      [tenantId],
+    ),
+  ]);
   const items = rankRequirementPriorityQueue(inputs);
   res.json({
     items,
-    total: items.length,
+    total: numeric(totalResult.rows[0]?.total),
+    returned: items.length,
     guardrails: REQUIREMENT_PRIORITY_GUARDRAILS,
   });
 });
@@ -3027,14 +3061,15 @@ Rules:
 - Use the exact numbers from the snapshot — never invent figures.
 - Reason over the row-level detail in the snapshot (topSignals' skills/employment type/company, topRequirements' requiredSkills/budgets, candidateSkillSupply, companyTierCounts, recentPlacements, roiSummary) to give concrete, specific guidance — e.g. which roles to prioritize and why, which open requirements are unmatched against current candidate skill supply, and where placement margins are healthy or thin. Do not just restate the aggregate counts.
 - Respond with concise JSON only, using exactly these keys: summary, risks, next_actions, data_gaps, guardrails.`;
+  const compactSnapshot = JSON.stringify(snapshot);
   const prompt = `Analyze this staffing-only CRM snapshot and return your analysis as JSON with keys:
 summary, risks, next_actions, data_gaps, guardrails.
 
 Snapshot:
-${JSON.stringify(snapshot, null, 2)}`;
+${compactSnapshot.slice(0, 40_000)}`;
 
   try {
-    const response = await callClaude(prompt, CLAUDE_MODELS.SONNET, 6000, system);
+    const response = await callClaude(prompt, CLAUDE_MODELS.SONNET, 1500, system, 20_000);
     let analysis: unknown;
     try {
       analysis = parseClaudeJSON(response.text);
@@ -3044,9 +3079,25 @@ ${JSON.stringify(snapshot, null, 2)}`;
     res.json({ generatedAt: new Date().toISOString(), aiEnabled: true, tokensUsed: response.raw?.usage, snapshot, analysis });
   } catch (e) {
     logger.warn({ err: e }, '[wizmatch] intelligence generation unavailable');
+    const message = e instanceof Error ? e.message : '';
+    const reasonCode = /abort|timeout/i.test(message)
+      ? 'provider_timeout'
+      : /No Anthropic API key/i.test(message)
+        ? 'provider_not_configured'
+        : /Claude API error 4\d\d/i.test(message)
+          ? 'provider_request_rejected'
+          : 'provider_unavailable';
+    const safeDetail = reasonCode === 'provider_timeout'
+      ? 'The analysis exceeded the 20-second response limit. Retry once; if it repeats, check provider health.'
+      : reasonCode === 'provider_not_configured'
+        ? 'No supported Anthropic API key is configured for Wizmatch.'
+        : reasonCode === 'provider_request_rejected'
+          ? 'The provider rejected the bounded analysis request. Verify the configured model and account access.'
+          : 'The provider could not complete the bounded analysis request. No demo analysis was substituted.';
     res.status(503).json({
       error: 'Wizmatch AI Intelligence is not available',
-      detail: e instanceof Error ? e.message : 'Claude request failed',
+      detail: safeDetail,
+      reasonCode,
       snapshot,
     });
   }
@@ -3060,13 +3111,21 @@ ${JSON.stringify(snapshot, null, 2)}`;
 router.get('/contact-intelligence/queue', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const limit = Math.min(Number(req.query.limit) || 25, 100);
-  const rows = await fetchContactIntelligenceCompanyRows(tenantId, limit);
+  const [rows, totalResult] = await Promise.all([
+    fetchContactIntelligenceCompanyRows(tenantId, limit),
+    pool.query(
+      `SELECT COUNT(DISTINCT company_id)::int AS total
+       FROM wizmatch_job_signals WHERE tenant_id = $1 AND company_id IS NOT NULL`,
+      [tenantId],
+    ),
+  ]);
   const computed = await Promise.all(rows.map((row) => buildContactIntelligenceResult(tenantId, row)));
   const items = await Promise.all(computed.map((item) => withPersistedContactIntelligence(tenantId, item)));
 
   res.json({
     items,
-    total: items.length,
+    total: numeric(totalResult.rows[0]?.total),
+    returned: items.length,
     phase: 'phase_3_preview_first_manual_paid_discovery',
     costControls: await buildContactDiscoveryCostControls(tenantId, req.user?.id),
   });
@@ -3532,9 +3591,21 @@ router.post('/contact-intelligence/contacts/:candidateId/link-crm-contact', asyn
   const tenantId = req.user!.tenantId;
   const candidateId = String(req.params.candidateId);
   const result = await pool.query(
-    `SELECT id, company_id, crm_contact_id, name, title, email, phone, linkedin_url, status, metadata
-     FROM wizmatch_contact_candidates
-     WHERE tenant_id = $1 AND id = $2
+    `SELECT cc.id,
+            cc.company_id,
+            cc.crm_contact_id,
+            cc.name,
+            cc.title,
+            cc.email,
+            cc.phone,
+            cc.linkedin_url,
+            cc.status,
+            cc.metadata,
+            company.name AS company_name
+     FROM wizmatch_contact_candidates cc
+     LEFT JOIN wizmatch_companies company
+       ON company.tenant_id = cc.tenant_id AND company.id = cc.company_id
+     WHERE cc.tenant_id = $1 AND cc.id = $2
      LIMIT 1`,
     [tenantId, candidateId],
   );
@@ -3553,12 +3624,17 @@ router.post('/contact-intelligence/contacts/:candidateId/link-crm-contact', asyn
   }
 
   if (candidate.crm_contact_id) {
-    await pool.query(
-      `UPDATE contacts
-       SET last_activity_at = NOW(), updated_at = NOW()
-       WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, candidate.crm_contact_id],
-    );
+    await classifyWizmatchClientLead(tenantId, candidate.crm_contact_id, {
+      id: candidate.id,
+      companyId: candidate.company_id,
+      companyName: candidate.company_name,
+      name: candidate.name,
+      title: candidate.title,
+      email: candidate.email,
+      phone: candidate.phone,
+      linkedinUrl: candidate.linkedin_url,
+      metadata: candidate.metadata,
+    });
     await pool.query(
       `UPDATE wizmatch_contact_candidates
        SET status = 'linked_to_crm', updated_at = NOW()
@@ -3569,40 +3645,27 @@ router.post('/contact-intelligence/contacts/:candidateId/link-crm-contact', asyn
     return;
   }
 
-  const channels = [
-    candidate.email ? { channelType: 'email', channelValue: normalizeChannelValue('email', candidate.email), isPrimary: true } : null,
-    candidate.phone ? { channelType: 'phone', channelValue: normalizeChannelValue('phone', candidate.phone), isPrimary: !candidate.email } : null,
-    candidate.linkedin_url ? { channelType: 'linkedin', channelValue: candidate.linkedin_url, isPrimary: !candidate.email && !candidate.phone } : null,
-  ].filter(Boolean) as Array<{ channelType: string; channelValue: string; isPrimary?: boolean }>;
-  const name = splitName(candidate.name);
-  const { contact, created } = await findOrCreateContact(tenantId, {
-    ...name,
-    source: 'wizmatch_contact_intelligence',
-    sourceDetail: candidate.title || 'manual review approved contact',
-    metadata: {
-      ...(candidate.metadata || {}),
-      title: candidate.title,
-      wizmatch_company_id: candidate.company_id,
-      contact_intelligence_candidate_id: candidate.id,
-    },
-    channels,
+  const { crmContactId, created } = await linkApprovedWizmatchClientLead(tenantId, {
+    id: candidate.id,
+    companyId: candidate.company_id,
+    companyName: candidate.company_name,
+    name: candidate.name,
+    title: candidate.title,
+    email: candidate.email,
+    phone: candidate.phone,
+    linkedinUrl: candidate.linkedin_url,
+    metadata: candidate.metadata,
   });
-  await pool.query(
-    `UPDATE contacts
-     SET last_activity_at = NOW(), updated_at = NOW()
-     WHERE tenant_id = $1 AND id = $2`,
-    [tenantId, contact.id],
-  );
   await pool.query(
     `UPDATE wizmatch_contact_candidates
      SET crm_contact_id = $1,
          status = 'linked_to_crm',
          updated_at = NOW()
      WHERE tenant_id = $2 AND id = $3`,
-    [contact.id, tenantId, candidateId],
+    [crmContactId, tenantId, candidateId],
   );
 
-  res.json({ crmContactId: contact.id, created });
+  res.json({ crmContactId, created });
 });
 
 // GET /api/wizmatch/command-center — read-only intelligence operating layer

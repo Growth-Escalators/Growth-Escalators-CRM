@@ -27,6 +27,7 @@ export async function callClaude(
   model: string = CLAUDE_MODELS.HAIKU,
   maxTokens: number = 500,
   system?: string,
+  timeoutMs: number = 60000,
 ): Promise<ClaudeResponse> {
   const apiKey = process.env.WIZMATCH_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
   if (!apiKey) throw new Error('No Anthropic API key configured (WIZMATCH_ANTHROPIC_API_KEY or ANTHROPIC_API_KEY)');
@@ -45,7 +46,7 @@ export async function callClaude(
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
     },
-    signal: AbortSignal.timeout(60000),
+    signal: AbortSignal.timeout(timeoutMs),
     body: JSON.stringify(body),
   });
 

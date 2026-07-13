@@ -27,19 +27,14 @@ function fmtBudget(r) {
   return `${range}${per}`;
 }
 
-// Multipart parse — apiFetch forces JSON content-type, so use a raw fetch here.
 async function parseRequirementApi({ text, file }) {
   const fd = new FormData();
   if (text) fd.append('text', text);
   if (file) fd.append('file', file);
-  const res = await fetch('/api/wizmatch/requirements/parse', {
+  return apiFetch('/api/wizmatch/requirements/parse', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${localStorage.getItem('ge_crm_token')}` },
     body: fd,
   });
-  const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(data?.error || `Parse failed (${res.status})`);
-  return data;
 }
 
 export default function WizmatchRequirementsPage() {
@@ -218,12 +213,20 @@ function RequirementDrawer({ onClose, onSaved }) {
   const [file, setFile] = useState(null);
   const [parsing, setParsing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [parseFeedback, setParseFeedback] = useState(null);
   const [form, setForm] = useState(EMPTY);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const runParse = async () => {
-    if (mode === 'paste' && !jdText.trim()) { alert('Paste the JD text first'); return; }
-    if (mode === 'upload' && !file) { alert('Choose a file first'); return; }
+    setParseFeedback(null);
+    if (mode === 'paste' && !jdText.trim()) {
+      setParseFeedback({ kind: 'validation', message: 'Paste the JD text first.' });
+      return;
+    }
+    if (mode === 'upload' && !file) {
+      setParseFeedback({ kind: 'validation', message: 'Choose a file first.' });
+      return;
+    }
     setParsing(true);
     try {
       const { parsed, source_file_url } = await parseRequirementApi({
@@ -249,7 +252,9 @@ function RequirementDrawer({ onClose, onSaved }) {
         raw_jd: mode === 'paste' ? jdText : f.raw_jd,
         source_file_url: source_file_url || f.source_file_url,
       }));
-    } catch (e) { alert('Parse failed: ' + e.message); } finally { setParsing(false); }
+    } catch (e) {
+      setParseFeedback({ kind: 'error', message: e.message || 'The requirement could not be parsed.' });
+    } finally { setParsing(false); }
   };
 
   const save = async () => {
@@ -283,21 +288,45 @@ function RequirementDrawer({ onClose, onSaved }) {
           {/* Intake */}
           <div>
             <div className="flex gap-2 mb-3">
-              <button onClick={() => setMode('paste')} className={`text-[12.5px] font-semibold px-3 py-1.5 rounded-md border ${mode === 'paste' ? 'border-primary-500 text-primary-700 bg-primary-50' : 'border-neutral-200 text-neutral-500'}`}>Paste JD</button>
-              <button onClick={() => setMode('upload')} className={`text-[12.5px] font-semibold px-3 py-1.5 rounded-md border ${mode === 'upload' ? 'border-primary-500 text-primary-700 bg-primary-50' : 'border-neutral-200 text-neutral-500'}`}>Upload file</button>
+              <button onClick={() => { setMode('paste'); setParseFeedback(null); }} className={`text-[12.5px] font-semibold px-3 py-1.5 rounded-md border ${mode === 'paste' ? 'border-primary-500 text-primary-700 bg-primary-50' : 'border-neutral-200 text-neutral-500'}`}>Paste JD</button>
+              <button onClick={() => { setMode('upload'); setParseFeedback(null); }} className={`text-[12.5px] font-semibold px-3 py-1.5 rounded-md border ${mode === 'upload' ? 'border-primary-500 text-primary-700 bg-primary-50' : 'border-neutral-200 text-neutral-500'}`}>Upload file</button>
             </div>
             {mode === 'paste' ? (
-              <textarea value={jdText} onChange={e => setJdText(e.target.value)} rows={5} placeholder="Paste the client's job requirement here…" className="input w-full resize-y" />
+              <textarea value={jdText} onChange={e => { setJdText(e.target.value); setParseFeedback(null); }} rows={5} placeholder="Paste the client's job requirement here…" className="input w-full resize-y" />
             ) : (
               <label className="flex items-center gap-2 border border-dashed border-neutral-300 rounded-md px-3 py-4 cursor-pointer hover:bg-neutral-50">
                 <Upload className="w-4 h-4 text-neutral-400" />
                 <span className="text-[12.5px] text-neutral-600">{file ? file.name : 'Choose a PDF or image of the JD'}</span>
-                <input type="file" accept=".pdf,image/png,image/jpeg,image/webp" className="hidden" onChange={e => setFile(e.target.files?.[0] || null)} />
+                <input type="file" accept=".pdf,image/png,image/jpeg,image/webp" className="hidden" onChange={e => { setFile(e.target.files?.[0] || null); setParseFeedback(null); }} />
               </label>
             )}
-            <button onClick={runParse} disabled={parsing} className="btn-standard btn-compact mt-2">
-              <Sparkles className="w-3.5 h-3.5" /> {parsing ? 'Parsing…' : 'Parse with AI'}
-            </button>
+            <div className="mt-2 flex items-center gap-2 flex-wrap">
+              <button onClick={runParse} disabled={parsing} className="btn-standard btn-compact">
+                <Sparkles className="w-3.5 h-3.5" /> {parsing ? 'Parsing…' : 'Parse with AI'}
+              </button>
+              {parseFeedback && (
+                <div
+                  role={parseFeedback.kind === 'error' ? 'alert' : 'status'}
+                  className={`text-[12.5px] rounded-md px-2.5 py-1 flex items-center gap-2 border ${
+                    parseFeedback.kind === 'error'
+                      ? 'text-danger-600 bg-danger-500/10 border-danger-500/30'
+                      : 'text-warning-700 bg-warning-500/10 border-warning-500/30'
+                  }`}
+                >
+                  <span>{parseFeedback.kind === 'error' ? 'Parse failed: ' : ''}{parseFeedback.message}</span>
+                  {parseFeedback.kind === 'error' && (
+                    <button
+                      type="button"
+                      onClick={runParse}
+                      disabled={parsing}
+                      className="text-[12.5px] font-semibold text-danger-600 hover:text-danger-500 underline"
+                    >
+                      Retry
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="border-t border-neutral-100 pt-4 space-y-3">

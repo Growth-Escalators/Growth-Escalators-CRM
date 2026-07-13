@@ -35,7 +35,10 @@ export async function apiFetch(path, options = {}) {
       typeof raw === 'string'      ? raw
       : raw && typeof raw === 'object' && typeof raw.message === 'string' ? raw.message
       : `Request failed (${res.status})`;
-    throw new Error(msg);
+    const error = new Error(msg);
+    if (typeof data?.detail === 'string') error.detail = data.detail;
+    if (typeof data?.reasonCode === 'string') error.reasonCode = data.reasonCode;
+    throw error;
   }
 
   return data;

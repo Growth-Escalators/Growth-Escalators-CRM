@@ -435,6 +435,7 @@ export default function PipelinePage() {
   const [showArchived, setShowArchived] = useState(false);
   const [kanbanStages, setKanbanStages] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [selectedDealId, setSelectedDealId] = useState(null);
   const [selectedContact, setSelectedContact] = useState(null);
   const [wonLostModal, setWonLostModal] = useState(null);
@@ -448,24 +449,45 @@ export default function PipelinePage() {
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
 
-  useEffect(() => {
-    apiFetch('/api/pipelines').then((data) => {
+  const loadPipelines = useCallback(async () => {
+    setLoading(true);
+    setLoadError('');
+    try {
+      const data = await apiFetch('/api/pipelines');
       if (Array.isArray(data) && data.length > 0) {
         setPipelinesList(data);
-        setActivePipelineId(data[0].id);
+        setActivePipelineId((current) => data.some((pipeline) => pipeline.id === current) ? current : data[0].id);
       } else {
-        setLoading(false);
+        setPipelinesList([]);
+        setActivePipelineId(null);
+        setKanbanStages([]);
       }
-    });
+    } catch (error) {
+      setPipelinesList([]);
+      setActivePipelineId(null);
+      setKanbanStages([]);
+      setLoadError(error?.message || 'Unable to load pipelines.');
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => { loadPipelines(); }, [loadPipelines]);
 
   const loadDeals = useCallback(async () => {
     if (!activePipelineId) return;
     setLoading(true);
-    const url = `/api/pipelines/${activePipelineId}/deals${showArchived ? '?includeArchived=true' : ''}`;
-    const data = await apiFetch(url);
-    if (data?.stages) setKanbanStages(data.stages);
-    setLoading(false);
+    setLoadError('');
+    try {
+      const url = `/api/pipelines/${activePipelineId}/deals${showArchived ? '?includeArchived=true' : ''}`;
+      const data = await apiFetch(url);
+      setKanbanStages(Array.isArray(data?.stages) ? data.stages : []);
+    } catch (error) {
+      setKanbanStages([]);
+      setLoadError(error?.message || 'Unable to load pipeline deals.');
+    } finally {
+      setLoading(false);
+    }
   }, [activePipelineId, showArchived]);
 
   useEffect(() => { loadDeals(); }, [loadDeals]);
@@ -754,7 +776,17 @@ export default function PipelinePage() {
           </div>
         )}
 
-        {pipelinesList.length === 0 && !loading ? (
+        {loadError && !loading ? (
+          <div className="flex-1 flex flex-col items-center justify-center text-center p-8" role="alert">
+            <div className="max-w-lg rounded-xl border border-danger-200 bg-danger-50 px-5 py-4 text-danger-800">
+              <h3 className="text-base font-semibold">Could not load the pipeline</h3>
+              <p className="mt-1 text-sm">{loadError}</p>
+              <button type="button" onClick={loadPipelines} className="btn-primary btn-compact mt-4">
+                Retry
+              </button>
+            </div>
+          </div>
+        ) : pipelinesList.length === 0 && !loading ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
             <div className="w-16 h-16 bg-neutral-100 rounded-2xl flex items-center justify-center mb-4">
               <svg className="w-8 h-8 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

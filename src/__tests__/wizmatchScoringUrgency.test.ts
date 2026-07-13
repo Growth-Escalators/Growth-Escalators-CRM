@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { scoreSignal } from '../services/wizmatchScoring';
 
 describe('Wizmatch scoring — hiring-urgency ("struggling to hire") signal', () => {
-  it('flags low urgency for a fresh, calm signal (and does not change the numeric score)', () => {
+  it('flags low urgency for a fresh, calm technical signal', () => {
     const r = scoreSignal({
       daysOpen: 1, repostCount: 0, companyVolumeCount: 1,
       employmentType: 'FTE', keywords: ['java'], h1bSponsorCount: 0, region: 'us',
     });
-    expect(r.score).toBe(0); // score unchanged by the urgency addition
+    expect(r.score).toBe(3); // explicit technical-role evidence; urgency itself adds nothing
     expect(r.urgencyLevel).toBe('low');
     expect(r.strugglingScore).toBe(0);
   });

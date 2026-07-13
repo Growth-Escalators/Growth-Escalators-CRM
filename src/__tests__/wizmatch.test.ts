@@ -123,21 +123,21 @@ describe('Wizmatch Signal Scorer — region-aware (real impl)', () => {
     expect(detectRegion(null)).toBe('us');
   });
 
-  it('US: stale + reposted + contract keyword scores 8 (regression)', () => {
+  it('US: stale + reposted + contract role reaches the 10-point cap', () => {
     const { score, region } = scoreSignal({
       daysOpen: 35, repostCount: 1, companyVolumeCount: 1,
       employmentType: 'W2', keywords: ['java'], h1bSponsorCount: 0,
     });
     expect(region).toBe('us');
-    expect(score).toBe(8);
+    expect(score).toBe(10);
   });
 
-  it('US: LCA sponsor 5+ adds 1 (regression)', () => {
+  it('US: LCA evidence remains separate from relevant-role evidence', () => {
     const { score } = scoreSignal({
       daysOpen: 1, repostCount: 0, companyVolumeCount: 1,
       employmentType: 'FTE', keywords: ['java'], h1bSponsorCount: 10,
     });
-    expect(score).toBe(1);
+    expect(score).toBe(4); // relevant Java role (3) + LCA (1)
   });
 
   it('India: stale + reposted + contract + high-demand skill crosses the gate', () => {
@@ -157,7 +157,7 @@ describe('Wizmatch Signal Scorer — region-aware (real impl)', () => {
       location: 'Pune',
     });
     expect(region).toBe('india');
-    expect(score).toBe(1); // only the high-demand skill point; LCA contributes nothing
+    expect(score).toBe(4); // relevant Java role (3) + high-demand skill (1); LCA contributes nothing
   });
 
   it('caps at 10 for either region', () => {

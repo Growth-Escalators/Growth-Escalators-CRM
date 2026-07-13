@@ -143,6 +143,19 @@ function ScoreBar({ label, value, max }) {
   );
 }
 
+function formatMinorCurrency(value, currency = 'INR') {
+  const amount = Number(value || 0) / 100;
+  try {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: currency || 'INR',
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return `₹${amount.toFixed(2)}`;
+  }
+}
+
 function CandidateCard({ candidate, disabled, onReview, onLinkCrm }) {
   return (
     <div className="border border-neutral-200 rounded-lg p-3 bg-white">
@@ -221,7 +234,7 @@ function CompanyPanel({ item, selected, onSelect }) {
       <div className="mt-3 flex flex-wrap gap-2">
         <span className={statusBadge}>{item.companyStatus?.replace(/_/g, ' ')}</span>
         <span className="badge-muted">{item.contactCandidates?.length || 0} contacts</span>
-        <span className="badge-muted">cost ₹0</span>
+        <span className="badge-muted">preview first</span>
       </div>
 
       {item.latestSignal && (
@@ -235,6 +248,7 @@ function CompanyPanel({ item, selected, onSelect }) {
 
 export default function WizmatchContactIntelligencePage({ demoMode = false }) {
   const [items, setItems] = useState([]);
+  const [total, setTotal] = useState(demoMode ? DEMO_ITEMS.length : 0);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -244,12 +258,16 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
   const [reviewNotes, setReviewNotes] = useState('');
   const [manualContact, setManualContact] = useState({ name: '', title: '', email: '', phone: '', linkedinUrl: '', notes: '' });
   const [pipelineLinkContactId, setPipelineLinkContactId] = useState(null);
+  const [discoveryPreview, setDiscoveryPreview] = useState(null);
+  const [discoveryConfirmed, setDiscoveryConfirmed] = useState(false);
+  const [discoveryMessage, setDiscoveryMessage] = useState('');
 
   const loadQueue = useCallback(async () => {
     setLoading(true);
     setError('');
     if (demoMode) {
       setItems(DEMO_ITEMS);
+      setTotal(DEMO_ITEMS.length);
       setCostControls({
         paidDiscoveryEnabled: false,
         maxPaidDiscoveryPerCompany: 0,
@@ -264,6 +282,7 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
       const data = await apiFetch('/api/wizmatch/contact-intelligence/queue?limit=50');
       const nextItems = data.items || [];
       setItems(nextItems);
+      setTotal(Number(data.total ?? nextItems.length));
       setCostControls(data.costControls || null);
       setSelected((prev) => {
         if (!nextItems.length) return null;
@@ -272,21 +291,23 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
       });
     } catch (e) {
       console.error('Failed to load contact intelligence:', e);
-      setItems(DEMO_ITEMS);
-      setCostControls({
-        paidDiscoveryEnabled: false,
-        maxPaidDiscoveryPerCompany: 0,
-        maxContactCandidatesShown: 3,
-        rediscoveryCooldownDays: 30,
-      });
-      setSelected(DEMO_ITEMS[0]);
-      setError(`${e.message || 'Failed to load Contact Intelligence'} · showing local demo data`);
+      setItems([]);
+      setTotal(0);
+      setCostControls(null);
+      setSelected(null);
+      setError(e.message || 'Failed to load Contact Intelligence');
     } finally {
       setLoading(false);
     }
   }, [demoMode]);
 
   useEffect(() => { loadQueue(); }, [loadQueue]);
+
+  useEffect(() => {
+    setDiscoveryPreview(null);
+    setDiscoveryConfirmed(false);
+    setDiscoveryMessage('');
+  }, [selected?.companyId]);
 
   const updateSelectedInMemory = useCallback((updater) => {
     setSelected((prev) => {
@@ -416,7 +437,7 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
           method: 'POST',
         });
         await loadQueue();
-        setActionMessage(`CRM contact linked: ${result.crmContactId}`);
+        setActionMessage(result.created ? 'CRM contact created and linked.' : 'Existing CRM contact linked.');
         setPipelineLinkContactId(candidate.id);
       }
     } catch (e) {
@@ -465,6 +486,72 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
     }
   }, [demoMode, loadQueue, manualContact, selected, updateSelectedInMemory]);
 
+  const previewDiscovery = useCallback(async () => {
+    if (!selected) return;
+    setActionLoading('discovery-preview');
+    setDiscoveryMessage('');
+    setDiscoveryConfirmed(false);
+    try {
+      if (demoMode) {
+        const enabled = Boolean(costControls?.paidDiscoveryEnabled);
+        const blockedReasons = enabled ? [] : ['Provider discovery is disabled in this demo.'];
+        setDiscoveryPreview({
+          eligible: enabled,
+          status: enabled ? 'ready_for_manual_paid_discovery' : 'paid_discovery_disabled',
+          estimatedCostCents: 0,
+          providerOrder: ['internal_crm_reuse', 'company_metadata', 'website_manual_pattern', 'reacher_verification'],
+          capStatus: costControls || {},
+          costGuard: { allowed: enabled, currency: 'INR', estimatedCostCents: 0, budget: null, providerEnv: { missing: [] } },
+          blockedReasons,
+          notes: ['Demo preview only. No provider calls are made.', 'Discovery never sends outreach.'],
+        });
+        setDiscoveryMessage(enabled ? 'Demo preview ready.' : 'Demo preview is blocked; no provider call was made.');
+      } else {
+        const result = await apiFetch(`/api/wizmatch/contact-intelligence/companies/${selected.companyId}/discovery-preview`, {
+          method: 'POST',
+          body: JSON.stringify({}),
+        });
+        setDiscoveryPreview(result.preview || null);
+        setDiscoveryMessage(result.preview?.eligible
+          ? 'Preview ready. Review the provider order, caps, and estimated cost before confirming.'
+          : 'Preview blocked. Review the reasons below; no provider call was made.');
+      }
+    } catch (e) {
+      setDiscoveryPreview(null);
+      setDiscoveryMessage(e.message || 'Discovery preview failed.');
+    } finally {
+      setActionLoading('');
+    }
+  }, [costControls, demoMode, selected]);
+
+  const runDiscovery = useCallback(async () => {
+    if (!selected || !discoveryPreview?.eligible || !discoveryConfirmed) return;
+    setActionLoading('discovery-run');
+    setDiscoveryMessage('');
+    try {
+      if (demoMode) {
+        setDiscoveryMessage('Demo discovery completed locally. No provider was called and no outreach was sent.');
+      } else {
+        const result = await apiFetch(`/api/wizmatch/contact-intelligence/companies/${selected.companyId}/discover`, {
+          method: 'POST',
+          body: JSON.stringify({ confirmPreview: true }),
+        });
+        setDiscoveryPreview(result.preview || discoveryPreview);
+        setDiscoveryConfirmed(false);
+        await loadQueue();
+        setDiscoveryMessage(
+          `Discovery ${result.status || 'completed'}: ${result.contactCandidates?.length || 0} reviewable contacts; ` +
+          `${formatMinorCurrency(result.costCents, result.preview?.costGuard?.currency)} recorded cost. No outreach was sent.`,
+        );
+      }
+    } catch (e) {
+      setDiscoveryConfirmed(false);
+      setDiscoveryMessage(e.message || 'Discovery run failed.');
+    } finally {
+      setActionLoading('');
+    }
+  }, [demoMode, discoveryConfirmed, discoveryPreview, loadQueue, selected]);
+
   const summary = useMemo(() => {
     const tierA = items.filter((item) => item.qualificationTier === 'A').length;
     const blocked = items.filter((item) => item.discoveryRunStatus === 'blocked_by_cap').length;
@@ -478,7 +565,7 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
         <div>
           <h1 className="text-[20px] font-bold text-neutral-900">Contact Intelligence</h1>
           <p className="text-[12.5px] text-neutral-500 mt-1">
-            Phase 1 · deterministic qualification · internal CRM reuse · zero paid enrichment{demoMode ? ' · demo data' : ''}
+            Deterministic qualification · CRM reuse first · preview-first manual discovery · no automatic outreach{demoMode ? ' · demo data' : ''}
           </p>
         </div>
         <button onClick={loadQueue} className="btn-standard btn-compact self-start" disabled={loading}>
@@ -489,9 +576,9 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-5">
         <div className="card p-4">
           <div className="flex items-center gap-2 text-neutral-500 text-[12px] font-semibold uppercase tracking-wider">
-            <Sparkles className="w-4 h-4" /> Qualified
+            <Sparkles className="w-4 h-4" /> Loaded companies
           </div>
-          <p className="text-2xl font-bold text-neutral-900 mt-2">{items.length}</p>
+          <p className="text-2xl font-bold text-neutral-900 mt-2">{total}</p>
         </div>
         <div className="card p-4">
           <div className="flex items-center gap-2 text-neutral-500 text-[12px] font-semibold uppercase tracking-wider">
@@ -513,6 +600,9 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
           <div>
             <p className="font-semibold">Could not load queue</p>
             <p className="text-sm">{error}</p>
+            <button type="button" className="btn-standard btn-compact mt-2" onClick={loadQueue} disabled={loading}>
+              Retry
+            </button>
           </div>
         </div>
       )}
@@ -575,13 +665,136 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
                 <div className="bg-neutral-50 rounded-lg p-4">
                   <p className="text-[11px] text-neutral-500 uppercase font-semibold tracking-wider">Discovery</p>
                   <p className="text-lg font-bold text-neutral-900 mt-2">{selected.discoveryRunStatus?.replace(/_/g, ' ')}</p>
-                  <p className="text-[12px] text-neutral-500">Phase 1 internal-only</p>
+                  <p className="text-[12px] text-neutral-500">Manual and cost-guarded</p>
                 </div>
                 <div className="bg-neutral-50 rounded-lg p-4">
                   <p className="text-[11px] text-neutral-500 uppercase font-semibold tracking-wider">Latest Signal</p>
                   <p className="text-sm font-semibold text-neutral-900 mt-2 line-clamp-2">{selected.latestSignal?.jobTitle || 'No signal'}</p>
                   <p className="text-[12px] text-neutral-500">score {selected.latestSignal?.score ?? 0}/10</p>
                 </div>
+              </div>
+
+              <div className="mb-5 rounded-lg border border-neutral-200 bg-white p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <h3 className="text-[15px] font-semibold text-neutral-800">Discovery preview</h3>
+                    <p className="mt-1 text-[12.5px] text-neutral-500">
+                      Preview is read-only. It shows eligibility, provider order, caps, and estimated cost without calling a provider.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-standard btn-compact self-start"
+                    disabled={Boolean(actionLoading)}
+                    onClick={previewDiscovery}
+                  >
+                    {actionLoading === 'discovery-preview' ? 'Preparing…' : 'Discovery Preview'}
+                  </button>
+                </div>
+
+                {discoveryPreview ? (
+                  <div className="mt-4 space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={discoveryPreview.eligible ? 'badge-success' : 'badge-warning'}>
+                        {discoveryPreview.status?.replace(/_/g, ' ') || (discoveryPreview.eligible ? 'eligible' : 'blocked')}
+                      </span>
+                      <span className="badge-muted">
+                        Estimated cost {formatMinorCurrency(discoveryPreview.estimatedCostCents, discoveryPreview.costGuard?.currency)}
+                      </span>
+                      <span className="badge-muted">
+                        Cooldown {discoveryPreview.capStatus?.rediscoveryCooldownDays || costControls?.rediscoveryCooldownDays || 30}d
+                      </span>
+                      {discoveryPreview.costGuard?.providerEnv?.missing?.length > 0 && (
+                        <span className="badge-danger">Provider configuration missing</span>
+                      )}
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="rounded-md bg-neutral-50 p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500">Provider order</p>
+                        <p className="mt-1 text-[12.5px] text-neutral-800">
+                          {(discoveryPreview.providerOrder || []).map((provider) => provider.replace(/_/g, ' ')).join(' → ') || 'No provider path available'}
+                        </p>
+                      </div>
+                      <div className="rounded-md bg-neutral-50 p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500">Run controls</p>
+                        <p className="mt-1 text-[12.5px] text-neutral-800">
+                          Paid cooldown {discoveryPreview.capStatus?.paidRunsInCooldown || 0}/
+                          {discoveryPreview.capStatus?.maxPaidDiscoveryPerCompany ?? costControls?.maxPaidDiscoveryPerCompany ?? 1}
+                          {' · '}Google fallback {discoveryPreview.capStatus?.googleFallbackEnabled ? 'on' : 'off'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {discoveryPreview.costGuard?.budget && (
+                      <div className="rounded-md border border-neutral-100 bg-neutral-50 p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500">Cost guard</p>
+                        <div className="mt-2 grid gap-2 md:grid-cols-2">
+                          <p className="text-[12.5px] text-neutral-700">
+                            Month: {formatMinorCurrency(discoveryPreview.costGuard.budget.month?.usedCents, discoveryPreview.costGuard.currency)} / {formatMinorCurrency(discoveryPreview.costGuard.budget.month?.limitCents, discoveryPreview.costGuard.currency)}
+                          </p>
+                          <p className="text-[12.5px] text-neutral-700">
+                            Today: {formatMinorCurrency(discoveryPreview.costGuard.budget.day?.usedCents, discoveryPreview.costGuard.currency)} / {formatMinorCurrency(discoveryPreview.costGuard.budget.day?.limitCents, discoveryPreview.costGuard.currency)}
+                          </p>
+                          <p className="text-[12.5px] text-neutral-700">
+                            Your runs: {discoveryPreview.costGuard.budget.userDayRuns?.used || 0}/{discoveryPreview.costGuard.budget.userDayRuns?.limit || 0}
+                          </p>
+                          <p className="text-[12.5px] text-neutral-700">
+                            Tenant runs: {discoveryPreview.costGuard.budget.tenantDayRuns?.used || 0}/{discoveryPreview.costGuard.budget.tenantDayRuns?.limit || 0}
+                          </p>
+                        </div>
+                        <p className="mt-2 text-[12px] text-neutral-500">
+                          Provider calls today: Apollo {discoveryPreview.costGuard.budget.providerDayCalls?.apollo?.used || 0}/{discoveryPreview.costGuard.budget.providerDayCalls?.apollo?.limit || 0}
+                          {' · '}Snov {discoveryPreview.costGuard.budget.providerDayCalls?.snov?.used || 0}/{discoveryPreview.costGuard.budget.providerDayCalls?.snov?.limit || 0}
+                          {' · '}Reacher {discoveryPreview.costGuard.budget.providerDayCalls?.reacher?.used || 0}/{discoveryPreview.costGuard.budget.providerDayCalls?.reacher?.limit || 0}
+                          {' · '}Google {discoveryPreview.costGuard.budget.providerDayCalls?.googleFallback?.used || 0}/{discoveryPreview.costGuard.budget.providerDayCalls?.googleFallback?.limit || 0}
+                        </p>
+                      </div>
+                    )}
+
+                    {discoveryPreview.costGuard?.providerEnv?.missing?.length > 0 && (
+                      <p className="rounded-md border border-warning-500/30 bg-warning-500/10 px-3 py-2 text-[12.5px] text-warning-700">
+                        Missing provider configuration: {discoveryPreview.costGuard.providerEnv.missing.join(', ')}
+                      </p>
+                    )}
+                    {(discoveryPreview.blockedReasons || []).map((reason) => (
+                      <p key={reason} className="rounded-md border border-danger-500/30 bg-danger-500/10 px-3 py-2 text-[12.5px] text-danger-600">
+                        {reason}
+                      </p>
+                    ))}
+                    {(discoveryPreview.notes || []).map((note) => (
+                      <p key={note} className="text-[12px] text-neutral-500">{note}</p>
+                    ))}
+
+                    <label className="flex items-start gap-2 rounded-md border border-neutral-200 px-3 py-2">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={discoveryConfirmed}
+                        disabled={!discoveryPreview.eligible || Boolean(actionLoading)}
+                        onChange={(event) => setDiscoveryConfirmed(event.target.checked)}
+                      />
+                      <span className="text-[12.5px] text-neutral-700">
+                        I reviewed the eligibility, provider order, caps, and estimated cost. I understand that a confirmed run may call configured providers, but never sends outreach.
+                      </span>
+                    </label>
+                    <button
+                      type="button"
+                      className="btn-primary btn-compact"
+                      disabled={Boolean(actionLoading) || !discoveryPreview.eligible || !discoveryConfirmed}
+                      onClick={runDiscovery}
+                    >
+                      {actionLoading === 'discovery-run' ? 'Running discovery…' : 'Confirm & run discovery'}
+                    </button>
+                  </div>
+                ) : (
+                  <p className="mt-4 rounded-md bg-neutral-50 px-3 py-3 text-[12.5px] text-neutral-500">
+                    Run the preview before any manual discovery. No provider call or outreach happens during preview.
+                  </p>
+                )}
+                {discoveryMessage && (
+                  <p className="mt-3 rounded-md bg-primary-50 px-3 py-2 text-[12.5px] text-primary-700">{discoveryMessage}</p>
+                )}
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -629,7 +842,7 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
                     ) : (
                       <div className="border border-dashed border-neutral-300 rounded-lg p-5 text-center text-neutral-400">
                         <Clock className="w-5 h-5 mx-auto mb-2" />
-                        No reusable internal contacts found. Paid discovery is blocked in Phase 1.
+                        No reusable contacts found yet. Run the read-only discovery preview to see whether manual discovery is eligible.
                       </div>
                     )}
                   </div>

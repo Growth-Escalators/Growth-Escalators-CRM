@@ -410,6 +410,7 @@ function SeedProspectPanel({ demoMode, onSeeded }) {
 
 export default function WizmatchClientDiscoveryPage({ demoMode = false }) {
   const [items, setItems] = useState(demoMode ? DEMO_ITEMS : []);
+  const [total, setTotal] = useState(demoMode ? DEMO_ITEMS.length : 0);
   const [selected, setSelected] = useState(demoMode ? DEMO_ITEMS[0] : null);
   const [loading, setLoading] = useState(!demoMode);
   const [error, setError] = useState('');
@@ -422,6 +423,7 @@ export default function WizmatchClientDiscoveryPage({ demoMode = false }) {
     setError('');
     if (demoMode) {
       setItems(DEMO_ITEMS);
+      setTotal(DEMO_ITEMS.length);
       setSelected((prev) => prev || DEMO_ITEMS[0]);
       setLoading(false);
       return;
@@ -430,15 +432,17 @@ export default function WizmatchClientDiscoveryPage({ demoMode = false }) {
       const data = await apiFetch('/api/wizmatch/client-discovery/queue?limit=75');
       const next = data.items || [];
       setItems(next);
+      setTotal(Number(data.total ?? next.length));
       setSelected((prev) => {
         if (!next.length) return null;
         return next.find((item) => item.id === prev?.id) || next[0];
       });
     } catch (e) {
       console.error('Failed to load Client Discovery:', e);
-      setItems(DEMO_ITEMS);
-      setSelected(DEMO_ITEMS[0]);
-      setError(`${e.message || 'Failed to load Client Discovery'} · showing demo data`);
+      setItems([]);
+      setTotal(0);
+      setSelected(null);
+      setError(e.message || 'Failed to load Client Discovery');
     } finally {
       setLoading(false);
     }
@@ -494,7 +498,7 @@ export default function WizmatchClientDiscoveryPage({ demoMode = false }) {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-5">
         <div className="card p-4">
           <p className="text-[12px] text-neutral-500 font-semibold uppercase">Total signals</p>
-          <p className="text-2xl font-bold text-neutral-900 mt-1">{items.length}</p>
+          <p className="text-2xl font-bold text-neutral-900 mt-1">{total}</p>
         </div>
         <div className="card p-4">
           <p className="text-[12px] text-neutral-500 font-semibold uppercase">Hot</p>

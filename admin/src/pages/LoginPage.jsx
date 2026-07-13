@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   getTenantConfig,
   getTenantSlug,
@@ -12,6 +12,7 @@ import {
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [tenantSlug, setTenantSlug] = useState(getTenantSlug());
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -53,7 +54,11 @@ export default function LoginPage() {
       } catch {
         setAuthPermissions({}, tenantSlug);
       }
-      navigate(getProductHome(data.user?.tenantSlug || tenantSlug));
+      const requestedReturn = new URLSearchParams(location.search).get('returnTo');
+      const safeReturn = requestedReturn?.startsWith('/') && !requestedReturn.startsWith('//')
+        ? requestedReturn
+        : null;
+      navigate(safeReturn || getProductHome(data.user?.tenantSlug || tenantSlug));
     } catch {
       setError('Network error. Please try again.');
     } finally {

@@ -150,8 +150,8 @@ export function detectClientDiscoveryRegion(input: ClientDiscoveryInput): Client
 
 export function detectClientDiscoveryHardBlocks(input: ClientDiscoveryInput): string[] {
   const blocks: string[] = [];
-  const text = combinedText(input);
-  if (includesAny(text, NON_TECH_TERMS)) blocks.push('non_tech_signal');
+  const roleRelevance = classifyWizmatchRoleRelevance({ title: input.jobTitle });
+  if (roleRelevance === 'irrelevant' || includesAny(input.jobTitle, NON_TECH_TERMS)) blocks.push('non_tech_signal');
   if ((input.suppressedCount ?? 0) > 0) blocks.push('suppressed_domain');
   if (['paused', 'blacklisted'].includes(input.domainStatus ?? '')) blocks.push('unsafe_domain');
   if ((input.activeDuplicateCount ?? 0) > 0) blocks.push('active_outreach_duplicate');
@@ -176,18 +176,22 @@ export function scoreClientDiscoveryOpportunity(input: ClientDiscoveryInput): Cl
   const reasons: string[] = [];
   const blockers = detectClientDiscoveryHardBlocks(input);
   const text = combinedText(input);
+  const roleRelevance = classifyWizmatchRoleRelevance({ title: input.jobTitle });
   const region = detectClientDiscoveryRegion(input);
 
   const itTechFit = (() => {
     if (blockers.includes('non_tech_signal')) return 0;
-    let score = 6;
-    if (includesAny(text, TECH_TERMS)) {
-      score += 14;
-      reasons.push('IT/Tech company or role vocabulary detected.');
+    let score = 0;
+    if (roleRelevance === 'relevant') {
+      score += 20;
+      reasons.push('IT/Tech role evidence found in the job title.');
+    } else {
+      reasons.push('IT/Tech role evidence is missing; company vocabulary was not used as a substitute.');
     }
-    if (/staff|vendor|consult|integrator|gcc|technology|software|product/i.test(text)) {
+    const companyText = [input.companyIndustry, input.companyName].filter(Boolean).join(' ');
+    if (/staff|vendor|consult|integrator|gcc|technology|software/i.test(companyText)) {
       score += 5;
-      reasons.push('Company appears relevant to staffing, vendor, GCC, or technology hiring.');
+      reasons.push('Company ecosystem fit is present as separate supporting evidence.');
     }
     return clamp(score, 25);
   })();
@@ -324,3 +328,4 @@ export function selectCompaniesForContactIntelligence(results: ClientDiscoveryRe
     return true;
   });
 }
+import { classifyWizmatchRoleRelevance } from './wizmatchRoleRelevance';

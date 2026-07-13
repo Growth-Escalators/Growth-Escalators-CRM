@@ -15,6 +15,7 @@
 
 import { pool } from '../db/index';
 import logger from '../utils/logger';
+import { isWizmatchRelevantRole } from './wizmatchRoleRelevance';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -174,8 +175,6 @@ async function pollAshby(slug: string): Promise<IngestedJob[]> {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const CONTRACT_KEYWORDS = ['contract', 'c2c', 'w2', '1099', 'contract-to-hire', '6-month', '12-month'];
-
 // Broad skill taxonomy — languages/frameworks/cloud plus enterprise & functional
 // stacks common in India staffing (SAP, Salesforce, ServiceNow, QA, BA, etc.),
 // so niche roles don't fall through to an empty keyword set.
@@ -302,6 +301,14 @@ export async function pollAtsBoards(): Promise<{
         job.company_name = company.name;
         job.company_domain = company.domain;
       }
+
+      // Public ATS boards contain every department. Only retain roles carrying
+      // explicit technical evidence; company identity never makes a role relevant.
+      jobs = jobs.filter((job) => isWizmatchRelevantRole({
+        title: job.job_title,
+        description: job.raw_text,
+        skills: job.keywords,
+      }));
 
       result.found = jobs.length;
       totalFound += jobs.length;

@@ -111,7 +111,7 @@ describe('Wizmatch Review Workbench', () => {
     expect(result.safetyCenter.blockers).toContain('1 paused/blacklisted sending domain(s).');
   });
 
-  it('keeps executable workbench actions scoped to safe manual endpoints', () => {
+  it('keeps only executable actions in the workbench and moves blockers to the safety center', () => {
     const safeRequirement = scoreRequirementPriority({
       ...requirement,
       candidateMatches: [candidate],
@@ -143,13 +143,17 @@ describe('Wizmatch Review Workbench', () => {
       metrics: { pausedDomains: 0, suppressedContacts: 0, paidRunsBlocked: 0 },
     });
 
-    const executable = result.actions.filter((action) => action.allowed);
     const blocked = result.actions.filter((action) => action.priority === 'blocked');
 
-    expect(executable.length).toBeGreaterThan(0);
-    expect(executable.every((action) => action.method === 'POST' && action.endpoint?.startsWith('/api/wizmatch/'))).toBe(true);
-    expect(executable.every((action) => action.guardrails.some((guardrail) => /No automatic|Manual reviewer|No paid/.test(guardrail)))).toBe(true);
-    expect(blocked.length).toBeGreaterThan(0);
-    expect(blocked.every((action) => action.allowed === false)).toBe(true);
+    expect(result.actions.length).toBeGreaterThan(0);
+    expect(result.actions.every((action) => action.allowed)).toBe(true);
+    expect(result.actions.every((action) => action.method === 'POST' && action.endpoint?.startsWith('/api/wizmatch/'))).toBe(true);
+    expect(result.actions.every((action) => action.guardrails.some((guardrail) => /No automatic|Manual reviewer|No paid/.test(guardrail)))).toBe(true);
+    expect(blocked).toHaveLength(0);
+    expect(result.summary.blocked).toBe(0);
+    expect(result.summary.safeExecutableActions).toBe(result.actions.length);
+    expect(result.safetyCenter.status).toBe('blocked');
+    expect(result.safetyCenter.blockers.some((reason) => reason.includes('Candidate Intelligence'))).toBe(true);
+    expect(result.safetyCenter.blockers.some((reason) => reason.includes('requirement priority'))).toBe(true);
   });
 });

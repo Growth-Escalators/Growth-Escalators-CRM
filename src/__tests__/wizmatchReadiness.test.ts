@@ -40,6 +40,8 @@ describe('Wizmatch Data Readiness', () => {
 
     expect(result.database.status).toBe('connected');
     expect(result.overall.status).toBe('ready');
+    expect(result.overall.schemaStatus).toBe('ready');
+    expect(result.overall.usableFunnelStatus).toBe('ready');
     expect(result.overall.score).toBe(100);
     expect(result.modules.every((module) => module.status === 'ready')).toBe(true);
     expect(result.guardedItems).toContain('Automatic outreach sending remains blocked.');
@@ -53,6 +55,7 @@ describe('Wizmatch Data Readiness', () => {
     ]);
 
     expect(result.overall.status).toBe('needs_migration_check');
+    expect(result.overall.schemaStatus).toBe('needs_migration_check');
     expect(result.overall.primaryIssue).toContain('Missing required table');
     expect(result.modules.find((module) => module.module === 'contact_intelligence')?.status).toBe('needs_migration_check');
   });
@@ -61,6 +64,8 @@ describe('Wizmatch Data Readiness', () => {
     const result = evaluateWizmatchReadiness(healthyTables.map((item) => ({ ...item, count: 0, latestAt: null, status: 'needs_data' as const })));
 
     expect(result.overall.status).toBe('needs_data');
+    expect(result.overall.schemaStatus).toBe('ready');
+    expect(result.overall.usableFunnelStatus).toBe('needs_data');
     expect(result.modules.find((module) => module.module === 'client_discovery')?.reason).toContain('No company/job-signal data');
     expect(result.modules.find((module) => module.module === 'guardrails')?.status).toBe('needs_data');
     expect(result.operatorNotes.some((note) => note.includes('/wizmatch/readiness'))).toBe(true);

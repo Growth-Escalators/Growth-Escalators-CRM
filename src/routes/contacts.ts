@@ -1,7 +1,8 @@
 import logger from '../utils/logger';
 import { Router } from 'express';
-import { eq, and, desc, ilike, or, gte, sql } from 'drizzle-orm';
+import { eq, and, desc, gte, sql } from 'drizzle-orm';
 import { db, contacts, contactChannels, sequences, sequenceEnrolments, contactNotes, wizmatchCandidates, wizmatchContactCandidates, wizmatchCompanies, wizmatchCompanyIntelligence } from '../db/index';
+import { buildContactSearchCondition } from '../services/contactSearch';
 
 const router = Router();
 
@@ -50,14 +51,8 @@ router.get('/', async (req, res) => {
       conditions.push(sql`COALESCE(${contacts.source}, '') NOT IN (${sql.join(excludeList.map(s => sql`${s}`), sql`, `)})` as ReturnType<typeof eq>);
     }
   }
-  if (search) {
-    conditions.push(
-      or(
-        ilike(contacts.firstName, `%${search}%`),
-        ilike(contacts.lastName, `%${search}%`),
-        ilike(contacts.companyName, `%${search}%`),
-      ) as ReturnType<typeof eq>,
-    );
+  if (search?.trim()) {
+    conditions.push(buildContactSearchCondition(tenantId, search) as ReturnType<typeof eq>);
   }
 
   const where = and(...conditions);

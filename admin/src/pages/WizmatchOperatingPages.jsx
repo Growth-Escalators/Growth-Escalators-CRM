@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowRight,
   Brain,
+  Briefcase,
   CheckCircle2,
   ClipboardList,
   Contact,
@@ -16,6 +17,7 @@ import {
   MessageSquare,
   PlayCircle,
   RefreshCw,
+  Search,
   ShieldCheck,
   Target,
   UserCheck,
@@ -315,7 +317,7 @@ function moduleToneClass(module) {
 }
 
 function useLiveData({ demoMode, fallback, loadLive }) {
-  const [data, setData] = useState(fallback);
+  const [data, setData] = useState(demoMode ? fallback : {});
   const [loading, setLoading] = useState(!demoMode);
   const [error, setError] = useState(null);
 
@@ -332,7 +334,10 @@ function useLiveData({ demoMode, fallback, loadLive }) {
       setData(await loadLive());
     } catch (err) {
       setError(err?.message || 'Unable to load Wizmatch data');
-      setData(fallback);
+      // Authenticated pages must never substitute plausible demo records when
+      // live data fails. Empty live state also prevents demo IDs from reaching
+      // mutation endpoints through still-enabled action controls.
+      setData({});
     } finally {
       setLoading(false);
     }
@@ -381,7 +386,7 @@ function Page({ eyebrow, title, description, demoMode, loading, error, onRefresh
       </div>
       {error && (
         <div className="rounded-md border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-800">
-          {error}. Showing safe demo fallback.
+          {error}. No live data is being shown. Retry after the service recovers.
         </div>
       )}
       {children}
@@ -626,8 +631,8 @@ const ACTION_META = {
   },
   send_to_contact_intelligence: {
     verb: 'Send to Contact Intelligence',
-    what: 'This hiring company looks qualified. Sending it hands the company to Contact Intelligence to find the named decision-maker to pitch.',
-    done: 'Sent to Contact Intelligence — decision-maker discovery is queued.',
+    what: 'This hiring company looks qualified. Sending adds it to Contact Intelligence, where you can review it and manually run cost-guarded discovery.',
+    done: 'Sent to Contact Intelligence — open the company there to preview and run discovery manually. No discovery was queued or run.',
   },
   review_candidate: {
     verb: 'Mark reviewed',
@@ -819,20 +824,25 @@ export function WizmatchDashboardPage({ demoMode = false }) {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Metric icon={ClipboardList} label="Review actions" value={summary.reviewActions || 0} helper={`${summary.safeActions || 0} safe actions`} />
         <Metric icon={MessageSquare} label="Unread inbox" value={summary.unreadInbox || 0} helper="Email + WhatsApp" />
-        <Metric icon={CheckCircle2} label="Open tasks" value={summary.openTasks || 0} helper={`${summary.crmContacts || 0} tenant contacts`} />
+        <Metric icon={CheckCircle2} label="Open tasks" value={summary.openTasks || 0} helper="Open work requiring action" />
         <Metric icon={CheckCircle2} label="Active placements" value={summary.activePlacements || 0} helper="In progress now" tone="success" />
       </div>
 
       <div className="card p-5">
-        <SectionHeader icon={ListChecks} title="Wizmatch funnel" description="Work each stage in full on its own screen — from discovery to outreach." />
+        <SectionHeader icon={ListChecks} title="Wizmatch work order" description="The same canonical order as the sidebar — from review and demand discovery through talent delivery and outcomes." />
         <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {[
-            ['/wizmatch/client-discovery', Target, '1', 'Client Discovery', 'Find & qualify hiring companies'],
-            ['/wizmatch/contact-intelligence', Contact, '2', 'Contact Intelligence', 'Approve the decision-maker, link to CRM'],
-            ['/wizmatch/requirement-priority-new', FileText, '3', 'Requirement Priority', 'Rank which roles to work'],
-            ['/wizmatch/candidate-intelligence', UserCheck, '4', 'Candidate Intelligence', 'Match & review candidates'],
-            ['/wizmatch/placements', CheckCircle2, '5', 'Placements', 'Track placements & outcomes'],
-            ['/wizmatch/analytics', Activity, '6', 'Analytics', 'Outreach & placement performance'],
+            ['/wizmatch/review-workbench', ClipboardList, '1', 'Review Workbench', 'Start with the highest-priority safe actions'],
+            ['/wizmatch/client-discovery', Target, '2', 'Client Discovery', 'Find and qualify hiring companies'],
+            ['/wizmatch/signals', Zap, '3', 'Signals', 'Review the evidence behind demand'],
+            ['/wizmatch/contact-intelligence', Contact, '4', 'Contact Intelligence', 'Find, approve, and link the hiring contact'],
+            ['/wizmatch/requirement-priority-new', FileText, '5', 'Requirement Priority', 'Rank which confirmed roles to work'],
+            ['/wizmatch/requirements', FileText, '6', 'Requirements', 'Capture and maintain the client JD'],
+            ['/wizmatch/candidate-intelligence', UserCheck, '7', 'Candidate Intelligence', 'Match and review candidates for the role'],
+            ['/wizmatch/candidates', UserCheck, '8', 'Candidates', 'Manage the verified talent pool'],
+            ['/wizmatch/source-candidates', Search, '9', 'Source Candidates', 'Fill role-specific candidate gaps'],
+            ['/wizmatch/placements', Briefcase, '10', 'Placements', 'Track delivery outcomes and economics'],
+            ['/wizmatch/analytics', Activity, '11', 'Analytics', 'Measure acquisition, delivery, and placements'],
           ].map(([href, Icon, step, label, description]) => (
             <a key={href} href={href} className="group flex items-start gap-3 rounded-md border border-neutral-100 bg-white px-3 py-3 transition hover:border-primary-300">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary-50 text-primary-700">
@@ -947,7 +957,7 @@ export function WizmatchIntelligencePage({ demoMode = false }) {
         setAnalysis(result.analysis || null);
       }
     } catch (err) {
-      setMessage(err?.message || 'AI generation failed');
+      setMessage([err?.message || 'AI generation failed', err?.detail].filter(Boolean).join(' — '));
     } finally {
       setGenerating(false);
     }
@@ -973,7 +983,7 @@ export function WizmatchIntelligencePage({ demoMode = false }) {
       <div className="card p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <SectionHeader icon={Brain} title="Generate staffing analysis" description="Uses Claude with Wizmatch tenant data only. Growth marketing, SEO, and Meta Ads are excluded." />
-          <button type="button" onClick={generate} disabled={generating} className="btn-primary btn-compact">
+          <button type="button" onClick={generate} disabled={generating || (!demoMode && (!!error || !data.aiEnabled))} className="btn-primary btn-compact">
             {generating ? 'Generating...' : 'Generate with Claude'}
             <ArrowRight className="h-4 w-4" />
           </button>
@@ -1148,14 +1158,27 @@ export function WizmatchRequirementPriorityPage({ demoMode = false }) {
       onRefresh={refresh}
     >
       <div className="grid gap-4 md:grid-cols-4">
-        <Metric icon={FileText} label="Requirements" value={items.length} helper="Open queue" />
+        <Metric icon={FileText} label="Requirements" value={data.total ?? items.length} helper={`${items.length} loaded in this queue`} />
         <Metric icon={Zap} label="Hot" value={items.filter((item) => item.priority === 'hot').length} helper="Review first" tone="success" />
         <Metric icon={UserCheck} label="Matches" value={items.reduce((sum, item) => sum + (item.topCandidateMatches?.length || 0), 0)} helper="Top 3 each" />
         <Metric icon={AlertTriangle} label="Blocked" value={items.filter((item) => item.priority === 'blocked').length} helper="Needs cleanup" tone="danger" />
       </div>
       {planMessage && <div className="rounded-md border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-800">{planMessage}</div>}
 
-      <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
+      {!loading && !error && items.length === 0 && (
+        <div className="card p-6 text-center">
+          <FileText className="mx-auto h-6 w-6 text-neutral-400" />
+          <h2 className="mt-3 font-semibold text-neutral-900">No confirmed requirements to prioritize</h2>
+          <p className="mx-auto mt-1 max-w-xl text-[12.5px] text-neutral-500">
+            Add the client requirement first. Once saved, it will appear here with urgency, candidate coverage, contact readiness, and safety scoring.
+          </p>
+          <a href="/wizmatch/requirements" className="btn-primary btn-compact mt-4 inline-flex">
+            Add a requirement <ArrowRight className="h-4 w-4" />
+          </a>
+        </div>
+      )}
+
+      {items.length > 0 && <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
         <div className="space-y-3">
           {items.map((item) => (
             <button
@@ -1243,7 +1266,7 @@ export function WizmatchRequirementPriorityPage({ demoMode = false }) {
             </div>
           </div>
         )}
-      </div>
+      </div>}
     </Page>
   );
 }
@@ -1272,7 +1295,7 @@ export function WizmatchGuardrailsPage({ demoMode = false, embedded = false }) {
         <Metric icon={Contact} label="Contacts shown" value={data.costControls?.maxContactCandidatesShown ?? 3} helper="Per company" />
         <Metric icon={AlertTriangle} label="Blockers" value={(data.safetyCenter?.blockers || []).length} helper="Manual resolution" tone="danger" />
       </div>
-      <ReadinessStrip readiness={data.readiness || DEMO_READINESS.overall} demoMode={demoMode} />
+      <ReadinessStrip readiness={data.readiness || { status: 'unknown', score: 0, primaryIssue: error ? 'Live guardrail data unavailable.' : 'Readiness pending.' }} demoMode={demoMode} />
       <div className="grid gap-5 xl:grid-cols-[1fr_1fr_360px]">
         <div className="card p-5">
           <SectionHeader icon={AlertTriangle} title="Active blockers" description="Resolve manually before increasing volume." />
@@ -1326,8 +1349,10 @@ export function WizmatchReadinessPage({ demoMode = false, embedded = false }) {
       onRefresh={refresh}
       embedded={embedded}
     >
-      <div className="grid gap-4 md:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-7">
         <Metric icon={DatabaseZap} label="Overall" value={text(data.overall?.status || 'needs_data')} helper={data.overall?.primaryIssue || 'Readiness pending'} tone={data.overall?.status === 'ready' ? 'success' : data.overall?.status === 'blocked' ? 'danger' : 'neutral'} />
+        <Metric icon={DatabaseZap} label="Schema" value={text(data.overall?.schemaStatus || 'unknown')} helper="Tables and connectivity" tone={data.overall?.schemaStatus === 'ready' ? 'success' : 'danger'} />
+        <Metric icon={ListChecks} label="Usable funnel" value={text(data.overall?.usableFunnelStatus || 'unknown')} helper="Live operating evidence" tone={data.overall?.usableFunnelStatus === 'ready' ? 'success' : 'neutral'} />
         <Metric icon={Activity} label="Score" value={data.overall?.score ?? 0} helper="Module average" />
         <Metric icon={CheckCircle2} label="Ready tables" value={readyTables} helper="Rows found" tone="success" />
         <Metric icon={AlertTriangle} label="Missing tables" value={missingTables} helper="Migration check" tone={missingTables ? 'danger' : 'success'} />
