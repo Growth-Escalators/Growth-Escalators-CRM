@@ -39,6 +39,8 @@ const WizmatchClientDiscoveryPage = lazy(() => import('./pages/WizmatchClientDis
 const WizmatchRequirementsPage = lazy(() => import('./pages/WizmatchRequirementsPage.jsx'));
 const WizmatchMyWorkPage = lazy(() => import('./pages/WizmatchMyWorkPage.jsx'));
 const WizmatchRelationshipsPage = lazy(() => import('./pages/WizmatchRelationshipsPage.jsx'));
+const WizmatchCompaniesPage = lazy(() => import('./pages/WizmatchCompaniesPage.jsx'));
+const WizmatchHiringContactsPage = lazy(() => import('./pages/WizmatchHiringContactsPage.jsx'));
 const WizmatchTalentMatchingPage = lazy(() => import('./pages/WizmatchTalentMatchingPage.jsx'));
 const WizmatchDeliveryBoardPage = lazy(() => import('./pages/WizmatchDeliveryBoardPage.jsx'));
 const WizmatchSignalsPage = lazy(() => import('./pages/WizmatchSignalsPage.jsx'));
@@ -54,6 +56,7 @@ const WizmatchAnalyticsNewPage = lazy(() => import('./pages/WizmatchNewPages.jsx
 const WizmatchAnalyticsPage = lazy(() => import('./pages/WizmatchAnalyticsPage.jsx'));
 const WizmatchReviewWorkbenchPage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchReviewWorkbenchPage })));
 const WizmatchDashboardPage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchDashboardPage })));
+const WizmatchTodayPage = lazy(() => import('./pages/WizmatchTodayPage.jsx'));
 const WizmatchIntelligencePage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchIntelligencePage })));
 const WizmatchRequirementPriorityPage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchRequirementPriorityPage })));
 const WizmatchGuardrailsPage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchGuardrailsPage })));
@@ -248,7 +251,7 @@ export default function App() {
             {import.meta.env.DEV && <Route path="/wizmatch-demo" element={<WizmatchReviewWorkbenchPage demoMode />} />}
             <Route path="/wizmatch" element={<Navigate to="/wizmatch/today" replace />} />
             <Route path="/wizmatch/dashboard" element={<Navigate to="/wizmatch/today" replace />} />
-            <Route path="/wizmatch/today" element={<PrivateRoute><AppLayout><WizmatchDashboardPage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/today" element={<PrivateRoute><AppLayout><WizmatchTodayPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/contacts" element={<PrivateRoute><ContactsPage /></PrivateRoute>} />
             <Route path="/wizmatch/pipeline" element={<PrivateRoute><PipelinePage /></PrivateRoute>} />
             <Route path="/wizmatch/tasks" element={<PrivateRoute><TasksBoardPage /></PrivateRoute>} />
@@ -276,7 +279,7 @@ export default function App() {
             <Route path="/wizmatch/requirements" element={<PrivateRoute><AppLayout><WizmatchRequirementsPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/my-work" element={<PrivateRoute><StaffingPhaseRoute phase="A"><AppLayout><WizmatchMyWorkPage /></AppLayout></StaffingPhaseRoute></PrivateRoute>} />
             <Route path="/wizmatch/relationships" element={<Navigate to="/wizmatch/companies" replace />} />
-            <Route path="/wizmatch/companies" element={<PrivateRoute><StaffingPhaseRoute phase="A"><AppLayout><WizmatchRelationshipsPage /></AppLayout></StaffingPhaseRoute></PrivateRoute>} />
+            <Route path="/wizmatch/companies" element={<PrivateRoute><StaffingPhaseRoute phase="A"><AppLayout><WizmatchCompaniesPage /></AppLayout></StaffingPhaseRoute></PrivateRoute>} />
             <Route path="/wizmatch/talent-matching" element={<PrivateRoute><StaffingPhaseRoute phase="B"><AppLayout><WizmatchTalentMatchingPage /></AppLayout></StaffingPhaseRoute></PrivateRoute>} />
             <Route path="/wizmatch/delivery" element={<Navigate to="/wizmatch/submissions" replace />} />
             <Route path="/wizmatch/submissions" element={<PrivateRoute><StaffingPhaseRoute phase="C"><AppLayout><WizmatchDeliveryBoardPage /></AppLayout></StaffingPhaseRoute></PrivateRoute>} />
@@ -294,7 +297,7 @@ export default function App() {
             {import.meta.env.DEV && <Route path="/wizmatch/contact-intelligence-demo" element={<Navigate to="/wizmatch/contact-intelligence-new-demo" replace />} />}
             {import.meta.env.DEV && <Route path="/wizmatch/contact-intelligence-new-demo" element={<WizmatchContactIntelligenceNewPage demoMode />} />}
             <Route path="/wizmatch/contact-intelligence" element={<Navigate to="/wizmatch/hiring-contacts" replace />} />
-            <Route path="/wizmatch/hiring-contacts" element={<PrivateRoute><AppLayout><WizmatchContactIntelligencePage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/hiring-contacts" element={<PrivateRoute><AppLayout><WizmatchHiringContactsPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/contact-intelligence-new" element={<Navigate to="/wizmatch/hiring-contacts" replace />} />
             {/* Diagnostics — folded into the single System page (Workstream B). Old
                 standalone routes redirect to the matching System tab; -demo variants
