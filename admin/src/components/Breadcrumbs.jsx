@@ -54,7 +54,7 @@ export default function Breadcrumbs() {
   });
 
   return (
-    <nav className="flex items-center gap-1 text-xs text-neutral-400">
+    <nav className="flex items-center gap-1 text-xs text-neutral-500">
       <Link to={rootPath} className="hover:text-neutral-700 transition-colors">{rootLabel}</Link>
       {crumbs.filter((_, i) => !(isWizmatch && i === 0)).map((crumb, i) => (
         <React.Fragment key={i}>
