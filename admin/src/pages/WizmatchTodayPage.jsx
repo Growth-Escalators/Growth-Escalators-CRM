@@ -92,15 +92,24 @@ export default function WizmatchTodayPage() {
   const [metrics, setMetrics] = useState(null);
   const [teamReview, setTeamReview] = useState([]);
   const [canSeeTeamReview, setCanSeeTeamReview] = useState(false);
+  const [partialFailure, setPartialFailure] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setPartialFailure(null);
     try {
+      // Each source fails independently and defaults to an empty result so a
+      // failure in one doesn't blank the whole page — but a genuine outage
+      // must never be silently indistinguishable from "you have no work
+      // today", so a failed source is tracked and disclosed via the banner
+      // below rather than swallowed.
+      const failures = [];
       const [myWork, dashboard] = await Promise.all([
-        apiFetch('/api/wizmatch/staffing/my-work').catch(() => ({ requirements: [], tasks: [] })),
-        apiFetch('/api/wizmatch/dashboard').catch(() => null),
+        apiFetch('/api/wizmatch/staffing/my-work').catch((e) => { failures.push(`assigned work (${e.message || 'request failed'})`); return { requirements: [], tasks: [] }; }),
+        apiFetch('/api/wizmatch/dashboard').catch((e) => { failures.push(`readiness metrics (${e.message || 'request failed'})`); return null; }),
       ]);
+      if (failures.length > 0) setPartialFailure(`Could not load: ${failures.join('; ')}. What's shown below may be incomplete.`);
       const now = new Date();
       const next = { overdue: [], dueToday: [], blocked: [], waiting: [], recentlyChanged: [] };
       for (const r of myWork.requirements || []) {
@@ -170,6 +179,13 @@ export default function WizmatchTodayPage() {
       </div>
       <p className="text-[12.5px] text-neutral-500 mt-1 mb-5">Your assigned work, grouped by what needs attention now.</p>
 
+      {partialFailure && (
+        <div role="alert" className="card p-3 mb-4 border-warning-500/30 bg-warning-500/10 flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 text-warning-700 mt-0.5 shrink-0" />
+          <p className="text-[12.5px] text-warning-800">{partialFailure}</p>
+        </div>
+      )}
+
       <div className="grid gap-4 md:grid-cols-3 mb-5">
         <div className="card p-4">
           <p className="text-[11px] uppercase font-semibold text-neutral-500">Open Work Items</p>
@@ -186,7 +202,7 @@ export default function WizmatchTodayPage() {
         </div>
       </div>
 
-      {totalWorkItems === 0 && !canSeeTeamReview && (
+      {totalWorkItems === 0 && !canSeeTeamReview && !partialFailure && (
         <div className="card p-6 text-center">
           <CheckCircle2 className="mx-auto w-6 h-6 text-success-600" />
           <p className="mt-2 font-semibold text-neutral-900">Nothing assigned to you right now</p>

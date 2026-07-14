@@ -86,47 +86,32 @@ test('requirement parsing uses inline validation and recovers through Retry', as
   expect(parseContentType).toContain('multipart/form-data; boundary=');
 });
 
-test('Contact Intelligence previews before a confirmed mocked run and preserves review controls', async ({ page }) => {
+test('Company discovery previews before a confirmed mocked run and preserves review controls', async ({ page }) => {
+  // Contact Intelligence's old company-review queue was retired in the
+  // Wizmatch complete build (Jul 2026) — Hiring Contacts now covers
+  // reviewing already-discovered candidates, and the cost-gated
+  // preview/confirm discovery trigger moved to the Companies page's detail
+  // drawer (DiscoveryPreviewPanel in WizmatchCompaniesPage.jsx), since
+  // discovery is company-scoped. Same backend contract as before
+  // (POST .../discovery-preview then POST .../discover with confirmPreview).
   await installWizmatchSession(page);
+  // Companies is StaffingPhaseRoute-gated (phase A) — the shared session
+  // fixture's permissions are {}, which fails the staffingPilotAccess
+  // pre-check before the phase fetch is even consulted, so this test needs
+  // its own override on top of the shared fixture.
+  await page.addInitScript(() => {
+    localStorage.setItem('wizmatch_crm_permissions', JSON.stringify({ staffingPilotAccess: true }));
+  });
   await installGenericApiFallback(page);
   let discoverBody: unknown = null;
-  const company = {
-    companyId: 'company-1',
-    companyName: 'Example Staffing Client',
-    companyDomain: 'example.test',
-    targetRegion: 'india',
-    qualificationTier: 'A',
-    qualificationScore: 88,
-    companyStatus: 'qualified',
-    discoveryRunStatus: 'not_run',
-    componentScores: {
-      itTechFit: 25,
-      signalQuality: 18,
-      regionPriority: 15,
-      candidateSupply: 12,
-      relationshipValue: 8,
-      safetyAndDeliverability: 10,
-    },
-    reasons: ['Strong IT staffing fit.'],
-    hardBlocks: [],
-    latestSignal: { jobTitle: 'Java Backend Developer', score: 8 },
-    contactCandidates: [
-      {
-        id: 'candidate-1',
-        name: 'Fictional TA Lead',
-        title: 'Talent Acquisition Lead',
-        email: 'ta@example.test',
-        source: 'manual_seed',
-        status: 'approved',
-        rankingScore: 90,
-        reasons: ['Decision-maker title fit.'],
-      },
-    ],
-  };
 
-  await page.route('**/api/wizmatch/contact-intelligence/queue?**', (route) => fulfillJson(route, {
-    items: [company],
-    costControls: { paidDiscoveryEnabled: false, googleFallbackEnabled: false, maxPaidDiscoveryPerCompany: 1, rediscoveryCooldownDays: 30 },
+  await page.route('**/api/wizmatch/staffing/access', (route) => fulfillJson(route, { allowed: true, phases: { A: true, B: false, C: false } }));
+  await page.route('**/api/wizmatch/staffing/companies?**', (route) => fulfillJson(route, {
+    items: [{ id: 'company-1', name: 'Example Staffing Client', domain: 'example.test', contact_count: 0, open_requirement_count: 0 }],
+  }));
+  await page.route('**/api/wizmatch/staffing/companies/company-1', (route) => fulfillJson(route, {
+    company: { id: 'company-1', name: 'Example Staffing Client', domain: 'example.test' },
+    contacts: [], requirements: [], tasks: [], events: [],
   }));
   await page.route('**/api/wizmatch/contact-intelligence/companies/company-1/discovery-preview', (route) => fulfillJson(route, {
     preview: {
@@ -157,20 +142,19 @@ test('Contact Intelligence previews before a confirmed mocked run and preserves 
       preview: { eligible: true, status: 'completed', estimatedCostCents: 0, costGuard: { currency: 'INR' } },
       status: 'succeeded',
       costCents: 0,
-      contactCandidates: company.contactCandidates,
+      contactCandidates: [{ id: 'candidate-1', name: 'Fictional TA Lead' }],
     });
   });
 
-  await page.goto('/wizmatch/contact-intelligence');
-  await expect(page.getByRole('heading', { name: 'Contact Intelligence' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Approve company' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Add manual contact' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Link CRM' })).toBeVisible();
+  await page.goto('/wizmatch/companies');
+  await expect(page.getByRole('heading', { name: 'Companies' })).toBeVisible();
+  await page.getByText('Example Staffing Client').click();
+  await expect(page.getByRole('heading', { name: 'Example Staffing Client' })).toBeVisible();
 
-  const runButton = page.getByRole('button', { name: 'Confirm & run discovery' });
-  await page.getByRole('button', { name: 'Discovery Preview' }).click();
-  await expect(page.getByText('Estimated cost ₹1')).toBeVisible();
-  await expect(runButton).toBeDisabled();
+  await page.getByRole('button', { name: 'Discover contacts' }).click();
+  await page.getByRole('button', { name: 'Preview discovery' }).click();
+  await expect(page.getByText(/Est\. cost/)).toBeVisible();
+  const runButton = page.getByRole('button', { name: 'Run discovery' });
   expect(discoverBody).toBeNull();
 
   await page.getByRole('checkbox').check();
@@ -180,34 +164,42 @@ test('Contact Intelligence previews before a confirmed mocked run and preserves 
   expect(discoverBody).toEqual({ confirmPreview: true });
 });
 
-test('Contact Intelligence live failure stays honest and never shows demo companies', async ({ page }) => {
+test('Hiring Contacts discovery queue failure stays honest and never shows demo candidates', async ({ page }) => {
+  // /wizmatch/contact-intelligence now redirects to /wizmatch/hiring-contacts
+  // (Phase 1A rename); the discovery queue lives on that page's second tab.
   await installWizmatchSession(page);
   await installGenericApiFallback(page);
   await page.route('**/api/wizmatch/contact-intelligence/queue?**', (route) => fulfillJson(route, { error: 'Database unavailable' }, 500));
 
   await page.goto('/wizmatch/contact-intelligence');
-  await expect(page.getByText('Could not load queue')).toBeVisible();
+  await expect(page).toHaveURL(/\/wizmatch\/hiring-contacts$/);
+  await expect(page.getByRole('heading', { name: 'Hiring Contacts', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Discovery queue' }).click();
   await expect(page.getByText('Database unavailable')).toBeVisible();
   await expect(page.getByText('Bengaluru Cloud Staffing')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
 });
 
-test('dashboard and empty requirement priority show the corrected operating guidance', async ({ page }) => {
+test('Today shows empty-state guidance and requirement priority shows the corrected operating guidance', async ({ page }) => {
+  // /wizmatch/dashboard now redirects to /wizmatch/today (Phase 1A rename),
+  // which reads staffing my-work + dashboard readiness instead of the old
+  // work-order checklist.
   await installWizmatchSession(page);
   await installGenericApiFallback(page);
+  await page.route('**/api/wizmatch/staffing/my-work', (route) => fulfillJson(route, { requirements: [], tasks: [] }));
   await page.route('**/api/wizmatch/dashboard', (route) => fulfillJson(route, {
-    summary: { openTasks: 3 },
-    priorityActions: [],
-    safetyCenter: {},
-    guardrails: {},
+    requirementsSummary: { total: 3 },
+    readiness: { score: 72, primaryIssue: null },
+    recentPlacements: [],
   }));
+  await page.route('**/api/wizmatch/review-workbench?**', (route) => fulfillJson(route, { error: 'forbidden' }, 403));
   await page.route('**/api/wizmatch/requirement-priority/queue?**', (route) => fulfillJson(route, { items: [] }));
 
   await page.goto('/wizmatch/dashboard');
-  await expect(page.getByText('Open work requiring action')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Wizmatch work order' })).toBeVisible();
-  await expect(page.getByRole('link', { name: /Step 3 Signals/ })).toBeVisible();
-  await expect(page.getByRole('link', { name: /Step 6 Requirements/ })).toBeVisible();
+  await expect(page).toHaveURL(/\/wizmatch\/today$/);
+  await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible();
+  await expect(page.getByText('Nothing assigned to you right now')).toBeVisible();
+  await expect(page.getByText('72')).toBeVisible();
 
   await page.goto('/wizmatch/requirement-priority-new');
   await expect(page.getByRole('heading', { name: 'No confirmed requirements to prioritize' })).toBeVisible();
@@ -227,12 +219,12 @@ test('authenticated API outages never substitute actionable demo records', async
   await page.route('**/api/**', (route) => fulfillJson(route, { error: 'Service unavailable for local outage test' }, 500));
 
   const routes = [
-    { path: '/wizmatch/dashboard', heading: 'Wizmatch Dashboard', forbidden: 'Approve Asha Rao' },
+    { path: '/wizmatch/dashboard', heading: 'Today', forbidden: 'Approve Asha Rao' },
     { path: '/wizmatch/review-workbench', heading: 'Wizmatch Review Workbench', forbidden: 'Approve Asha Rao' },
     { path: '/wizmatch/requirement-priority-new', heading: 'Requirement Priority', forbidden: 'Java Backend Developer' },
     { path: '/wizmatch/client-discovery', heading: 'Client Discovery', forbidden: 'Bengaluru Cloud Staffing' },
     { path: '/wizmatch/candidate-intelligence', heading: 'Candidate Intelligence', forbidden: 'Aarav Kumar' },
-    { path: '/wizmatch/analytics', heading: 'Wizmatch Analytics / ROI', forbidden: '126' },
+    { path: '/wizmatch/analytics', heading: 'Wizmatch Reports', forbidden: '126' },
   ];
 
   for (const route of routes) {

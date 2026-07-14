@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Building2, Search, X, UserPlus, Trash2 } from 'lucide-react';
+import { Building2, Search, X, UserPlus, Trash2, Radar } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import EmptyState from '../components/wizmatch/EmptyState.jsx';
@@ -13,6 +13,15 @@ const COMPANY_CONTACT_ROLES = [
   'talent_acquisition', 'hiring_manager', 'coordinator', 'approver',
   'interviewer', 'procurement', 'vendor_manager', 'source', 'other',
 ];
+
+function formatMinorCurrency(value, currency = 'INR') {
+  const amount = Number(value || 0) / 100;
+  try {
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: currency || 'INR', maximumFractionDigits: 2 }).format(amount);
+  } catch {
+    return `${currency || 'INR'} ${amount.toFixed(2)}`;
+  }
+}
 
 export default function WizmatchCompaniesPage() {
   const [items, setItems] = useState([]);
@@ -141,6 +150,7 @@ function CompanyDetailDrawer({ companyId, onClose, onDeleted, onChanged }) {
   const [deleteError, setDeleteError] = useState(null);
   const [dependencyNotice, setDependencyNotice] = useState(null);
   const [showAddContact, setShowAddContact] = useState(false);
+  const [showDiscovery, setShowDiscovery] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -250,10 +260,23 @@ function CompanyDetailDrawer({ companyId, onClose, onDeleted, onChanged }) {
           <section>
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-[13px] font-bold text-neutral-900">Hiring contacts</h3>
-              <button onClick={() => setShowAddContact(v => !v)} className="btn-standard btn-compact">
-                <UserPlus className="w-3.5 h-3.5" /> Link contact
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button onClick={() => setShowDiscovery(v => !v)} className="btn-standard btn-compact">
+                  <Radar className="w-3.5 h-3.5" /> Discover contacts
+                </button>
+                <button onClick={() => setShowAddContact(v => !v)} className="btn-standard btn-compact">
+                  <UserPlus className="w-3.5 h-3.5" /> Link contact
+                </button>
+              </div>
             </div>
+            {showDiscovery && (
+              <DiscoveryPreviewPanel
+                companyId={companyId}
+                onClose={() => setShowDiscovery(false)}
+                onDiscovered={async (message) => { showSuccess(message); await refreshAfterChange(); }}
+                onError={(msg) => showError(msg)}
+              />
+            )}
             {showAddContact && (
               <AddHiringContactPanel
                 companyId={companyId}
@@ -358,6 +381,109 @@ function CompanyDetailDrawer({ companyId, onClose, onDeleted, onChanged }) {
         onConfirm={deleteCompany}
         onCancel={() => { setShowDeleteDialog(false); setDeleteError(null); }}
       />
+    </div>
+  );
+}
+
+// Cost-gated preview/confirm discovery flow — same contract as the retired
+// WizmatchContactIntelligencePage (POST .../discovery-preview then
+// POST .../discover with confirmPreview:true), moved here since discovery is
+// company-scoped and this is the company's natural detail view. Found
+// candidates land in wizmatch_contact_candidates and show up on the Hiring
+// Contacts page's discovery queue tab for review.
+function DiscoveryPreviewPanel({ companyId, onClose, onDiscovered, onError }) {
+  const [preview, setPreview] = useState(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [feedback, setFeedback] = useState(null);
+
+  const runPreview = async () => {
+    setPreviewing(true);
+    setFeedback(null);
+    setPreview(null);
+    setConfirmed(false);
+    try {
+      const result = await apiFetch(`/api/wizmatch/contact-intelligence/companies/${companyId}/discovery-preview`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      setPreview(result.preview || null);
+      if (!result.preview?.eligible) setFeedback('Preview blocked — review the reasons below. No provider call was made.');
+    } catch (e) {
+      setFeedback(e.message || 'Discovery preview failed.');
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
+  const runDiscovery = async () => {
+    if (!preview?.eligible || !confirmed) return;
+    setRunning(true);
+    setFeedback(null);
+    try {
+      const result = await apiFetch(`/api/wizmatch/contact-intelligence/companies/${companyId}/discover`, {
+        method: 'POST',
+        body: JSON.stringify({ confirmPreview: true }),
+      });
+      const count = result.contactCandidates?.length || 0;
+      const cost = formatMinorCurrency(result.costCents, result.preview?.costGuard?.currency);
+      onDiscovered(`Discovery ${result.status || 'completed'}: ${count} reviewable contact(s) found, ${cost} recorded cost. No outreach was sent.`);
+    } catch (e) {
+      const msg = e.message || 'Discovery run failed.';
+      setFeedback(msg);
+      onError(msg);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="card p-3 mb-3 space-y-2.5 bg-neutral-50/50">
+      <div className="flex items-center justify-between">
+        <p className="text-[12px] text-neutral-500">Preview is read-only — it shows eligibility, provider order and estimated cost without calling a provider.</p>
+        <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600 shrink-0"><X className="w-4 h-4" /></button>
+      </div>
+      {feedback && (
+        <div role="alert" className="text-[12px] text-danger-600 bg-danger-500/10 border border-danger-500/30 rounded-md px-2.5 py-1.5">{feedback}</div>
+      )}
+      {!preview ? (
+        <button onClick={runPreview} disabled={previewing} className="btn-standard btn-compact disabled:opacity-50">
+          {previewing ? 'Preparing…' : 'Preview discovery'}
+        </button>
+      ) : (
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className={preview.eligible ? 'badge-success' : 'badge-warning'}>
+              {preview.status?.replaceAll('_', ' ') || (preview.eligible ? 'eligible' : 'blocked')}
+            </span>
+            <span className="badge-muted text-[11px]">Est. cost {formatMinorCurrency(preview.estimatedCostCents, preview.costGuard?.currency)}</span>
+            <span className="badge-muted text-[11px]">Cooldown {preview.capStatus?.rediscoveryCooldownDays ?? 30}d</span>
+          </div>
+          <p className="text-[11.5px] text-neutral-500">
+            Providers: {(preview.providerOrder || []).map(p => p.replaceAll('_', ' ')).join(' → ') || 'No provider path available'}
+          </p>
+          {(preview.blockedReasons || []).length > 0 && (
+            <ul className="text-[11.5px] text-warning-700 list-disc list-inside">
+              {preview.blockedReasons.map((r, i) => <li key={i}>{r}</li>)}
+            </ul>
+          )}
+          {preview.eligible && (
+            <label className="flex items-center gap-2 text-[12px] text-neutral-600">
+              <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+              I've reviewed the cost and provider order — run this discovery now
+            </label>
+          )}
+          <div className="flex justify-end gap-2">
+            <button onClick={runPreview} disabled={previewing} className="btn-standard btn-compact">Re-preview</button>
+            {preview.eligible && (
+              <button onClick={runDiscovery} disabled={running || !confirmed} className="btn-primary btn-compact disabled:opacity-50">
+                {running ? 'Running…' : 'Run discovery'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

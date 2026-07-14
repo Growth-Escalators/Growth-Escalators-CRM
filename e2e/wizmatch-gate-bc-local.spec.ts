@@ -26,6 +26,11 @@ test('Talent Matching shows explainable SAP and Java decisions without submissio
 });
 
 test('Delivery board traces approval through placement without automatic sending', async ({ page }) => {
+  // The Wizmatch complete build (Jul 2026) replaced this page's native
+  // prompt() chain with accessible dialogs (DialogShell + ConfirmDialog).
+  // page.on('dialog') below asserts that invariant directly — any native
+  // dialog appearing during this flow now fails the test instead of being
+  // silently auto-accepted.
   await setup(page); const recorded: string[]=[];
   const draft={id:'s-1',first_name:'Asha',last_name:'SAP',requirement_title:'SAP ABAP Developer',company_name:'Company A',consent_status:'granted',status:'draft',resend_count:0,interview_count:0};
   await page.route('**/api/wizmatch/staffing/delivery-board',route=>json(route,{items:[draft]}));
@@ -36,23 +41,49 @@ test('Delivery board traces approval through placement without automatic sending
   await page.route('**/api/wizmatch/staffing/submissions/s-1/offers',route=>{recorded.push('offer');draft.status='offered';Object.assign(draft,{latest_offer_id:'offer-1',offer_revision:1,offer_status:'draft'});return json(route,{id:'offer-1'},201);});
   await page.route('**/api/wizmatch/staffing/offers/offer-1/status',route=>{recorded.push('accepted');draft.offer_status='accepted';return json(route,{status:'accepted'});});
   await page.route('**/api/wizmatch/staffing/submissions/s-1/placement',route=>{recorded.push('placed');draft.status='placed';return json(route,{placement:{id:'placement-1'}},201);});
-  page.on('dialog',dialog=>{
-    const message=dialog.message();
-    if(message.includes('Named client')) return dialog.accept('Person A');
-    if(message.includes('Recipient email')) return dialog.accept('person.a@example.test');
-    if(message.includes('Interview date')) return dialog.accept('2026-07-15T10:00:00+05:30');
-    if(message.includes('Offer amount')) return dialog.accept('1200000');
-    if(message.includes('Placement model')) return dialog.accept('permanent');
-    if(message.includes('Original commercial')) return dialog.accept('180000');
-    return dialog.accept();
-  });
+  page.on('dialog', (dialog) => { throw new Error(`Unexpected native ${dialog.type()} dialog: "${dialog.message()}"`); });
+
   await page.goto('/wizmatch/delivery'); await expect(page.getByRole('heading',{name:'Submissions & Delivery'})).toBeVisible();
   await expect(page.getByText(/never sends automatically/i)).toBeVisible();
+
   await page.getByRole('button',{name:'Approve'}).click();
+  await expect.poll(()=>recorded).toEqual(['approved']);
+
   await page.getByRole('button',{name:'Record sent'}).click();
+  let dialog = page.getByRole('alertdialog');
+  await expect(dialog).toBeVisible();
+  await dialog.getByPlaceholder('Recipient name *').fill('Person A');
+  await dialog.locator('input[type="datetime-local"]').fill('2026-07-15T10:00');
+  await dialog.getByRole('button', { name: 'Record sent' }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect.poll(()=>recorded).toEqual(['approved','sent']);
+
   await page.getByRole('button',{name:'Add interview'}).click();
+  dialog = page.getByRole('alertdialog');
+  await expect(dialog).toBeVisible();
+  // Schedule mode has two datetime-local fields: "Scheduled at *" (first,
+  // required) and "Next action due" (second, optional) — only the first is needed.
+  await dialog.locator('input[type="datetime-local"]').first().fill('2026-07-16T10:00');
+  await dialog.getByRole('button', { name: 'Schedule round' }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect.poll(()=>recorded).toEqual(['approved','sent','interview']);
+
   await page.getByRole('button',{name:'Add offer'}).click();
+  dialog = page.getByRole('alertdialog');
+  await expect(dialog).toBeVisible();
+  await dialog.locator('input[type="number"]').fill('1200000');
+  await dialog.getByRole('button', { name: 'Create offer' }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect.poll(()=>recorded).toEqual(['approved','sent','interview','offer']);
+
   await page.getByRole('button',{name:'Record accepted'}).click();
+  await expect.poll(()=>recorded).toEqual(['approved','sent','interview','offer','accepted']);
+
   await page.getByRole('button',{name:'Create placement'}).click();
+  dialog = page.getByRole('alertdialog');
+  await expect(dialog).toBeVisible();
+  await dialog.locator('input[type="number"]').fill('1800000');
+  await dialog.getByRole('button', { name: 'Create placement' }).click();
+  await expect(dialog).not.toBeVisible();
   await expect.poll(()=>recorded).toEqual(['approved','sent','interview','offer','accepted','placed']);
 });

@@ -45,8 +45,14 @@ test('My Work keeps SAP Person A and Java Person B visibly separate', async ({ p
 });
 
 test('Company and Hiring Contact 360 preserve person-specific requirement history', async ({ page }) => {
+  // The combined "Companies & Hiring Contacts" page was split into two
+  // primary destinations in the Wizmatch complete build (Jul 2026):
+  // /wizmatch/companies (WizmatchCompaniesPage) and /wizmatch/hiring-contacts
+  // (WizmatchHiringContactsPage). Person-specific isolation is now verified
+  // across both: the company view shows each requirement's own source, and
+  // the hiring contact's own 360 drawer shows only their requirement.
   await setup(page);
-  await page.route('**/api/wizmatch/staffing/companies', route => json(route, { items: [{ id: 'company-a', name: 'Company A', contact_count: 2, open_requirement_count: 2 }] }));
+  await page.route('**/api/wizmatch/staffing/companies*', route => json(route, { items: [{ id: 'company-a', name: 'Company A', contact_count: 2, open_requirement_count: 2 }] }));
   await page.route('**/api/wizmatch/staffing/companies/company-a', route => json(route, {
     company: { id: 'company-a', name: 'Company A' },
     contacts: [
@@ -58,19 +64,34 @@ test('Company and Hiring Contact 360 preserve person-specific requirement histor
       { id: 'java', title: 'Java Developer', required_skills: ['Java'], source_first_name: 'Person', source_last_name: 'B', stage: 'sourcing', next_action: 'Review candidates' },
     ], tasks: [], events: [],
   }));
+  await page.route('**/api/wizmatch/companies/company-a/contacts', route => json(route, {
+    items: [
+      { id: 'rel-a', first_name: 'Person', last_name: 'A', roles: ['talent_acquisition'], email: 'a@example.test', phone: null, active_requirement_count: 1, relationship_stage: 'active' },
+      { id: 'rel-b', first_name: 'Person', last_name: 'B', roles: ['hiring_manager'], email: 'b@example.test', phone: null, active_requirement_count: 1, relationship_stage: 'active' },
+    ],
+  }));
   await page.route('**/api/wizmatch/staffing/company-contacts/rel-a', route => json(route, {
     contact: { id: 'rel-a', first_name: 'Person', last_name: 'A', company_name: 'Company A', roles: ['talent_acquisition'], email: 'a@example.test' },
     requirements: [{ id: 'sap', title: 'SAP ABAP Developer', contact_role: 'source', is_primary_source: true, stage: 'accepted' }], tasks: [], events: [],
   }));
+
   await page.goto('/wizmatch/relationships');
-  await expect(page.getByRole('heading', { name: 'Companies & Hiring Contacts' })).toBeVisible();
-  await expect(page.getByRole('row').filter({ hasText: 'SAP ABAP Developer' })).toContainText('Person A');
-  await expect(page.getByRole('row').filter({ hasText: 'Java Developer' })).toContainText('Person B');
+  await expect(page).toHaveURL(/\/wizmatch\/companies$/);
+  await expect(page.getByRole('heading', { name: 'Companies' })).toBeVisible();
+  await page.getByText('Company A').click();
+  await expect(page.getByRole('heading', { name: 'Company A' })).toBeVisible();
+  await expect(page.getByText('SAP ABAP Developer').locator('..')).toContainText('source Person A');
+  await expect(page.getByText('Java Developer').locator('..')).toContainText('source Person B');
+
+  await page.goto('/wizmatch/hiring-contacts');
+  await expect(page.getByRole('heading', { name: 'Hiring Contacts', exact: true })).toBeVisible();
   await page.getByRole('row').filter({ hasText: 'a@example.test' }).click();
   await expect(page.getByRole('heading', { name: 'Person A' })).toBeVisible();
-  const contactDrawer = page.locator('.fixed').filter({ hasText: 'Requirement history' });
+  const contactDrawer = page.locator('.fixed').filter({ hasText: 'Requirements supplied by this person' });
   await expect(contactDrawer.getByText('SAP ABAP Developer')).toBeVisible();
-  await expect(contactDrawer.getByText('source · primary source · accepted')).toBeVisible();
+  await expect(contactDrawer.getByText('Java Developer')).toHaveCount(0);
+  await expect(contactDrawer.getByText('source · primary source')).toBeVisible();
+  await expect(contactDrawer.getByText('accepted')).toBeVisible();
 });
 
 test('Requirement 360 sets source, team and dated next action through audited endpoints', async ({ page }) => {
