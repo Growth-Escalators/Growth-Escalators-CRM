@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-14T08:06:35.516Z_
+_Generated: 2026-07-14T09:36:24.152Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,14 +12,13 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: Growth-Escalators/Growth-Escalators-CRM
 - **Branch**: `codex/wizmatch-phase0-trust`
-- **Last commit**: 1112e47 feat(wizmatch): add results-first sourcing workflow (16 minutes ago)
-- **Uncommitted changes**: 6 file(s)
+- **Last commit**: 142eb51 fix(wizmatch): harden provider quota and retries (11 minutes ago)
+- **Uncommitted changes**: 4 file(s)
 
 ## Current task
 
-**Wizmatch results-first sourcing — Phase 1 foundation is live; ATS and free website POC discovery
-are staging-qualified. Obtain the missing TheirStack and SerpAPI keys before the sequential Phase
-2/4 provider activations.**
+**Wizmatch results-first sourcing — SearchAPI.io, TheirStack, ATS and named-POC provider release is
+staging-qualified. Deploy the exact reviewed commits and activate the two-user production pilot.**
 
 Work only in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust` on
 `codex/wizmatch-phase0-trust`. Preserve the unrelated dirty workspace at
@@ -30,6 +29,9 @@ Work only in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust` on
 ## Recent commits
 
 ```
+142eb51 fix(wizmatch): harden provider quota and retries
+c293b88 feat(wizmatch): integrate provider sourcing adapters
+22581fb docs(wizmatch): record sourcing phase-one release
 1112e47 feat(wizmatch): add results-first sourcing workflow
 38efd3c docs(wizmatch): record controlled production launch
 187c741 fix(wizmatch): block quota sourcing when providers are off
@@ -37,9 +39,6 @@ Work only in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust` on
 e38bdb9 fix(wizmatch): require dedicated private document bucket
 20e68da docs(wizmatch): hand off production launch gate
 1ceada3 feat(wizmatch): isolate safe staffing reminders
-cfbd804 chore(ai): record production safety hardening
-32c7ac9 chore(ai): record authenticated Wizmatch QA
-1bea426 fix(wizmatch): hide demo preview links in production
 ```
 
 ## npm scripts
@@ -96,6 +95,7 @@ docs/reviews/codex-ai-collaboration-review.md
 docs/reviews/wizmatch-client-funnel-audit-2026-07-12.md
 docs/reviews/wizmatch-cost-leakage-audit-2026-07-09.md
 docs/reviews/wizmatch-migration-guardrail-review-2026-07-13.md
+docs/reviews/wizmatch-results-first-sourcing-phase1-2026-07-14.md
 docs/reviews/wizmatch-staffing-release-readiness-2026-07-13.md
 docs/reviews/wizmatch-staging-gate-c-pilot-2026-07-14.md
 docs/reviews/wizmatch-staging-pilot-2026-07-13/wizmatch-staging-gateA-company360.png

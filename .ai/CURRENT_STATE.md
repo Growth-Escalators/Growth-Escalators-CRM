@@ -2,6 +2,20 @@
 
 _Update this when the working state of the repo meaningfully changes. Keep it short and true._
 
+## 2026-07-14 Provider activation release candidate (current)
+
+- Commits `c293b88` and `142eb51` implement and harden SearchAPI.io + TheirStack provider activation
+  without schema changes. SearchAPI is shared by named-POC research and requirement-first X-Ray;
+  TheirStack uses free preview, credit evidence, hiring-team parsing, cursoring and seen-job IDs.
+- Isolated staging deployment `d3b0e543-87db-4fe3-87e2-703bebcbc350` reached `SUCCESS`. Live provider
+  validation passed: TheirStack 200 credits/free preview; SearchAPI free-credit account and public
+  search; 29 distinct target-role signals; six POC candidates; 10 unreviewed requirement-linked
+  X-Ray leads; ATS 10-job refresh with no errors.
+- Staging responsive browser smoke passed desktop/tablet/390px with no overflow, console errors or
+  5xx. Final suite passed: build; 47 files/395 tests; admin build; 22/22 Playwright; diff check.
+- Production remains on the prior live release. Provider rollout is next; all new source controls
+  remain off there until the reviewed push and progressive variable activation.
+
 ## 2026-07-14 Results-first sourcing foundation (current)
 
 - Commit `1112e47` is live in production through Railway deployment

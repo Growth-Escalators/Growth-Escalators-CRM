@@ -2430,3 +2430,24 @@ Built in parallel via 3 isolated-worktree subagents, reviewed + merged + deploye
   as tenant-scoped Wizmatch users by copying their existing Growth password hashes internally, then
   expand the named roster to five IDs. Migrations, push, Gate A/B/C activation, R2 upload, and pilot
   data import remain independent later approvals.
+## 2026-07-14 — Provider activation and staging qualification — Codex — STAGING VERIFIED
+
+**What changed**
+- Added SearchAPI.io as the shared named-POC and requirement-first LinkedIn X-Ray provider without
+  altering Serper, SerpApi or SEO integrations.
+- Added combined daily/monthly allowance evidence, account health, one-company/30-day POC reuse,
+  public-evidence-only contact candidates and requirement-linked unreviewed candidate leads.
+- Added real free TheirStack preview, credit validation, defensive hiring-team evidence, cursoring,
+  `job_id_not` exclusion and safe status-only errors. No secret appears in source or context.
+- Added bounded transient provider retry and responsive source health/operator controls.
+
+**Verification**
+- Local: build; 47 files/395 Vitest tests; admin build; 22/22 Playwright; diff check.
+- Staging deployment `d3b0e543-87db-4fe3-87e2-703bebcbc350` is `SUCCESS`.
+- Live capped evidence: 29 distinct relevant TheirStack signals, ATS 10-job refresh, six public POC
+  candidates, and 10 requirement-linked X-Ray leads that all remain unreviewed.
+- Live Signals browser passed desktop, tablet and 390px without overflow, console errors or 5xx.
+
+**Next**
+- Push `c293b88` + `142eb51`, deploy with source flags off, then progressively activate
+  TheirStack → ATS/POC → requirement-first X-Ray for Jatin/Kanishk only.
