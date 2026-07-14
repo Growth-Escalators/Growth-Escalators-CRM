@@ -83,9 +83,10 @@ Resume at the first production gate:
 2. Re-read CURRENT_TASK/CURRENT_STATE and report any contradiction before an external action.
 3. Confirm the approved live Wizmatch-admin credential rotation is recorded as complete; do not
    repeat it. The replacement is in macOS Keychain and must never be printed or copied to context.
-4. Ask for separate approval before any production health/topology read or count-only backfill
-   preview.
-5. Do not migrate production, push, change flags or import data from this startup prompt alone.
+4. Production read-only qualification is pre-authorized and already complete; do not repeat it
+   unless production or branch state changes. Reads never authorize deletion.
+5. Ask for approval for the exact production safety-variable bundle in CURRENT_TASK. Do not
+   migrate, push, create users, activate gates or import data from this startup prompt alone.
 
 Current infrastructure truth
 
@@ -165,7 +166,7 @@ Final report format
 - Approval gate reached
 - One exact next action
 
-Begin now with mandatory startup verification and report the read-only production health/topology
-and count-only staffing-preview approval gate. Do not redo staging Gates A/B/C or the credential
-rotation, and do not perform a production-sensitive action from this prompt alone.
+Begin now with mandatory startup verification and report the production safety-variable approval
+gate from CURRENT_TASK. Do not redo staging Gates A/B/C, credential rotation or unchanged
+production reads, and do not perform a production write from this prompt alone.
 ```

@@ -4,6 +4,20 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
 
 ## 2026-07-14 Final access-policy staging qualification (current)
 
+- Read-only production qualification is complete: production is healthy on old commit `b05ac015`,
+  topology is web+Postgres with no worker, and the Drizzle journal has 23 entries with exactly
+  additive `0025`–`0028` pending. The branch is 0 behind/34 ahead of `origin/main`.
+- Current release verification passed again: backend build, 45 files/360 Vitest tests, admin
+  production build, 16/16 Playwright and `git diff --check`. Existing rankTracking mock warnings
+  and missing-SERPER test noise are unchanged.
+- Production R2 credentials exist and a verified-TLS read-only list succeeds, but the bucket has no
+  Wizmatch object to sign. Production currently disables TLS verification globally; paid discovery
+  and Google fallback are on; staffing flags/roster and sending are absent. These need an approved
+  safety environment change before release.
+- Production Wizmatch users: Jatin admin, Kanishk admin, Deck Sync viewer; no recruiter/lead/ops.
+  Data: 131 companies, one retained unattributed audit-test requirement, 293 unvetted GitHub
+  candidates; 64 look Java-related, none look SAP-related, and previewed experience is missing.
+  No company/signal/candidate is treated as an accepted requirement or vetted profile.
 - With explicit approval, the production Wizmatch admin credential for the documented operator
   account was rotated transactionally. The exact tenant-scoped preflight matched one Wizmatch row
   (and separately observed a same-email Growth account, which was excluded and untouched). The
@@ -29,10 +43,10 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
 - Current release suite: backend build passed; 45 Vitest files / 360 tests passed; admin production
   build passed; Wizmatch Playwright 16/16 passed; `git diff --check` passed. ADR-005 is accepted and
   the provisional pilot policy pack is recorded.
-- Production application/schema/staffing data remain on the prior main release according to the
-  last approved inspection. Apart from the approved one-row credential rotation above, no
-  production migration, push, flag or data import occurred. The next exact gate is separate
-  approval for the read-only production health/topology and count-only staffing backfill preview.
+- Production application/schema/staffing data remain on the prior main release. Apart from the
+  earlier approved one-row credential rotation, this qualification performed reads only: no
+  migration, push, environment change, import or deletion occurred. The next gate is the explicit
+  production safety-variable change described in CURRENT_TASK.
 
 ## 2026-07-14 Staging Gate C and browser-QA snapshot (superseded where noted above)
 

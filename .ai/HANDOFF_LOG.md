@@ -6,6 +6,29 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-14 — Read-only production launch qualification — Codex — PRODUCTION READS ONLY
+
+- Under the owner's standing read-only authorization, verified production health, topology,
+  deployment, migration journal, non-secret env presence, R2 listing, Wizmatch users and aggregate
+  staffing data. No row, object, flag, schema or deployment was changed or deleted.
+- Production is healthy on `b05ac015`; only web+Postgres exist. Drizzle has 23 applied entries and
+  exactly reviewed additive `0025`–`0028` pending. R2 is configured but contains no Wizmatch object.
+- Found environment corrections required before launch: staffing flags/roster absent; paid
+  discovery and Google fallback enabled; global TLS verification disabled. Verified R2 listing
+  succeeds when TLS verification is forced on.
+- Found roster blocker: Wizmatch has only Jatin/Kanishk admins and a viewer. Suggested pilot account
+  additions from the existing Growth roster are Sneha=team_lead, Keshav=staff and Nimisha=staff;
+  no account was copied or created.
+- Found data-readiness limits: 131 companies are mostly signal-derived, the sole requirement is a
+  retained unattributed audit-test row, and 293 GitHub candidates are unvetted. The preview found
+  64 Java-like profiles, zero SAP profiles and missing experience evidence. No fact was inferred.
+- Release verification passed: backend build, 45/360 Vitest, admin build, 16/16 Playwright and diff
+  check. Pre-existing rankTracking warnings/test noise remain unrelated.
+- Exact next gate: approve the production `web` safety-variable bundle with all staffing gates off.
+  Then stop for separate pilot-account, migration, push, gate and data approvals.
+
+---
+
 ## 2026-07-14 — Production Wizmatch admin credential rotation — Codex — APPROVED PRODUCTION SECURITY MUTATION
 
 - Under the user's exact approval, ran a tenant-scoped preflight for the documented Wizmatch
