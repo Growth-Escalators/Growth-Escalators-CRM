@@ -103,7 +103,7 @@ body {
   .btn {
     @apply inline-flex items-center justify-center gap-1.5 h-9 px-4 rounded-md text-sm font-semibold transition-all duration-200;
   }
-  .btn-primary { @apply btn bg-primary-500 hover:bg-primary-600 active:bg-primary-700 text-white; }
+  .btn-primary { @apply btn bg-primary-600 hover:bg-primary-700 active:bg-primary-800 text-white; }
   .btn-accent  { @apply btn bg-accent-500 hover:bg-accent-600 active:bg-accent-700 text-white; }
   .btn-standard { @apply btn bg-neutral-100 hover:bg-neutral-200 text-neutral-700 border border-neutral-200; }
   .btn-subtle  { @apply btn bg-transparent hover:bg-neutral-100 text-neutral-600; }
@@ -114,12 +114,12 @@ body {
   .card-hover { @apply hover:shadow-hover; }
 
   .badge { @apply inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border; }
-  .badge-success { @apply badge bg-success-500/10 text-success-600 border-success-500/20; }
-  .badge-warning { @apply badge bg-warning-500/10 text-warning-700 border-warning-500/20; }
+  .badge-success { @apply badge bg-success-500/5 text-success-700 border-success-500/20; }
+  .badge-warning { @apply badge bg-warning-500/5 text-warning-700 border-warning-500/20; }
   .badge-danger  { @apply badge bg-danger-500/10 text-danger-600 border-danger-500/20; }
   .badge-info    { @apply badge bg-primary-500/10 text-primary-700 border-primary-500/20; }
   .badge-accent  { @apply badge bg-accent-500/10 text-accent-700 border-accent-500/20; }
-  .badge-muted   { @apply badge bg-neutral-200 text-neutral-500 border-neutral-300; }
+  .badge-muted   { @apply badge bg-neutral-200 text-neutral-600 border-neutral-300; }
 
   .input {
     @apply w-full h-9 border border-neutral-300 rounded-sm px-3 text-sm bg-white transition-all

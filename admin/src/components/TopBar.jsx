@@ -149,7 +149,7 @@ export default function TopBar({ onSearchOpen }) {
       {/* Center: search trigger */}
       <button
         onClick={onSearchOpen}
-        className="hidden sm:flex items-center gap-2 w-[420px] max-w-full px-3 py-1.5 bg-neutral-100 border border-neutral-200 rounded-md text-sm text-neutral-500 hover:bg-neutral-200 transition-colors"
+        className="hidden sm:flex items-center gap-2 w-[420px] max-w-full px-3 py-1.5 bg-neutral-100 border border-neutral-200 rounded-md text-sm text-neutral-600 hover:bg-neutral-200 transition-colors"
       >
         <Search className="w-4 h-4 flex-shrink-0" />
         <span className="flex-1 text-left truncate">Search contacts, deals, signals…</span>
@@ -168,7 +168,7 @@ export default function TopBar({ onSearchOpen }) {
       {/* Right: feedback + notifications + user */}
       <div className="flex items-center gap-2">
         <FeedbackWidget />
-        <button className="w-9 h-9 flex items-center justify-center text-neutral-400 hover:text-neutral-600 rounded-md hover:bg-neutral-100 transition-colors relative">
+        <button aria-label="Notifications" className="w-9 h-9 flex items-center justify-center text-neutral-400 hover:text-neutral-600 rounded-md hover:bg-neutral-100 transition-colors relative">
           <Bell className="w-4.5 h-4.5" />
         </button>
         <div className="flex items-center gap-2">
