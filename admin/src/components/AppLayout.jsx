@@ -21,7 +21,7 @@ export default function AppLayout({ children }) {
           {children}
         </div>
       </main>
-      {searchOpen && <GlobalSearch onClose={() => setSearchOpen(false)} />}
+      {searchOpen && <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />}
     </div>
   );
 }

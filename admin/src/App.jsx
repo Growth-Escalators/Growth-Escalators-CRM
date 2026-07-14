@@ -1,6 +1,6 @@
 import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { getAuthPermissions, getAuthToken, getAuthUser, getProductHome, getTenantSlug, normalizeTenantSlug } from './lib/auth.js';
+import { getAuthPermissions, getAuthToken, getAuthUser, getProductHome, getTenantSlug, normalizeTenantSlug, WIZMATCH_SHARED_ROUTE_MAP } from './lib/auth.js';
 import { apiFetch } from './lib/api.js';
 import { normalizeStaffingAccess } from './lib/staffingAccess.js';
 
@@ -128,23 +128,6 @@ function PrivateRoute({ children }) {
   const user = isWizmatchPath ? wizmatchUser : activeUser;
   const userTenantSlug = normalizeTenantSlug(user?.tenantSlug || (isWizmatchPath ? 'wizmatch' : activeTenantSlug));
   const isWizmatchUser = userTenantSlug === 'wizmatch';
-  const wizmatchSharedRouteMap = {
-    '/dashboard': '/wizmatch/dashboard',
-    '/contacts': '/wizmatch/contacts',
-    '/pipeline': '/wizmatch/pipeline',
-    '/tasks': '/wizmatch/tasks',
-    '/inbox': '/wizmatch/inbox',
-    '/billing': '/wizmatch/billing',
-    '/finance': '/wizmatch/finance',
-    '/emails': '/wizmatch/emails',
-    '/whatsapp-templates': '/wizmatch/whatsapp-templates',
-    '/discover': '/wizmatch/discover',
-    '/outreach-dashboard': '/wizmatch/outreach',
-    '/intelligence': '/wizmatch/intelligence',
-    '/settings/permissions': '/wizmatch/settings/permissions',
-    '/settings/audit': '/wizmatch/settings/audit',
-    '/pipelines/settings': '/wizmatch/pipelines/settings',
-  };
   if (!token && isWizmatchPath && growthToken && normalizeTenantSlug(growthUser?.tenantSlug) !== 'wizmatch') {
     return <Navigate to={getProductHome(growthUser?.tenantSlug || 'growth-escalators')} replace />;
   }
@@ -154,7 +137,7 @@ function PrivateRoute({ children }) {
     return <Navigate to={`/login?tenant=${requestedProduct}&returnTo=${returnTo}`} replace />;
   }
   if (token && isWizmatchUser && !isWizmatchPath) {
-    return <Navigate to={wizmatchSharedRouteMap[location.pathname] || getProductHome(userTenantSlug)} replace />;
+    return <Navigate to={WIZMATCH_SHARED_ROUTE_MAP[location.pathname] || getProductHome(userTenantSlug)} replace />;
   }
   if (token && !isWizmatchUser && isWizmatchPath) {
     return <Navigate to={getProductHome(userTenantSlug)} replace />;
@@ -210,7 +193,7 @@ function StaffingPhaseRoute({ phase, children }) {
   }
   return state.access?.allowed && state.access.phases[phase]
     ? children
-    : <Navigate to="/wizmatch/dashboard" replace />;
+    : <Navigate to="/wizmatch/today" replace />;
 }
 
 function QueryBoundaryQaPage() {
@@ -263,8 +246,9 @@ export default function App() {
             <Route path="/tasks/v2" element={<PrivateRoute><TasksBoardPage /></PrivateRoute>} />
             <Route path="/my-attendance" element={<PrivateRoute><MyAttendancePage /></PrivateRoute>} />
             {import.meta.env.DEV && <Route path="/wizmatch-demo" element={<WizmatchReviewWorkbenchPage demoMode />} />}
-            <Route path="/wizmatch" element={<Navigate to="/wizmatch/dashboard" replace />} />
-            <Route path="/wizmatch/dashboard" element={<PrivateRoute><AppLayout><WizmatchDashboardPage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch" element={<Navigate to="/wizmatch/today" replace />} />
+            <Route path="/wizmatch/dashboard" element={<Navigate to="/wizmatch/today" replace />} />
+            <Route path="/wizmatch/today" element={<PrivateRoute><AppLayout><WizmatchDashboardPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/contacts" element={<PrivateRoute><ContactsPage /></PrivateRoute>} />
             <Route path="/wizmatch/pipeline" element={<PrivateRoute><PipelinePage /></PrivateRoute>} />
             <Route path="/wizmatch/tasks" element={<PrivateRoute><TasksBoardPage /></PrivateRoute>} />
@@ -282,7 +266,7 @@ export default function App() {
             {import.meta.env.DEV && <Route path="/wizmatch/command-center-demo" element={<Navigate to="/wizmatch/review-workbench-demo" replace />} />}
             {import.meta.env.DEV && <Route path="/wizmatch/command-center-new-demo" element={<WizmatchCommandCenterNewPage demoMode />} />}
             <Route path="/wizmatch/command-center" element={<Navigate to="/wizmatch/review-workbench" replace />} />
-            <Route path="/wizmatch/command-center-new" element={<Navigate to="/wizmatch/dashboard" replace />} />
+            <Route path="/wizmatch/command-center-new" element={<Navigate to="/wizmatch/today" replace />} />
             {import.meta.env.DEV && <Route path="/wizmatch/review-workbench-demo" element={<WizmatchReviewWorkbenchPage demoMode />} />}
             <Route path="/wizmatch/review-workbench" element={<PrivateRoute><AppLayout><WizmatchReviewWorkbenchPage /></AppLayout></PrivateRoute>} />
             {import.meta.env.DEV && <Route path="/wizmatch/client-discovery-demo" element={<Navigate to="/wizmatch/client-discovery-new-demo" replace />} />}
@@ -291,12 +275,15 @@ export default function App() {
             <Route path="/wizmatch/client-discovery-new" element={<Navigate to="/wizmatch/client-discovery" replace />} />
             <Route path="/wizmatch/requirements" element={<PrivateRoute><AppLayout><WizmatchRequirementsPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/my-work" element={<PrivateRoute><StaffingPhaseRoute phase="A"><AppLayout><WizmatchMyWorkPage /></AppLayout></StaffingPhaseRoute></PrivateRoute>} />
-            <Route path="/wizmatch/relationships" element={<PrivateRoute><StaffingPhaseRoute phase="A"><AppLayout><WizmatchRelationshipsPage /></AppLayout></StaffingPhaseRoute></PrivateRoute>} />
+            <Route path="/wizmatch/relationships" element={<Navigate to="/wizmatch/companies" replace />} />
+            <Route path="/wizmatch/companies" element={<PrivateRoute><StaffingPhaseRoute phase="A"><AppLayout><WizmatchRelationshipsPage /></AppLayout></StaffingPhaseRoute></PrivateRoute>} />
             <Route path="/wizmatch/talent-matching" element={<PrivateRoute><StaffingPhaseRoute phase="B"><AppLayout><WizmatchTalentMatchingPage /></AppLayout></StaffingPhaseRoute></PrivateRoute>} />
-            <Route path="/wizmatch/delivery" element={<PrivateRoute><StaffingPhaseRoute phase="C"><AppLayout><WizmatchDeliveryBoardPage /></AppLayout></StaffingPhaseRoute></PrivateRoute>} />
+            <Route path="/wizmatch/delivery" element={<Navigate to="/wizmatch/submissions" replace />} />
+            <Route path="/wizmatch/submissions" element={<PrivateRoute><StaffingPhaseRoute phase="C"><AppLayout><WizmatchDeliveryBoardPage /></AppLayout></StaffingPhaseRoute></PrivateRoute>} />
             {import.meta.env.DEV && <Route path="/wizmatch/requirement-priority-new-demo" element={<WizmatchRequirementPriorityPage demoMode />} />}
             <Route path="/wizmatch/requirement-priority-new" element={<PrivateRoute><AppLayout><WizmatchRequirementPriorityPage /></AppLayout></PrivateRoute>} />
-            <Route path="/wizmatch/signals" element={<PrivateRoute><AppLayout><WizmatchSignalsPage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/signals" element={<Navigate to="/wizmatch/job-leads" replace />} />
+            <Route path="/wizmatch/job-leads" element={<PrivateRoute><AppLayout><WizmatchSignalsPage /></AppLayout></PrivateRoute>} />
             {import.meta.env.DEV && <Route path="/wizmatch/candidate-intelligence-demo" element={<Navigate to="/wizmatch/candidate-intelligence-new-demo" replace />} />}
             {import.meta.env.DEV && <Route path="/wizmatch/candidate-intelligence-new-demo" element={<WizmatchCandidateIntelligenceNewPage demoMode />} />}
             <Route path="/wizmatch/candidate-intelligence" element={<PrivateRoute><AppLayout><WizmatchCandidateIntelligencePage /></AppLayout></PrivateRoute>} />
@@ -306,8 +293,9 @@ export default function App() {
             <Route path="/wizmatch/queue" element={<Navigate to="/wizmatch/review-workbench" replace />} />
             {import.meta.env.DEV && <Route path="/wizmatch/contact-intelligence-demo" element={<Navigate to="/wizmatch/contact-intelligence-new-demo" replace />} />}
             {import.meta.env.DEV && <Route path="/wizmatch/contact-intelligence-new-demo" element={<WizmatchContactIntelligenceNewPage demoMode />} />}
-            <Route path="/wizmatch/contact-intelligence" element={<PrivateRoute><AppLayout><WizmatchContactIntelligencePage /></AppLayout></PrivateRoute>} />
-            <Route path="/wizmatch/contact-intelligence-new" element={<Navigate to="/wizmatch/contact-intelligence" replace />} />
+            <Route path="/wizmatch/contact-intelligence" element={<Navigate to="/wizmatch/hiring-contacts" replace />} />
+            <Route path="/wizmatch/hiring-contacts" element={<PrivateRoute><AppLayout><WizmatchContactIntelligencePage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/contact-intelligence-new" element={<Navigate to="/wizmatch/hiring-contacts" replace />} />
             {/* Diagnostics — folded into the single System page (Workstream B). Old
                 standalone routes redirect to the matching System tab; -demo variants
                 (no auth, sample data) are unaffected. */}
@@ -322,8 +310,9 @@ export default function App() {
             <Route path="/wizmatch/primes" element={<PrivateRoute><AppLayout><WizmatchPrimesPage /></AppLayout></PrivateRoute>} />
             {import.meta.env.DEV && <Route path="/wizmatch/analytics-demo" element={<Navigate to="/wizmatch/analytics-new-demo" replace />} />}
             {import.meta.env.DEV && <Route path="/wizmatch/analytics-new-demo" element={<WizmatchAnalyticsNewPage demoMode />} />}
-            <Route path="/wizmatch/analytics" element={<PrivateRoute><AppLayout><WizmatchAnalyticsPage /></AppLayout></PrivateRoute>} />
-            <Route path="/wizmatch/analytics-new" element={<Navigate to="/wizmatch/analytics" replace />} />
+            <Route path="/wizmatch/analytics" element={<Navigate to="/wizmatch/reports" replace />} />
+            <Route path="/wizmatch/reports" element={<PrivateRoute><AppLayout><WizmatchAnalyticsPage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/analytics-new" element={<Navigate to="/wizmatch/reports" replace />} />
             {import.meta.env.DEV && <Route path="/wizmatch/local-demo-flow-demo" element={<WizmatchLocalDemoFlowPage demoMode />} />}
             <Route path="/wizmatch/local-demo-flow" element={<PrivateRoute><AppLayout><WizmatchLocalDemoFlowPage /></AppLayout></PrivateRoute>} />
             <Route path="/" element={<HomeRedirect />} />

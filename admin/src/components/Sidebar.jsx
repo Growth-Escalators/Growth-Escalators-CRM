@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { logout, getUser, getPermissions, apiFetch } from '../lib/api.js';
 import { getTenantConfig, getTenantSlug } from '../lib/auth.js';
-import { ChevronRight, Menu, X, Wrench, Receipt, Settings as SettingsIcon } from 'lucide-react';
+import { ChevronRight, Menu, X, Wrench, Receipt, Settings as SettingsIcon, MoreHorizontal } from 'lucide-react';
 import { NAV_ENTRIES, GROUP_LABELS, getVisibleEntries, groupForPath } from './navEntries.js';
 import CommandPalette from './CommandPalette.jsx';
 import { closedStaffingPhases, normalizeStaffingAccess } from '../lib/staffingAccess.js';
@@ -24,8 +24,9 @@ const ROLE_LABELS = {
 };
 
 const STORAGE_KEY = 'ge-crm-nav-groups';
-const DEFAULT_GROUPS = { tools: false, finance: false, settings: false };
-const GROUP_ICONS = { tools: Wrench, finance: Receipt, settings: SettingsIcon };
+const DEFAULT_GROUPS = { tools: false, finance: false, settings: false, 'wizmatch-more': false };
+const GROUP_ICONS = { tools: Wrench, finance: Receipt, settings: SettingsIcon, 'wizmatch-more': MoreHorizontal };
+const MORE_SECTION_ORDER = ['Communication', 'CRM Utilities', 'Administration', 'Finance'];
 
 function readStoredGroups() {
   try {
@@ -237,12 +238,24 @@ export default function Sidebar() {
   }, [visible]);
 
   const grouped = useMemo(() => {
-    const map = { tools: [], finance: [], settings: [] };
+    const map = { tools: [], finance: [], settings: [], 'wizmatch-more': [] };
     for (const e of visible) {
       if (e.group && map[e.group]) map[e.group].push(e);
     }
     return map;
   }, [visible]);
+
+  // Sub-bucket the unified Wizmatch "More" group by its labeled section
+  // (Communication / CRM Utilities / Administration / Finance), driven by
+  // wizmatchRouteRegistry.ts via navEntries.js's wizmatchEntriesFromRegistry().
+  const moreByCategory = useMemo(() => {
+    const map = {};
+    for (const section of MORE_SECTION_ORDER) map[section] = [];
+    for (const e of grouped['wizmatch-more']) {
+      if (e.moreSection && map[e.moreSection]) map[e.moreSection].push(e);
+    }
+    return map;
+  }, [grouped]);
 
   // Order of flat sections
   const FLAT_ORDER = ['Personal', 'CRM', 'Marketing', 'AI & Automation', 'Wizmatch'];
@@ -342,6 +355,23 @@ export default function Sidebar() {
               <GroupHeader id="settings" label={GROUP_LABELS.settings} isOpen={openGroups.settings} onToggle={() => toggleGroup('settings')} />
               {openGroups.settings && grouped.settings.map(e => (
                 <NavEntry key={e.id} entry={e} unreadCount={unreadCount} pendingLeavesCount={pendingLeavesCount} nested />
+              ))}
+            </div>
+          )}
+
+          {/* More (collapsible, pinned to bottom of nav — Wizmatch product only) */}
+          {grouped['wizmatch-more'].length > 0 && (
+            <div className="mt-auto pt-2">
+              <GroupHeader id="wizmatch-more" label={GROUP_LABELS['wizmatch-more']} isOpen={openGroups['wizmatch-more']} onToggle={() => toggleGroup('wizmatch-more')} />
+              {openGroups['wizmatch-more'] && MORE_SECTION_ORDER.map(section => (
+                moreByCategory[section].length > 0 && (
+                  <React.Fragment key={section}>
+                    <p className="pl-5 pr-3 pt-2 pb-1 text-[10px] font-semibold text-primary-300/70 uppercase tracking-[0.08em]">{section}</p>
+                    {moreByCategory[section].map(e => (
+                      <NavEntry key={e.id} entry={e} unreadCount={unreadCount} pendingLeavesCount={pendingLeavesCount} nested />
+                    ))}
+                  </React.Fragment>
+                )
               ))}
             </div>
           )}

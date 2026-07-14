@@ -45,19 +45,44 @@ describe('admin tenant and pipeline outcome helpers', () => {
   it('uses runtime staffing phases for navigation and fails closed by default', () => {
     const permissions = { staffingPilotAccess: true };
     const hidden = getVisibleEntries('admin', permissions, 'wizmatch').map(entry => entry.id);
-    expect(hidden).not.toContain('wm-my-work');
-    expect(hidden).not.toContain('wm-talent-matching');
-    expect(hidden).not.toContain('wm-delivery');
+    expect(hidden).not.toContain('companies');
+    expect(hidden).not.toContain('submissions');
 
     const phaseA = getVisibleEntries('admin', permissions, 'wizmatch', { A: true }).map(entry => entry.id);
-    expect(phaseA).toContain('wm-my-work');
-    expect(phaseA).toContain('wm-relationships');
-    expect(phaseA).not.toContain('wm-talent-matching');
+    expect(phaseA).toContain('companies');
+    expect(phaseA).not.toContain('submissions');
 
     const allPhases = getVisibleEntries('admin', permissions, 'wizmatch', { A: true, B: true, C: true }).map(entry => entry.id);
-    expect(allPhases).toContain('wm-my-work');
-    expect(allPhases).toContain('wm-talent-matching');
-    expect(allPhases).toContain('wm-delivery');
+    expect(allPhases).toContain('companies');
+    expect(allPhases).toContain('submissions');
+  });
+
+  it('never surfaces pending-merge Wizmatch pages in nav, regardless of phase state', () => {
+    // My Work, Talent Matching, etc. stay routed + alias-protected but are
+    // deliberately absent from Sidebar/CommandPalette until their Phase 2/3
+    // entity merge lands — see wizmatchRouteRegistry.ts.
+    const permissions = { staffingPilotAccess: true };
+    const allPhases = getVisibleEntries('admin', permissions, 'wizmatch', { A: true, B: true, C: true }).map(entry => entry.id);
+    for (const pendingMergeId of [
+      'my-work', 'review-workbench', 'client-discovery', 'requirement-priority',
+      'candidate-intelligence', 'talent-matching', 'source-candidates',
+    ]) {
+      expect(allPhases).not.toContain(pendingMergeId);
+    }
+  });
+
+  it('buckets the unified Wizmatch "More" nav into primary vs. labeled subsections', () => {
+    const entries = getVisibleEntries('admin', { staffingPilotAccess: true }, 'wizmatch', { A: true, B: true, C: true });
+    const today = entries.find(e => e.id === 'today');
+    expect(today.group).toBeNull();
+
+    const billing = entries.find(e => e.id === 'more-billing');
+    expect(billing.group).toBe('wizmatch-more');
+    expect(billing.moreSection).toBe('Finance');
+
+    const system = entries.find(e => e.id === 'more-system');
+    expect(system.group).toBe('wizmatch-more');
+    expect(system.moreSection).toBe('Administration');
   });
 
   it('normalizes server staffing access without trusting truthy strings', () => {

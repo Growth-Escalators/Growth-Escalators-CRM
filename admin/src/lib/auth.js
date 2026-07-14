@@ -28,11 +28,11 @@ export function productForTenant(slug = getTenantSlug()) {
 }
 
 export function getProductHome(slug = getTenantSlug()) {
-  return productForTenant(slug) === 'wizmatch' ? '/wizmatch/dashboard' : '/dashboard';
+  return productForTenant(slug) === 'wizmatch' ? '/wizmatch/today' : '/dashboard';
 }
 
-const WIZMATCH_SHARED_ROUTE_MAP = {
-  '/dashboard': '/wizmatch/dashboard',
+export const WIZMATCH_SHARED_ROUTE_MAP = {
+  '/dashboard': '/wizmatch/today',
   '/contacts': '/wizmatch/contacts',
   '/pipeline': '/wizmatch/pipeline',
   '/tasks': '/wizmatch/tasks',

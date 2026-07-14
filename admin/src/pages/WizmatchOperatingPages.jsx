@@ -851,15 +851,15 @@ export function WizmatchDashboardPage({ demoMode = false }) {
           {[
             ['/wizmatch/review-workbench', ClipboardList, '1', 'Review Workbench', 'Start with the highest-priority safe actions'],
             ['/wizmatch/client-discovery', Target, '2', 'Client Discovery', 'Find and qualify hiring companies'],
-            ['/wizmatch/signals', Zap, '3', 'Signals', 'Review the evidence behind demand'],
-            ['/wizmatch/contact-intelligence', Contact, '4', 'Contact Intelligence', 'Find, approve, and link the hiring contact'],
+            ['/wizmatch/job-leads', Zap, '3', 'Signals', 'Review the evidence behind demand'],
+            ['/wizmatch/hiring-contacts', Contact, '4', 'Contact Intelligence', 'Find, approve, and link the hiring contact'],
             ['/wizmatch/requirement-priority-new', FileText, '5', 'Requirement Priority', 'Rank which confirmed roles to work'],
             ['/wizmatch/requirements', FileText, '6', 'Requirements', 'Capture and maintain the client JD'],
             ['/wizmatch/candidate-intelligence', UserCheck, '7', 'Candidate Intelligence', 'Match and review candidates for the role'],
             ['/wizmatch/candidates', UserCheck, '8', 'Candidates', 'Manage the verified talent pool'],
             ['/wizmatch/source-candidates', Search, '9', 'Source Candidates', 'Fill role-specific candidate gaps'],
             ['/wizmatch/placements', Briefcase, '10', 'Placements', 'Track delivery outcomes and economics'],
-            ['/wizmatch/analytics', Activity, '11', 'Analytics', 'Measure acquisition, delivery, and placements'],
+            ['/wizmatch/reports', Activity, '11', 'Analytics', 'Measure acquisition, delivery, and placements'],
           ].map(([href, Icon, step, label, description]) => (
             <a key={href} href={href} className="group flex items-start gap-3 rounded-md border border-neutral-100 bg-white px-3 py-3 transition hover:border-primary-300">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary-50 text-primary-700">
