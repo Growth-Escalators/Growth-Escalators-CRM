@@ -94,6 +94,23 @@ build's integrated tree.
    both the panel toggle and its confirm action; would have been a real
    screen-reader ambiguity, not just a test-selector problem) — renamed the
    toggle to "Discover contacts" before it shipped.
+5. **ConfirmDialog Cancel closed the whole drawer, not just the dialog**
+   (root cause: the delete/deactivate `ConfirmDialog` in three drawers —
+   `WizmatchCompaniesPage`, `WizmatchHiringContactsPage`, and the
+   pre-existing `WizmatchRequirementsPage` — was rendered as a sibling
+   positioned just outside the drawer panel's `stopPropagation()` boundary
+   but still inside the drawer's own backdrop `onClick={onClose}`;
+   `ConfirmDialog` never stops propagation itself, so any click inside it,
+   including Cancel, bubbled up and closed the entire drawer). Surfaced by
+   `agent-candidates-matching`'s own self-report — it found and fixed the
+   identical pattern in its own file (`WizmatchCandidatesPage.jsx`) and
+   explicitly flagged that the same latent bug likely existed elsewhere;
+   verified by tracing the actual JSX nesting in all `ConfirmDialog`
+   call sites repo-wide (6 files), confirmed in 3, fixed in all 3. The
+   existing "Escape closes the confirm dialog" E2E test did not catch this
+   because Escape is handled via a `document` keydown listener, a different
+   code path from a Cancel-button click. `WizmatchPlacementsPage`'s
+   adjustment-resolve dialog was checked and found already correctly nested.
 
 No regressions were found in pre-existing functionality — the full backend
 test suite, admin build, and 6 previously-passing Playwright specs that
@@ -123,6 +140,10 @@ touched.
 | Two backend data models (Staffing OS vs. legacy intelligence) unreconciled | Non-blocking for this release — pre-existing, documented architectural debt, not something this pass attempted |
 | Linked-contacts tab N+1 fetch pattern | Non-blocking at current company counts; revisit if a bulk endpoint becomes necessary |
 | Companies delete button shown before dependency check is fully known | Non-blocking — backend 409 with a human-readable message is the real guard, UI degrades gracefully |
+| `PUT /staffing/candidates/:id/skills` `confidence` field has no input validation — a float where the column is `integer` 500s instead of 400ing | Non-blocking — not reachable from any UI built in this pass (Candidate 360's skills section is read-only) |
+| `DELETE /candidates/:id`'s 403 (`delete_requires_lead`) has no `message` field, unlike the 409 dependency case which does | Non-blocking — humanized client-side in `WizmatchCandidatesPage.jsx` |
+| Offer decline/withdraw `reason` is collected in the UI but silently dropped by `PUT /offers/:id/status` (only `status` is persisted) | Non-blocking — shown in the confirmation for the user's own record, but not retrievable later from the backend; worth a backend fix if offer-decline reasons need to be audited |
+| No tenant-wide aggregate endpoint for hiring-contact/match/shortlist counts, and neither `staffing/analytics` nor `delivery-board` accept any query params (no date filtering at all downstream of the Requirement funnel stage) | Non-blocking for this release — the Reports page discloses this honestly rather than fabricating data; would need new backend routes to close |
 
 ## Local review info
 
