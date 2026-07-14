@@ -78,27 +78,28 @@ The release-integrity review, full fictional Gate A/B/C exercise, commercial-lab
 named-pilot access qualification are complete. Do not repeat them unless code or staging changed.
 Resume at the first production gate:
 
-1. Confirm the branch is clean, 0 behind `origin/main`, and includes `9f4c0f4` plus the latest
+1. Confirm the branch is clean, 0 behind `origin/main`, and includes `1ceada3` plus the latest
    context commit.
 2. Re-read CURRENT_TASK/CURRENT_STATE and report any contradiction before an external action.
 3. Confirm the approved live Wizmatch-admin credential rotation is recorded as complete; do not
    repeat it. The replacement is in macOS Keychain and must never be printed or copied to context.
 4. Production read-only qualification is pre-authorized and already complete; do not repeat it
    unless production or branch state changes. Reads never authorize deletion.
-5. Ask for approval for the exact production safety-variable bundle in CURRENT_TASK. Do not
-   migrate, push, create users, activate gates or import data from this startup prompt alone.
+5. The production safety bundle is already live. Ask next for approval to apply only migrations
+   0025–0028. Do not push, create users, activate gates or import data from this startup prompt alone.
 
 Current infrastructure truth
 
 - Railway has isolated `production` and `staging` environments. Staging contains `web-staging` and
   `Postgres-Bhky`; Gate A/B/C are on there with fictional data. No worker exists in either environment.
-- Exact `9f4c0f4` is live on `web-staging` as deployment
-  `54b9ff52-8fed-43eb-974c-bb2ddaab72f6` (`SUCCESS`). Its 15-check direct-API access matrix and
-  read-only staffing-chain/economics reconciliation passed.
+- Exact `1ceada3` is live on `web-staging`; deployments
+  `a5ed6f3c-dccb-4add-86e2-17ec9046f204` and
+  `9f20e84c-952e-4f48-9f2e-8373528144b7` reached `SUCCESS`. Its 15-check direct-API access matrix,
+  staffing-chain/economics reconciliation and safe-automation browser/log qualification passed.
 - Production `web` remains on `b05ac015eff8444edc217563fdb93ac5ef836639` from the latest read-only
   inspection. Recompute the branch position at startup rather than relying on a saved ahead count.
-- Deployment documentation references `railway.worker.json`, but the file is absent in this clean
-  worktree. Do not create or deploy a worker during the initial pilot.
+- No separate worker exists or is needed for the pilot. Safe staffing reminders run once in the
+  existing web process; legacy Wizmatch automation stays off. Preserve non-Wizmatch Growth jobs.
 
 Approval gates — stop immediately before each
 
@@ -106,7 +107,8 @@ The local implementation approval does not authorize any of the following. Obtai
 explicit human “yes” immediately before each action:
 
 - Apply a staging or production migration.
-- Read or mutate production data, including the count-only preview.
+- Mutate production data. Read-only production inspection and count-only previews are pre-authorized;
+  they never authorize deletion or follow-on writes.
 - Set/change Railway, Vercel, GitHub Actions or Vite environment variables.
 - Rotate the exposed credential or rewrite Git history.
 - Push any branch; pushing main auto-deploys and needs approval for that exact push.
@@ -140,7 +142,7 @@ When staging deployment is explicitly approved
    rollback while leaving additive schema intact.
 5. Record exact evidence in CURRENT_STATE, CURRENT_TASK and HANDOFF_LOG; regenerate AI_BRIEF.
 
-When production count-only access is explicitly approved
+When running the pre-authorized production count-only preview
 
 Run only:
   npm run wizmatch:staffing-backfill-preview
@@ -166,7 +168,7 @@ Final report format
 - Approval gate reached
 - One exact next action
 
-Begin now with mandatory startup verification and report the production safety-variable approval
-gate from CURRENT_TASK. Do not redo staging Gates A/B/C, credential rotation or unchanged
+Begin now with mandatory startup verification and report the production migration approval gate
+from CURRENT_TASK. Do not redo staging Gates A/B/C, credential rotation or unchanged
 production reads, and do not perform a production write from this prompt alone.
 ```

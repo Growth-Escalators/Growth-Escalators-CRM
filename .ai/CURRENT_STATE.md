@@ -2,6 +2,32 @@
 
 _Update this when the working state of the repo meaningfully changes. Keep it short and true._
 
+## 2026-07-14 Safe staffing automation release candidate (current)
+
+- Commit `1ceada3` is the current reviewed candidate. It leaves all non-Wizmatch Growth jobs
+  unchanged, defaults legacy Wizmatch sourcing/enrichment/scrapers/importers/digests off, and
+  allows only Gate-C-dependent deterministic staffing reminders behind a separate default-off flag.
+- Verification passed: TypeScript build; 46 files / 368 Vitest tests; admin production build;
+  16/16 Playwright; fresh 29-entry migration apply with 81 public/31 Wizmatch tables; production
+  router contains no demo paths; `git diff --check` clean.
+- Isolated staging deployments `a5ed6f3c-dccb-4add-86e2-17ec9046f204` and
+  `9f20e84c-952e-4f48-9f2e-8373528144b7` reached `SUCCESS`. Health/database are green. Logs show
+  exactly one in-process staffing schedule, legacy automation skipped and no separate worker.
+- Authenticated staging browser QA passed the high-value A–C workspaces and System/Readiness with
+  no console errors or 390px overflow. Readiness reports web-in-process, staffing reminders on,
+  legacy automation off, sending off and 09:17 IST Monday–Saturday. Ephemeral QA credentials and
+  sessions were removed/signed out.
+- Production read-only preflight remains healthy on old `b05ac015`; journal latest timestamp is
+  `1783420000004`, so only 0025–0028 are pending. Counts are 2,812 contacts, 131 companies,
+  311 unvetted candidates and one retained audit-test requirement. No production write/deletion
+  occurred.
+- The old build logged 18 new GitHub-mined candidates today, explaining the earlier 293→311 rise.
+  This legacy block remains active until the reviewed release is deployed; those rows stay excluded
+  from matching until individually reviewed.
+- Jatin and Kanishk are the only production pilot users and remain admins. No additional user is to
+  be provisioned. The next action is separate approval for additive production migrations
+  0025–0028 with gates and staffing automation off.
+
 ## 2026-07-14 Authenticated production QA and final staging repair (current)
 
 - Production `web` safety variables are now hardened under explicit approval: Jatin/Kanishk named
