@@ -2,6 +2,28 @@
 
 _Update this when the working state of the repo meaningfully changes. Keep it short and true._
 
+## 2026-07-14 Results-first sourcing foundation (current)
+
+- Commit `1112e47` is live in production through Railway deployment
+  `fe6ebb85-cfe2-4a48-9d86-aa6707864e25` (`SUCCESS`). Migration `0029` applied additively; the
+  journal is 28 with `0029` latest and the new 21-column `wizmatch_source_runs` table is empty.
+- Production pre/post counts are identical: 2,812 contacts, 131 Wizmatch companies, 311 candidates,
+  one retained requirement and 6,686 job signals. No production business record/document was
+  deleted or created by the release.
+- Production source controls are all off. Authenticated Kanishk smoke passed access, source status,
+  desktop and 390px mobile UI with zero console/failed API requests; direct ATS execution is 403.
+- Isolated staging deployment `f8f6e053-5669-40cb-8c5c-4f8f4ac3f35f` is healthy with ATS and free
+  website POC discovery enabled, legacy automation off, TheirStack/X-Ray off. A controlled
+  PlanetScale Greenhouse board produced 10 relevant signals; rerun produced zero inserts and 10
+  updates/duplicates. Qualification, POC state, idempotent requirement promotion and responsive UI
+  passed. The ephemeral pilot password/session was rotated away immediately.
+- Release verification: TypeScript build; 47 files/383 Vitest tests; admin production build;
+  22/22 Playwright including results-first flows plus tablet/mobile; migration SQL destructive-op
+  scan; secret scan; and `git diff --check`.
+- `THEIRSTACK_API_KEY` and `SERPAPI_API_KEY` are not present in Railway or macOS Keychain. The
+  sequential live TheirStack and requirement-first X-Ray gates are blocked on secure key supply.
+  ATS/POC production activation remains intentionally off until TheirStack's capped live gate passes.
+
 ## 2026-07-14 Controlled production launch (current)
 
 - Commit `187c741` is live in production through Railway deployment
