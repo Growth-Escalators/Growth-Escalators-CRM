@@ -4,7 +4,7 @@ const session = { token: 'local-wizmatch-gate-bc-token', user: { id: 'admin-1', 
 async function json(route: Route, body: unknown, status = 200) { await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) }); }
 async function setup(page: Page) {
   await page.addInitScript((value) => { localStorage.setItem('crm_active_tenant_slug','wizmatch'); localStorage.setItem('wizmatch_crm_token',value.token); localStorage.setItem('wizmatch_crm_user',JSON.stringify(value.user)); localStorage.setItem('wizmatch_crm_permissions',JSON.stringify({ staffingPilotAccess: true })); }, session);
-  await page.route('**/api/**', async route => { const path=new URL(route.request().url()).pathname; if(path==='/api/inbox/unread-count'||path==='/api/finance/leaves/pending-count') return json(route,{count:0}); if(path==='/api/wizmatch/staffing/access') return json(route,{allowed:true,capabilities:{viewCommercial:true,operateDelivery:true,approveSubmissions:true,manageOffers:true,manageFinance:true}}); return json(route,{}); });
+  await page.route('**/api/**', async route => { const path=new URL(route.request().url()).pathname; if(path==='/api/inbox/unread-count'||path==='/api/finance/leaves/pending-count') return json(route,{count:0}); if(path==='/api/wizmatch/staffing/access') return json(route,{allowed:true,phases:{A:true,B:true,C:true},capabilities:{viewCommercial:true,operateDelivery:true,approveSubmissions:true,manageOffers:true,manageFinance:true}}); return json(route,{}); });
 }
 
 test('Talent Matching shows explainable SAP and Java decisions without submission side effects', async ({ page }) => {

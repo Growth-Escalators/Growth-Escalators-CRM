@@ -19,6 +19,7 @@ async function setup(page: Page) {
   await page.route('**/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (path === '/api/inbox/unread-count' || path === '/api/finance/leaves/pending-count') return json(route, { count: 0 });
+    if (path === '/api/wizmatch/staffing/access') return json(route, { allowed: true, phases: { A: true, B: false, C: false } });
     return json(route, {});
   });
 }

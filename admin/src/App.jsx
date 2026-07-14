@@ -1,7 +1,8 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { getAuthPermissions, getAuthToken, getAuthUser, getProductHome, getTenantSlug, normalizeTenantSlug } from './lib/auth.js';
-import { staffingPhaseUi } from './lib/staffingPhases.js';
+import { apiFetch } from './lib/api.js';
+import { normalizeStaffingAccess } from './lib/staffingAccess.js';
 
 const LoginPage = lazy(() => import('./pages/LoginPage.jsx'));
 const ContactsPage = lazy(() => import('./pages/ContactsPage.jsx'));
@@ -169,7 +170,47 @@ function HomeRedirect() {
 
 function StaffingPhaseRoute({ phase, children }) {
   const pilotAccess = getAuthPermissions('wizmatch').staffingPilotAccess === true;
-  return staffingPhaseUi[phase] && pilotAccess ? children : <Navigate to="/wizmatch/dashboard" replace />;
+  const [state, setState] = useState({ status: 'loading', access: null, error: '' });
+
+  const loadAccess = useCallback(async () => {
+    if (!pilotAccess) {
+      setState({ status: 'ready', access: normalizeStaffingAccess(null), error: '' });
+      return;
+    }
+    setState({ status: 'loading', access: null, error: '' });
+    try {
+      const response = await apiFetch('/api/wizmatch/staffing/access');
+      setState({ status: 'ready', access: normalizeStaffingAccess(response), error: '' });
+    } catch (error) {
+      setState({
+        status: 'error',
+        access: null,
+        error: error?.message || 'Staffing access could not be verified.',
+      });
+    }
+  }, [pilotAccess]);
+
+  useEffect(() => { loadAccess(); }, [loadAccess]);
+
+  if (state.status === 'loading') {
+    return <div className="flex min-h-screen items-center justify-center text-sm text-neutral-500">Checking staffing access…</div>;
+  }
+  if (state.status === 'error') {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-6">
+        <div className="max-w-md rounded-xl border border-red-200 bg-white p-6 text-center shadow-sm">
+          <h2 className="text-lg font-semibold text-neutral-900">Staffing access unavailable</h2>
+          <p className="mt-2 text-sm text-neutral-600">{state.error}</p>
+          <button type="button" onClick={loadAccess} className="mt-4 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+  return state.access?.allowed && state.access.phases[phase]
+    ? children
+    : <Navigate to="/wizmatch/dashboard" replace />;
 }
 
 function QueryBoundaryQaPage() {

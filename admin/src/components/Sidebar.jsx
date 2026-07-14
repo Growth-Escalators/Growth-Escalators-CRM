@@ -5,6 +5,7 @@ import { getTenantConfig, getTenantSlug } from '../lib/auth.js';
 import { ChevronRight, Menu, X, Wrench, Receipt, Settings as SettingsIcon } from 'lucide-react';
 import { NAV_ENTRIES, GROUP_LABELS, getVisibleEntries, groupForPath } from './navEntries.js';
 import CommandPalette from './CommandPalette.jsx';
+import { closedStaffingPhases, normalizeStaffingAccess } from '../lib/staffingAccess.js';
 
 const ROLE_BADGE_COLORS = {
   admin: 'bg-primary-700',
@@ -134,6 +135,27 @@ export default function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [openGroups, setOpenGroups] = useState(readStoredGroups);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [staffingPhases, setStaffingPhases] = useState(closedStaffingPhases);
+
+  // Phase visibility is a runtime server decision. Fail closed so a stale or
+  // cached Vite bundle can never expose a phase that the API has disabled.
+  useEffect(() => {
+    let cancelled = false;
+    setStaffingPhases(closedStaffingPhases());
+    if (String(tenantSlug).toLowerCase() !== 'wizmatch' || perms.staffingPilotAccess !== true) {
+      return () => { cancelled = true; };
+    }
+    apiFetch('/api/wizmatch/staffing/access')
+      .then(response => {
+        if (cancelled) return;
+        const access = normalizeStaffingAccess(response);
+        setStaffingPhases(access.allowed ? access.phases : closedStaffingPhases());
+      })
+      .catch(() => {
+        if (!cancelled) setStaffingPhases(closedStaffingPhases());
+      });
+    return () => { cancelled = true; };
+  }, [tenantSlug, perms.staffingPilotAccess]);
 
   // Inbox unread badge — poll every 30s
   useEffect(() => {
@@ -166,7 +188,7 @@ export default function Sidebar() {
   // Auto-expand group containing the active route. Re-runs on nav so Cmd+K
   // jumps into a closed group still open the right one.
   useEffect(() => {
-    const target = groupForPath(location.pathname, role, perms, tenantSlug);
+    const target = groupForPath(location.pathname, role, perms, tenantSlug, staffingPhases);
     if (!target) return;
     setOpenGroups(prev => {
       if (prev[target]) return prev;
@@ -174,7 +196,7 @@ export default function Sidebar() {
       writeStoredGroups(next);
       return next;
     });
-  }, [location.pathname, role, perms, tenantSlug]);
+  }, [location.pathname, role, perms, tenantSlug, staffingPhases]);
 
   // Cmd+K / Ctrl+K command palette
   useEffect(() => {
@@ -197,7 +219,10 @@ export default function Sidebar() {
     });
   }
 
-  const visible = useMemo(() => getVisibleEntries(role, perms, tenantSlug), [role, perms, tenantSlug]);
+  const visible = useMemo(
+    () => getVisibleEntries(role, perms, tenantSlug, staffingPhases),
+    [role, perms, tenantSlug, staffingPhases],
+  );
 
   // Bucket visible entries: flat sections (group=null) keep their own label;
   // collapsibles get bucketed by group.

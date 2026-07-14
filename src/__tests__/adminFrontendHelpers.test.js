@@ -2,8 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getTenantSlug } from '../../admin/src/lib/auth.js';
 import { apiFetch } from '../../admin/src/lib/api.js';
 import { isTerminalOutcome } from '../../admin/src/lib/pipelineStageOutcomes.js';
-import { computeFlags } from '../../admin/src/components/navEntries.js';
+import { computeFlags, getVisibleEntries } from '../../admin/src/components/navEntries.js';
 import { getWizmatchPreviewLinks } from '../../admin/src/lib/wizmatchPreviewLinks.js';
+import { normalizeStaffingAccess } from '../../admin/src/lib/staffingAccess.js';
 
 function installBrowserPath(pathname, storedTenant = 'growth-escalators') {
   const store = new Map([['crm_active_tenant_slug', storedTenant]]);
@@ -39,6 +40,37 @@ describe('admin tenant and pipeline outcome helpers', () => {
     expect(computeFlags('staff', {}, 'wizmatch').canStaffing).toBe(false);
     expect(computeFlags('staff', { staffingPilotAccess: true }, 'wizmatch').canStaffing).toBe(true);
     expect(computeFlags('viewer', { staffingPilotAccess: true }, 'wizmatch').canStaffing).toBe(false);
+  });
+
+  it('uses runtime staffing phases for navigation and fails closed by default', () => {
+    const permissions = { staffingPilotAccess: true };
+    const hidden = getVisibleEntries('admin', permissions, 'wizmatch').map(entry => entry.id);
+    expect(hidden).not.toContain('wm-my-work');
+    expect(hidden).not.toContain('wm-talent-matching');
+    expect(hidden).not.toContain('wm-delivery');
+
+    const phaseA = getVisibleEntries('admin', permissions, 'wizmatch', { A: true }).map(entry => entry.id);
+    expect(phaseA).toContain('wm-my-work');
+    expect(phaseA).toContain('wm-relationships');
+    expect(phaseA).not.toContain('wm-talent-matching');
+
+    const allPhases = getVisibleEntries('admin', permissions, 'wizmatch', { A: true, B: true, C: true }).map(entry => entry.id);
+    expect(allPhases).toContain('wm-my-work');
+    expect(allPhases).toContain('wm-talent-matching');
+    expect(allPhases).toContain('wm-delivery');
+  });
+
+  it('normalizes server staffing access without trusting truthy strings', () => {
+    expect(normalizeStaffingAccess({ allowed: true, phases: { A: true, B: 'true', C: 1 } })).toEqual({
+      allowed: true,
+      phases: { A: true, B: false, C: false },
+      capabilities: {},
+    });
+    expect(normalizeStaffingAccess(null)).toEqual({
+      allowed: false,
+      phases: { A: false, B: false, C: false },
+      capabilities: {},
+    });
   });
 
   it('resolves explicit product paths before stale localStorage', () => {

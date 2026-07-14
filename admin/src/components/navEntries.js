@@ -4,7 +4,6 @@ import {
   Link as LinkIcon, CreditCard, Receipt, Shield, ShieldCheck, ClipboardList, Settings,
   Briefcase, UserCheck, BarChart3, Network,
 } from 'lucide-react';
-import { staffingPhaseUi } from '../lib/staffingPhases.js';
 
 // Permission flag bag — derived from user role + per-user permission overrides.
 // Matches the gating that lived inline in Sidebar.jsx pre-refactor.
@@ -22,7 +21,7 @@ function entryProduct(entry) {
   return entry.section === 'Wizmatch' ? 'wizmatch' : 'growth';
 }
 
-export function computeFlags(role, perms = {}, tenantSlug = 'growth-escalators') {
+export function computeFlags(role, perms = {}, tenantSlug = 'growth-escalators', staffingPhases = {}) {
   const isAdmin = role === 'admin';
   const isTeamLead = role === 'team_lead';
   const isAdminTier = isAdmin || isTeamLead;
@@ -53,6 +52,9 @@ export function computeFlags(role, perms = {}, tenantSlug = 'growth-escalators')
     canSEO:        ['admin', 'manager_ops', 'manager_ads'].includes(role),
     canWizmatch:   product === 'wizmatch' && isAdminTier,
     canStaffing:   product === 'wizmatch' && perms.staffingPilotAccess === true && ['admin', 'manager_ops', 'team_lead', 'sales', 'staff'].includes(role),
+    staffingPhaseA: staffingPhases.A === true,
+    staffingPhaseB: staffingPhases.B === true,
+    staffingPhaseC: staffingPhases.C === true,
   };
 }
 
@@ -270,12 +272,12 @@ export const NAV_ENTRIES = [
   {
     id: 'wm-my-work', label: 'My Work', to: '/wizmatch/my-work',
     icon: CheckSquare, section: 'Wizmatch', group: null, product: 'wizmatch',
-    visible: f => f.canStaffing && staffingPhaseUi.A,
+    visible: f => f.canStaffing && f.staffingPhaseA,
   },
   {
     id: 'wm-relationships', label: 'Companies & Contacts', to: '/wizmatch/relationships',
     icon: Users, section: 'Wizmatch', group: null, product: 'wizmatch',
-    visible: f => f.canStaffing && staffingPhaseUi.A,
+    visible: f => f.canStaffing && f.staffingPhaseA,
   },
   {
     id: 'wm-review-workbench', label: 'Review Workbench', to: '/wizmatch/review-workbench',
@@ -320,12 +322,12 @@ export const NAV_ENTRIES = [
   {
     id: 'wm-talent-matching', label: 'Talent Matching', to: '/wizmatch/talent-matching',
     icon: Target, section: 'Wizmatch', group: null, product: 'wizmatch',
-    visible: f => f.canStaffing && staffingPhaseUi.B,
+    visible: f => f.canStaffing && f.staffingPhaseB,
   },
   {
     id: 'wm-delivery', label: 'Submissions & Delivery', to: '/wizmatch/delivery',
     icon: Briefcase, section: 'Wizmatch', group: null, product: 'wizmatch',
-    visible: f => f.canStaffing && staffingPhaseUi.C,
+    visible: f => f.canStaffing && f.staffingPhaseC,
   },
   {
     id: 'wm-source-candidates', label: 'Source Candidates', to: '/wizmatch/source-candidates',
@@ -383,8 +385,8 @@ export const NAV_ENTRIES = [
   },
 ];
 
-export function getVisibleEntries(role, perms, tenantSlug) {
-  const flags = computeFlags(role, perms, tenantSlug);
+export function getVisibleEntries(role, perms, tenantSlug, staffingPhases) {
+  const flags = computeFlags(role, perms, tenantSlug, staffingPhases);
   return NAV_ENTRIES.filter(e => entryProduct(e) === flags.product && e.visible(flags));
 }
 
@@ -397,8 +399,8 @@ export const GROUP_LABELS = {
 
 // Find which collapsible group (if any) owns a given pathname.
 // Used by Sidebar's auto-expand-on-route logic.
-export function groupForPath(pathname, role, perms, tenantSlug) {
-  const entries = getVisibleEntries(role, perms, tenantSlug);
+export function groupForPath(pathname, role, perms, tenantSlug, staffingPhases) {
+  const entries = getVisibleEntries(role, perms, tenantSlug, staffingPhases);
   // Match longest "to" first so /settings/permissions wins over /settings.
   const sorted = [...entries].sort((a, b) => (b.to?.length || 0) - (a.to?.length || 0));
   for (const e of sorted) {
