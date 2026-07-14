@@ -3,6 +3,7 @@ import {
   buildWizmatchContactDiscoveryPreview,
   executeWizmatchContactDiscovery,
   getWizmatchContactDiscoveryConfig,
+  isWizmatchXrayCandidateSourcingEnabled,
   type WizmatchContactDiscoveryInput,
 } from '../services/wizmatchContactDiscovery';
 import type { WizmatchContactDiscoveryProviders, WizmatchProviderCandidate } from '../services/wizmatchContactDiscoveryProviders';
@@ -81,6 +82,16 @@ function candidate(overrides: Partial<WizmatchProviderCandidate>): WizmatchProvi
 }
 
 describe('Wizmatch Contact Discovery Phase 3', () => {
+  it('keeps quota-backed X-Ray candidate sourcing fail-closed', () => {
+    expect(isWizmatchXrayCandidateSourcingEnabled({} as NodeJS.ProcessEnv)).toBe(false);
+    expect(isWizmatchXrayCandidateSourcingEnabled({ WIZMATCH_PAID_DISCOVERY_ENABLED: 'true' } as NodeJS.ProcessEnv)).toBe(false);
+    expect(isWizmatchXrayCandidateSourcingEnabled({ WIZMATCH_GOOGLE_FALLBACK_ENABLED: 'true' } as NodeJS.ProcessEnv)).toBe(false);
+    expect(isWizmatchXrayCandidateSourcingEnabled({
+      WIZMATCH_PAID_DISCOVERY_ENABLED: 'true',
+      WIZMATCH_GOOGLE_FALLBACK_ENABLED: 'true',
+    } as NodeJS.ProcessEnv)).toBe(true);
+  });
+
   it('allows Tier A company discovery preview when paid discovery is enabled', () => {
     const preview = buildWizmatchContactDiscoveryPreview(baseInput(), enabledConfig());
 

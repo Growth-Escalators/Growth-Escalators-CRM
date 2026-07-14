@@ -115,6 +115,11 @@ export function getWizmatchContactDiscoveryConfig(env: NodeJS.ProcessEnv = proce
   };
 }
 
+export function isWizmatchXrayCandidateSourcingEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const config = getWizmatchContactDiscoveryConfig(env);
+  return config.paidDiscoveryEnabled && config.googleFallbackEnabled;
+}
+
 function iso(value: string | Date | null | undefined) {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, Search } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
 
@@ -14,6 +14,25 @@ export default function WizmatchSourceCandidatesPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
+  const [xrayEnabled, setXrayEnabled] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch('/api/wizmatch/readiness')
+      .then((readiness) => {
+        if (cancelled) return;
+        const controls = readiness?.costControls || {};
+        setXrayEnabled(controls.paidDiscoveryEnabled === true && controls.googleFallbackEnabled === true);
+      })
+      .catch(() => {
+        if (!cancelled) setXrayEnabled(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!xrayEnabled && provider === 'xray') setProvider('github');
+  }, [provider, xrayEnabled]);
 
   const sourceNow = useCallback(async (event) => {
     event.preventDefault();
@@ -61,7 +80,9 @@ export default function WizmatchSourceCandidatesPage() {
               onChange={(e) => setProvider(e.target.value)}
             >
               {PROVIDERS.map((p) => (
-                <option key={p.value} value={p.value}>{p.label}</option>
+                <option key={p.value} value={p.value} disabled={p.value === 'xray' && !xrayEnabled}>
+                  {p.label}{p.value === 'xray' && !xrayEnabled ? ' — disabled' : ''}
+                </option>
               ))}
             </select>
           </div>
@@ -95,7 +116,7 @@ export default function WizmatchSourceCandidatesPage() {
           </button>
 
           <p className="input-help">
-            Runs a live search — LinkedIn X-Ray uses a limited monthly quota, use sparingly.
+            GitHub runs one manual search. LinkedIn X-Ray stays disabled unless paid discovery and Google fallback are explicitly enabled.
           </p>
         </form>
 

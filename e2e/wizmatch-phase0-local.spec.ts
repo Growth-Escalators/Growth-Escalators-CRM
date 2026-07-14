@@ -263,6 +263,19 @@ test('pipeline request failure exits loading and offers Retry', async ({ page })
   await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
 });
 
+test('quota-backed candidate X-Ray stays disabled when provider gates are off', async ({ page }) => {
+  await installWizmatchSession(page);
+  await installGenericApiFallback(page);
+  await page.route('**/api/wizmatch/readiness', (route) => fulfillJson(route, {
+    costControls: { paidDiscoveryEnabled: false, googleFallbackEnabled: false },
+  }));
+
+  await page.goto('/wizmatch/source-candidates');
+  await expect(page.getByRole('heading', { name: 'Source Candidates' })).toBeVisible();
+  await expect(page.getByRole('option', { name: /LinkedIn X-Ray — disabled/ })).toBeDisabled();
+  await expect(page.getByText(/stays disabled unless paid discovery and Google fallback are explicitly enabled/)).toBeVisible();
+});
+
 test('direct Wizmatch navigation preserves product and return path at login', async ({ page }) => {
   await page.goto('/wizmatch/dashboard');
   await expect(page).toHaveURL(/\/login\?tenant=wizmatch&returnTo=%2Fwizmatch%2Fdashboard/);

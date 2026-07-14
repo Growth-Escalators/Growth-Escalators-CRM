@@ -102,6 +102,7 @@ import {
   buildWizmatchContactDiscoveryPreview,
   executeWizmatchContactDiscovery,
   getWizmatchContactDiscoveryConfig,
+  isWizmatchXrayCandidateSourcingEnabled,
   type WizmatchContactDiscoveryInput,
 } from '../services/wizmatchContactDiscovery';
 import { getWizmatchAutomationStatus } from '../services/wizmatchAutomation';
@@ -5607,6 +5608,10 @@ router.post('/candidates/source-now', async (req: Request, res: Response) => {
   }
   if (!skill || !location) {
     res.status(400).json({ error: 'skill and location are required' });
+    return;
+  }
+  if (provider === 'xray' && !isWizmatchXrayCandidateSourcingEnabled()) {
+    res.status(403).json({ error: 'LinkedIn X-Ray sourcing is disabled until paid discovery and Google fallback are explicitly enabled' });
     return;
   }
 
