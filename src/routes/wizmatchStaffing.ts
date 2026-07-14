@@ -126,6 +126,11 @@ router.get('/staffing/companies/:companyId', async (req, res) => {
   catch (error) { return handle(error, res); }
 });
 
+router.delete('/staffing/companies/:companyId', async (req, res) => {
+  try { return res.json(await wizmatchStaffingService.deleteCompany(requireLead(req), req.params.companyId)); }
+  catch (error) { return handle(error, res); }
+});
+
 router.get('/staffing/company-contacts/:companyContactId', async (req, res) => {
   try { const current = requireRelationshipRole(req); return res.json(await wizmatchStaffingService.getCompanyContact360(current.tenantId, req.params.companyContactId)); }
   catch (error) { return handle(error, res); }

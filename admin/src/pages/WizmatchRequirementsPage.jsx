@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { FileText, Upload, Sparkles, X, Download, Users } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
+import ConfirmDialog from '../components/ConfirmDialog.jsx';
 
 const STATUS_BADGE = {
   draft: 'badge-muted',
@@ -498,6 +499,9 @@ function RequirementDetailDrawer({ requirement, onClose, onSaved, onFindCandidat
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [confirmingClose, setConfirmingClose] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const buildPayload = (overrides = {}) => ({
@@ -531,6 +535,20 @@ function RequirementDetailDrawer({ requirement, onClose, onSaved, onFindCandidat
     } catch (e) { setFeedback({ kind: 'error', message: e.message || 'Failed to close.' }); } finally { setSaving(false); setConfirmingClose(false); }
   };
 
+  const deleteRequirement = async (reason) => {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await apiFetch(`/api/wizmatch/requirements/${requirement.id}`, { method: 'DELETE', body: JSON.stringify({ reason }) });
+      onSaved();
+      onClose();
+    } catch (e) {
+      setDeleteError(e.message || 'Delete failed.');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex justify-end" onClick={onClose}>
       <div className="bg-white w-[560px] max-w-[95vw] h-full overflow-y-auto shadow-modal" onClick={e => e.stopPropagation()}>
@@ -556,23 +574,30 @@ function RequirementDetailDrawer({ requirement, onClose, onSaved, onFindCandidat
             <button onClick={onFindCandidates} className="btn-standard btn-compact">
               <Users className="w-3.5 h-3.5" /> Find candidates
             </button>
-            {form.status !== 'closed' && (
-              confirmingClose ? (
-                <div className="flex items-center gap-2 text-[12.5px]">
-                  <span className="text-neutral-500">Stop showing this in open pipelines?</span>
-                  <button onClick={closeRequirement} disabled={saving} className="font-semibold text-danger-600 hover:text-danger-700">
-                    {saving ? 'Closing…' : 'Confirm close'}
-                  </button>
-                  <button onClick={() => setConfirmingClose(false)} disabled={saving} className="font-semibold text-neutral-500 hover:text-neutral-700">
-                    Cancel
-                  </button>
-                </div>
-              ) : (
-                <button onClick={() => setConfirmingClose(true)} disabled={saving} className="text-[12.5px] font-semibold text-danger-600 hover:text-danger-700">
-                  Close requirement
+            <div className="flex items-center gap-3">
+              {form.status === 'draft' && (
+                <button onClick={() => setShowDeleteDialog(true)} disabled={saving} className="text-[12.5px] font-semibold text-danger-600 hover:text-danger-700">
+                  Delete permanently
                 </button>
-              )
-            )}
+              )}
+              {form.status !== 'closed' && (
+                confirmingClose ? (
+                  <div className="flex items-center gap-2 text-[12.5px]">
+                    <span className="text-neutral-500">Stop showing this in open pipelines?</span>
+                    <button onClick={closeRequirement} disabled={saving} className="font-semibold text-danger-600 hover:text-danger-700">
+                      {saving ? 'Closing…' : 'Confirm close'}
+                    </button>
+                    <button onClick={() => setConfirmingClose(false)} disabled={saving} className="font-semibold text-neutral-500 hover:text-neutral-700">
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={() => setConfirmingClose(true)} disabled={saving} className="text-[12.5px] font-semibold text-danger-600 hover:text-danger-700">
+                    Close requirement
+                  </button>
+                )
+              )}
+            </div>
           </div>
 
           <div className="border-t border-neutral-100 pt-4 space-y-3">
@@ -677,6 +702,19 @@ function RequirementDetailDrawer({ requirement, onClose, onSaved, onFindCandidat
           </button>
         </div>
       </div>
+      <ConfirmDialog
+        open={showDeleteDialog}
+        title="Delete this requirement?"
+        impactSummary={`This permanently deletes "${requirement.title}" and cannot be undone. Only allowed while it's still a draft with no candidate matches or submissions.`}
+        confirmLabel="Delete permanently"
+        danger
+        requireTypedName={requirement.title}
+        requireReason
+        loading={deleting}
+        error={deleteError}
+        onConfirm={deleteRequirement}
+        onCancel={() => { setShowDeleteDialog(false); setDeleteError(null); }}
+      />
     </div>
   );
 }

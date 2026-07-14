@@ -3625,6 +3625,37 @@ router.post('/contact-intelligence/contacts/:candidateId/review', async (req: Re
   res.json({ transition, contactCandidates: refreshed.contactCandidates });
 });
 
+// DELETE /api/wizmatch/contact-intelligence/contacts/:candidateId — permanent
+// delete, unlinked only. Once linked to a CRM contact, use reject/do-not-contact
+// instead — the CRM contact and its history must never be touched by this route.
+router.delete('/contact-intelligence/contacts/:candidateId', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const candidateId = String(req.params.candidateId);
+  if (!['admin', 'team_lead'].includes(req.user!.role)) {
+    res.status(403).json({ error: 'delete_requires_lead' });
+    return;
+  }
+  const existing = await pool.query(
+    `SELECT id, name, crm_contact_id, status FROM wizmatch_contact_candidates WHERE tenant_id=$1 AND id=$2`,
+    [tenantId, candidateId],
+  );
+  if (!existing.rowCount) {
+    res.status(404).json({ error: 'Contact candidate not found' });
+    return;
+  }
+  const contactCandidate = existing.rows[0];
+  if (contactCandidate.crm_contact_id || contactCandidate.status === 'linked_to_crm') {
+    res.status(409).json({
+      error: 'has_dependencies',
+      message: 'Cannot delete — this contact is linked to a CRM contact. Mark it do-not-contact/rejected instead.',
+      dependencies: ['linked CRM contact'],
+    });
+    return;
+  }
+  await pool.query(`DELETE FROM wizmatch_contact_candidates WHERE id=$1 AND tenant_id=$2`, [candidateId, tenantId]);
+  res.json({ deleted: true, id: candidateId });
+});
+
 // POST /api/wizmatch/contact-intelligence/contacts/:candidateId/link-crm-contact
 // Explicitly links/creates a CRM contact after reviewer approval. This does not send outreach.
 router.post('/contact-intelligence/contacts/:candidateId/link-crm-contact', async (req: Request, res: Response) => {
@@ -3882,6 +3913,64 @@ router.post('/signals/:id/qualify', async (req: Request, res: Response) => {
 router.post('/signals/:id/reject', async (req: Request, res: Response) => {
   try { res.json(await rejectSignal(req.user!.tenantId, String(req.params.id), req.user!.id, firstString(req.body?.reason) || undefined)); }
   catch (error) { res.status(404).json({ error: error instanceof Error ? error.message : 'Signal rejection failed' }); }
+});
+
+// DELETE /signals/:id — permanent delete, unqualified + unlinked only.
+// A signal that was promoted into a requirement must never be deleted (it's
+// the source-of-truth trace for that requirement); reject it instead.
+router.delete('/signals/:id', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const signalId = String(req.params.id);
+  if (!['admin', 'team_lead'].includes(req.user!.role)) {
+    res.status(403).json({ error: 'delete_requires_lead' });
+    return;
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const existing = await client.query(
+      `SELECT id, job_title, status, company_id FROM wizmatch_job_signals WHERE id=$1 AND tenant_id=$2 FOR UPDATE`,
+      [signalId, tenantId],
+    );
+    if (!existing.rowCount) {
+      await client.query('ROLLBACK');
+      res.status(404).json({ error: 'Signal not found' });
+      return;
+    }
+    const signal = existing.rows[0];
+    if (['placed'].includes(signal.status)) {
+      await client.query('ROLLBACK');
+      res.status(409).json({ error: 'not_deletable_status', message: `Signals with status "${signal.status}" cannot be deleted.` });
+      return;
+    }
+    const linkedRequirement = await client.query(
+      `SELECT id, title FROM wizmatch_requirements WHERE tenant_id=$1 AND source_job_signal_id=$2 LIMIT 1`,
+      [tenantId, signalId],
+    );
+    if (linkedRequirement.rowCount) {
+      await client.query('ROLLBACK');
+      res.status(409).json({
+        error: 'has_dependencies',
+        message: `Cannot delete — this signal was promoted into requirement "${linkedRequirement.rows[0].title}". Reject it instead if it's no longer relevant.`,
+        dependencies: [`requirement: ${linkedRequirement.rows[0].title}`],
+      });
+      return;
+    }
+    await client.query(
+      `INSERT INTO wizmatch_staffing_events (tenant_id,actor_user_id,event_type,company_id,payload)
+       VALUES ($1,$2,'job_signal.deleted',$3,$4::jsonb)`,
+      [tenantId, req.user!.id, signal.company_id, JSON.stringify({ deletedJobSignalId: signalId, jobTitle: signal.job_title, reason: firstString(req.body?.reason) || null })],
+    );
+    await client.query(`UPDATE wizmatch_task_links SET job_signal_id = NULL WHERE tenant_id=$1 AND job_signal_id=$2`, [tenantId, signalId]);
+    await client.query(`DELETE FROM wizmatch_job_signals WHERE id=$1 AND tenant_id=$2`, [signalId, tenantId]);
+    await client.query('COMMIT');
+    res.json({ deleted: true, id: signalId });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 });
 
 router.post('/signals/:id/discover-poc', async (req: Request, res: Response) => {
@@ -4562,6 +4651,43 @@ router.put('/candidates/:id', async (req: Request, res: Response) => {
     return;
   }
   res.json(result.rows[0]);
+});
+
+// DELETE /candidates/:id — permanent delete, unlinked only. A candidate with
+// any match or submission history must be archived (PUT availability_status)
+// instead, never hard-deleted.
+router.delete('/candidates/:id', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const candidateId = String(req.params.id);
+  if (!['admin', 'team_lead'].includes(req.user!.role)) {
+    res.status(403).json({ error: 'delete_requires_lead' });
+    return;
+  }
+  const existing = await pool.query(`SELECT id FROM wizmatch_candidates WHERE id=$1 AND tenant_id=$2`, [candidateId, tenantId]);
+  if (!existing.rowCount) {
+    res.status(404).json({ error: 'Candidate not found' });
+    return;
+  }
+  const [matches, submissions] = await Promise.all([
+    pool.query(`SELECT COUNT(*)::int AS n FROM wizmatch_candidate_requirement_matches WHERE tenant_id=$1 AND candidate_id=$2`, [tenantId, candidateId]),
+    pool.query(`SELECT COUNT(*)::int AS n FROM wizmatch_submissions WHERE tenant_id=$1 AND candidate_id=$2`, [tenantId, candidateId]),
+  ]);
+  const dependencies: string[] = [];
+  if (matches.rows[0].n > 0) dependencies.push(`${matches.rows[0].n} requirement match(es)`);
+  if (submissions.rows[0].n > 0) dependencies.push(`${submissions.rows[0].n} submission(s)`);
+  if (dependencies.length) {
+    res.status(409).json({
+      error: 'has_dependencies',
+      message: `Cannot delete — this candidate has ${dependencies.join(' and ')}. Mark unavailable instead.`,
+      dependencies,
+    });
+    return;
+  }
+  await pool.query(`UPDATE wizmatch_staffing_events SET candidate_id = NULL WHERE tenant_id=$1 AND candidate_id=$2`, [tenantId, candidateId]);
+  await pool.query(`UPDATE wizmatch_task_links SET candidate_id = NULL WHERE tenant_id=$1 AND candidate_id=$2`, [tenantId, candidateId]);
+  await pool.query(`DELETE FROM wizmatch_candidate_skills WHERE tenant_id=$1 AND candidate_id=$2`, [tenantId, candidateId]);
+  await pool.query(`DELETE FROM wizmatch_candidates WHERE id=$1 AND tenant_id=$2`, [candidateId, tenantId]);
+  res.json({ deleted: true, id: candidateId });
 });
 
 // ============================================================
@@ -5664,6 +5790,76 @@ router.put('/requirements/:id', async (req: Request, res: Response) => {
     );
     await client.query('COMMIT');
     res.json(result.rows[0]);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+});
+
+// DELETE /requirements/:id — permanent delete, draft + unlinked only.
+// Anything with matches, submissions, or active contact attribution must be
+// closed/archived (PUT status='closed' or the /transition endpoint) instead.
+router.delete('/requirements/:id', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const requirementId = String(req.params.id);
+  if (!['admin', 'team_lead'].includes(req.user!.role)) {
+    res.status(403).json({ error: 'delete_requires_lead' });
+    return;
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const existing = await client.query(
+      `SELECT id, title, status, company_id FROM wizmatch_requirements WHERE id=$1 AND tenant_id=$2 FOR UPDATE`,
+      [requirementId, tenantId],
+    );
+    if (!existing.rowCount) {
+      await client.query('ROLLBACK');
+      res.status(404).json({ error: 'Requirement not found' });
+      return;
+    }
+    const requirement = existing.rows[0];
+    if (requirement.status !== 'draft') {
+      await client.query('ROLLBACK');
+      res.status(409).json({
+        error: 'not_draft',
+        message: 'Only draft requirements can be permanently deleted. Close or archive this requirement instead.',
+      });
+      return;
+    }
+    const [matches, submissions] = await Promise.all([
+      client.query(`SELECT COUNT(*)::int AS n FROM wizmatch_candidate_requirement_matches WHERE tenant_id=$1 AND requirement_id=$2`, [tenantId, requirementId]),
+      client.query(`SELECT COUNT(*)::int AS n FROM wizmatch_submissions WHERE tenant_id=$1 AND requirement_id=$2`, [tenantId, requirementId]),
+    ]);
+    const dependencies: string[] = [];
+    if (matches.rows[0].n > 0) dependencies.push(`${matches.rows[0].n} candidate match(es)`);
+    if (submissions.rows[0].n > 0) dependencies.push(`${submissions.rows[0].n} submission(s)`);
+    if (dependencies.length) {
+      await client.query('ROLLBACK');
+      res.status(409).json({
+        error: 'has_dependencies',
+        message: `Cannot delete — this requirement has ${dependencies.join(' and ')}. Close or archive it instead.`,
+        dependencies,
+      });
+      return;
+    }
+    // Record the deletion in the activity log BEFORE removing the row (the FK
+    // requires requirement_id to still exist), then detach/remove the rest.
+    await client.query(
+      `INSERT INTO wizmatch_staffing_events (tenant_id,actor_user_id,event_type,company_id,requirement_id,payload)
+       VALUES ($1,$2,'requirement.deleted',$3,$4,$5::jsonb)`,
+      [tenantId, req.user!.id, requirement.company_id, requirementId, JSON.stringify({ deletedRequirementId: requirementId, title: requirement.title, reason: firstString(req.body?.reason) || null })],
+    );
+    await client.query(`UPDATE wizmatch_staffing_events SET requirement_id = NULL WHERE tenant_id=$1 AND requirement_id=$2`, [tenantId, requirementId]);
+    await client.query(`UPDATE wizmatch_task_links SET requirement_id = NULL WHERE tenant_id=$1 AND requirement_id=$2`, [tenantId, requirementId]);
+    await client.query(`DELETE FROM wizmatch_requirement_contacts WHERE tenant_id=$1 AND requirement_id=$2`, [tenantId, requirementId]);
+    await client.query(`DELETE FROM wizmatch_requirement_assignments WHERE tenant_id=$1 AND requirement_id=$2`, [tenantId, requirementId]);
+    await client.query(`DELETE FROM wizmatch_requirement_skills WHERE tenant_id=$1 AND requirement_id=$2`, [tenantId, requirementId]);
+    await client.query(`DELETE FROM wizmatch_requirements WHERE id=$1 AND tenant_id=$2`, [requirementId, tenantId]);
+    await client.query('COMMIT');
+    res.json({ deleted: true, id: requirementId });
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;

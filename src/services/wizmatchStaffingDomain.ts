@@ -286,6 +286,40 @@ export function createWizmatchStaffingService(dbPool: TransactionPool = pool) {
       });
     },
 
+    // Permanent delete, empty companies only — no signals, requirements, or
+    // linked hiring contacts. Anything with activity must stay (there is no
+    // "archive company" concept; qualification/rejection lives on the
+    // company-intelligence row and the company stays visible in history).
+    async deleteCompany(actor: Actor, companyId: string) {
+      return inTransaction(dbPool, async (client) => {
+        await requireTenantRow(client, 'wizmatch_companies', companyId, actor.tenantId, 'Company');
+        const [signals, requirements, contacts] = await Promise.all([
+          client.query(`SELECT COUNT(*)::int AS n FROM wizmatch_job_signals WHERE tenant_id=$1 AND company_id=$2`, [actor.tenantId, companyId]),
+          client.query(`SELECT COUNT(*)::int AS n FROM wizmatch_requirements WHERE tenant_id=$1 AND company_id=$2`, [actor.tenantId, companyId]),
+          client.query(`SELECT COUNT(*)::int AS n FROM wizmatch_company_contacts WHERE tenant_id=$1 AND company_id=$2`, [actor.tenantId, companyId]),
+        ]);
+        const dependencies: string[] = [];
+        if (signals.rows[0].n > 0) dependencies.push(`${signals.rows[0].n} job signal(s)`);
+        if (requirements.rows[0].n > 0) dependencies.push(`${requirements.rows[0].n} requirement(s)`);
+        if (contacts.rows[0].n > 0) dependencies.push(`${contacts.rows[0].n} hiring contact(s)`);
+        if (dependencies.length) {
+          throw new StaffingDomainError(409, 'has_dependencies', `Cannot delete — this company has ${dependencies.join(', ')}.`);
+        }
+        await client.query(`DELETE FROM wizmatch_discovery_runs WHERE tenant_id=$1 AND company_id=$2`, [actor.tenantId, companyId]);
+        await client.query(`DELETE FROM wizmatch_source_runs WHERE tenant_id=$1 AND company_id=$2`, [actor.tenantId, companyId]);
+        await client.query(`DELETE FROM wizmatch_company_intelligence WHERE tenant_id=$1 AND company_id=$2`, [actor.tenantId, companyId]);
+        await client.query(`DELETE FROM wizmatch_contact_candidates WHERE tenant_id=$1 AND company_id=$2`, [actor.tenantId, companyId]);
+        // Detach the event/task-link FK columns (history rows are kept, just
+        // unlinked) BEFORE the delete — the FK requires this to happen first.
+        await client.query(`UPDATE wizmatch_staffing_events SET company_id = NULL WHERE tenant_id=$1 AND company_id=$2`, [actor.tenantId, companyId]);
+        await client.query(`UPDATE wizmatch_task_links SET company_id = NULL WHERE tenant_id=$1 AND company_id=$2`, [actor.tenantId, companyId]);
+        const result = await client.query(`DELETE FROM wizmatch_companies WHERE id=$1 AND tenant_id=$2 RETURNING name`, [companyId, actor.tenantId]);
+        if (!result.rowCount) throw new StaffingDomainError(404, 'not_found', 'Company was not found');
+        await appendEvent(client, actor, 'company.deleted', { companyId: null }, { deletedCompanyId: companyId, name: result.rows[0].name });
+        return { deleted: true, id: companyId };
+      });
+    },
+
     async listRequirementContacts(tenantId: string, requirementId: string) {
       await requireTenantRow(dbPool as unknown as Queryable, 'wizmatch_requirements', requirementId, tenantId, 'Requirement');
       const result = await (dbPool as unknown as Queryable).query(
