@@ -1,25 +1,538 @@
-import { useCallback, useEffect, useState } from 'react';
-import { RefreshCw, ShieldCheck } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
+import { ChevronDown, ChevronRight, RefreshCw, ShieldCheck } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
+import { useToast } from '../components/wizmatch/Toast.jsx';
+import ErrorRetry from '../components/wizmatch/ErrorRetry.jsx';
+import EmptyState from '../components/wizmatch/EmptyState.jsx';
+import StatusBadge from '../components/wizmatch/StatusBadge.jsx';
+import DialogShell from '../components/wizmatch/DialogShell.jsx';
+import ConsentDialog from '../components/wizmatch/ConsentDialog.jsx';
+import SubmissionDialog from '../components/wizmatch/SubmissionDialog.jsx';
+import InterviewDialog from '../components/wizmatch/InterviewDialog.jsx';
+import OfferDialog from '../components/wizmatch/OfferDialog.jsx';
+import WithdrawCancelDialog from '../components/wizmatch/WithdrawCancelDialog.jsx';
 
-const LABEL = { draft:'Draft', approved:'Approved', submitted:'Submitted', interviewing:'Interviewing', offered:'Offered', placed:'Placed', rejected:'Rejected', withdrawn:'Withdrawn' };
+const LABEL = { draft: 'Draft', approved: 'Approved', submitted: 'Submitted', interviewing: 'Interviewing', offered: 'Offered', placed: 'Placed', rejected: 'Rejected', withdrawn: 'Withdrawn' };
+const TERMINAL = ['placed', 'withdrawn', 'closed', 'rejected'];
+const TERMINAL_OFFER_STATUSES = ['accepted', 'declined', 'withdrawn'];
+
+function candidateName(item) {
+  return [item.first_name, item.last_name].filter(Boolean).join(' ') || 'Unnamed candidate';
+}
+
 export default function WizmatchDeliveryBoardPage() {
-  const [items,setItems]=useState([]); const [analytics,setAnalytics]=useState(null); const [capabilities,setCapabilities]=useState({}); const [loading,setLoading]=useState(true); const [error,setError]=useState(''); const [busy,setBusy]=useState('');
-  const load=useCallback(async()=>{setLoading(true);setError('');try{const access=await apiFetch('/api/wizmatch/staffing/access');const caps=access.capabilities||{};setCapabilities(caps);const board=await apiFetch('/api/wizmatch/staffing/delivery-board');const metrics=caps.viewCommercial?await apiFetch('/api/wizmatch/staffing/analytics'):null;setItems(board.items||[]);setAnalytics(metrics);}catch(e){setItems([]);setAnalytics(null);setError(e.message||'Delivery board could not be loaded.');}finally{setLoading(false);}},[]);
-  useEffect(()=>{load();},[load]);
-  async function run(item,action){setBusy(item.id);setError('');try{
-    if(action==='approve') await apiFetch(`/api/wizmatch/staffing/submissions/${item.id}/approve`,{method:'POST'});
-    if(action==='sent'){const name=prompt('Named client recipient');if(!name)return;const email=prompt('Recipient email (optional)')||'';await apiFetch(`/api/wizmatch/staffing/submissions/${item.id}/record-sent`,{method:'POST',body:JSON.stringify({recipients:[{name,email}],nextActionDueAt:new Date(Date.now()+86400000).toISOString()})});}
-    if(action==='interview'){const scheduledAt=prompt('Interview date/time (ISO or local date)');if(!scheduledAt)return;await apiFetch(`/api/wizmatch/staffing/submissions/${item.id}/interviews`,{method:'POST',body:JSON.stringify({scheduledAt,nextAction:'Collect interview feedback',nextActionDueAt:new Date(new Date(scheduledAt).getTime()+7200000).toISOString()})});}
-    if(action==='offer'){const amount=Number(prompt('Offer amount in smallest currency unit / whole INR')||0);await apiFetch(`/api/wizmatch/staffing/submissions/${item.id}/offers`,{method:'POST',body:JSON.stringify({amount,currency:'INR',period:'annual',status:'draft'})});}
-    if(action==='accept') await apiFetch(`/api/wizmatch/staffing/offers/${item.latest_offer_id}/status`,{method:'PUT',body:JSON.stringify({status:'accepted'})});
-    if(action==='place'){const model=(prompt('Placement model: permanent or contract','permanent')||'permanent').toLowerCase();if(!['permanent','contract'].includes(model))throw new Error('Placement model must be permanent or contract.');const originalAmount=Number(prompt(model==='permanent'?'Permanent fee amount':'Contract bill rate')||0);const payload={offerId:item.latest_offer_id,model,originalAmount,currency:'INR',period:model==='contract'?'hourly':'one_time',feeAmount:model==='permanent'?originalAmount:null,billAmount:model==='contract'?originalAmount:null,startDate:new Date().toISOString().slice(0,10)};if(model==='contract'){payload.loadedCost=Number(prompt('Loaded cost for the same period')||0);payload.payAmount=payload.loadedCost;const margin=originalAmount>0?((originalAmount-payload.loadedCost)/originalAmount)*100:0;if(margin<20)payload.marginExceptionReason=prompt(`Gross margin is ${margin.toFixed(1)}%. Record the approved exception reason`)||'';}await apiFetch(`/api/wizmatch/staffing/submissions/${item.id}/placement`,{method:'POST',body:JSON.stringify(payload)});}
-    if(action==='withdraw'){const reason=prompt('Why is this submission being withdrawn?');if(!reason)return;await apiFetch(`/api/wizmatch/staffing/submissions/${item.id}/withdraw`,{method:'POST',body:JSON.stringify({reason})});}
-    await load();
-  }catch(e){setError(e.message||'Delivery action could not be recorded.');}finally{setBusy('');}}
-  const money=analytics?.commercial||{}; const exceptions=analytics?.exceptions||{};
-  return <div className="p-6 space-y-5"><div className="flex justify-between items-start"><div><h1 className="text-[20px] font-bold text-neutral-900">Submissions & Delivery</h1><p className="text-[12.5px] text-neutral-500 mt-1">Consent → approval → manual delivery record → interview → offer → placement. This page never sends automatically.</p></div><button className="btn-standard btn-compact" onClick={load}><RefreshCw className="w-3.5 h-3.5"/> Refresh</button></div>
-  {capabilities.viewCommercial&&<><div className="grid md:grid-cols-5 gap-3">{[['Starts',money.starts||0],['Gross margin',money.gross_margin||0],['Invoiced',money.invoiced||0],['Collected',money.collected||0],['Avg. time to fill',analytics?.timeToFill?.average_days?`${analytics.timeToFill.average_days} days`:'—']].map(([label,value])=><div className="card p-4" key={label}><div className="text-[11px] text-neutral-500 uppercase">{label}</div><div className="text-xl font-bold text-neutral-900 mt-1">{value}</div></div>)}</div><div className="rounded-md border border-warning-200 bg-warning-50 p-3 text-[12.5px] text-warning-800"><ShieldCheck className="w-4 h-4 inline mr-2"/>Exceptions: {exceptions.overdue_submissions||0} overdue · {exceptions.missing_next_action||0} missing next action.</div></>}
-  {error&&<div role="alert" className="border border-danger-200 bg-danger-50 text-danger-700 rounded-md p-3">{error} <button className="underline font-semibold ml-2" onClick={load}>Retry</button></div>}
-  {loading?<div className="card p-8 text-center text-neutral-400">Loading delivery records…</div>:<div className="card overflow-hidden"><table className="table-fluent"><thead><tr><th>Candidate</th><th>Requirement</th><th>Consent</th><th>Status</th><th>Delivery evidence</th><th>Next action</th></tr></thead><tbody>{!items.length?<tr><td colSpan="6" className="text-center py-8 text-neutral-400">No submission drafts yet.</td></tr>:items.map(item=><tr key={item.id}><td className="font-semibold">{[item.first_name,item.last_name].filter(Boolean).join(' ')}</td><td>{item.requirement_title}<div className="text-[11px] text-neutral-500">{item.company_name}</div></td><td><span className={item.consent_status==='granted'?'badge-success':'badge-warning'}>{item.consent_status||'not linked'}</span></td><td><span className="badge-info">{LABEL[item.status]||item.status}</span></td><td className="text-[11.5px]">{item.resend_count||0} resends · {item.interview_count||0} interviews · offer {item.offer_revision||'—'}</td><td><div className="flex flex-wrap gap-1">{capabilities.approveSubmissions&&item.status==='draft'&&<button disabled={busy===item.id} className="btn-standard btn-compact" onClick={()=>run(item,'approve')}>Approve</button>}{capabilities.approveSubmissions&&item.status==='approved'&&<button disabled={busy===item.id} className="btn-standard btn-compact" onClick={()=>run(item,'sent')}>Record sent</button>}{capabilities.operateDelivery&&item.status==='submitted'&&<button disabled={busy===item.id} className="btn-standard btn-compact" onClick={()=>run(item,'interview')}>Add interview</button>}{capabilities.manageOffers&&item.status==='interviewing'&&<button disabled={busy===item.id} className="btn-standard btn-compact" onClick={()=>run(item,'offer')}>Add offer</button>}{capabilities.manageOffers&&item.status==='offered'&&item.offer_status!=='accepted'&&<button disabled={busy===item.id} className="btn-standard btn-compact" onClick={()=>run(item,'accept')}>Record accepted</button>}{capabilities.manageFinance&&item.status==='offered'&&item.offer_status==='accepted'&&<button disabled={busy===item.id} className="btn-standard btn-compact" onClick={()=>run(item,'place')}>Create placement</button>}{capabilities.approveSubmissions&&!['placed','withdrawn','closed'].includes(item.status)&&<button disabled={busy===item.id} className="btn-standard btn-compact" onClick={()=>run(item,'withdraw')}>Withdraw</button>}</div></td></tr>)}</tbody></table></div>}</div>;
+  const toast = useToast();
+  const [items, setItems] = useState([]);
+  const [analytics, setAnalytics] = useState(null);
+  const [capabilities, setCapabilities] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState('');
+
+  const [expandedId, setExpandedId] = useState(null);
+  const [timelines, setTimelines] = useState({}); // requirementId -> events[]
+  const [timelineLoading, setTimelineLoading] = useState(false);
+  const [companyContactsByReq, setCompanyContactsByReq] = useState({}); // requirementId -> contacts[]
+
+  const [dialog, setDialog] = useState(null); // { type, item, ...extra }
+  const [dialogLoading, setDialogLoading] = useState(false);
+  const [dialogError, setDialogError] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const access = await apiFetch('/api/wizmatch/staffing/access');
+      const caps = access.capabilities || {};
+      setCapabilities(caps);
+      const board = await apiFetch('/api/wizmatch/staffing/delivery-board');
+      const metrics = caps.viewCommercial ? await apiFetch('/api/wizmatch/staffing/analytics') : null;
+      setItems(board.items || []);
+      setAnalytics(metrics);
+    } catch (e) {
+      setItems([]);
+      setAnalytics(null);
+      setError(e.message || 'Delivery board could not be loaded.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const fetchTimeline = useCallback(async (requirementId) => {
+    if (timelines[requirementId]) return timelines[requirementId];
+    const data = await apiFetch(`/api/wizmatch/requirements/${requirementId}/timeline`);
+    const events = data.items || [];
+    setTimelines((prev) => ({ ...prev, [requirementId]: events }));
+    return events;
+  }, [timelines]);
+
+  const fetchCompanyContacts = useCallback(async (requirementId) => {
+    if (companyContactsByReq[requirementId]) return companyContactsByReq[requirementId];
+    try {
+      const detail = await apiFetch(`/api/wizmatch/staffing/requirements/${requirementId}`);
+      const contacts = await apiFetch(`/api/wizmatch/companies/${detail.requirement.company_id}/contacts`);
+      const list = contacts.items || [];
+      setCompanyContactsByReq((prev) => ({ ...prev, [requirementId]: list }));
+      return list;
+    } catch {
+      return [];
+    }
+  }, [companyContactsByReq]);
+
+  function latestInterviewRoundId(item, events) {
+    const relevant = (events || [])
+      .filter((e) => String(e.submission_id) === String(item.id) && ['interview_scheduled', 'interview_updated'].includes(e.event_type))
+      .sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
+    return relevant[0]?.payload?.interviewRoundId || null;
+  }
+
+  async function toggleActivity(item) {
+    if (expandedId === item.id) { setExpandedId(null); return; }
+    setExpandedId(item.id);
+    setTimelineLoading(true);
+    try { await fetchTimeline(item.requirement_id); } catch { /* surfaced via empty panel */ } finally { setTimelineLoading(false); }
+  }
+
+  function closeDialog() { setDialog(null); setDialogError(''); }
+
+  async function runDialog(action, successMessage) {
+    setDialogLoading(true);
+    setDialogError('');
+    try {
+      await action();
+      closeDialog();
+      toast.showSuccess(successMessage);
+      await load();
+    } catch (e) {
+      setDialogError(e.message || 'Action could not be recorded.');
+    } finally {
+      setDialogLoading(false);
+    }
+  }
+
+  async function openConsentDialog(item) {
+    setDialogError('');
+    setDialog({ type: 'consent', item });
+  }
+
+  async function openSubmissionDialog(item, resend) {
+    setDialogError('');
+    setDialog({ type: 'submission', item, resend, companyContacts: [] });
+    const contacts = await fetchCompanyContacts(item.requirement_id);
+    setDialog((d) => (d && d.type === 'submission' && d.item.id === item.id ? { ...d, companyContacts: contacts } : d));
+  }
+
+  async function openScheduleInterview(item) {
+    setDialogError('');
+    setDialog({ type: 'interview', mode: 'schedule', item });
+  }
+
+  async function openUpdateInterview(item) {
+    setDialogError('');
+    setTimelineLoading(true);
+    try {
+      const events = await fetchTimeline(item.requirement_id);
+      const interviewId = latestInterviewRoundId(item, events);
+      if (!interviewId) {
+        setError('No interview round was found on file for this submission — schedule one first.');
+        return;
+      }
+      setDialog({ type: 'interview', mode: 'update', item, interviewId });
+    } finally {
+      setTimelineLoading(false);
+    }
+  }
+
+  function openOfferDialog(item) {
+    setDialogError('');
+    setDialog({ type: 'offer', item });
+  }
+
+  function openWithdraw(item, kind) {
+    setDialogError('');
+    setDialog({ type: 'withdraw', item, kind });
+  }
+
+  function openPlacementDialog(item) {
+    setDialogError('');
+    setDialog({ type: 'placement', item });
+  }
+
+  async function run(item, action) {
+    setBusy(item.id);
+    setError('');
+    try {
+      if (action === 'approve') {
+        await apiFetch(`/api/wizmatch/staffing/submissions/${item.id}/approve`, { method: 'POST' });
+        toast.showSuccess('Submission approved.');
+      }
+      if (action === 'presented') {
+        await apiFetch(`/api/wizmatch/staffing/offers/${item.latest_offer_id}/status`, { method: 'PUT', body: JSON.stringify({ status: 'presented' }) });
+        toast.showSuccess('Offer marked presented.');
+      }
+      if (action === 'accept') {
+        await apiFetch(`/api/wizmatch/staffing/offers/${item.latest_offer_id}/status`, { method: 'PUT', body: JSON.stringify({ status: 'accepted' }) });
+        toast.showSuccess('Offer marked accepted.');
+      }
+      await load();
+    } catch (e) {
+      setError(e.message || 'Delivery action could not be recorded.');
+      toast.showError(e.message || 'Delivery action could not be recorded.');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  const money = analytics?.commercial || {};
+  const exceptions = analytics?.exceptions || {};
+
+  return (
+    <div className="p-6 space-y-5">
+      <div className="flex justify-between items-start">
+        <div>
+          <h1 className="text-[20px] font-bold text-neutral-900">Submissions & Delivery</h1>
+          <p className="text-[12.5px] text-neutral-500 mt-1">
+            Consent → approval → manual delivery record → interview → offer → placement. This page never sends automatically.
+          </p>
+        </div>
+        <button className="btn-standard btn-compact" onClick={load}><RefreshCw className="w-3.5 h-3.5" /> Refresh</button>
+      </div>
+
+      {capabilities.viewCommercial && (
+        <>
+          <div className="grid md:grid-cols-5 gap-3">
+            {[
+              ['Starts', money.starts || 0],
+              ['Gross margin', money.gross_margin || 0],
+              ['Invoiced', money.invoiced || 0],
+              ['Collected', money.collected || 0],
+              ['Avg. time to fill', analytics?.timeToFill?.average_days ? `${analytics.timeToFill.average_days} days` : '—'],
+            ].map(([label, value]) => (
+              <div className="card p-4" key={label}>
+                <div className="text-[11px] text-neutral-500 uppercase">{label}</div>
+                <div className="text-xl font-bold text-neutral-900 mt-1">{value}</div>
+              </div>
+            ))}
+          </div>
+          <div className="rounded-md border border-warning-200 bg-warning-50 p-3 text-[12.5px] text-warning-800">
+            <ShieldCheck className="w-4 h-4 inline mr-2" />
+            Exceptions: {exceptions.overdue_submissions || 0} overdue · {exceptions.missing_next_action || 0} missing next action.
+          </div>
+        </>
+      )}
+
+      {error && items.length > 0 && (
+        <div role="alert" className="flex items-center justify-between gap-3 border border-danger-200 bg-danger-50 text-danger-700 rounded-md p-3 text-[12.5px]">
+          <span>{error}</span>
+          <button className="underline font-semibold" onClick={() => setError('')}>Dismiss</button>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="card p-8 text-center text-neutral-400">Loading delivery records…</div>
+      ) : error && items.length === 0 ? (
+        <ErrorRetry message={error} onRetry={load} />
+      ) : items.length === 0 ? (
+        <EmptyState title="No submission drafts yet" description="Drafts are created from a shortlisted candidate match against a requirement." />
+      ) : (
+        <div className="card overflow-hidden">
+          <table className="table-fluent">
+            <thead>
+              <tr>
+                <th></th>
+                <th>Candidate</th>
+                <th>Requirement</th>
+                <th>Consent</th>
+                <th>Status</th>
+                <th>Delivery evidence</th>
+                <th>Next action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => {
+                const consentGranted = item.consent_status === 'granted';
+                const isTerminal = TERMINAL.includes(item.status);
+                const isBusy = busy === item.id;
+                return (
+                  <Fragment key={item.id}>
+                    <tr>
+                      <td className="w-8">
+                        <button type="button" onClick={() => toggleActivity(item)} className="text-neutral-400 hover:text-neutral-600" aria-label="Toggle activity">
+                          {expandedId === item.id ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                        </button>
+                      </td>
+                      <td className="font-semibold">{candidateName(item)}</td>
+                      <td>{item.requirement_title}<div className="text-[11px] text-neutral-500">{item.company_name}</div></td>
+                      <td>{item.consent_status ? <StatusBadge status={item.consent_status} /> : <span className="badge-warning text-[11px]">not linked</span>}</td>
+                      <td><StatusBadge status={item.status} label={LABEL[item.status]} /></td>
+                      <td className="text-[11.5px]">{item.resend_count || 0} resends · {item.interview_count || 0} interviews · offer {item.offer_revision || '—'}</td>
+                      <td>
+                        <div className="flex flex-wrap gap-1">
+                          {item.status === 'draft' && !consentGranted && capabilities.operateDelivery && (
+                            <button disabled={isBusy} className="btn-standard btn-compact" onClick={() => openConsentDialog(item)}>Consent</button>
+                          )}
+                          {item.status === 'draft' && consentGranted && capabilities.approveSubmissions && (
+                            <button disabled={isBusy} className="btn-standard btn-compact" onClick={() => run(item, 'approve')}>Approve</button>
+                          )}
+                          {item.status === 'approved' && capabilities.approveSubmissions && (
+                            <button disabled={isBusy} className="btn-standard btn-compact" onClick={() => openSubmissionDialog(item, false)}>Record sent</button>
+                          )}
+                          {item.status === 'submitted' && capabilities.approveSubmissions && (
+                            <button disabled={isBusy} className="btn-standard btn-compact" onClick={() => openSubmissionDialog(item, true)}>Resend</button>
+                          )}
+                          {['submitted', 'interviewing'].includes(item.status) && capabilities.operateDelivery && (
+                            <button disabled={isBusy} className="btn-standard btn-compact" onClick={() => openScheduleInterview(item)}>Add interview</button>
+                          )}
+                          {item.status === 'interviewing' && item.interview_count > 0 && capabilities.operateDelivery && (
+                            <button disabled={isBusy} className="btn-standard btn-compact" onClick={() => openUpdateInterview(item)}>Update interview</button>
+                          )}
+                          {item.status === 'interviewing' && capabilities.manageOffers && (
+                            <button disabled={isBusy} className="btn-standard btn-compact" onClick={() => openOfferDialog(item)}>Add offer</button>
+                          )}
+                          {item.status === 'offered' && capabilities.manageOffers && (
+                            <button disabled={isBusy} className="btn-standard btn-compact" onClick={() => openOfferDialog(item)}>Revise offer</button>
+                          )}
+                          {item.status === 'offered' && item.offer_status === 'draft' && capabilities.manageOffers && (
+                            <button disabled={isBusy} className="btn-standard btn-compact" onClick={() => run(item, 'presented')}>Mark presented</button>
+                          )}
+                          {item.status === 'offered' && ['draft', 'presented'].includes(item.offer_status) && capabilities.manageOffers && (
+                            <button disabled={isBusy} className="btn-standard btn-compact" onClick={() => run(item, 'accept')}>Record accepted</button>
+                          )}
+                          {item.status === 'offered' && item.latest_offer_id && !TERMINAL_OFFER_STATUSES.includes(item.offer_status) && capabilities.manageOffers && (
+                            <button disabled={isBusy} className="text-[12.5px] font-semibold text-danger-600 hover:text-danger-700" onClick={() => openWithdraw(item, 'offer-decline')}>Decline offer</button>
+                          )}
+                          {item.status === 'offered' && item.offer_status === 'accepted' && capabilities.manageFinance && (
+                            <button disabled={isBusy} className="btn-primary btn-compact" onClick={() => openPlacementDialog(item)}>Create placement</button>
+                          )}
+                          {!isTerminal && capabilities.approveSubmissions && (
+                            <button disabled={isBusy} className="text-[12.5px] font-semibold text-danger-600 hover:text-danger-700" onClick={() => openWithdraw(item, 'submission')}>Withdraw</button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                    {expandedId === item.id && (
+                      <tr>
+                        <td colSpan="7" className="bg-neutral-50 px-4 py-3">
+                          <ActivityPanel item={item} loading={timelineLoading} events={timelines[item.requirement_id] || []} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <ConsentDialog
+        open={dialog?.type === 'consent'}
+        candidateName={dialog?.item ? candidateName(dialog.item) : ''}
+        requirementTitle={dialog?.item?.requirement_title}
+        loading={dialogLoading}
+        error={dialogError}
+        onCancel={closeDialog}
+        onSubmit={(payload) => runDialog(() => apiFetch('/api/wizmatch/staffing/consents', {
+          method: 'POST',
+          body: JSON.stringify({ candidateId: dialog.item.candidate_id, requirementId: dialog.item.requirement_id, ...payload }),
+        }), 'Consent recorded.')}
+      />
+
+      <SubmissionDialog
+        open={dialog?.type === 'submission'}
+        resend={dialog?.resend}
+        companyContacts={dialog?.companyContacts || []}
+        loading={dialogLoading}
+        error={dialogError}
+        onCancel={closeDialog}
+        onSubmit={(payload) => runDialog(() => apiFetch(`/api/wizmatch/staffing/submissions/${dialog.item.id}/record-sent`, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }), dialog.resend ? 'Resend recorded.' : 'Submission recorded as sent.')}
+      />
+
+      <InterviewDialog
+        open={dialog?.type === 'interview'}
+        mode={dialog?.mode}
+        loading={dialogLoading}
+        error={dialogError}
+        onCancel={closeDialog}
+        onSubmit={(payload) => runDialog(() => (
+          dialog.mode === 'schedule'
+            ? apiFetch(`/api/wizmatch/staffing/submissions/${dialog.item.id}/interviews`, { method: 'POST', body: JSON.stringify(payload) })
+            : apiFetch(`/api/wizmatch/staffing/interviews/${dialog.interviewId}`, { method: 'PUT', body: JSON.stringify(payload) })
+        ), dialog?.mode === 'schedule' ? 'Interview scheduled.' : 'Interview updated.')}
+      />
+
+      <OfferDialog
+        open={dialog?.type === 'offer'}
+        revision={dialog?.item?.offer_revision ? dialog.item.offer_revision + 1 : null}
+        loading={dialogLoading}
+        error={dialogError}
+        onCancel={closeDialog}
+        onSubmit={(payload) => runDialog(() => apiFetch(`/api/wizmatch/staffing/submissions/${dialog.item.id}/offers`, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }), 'Offer recorded.')}
+      />
+
+      <WithdrawCancelDialog
+        open={dialog?.type === 'withdraw'}
+        action={dialog?.kind === 'offer-decline' ? 'decline' : 'withdraw'}
+        entityLabel={dialog?.kind === 'offer-decline' ? 'this offer' : 'this submission'}
+        impactSummary={dialog?.kind === 'offer-decline'
+          ? 'Marks the current offer declined. Note: the reason is shown here for the record but the offer-status endpoint does not currently persist a reason server-side.'
+          : undefined}
+        loading={dialogLoading}
+        error={dialogError}
+        onCancel={closeDialog}
+        onConfirm={(reason) => runDialog(() => (
+          dialog.kind === 'offer-decline'
+            ? apiFetch(`/api/wizmatch/staffing/offers/${dialog.item.latest_offer_id}/status`, { method: 'PUT', body: JSON.stringify({ status: 'declined', reason }) })
+            : apiFetch(`/api/wizmatch/staffing/submissions/${dialog.item.id}/withdraw`, { method: 'POST', body: JSON.stringify({ reason }) })
+        ), dialog.kind === 'offer-decline' ? 'Offer declined.' : 'Submission withdrawn.')}
+      />
+
+      <PlacementDialog
+        open={dialog?.type === 'placement'}
+        loading={dialogLoading}
+        error={dialogError}
+        onCancel={closeDialog}
+        onSubmit={(payload) => runDialog(() => apiFetch(`/api/wizmatch/staffing/submissions/${dialog.item.id}/placement`, {
+          method: 'POST',
+          body: JSON.stringify({ offerId: dialog.item.latest_offer_id, ...payload }),
+        }), 'Placement created.')}
+      />
+    </div>
+  );
+}
+
+function ActivityPanel({ loading, events }) {
+  if (loading) return <p className="text-[12px] text-neutral-400">Loading activity…</p>;
+  if (!events.length) return <p className="text-[12px] text-neutral-400">No activity recorded yet.</p>;
+  return (
+    <div className="space-y-1.5 max-h-56 overflow-y-auto">
+      {events.slice(0, 30).map((e) => (
+        <div key={e.id} className="text-[11.5px] border-l-2 border-primary-200 pl-2 py-0.5">
+          <b>{e.event_type.replaceAll('_', ' ')}</b> · {e.actor_name || 'System'} · {new Date(e.occurred_at).toLocaleString()}
+          {e.payload?.reason && <div className="text-neutral-500">Reason: {e.payload.reason}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Not one of the five named dialogs (Consent/Submission/Interview/Offer/WithdrawCancel) —
+// placement creation needs its own economics fields and isn't a withdraw/cancel/reject
+// action, so it doesn't fit any of those shapes. Built on the same DialogShell for
+// visual/accessibility consistency instead of a native prompt() chain.
+function PlacementDialog({ open, loading, error, onCancel, onSubmit }) {
+  const [model, setModel] = useState('permanent');
+  const [currency, setCurrency] = useState('INR');
+  const [feeAmount, setFeeAmount] = useState('');
+  const [billAmount, setBillAmount] = useState('');
+  const [loadedCost, setLoadedCost] = useState('');
+  const [marginExceptionReason, setMarginExceptionReason] = useState('');
+  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
+
+  const bill = Number(billAmount) || 0;
+  const cost = Number(loadedCost) || 0;
+  const marginPercent = bill > 0 ? ((bill - cost) / bill) * 100 : 0;
+  const needsException = model === 'contract' && billAmount && loadedCost !== '' && marginPercent < 20;
+
+  const canSubmit = !loading && (
+    model === 'permanent'
+      ? Number(feeAmount) > 0
+      : Number(billAmount) > 0 && loadedCost !== '' && (!needsException || marginExceptionReason.trim())
+  );
+
+  const submit = () => {
+    onSubmit({
+      model,
+      currency,
+      startDate,
+      feeAmount: model === 'permanent' ? Number(feeAmount) : undefined,
+      billAmount: model === 'contract' ? Number(billAmount) : undefined,
+      loadedCost: model === 'contract' ? Number(loadedCost) : undefined,
+      payAmount: model === 'contract' ? Number(loadedCost) : undefined,
+      originalAmount: model === 'permanent' ? Number(feeAmount) : Number(billAmount),
+      period: model === 'contract' ? 'hourly' : 'one_time',
+      marginExceptionReason: needsException ? marginExceptionReason.trim() : undefined,
+    });
+  };
+
+  return (
+    <DialogShell
+      open={open}
+      title="Create placement"
+      error={error}
+      loading={loading}
+      onCancel={onCancel}
+      footer={
+        <>
+          <button type="button" onClick={onCancel} disabled={loading} className="btn-standard">Cancel</button>
+          <button type="button" onClick={submit} disabled={!canSubmit} className="btn-primary disabled:opacity-50">
+            {loading ? 'Saving…' : 'Create placement'}
+          </button>
+        </>
+      }
+    >
+      {({ firstFieldRef }) => (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Model</label>
+              <select ref={firstFieldRef} value={model} onChange={(e) => setModel(e.target.value)} className="input w-full mt-1">
+                <option value="permanent">Permanent</option>
+                <option value="contract">Contract</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Currency</label>
+              <select value={currency} onChange={(e) => setCurrency(e.target.value)} className="input w-full mt-1">
+                <option value="INR">INR</option>
+                <option value="USD">USD</option>
+              </select>
+            </div>
+          </div>
+          {model === 'permanent' ? (
+            <div>
+              <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Permanent fee amount *</label>
+              <input type="number" value={feeAmount} onChange={(e) => setFeeAmount(e.target.value)} className="input w-full mt-1" />
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Bill rate *</label>
+                  <input type="number" value={billAmount} onChange={(e) => setBillAmount(e.target.value)} className="input w-full mt-1" />
+                </div>
+                <div>
+                  <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Loaded cost *</label>
+                  <input type="number" value={loadedCost} onChange={(e) => setLoadedCost(e.target.value)} className="input w-full mt-1" />
+                </div>
+              </div>
+              {billAmount && loadedCost !== '' && (
+                <p className={`text-[11.5px] ${needsException ? 'text-danger-600' : 'text-neutral-500'}`}>
+                  Gross margin: {marginPercent.toFixed(1)}%{needsException ? ' — below the 20% floor, an exception reason is required.' : ''}
+                </p>
+              )}
+              {needsException && (
+                <div>
+                  <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Margin exception reason *</label>
+                  <input value={marginExceptionReason} onChange={(e) => setMarginExceptionReason(e.target.value)} className="input w-full mt-1" />
+                </div>
+              )}
+            </>
+          )}
+          <div>
+            <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Start date</label>
+            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="input w-full mt-1" />
+          </div>
+        </>
+      )}
+    </DialogShell>
+  );
 }
