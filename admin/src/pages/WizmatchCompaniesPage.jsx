@@ -366,21 +366,25 @@ function CompanyDetailDrawer({ companyId, onClose, onDeleted, onChanged }) {
             )}
           </section>
         </div>
-      </div>
 
-      <ConfirmDialog
-        open={showDeleteDialog}
-        title="Delete this company?"
-        impactSummary={`This permanently deletes "${company.name}" and cannot be undone. Only allowed while it has zero requirements, hiring contacts and job signals.`}
-        confirmLabel="Delete permanently"
-        danger
-        requireTypedName={company.name}
-        requireReason
-        loading={deleting}
-        error={deleteError}
-        onConfirm={deleteCompany}
-        onCancel={() => { setShowDeleteDialog(false); setDeleteError(null); }}
-      />
+        {/* Must stay inside the stopPropagation() panel above — the outer
+            backdrop's onClick={onClose} would otherwise catch bubbled clicks
+            from inside ConfirmDialog (including Cancel) and close the whole
+            drawer, not just the dialog. */}
+        <ConfirmDialog
+          open={showDeleteDialog}
+          title="Delete this company?"
+          impactSummary={`This permanently deletes "${company.name}" and cannot be undone. Only allowed while it has zero requirements, hiring contacts and job signals.`}
+          confirmLabel="Delete permanently"
+          danger
+          requireTypedName={company.name}
+          requireReason
+          loading={deleting}
+          error={deleteError}
+          onConfirm={deleteCompany}
+          onCancel={() => { setShowDeleteDialog(false); setDeleteError(null); }}
+        />
+      </div>
     </div>
   );
 }

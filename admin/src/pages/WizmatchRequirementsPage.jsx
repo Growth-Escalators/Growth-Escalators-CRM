@@ -701,20 +701,25 @@ function RequirementDetailDrawer({ requirement, onClose, onSaved, onFindCandidat
             {saving ? 'Saving…' : 'Save Changes'}
           </button>
         </div>
+
+        {/* Must stay inside the stopPropagation() panel above — the outer
+            backdrop's onClick={onClose} would otherwise catch bubbled clicks
+            from inside ConfirmDialog (including Cancel) and close the whole
+            drawer, not just the dialog. */}
+        <ConfirmDialog
+          open={showDeleteDialog}
+          title="Delete this requirement?"
+          impactSummary={`This permanently deletes "${requirement.title}" and cannot be undone. Only allowed while it's still a draft with no candidate matches or submissions.`}
+          confirmLabel="Delete permanently"
+          danger
+          requireTypedName={requirement.title}
+          requireReason
+          loading={deleting}
+          error={deleteError}
+          onConfirm={deleteRequirement}
+          onCancel={() => { setShowDeleteDialog(false); setDeleteError(null); }}
+        />
       </div>
-      <ConfirmDialog
-        open={showDeleteDialog}
-        title="Delete this requirement?"
-        impactSummary={`This permanently deletes "${requirement.title}" and cannot be undone. Only allowed while it's still a draft with no candidate matches or submissions.`}
-        confirmLabel="Delete permanently"
-        danger
-        requireTypedName={requirement.title}
-        requireReason
-        loading={deleting}
-        error={deleteError}
-        onConfirm={deleteRequirement}
-        onCancel={() => { setShowDeleteDialog(false); setDeleteError(null); }}
-      />
     </div>
   );
 }

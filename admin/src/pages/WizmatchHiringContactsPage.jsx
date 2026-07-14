@@ -376,18 +376,22 @@ function LinkedContactDetailDrawer({ companyContactId, onClose, onChanged }) {
             )}
           </section>
         </div>
-      </div>
 
-      <ConfirmDialog
-        open={showDeactivateDialog}
-        title="Deactivate this hiring contact?"
-        impactSummary="This marks the relationship inactive. It stays reversible — you can re-link the same CRM contact from the Companies page later. Blocked if this person still has an active requirement attribution."
-        confirmLabel="Deactivate"
-        loading={deactivating}
-        error={deactivateError}
-        onConfirm={deactivate}
-        onCancel={() => { setShowDeactivateDialog(false); setDeactivateError(null); }}
-      />
+        {/* Must stay inside the stopPropagation() panel above — the outer
+            backdrop's onClick={onClose} would otherwise catch bubbled clicks
+            from inside ConfirmDialog (including Cancel) and close the whole
+            drawer, not just the dialog. */}
+        <ConfirmDialog
+          open={showDeactivateDialog}
+          title="Deactivate this hiring contact?"
+          impactSummary="This marks the relationship inactive. It stays reversible — you can re-link the same CRM contact from the Companies page later. Blocked if this person still has an active requirement attribution."
+          confirmLabel="Deactivate"
+          loading={deactivating}
+          error={deactivateError}
+          onConfirm={deactivate}
+          onCancel={() => { setShowDeactivateDialog(false); setDeactivateError(null); }}
+        />
+      </div>
     </div>
   );
 }
