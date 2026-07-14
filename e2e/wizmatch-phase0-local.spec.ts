@@ -277,8 +277,11 @@ test('quota-backed candidate X-Ray stays disabled when provider gates are off', 
 });
 
 test('direct Wizmatch navigation preserves product and return path at login', async ({ page }) => {
+  // /wizmatch/dashboard is a legacy alias (Phase 1A entity-first nav renamed
+  // the canonical path to /wizmatch/today) — it redirects there before
+  // PrivateRoute's unauthenticated check runs, so returnTo reflects /today.
   await page.goto('/wizmatch/dashboard');
-  await expect(page).toHaveURL(/\/login\?tenant=wizmatch&returnTo=%2Fwizmatch%2Fdashboard/);
+  await expect(page).toHaveURL(/\/login\?tenant=wizmatch&returnTo=%2Fwizmatch%2Ftoday/);
   await expect(page.getByRole('heading', { name: 'Wizmatch' })).toBeVisible();
   await expect(page.getByText('Operating Dashboard')).toBeVisible();
 });
