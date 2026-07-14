@@ -2335,3 +2335,29 @@ Built in parallel via 3 isolated-worktree subagents, reviewed + merged + deploye
 - Next: obtain the separate production environment-change approval for the already reviewed safety
   bundle with all Gate A/B/C flags off. User creation, migrations, push, each gate activation, R2
   QA upload, and any later production bug-fix push remain separate gates.
+
+## 2026-07-14 — Production Wizmatch safety-variable hardening — Codex — PRODUCTION CONFIG ONLY
+
+**What was done**
+- With exact human approval, changed only production `web` safety variables: named roster limited
+  to existing Jatin/Kanishk Wizmatch IDs; pilot-all=false; Gate A/B/C server and Vite flags=false;
+  sending=false; paid discovery=false; Google fallback=false; TLS verification=1.
+- Did not create users, migrate, push code, activate staffing gates, upload documents, import data,
+  send outreach, call paid providers, or deploy a worker.
+
+**Verification**
+- Railway deployment `346618d7-cc5a-4dbb-9225-684768801e10` redeployed unchanged commit
+  `b05ac015` and reached terminal `SUCCESS`.
+- Read-back confirmed exactly two roster IDs and every approved flag value.
+- API health is healthy with database `ok`; CRM and ecom return HTTP 200.
+- Secure Kanishk authentication returned Wizmatch/admin; authenticated readiness returned HTTP 200,
+  database connected, real counts (131 companies, 293 candidates, 1 requirement), paid discovery
+  false, and Google fallback false. The temporary session artifact was removed.
+- Product test suites were not rerun because this unit changed Railway configuration only; the
+  previously green release candidate remains unchanged locally.
+
+**Approval boundary / exact next action**
+- Obtain separate approval to provision Sneha (`team_lead`), Keshav (`staff`), and Nimisha (`staff`)
+  as tenant-scoped Wizmatch users by copying their existing Growth password hashes internally, then
+  expand the named roster to five IDs. Migrations, push, Gate A/B/C activation, R2 upload, and pilot
+  data import remain independent later approvals.

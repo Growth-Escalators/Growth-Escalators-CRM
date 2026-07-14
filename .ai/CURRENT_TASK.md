@@ -2,10 +2,9 @@
 
 ## Active task
 
-**Wizmatch Staffing OS — authenticated production baseline QA and the final staging bug-repair
-loop are complete. The next unit is the separately approved production environment hardening with
-all staffing gates kept off, followed by pilot-account provisioning and migrations under later
-gates.**
+**Wizmatch Staffing OS — authenticated QA, final staging repair, and production safety-variable
+hardening are complete. The next separately approved unit is tenant-scoped pilot-account
+provisioning for Sneha, Keshav, and Nimisha; migrations remain a later independent gate.**
 
 Work only in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust` on
 `codex/wizmatch-phase0-trust`. Preserve the unrelated dirty workspace at
@@ -99,6 +98,13 @@ pushed, deployed or migrated, and no staffing record was written. The separately
 operation changed exactly one Wizmatch-tenant admin credential row and bumped its token version;
 the Growth-tenant account sharing the email was untouched. Do not push or deploy from this context.
 
+The approved production `web` safety-variable bundle is now live on the existing old application
+commit `b05ac015`: the named roster contains only existing Jatin and Kanishk Wizmatch users;
+pilot-all=false; Gate A/B/C server and Vite flags=false; sending=false; paid discovery=false;
+Google fallback=false; TLS verification=1. Deployment `346618d7-cc5a-4dbb-9225-684768801e10`
+reached `SUCCESS`. This was an environment-only redeployment; no application push or schema/data
+write occurred.
+
 Read-only production inspection is pre-authorized. Pause for a separate explicit approval
 immediately before each production write:
 
@@ -141,9 +147,8 @@ pilot import manifest still must be supplied before their dependent launch steps
 
 ## Exact next action
 
-Obtain explicit approval to change only production `web` environment safety variables while all
-staffing gates remain off: roster = existing Jatin/Kanishk Wizmatch admin IDs, pilot-all=false,
-Gate A/B/C server+Vite=false, sending=false, paid discovery=false, Google fallback=false and
-TLS verification=`1`. Then verify redeployment/health and stop for separate approval to provision
-Sneha/Keshav/Nimisha as Wizmatch pilot users. Migration, push, gate activation and data import remain
-their own later gates.
+Obtain explicit approval to provision only the three tenant-scoped Wizmatch pilot users by copying
+their existing Growth identities/password hashes internally without exposing credentials: Sneha as
+`team_lead`, Keshav as `staff`, and Nimisha as `staff`. Then expand the named roster to the resulting
+five Wizmatch user IDs and verify authentication/role isolation. Do not migrate, push, activate any
+gate, upload R2 objects, or import pilot data in that unit.

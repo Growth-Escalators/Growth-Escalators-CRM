@@ -4,6 +4,16 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
 
 ## 2026-07-14 Authenticated production QA and final staging repair (current)
 
+- Production `web` safety variables are now hardened under explicit approval: Jatin/Kanishk named
+  roster, pilot-all=false, all Gate A/B/C server+Vite flags=false, sending=false, paid discovery
+  and Google fallback=false, and TLS verification=1.
+- The variable change redeployed the unchanged old production commit `b05ac015` as deployment
+  `346618d7-cc5a-4dbb-9225-684768801e10`; Railway reached terminal `SUCCESS`. Health is green,
+  database is `ok`, CRM/ecom return 200, authenticated readiness returns real counts, and the cost
+  controls report paid discovery and Google fallback disabled.
+- No production user, migration, application push, feature activation, staffing record, document,
+  or pilot data was created or changed in this unit.
+
 - Kanishk's Keychain-held Wizmatch admin credential authenticated successfully without exposing the
   password or JWT. Production navigation, direct routes, refreshes, contact details, System tabs,
   and representative tablet/mobile layouts passed read-only browser QA.
@@ -29,9 +39,8 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   production build, 16/16 Playwright and `git diff --check`. Existing rankTracking mock warnings
   and missing-SERPER test noise are unchanged.
 - Production R2 credentials exist and a verified-TLS read-only list succeeds, but the bucket has no
-  Wizmatch object to sign. Production currently disables TLS verification globally; paid discovery
-  and Google fallback are on; staffing flags/roster and sending are absent. These need an approved
-  safety environment change before release.
+  Wizmatch object to sign. TLS verification is now on; paid discovery, Google fallback, sending and
+  all staffing gates are off; the named roster contains only Jatin and Kanishk.
 - Production Wizmatch users: Jatin admin, Kanishk admin, Deck Sync viewer; no recruiter/lead/ops.
   Data: 131 companies, one retained unattributed audit-test requirement, 293 unvetted GitHub
   candidates; 64 look Java-related, none look SAP-related, and previewed experience is missing.
