@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   buildWizmatchContactDiscoveryPreview,
+  clampContactDiscoveryResultCount,
+  CONTACT_DISCOVERY_DEFAULT_RESULTS,
+  CONTACT_DISCOVERY_MAX_RESULTS,
+  CONTACT_DISCOVERY_MIN_RESULTS,
+  dedupeDiscoveryCandidates,
   executeWizmatchContactDiscovery,
   getWizmatchContactDiscoveryConfig,
   isWizmatchXrayCandidateSourcingEnabled,
@@ -309,5 +314,64 @@ describe('Wizmatch Contact Discovery Phase 3', () => {
     expect(freeFirst.providerOrder).not.toContain('apollo');
     expect(freeFirst.providerOrder).not.toContain('snov');
     expect(freeFirst.providerOrder).toContain('google_fallback');
+  });
+
+  describe('5-contact hard cap (E2E hardening)', () => {
+    it('defaults to 3 when unset', () => {
+      expect(getWizmatchContactDiscoveryConfig({} as NodeJS.ProcessEnv).maxContactCandidatesShown).toBe(3);
+      expect(CONTACT_DISCOVERY_DEFAULT_RESULTS).toBe(3);
+    });
+
+    it('clamps values above 5 down to 5, regardless of env misconfiguration', () => {
+      expect(clampContactDiscoveryResultCount(999)).toBe(5);
+      expect(getWizmatchContactDiscoveryConfig({ WIZMATCH_MAX_CONTACT_CANDIDATES_SHOWN: '999' } as NodeJS.ProcessEnv).maxContactCandidatesShown).toBe(5);
+      expect(getWizmatchContactDiscoveryConfig({ WIZMATCH_MAX_CONTACT_CANDIDATES_SHOWN: '6' } as NodeJS.ProcessEnv).maxContactCandidatesShown).toBe(5);
+    });
+
+    it('clamps values below 1 (including 0, negative, and NaN) up to 1', () => {
+      expect(clampContactDiscoveryResultCount(0)).toBe(1);
+      expect(clampContactDiscoveryResultCount(-5)).toBe(1);
+      expect(clampContactDiscoveryResultCount(Number.NaN)).toBe(CONTACT_DISCOVERY_DEFAULT_RESULTS);
+      expect(getWizmatchContactDiscoveryConfig({ WIZMATCH_MAX_CONTACT_CANDIDATES_SHOWN: '0' } as NodeJS.ProcessEnv).maxContactCandidatesShown).toBe(1);
+    });
+
+    it('accepts any in-range value unchanged', () => {
+      for (let n = CONTACT_DISCOVERY_MIN_RESULTS; n <= CONTACT_DISCOVERY_MAX_RESULTS; n++) {
+        expect(clampContactDiscoveryResultCount(n)).toBe(n);
+      }
+    });
+
+    it('never returns, verifies, or persists more than 5 candidates even when the provider returns many more and the cap is misconfigured above 5', async () => {
+      const manyCandidates = Array.from({ length: 12 }, (_, i) => candidate({
+        name: `Person ${i}`,
+        email: `person${i}@example.in`,
+        rankingScore: 100 - i,
+        reasons: ['apollo'],
+      }));
+      const mockProviders = providers({
+        apolloPeopleSearch: vi.fn(async () => manyCandidates),
+        reacherVerify: vi.fn(async () => 'verified' as const),
+      });
+      const overCapConfig = enabledConfig({
+        maxContactCandidatesShown: clampContactDiscoveryResultCount(999), // simulates a misconfigured env value
+      });
+
+      const result = await executeWizmatchContactDiscovery(baseInput(), mockProviders, overCapConfig, { costGuardToken: 'guard-token' });
+
+      expect(result.candidates.length).toBeLessThanOrEqual(CONTACT_DISCOVERY_MAX_RESULTS);
+      expect(result.candidates).toHaveLength(5);
+      // Reacher verification (the enrichment step) never runs more than the provider budget allows.
+      expect(vi.mocked(mockProviders.reacherVerify).mock.calls.length).toBeLessThanOrEqual(CONTACT_DISCOVERY_MAX_RESULTS);
+    });
+
+    it('deduplicates identical candidates before applying the cap, so dupes never consume a cap slot', () => {
+      const dupes = [
+        candidate({ name: 'Asha Rao', email: 'asha@example.in' }),
+        candidate({ name: 'Asha Rao (dup)', email: 'ASHA@example.in' }), // same email, different case
+        candidate({ name: 'Ravi Mehta', email: 'ravi@example.in' }),
+      ];
+      const deduped = dedupeDiscoveryCandidates(dupes);
+      expect(deduped).toHaveLength(2);
+    });
   });
 });

@@ -2,6 +2,7 @@ import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { normalizeProviderId, signalIdentityFingerprint } from './wizmatchSignalIdentity';
 import { createDefaultWizmatchContactDiscoveryProviders } from './wizmatchContactDiscoveryProviders';
+import { dedupeDiscoveryCandidates, getWizmatchContactDiscoveryConfig } from './wizmatchContactDiscovery';
 import {
   assertSearchApiAllowance,
   buildPocSearchQuery,
@@ -343,9 +344,16 @@ export async function discoverFreePocsForSignal(tenantId: string, signalId: stri
         }
       }
     }
+    // Hard cap: this free path built its own candidate list (website scrape +
+    // public search) independent of executeWizmatchContactDiscovery, so it must
+    // apply the same dedup + 5-contact ceiling before persisting anything.
+    const cappedCandidates = dedupeDiscoveryCandidates(candidates)
+      .sort((a, b) => b.rankingScore - a.rankingScore)
+      .slice(0, getWizmatchContactDiscoveryConfig().maxContactCandidatesShown);
+
     let inserted = 0;
     let duplicates = 0;
-    for (const candidate of candidates) {
+    for (const candidate of cappedCandidates) {
       const roleCategory = String(candidate.raw?.roleCategory || 'generic');
       const pocState = roleCategory === 'generic'
         ? 'generic_contact_only'
@@ -365,14 +373,14 @@ export async function discoverFreePocsForSignal(tenantId: string, signalId: stri
       );
       if (result.rows.length) inserted++; else duplicates++;
     }
-    const state = candidates.some((c) => c.raw?.roleCategory !== 'generic')
+    const state = cappedCandidates.some((c) => c.raw?.roleCategory !== 'generic')
       ? 'identified_channel_pending'
-      : candidates.length ? 'generic_contact_only' : 'human_research_required';
+      : cappedCandidates.length ? 'generic_contact_only' : 'human_research_required';
     await finishSourceRun(run.id, tenantId, {
-      status: candidates.length || internal.rows[0]?.count ? 'succeeded' : 'partial', fetched: candidates.length + (internal.rows[0]?.count || 0),
+      status: cappedCandidates.length || internal.rows[0]?.count ? 'succeeded' : 'partial', fetched: cappedCandidates.length + (internal.rows[0]?.count || 0),
       inserted, duplicates, updated: 0, rejected: 0, errors: 0, quotaConsumed: searchApiUsed ? 1 : 0,
     });
-    return { state, candidatesFound: candidates.length, existingRelationships: 0, inserted, duplicates, searchApiUsed };
+    return { state, candidatesFound: cappedCandidates.length, existingRelationships: 0, inserted, duplicates, searchApiUsed };
   } catch (error) {
     await finishSourceRun(run.id, tenantId, { status: 'failed', errorMessage: error instanceof Error ? error.message : 'POC discovery failed' });
     throw error;

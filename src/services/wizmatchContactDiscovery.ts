@@ -97,6 +97,18 @@ function intEnv(value: string | undefined, defaultValue: number) {
   return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : defaultValue;
 }
 
+// Hard ceiling on how many contacts any single discovery action (paid or free)
+// may return, display, enrich, or persist — enforced server-side regardless of
+// env misconfiguration. See docs/testing/WIZMATCH_E2E_HARDENING_REPORT.md.
+export const CONTACT_DISCOVERY_MIN_RESULTS = 1;
+export const CONTACT_DISCOVERY_MAX_RESULTS = 5;
+export const CONTACT_DISCOVERY_DEFAULT_RESULTS = 3;
+
+export function clampContactDiscoveryResultCount(value: number): number {
+  const safe = Number.isFinite(value) ? Math.floor(value) : CONTACT_DISCOVERY_DEFAULT_RESULTS;
+  return Math.min(Math.max(safe, CONTACT_DISCOVERY_MIN_RESULTS), CONTACT_DISCOVERY_MAX_RESULTS);
+}
+
 export function getWizmatchContactDiscoveryConfig(env: NodeJS.ProcessEnv = process.env): WizmatchContactDiscoveryConfig {
   return {
     paidDiscoveryEnabled: boolEnv(env.WIZMATCH_PAID_DISCOVERY_ENABLED, false),
@@ -104,7 +116,9 @@ export function getWizmatchContactDiscoveryConfig(env: NodeJS.ProcessEnv = proce
     enableApollo: boolEnv(env.WIZMATCH_ENABLE_APOLLO, false),
     enableSnov: boolEnv(env.WIZMATCH_ENABLE_SNOV, false),
     maxPaidDiscoveryPerCompany: intEnv(env.WIZMATCH_MAX_PAID_DISCOVERY_PER_COMPANY, 1),
-    maxContactCandidatesShown: intEnv(env.WIZMATCH_MAX_CONTACT_CANDIDATES_SHOWN, 3),
+    maxContactCandidatesShown: clampContactDiscoveryResultCount(
+      intEnv(env.WIZMATCH_MAX_CONTACT_CANDIDATES_SHOWN, CONTACT_DISCOVERY_DEFAULT_RESULTS),
+    ),
     rediscoveryCooldownDays: intEnv(env.WIZMATCH_DISCOVERY_COOLDOWN_DAYS, 30),
     maxProviderCallsPerRun: {
       apollo: 1,
@@ -196,6 +210,10 @@ export function buildWizmatchContactDiscoveryPreview(
       'Human review remains required before any contact can be used for outreach.',
     ],
   };
+}
+
+export function dedupeDiscoveryCandidates<T extends WizmatchProviderCandidate>(candidates: T[]): T[] {
+  return dedupe(candidates) as T[];
 }
 
 function dedupe(candidates: WizmatchProviderCandidate[]) {
