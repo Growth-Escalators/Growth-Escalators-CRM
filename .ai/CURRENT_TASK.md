@@ -2,9 +2,10 @@
 
 ## Active task
 
-**Wizmatch Staffing OS — read-only production qualification is complete and the release candidate
-is green. The next unit is the separately approved production environment hardening with all
-staffing gates kept off, followed by pilot-account provisioning and migrations under later gates.**
+**Wizmatch Staffing OS — authenticated production baseline QA and the final staging bug-repair
+loop are complete. The next unit is the separately approved production environment hardening with
+all staffing gates kept off, followed by pilot-account provisioning and migrations under later
+gates.**
 
 Work only in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust` on
 `codex/wizmatch-phase0-trust`. Preserve the unrelated dirty workspace at
@@ -54,7 +55,7 @@ Work only in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust` on
 ## Current verification
 
 - `npm run build` passed.
-- `npm test` passed: 45 files / 360 tests.
+- `npm test` passed: 45 files / 361 tests.
 - `npm run admin:build` passed.
 - Wizmatch Playwright passed: 16/16 Chromium scenarios.
 - `git diff --check` passed.
@@ -68,6 +69,29 @@ Work only in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust` on
 - One generated staging password was included in an internal browser snapshot during QA; it was
   immediately treated as compromised, rotated, revoked and cleared. Never copy it into context.
 
+## Authenticated production QA and final staging repair — 2026-07-14
+
+- Kanishk's rotated Wizmatch credential was read from macOS Keychain without printing or storing
+  it. The authenticated production session resolved to the Wizmatch tenant and admin role.
+- Every visible production Wizmatch navigation route mounted successfully on a clean retry with no
+  persistent console error. Direct links, refreshes, contact slide-in, and all five System
+  query-string tabs were exercised without sending or changing production records.
+- Representative high-value routes passed at 768px and 390px with no page-level horizontal
+  overflow. The authenticated readiness API returned the real production totals (131 companies,
+  293 candidates, 1 requirement), not the loading-time demo fixture.
+- The old production build still exposes development demo routes; the reviewed release already
+  removes those routes. QA found one adjacent release-candidate defect: live Readiness still
+  advertised links to the now-development-only previews. Commit `1bea426` makes those links
+  development-only and adds a regression test.
+- Full verification after the repair: TypeScript build; 45 files / 361 Vitest tests; admin
+  production build; 16/16 Wizmatch Playwright scenarios; `git diff --check`.
+- Exact commit `1bea426` was deployed only to isolated `web-staging` as deployment
+  `52b4a0f3-5ac2-4882-aad8-2674d0fabeec`, which reached terminal `SUCCESS`. Authenticated staging
+  Readiness shows no preview-link card, direct demo URLs redirect to Dashboard, and `/health` is
+  healthy. Production was not changed.
+- Production and staging browser sessions were signed out and the mode-0600 temporary API session
+  artifact was removed after QA.
+
 ## Production and approval boundary
 
 Production application/schema/staffing data remain untouched: nothing from this branch has been
@@ -75,14 +99,16 @@ pushed, deployed or migrated, and no staffing record was written. The separately
 operation changed exactly one Wizmatch-tenant admin credential row and bumped its token version;
 the Growth-tenant account sharing the email was untouched. Do not push or deploy from this context.
 
-Pause for a separate explicit approval immediately before each of:
+Read-only production inspection is pre-authorized. Pause for a separate explicit approval
+immediately before each production write:
 
-1. Read production data for the count-only backfill preview.
-2. Apply migrations 0025–0028 to production with all gates off.
-3. Push this reviewed branch to `main` (Railway auto-deploys).
-4. Enable production Gate A, Gate B or Gate C flags.
-5. Import approved pilot production data.
-6. Rotate any live credential, send/outreach, enable paid providers or deploy a worker.
+1. Change production environment variables.
+2. Provision pilot users.
+3. Apply migrations 0025–0028 with all gates off.
+4. Push this reviewed branch to `main` (Railway auto-deploys).
+5. Enable production Gate A, Gate B or Gate C flags.
+6. Import approved pilot production data or upload the retained R2 QA object.
+7. Rotate any other live credential, send/outreach, enable paid providers or deploy a worker.
 
 The provisional role, SLA, consent, privacy, permission and commercial-policy pack required for the
 controlled pilot is approved and recorded. Named human owners, the production roster and reviewed

@@ -2303,3 +2303,35 @@ Built in parallel via 3 isolated-worktree subagents, reviewed + merged + deploye
 **Approval boundary / next work**
 - Nothing pushed, deployed, sent, spent or written to production. Migration apply, production data,
   credential rotation, push/deploy and Gate B/C schema work require separate approval.
+
+## 2026-07-14 — Authenticated production baseline QA and preview-link repair — Codex — STAGING ONLY
+
+**What was done**
+- Authenticated to production as Kanishk through the rotated macOS Keychain item without printing or
+  persisting the credential. Exercised all visible Wizmatch routes, read-only detail surfaces,
+  System query tabs, deep links, refresh behavior, and representative 768px/390px layouts.
+- Confirmed production APIs return real tenant totals and that the current hidden staffing routes
+  remain closed. No send, provider, delete, business-state mutation, or production write ran.
+- Found and fixed one P2 release-candidate UX defect: the live Readiness page advertised links to
+  development-only demo routes. Added `getWizmatchPreviewLinks` and a regression test so production
+  returns no preview links while local development retains them.
+
+**Verification**
+- `npm run build` passed.
+- `npm test` passed: 45 files / 361 tests.
+- `npm run admin:build` passed.
+- Wizmatch Playwright passed: 16/16.
+- `git diff --check` passed.
+- Commit `1bea426` was deployed only to isolated Railway `web-staging`; deployment
+  `52b4a0f3-5ac2-4882-aad8-2674d0fabeec` reached `SUCCESS` and health is green.
+- Authenticated staging browser smoke proved the Readiness preview card is absent and a direct demo
+  URL redirects to Dashboard without showing demo content.
+- Production/staging browser sessions were signed out and the temporary mode-0600 API session file
+  was removed after QA.
+
+**Approval boundary / exact next action**
+- Production remains on its old deployment; no production environment, user, migration, push,
+  feature flag, document, or pilot data was changed.
+- Next: obtain the separate production environment-change approval for the already reviewed safety
+  bundle with all Gate A/B/C flags off. User creation, migrations, push, each gate activation, R2
+  QA upload, and any later production bug-fix push remain separate gates.

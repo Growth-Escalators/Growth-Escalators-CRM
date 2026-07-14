@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-14T02:34:56.022Z_
+_Generated: 2026-07-14T03:14:04.537Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,14 +12,15 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: Growth-Escalators/Growth-Escalators-CRM
 - **Branch**: `codex/wizmatch-phase0-trust`
-- **Last commit**: cdc1cf4 chore(ai): record Wizmatch credential rotation (18 minutes ago)
-- **Uncommitted changes**: 5 file(s)
+- **Last commit**: 1bea426 fix(wizmatch): hide demo preview links in production (8 minutes ago)
+- **Uncommitted changes**: 4 file(s)
 
 ## Current task
 
-**Wizmatch Staffing OS — read-only production qualification is complete and the release candidate
-is green. The next unit is the separately approved production environment hardening with all
-staffing gates kept off, followed by pilot-account provisioning and migrations under later gates.**
+**Wizmatch Staffing OS — authenticated production baseline QA and the final staging bug-repair
+loop are complete. The next unit is the separately approved production environment hardening with
+all staffing gates kept off, followed by pilot-account provisioning and migrations under later
+gates.**
 
 Work only in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust` on
 `codex/wizmatch-phase0-trust`. Preserve the unrelated dirty workspace at
@@ -30,6 +31,8 @@ Work only in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust` on
 ## Recent commits
 
 ```
+1bea426 fix(wizmatch): hide demo preview links in production
+5e1f3e6 chore(ai): record production launch qualification
 cdc1cf4 chore(ai): record Wizmatch credential rotation
 51bec73 chore(ai): record final staffing staging qualification
 9f4c0f4 fix(wizmatch): enforce staffing pilot access policy
@@ -38,8 +41,6 @@ ef2112f fix(wizmatch): verify staging delivery economics
 5a4abe0 chore(ai): record staging Gate A pilot evidence + a810d08 guardrail review
 a810d08 fix(migrations): make 0008/0014 idempotent for fresh-database apply
 08f1ef6 chore(ai): refresh same-day pilot brief
-89bcbb2 docs(ai): prepare same-day Wizmatch pilot handoff
-2085b84 chore(ai): snapshot clean release state
 ```
 
 ## npm scripts

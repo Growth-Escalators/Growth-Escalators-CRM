@@ -2,11 +2,29 @@
 
 _Update this when the working state of the repo meaningfully changes. Keep it short and true._
 
-## 2026-07-14 Final access-policy staging qualification (current)
+## 2026-07-14 Authenticated production QA and final staging repair (current)
+
+- Kanishk's Keychain-held Wizmatch admin credential authenticated successfully without exposing the
+  password or JWT. Production navigation, direct routes, refreshes, contact details, System tabs,
+  and representative tablet/mobile layouts passed read-only browser QA.
+- A rapid-navigation browser artifact briefly reported missing lazy chunks; clean-tab retries and
+  direct HTTP checks proved the assets were present and all affected routes mounted. This was not
+  classified as an application defect.
+- The release candidate had one real P2 UX defect: authenticated Readiness linked to development
+  preview routes that production correctly removes. Commit `1bea426` hides the card outside Vite
+  development mode and adds a helper regression test.
+- Post-fix suite is green: build; 45 files / 361 tests; admin build; 16/16 Wizmatch Playwright;
+  diff check. Staging deployment `52b4a0f3-5ac2-4882-aad8-2674d0fabeec` is `SUCCESS`; browser
+  verification confirmed zero preview links and a safe Dashboard redirect for a demo deep link.
+- No production environment, schema, user, document, staffing record, send, provider, or deployment
+  was changed by this QA unit.
+
+## 2026-07-14 Final access-policy staging qualification
 
 - Read-only production qualification is complete: production is healthy on old commit `b05ac015`,
   topology is web+Postgres with no worker, and the Drizzle journal has 23 entries with exactly
-  additive `0025`–`0028` pending. The branch is 0 behind/34 ahead of `origin/main`.
+  additive `0025`–`0028` pending. The branch is 0 behind `origin/main`; use `git log` or AI_BRIEF
+  for the current ahead count.
 - Current release verification passed again: backend build, 45 files/360 Vitest tests, admin
   production build, 16/16 Playwright and `git diff --check`. Existing rankTracking mock warnings
   and missing-SERPER test noise are unchanged.
