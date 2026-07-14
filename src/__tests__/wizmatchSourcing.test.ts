@@ -81,6 +81,7 @@ describe('TheirStack pilot query', () => {
     });
     expect(buildTheirStackQuery(15).job_title_or).toContain('sap abap');
     expect(buildTheirStackQuery(15, null, true)).toMatchObject({ blur_company_data: true });
+    expect(buildTheirStackQuery(15, null, false, [1, 2])).toMatchObject({ job_id_not: [1, 2] });
   });
 
   it('reports configuration without exposing the key', () => {
@@ -132,11 +133,27 @@ describe('SearchAPI public research', () => {
     await expect(searchPublicWeb('query', { env: { SEARCHAPI_API_KEY: 'secret' } as NodeJS.ProcessEnv })).rejects.toThrow(`SearchAPI HTTP ${status}`);
   });
 
+  it('retries one transient timeout and then returns normalized results', async () => {
+    const timeout = new Error('The operation was aborted due to timeout');
+    timeout.name = 'TimeoutError';
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(timeout)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ organic_results: [{ title: 'Person A - Recruiter', link: 'https://linkedin.com/in/a', snippet: 'Recruiter' }] }) });
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await searchPublicWeb('query', { env: { SEARCHAPI_API_KEY: 'secret' } as NodeJS.ProcessEnv })).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('reports account allowance and enforces the shared POC/X-Ray cap', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ account: { current_month_usage: 21, monthly_allowance: 100, remaining_credits: 79 } }) }));
     expect(await validateSearchApiAccount({ SEARCHAPI_API_KEY: 'secret' } as NodeJS.ProcessEnv)).toMatchObject({ validated: true, usage: 21, allowance: 100, remaining: 79 });
     expect(() => assertSearchApiAllowance({ daily: 5, monthly: 10 }, { daily: 5, monthly: 80 })).toThrow('Daily SearchAPI allowance reached');
     expect(() => assertSearchApiAllowance({ daily: 1, monthly: 80 }, { daily: 5, monthly: 80 })).toThrow('Monthly SearchAPI allowance reached');
+  });
+
+  it('treats free credits as the effective allowance when the plan allowance is zero', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ account: { current_month_usage: 0, monthly_allowance: 0, remaining_credits: 100 } }) }));
+    expect(await validateSearchApiAccount({ SEARCHAPI_API_KEY: 'secret' } as NodeJS.ProcessEnv)).toMatchObject({ usage: 0, allowance: 100, remaining: 100 });
   });
 
   it('builds one company POC query and classifies public evidence only', () => {
