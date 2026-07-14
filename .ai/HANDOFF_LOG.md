@@ -6,6 +6,28 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-14 — Safe staffing automation and final staging qualification — Codex — LOCAL + LIVE STAGING
+
+- Committed `1ceada3`: separated legacy Wizmatch automation from deterministic staffing reminders,
+  defaulted both controls off, required Gate C for reminders, and exposed non-sensitive automation
+  state in System/Readiness. Existing non-Wizmatch Growth CRM schedules were unchanged.
+- Added regression coverage for flag defaults/dependencies, zero-work runs, open-task deduplication
+  and absence of communication/provider SQL. Full verification passed: build; 46/368 Vitest;
+  admin build; 16/16 Playwright; fresh 29-entry migration apply (81 public/31 Wizmatch tables);
+  gates-off production-router check; diff check.
+- Deployed exact `1ceada3` only to isolated `web-staging`. Deployments
+  `a5ed6f3c-dccb-4add-86e2-17ec9046f204` and tenant-config redeploy
+  `9f20e84c-952e-4f48-9f2e-8373528144b7` reached terminal `SUCCESS`; health/database are green.
+- Staging logs prove one in-process staffing schedule, legacy automation skipped and no worker.
+  Authenticated browser QA passed all high-value A–C workspaces, System/Readiness, console checks
+  and 390px layouts. The ephemeral staging credential/session was removed/signed out.
+- Read-only production preflight found production healthy on old `b05ac015`, with only additive
+  0025–0028 pending. Counts are 2,812 contacts, 131 companies, 311 candidates and one requirement.
+  The old build logged 18 new GitHub-mined candidates; the reviewed release stops that legacy block.
+- Production was not changed or deleted. Exact next gate: approve applying only migrations
+  0025–0028 with all staffing gates and staffing automation off. Push and activation remain later
+  separate approvals.
+
 ## 2026-07-14 — Read-only production launch qualification — Codex — PRODUCTION READS ONLY
 
 - Under the owner's standing read-only authorization, verified production health, topology,

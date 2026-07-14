@@ -1,6 +1,6 @@
 # Wizmatch Staffing OS — Owner Inputs
 
-- **Status:** Provisional pilot policy pack approved; named owners and pilot records remain `TBD`
+- **Status:** Provisional pilot policy pack approved; production pilot restricted to Jatin and Kanishk
 - **Updated:** 2026-07-14
 - **Product contract:** [`../prd/004-wizmatch-staffing-operating-system.md`](../prd/004-wizmatch-staffing-operating-system.md)
 
@@ -41,13 +41,16 @@ the approved CRM, password manager or secure document system.
 |---|---|
 | Pilot start date | 2026-07-13 target, conditional on staging, mandatory policy sign-off and production smoke gates |
 | Pilot duration | 60–90 days proposed |
-| Pilot companies | Use internal CRM IDs or fictional labels; TBD |
+| Pilot companies | Genuine records entered manually by Jatin/Kanishk; no bulk import or inferred facts |
 | Number of accepted requirements | 5–10 proposed |
 | Pilot skill families | SAP and Java proposed |
 | Number of vetted candidates | 20–30 proposed |
 | India/US operating priority | India-first SAP and Java pilot approved as implementation default; expansion remains TBD |
 | Permanent, contract, or mixed | Mixed permanent and contract support approved for implementation |
 | Explicit pilot exclusions | TBD |
+
+The production pilot roster is Jatin and Kanishk only. Both retain their existing `admin` role.
+No additional Wizmatch user is to be provisioned for this launch.
 
 ## 3. Team roles
 
@@ -149,6 +152,8 @@ planning ranges.
 | Next-action reminders | Deterministic task creation approved behind Gate C; no outreach |
 | Candidate availability reminders | Deterministic review tasks approved behind Gate C; no outreach |
 | Cold-email sending enablement | Separate go-live approval required |
+| Legacy Wizmatch sourcing/enrichment/scrapers/importers/digests | Disabled for the pilot |
+| Staffing reminder execution | Existing single web process; 09:17 IST Monday–Saturday; Gate C and separate flag required; no separate worker |
 
 ## 9. Reporting targets
 
@@ -195,3 +200,4 @@ here.
 | 2026-07-14 | Adopt provisional pilot role, access, SLA, consent, privacy and commercial policies; accept the one-time `a810d08` exception | Final Hardening and Production Launch plan / ADR-005 | Approved through explicit “PLEASE IMPLEMENT THIS PLAN”; production reads, credential rotation, migrations, push, environment changes and imports remain separately gated | Product and migration owner (chat instruction) |
 | 2026-07-14 | Rotate the previously exposed live Wizmatch-admin credential only | Final Hardening and Production Launch plan | Approved through exact instruction “I approve rotating the previously exposed live credential. Do not perform any other production action.” Completed tenant-scoped one-row rotation; no other production action authorized | Product owner (chat instruction) |
 | 2026-07-14 | Perform production read-only qualification without repeated approval; never delete data | Next-session production launch plan | Approved through “No need to take approval from me for read only roles and everything, just don't delete any data.” Health/topology/journal/env-presence/roster/count/R2-list reads completed; no write or deletion authorized | Product owner (chat instruction) |
+| 2026-07-14 | Complete final automation qualification and launch only Jatin/Kanishk | Final Production Completion Plan | Approved for local and isolated-staging implementation. Production migration, push, each gate change, taxonomy seed, R2 upload and genuine-data write remain separately gated at execution time | Product owner (chat instruction) |
