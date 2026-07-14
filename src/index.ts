@@ -95,7 +95,14 @@ const ALLOWED_ORIGINS = new Set([
   'https://ecom.growthescalators.com',
   ...(process.env.CORS_EXTRA_ORIGIN ? [process.env.CORS_EXTRA_ORIGIN] : []),
   ...(process.env.NODE_ENV !== 'production'
-    ? ['http://localhost:5173', 'http://localhost:3000']
+    ? [
+        'http://localhost:5173', 'http://localhost:3000',
+        // Admin Vite dev server default port, and the isolated port
+        // playwright.wizmatch-local.config.ts uses to avoid clashing with a
+        // developer's own running session (see e2e/wizmatch-e2e-hardening-*).
+        'http://localhost:5174', 'http://127.0.0.1:5174',
+        'http://localhost:5184', 'http://127.0.0.1:5184',
+      ]
     : []),
 ]);
 app.use(cors({
