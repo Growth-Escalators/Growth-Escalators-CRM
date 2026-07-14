@@ -49,7 +49,7 @@ export async function uploadPrivateToR2(
 ): Promise<string> {
   const client = getClient();
   if (!client) throw new Error('R2 not configured — set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY');
-  const bucket = process.env.R2_BUCKET_NAME || 'ge-media';
+  const bucket = resolvePrivateR2Bucket();
   const safeName = originalName.replace(/[^a-zA-Z0-9._/-]+/g, '-').replace(/^\/+/, '');
   const key = safeName.includes('/') ? safeName : `private/${crypto.randomUUID()}-${Date.now()}-${safeName}`;
   await client.send(new PutObjectCommand({
@@ -59,6 +59,14 @@ export async function uploadPrivateToR2(
     ContentType: mimeType,
   }));
   return `r2://${bucket}/${key}`;
+}
+
+export function resolvePrivateR2Bucket(env: NodeJS.ProcessEnv = process.env): string {
+  const bucket = env.R2_PRIVATE_BUCKET_NAME?.trim();
+  if (!bucket) {
+    throw new Error('Private R2 storage is not configured — set R2_PRIVATE_BUCKET_NAME');
+  }
+  return bucket;
 }
 
 export function parsePrivateR2Reference(reference: string): { bucket: string; key: string } | null {

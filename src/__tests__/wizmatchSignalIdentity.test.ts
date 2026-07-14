@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeProviderId, signalIdentityFingerprint } from '../services/wizmatchSignalIdentity';
-import { createSignedR2Url, parsePrivateR2Reference } from '../utils/r2';
+import { createSignedR2Url, parsePrivateR2Reference, resolvePrivateR2Bucket } from '../utils/r2';
 
 describe('Wizmatch signal identity', () => {
   it('normalizes equivalent company/title/location signals to one fingerprint', () => {
@@ -20,6 +20,12 @@ describe('Wizmatch signal identity', () => {
 });
 
 describe('private R2 references', () => {
+  it('fails closed instead of placing confidential documents in the public media bucket', () => {
+    expect(() => resolvePrivateR2Bucket({ R2_BUCKET_NAME: 'public-media' })).toThrow('R2_PRIVATE_BUCKET_NAME');
+    expect(resolvePrivateR2Bucket({ R2_BUCKET_NAME: 'public-media', R2_PRIVATE_BUCKET_NAME: 'wizmatch-private' }))
+      .toBe('wizmatch-private');
+  });
+
   it('parses private references and emits bounded signed access', async () => {
     process.env.R2_ACCOUNT_ID = 'account';
     process.env.R2_ACCESS_KEY_ID = 'access';
