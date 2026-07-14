@@ -239,6 +239,17 @@ const DEMO_GUARDRAILS = {
 const DEMO_READINESS = {
   generatedAt: '2026-07-06T00:00:00.000Z',
   database: { status: 'connected', reason: 'Demo readiness fixture loaded.' },
+  automation: {
+    execution: 'disabled',
+    masterEnabled: false,
+    legacyAutomationEnabled: false,
+    staffingAutomationRequested: false,
+    staffingGateCEnabled: false,
+    staffingRemindersEnabled: false,
+    sendingEnabled: false,
+    schedule: '09:17 IST Monday-Saturday',
+    nextExpectedRunAt: null,
+  },
   overall: {
     status: 'needs_data',
     score: 78,
@@ -1400,6 +1411,17 @@ export function WizmatchReadinessPage({ demoMode = false, embedded = false }) {
               <GuardrailRow label="googleFallbackEnabled" value={data.costControls?.googleFallbackEnabled ?? false} />
               <GuardrailRow label="monthlyBudget" value={data.costControls?.costGuard || {}} />
               <GuardrailRow label="providerEnvMissing" value={(data.costControls?.costGuard?.providerEnv?.missing || []).join(', ') || 'none'} />
+            </div>
+          </div>
+          <div className="card p-5">
+            <SectionHeader icon={Activity} title="Safe automation" description="Production execution state without exposing environment values." />
+            <div className="space-y-2">
+              <GuardrailRow label="execution" value={data.automation?.execution || 'disabled'} />
+              <GuardrailRow label="staffingRemindersEnabled" value={data.automation?.staffingRemindersEnabled ?? false} />
+              <GuardrailRow label="legacyAutomationEnabled" value={data.automation?.legacyAutomationEnabled ?? false} />
+              <GuardrailRow label="sendingEnabled" value={data.automation?.sendingEnabled ?? false} />
+              <GuardrailRow label="schedule" value={data.automation?.schedule || '09:17 IST Monday-Saturday'} />
+              <GuardrailRow label="nextExpectedRunAt" value={data.automation?.nextExpectedRunAt || 'not scheduled'} />
             </div>
           </div>
           <div className="card p-5">

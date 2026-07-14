@@ -172,4 +172,61 @@ describe('Gate C delivery invariants', () => {
     })).rejects.toMatchObject({ code: 'margin_exception_required' });
     expect(statements.some(sql => sql.includes('INSERT INTO wizmatch_placements'))).toBe(false);
   });
+
+  it('completes a zero-work reminder run without creating tasks or events', async () => {
+    const statements: string[] = [];
+    const client = {
+      query: async (sql: string) => {
+        statements.push(sql);
+        return { rowCount: 0, rows: [] };
+      },
+      release: () => {},
+    };
+    const service = createWizmatchDeliveryService({ connect: async () => client } as any);
+
+    await expect(service.runDeterministicReminders('tenant-a')).resolves.toEqual({
+      requirementSla: 0,
+      submissionFollowUps: 0,
+      availabilityReviews: 0,
+      total: 0,
+    });
+    expect(statements).toContain('COMMIT');
+    expect(statements.some(sql => sql.includes('INSERT INTO tasks'))).toBe(false);
+    expect(statements.some(sql => sql.includes('INSERT INTO wizmatch_staffing_events'))).toBe(false);
+    expect(statements.some(sql => /message|provider|send/i.test(sql))).toBe(false);
+  });
+
+  it('deduplicates an existing open requirement reminder', async () => {
+    const statements: string[] = [];
+    const client = {
+      query: async (sql: string) => {
+        statements.push(sql);
+        if (sql.includes('FROM wizmatch_requirements r')) {
+          return {
+            rowCount: 1,
+            rows: [{
+              requirement_id: 'requirement-1',
+              title: 'SAP ABAP Consultant',
+              next_action: 'Review shortlist',
+              next_action_due_at: new Date('2026-07-13T03:47:00.000Z'),
+              assigned_to: 'recruiter-1',
+            }],
+          };
+        }
+        if (sql.includes("t.title='[Wizmatch] Requirement SLA overdue'")) {
+          return { rowCount: 1, rows: [{ exists: 1 }] };
+        }
+        return { rowCount: 0, rows: [] };
+      },
+      release: () => {},
+    };
+    const service = createWizmatchDeliveryService({ connect: async () => client } as any);
+
+    await expect(service.runDeterministicReminders('tenant-a')).resolves.toMatchObject({
+      requirementSla: 0,
+      total: 0,
+    });
+    expect(statements.some(sql => sql.includes('INSERT INTO tasks'))).toBe(false);
+    expect(statements.some(sql => sql.includes('INSERT INTO wizmatch_staffing_events'))).toBe(false);
+  });
 });

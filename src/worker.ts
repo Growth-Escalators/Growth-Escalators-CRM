@@ -20,6 +20,7 @@ import { analyzeWithClaude } from './services/intelligenceAnalyzer';
 import { deliverDailyIntelligence } from './services/intelligenceDelivery';
 import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_PERF_MARKETING_CHANNEL, SLACK_SEO_CHANNEL, SLACK_OUTREACH_CHANNEL, SLACK_SOD_EOD_CHANNEL, DEFAULT_TENANT_SLUG, WIZMATCH_LEADS_CHANNEL, WIZMATCH_SYSTEM_CHANNEL } from './config/constants';
 import { isPaused } from './config/featureFlags';
+import { getWizmatchAutomationStatus, WIZMATCH_STAFFING_REMINDER_CRON } from './services/wizmatchAutomation';
 
 // True when this file is run directly (`node dist/worker.js`).
 // False when imported by `src/index.ts` so background jobs run inside `web`.
@@ -1397,7 +1398,10 @@ console.log('[cron] Monthly client benchmarks scheduled — 1st of month 11:00 A
 // HTTP/DB-only jobs (no browser/Python — those run in GitHub Actions)
 // ===========================================================================
 
-if (process.env.DISABLE_BACKGROUND_JOBS !== 'true' && process.env.WIZMATCH_TENANT_ID) {
+const wizmatchAutomation = getWizmatchAutomationStatus();
+
+if (wizmatchAutomation.masterEnabled) {
+  if (wizmatchAutomation.legacyAutomationEnabled) {
 
   // Signal scoring — every 30 minutes, cap 50/run (pure TS, $0)
   // Calls scoreSignalById in-process instead of an HTTPS self-request to the public
@@ -1592,17 +1596,21 @@ if (process.env.DISABLE_BACKGROUND_JOBS !== 'true' && process.env.WIZMATCH_TENAN
   }), { timezone: 'UTC' });
   console.log('[cron] Wizmatch daily digest scheduled — 6 PM IST Mon-Sat');
 
+  } else {
+    console.log('[cron] Wizmatch legacy automation skipped (WIZMATCH_LEGACY_AUTOMATION_ENABLED is off)');
+  }
+
   // Staffing OS reminders — 9:17 AM IST Mon-Sat. Deterministic and $0:
   // creates deduplicated shared tasks only; it never contacts candidates or clients.
-  if (['1', 'true', 'yes', 'on'].includes((process.env.WIZMATCH_STAFFING_GATE_C_ENABLED || '').toLowerCase())) {
-    cron.schedule('47 3 * * 1-6', () => safeCron('Wizmatch Staffing Reminders', async () => {
+  if (wizmatchAutomation.staffingRemindersEnabled) {
+    cron.schedule(WIZMATCH_STAFFING_REMINDER_CRON, () => safeCron('Wizmatch Staffing Reminders', async () => {
       const { wizmatchDeliveryService } = await import('./services/wizmatchDeliveryDomain');
       const result = await wizmatchDeliveryService.runDeterministicReminders(process.env.WIZMATCH_TENANT_ID!);
       console.log(`[CRON] Wizmatch staffing reminders: ${result.total} tasks created (${result.requirementSla} requirement SLA, ${result.submissionFollowUps} submission follow-up, ${result.availabilityReviews} availability)`);
     }), { timezone: 'UTC' });
     console.log('[cron] Wizmatch staffing reminders scheduled — 9:17 AM IST Mon-Sat');
   } else {
-    console.log('[cron] Wizmatch staffing reminders skipped (WIZMATCH_STAFFING_GATE_C_ENABLED is off)');
+    console.log('[cron] Wizmatch staffing reminders skipped (staffing automation or Gate C is off)');
   }
 
 } else {

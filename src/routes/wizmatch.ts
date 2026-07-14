@@ -104,6 +104,7 @@ import {
   getWizmatchContactDiscoveryConfig,
   type WizmatchContactDiscoveryInput,
 } from '../services/wizmatchContactDiscovery';
+import { getWizmatchAutomationStatus } from '../services/wizmatchAutomation';
 import {
   buildWizmatchDiscoveryProviderEstimate,
   evaluateWizmatchCostGuard,
@@ -2719,7 +2720,7 @@ router.get('/readiness', async (req: Request, res: Response) => {
     getWizmatchReadiness(pool, tenantId),
     buildContactDiscoveryCostControls(tenantId, req.user?.id),
   ]);
-  res.json({ ...readiness, costControls });
+  res.json({ ...readiness, costControls, automation: getWizmatchAutomationStatus() });
 });
 
 /**
