@@ -6,6 +6,24 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-14 — Production Wizmatch admin credential rotation — Codex — APPROVED PRODUCTION SECURITY MUTATION
+
+- Under the user's exact approval, ran a tenant-scoped preflight for the documented Wizmatch
+  operator email. Two tenants contain that email, so the mutation filter was narrowed to tenant
+  slug `wizmatch`; it then matched exactly one active admin row. The Growth-tenant row was untouched.
+- In one transaction, replaced only that Wizmatch user's password hash and advanced token version
+  3→4, invalidating prior sessions. Before/after hash verification proved the historical plaintext
+  was already not live, remains rejected, and the replacement verifies. Exactly one row changed.
+- Stored the replacement only in the local macOS Keychain item `Wizmatch Production Admin (rotated
+  2026-07-14)`. No credential value was printed, logged, written to a file/repo/Railway variable or
+  included in context. Ephemeral `/tmp` rotation/preflight scripts were removed.
+- No other production action occurred: no application/staffing-data read or write, migration,
+  deploy, environment/flag change, Git push, import, provider call, sending or worker operation.
+- Exact next gate: separately approve read-only production health/topology inspection and the
+  count-only staffing backfill preview. Migration, push, flags and imports remain separate gates.
+
+---
+
 ## 2026-07-14 — Final named-pilot access hardening and staging qualification — Codex — LIVE STAGING + LOCAL
 
 - Added and committed the fail-closed named-pilot policy as `9f4c0f4`: role capabilities, assigned-

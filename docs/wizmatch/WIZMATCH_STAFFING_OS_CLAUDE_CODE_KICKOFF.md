@@ -81,10 +81,10 @@ Resume at the first production gate:
 1. Confirm the branch is clean, 0 behind `origin/main`, and includes `9f4c0f4` plus the latest
    context commit.
 2. Re-read CURRENT_TASK/CURRENT_STATE and report any contradiction before an external action.
-3. Ask for separate explicit approval to rotate the previously exposed live credential through the
-   approved secret channel. Never print or store the value.
-4. After verified rotation, stop for another approval before any production health/topology read or
-   count-only backfill preview.
+3. Confirm the approved live Wizmatch-admin credential rotation is recorded as complete; do not
+   repeat it. The replacement is in macOS Keychain and must never be printed or copied to context.
+4. Ask for separate approval before any production health/topology read or count-only backfill
+   preview.
 5. Do not migrate production, push, change flags or import data from this startup prompt alone.
 
 Current infrastructure truth
@@ -165,7 +165,7 @@ Final report format
 - Approval gate reached
 - One exact next action
 
-Begin now with mandatory startup verification and report the live-credential rotation approval
-gate. Do not redo staging Gates A/B/C and do not perform a production-sensitive action from this
-prompt alone.
+Begin now with mandatory startup verification and report the read-only production health/topology
+and count-only staffing-preview approval gate. Do not redo staging Gates A/B/C or the credential
+rotation, and do not perform a production-sensitive action from this prompt alone.
 ```

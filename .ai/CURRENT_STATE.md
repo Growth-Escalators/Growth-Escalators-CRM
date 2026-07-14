@@ -4,6 +4,13 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
 
 ## 2026-07-14 Final access-policy staging qualification (current)
 
+- With explicit approval, the production Wizmatch admin credential for the documented operator
+  account was rotated transactionally. The exact tenant-scoped preflight matched one Wizmatch row
+  (and separately observed a same-email Growth account, which was excluded and untouched). The
+  historical plaintext already failed hash verification before the change; it remains rejected.
+  The replacement verifies, token version advanced 3→4, and exactly one production row changed.
+  The replacement value exists only in macOS Keychain under `Wizmatch Production Admin (rotated
+  2026-07-14)`; no value entered Git, files, Railway variables, terminal output or context.
 - Commit `9f4c0f4` implements the final pilot authorization policy. Production fails closed without
   a named roster or explicit all-users switch; viewers are excluded; staff/sales access is scoped
   to assigned requirements; submission approval/offers are lead/admin operations; placements and
@@ -22,9 +29,10 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
 - Current release suite: backend build passed; 45 Vitest files / 360 tests passed; admin production
   build passed; Wizmatch Playwright 16/16 passed; `git diff --check` passed. ADR-005 is accepted and
   the provisional pilot policy pack is recorded.
-- Production remains untouched and on the prior main release according to the last approved
-  inspection. No production read, credential action, migration, push, flag or data import was
-  performed. The next exact gate is separate approval for live credential rotation.
+- Production application/schema/staffing data remain on the prior main release according to the
+  last approved inspection. Apart from the approved one-row credential rotation above, no
+  production migration, push, flag or data import occurred. The next exact gate is separate
+  approval for the read-only production health/topology and count-only staffing backfill preview.
 
 ## 2026-07-14 Staging Gate C and browser-QA snapshot (superseded where noted above)
 

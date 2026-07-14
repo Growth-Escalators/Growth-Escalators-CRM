@@ -2,9 +2,9 @@
 
 ## Active task
 
-**Wizmatch Staffing OS — the final named-pilot access policy is implemented, committed and fully
-qualified in the isolated Railway staging environment. The next unit is the separately approved
-production security/release sequence; production remains untouched.**
+**Wizmatch Staffing OS — the final named-pilot release is staging-qualified and the approved live
+Wizmatch-admin credential rotation is complete. The next unit is the separately approved read-only
+production health/topology and staffing backfill preview.**
 
 Work only in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust` on
 `codex/wizmatch-phase0-trust`. Preserve the unrelated dirty workspace at
@@ -70,8 +70,10 @@ Work only in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust` on
 
 ## Production and approval boundary
 
-Production remains untouched: nothing from this branch has been pushed, deployed, migrated or
-written to production. Do not push or deploy from this context alone.
+Production application/schema/staffing data remain untouched: nothing from this branch has been
+pushed, deployed or migrated, and no staffing record was written. The separately approved security
+operation changed exactly one Wizmatch-tenant admin credential row and bumped its token version;
+the Growth-tenant account sharing the email was untouched. Do not push or deploy from this context.
 
 Pause for a separate explicit approval immediately before each of:
 
@@ -88,8 +90,7 @@ pilot import manifest still must be supplied before their dependent launch steps
 
 ## Exact next action
 
-Obtain a separate explicit approval to rotate the previously exposed live credential using the
-approved secret channel. Never print or store its value. After rotation is verified, stop for a
-separate approval before the read-only production health/topology and count-only backfill preview.
-Production migrations, the push to `main`, each gate flag change and the pilot import each remain
-their own later approval gate.
+Obtain separate explicit approval for a read-only production health/topology inspection and
+`npm run wizmatch:staffing-backfill-preview`. The preview must remain count-only and stop if the
+pending migration set differs from the reviewed additive entries. Production migrations, the push
+to `main`, each gate flag change and the pilot import each remain their own later approval gate.
