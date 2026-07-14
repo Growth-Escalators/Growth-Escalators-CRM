@@ -62,7 +62,7 @@ export function isTheirStackEnabled(): boolean {
   return !!process.env.THEIRSTACK_API_KEY;
 }
 
-export function buildTheirStackQuery(limit: number, cursor?: string | null, preview = false) {
+export function buildTheirStackQuery(limit: number, cursor?: string | null, preview = false, seenJobIds: number[] = []) {
   return {
     page: 0,
     limit,
@@ -70,6 +70,7 @@ export function buildTheirStackQuery(limit: number, cursor?: string | null, prev
     job_country_code_or: ['IN'],
     job_title_or: ['sap abap', 'sap fico', 'java backend', 'java developer', 'javascript developer', 'frontend developer'],
     ...(cursor ? { discovered_at_gte: cursor } : {}),
+    ...(seenJobIds.length ? { job_id_not: seenJobIds.slice(0, 500) } : {}),
     order_by: [{ field: 'date_posted', desc: true }],
     ...(preview ? { blur_company_data: true } : {}),
   };
@@ -139,7 +140,14 @@ export async function importTheirStackJobs(options: { trigger?: 'manual' | 'sche
     [tenantId],
   );
   const cursor = cursorResult.rows[0]?.cursor_after || null;
-  const query = buildTheirStackQuery(limit, cursor);
+  const seenResult = await pool.query(
+    `SELECT provider_id FROM wizmatch_job_signals
+     WHERE tenant_id=$1 AND source='theirstack' AND provider_id IS NOT NULL
+     ORDER BY last_seen_at DESC NULLS LAST LIMIT 500`,
+    [tenantId],
+  );
+  const seenJobIds = seenResult.rows.map((row) => Number(row.provider_id)).filter(Number.isSafeInteger);
+  const query = buildTheirStackQuery(limit, cursor, false, seenJobIds);
   const run = await createSourceRun({ tenantId, provider: 'theirstack', trigger: options.trigger, requestedBy: options.requestedBy, query, cursorBefore: cursor });
 
   let jobs: TheirStackJob[] = [];

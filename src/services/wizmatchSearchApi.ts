@@ -41,7 +41,20 @@ export async function searchPublicWeb(query: string, options: { count?: number; 
   url.searchParams.set('gl', 'in');
   url.searchParams.set('hl', 'en');
   url.searchParams.set('num', String(Math.min(Math.max(options.count || 10, 1), 10)));
-  const body = await request(url, apiKey);
+  let body: Record<string, any> | null = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      body = await request(url, apiKey, 30_000);
+      break;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const transient = /timeout|aborted|SearchAPI HTTP (429|5\d\d)/i.test(message)
+        || (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name));
+      if (!transient || attempt === 1) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+  if (!body) throw new Error('SearchAPI returned no response');
   const organic = Array.isArray(body.organic_results) ? body.organic_results : [];
   return organic.map((item: any, index: number) => ({
     position: Number(item?.position) || index + 1,
@@ -64,7 +77,10 @@ export async function validateSearchApiAccount(env: NodeJS.ProcessEnv = process.
     const remaining = Number.isFinite(remainingValue)
       ? remainingValue
       : safeAllowance !== null && safeUsage !== null ? Math.max(0, safeAllowance - safeUsage) : null;
-    return { configured: true, validated: true, usage: safeUsage, allowance: safeAllowance, remaining };
+    const effectiveAllowance = safeAllowance && safeAllowance > 0
+      ? safeAllowance
+      : safeUsage !== null && remaining !== null ? safeUsage + remaining : safeAllowance;
+    return { configured: true, validated: true, usage: safeUsage, allowance: effectiveAllowance, remaining };
   } catch (error) {
     return {
       configured: true,
