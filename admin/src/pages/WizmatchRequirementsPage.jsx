@@ -45,6 +45,7 @@ export default function WizmatchRequirementsPage() {
   const [selected, setSelected] = useState(null);
   const [matchesFor, setMatchesFor] = useState(null);
   const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [actionError, setActionError] = useState('');
   const setFilter = (k, v) => setFilters((f) => ({ ...f, [k]: v }));
 
   const load = useCallback(async () => {
@@ -61,11 +62,12 @@ export default function WizmatchRequirementsPage() {
   useEffect(() => { load(); }, [load]);
 
   const generateSheet = async (id) => {
+    setActionError('');
     try {
       const { sheet_url } = await apiFetch(`/api/wizmatch/requirements/${id}/sheet`, { method: 'POST' });
       if (sheet_url) window.open(sheet_url, '_blank');
       load();
-    } catch (e) { alert('Sheet generation failed: ' + e.message); }
+    } catch (e) { setActionError('Sheet generation failed: ' + (e.message || '')); }
   };
 
   return (
@@ -84,6 +86,13 @@ export default function WizmatchRequirementsPage() {
       <p className="text-[12.5px] text-neutral-500 mt-1 mb-5">
         Turn a client JD (paste or upload) into a branded requirement sheet to share with sub-vendors.
       </p>
+
+      {actionError && (
+        <div role="alert" className="mb-4 flex items-center justify-between gap-3 rounded-md border border-danger-500/30 bg-danger-500/10 px-3 py-2 text-[12.5px] text-danger-600">
+          <span>{actionError}</span>
+          <button type="button" onClick={() => setActionError('')} className="font-semibold underline">Dismiss</button>
+        </div>
+      )}
 
       <div className="mb-4 flex flex-wrap gap-2.5">
         <input placeholder="Company…" value={filters.company} onChange={e => setFilter('company', e.target.value)} className="input w-[150px]" />
@@ -218,6 +227,7 @@ function RequirementDrawer({ onClose, onSaved }) {
   const [parsing, setParsing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [parseFeedback, setParseFeedback] = useState(null);
+  const [saveFeedback, setSaveFeedback] = useState(null);
   const [form, setForm] = useState(EMPTY);
   const [companies, setCompanies] = useState([]);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -271,8 +281,9 @@ function RequirementDrawer({ onClose, onSaved }) {
   };
 
   const save = async () => {
-    if (!form.title.trim()) { alert('Title is required'); return; }
-    if (!form.company_id) { alert('Company is required'); return; }
+    setSaveFeedback(null);
+    if (!form.title.trim()) { setSaveFeedback('Title is required.'); return; }
+    if (!form.company_id) { setSaveFeedback('Company is required.'); return; }
     setSaving(true);
     try {
       const payload = {
@@ -287,7 +298,7 @@ function RequirementDrawer({ onClose, onSaved }) {
       };
       const created = await apiFetch('/api/wizmatch/requirements', { method: 'POST', body: JSON.stringify(payload) });
       onSaved(created);
-    } catch (e) { alert('Save failed: ' + e.message); } finally { setSaving(false); }
+    } catch (e) { setSaveFeedback(e.message || 'Save failed.'); } finally { setSaving(false); }
   };
 
   return (
@@ -436,11 +447,18 @@ function RequirementDrawer({ onClose, onSaved }) {
           </div>
         </div>
 
-        <div className="sticky bottom-0 bg-white border-t border-neutral-100 px-6 py-3 flex justify-end gap-2">
-          <button onClick={onClose} className="btn-standard">Cancel</button>
-          <button onClick={save} disabled={saving} className="btn-primary disabled:opacity-50">
-            {saving ? 'Saving…' : 'Save & Generate Sheet'}
-          </button>
+        <div className="sticky bottom-0 bg-white border-t border-neutral-100 px-6 py-3">
+          {saveFeedback && (
+            <div role="alert" className="mb-2 text-[12.5px] text-danger-600 bg-danger-500/10 border border-danger-500/30 rounded-md px-2.5 py-1.5">
+              {saveFeedback}
+            </div>
+          )}
+          <div className="flex justify-end gap-2">
+            <button onClick={onClose} className="btn-standard">Cancel</button>
+            <button onClick={save} disabled={saving} className="btn-primary disabled:opacity-50">
+              {saving ? 'Saving…' : 'Save & Generate Sheet'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -478,6 +496,8 @@ function toDetailFormState(r) {
 function RequirementDetailDrawer({ requirement, onClose, onSaved, onFindCandidates }) {
   const [form, setForm] = useState(() => toDetailFormState(requirement));
   const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState(null);
+  const [confirmingClose, setConfirmingClose] = useState(false);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const buildPayload = (overrides = {}) => ({
@@ -493,21 +513,22 @@ function RequirementDetailDrawer({ requirement, onClose, onSaved, onFindCandidat
   });
 
   const save = async () => {
-    if (!form.title.trim()) { alert('Title is required'); return; }
+    setFeedback(null);
+    if (!form.title.trim()) { setFeedback({ kind: 'error', message: 'Title is required.' }); return; }
     setSaving(true);
     try {
       await apiFetch(`/api/wizmatch/requirements/${requirement.id}`, { method: 'PUT', body: JSON.stringify(buildPayload()) });
       onSaved();
-    } catch (e) { alert('Save failed: ' + e.message); } finally { setSaving(false); }
+    } catch (e) { setFeedback({ kind: 'error', message: e.message || 'Save failed.' }); } finally { setSaving(false); }
   };
 
   const closeRequirement = async () => {
-    if (!confirm('Close this requirement? It will stop showing in open pipelines.')) return;
+    setFeedback(null);
     setSaving(true);
     try {
       await apiFetch(`/api/wizmatch/requirements/${requirement.id}`, { method: 'PUT', body: JSON.stringify({ status: 'closed' }) });
       onSaved();
-    } catch (e) { alert('Failed to close: ' + e.message); } finally { setSaving(false); }
+    } catch (e) { setFeedback({ kind: 'error', message: e.message || 'Failed to close.' }); } finally { setSaving(false); setConfirmingClose(false); }
   };
 
   return (
@@ -526,14 +547,31 @@ function RequirementDetailDrawer({ requirement, onClose, onSaved, onFindCandidat
 
         <div className="p-6 space-y-5">
           <RequirementOperations requirement={requirement} />
+          {feedback && (
+            <div role={feedback.kind === 'error' ? 'alert' : 'status'} className="text-[12.5px] text-danger-600 bg-danger-500/10 border border-danger-500/30 rounded-md px-2.5 py-1.5">
+              {feedback.message}
+            </div>
+          )}
           <div className="flex justify-between items-center">
             <button onClick={onFindCandidates} className="btn-standard btn-compact">
               <Users className="w-3.5 h-3.5" /> Find candidates
             </button>
             {form.status !== 'closed' && (
-              <button onClick={closeRequirement} disabled={saving} className="text-[12.5px] font-semibold text-danger-600 hover:text-danger-700">
-                Close requirement
-              </button>
+              confirmingClose ? (
+                <div className="flex items-center gap-2 text-[12.5px]">
+                  <span className="text-neutral-500">Stop showing this in open pipelines?</span>
+                  <button onClick={closeRequirement} disabled={saving} className="font-semibold text-danger-600 hover:text-danger-700">
+                    {saving ? 'Closing…' : 'Confirm close'}
+                  </button>
+                  <button onClick={() => setConfirmingClose(false)} disabled={saving} className="font-semibold text-neutral-500 hover:text-neutral-700">
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setConfirmingClose(true)} disabled={saving} className="text-[12.5px] font-semibold text-danger-600 hover:text-danger-700">
+                  Close requirement
+                </button>
+              )
             )}
           </div>
 
@@ -649,7 +687,7 @@ function RequirementOperations({ requirement }) {
   const [data,setData]=useState(null); const [companyContacts,setCompanyContacts]=useState([]); const [users,setUsers]=useState([]);
   const [sourceId,setSourceId]=useState(''); const [assignmentRole,setAssignmentRole]=useState('recruiter'); const [userId,setUserId]=useState('');
   const [nextAction,setNextAction]=useState(''); const [dueAt,setDueAt]=useState(''); const [slaAt,setSlaAt]=useState(''); const [targetStage,setTargetStage]=useState(requirement.stage || 'draft');
-  const [busy,setBusy]=useState(false); const [feedback,setFeedback]=useState('');
+  const [busy,setBusy]=useState(false); const [feedback,setFeedback]=useState(''); const [closureReason,setClosureReason]=useState('');
   const load=useCallback(async()=>{try{const [detail,contacts,team]=await Promise.all([apiFetch(`/api/wizmatch/staffing/requirements/${requirement.id}`),apiFetch(`/api/wizmatch/companies/${requirement.company_id}/contacts`),apiFetch('/api/wizmatch/staffing/users')]);setData(detail);setCompanyContacts(contacts.items||[]);setUsers(team.items||[]);setSourceId(v=>v||contacts.items?.[0]?.id||'');setUserId(v=>v||team.items?.[0]?.id||'');setTargetStage(detail.requirement.stage||'draft');}catch(e){setFeedback(e.message);}},[requirement.id,requirement.company_id]);
   useEffect(()=>{load();},[load]);
   const run=async(action,success)=>{setBusy(true);setFeedback('');try{await action();setFeedback(success);await load();}catch(e){setFeedback(e.message);}finally{setBusy(false);}};
@@ -663,7 +701,7 @@ function RequirementOperations({ requirement }) {
     </div>
     <div><div className="text-[11px] uppercase font-semibold text-neutral-500 mb-1">Assigned team</div>{data.assignments.filter(a=>a.active).map(a=><div key={a.id} className="text-[12px] mb-1 flex justify-between"><span><b>{a.name}</b> · {a.role.replaceAll('_',' ')}</span><button className="text-danger-600" disabled={busy} onClick={()=>run(()=>apiFetch(`/api/wizmatch/requirements/${requirement.id}/assignments/${a.id}`,{method:'DELETE'}),'Assignment removed')}>Remove</button></div>)}<div className="grid grid-cols-[1fr_1fr_auto] gap-2 mt-2"><select className="input" value={userId} onChange={e=>setUserId(e.target.value)}>{users.map(u=><option key={u.id} value={u.id}>{u.name} · {u.role}</option>)}</select><select className="input" value={assignmentRole} onChange={e=>setAssignmentRole(e.target.value)}><option value="account_owner">Account owner</option><option value="delivery_owner">Delivery owner</option><option value="recruiter">Recruiter</option></select><button className="btn-standard btn-compact" disabled={busy||!userId} onClick={()=>run(()=>apiFetch(`/api/wizmatch/requirements/${requirement.id}/assignments`,{method:'POST',body:JSON.stringify({userId,role:assignmentRole})}),'Team member assigned')}>Assign</button></div></div>
     <div><div className="text-[11px] uppercase font-semibold text-neutral-500 mb-1">Dated next action and SLA</div><input className="input w-full mb-2" placeholder="Example: Call Priya for Java shortlist feedback" value={nextAction} onChange={e=>setNextAction(e.target.value)}/><div className="grid grid-cols-2 gap-2"><label className="text-[11px]">Next action due<input type="datetime-local" className="input w-full mt-1" value={dueAt} onChange={e=>setDueAt(e.target.value)}/></label><label className="text-[11px]">Requirement SLA due<input type="datetime-local" className="input w-full mt-1" value={slaAt} onChange={e=>setSlaAt(e.target.value)}/></label></div><button className="btn-standard btn-compact mt-2" disabled={busy||!nextAction.trim()||!dueAt} onClick={()=>run(()=>apiFetch(`/api/wizmatch/requirements/${requirement.id}/next-action`,{method:'POST',body:JSON.stringify({nextAction,nextActionDueAt:new Date(dueAt).toISOString(),slaDueAt:slaAt?new Date(slaAt).toISOString():undefined})}),'Next action and linked task created')}>Save next action</button></div>
-    <div><div className="text-[11px] uppercase font-semibold text-neutral-500 mb-1">Operating stage</div><div className="flex gap-2"><select className="input flex-1" value={targetStage} onChange={e=>setTargetStage(e.target.value)}>{OPERATING_STAGES.map(s=><option key={s} value={s}>{s.replaceAll('_',' ')}</option>)}</select><button className="btn-primary btn-compact" disabled={busy||targetStage===data.requirement.stage} onClick={()=>run(()=>apiFetch(`/api/wizmatch/requirements/${requirement.id}/transition`,{method:'POST',body:JSON.stringify({stage:targetStage,closureReason:['closed_lost','cancelled'].includes(targetStage)?prompt('Closure reason')||'':undefined})}),'Stage updated')}>Move stage</button></div><p className="text-[11px] text-neutral-500 mt-1">Acceptance is blocked until primary source, account owner, recruiter, SLA and dated next action are all present.</p></div>
+    <div><div className="text-[11px] uppercase font-semibold text-neutral-500 mb-1">Operating stage</div><div className="flex gap-2"><select className="input flex-1" value={targetStage} onChange={e=>{setTargetStage(e.target.value);setClosureReason('');}}>{OPERATING_STAGES.map(s=><option key={s} value={s}>{s.replaceAll('_',' ')}</option>)}</select><button className="btn-primary btn-compact" disabled={busy||targetStage===data.requirement.stage||(['closed_lost','cancelled'].includes(targetStage)&&!closureReason.trim())} onClick={()=>run(()=>apiFetch(`/api/wizmatch/requirements/${requirement.id}/transition`,{method:'POST',body:JSON.stringify({stage:targetStage,closureReason:['closed_lost','cancelled'].includes(targetStage)?closureReason.trim():undefined})}),'Stage updated')}>Move stage</button></div>{['closed_lost','cancelled'].includes(targetStage)&&<input className="input w-full mt-2" placeholder="Closure reason (required)" value={closureReason} onChange={e=>setClosureReason(e.target.value)}/>}<p className="text-[11px] text-neutral-500 mt-1">Acceptance is blocked until primary source, account owner, recruiter, SLA and dated next action are all present.</p></div>
     <div><div className="text-[11px] uppercase font-semibold text-neutral-500 mb-1">Requirement-first candidate sourcing</div><button className="btn-standard btn-compact" disabled={busy||!['accepted','sourcing','covered'].includes(data.requirement.stage)} onClick={()=>run(()=>apiFetch(`/api/wizmatch/requirements/${requirement.id}/source-candidates-xray`,{method:'POST'}),'X-Ray candidate leads created for evidence review')}>Source public candidate leads</button><p className="text-[11px] text-neutral-500 mt-1">One capped search per requirement every seven days. Results remain unverified until recruiter evidence review.</p></div>
     <div><div className="text-[11px] uppercase font-semibold text-neutral-500 mb-1">Recent timeline</div>{data.events.slice(0,5).map(e=><div key={e.id} className="text-[11.5px] border-l-2 border-primary-200 pl-2 py-1"><b>{e.event_type.replaceAll('_',' ')}</b> · {new Date(e.occurred_at).toLocaleString()}</div>)}</div>
   </section>;
