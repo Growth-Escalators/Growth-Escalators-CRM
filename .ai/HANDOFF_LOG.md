@@ -6,6 +6,24 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-14 — Results-first sourcing Phase 1 — Codex — STAGING + PRODUCTION
+
+- Implemented independent default-off TheirStack, ATS, requirement-first X-Ray and free POC controls;
+  audited source runs; PostgreSQL source locks; shared tenant-scoped ingestion/dedupe; source health;
+  signal qualification/rejection; POC tasks; idempotent requirement promotion; ATS confirmation;
+  and candidate-lead evidence that remains excluded from canonical matching until human review.
+- Generated additive migration `0029`; no destructive SQL or production data deletion.
+- Passed build, 47/383 Vitest, admin build, 22/22 Playwright, responsive source paths, secret/diff
+  checks and provider fixtures for Greenhouse, Lever, Ashby, TheirStack contract and X-Ray queries.
+- Staging deployment `f8f6e053-5669-40cb-8c5c-4f8f4ac3f35f` reached `SUCCESS`. Controlled ATS run
+  inserted 10 relevant signals; rerun inserted zero and deduplicated 10. POC discovery truthfully
+  returned `generic_contact_only`; repeated signal promotion reused the same draft requirement.
+- Pushed `1112e47` to `main`. Production deployment `fe6ebb85-cfe2-4a48-9d86-aa6707864e25`
+  reached `SUCCESS`; journal advanced 27→28 and all five legacy count baselines remained unchanged.
+  Production source flags remain off and authenticated desktop/mobile smoke passed.
+- Blocker: `THEIRSTACK_API_KEY` and `SERPAPI_API_KEY` are absent from Railway/Keychain. No provider
+  call, paid action, send, submission, fictional production business row or deletion was performed.
+
 ## 2026-07-14 — Controlled Staffing OS production launch — Codex — LIVE PRODUCTION
 
 - Applied only additive migrations `0025`–`0028` with gates off. Production advanced from 23 to
