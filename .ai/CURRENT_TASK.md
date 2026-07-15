@@ -2,6 +2,17 @@
 
 ## Active task
 
+**Entity-first UI/UX + complete-build push is live (commit `2d8ddd6`, Railway deployment
+`baec1d83`, `SUCCESS`) — a navigation/UX/safety-tooling release, not a pilot-scope change. The
+Wizmatch results-first sourcing pilot task below is still the substantive product work in front of
+Jatin/Kanishk; this push doesn't change what they need to do next.**
+
+Work directly in `/Users/jatinagrawal/repo-comparison/v2` on `main` (now equal to `origin/main`).
+The `v2-wizmatch-phase0-trust` worktree referenced below may be stale relative to `main` post-push —
+re-verify its branch position before resuming work there.
+
+## Prior active task (still relevant — pilot data review)
+
 **Wizmatch results-first sourcing — provider release is live for the Jatin/Kanishk production
 pilot. Review genuine signals and configure approved ATS boards; enable X-Ray only after the first
 genuine accepted, skill-reviewed requirement exists.**
