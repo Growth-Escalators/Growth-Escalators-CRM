@@ -2,7 +2,42 @@
 
 _Update this when the working state of the repo meaningfully changes. Keep it short and true._
 
-## 2026-07-14 Provider activation release candidate (current)
+## 2026-07-15 Entity-first UI/UX + complete-build push (current)
+
+- `origin/main` is now at `2d8ddd6` (26 commits ahead of the prior `3211a1f` release), pushed as a
+  clean fast-forward (verified via `git merge-base --is-ancestor` before pushing — no divergent
+  history, no merge commit). Railway `web` deployment `baec1d83` reached `SUCCESS`.
+- This release is entity-first navigation + UX/accessibility/test-coverage work layered on top of
+  the provider-activation release below, not a change to pilot scope. Gate A/B/C flags, the named
+  roster (Jatin/Kanishk only), sending, paid discovery, Google fallback, and legacy automation are
+  all unchanged from the prior release — confirmed by diffing the full push against `origin/main`
+  for those flag names (zero matches) before pushing.
+- Canonical nav renames with legacy-alias redirects: `/wizmatch/dashboard→today`,
+  `relationships→companies`, `contact-intelligence→hiring-contacts`, `signals→job-leads`,
+  `delivery→submissions`, `analytics→reports`. New Today workspace (bucketed work queue), rebuilt
+  Companies/Hiring Contacts/Candidates-360/Placements-detail/Reports-funnel pages, and every native
+  `prompt()`/`alert()` on the Submissions/Delivery board replaced with accessible dialogs.
+- New backend safety surface, additive to (not replacing) the existing cost-guard budget system:
+  hard-delete endpoints for requirements/signals/candidates/companies (role-gated, dependency-
+  checked, audited, FK-detached before delete — see `docs/build/WIZMATCH_DELETE_ARCHIVE_POLICY.md`)
+  and a separate 1–5 (default 3) result-count cap on contact-discovery calls
+  (`clampContactDiscoveryResultCount` in `src/services/wizmatchContactDiscovery.ts`).
+- Verification: backend build + 413/413 Vitest tests; admin build; 85/85 Playwright (15 skipped for
+  a missing local env var only) across desktop/tablet/mobile, including a new axe-core
+  accessibility scan (0 critical/serious violations) and new coverage for the three previously-
+  untested pages. Post-deploy: clean Railway boot logs, health check 200, unauthenticated browser
+  smoke of the live login page clean.
+- Schema/migrations, `auth.ts`, and `rbac.ts` are byte-identical to the prior release — this push
+  touched none of them. Full detail: `docs/build/WIZMATCH_COMPLETE_BUILD_LOG.md`,
+  `docs/release/WIZMATCH_RELEASE_READINESS.md`, `HANDOFF.md` (repo root).
+- Known limitation carried forward, not addressed by this push: the two coexisting backend data
+  models ("Staffing OS" in `wizmatchStaffing.ts`/`wizmatchStaffingDomain.ts` vs. the older
+  "intelligence" model in `wizmatch.ts`) remain unreconciled — pre-existing architectural debt.
+- Local `main` (`1cb48c9`) never shared this lineage (diverged before `origin/main`'s last 54+26
+  commits) and could not fast-forward; left untouched as an orphaned local branch rather than
+  force-reset, since it holds no unique work relevant to what's now live.
+
+## 2026-07-14 Provider activation release candidate (superseded above)
 
 - Commits `c293b88` and `142eb51` implement and harden SearchAPI.io + TheirStack provider activation
   without schema changes. SearchAPI is shared by named-POC research and requirement-first X-Ray;

@@ -6,6 +6,70 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-15 — Entity-first UI/UX + complete-build push — Claude — LIVE PRODUCTION
+
+**What went live**
+- Fast-forward push (no merge commit, no force) from `feat/wizmatch-complete-build` directly onto
+  remote `main`: `3211a1f..2d8ddd6` (26 commits). `origin/main`'s tip was a direct ancestor of the
+  pushed branch — confirmed via `git merge-base --is-ancestor` before pushing — so this was a
+  strict superset, not a merge of divergent histories. No schema/migration file differed from
+  `origin/main` (verified byte-identical); `auth.ts`/`rbac.ts` also byte-identical. Railway
+  deployment `baec1d83` for commit `2d8ddd6` reached `SUCCESS`.
+- Entity-first primary navigation: canonical route renames with legacy-alias redirects
+  (`dashboard→today`, `relationships→companies`, `contact-intelligence→hiring-contacts`,
+  `signals→job-leads`, `delivery→submissions`, `analytics→reports`), a shared route registry
+  (`admin/src/routes/wizmatchRouteRegistry.ts`), and a new Today workspace
+  (bucketed Overdue/Due Today/Blocked/Waiting/Recently Changed/Team Review queue).
+- New/extended pages: Companies (360 drawer + a restored cost-gated "Discover contacts" trigger —
+  same preview/confirm backend contract the old Contact Intelligence page used), Hiring Contacts
+  (linked-contacts tab + discovery-queue review tab), Candidates 360 (canonical skills +
+  explainable match scoring via a new `MatchExplanation` component), Submissions/Delivery (all
+  native `prompt()`/`alert()` calls replaced with accessible dialogs — Consent/Submission/
+  Interview/Offer/Withdraw/Placement), Placements (tabbed detail modal: Overview/Economics/
+  Invoice/Collection/Adjustments), Reports (full Job Lead→Collection funnel; stages with no
+  backing tenant-wide endpoint render "Not available yet" rather than a fabricated number).
+- New backend: hard-delete endpoints for requirements/signals/candidates/companies (role-gated,
+  dependency-checked, FK-detached-before-delete, audited), and a **separate, additive** result-count
+  cap (1–5, default 3, `clampContactDiscoveryResultCount`) on top of the existing cost-guard budget
+  system — the cost guard limits spend/run-frequency, this caps how many contacts one discovery
+  call can return; neither replaces the other.
+- Fixed a real cross-file accessibility bug found via a teammate agent's self-report on its own
+  code: `ConfirmDialog` in three drawers (Companies/Hiring Contacts/Requirements) was rendered
+  outside the drawer panel's `stopPropagation()` boundary, so clicking Cancel bubbled up and closed
+  the whole drawer, not just the dialog — moved inside the boundary in all three.
+
+**Verification**
+- Backend: `npm run build` (tsc) clean; `npm test` 413/413 (48 files).
+- Admin: `npm --prefix admin run build` clean, all new pages code-split correctly.
+- Playwright (`playwright.wizmatch-local.config.ts`): 85 passed, 15 skipped (missing
+  `WIZMATCH_E2E_TEST_PASSWORD` locally), 0 failed — desktop/tablet/mobile. Includes a new
+  axe-core accessibility scan (`wizmatch-a11y.spec.ts`, 0 critical/serious violations after fixes)
+  and new coverage for the three previously-untested pages (Candidates 360, Placements detail,
+  Reports funnel).
+- Grepped the full diff against `origin/main` for `pilot-all`/paid-discovery/Google-fallback/
+  legacy-automation flag changes: none found. Exactly one new `process.env` reference
+  (`DATABASE_URL` in `src/scripts/seedE2ETestFixtures.ts`, a disposable-test-DB-only script, not
+  imported by `index.ts`/`worker.ts`/`package.json` — never runs in production).
+- Post-deploy: Railway deploy logs show clean boot (health check 200, all cron schedules
+  registered, `[cron] Wizmatch legacy automation skipped` confirms it's still off), no new error
+  lines beyond pre-existing missing-optional-integration warnings (Snov/SalesHandy/Purelymail).
+  Unauthenticated browser check of `https://crm.growthescalators.com/` renders the login page
+  cleanly with both tenant options, zero console errors.
+
+**Approval boundary / exact next action**
+- Local `main` (commit `1cb48c9`, "WIP: preserve Wizmatch matching-flow changes for Claude
+  handoff") shares only the pre-`ba4be819` ancestor with the new `origin/main` — it was never part
+  of this lineage and could not fast-forward, so it was left untouched rather than force-reset.
+  It holds no unique work relevant to what's now live; safe to leave as an orphaned local branch or
+  clean up later.
+- Nothing in this push touches Gate A/B/C flags, the named pilot roster, sending, paid discovery,
+  Google fallback, or legacy automation — all remain exactly as the prior production release left
+  them. This was a navigation/UX/safety-tooling release, not a pilot-scope change.
+- See `docs/build/WIZMATCH_COMPLETE_BUILD_LOG.md`, `docs/release/WIZMATCH_RELEASE_READINESS.md`,
+  and `HANDOFF.md` (repo root) for the full build history and remaining known limitations (the two
+  coexisting Staffing-OS/legacy-intelligence backend models remain unreconciled; that's pre-existing
+  debt, not something this push attempted).
+
 ## 2026-07-14 — Results-first sourcing Phase 1 — Codex — STAGING + PRODUCTION
 
 - Implemented independent default-off TheirStack, ATS, requirement-first X-Ray and free POC controls;
