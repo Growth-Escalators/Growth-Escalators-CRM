@@ -4085,10 +4085,10 @@ router.get('/signals/:id', async (req: Request, res: Response) => {
 
   // Get draft messages
   const draftsResult = await pool.query(
-    `SELECT id, content, metadata, status, created_at
+    `SELECT id, content, metadata, status, sent_at
      FROM messages
      WHERE tenant_id=$3 AND contact_id = $1 AND metadata->>'signal_id' = $2
-     ORDER BY created_at DESC`,
+     ORDER BY sent_at DESC`,
     [signal.contact_id, req.params.id, tenantId],
   );
 
