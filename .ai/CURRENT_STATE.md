@@ -2,7 +2,26 @@
 
 _Update this when the working state of the repo meaningfully changes. Keep it short and true._
 
-## 2026-07-16 Signal-detail 500 fix + manual delete + candidate max-detail (current)
+## 2026-07-16 Matching reachable + discardable draft requirements (current)
+
+- `origin/main` = `5cb7c31` (fast-forward; Railway deploy `f4274479` SUCCESS).
+- The Gate-B matcher is now reachable through the UI: a "Recalculate matches" button in the
+  requirement drawer runs `POST /staffing/requirements/:id/matches/recalculate` and renders the
+  ranked matches (MatchExplanation) with Shortlist/Watch/Reject, sorted by score + hide-blocked
+  toggle + "add must-have skills first" hint. Talent Matching is in nav + Cmd-K search. Requirement
+  `?id=` deep-links open the drawer; signal "Create requirement draft" offers "Open requirement →";
+  requirement rows show a matched-candidate count badge.
+- Backend: a DRAFT requirement with only undecided (algorithm) matches + no submissions is deletable,
+  cascading its match rows + snapshots. Non-draft / human-decided / submitted still 409.
+- Live-proven end-to-end on disposable data: seed → qualify → free Find-POC (paid off, 0 contacts,
+  ≤2 cap) → promote → **Recalculate → 311 ranked matched candidates** → draft-cascade delete removed
+  the requirement + 311 matches → signal + company deleted. Zero console errors, zero Railway 5xx.
+- Known stale copy: the requirement delete-dialog still says "no candidate matches" (frontend text
+  not updated to the new undecided-OK backend rule). Cosmetic only.
+- Tests: 423 Vitest, admin build, Playwright 95 passed/15 skipped. No schema/migration/guardrail/
+  env/pilot-flag change.
+
+## 2026-07-16 Signal-detail 500 fix + manual delete + candidate max-detail
 
 - `origin/main` is now `3b1dd05` (fast-forward from `4e032a6`; Railway deploy `0e45691d` SUCCESS).
 - Fixed a tenant-wide 500 on `GET /api/wizmatch/signals/:id` (drafts sub-query used a nonexistent
