@@ -245,7 +245,7 @@ export async function runXrayScrape(
     const remaining = maxResults - totalFound;
     if (remaining <= 0) break;
     try {
-      const results = capLinkedInProfileResults(await searchPublicWeb(search.q) as SerpResult[], remaining, seenProfileUrls);
+      const results = capLinkedInProfileResults(await searchPublicWeb(search.q, { count: remaining }) as SerpResult[], remaining, seenProfileUrls);
 
       totalFound += results.length;
 
