@@ -6,6 +6,40 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-16 — Reports From/To range now scopes staffing-analytics metrics — Claude — LIVE PRODUCTION
+
+**What went live** (`0ee6979..9767469` fast-forward onto `main`; Railway deploy `ca1fb1f6` SUCCESS)
+- Closed the deferred Reports date-filter follow-up. `wizmatchDeliveryDomain.analytics(tenantId,
+  from?, to?)` now scopes the historical/volume metrics — Submission→Start funnel, commercial
+  revenue/starts (invoiced/collected/margin), time-to-start, recruiter & source performance, and
+  rejection reasons — by each row's primary event date (submission/placement `created_at`). The
+  current-state metrics (SLA exceptions, aging) and the monthly cohort series stay unscoped. `to` is
+  inclusive of the whole day (`< to::date + 1`). Clearing the range = all-time (unchanged).
+- `GET /staffing/analytics` parses + validates `from`/`to` (`YYYY-MM-DD`); the Reports page passes its
+  period and relabels each section dynamically via a new `range` field on the response (e.g.
+  "Placements started 2026-06-16 → 2026-07-16" vs "All placements, all time"); funnel hover-notes no
+  longer claim "no date-range filter".
+- Read-only SELECT date predicates only ($2/$3 referenced only when a range is present, so the
+  unscoped params stay `[tenantId]`). No schema/migration, no env var, no auth/RBAC/Cashfree/SOD-EOD,
+  no pilot-flag change. Guardrail safety-gate empty.
+
+**Verification**
+- tsc clean; 449 Vitest (54 files, incl. new `wizmatchAnalyticsRange.test.ts` — scoped queries carry
+  the date predicate + `[tenant,from,to]`, SLA/aging/cohorts stay `[tenant]`, no-range = all-time);
+  admin build clean; 97 Playwright (0 failed). `wizmatch-reports-funnel` spec globs widened for the
+  new `?from&to` query string.
+- Post-deploy (read-only): deploy `ca1fb1f6` SUCCESS, prior REMOVED; zero 5xx since deploy; `GET
+  /health` 200; CRM SPA 200; `/api/wizmatch/staffing/analytics?from=2026-06-01&to=2026-06-30` → 401
+  (route intact with the new params, not 500).
+
+**Note / follow-up**
+- The Reports date range defaults to the last 30 days, so revenue/starts/funnel now show that window
+  by default instead of all-time; clearing the date chip restores all-time (intended, consistent with
+  the discovery metrics). Remaining Reports follow-up: Status is single-select; Placements
+  recruiter/prime filters still need backend fields.
+
+---
+
 ## 2026-07-16 — Comprehensive filters on every Wizmatch page (shared filter system) — Claude — LIVE PRODUCTION
 
 **What went live** (`a05582f..d7906e0` fast-forward onto `main`, 7 commits; Railway deploy `88cd21cf` SUCCESS)
