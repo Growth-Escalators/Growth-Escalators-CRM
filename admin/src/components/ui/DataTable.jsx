@@ -22,9 +22,12 @@ export default function DataTable({
   onRowClick,
   loading = false,
   emptyText = 'No results found',
+  sort = null,
+  onSort = null,
 }) {
   const selectable = !!onToggleRow;
   const allSelected = rows.length > 0 && rows.every((r) => selectedIds.has(r[rowKey]));
+  const sortArrow = (key) => (sort && sort.key === key ? (sort.dir === 'desc' ? ' ↓' : ' ↑') : '');
 
   return (
     <div className="bg-white border border-neutral-200 rounded-lg shadow-card overflow-hidden">
@@ -41,16 +44,23 @@ export default function DataTable({
                 />
               </th>
             )}
-            {columns.map((col) => (
-              <th
-                key={col.key}
-                style={col.width ? { width: col.width } : undefined}
-                className="bg-neutral-50 border-b border-neutral-200 text-left px-3 py-3
-                  text-[11px] font-semibold uppercase tracking-wider text-neutral-500"
-              >
-                {col.label}
-              </th>
-            ))}
+            {columns.map((col) => {
+              const sortable = col.sortable && onSort;
+              return (
+                <th
+                  key={col.key}
+                  style={col.width ? { width: col.width } : undefined}
+                  className="bg-neutral-50 border-b border-neutral-200 text-left px-3 py-3
+                    text-[11px] font-semibold uppercase tracking-wider text-neutral-500"
+                >
+                  {sortable ? (
+                    <button type="button" onClick={() => onSort(col.key)} className="inline-flex items-center gap-0.5 uppercase tracking-wider hover:text-neutral-800">
+                      {col.label}<span className="text-primary-600">{sortArrow(col.key)}</span>
+                    </button>
+                  ) : col.label}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>

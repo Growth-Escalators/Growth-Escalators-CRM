@@ -107,15 +107,26 @@ export function assertStageTransition(from: string, to: string) {
 export function createWizmatchStaffingService(dbPool: TransactionPool = pool) {
   return {
     async listCompanies(tenantId: string, search = '') {
+      // Returns the CI qualification tier + target region (via a 1-row LATERAL)
+      // and prime/ats/employee fields so the Companies page can filter on them
+      // client-side (the list is small and also fanned out by Hiring Contacts, so
+      // it stays a single capped call rather than server-paginated).
       const result = await (dbPool as unknown as Queryable).query(
-        `SELECT c.id,c.name,c.domain,c.industry,c.country,
+        `SELECT c.id,c.name,c.domain,c.industry,c.country,c.is_prime,c.ats_type,c.employee_count,
+                ci.tier, ci.region,
                 COUNT(DISTINCT cc.id)::int AS contact_count,
                 COUNT(DISTINCT r.id) FILTER (WHERE r.stage NOT IN ('filled','closed_lost','cancelled'))::int AS open_requirement_count
          FROM wizmatch_companies c
+         LEFT JOIN LATERAL (
+           SELECT qualification_tier AS tier, target_region AS region
+           FROM wizmatch_company_intelligence i
+           WHERE i.company_id=c.id AND i.tenant_id=c.tenant_id
+           ORDER BY i.created_at DESC NULLS LAST LIMIT 1
+         ) ci ON true
          LEFT JOIN wizmatch_company_contacts cc ON cc.company_id=c.id AND cc.tenant_id=c.tenant_id AND cc.relationship_stage='active'
          LEFT JOIN wizmatch_requirements r ON r.company_id=c.id AND r.tenant_id=c.tenant_id
          WHERE c.tenant_id=$1 AND ($2='' OR c.name ILIKE '%' || $2 || '%' OR COALESCE(c.domain,'') ILIKE '%' || $2 || '%')
-         GROUP BY c.id ORDER BY c.name LIMIT 200`,
+         GROUP BY c.id, ci.tier, ci.region ORDER BY c.name LIMIT 500`,
         [tenantId, search.trim()],
       );
       return result.rows;
