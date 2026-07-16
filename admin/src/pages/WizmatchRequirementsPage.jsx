@@ -7,7 +7,6 @@ import MatchExplanation from '../components/wizmatch/MatchExplanation.jsx';
 import DataTable from '../components/ui/DataTable.jsx';
 import FilterBar from '../components/wizmatch/filters/FilterBar.jsx';
 import { useTableControls } from '../components/wizmatch/filters/useTableControls.js';
-import { applySort } from '../components/wizmatch/filters/filterPipeline.js';
 import { exportRowsToCsv } from '../components/wizmatch/filters/exportCsv.js';
 
 const STATUS_BADGE = {
@@ -185,9 +184,17 @@ export default function WizmatchRequirementsPage() {
     setSearchParams((prev) => { const next = new URLSearchParams(prev); next.delete('id'); return next; }, { replace: true });
   };
 
-  // Server page: sort the current page's rows client-side (global ORDER BY would
-  // need backend support — a later refinement).
-  const rows = applySort(items, ctl.sort, columns);
+  // Server page: the backend applies the global ORDER BY (sort=<col>:<dir>), so
+  // render rows in server order.
+  const rows = items;
+  // Export the full filtered set (not just this page) — re-fetch current
+  // filters/sort at the backend max limit; visible columns only.
+  const exportCsv = async () => {
+    try {
+      const data = await apiFetch(`/api/wizmatch/requirements?${ctl.toQueryParams({ limit: 1000 })}`);
+      exportRowsToCsv(data.items || [], ctl.visibleColumns, 'requirements.csv');
+    } catch (e) { console.error(e); }
+  };
   const rangeStart = total === 0 ? 0 : ctl.page * REQ_PAGE_SIZE + 1;
   const rangeEnd = Math.min((ctl.page + 1) * REQ_PAGE_SIZE, total);
   const hasPrev = ctl.page > 0;
@@ -227,7 +234,7 @@ export default function WizmatchRequirementsPage() {
         columns={columns}
         hiddenColumns={ctl.hiddenColumns}
         toggleColumn={ctl.toggleColumn}
-        onExport={() => exportRowsToCsv(rows, ctl.visibleColumns, 'requirements.csv')}
+        onExport={exportCsv}
         presets={ctl.presets}
         savePreset={ctl.savePreset}
         applyPreset={ctl.applyPreset}

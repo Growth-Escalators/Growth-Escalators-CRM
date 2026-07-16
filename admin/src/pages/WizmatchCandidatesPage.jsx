@@ -11,7 +11,6 @@ import { useToast } from '../components/wizmatch/Toast.jsx';
 import MatchExplanation from '../components/wizmatch/MatchExplanation.jsx';
 import FilterBar from '../components/wizmatch/filters/FilterBar.jsx';
 import { useTableControls } from '../components/wizmatch/filters/useTableControls.js';
-import { applySort } from '../components/wizmatch/filters/filterPipeline.js';
 import { exportRowsToCsv } from '../components/wizmatch/filters/exportCsv.js';
 
 const VISA_BADGE = { H1B: 'badge-info', GC: 'badge-success', USC: 'badge-info', OPT: 'badge-warning' };
@@ -64,9 +63,17 @@ export default function WizmatchCandidatesPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Server page: sort the current page's rows client-side (global ordering would
-  // need backend ORDER BY support — a later refinement).
-  const rows = applySort(candidates, ctl.sort, CANDIDATE_COLUMNS);
+  // Server page: the backend applies the global ORDER BY (sort=<col>:<dir>), so
+  // render rows in server order.
+  const rows = candidates;
+  // Export the full filtered set (not just this page) — re-fetch the current
+  // filters/sort at the backend max limit; visible columns only.
+  const exportCsv = async () => {
+    try {
+      const data = await apiFetch(`/api/wizmatch/candidates?${toQueryParams({ limit: 1000 })}`);
+      exportRowsToCsv(data.items || [], ctl.visibleColumns, 'candidates.csv');
+    } catch (e) { console.error(e); }
+  };
   const rangeStart = total === 0 ? 0 : page * PAGE_SIZE + 1;
   const rangeEnd = Math.min((page + 1) * PAGE_SIZE, total);
   const hasPrev = page > 0;
@@ -103,7 +110,7 @@ export default function WizmatchCandidatesPage() {
         columns={CANDIDATE_COLUMNS}
         hiddenColumns={ctl.hiddenColumns}
         toggleColumn={ctl.toggleColumn}
-        onExport={() => exportRowsToCsv(rows, ctl.visibleColumns, 'candidates.csv')}
+        onExport={exportCsv}
         presets={ctl.presets}
         savePreset={ctl.savePreset}
         applyPreset={ctl.applyPreset}

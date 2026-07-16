@@ -6,7 +6,6 @@ import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import DataTable from '../components/ui/DataTable.jsx';
 import FilterBar from '../components/wizmatch/filters/FilterBar.jsx';
 import { useTableControls } from '../components/wizmatch/filters/useTableControls.js';
-import { applySort } from '../components/wizmatch/filters/filterPipeline.js';
 import { exportRowsToCsv } from '../components/wizmatch/filters/exportCsv.js';
 
 const STATUS_BADGE = {
@@ -138,7 +137,17 @@ export default function WizmatchSignalsPage() {
     }
   };
 
-  const rows = applySort(signals, ctl.sort, SIGNAL_COLUMNS);
+  // Server page: the backend applies the global ORDER BY (sort=<col>:<dir>), so
+  // render rows in server order.
+  const rows = signals;
+  // Export the full filtered set (not just this page) — re-fetch current
+  // filters/sort at the backend max limit; visible columns only.
+  const exportCsv = async () => {
+    try {
+      const data = await apiFetch(`/api/wizmatch/signals?${toQueryParams({ limit: 1000 })}`);
+      exportRowsToCsv(data.items || [], ctl.visibleColumns, 'job-signals.csv');
+    } catch (e) { console.error(e); }
+  };
 
   return (
     <div className="p-6">
@@ -177,7 +186,7 @@ export default function WizmatchSignalsPage() {
         columns={SIGNAL_COLUMNS}
         hiddenColumns={ctl.hiddenColumns}
         toggleColumn={ctl.toggleColumn}
-        onExport={() => exportRowsToCsv(rows, ctl.visibleColumns, 'job-signals.csv')}
+        onExport={exportCsv}
         presets={ctl.presets}
         savePreset={ctl.savePreset}
         applyPreset={ctl.applyPreset}

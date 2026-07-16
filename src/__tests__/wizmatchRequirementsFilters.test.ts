@@ -71,6 +71,19 @@ describe('GET /requirements — filter params', () => {
     expect(dataParams).toContainEqual(['A', 'B']);
   });
 
+  it('sort=<col>:<dir> emits an allowlisted ORDER BY + stable tiebreaker; unknown/hostile keys fall back safely', async () => {
+    await listRequirementsHandler()(req({ sort: 'budget:desc' }), mockRes());
+    const [okSql] = poolQuery.mock.calls[0];
+    expect(okSql).toContain('ORDER BY COALESCE(r.budget_max, r.budget_min) DESC NULLS LAST, r.created_at DESC');
+
+    poolQuery.mockReset();
+    poolQuery.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ total: 0 }] });
+    await listRequirementsHandler()(req({ sort: 'evil; DROP TABLE requirements:asc' }), mockRes());
+    const [safeSql] = poolQuery.mock.calls[0];
+    expect(safeSql).toContain('ORDER BY r.created_at DESC'); // fallback, never the injected text
+    expect(safeSql).not.toContain('DROP TABLE');
+  });
+
   it('has_matches adds an EXISTS match subquery only when set to 1', async () => {
     await listRequirementsHandler()(req({ has_matches: '1' }), mockRes());
     const [withFlag] = poolQuery.mock.calls[0];
