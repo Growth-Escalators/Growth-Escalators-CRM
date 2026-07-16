@@ -2,7 +2,24 @@
 
 _Update this when the working state of the repo meaningfully changes. Keep it short and true._
 
-## 2026-07-16 Matching reachable + discardable draft requirements (current)
+## 2026-07-16 India-only sourcing (current)
+
+- `origin/main` = `ade021a` (fast-forward; Railway deploy `b508ecc1` SUCCESS).
+- `WIZMATCH_INDIA_ONLY` flag (default on, no infra change). ATS poller drops confident-US postings
+  at ingest (keeps India + remote/blank); X-Ray seed queries all Indian metros; `GET /signals`
+  excludes confident-US by default (`region=all` bypass, `region=us` invert); Job Leads "India only /
+  All regions" toggle (default India); Requirements default India; "Outreach" nav decoy removed.
+- Region helpers `isIndiaLocation` / `isConfidentUsLocation` / `passesIndiaOnlyIngestion` in
+  `src/config/constants.ts`. TheirStack + SearchAPI already India-scoped.
+- Live: Job Leads default 6714→3819 (US hidden), toggle restores 6714 (US preserved), Outreach gone,
+  zero console/Railway 5xx.
+- **Known limitation**: the filter is "exclude confident-US, keep ambiguous", so non-US non-India
+  roles (Spotify São Paulo/Korea, Airbnb) still appear in the India view. Strict India-only would
+  exclude all confident non-India places (tradeoff: could hide India roles labelled only Remote/Global).
+- No schema/migration; existing US rows kept (hidden). Tests: 428 Vitest, admin build, Playwright
+  97 passed/15 skipped.
+
+## 2026-07-16 Matching reachable + discardable draft requirements
 
 - `origin/main` = `5cb7c31` (fast-forward; Railway deploy `f4274479` SUCCESS).
 - The Gate-B matcher is now reachable through the UI: a "Recalculate matches" button in the

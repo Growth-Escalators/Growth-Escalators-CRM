@@ -2,7 +2,24 @@
 
 ## Active task
 
-**SHIPPED 2026-07-16 (`origin/main` = `5cb7c31`, Railway deploy `f4274479` SUCCESS): candidate
+**SHIPPED 2026-07-16 (`origin/main` = `ade021a`, Railway deploy `b508ecc1` SUCCESS): India-only
+sourcing.** Behind a `WIZMATCH_INDIA_ONLY` flag (default on, no infra change): the ATS poller drops
+confident-US postings at ingest (keeps India + remote/blank — neutralizes US even if a US company
+keeps polling, so no `ats_type` cleanup); X-Ray seed queries are now all Indian metros; the signals
+list (`GET /signals`) excludes confident-US by default (`region=all` bypass, `region=us` invert);
+Job Leads has an "India only / All regions" toggle (default India) and Requirements default to India;
+the misleading "Outreach" nav decoy (Growth Saleshandy dashboard) was removed. TheirStack + SearchAPI
+were already India-scoped. No schema/migration; existing US rows kept (hidden), viewable via the
+toggle. **Live-verified**: Job Leads default 6714→3819 (US hidden), toggle restores 6714, Outreach
+gone, zero console errors / Railway 5xx. **Known limitation / recommended next step**: the rule is
+"exclude confident-US, keep ambiguous", so non-US **non-India** roles (e.g. Spotify São Paulo/Korea,
+Airbnb) still show in the India view; tightening to *strict* India-only means excluding all confident
+non-India places (with the tradeoff that an India role labelled only "Remote/Global" could be hidden).
+Also still open: the broken cold-outreach send loop; the deferred region-column migration.
+
+## Prior task — matching reachable + discardable drafts (SHIPPED `5cb7c31`)
+
+**SHIPPED 2026-07-16 (Railway deploy `f4274479` SUCCESS): candidate
 matching is now reachable through the UI + draft requirements are discardable.** The actionable
 Gate-B matcher (`POST /staffing/requirements/:id/matches/recalculate`) had no UI trigger and the
 Talent Matching workspace was hidden, so a user couldn't get from a requirement to recalculated

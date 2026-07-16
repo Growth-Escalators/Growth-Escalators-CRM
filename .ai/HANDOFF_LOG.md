@@ -2672,3 +2672,47 @@ from a requirement to recalculated, decidable matched candidates through the pro
   draft-cascade rule; nav/registry tests updated for the promoted Talent Matching entry); Playwright
   95 passed / 15 skipped. Guardrails clean: no schema/migration/auth/rbac/cashfree/sodEod change, no
   new env var, no pilot-flag change.
+
+## 2026-07-16 — India-only sourcing — Claude — SHIPPED TO PRODUCTION
+
+**Why:** the product owner wants Wizmatch to source hiring leads/details for India only, no US. A
+2-agent flow + region audit found there was **no hard region gate** — "India-first" was only a soft
+scoring bonus, region isn't stored on signals, and US entered via (1) the ATS poller (polls each
+company board globally, no country filter — main US vector) and (2) X-Ray seed queries (half US
+cities). TheirStack + SearchAPI were already IN-scoped. Owner chose: gate the source + filter the
+UI, **leave existing US data** (no migration/purge).
+
+**What shipped** (`origin/main` `4a205b8`→`ade021a`, fast-forward; Railway `b508ecc1` SUCCESS) —
+all behind `WIZMATCH_INDIA_ONLY` (default true, no infra change):
+- Region helpers in `src/config/constants.ts` (`isIndiaLocation`, `isConfidentUsLocation`,
+  `passesIndiaOnlyIngestion`) + India/US marker lists.
+- **ATS poller** (`wizmatchAtsPoller.ts`): drops confident-US postings at ingest next to the
+  role-relevance filter — keeps India + remote/blank. Neutralizes US even if a US company keeps
+  polling, so no `ats_type` cleanup needed.
+- **X-Ray** (`wizmatchXrayScraper.ts`): `INDIA_XRAY_QUERIES` (all Indian metros) is used when the
+  flag is on; `GLOBAL_XRAY_QUERIES` (legacy US+India) retained for flag-off.
+- **Signals list** (`GET /signals`): default excludes confident-US (`location` matches a US marker
+  AND not an India marker), keeping India/ambiguous/remote/blank; `region=all` bypass, `region=us`
+  invert. Hides existing US without deleting.
+- **UI**: Job Leads "India only / All regions" toggle (default India); Requirements default India;
+  removed the "Outreach" nav decoy (it opened the Growth Saleshandy dashboard).
+
+**Live verification** (read-mostly, no records created): Job Leads default request now carries
+`region=india`; total **6714 → 3819** (confident-US hidden); the "All regions" toggle sends
+`region=all` and restores **6714** (US preserved, not deleted); the "Outreach" decoy is gone from
+Wizmatch nav (Communication now = Inbox / Email / WhatsApp); zero browser console errors; **zero
+Railway 5xx** since deploy. Ingestion gate is cron-side (covered by unit tests; can't trigger a cron
+read-only) — new US won't ingest.
+
+**Known limitation / recommended next step:** the display + ingestion rule is "exclude confident-US,
+keep ambiguous", so non-US **non-India** roles (e.g. Spotify São Paulo/South Korea, Airbnb) still
+appear in the India view. To make it *strictly* India-only, broaden the exclusion to all confident
+non-India places (US + other foreign cities/countries), keeping the isIndia-wins guard — tradeoff:
+an India role labelled only "Remote"/"Global" (no India marker) could be hidden. Awaiting owner steer.
+
+**Other follow-ups (unchanged):** the broken cold-outreach send loop (P0s from the flow audit) is
+the biggest remaining gap; a proper `region` column + backfill on signals was deferred; brand strings
+still say "US & India" (`constants.ts:50`) + Newark DE address — positioning/compliance, owner's call.
+
+**Guardrails:** no schema/migration/auth/rbac/cashfree/sodEod change; only the optional
+`WIZMATCH_INDIA_ONLY` env var added. Tests: 428 Vitest, admin build, Playwright 97 passed/15 skipped.
