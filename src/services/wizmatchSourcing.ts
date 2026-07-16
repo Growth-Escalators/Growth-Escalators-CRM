@@ -215,6 +215,31 @@ export async function withWizmatchSourceLock<T>(tenantId: string, provider: stri
   } finally { client.release(); }
 }
 
+// A process crash between spending a SearchAPI/provider credit and calling
+// finishSourceRun() leaves a wizmatch_source_runs row stuck at
+// status='running' forever with quota_consumed at its INSERT-time default
+// of 0 — the credit was genuinely spent (the provider call happened), but
+// getSearchApiRunUsage()'s SUM(quota_consumed) never sees it, so the cost
+// cap silently undercounts by however many crashes have occurred. Flips
+// any run that's been "running" past a generous threshold (provider calls
+// here normally complete in seconds) to failed, crediting it with at least
+// 1 consumed unit — better to overcount a genuinely-ambiguous crash than
+// let it permanently vanish from the budget.
+const STALE_SOURCE_RUN_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
+
+export async function recoverStaleWizmatchSourceRuns(): Promise<number> {
+  const threshold = new Date(Date.now() - STALE_SOURCE_RUN_THRESHOLD_MS);
+  const result = await pool.query(
+    `UPDATE wizmatch_source_runs
+     SET status='failed', quota_consumed=GREATEST(quota_consumed,1),
+         error_message=COALESCE(error_message,'stale_running_recovered'), finished_at=NOW()
+     WHERE status='running' AND started_at < $1
+     RETURNING id`,
+    [threshold],
+  );
+  return result.rowCount || 0;
+}
+
 export async function createSourceRun(input: {
   tenantId: string; provider: WizmatchSourceProvider; trigger?: 'manual' | 'scheduled';
   requirementId?: string | null; companyId?: string | null; query?: Record<string, unknown>;
@@ -334,9 +359,32 @@ export async function promoteSignalToRequirement(tenantId: string, signalId: str
   } finally { client.release(); }
 }
 
+// Two concurrent calls for the same tenant (even for different companies —
+// the SearchAPI cap in assertSearchApiAllowance is tenant-wide, summed
+// across all companies) could both read the same usage count, both pass
+// the allowance check, and both spend — pushing usage past the configured
+// cap with nothing left to stop it. withWizmatchSourceLock serializes all
+// POC discovery for a tenant behind a non-blocking Postgres advisory lock;
+// a concurrent caller gets a clear "busy, retry" error instead of racing
+// the check-then-spend window below.
 export async function discoverFreePocsForSignal(tenantId: string, signalId: string, userId: string, roles?: PocRole[]) {
   const config = getWizmatchSourcingConfig();
   if (!config.pocDiscoveryEnabled) throw new Error('POC discovery is disabled');
+  const result = await withWizmatchSourceLock(tenantId, 'poc_discovery', () =>
+    discoverFreePocsForSignalLocked(tenantId, signalId, userId, roles));
+  if (result === null) {
+    throw new PocDiscoveryError(
+      'poc_discovery_busy',
+      'Another POC research request is already running for this tenant. Please retry shortly.',
+      true,
+      5,
+    );
+  }
+  return result;
+}
+
+async function discoverFreePocsForSignalLocked(tenantId: string, signalId: string, userId: string, roles?: PocRole[]) {
+  const config = getWizmatchSourcingConfig();
   const pocRoles = normalizePocRoles(roles);
   const signal = await pool.query(
     `SELECT s.id,s.company_id,c.name AS company_name,c.domain

@@ -6,6 +6,7 @@ import cron from 'node-cron';
 import { db, pool } from './db/index';
 import { sql } from 'drizzle-orm';
 import { startStuckJobWorker } from './workers/stuckJobWorker';
+import { startStaleWizmatchSourceRunWorker } from './workers/staleWizmatchSourceRunWorker';
 import { startSequenceWorker } from './workers/sequenceWorker';
 import { startSocialPostWorker } from './workers/socialPostWorker';
 import { startEdgeQueueDrainer, stopEdgeQueueDrainer } from './services/edgeQueueDrainer';
@@ -83,6 +84,7 @@ pool.query(`
 // Background workers
 // ---------------------------------------------------------------------------
 startStuckJobWorker();
+startStaleWizmatchSourceRunWorker();
 startSequenceWorker();
 startSocialPostWorker();
 // Drain landing-page events queued by Vercel edge functions when Railway was
