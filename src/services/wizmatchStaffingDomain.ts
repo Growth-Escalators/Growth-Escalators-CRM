@@ -230,6 +230,39 @@ export function createWizmatchStaffingService(dbPool: TransactionPool = pool) {
       return result.rows;
     },
 
+    async listHiringContacts(tenantId: string, search = '') {
+      const result = await (dbPool as unknown as Queryable).query(
+        `SELECT cc.id,cc.company_id,cc.contact_id,cc.relationship_stage,cc.owner_user_id,cc.source_type,
+                cc.source_confidence,cc.last_activity_at,cc.next_action,cc.next_action_due_at,
+                comp.name AS company_name,p.first_name,p.last_name,p.last_contacted_at,
+                owner.name AS owner_name,
+                COALESCE(array_agg(DISTINCT ccr.role) FILTER (WHERE ccr.active),'{}') AS roles,
+                (SELECT channel_value FROM contact_channels ch WHERE ch.tenant_id=cc.tenant_id AND ch.contact_id=p.id AND ch.channel_type='email' ORDER BY ch.is_primary DESC,ch.created_at LIMIT 1) AS email,
+                (SELECT channel_value FROM contact_channels ch WHERE ch.tenant_id=cc.tenant_id AND ch.contact_id=p.id AND ch.channel_type IN ('phone','whatsapp') ORDER BY ch.is_primary DESC,ch.created_at LIMIT 1) AS phone,
+                CASE
+                  WHEN EXISTS(SELECT 1 FROM contact_channels ch WHERE ch.tenant_id=cc.tenant_id AND ch.contact_id=p.id AND ch.verified=true AND ch.channel_type IN ('email','phone','whatsapp','linkedin')) THEN 'verified'
+                  WHEN EXISTS(SELECT 1 FROM contact_channels ch WHERE ch.tenant_id=cc.tenant_id AND ch.contact_id=p.id AND ch.channel_type IN ('email','phone','whatsapp','linkedin')) THEN 'identified_channel_pending'
+                  ELSE 'pending_research'
+                END AS verification_state,
+                COUNT(DISTINCT rc.requirement_id) FILTER (WHERE rc.active)::int AS requirement_count,
+                COUNT(DISTINCT req.id) FILTER (WHERE rc.active AND req.stage NOT IN ('filled','closed_lost','cancelled'))::int AS open_requirement_count
+         FROM wizmatch_company_contacts cc
+         JOIN wizmatch_companies comp ON comp.id=cc.company_id AND comp.tenant_id=cc.tenant_id
+         JOIN contacts p ON p.id=cc.contact_id AND p.tenant_id=cc.tenant_id
+         LEFT JOIN users owner ON owner.id=cc.owner_user_id AND owner.tenant_id=cc.tenant_id
+         LEFT JOIN wizmatch_company_contact_roles ccr ON ccr.company_contact_id=cc.id AND ccr.tenant_id=cc.tenant_id
+         LEFT JOIN wizmatch_requirement_contacts rc ON rc.company_contact_id=cc.id AND rc.tenant_id=cc.tenant_id
+         LEFT JOIN wizmatch_requirements req ON req.id=rc.requirement_id AND req.tenant_id=rc.tenant_id
+         WHERE cc.tenant_id=$1 AND cc.relationship_stage='active'
+           AND ($2='' OR concat_ws(' ',p.first_name,p.last_name,comp.name) ILIKE '%' || $2 || '%'
+             OR EXISTS(SELECT 1 FROM contact_channels ch WHERE ch.tenant_id=$1 AND ch.contact_id=p.id AND ch.channel_value ILIKE '%' || $2 || '%'))
+         GROUP BY cc.id,comp.id,p.id,owner.id
+         ORDER BY cc.last_activity_at DESC NULLS LAST,p.first_name LIMIT 200`,
+        [tenantId, search.trim()],
+      );
+      return result.rows;
+    },
+
     async searchContacts(tenantId: string, search = '') {
       const result = await (dbPool as unknown as Queryable).query(
         `SELECT c.id,c.first_name,c.last_name,c.company_name,
@@ -273,15 +306,74 @@ export function createWizmatchStaffingService(dbPool: TransactionPool = pool) {
     },
 
     async getRequirement360(tenantId: string, requirementId: string) {
-      const requirement = await (dbPool as unknown as Queryable).query(`SELECT r.*,c.name AS company_name FROM wizmatch_requirements r LEFT JOIN wizmatch_companies c ON c.id=r.company_id AND c.tenant_id=r.tenant_id WHERE r.tenant_id=$1 AND r.id=$2`, [tenantId, requirementId]);
+      const requirement = await (dbPool as unknown as Queryable).query(
+        `SELECT r.*,c.name AS company_name,s.source AS source_signal_provider,s.provider_id AS source_signal_provider_id,
+                s.job_title AS source_signal_title,s.job_url AS source_signal_url,s.status AS source_signal_status
+         FROM wizmatch_requirements r
+         LEFT JOIN wizmatch_companies c ON c.id=r.company_id AND c.tenant_id=r.tenant_id
+         LEFT JOIN wizmatch_job_signals s ON s.id=r.source_job_signal_id AND s.tenant_id=r.tenant_id
+         WHERE r.tenant_id=$1 AND r.id=$2`,
+        [tenantId, requirementId],
+      );
       if (!requirement.rowCount) throw new StaffingDomainError(404, 'not_found', 'Requirement was not found');
-      const [contactsResult, assignments, events, tasksResult] = await Promise.all([
+      const [contactsResult, assignments, events, tasksResult, readinessResult, countsResult, requirementSkillsResult] = await Promise.all([
         this.listRequirementContacts(tenantId, requirementId),
         this.listAssignments(tenantId, requirementId),
         this.getTimeline(tenantId, requirementId),
         (dbPool as unknown as Queryable).query(`SELECT t.* FROM tasks t JOIN wizmatch_task_links l ON l.task_id=t.id AND l.tenant_id=t.tenant_id WHERE t.tenant_id=$1 AND l.requirement_id=$2 ORDER BY t.status,t.due_at`, [tenantId, requirementId]),
+        (dbPool as unknown as Queryable).query(
+          `SELECT
+             EXISTS(SELECT 1 FROM wizmatch_requirement_contacts rc WHERE rc.tenant_id=$1 AND rc.requirement_id=$2 AND rc.active AND rc.is_primary_source) AS has_primary_source,
+             EXISTS(SELECT 1 FROM wizmatch_requirement_contacts rc JOIN wizmatch_company_contacts cc ON cc.id=rc.company_contact_id AND cc.tenant_id=rc.tenant_id JOIN contact_channels ch ON ch.contact_id=cc.contact_id AND ch.tenant_id=rc.tenant_id WHERE rc.tenant_id=$1 AND rc.requirement_id=$2 AND rc.active AND rc.is_primary_source AND ch.channel_type IN ('email','phone','whatsapp') AND COALESCE(ch.channel_value,'')<>'') AS has_primary_channel,
+             EXISTS(SELECT 1 FROM wizmatch_requirement_assignments a WHERE a.tenant_id=$1 AND a.requirement_id=$2 AND a.active AND a.role='account_owner') AS has_account_owner,
+             EXISTS(SELECT 1 FROM wizmatch_requirement_assignments a WHERE a.tenant_id=$1 AND a.requirement_id=$2 AND a.active AND a.role='recruiter') AS has_recruiter,
+             EXISTS(SELECT 1 FROM wizmatch_requirement_skills rs WHERE rs.tenant_id=$1 AND rs.requirement_id=$2 AND rs.importance='mandatory') AS has_mandatory_skill`,
+          [tenantId, requirementId],
+        ),
+        (dbPool as unknown as Queryable).query(
+          `SELECT
+             (SELECT COUNT(*)::int FROM wizmatch_requirement_skills WHERE tenant_id=$1 AND requirement_id=$2) AS skill_count,
+             (SELECT COUNT(*)::int FROM wizmatch_candidate_requirement_matches WHERE tenant_id=$1 AND requirement_id=$2) AS match_count,
+             (SELECT COUNT(*)::int FROM wizmatch_candidate_requirement_matches WHERE tenant_id=$1 AND requirement_id=$2 AND human_decision='shortlisted') AS shortlist_count,
+             (SELECT COUNT(*)::int FROM wizmatch_submissions WHERE tenant_id=$1 AND requirement_id=$2) AS submission_count,
+             (SELECT COUNT(*)::int FROM wizmatch_placements WHERE tenant_id=$1 AND requirement_id=$2) AS placement_count,
+             (SELECT COUNT(DISTINCT invoice_id)::int FROM wizmatch_placements WHERE tenant_id=$1 AND requirement_id=$2 AND invoice_id IS NOT NULL) AS invoice_count,
+             (SELECT COUNT(DISTINCT payment.id)::int
+              FROM wizmatch_placements placement
+              JOIN payments payment ON payment.invoice_id=placement.invoice_id AND payment.tenant_id=placement.tenant_id
+              WHERE placement.tenant_id=$1 AND placement.requirement_id=$2) AS collection_count`,
+          [tenantId, requirementId],
+        ),
+        (dbPool as unknown as Queryable).query(
+          `SELECT rs.id,rs.skill_id,rs.importance,rs.minimum_years,rs.evidence,rs.allow_broad_family,
+                  skill.canonical_label,skill.family,skill.specialization,skill.platform_version
+           FROM wizmatch_requirement_skills rs
+           JOIN wizmatch_skills skill ON skill.id=rs.skill_id AND skill.tenant_id=rs.tenant_id
+           WHERE rs.tenant_id=$1 AND rs.requirement_id=$2
+           ORDER BY CASE rs.importance WHEN 'mandatory' THEN 0 ELSE 1 END,skill.canonical_label`,
+          [tenantId, requirementId],
+        ),
       ]);
-      return { requirement: requirement.rows[0], contacts: contactsResult, assignments, events, tasks: tasksResult.rows };
+      const readiness = buildRequirementReadiness(requirement.rows[0], readinessResult.rows[0] || {});
+      return {
+        requirement: requirement.rows[0],
+        contacts: contactsResult,
+        assignments,
+        events,
+        tasks: tasksResult.rows,
+        requirementSkills: requirementSkillsResult.rows,
+        readiness,
+        allowedTransitions: allowedRequirementTransitions(requirement.rows[0].stage || 'draft', readiness.acceptance.ready),
+        sourceTrace: requirement.rows[0].source_job_signal_id ? {
+          jobSignalId: requirement.rows[0].source_job_signal_id,
+          provider: requirement.rows[0].source_signal_provider,
+          providerId: requirement.rows[0].source_signal_provider_id,
+          title: requirement.rows[0].source_signal_title,
+          url: requirement.rows[0].source_signal_url,
+          status: requirement.rows[0].source_signal_status,
+        } : null,
+        relatedCounts: countsResult.rows[0] || { skill_count: 0, match_count: 0, shortlist_count: 0, submission_count: 0, placement_count: 0, invoice_count: 0, collection_count: 0 },
+      };
     },
 
     async listCompanyContacts(tenantId: string, companyId: string) {
