@@ -340,7 +340,7 @@ export default function WizmatchAnalyticsPage({ demoMode = false }) {
     { key: 'period', label: 'Period', type: 'dateRange' },
     { key: 'company', label: 'Company', type: 'search', placeholder: 'Company…' },
     { key: 'skill', label: 'Skill', type: 'search', placeholder: 'Skill…' },
-    { key: 'status', label: 'Req status', type: 'multiselect', options: REPORTS_STATUS_OPTIONS },
+    { key: 'status', label: 'Status', type: 'select', options: REPORTS_STATUS_OPTIONS, placeholder: 'Any status' },
     { key: 'recruiter', label: 'Recruiter', type: 'select', options: recruiters.map((u) => ({ value: u.id, label: u.name })), placeholder: 'Any recruiter' },
     { key: 'source', label: 'Source', type: 'select', options: sourceOptionsForSpec, placeholder: 'Any source' },
   ], [recruiters, sourceOptionsForSpec]);
@@ -349,7 +349,7 @@ export default function WizmatchAnalyticsPage({ demoMode = false }) {
   const toParam = ctl.filters.period?.to || '';
   const companyParam = ctl.filters.company || '';
   const skillParam = ctl.filters.skill || '';
-  const statusParam = (ctl.filters.status || []).join(',');
+  const statusParam = ctl.filters.status || '';
   const recruiterParam = ctl.filters.recruiter || '';
   const sourceParam = ctl.filters.source || '';
 
