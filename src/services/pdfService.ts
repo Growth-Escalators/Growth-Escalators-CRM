@@ -1,4 +1,43 @@
 import PDFDocument from 'pdfkit';
+import path from 'path';
+
+// pdfkit's built-in fonts (Helvetica etc.) are WinAnsi-encoded and render any
+// Devanagari code point (U+0900-U+097F — Hindi/Marathi/Sanskrit script) as a
+// blank glyph. A client billed under a Devanagari-script legal name would get
+// an unreadable BILL TO block on their tax invoice. These embedded fonts fix
+// that for the two fields most likely to carry a client's own name.
+// Path mirrors src/scripts/migrate.ts's pattern for reaching sibling `src/`
+// files from compiled `dist/` at runtime (this repo ships `src/` alongside
+// `dist/` to Railway — see .railwayignore).
+const DEVANAGARI_FONT_REGULAR = path.join(__dirname, '..', '..', 'src', 'assets', 'fonts', 'NotoSansDevanagari-Regular.ttf');
+const DEVANAGARI_FONT_BOLD = path.join(__dirname, '..', '..', 'src', 'assets', 'fonts', 'NotoSansDevanagari-Bold.ttf');
+
+function isDevanagari(codePoint: number): boolean {
+  return codePoint >= 0x0900 && codePoint <= 0x097f;
+}
+
+// Splits a string into runs of consecutive Devanagari vs non-Devanagari
+// characters, so a name mixing scripts (e.g. "श्री राम Pvt Ltd") can be
+// rendered with the right font per run instead of one font for the whole
+// line. Devanagari font files ship no Latin glyphs and vice versa — pdfkit
+// does not do per-glyph font fallback, so this has to be done manually.
+function splitScriptRuns(text: string): Array<{ text: string; devanagari: boolean }> {
+  const runs: Array<{ text: string; devanagari: boolean }> = [];
+  let current = '';
+  let currentIsDevanagari: boolean | null = null;
+  for (const ch of text) {
+    const isDeva = isDevanagari(ch.codePointAt(0) ?? 0);
+    if (currentIsDevanagari === null || isDeva === currentIsDevanagari) {
+      current += ch;
+    } else {
+      runs.push({ text: current, devanagari: currentIsDevanagari });
+      current = ch;
+    }
+    currentIsDevanagari = isDeva;
+  }
+  if (current) runs.push({ text: current, devanagari: currentIsDevanagari ?? false });
+  return runs;
+}
 
 interface LineItem {
   description: string;
@@ -64,6 +103,38 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<Buffer> {
     doc.on('data', (chunk: Buffer) => buffers.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(buffers)));
     doc.on('error', reject);
+
+    // Register the Devanagari fonts on this document instance. Failure here
+    // (e.g. a deploy that somehow lost the font files) must not break
+    // invoice generation — fall back to Helvetica-only rendering, which is
+    // exactly today's behavior (Devanagari renders blank) rather than a 500.
+    let devanagariAvailable = true;
+    try {
+      doc.registerFont('NotoSansDevanagari', DEVANAGARI_FONT_REGULAR);
+      doc.registerFont('NotoSansDevanagari-Bold', DEVANAGARI_FONT_BOLD);
+    } catch {
+      devanagariAvailable = false;
+    }
+
+    // Renders text that may mix Latin (Helvetica) and Devanagari (embedded
+    // Noto Sans Devanagari) runs on a single line at (x, y). Restores the
+    // base font afterward so it doesn't leak into subsequent .text() calls
+    // elsewhere in this function.
+    function renderMixedScriptText(text: string, x: number, y: number, bold: boolean) {
+      const baseFont = bold ? 'Helvetica-Bold' : 'Helvetica';
+      if (!devanagariAvailable) {
+        doc.font(baseFont).text(text, x, y);
+        return;
+      }
+      const devFont = bold ? 'NotoSansDevanagari-Bold' : 'NotoSansDevanagari';
+      let cursorX = x;
+      for (const run of splitScriptRuns(text)) {
+        doc.font(run.devanagari ? devFont : baseFont);
+        doc.text(run.text, cursorX, y, { lineBreak: false });
+        cursorX += doc.widthOfString(run.text);
+      }
+      doc.font(baseFont);
+    }
 
     const W = 515;
     const primaryColor = '#1A3A5C';
@@ -133,12 +204,12 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<Buffer> {
     doc.fillColor(primaryColor).fontSize(11).font('Helvetica-Bold')
        .text('BILL TO', 310, 130);
 
-    doc.fillColor(darkGray).fontSize(10).font('Helvetica-Bold')
-       .text(data.clientName, 310, 148);
+    doc.fillColor(darkGray).fontSize(10);
+    renderMixedScriptText(data.clientName, 310, 148, true);
     doc.font('Helvetica').fontSize(9).fillColor(midGray);
 
     if (data.clientContactPerson) {
-      doc.text(`Attn: ${data.clientContactPerson}`, 310, 162);
+      renderMixedScriptText(`Attn: ${data.clientContactPerson}`, 310, 162, false);
     }
     doc.text(data.clientAddress, 310, data.clientContactPerson ? 176 : 162, { width: 230 });
     if (data.clientGstin) {

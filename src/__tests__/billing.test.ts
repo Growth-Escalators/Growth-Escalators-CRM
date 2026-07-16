@@ -1,27 +1,15 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { calculateTax } from '../services/recurringInvoiceService';
+import { getCurrentFinancialYear } from '../services/invoiceNumberService';
 
 // ---------------------------------------------------------------------------
-// Characterization tests for GST calculation logic
-// These mirror the calculateTax function from recurringInvoiceService.ts
+// GST calculation — imports the REAL calculateTax from
+// recurringInvoiceService.ts (M2 fix). The previous version of this file
+// re-implemented the function inline, so a real change to the production
+// tax math could break silently while every test stayed green.
 // ---------------------------------------------------------------------------
 
-function calculateTax(
-  subtotalPaise: number,
-  taxType: 'igst' | 'cgst_sgst' | null,
-) {
-  if (!taxType) {
-    return { cgstRate: 0, cgstAmount: 0, sgstRate: 0, sgstAmount: 0, igstRate: 0, igstAmount: 0, total: subtotalPaise };
-  }
-  if (taxType === 'cgst_sgst') {
-    const cgstAmount = Math.round(subtotalPaise * 0.09);
-    const sgstAmount = Math.round(subtotalPaise * 0.09);
-    return { cgstRate: 9, cgstAmount, sgstRate: 9, sgstAmount, igstRate: 0, igstAmount: 0, total: subtotalPaise + cgstAmount + sgstAmount };
-  }
-  const igstAmount = Math.round(subtotalPaise * 0.18);
-  return { cgstRate: 0, cgstAmount: 0, sgstRate: 0, sgstAmount: 0, igstRate: 18, igstAmount, total: subtotalPaise + igstAmount };
-}
-
-describe('GST Tax Calculation', () => {
+describe('GST Tax Calculation (real calculateTax)', () => {
   describe('CGST + SGST (intra-state)', () => {
     it('calculates 9% CGST + 9% SGST on subtotal', () => {
       const result = calculateTax(100000, 'cgst_sgst'); // 1000 INR in paise
@@ -96,21 +84,111 @@ describe('GST Tax Calculation', () => {
       const num = 'GE/INV/2025-26/042';
       expect(num).toMatch(/^GE\/INV\/\d{4}-\d{2}\/\d{3}$/);
     });
+  });
+});
 
-    it('financial year format: April-March', () => {
-      // March 2026 → FY 2025-26 (month < 4)
-      const now = new Date(2026, 2, 15); // March
-      const year = now.getFullYear();
-      const month = now.getMonth() + 1;
-      const fy = month >= 4 ? `${year}-${(year + 1).toString().slice(2)}` : `${year - 1}-${year.toString().slice(2)}`;
-      expect(fy).toBe('2025-26');
+// ---------------------------------------------------------------------------
+// Financial year boundary — the REAL getCurrentFinancialYear (H6 fix).
+// Computed in IST regardless of server-local timezone; Railway runs UTC,
+// which put the April 1 FY boundary 5.5 hours late under the old
+// server-local implementation.
+// ---------------------------------------------------------------------------
+describe('getCurrentFinancialYear (IST boundary, H6)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
-      // May 2026 → FY 2026-27 (month >= 4)
-      const now2 = new Date(2026, 4, 15); // May
-      const year2 = now2.getFullYear();
-      const month2 = now2.getMonth() + 1;
-      const fy2 = month2 >= 4 ? `${year2}-${(year2 + 1).toString().slice(2)}` : `${year2 - 1}-${year2.toString().slice(2)}`;
-      expect(fy2).toBe('2026-27');
-    });
+  it('March 2026 (well inside FY) → 2025-26', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-15T10:00:00Z'));
+    expect(getCurrentFinancialYear()).toBe('2025-26');
+  });
+
+  it('May 2026 (well inside next FY) → 2026-27', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-15T10:00:00Z'));
+    expect(getCurrentFinancialYear()).toBe('2026-27');
+  });
+
+  it('2026-03-31 23:59 IST (= 2026-03-31 18:29 UTC) → still 2025-26', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-31T18:29:00Z'));
+    expect(getCurrentFinancialYear()).toBe('2025-26');
+  });
+
+  it('2026-04-01 00:01 IST (= 2026-03-31 18:31 UTC) → rolls to 2026-27, not late', () => {
+    // This is the exact failure scenario from the review: under the old
+    // server-local (UTC) implementation, this UTC instant still reads
+    // month=3 (March) and would incorrectly return 2025-26.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-31T18:31:00Z'));
+    expect(getCurrentFinancialYear()).toBe('2026-27');
+  });
+
+  it('2026-04-01 05:29 IST (= 2026-03-31 23:59 UTC) → still correctly 2026-27', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-31T23:59:00Z'));
+    expect(getCurrentFinancialYear()).toBe('2026-27');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// peek vs claim (H5) — mocked at the db layer since these hit invoice_series.
+// ---------------------------------------------------------------------------
+const mockDbExecute = vi.fn();
+vi.mock('../db/index', () => ({
+  db: { execute: (...args: unknown[]) => mockDbExecute(...args) },
+}));
+
+// drizzle-orm's sql`` tagged template doesn't stringify usefully via
+// String(); the literal text lives in .queryChunks as StringChunk objects
+// (shape { value: string[] }) interleaved with raw parameter values.
+function extractSqlText(sqlObj: unknown): string {
+  const chunks = (sqlObj as { queryChunks?: unknown[] })?.queryChunks ?? [];
+  return chunks
+    .map((c) => {
+      if (typeof c === 'string') return c;
+      const value = (c as { value?: unknown[] })?.value;
+      return Array.isArray(value) ? value.join('') : '';
+    })
+    .join(' ');
+}
+
+describe('peekNextInvoiceNumber vs getNextInvoiceNumber (H5)', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    mockDbExecute.mockReset();
+  });
+
+  it('peek reads the current series without writing (SELECT only)', async () => {
+    mockDbExecute.mockResolvedValue({ rows: [{ last_number: 5 }] });
+    const { peekNextInvoiceNumber } = await import('../services/invoiceNumberService');
+
+    const result = await peekNextInvoiceNumber('tenant-1', 'gst');
+
+    expect(result.series).toBe(6); // preview of what WOULD be claimed next
+    expect(mockDbExecute).toHaveBeenCalledTimes(1);
+    const queryText = extractSqlText(mockDbExecute.mock.calls[0][0]);
+    expect(queryText.toUpperCase()).toContain('SELECT');
+    expect(queryText.toUpperCase()).not.toContain('INSERT');
+  });
+
+  it('peek defaults to series 1 when no row exists yet for this tenant/type/year', async () => {
+    mockDbExecute.mockResolvedValue({ rows: [] });
+    const { peekNextInvoiceNumber } = await import('../services/invoiceNumberService');
+
+    const result = await peekNextInvoiceNumber('tenant-1', 'gst');
+    expect(result.series).toBe(1);
+  });
+
+  it('claim performs an INSERT ... ON CONFLICT upsert (mutates the series)', async () => {
+    mockDbExecute.mockResolvedValue({ rows: [{ last_number: 1 }] });
+    const { getNextInvoiceNumber } = await import('../services/invoiceNumberService');
+
+    await getNextInvoiceNumber('tenant-1', 'gst');
+
+    const queryText = extractSqlText(mockDbExecute.mock.calls[0][0]);
+    expect(queryText.toUpperCase()).toContain('INSERT');
+    expect(queryText.toUpperCase()).toContain('ON CONFLICT');
   });
 });

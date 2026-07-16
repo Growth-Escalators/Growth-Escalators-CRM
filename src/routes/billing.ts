@@ -9,7 +9,7 @@ import {
   userPermissions,
 } from '../db/schema';
 import { eq, and, desc, sql } from 'drizzle-orm';
-import { getNextInvoiceNumber } from '../services/invoiceNumberService';
+import { getNextInvoiceNumber, peekNextInvoiceNumber } from '../services/invoiceNumberService';
 import { amountInWords } from '../services/amountInWordsService';
 import { generateInvoicePDF, type InvoiceData } from '../services/pdfService';
 import { generateMonthlyDraftInvoices } from '../services/recurringInvoiceService';
@@ -186,6 +186,51 @@ router.get('/invoices', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/billing/invoices/export — CSV export
+// Registered BEFORE the parametric /invoices/:id route below. Express
+// matches routes in registration order and /invoices/:id would otherwise
+// swallow every request to /invoices/export (binding "export" to :id) —
+// this route was previously unreachable, 500ing on an invalid-UUID DB
+// comparison instead of ever returning a CSV.
+// ---------------------------------------------------------------------------
+router.get('/invoices/export', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const userId = req.user!.id;
+  const p = await getPerms(userId);
+  if (!p?.billingView && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
+
+  try {
+    const result = await db.execute(sql`
+      SELECT i.invoice_number, bc.name AS client_name, i.invoice_date, i.due_date,
+             i.subtotal, i.cgst_amount + i.sgst_amount + i.igst_amount AS tax_amount,
+             i.total_amount, i.status
+      FROM invoices i JOIN billing_clients bc ON bc.id = i.client_id
+      WHERE i.tenant_id = ${tenantId}
+      ORDER BY i.invoice_date DESC LIMIT 5000
+    `);
+
+    const esc = (v: unknown) => { const s = v == null ? '' : String(v).replace(/"/g, '""'); return `"${s}"`; };
+    const headers = 'Invoice #,Client,Date,Due Date,Subtotal,Tax,Total,Status';
+    const rows = (result.rows as Array<Record<string, unknown>>).map(r =>
+      [esc(r.invoice_number), esc(r.client_name),
+       esc(r.invoice_date ? new Date(r.invoice_date as string).toISOString().slice(0, 10) : ''),
+       esc(r.due_date ? new Date(r.due_date as string).toISOString().slice(0, 10) : ''),
+       esc(((Number(r.subtotal) || 0) / 100).toFixed(2)),
+       esc(((Number(r.tax_amount) || 0) / 100).toFixed(2)),
+       esc(((Number(r.total_amount) || 0) / 100).toFixed(2)),
+       esc(r.status),
+      ].join(',')
+    );
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="invoices.csv"');
+    res.send([headers, ...rows].join('\n'));
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/billing/invoices/:id
 // ---------------------------------------------------------------------------
 router.get('/invoices/:id', async (req: Request, res: Response) => {
@@ -229,7 +274,12 @@ router.post('/invoices', async (req: Request, res: Response) => {
   try {
     const { clientId, invoiceDate, dueDate, invoiceType, taxType, lineItemsData, notes, paymentNote, serviceDescription, discountType, discountValue, discountLabel } = req.body;
 
-    const [client] = await db.select().from(billingClients).where(eq(billingClients.id, clientId)).limit(1);
+    // Tenant-scoped — an unscoped lookup let a caller name another tenant's
+    // billing client and create an invoice under their own tenant that
+    // nonetheless copies that foreign client's GSTIN/state/address onto it.
+    const [client] = await db.select().from(billingClients)
+      .where(and(eq(billingClients.id, clientId), eq(billingClients.tenantId, tenantId)))
+      .limit(1);
     if (!client) { res.status(404).json({ error: 'client not found' }); return; }
 
     const items: Array<{ description: string; sacCode: string; quantity: number; unit: string; rate: number; amount: number; sortOrder: number }> = lineItemsData ?? [];
@@ -301,6 +351,18 @@ router.patch('/invoices/:id', async (req: Request, res: Response) => {
   if (!p?.billingEdit && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
 
   try {
+    // Tenant-scoped fetch happens FIRST and unconditionally, before any
+    // write — previously this select had no tenant filter and only ran
+    // inside the lineItemsData branch below, so a request naming another
+    // tenant's invoice UUID would pass this check, DELETE and re-INSERT
+    // that invoice's line items, and only then hit a 404 from the final
+    // tenant-scoped UPDATE — by which point the foreign invoice's line
+    // items were already overwritten with no rollback.
+    const [existing] = await db.select().from(invoices)
+      .where(and(eq(invoices.id, invoiceId), eq(invoices.tenantId, tenantId)))
+      .limit(1);
+    if (!existing) { res.status(404).json({ error: 'invoice not found' }); return; }
+
     const { lineItemsData, discountValue, ...fields } = req.body;
 
     // `discountValue` is a frontend-only shape — strip it out of direct field writes
@@ -313,8 +375,6 @@ router.patch('/invoices/:id', async (req: Request, res: Response) => {
     // Always recompute totals if either line items OR discount inputs changed.
     const discountProvided = 'discountType' in fields || discountValue !== undefined || 'discountLabel' in fields;
     if (lineItemsData || discountProvided) {
-      const [existing] = await db.select().from(invoices).where(eq(invoices.id, invoiceId)).limit(1);
-
       // Line items: use incoming if provided, else re-fetch existing
       let items: Array<{ description: string; sacCode: string; quantity: number; unit: string; rate: number; amount: number }>;
       if (lineItemsData) {
@@ -350,7 +410,7 @@ router.patch('/invoices/:id', async (req: Request, res: Response) => {
         sgstRate: tax.sgstRate, sgstAmount: tax.sgstAmount,
         igstRate: tax.igstRate, igstAmount: tax.igstAmount,
         totalAmount: tax.total,
-        amountDue: tax.total - (existing?.amountPaid ?? 0),
+        amountDue: Math.max(0, tax.total - (existing?.amountPaid ?? 0)),
         amountInWords: amountInWords(tax.total),
       };
 
@@ -514,37 +574,51 @@ router.post('/invoices/:id/payment', async (req: Request, res: Response) => {
     const { amount, paymentDate, paymentMode, reference, notes } = req.body;
     const amountPaise = Math.round(parseFloat(String(amount)) * 100);
 
-    const [inv] = await db.select().from(invoices)
-      .where(and(eq(invoices.id, invoiceId), eq(invoices.tenantId, tenantId)))
-      .limit(1);
-    if (!inv) { res.status(404).json({ error: 'invoice not found' }); return; }
+    // Wrapped in a transaction with a row lock on the invoice (FOR UPDATE).
+    // Recording two payments for the same invoice concurrently previously
+    // both read the same amountPaid outside any lock, computed the new
+    // total independently, and the slower write clobbered the faster one's
+    // contribution — money paid in would silently vanish from the invoice's
+    // tracked total even though the payments row itself was inserted fine.
+    // FOR UPDATE serializes concurrent recordings for the same invoice: the
+    // second transaction's SELECT blocks until the first COMMITs, so it
+    // always reads the up-to-date amountPaid.
+    const updated = await db.transaction(async (tx) => {
+      const [inv] = await tx.select().from(invoices)
+        .where(and(eq(invoices.id, invoiceId), eq(invoices.tenantId, tenantId)))
+        .for('update')
+        .limit(1);
+      if (!inv) return null;
 
-    await db.insert(payments).values({
-      tenantId,
-      invoiceId: inv.id,
-      clientId: inv.clientId,
-      amount: amountPaise,
-      paymentDate: new Date(paymentDate),
-      paymentMode: paymentMode ?? null,
-      reference: reference ?? null,
-      notes: notes ?? null,
+      await tx.insert(payments).values({
+        tenantId,
+        invoiceId: inv.id,
+        clientId: inv.clientId,
+        amount: amountPaise,
+        paymentDate: new Date(paymentDate),
+        paymentMode: paymentMode ?? null,
+        reference: reference ?? null,
+        notes: notes ?? null,
+      });
+
+      const newAmountPaid = (inv.amountPaid ?? 0) + amountPaise;
+      const newAmountDue = inv.totalAmount - newAmountPaid;
+      const newStatus = newAmountDue <= 0 ? 'paid' : 'partially_paid';
+
+      const [result] = await tx.update(invoices)
+        .set({
+          amountPaid: newAmountPaid,
+          amountDue: Math.max(0, newAmountDue),
+          status: newStatus,
+          paidAt: newStatus === 'paid' ? new Date() : null,
+          updatedAt: new Date(),
+        })
+        .where(eq(invoices.id, inv.id))
+        .returning();
+      return result;
     });
 
-    const newAmountPaid = (inv.amountPaid ?? 0) + amountPaise;
-    const newAmountDue = inv.totalAmount - newAmountPaid;
-    const newStatus = newAmountDue <= 0 ? 'paid' : 'partially_paid';
-
-    const [updated] = await db.update(invoices)
-      .set({
-        amountPaid: newAmountPaid,
-        amountDue: Math.max(0, newAmountDue),
-        status: newStatus,
-        paidAt: newStatus === 'paid' ? new Date() : null,
-        updatedAt: new Date(),
-      })
-      .where(eq(invoices.id, inv.id))
-      .returning();
-
+    if (!updated) { res.status(404).json({ error: 'invoice not found' }); return; }
     res.json({ invoice: updated });
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
@@ -556,6 +630,14 @@ router.post('/invoices/:id/payment', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 router.patch('/invoices/:id/payment-status', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
+  const userId = req.user!.id;
+  // Was the only billing mutation route with no permission gate — any
+  // authenticated tenant user (any role) could mark invoices paid and
+  // overwrite amount_paid, bypassing billingMarkPaid entirely. Matches the
+  // gate already used by POST /invoices/:id/payment above.
+  const p = await getPerms(userId);
+  if (!p?.billingMarkPaid && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
+
   const invoiceId = String(req.params.id);
   const { status, amountPaid, notes } = req.body as {
     status?: string;
@@ -577,11 +659,13 @@ router.patch('/invoices/:id/payment-status', async (req: Request, res: Response)
 
     const updateFields: Record<string, unknown> = { status, updatedAt: new Date() };
 
-    // If amountPaid is provided, update the amounts
+    // If amountPaid is provided, update the amounts. Clamped at 0 — an
+    // amountPaid larger than totalAmount (fat-fingered or a duplicate
+    // payment recorded twice) must not push amount_due negative.
     if (amountPaid != null) {
       const paise = Math.round(amountPaid * 100);
       updateFields.amountPaid = paise;
-      updateFields.amountDue = inv.totalAmount - paise;
+      updateFields.amountDue = Math.max(0, inv.totalAmount - paise);
     }
 
     // Set paidAt if marking as paid
@@ -824,9 +908,13 @@ router.get('/mrr', async (req: Request, res: Response) => {
         AND payment_date <= ${monthEnd.toISOString()}
     `);
 
+    // Includes 'overdue' — previously excluded here (but included in
+    // /stats' equivalent query below), so the moment the overdue-detection
+    // cron flipped an invoice from 'sent' to 'overdue', its balance vanished
+    // from this dashboard's outstanding total while /stats kept counting it.
     const outstandingResult = await db.execute(sql`
       SELECT SUM(amount_due) as total, COUNT(*) as count FROM invoices
-      WHERE tenant_id = ${tenantId} AND status IN ('sent', 'partially_paid')
+      WHERE tenant_id = ${tenantId} AND status IN ('sent', 'partially_paid', 'overdue')
         AND status != 'cancelled'
     `);
 
@@ -939,46 +1027,6 @@ router.get('/payments', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/billing/invoices/export — CSV export
-// ---------------------------------------------------------------------------
-router.get('/invoices/export', async (req: Request, res: Response) => {
-  const tenantId = req.user!.tenantId;
-  const userId = req.user!.id;
-  const p = await getPerms(userId);
-  if (!p?.billingView && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
-
-  try {
-    const result = await db.execute(sql`
-      SELECT i.invoice_number, bc.name AS client_name, i.invoice_date, i.due_date,
-             i.subtotal, i.cgst_amount + i.sgst_amount + i.igst_amount AS tax_amount,
-             i.total_amount, i.status
-      FROM invoices i JOIN billing_clients bc ON bc.id = i.client_id
-      WHERE i.tenant_id = ${tenantId}
-      ORDER BY i.invoice_date DESC LIMIT 5000
-    `);
-
-    const esc = (v: unknown) => { const s = v == null ? '' : String(v).replace(/"/g, '""'); return `"${s}"`; };
-    const headers = 'Invoice #,Client,Date,Due Date,Subtotal,Tax,Total,Status';
-    const rows = (result.rows as Array<Record<string, unknown>>).map(r =>
-      [esc(r.invoice_number), esc(r.client_name),
-       esc(r.invoice_date ? new Date(r.invoice_date as string).toISOString().slice(0, 10) : ''),
-       esc(r.due_date ? new Date(r.due_date as string).toISOString().slice(0, 10) : ''),
-       esc(((Number(r.subtotal) || 0) / 100).toFixed(2)),
-       esc(((Number(r.tax_amount) || 0) / 100).toFixed(2)),
-       esc(((Number(r.total_amount) || 0) / 100).toFixed(2)),
-       esc(r.status),
-      ].join(',')
-    );
-
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 'attachment; filename="invoices.csv"');
-    res.send([headers, ...rows].join('\n'));
-  } catch (e: unknown) {
-    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
-  }
-});
-
-// ---------------------------------------------------------------------------
 // GET /api/billing/next-invoice-number
 // ---------------------------------------------------------------------------
 router.get('/next-invoice-number', async (req: Request, res: Response) => {
@@ -988,8 +1036,12 @@ router.get('/next-invoice-number', async (req: Request, res: Response) => {
   if (!p?.billingView && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
 
   try {
+    // Preview only — must never consume a real series number (H5). Using
+    // the mutating getNextInvoiceNumber() here meant every time the "new
+    // invoice" form loaded or was refreshed, it silently burned a real GST
+    // serial number that the eventual saved invoice would then skip past.
     const type = (req.query.type as string) === 'non_gst' ? 'non_gst' : 'gst';
-    const result = await getNextInvoiceNumber(tenantId, type as 'gst' | 'non_gst');
+    const result = await peekNextInvoiceNumber(tenantId, type as 'gst' | 'non_gst');
     res.json({ nextNumber: result.number, financialYear: result.financialYear, series: result.series });
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
