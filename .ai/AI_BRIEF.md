@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-16T08:59:23.491Z_
+_Generated: 2026-07-16T09:26:44.125Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -12,7 +12,7 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 
 - **Repo**: Growth-Escalators/Growth-Escalators-CRM
 - **Branch**: `feat/wizmatch-filters`
-- **Last commit**: d7906e0 feat(wizmatch): global server-side sort + full-filtered CSV on the server pages (24 minutes ago)
+- **Last commit**: 9767469 feat(wizmatch): honor the Reports From/To range on staffing-analytics metrics (10 minutes ago)
 - **Uncommitted changes**: 2 file(s)
 
 ## Current task
@@ -39,9 +39,11 @@ failed) — the loop caught + fixed 8 regressions (FilterBar contrast a11y acros
 Status control, Companies URL shape, chip/checkbox/transition edge cases). **Live-verified** on prod:
 deploy SUCCESS, no boot errors from the change, zero 5xx since deploy, `api/health` 200, CRM SPA 200,
 wizmatch filter routes 401 (intact) with the new `sort=`/multi-value params. **Known follow-ups (not
-blockers):** the staffing-analytics *date* filter on Reports is still deferred (needs
-`wizmatchDeliveryDomain.analytics()` rework — it accepts no query filters); Reports `Status` is
-single-select (kept a funnel spec meaningful); Placements recruiter/prime filters need backend fields;
+blockers):** the staffing-analytics *date* filter on Reports is now **SHIPPED** (`9767469`, Railway
+deploy `ca1fb1f6` SUCCESS) — `analytics(tenantId, from?, to?)` scopes the funnel/revenue/time-to-
+start/recruiter+source/rejection metrics by the From/To range (SLA exceptions + aging stay
+current-state; clearing the range = all-time); Reports `Status` is single-select (kept a funnel spec
+meaningful); Placements recruiter/prime filters need backend fields;
 client pages past their cap (Companies 500, etc.) need server pagination later. Also still open from
 before: the broken cold-outreach send loop; strict India-only tightening; the deferred region-column
 migration.
@@ -51,6 +53,8 @@ migration.
 ## Recent commits
 
 ```
+9767469 feat(wizmatch): honor the Reports From/To range on staffing-analytics metrics
+0ee6979 docs(ai): record shipped comprehensive Wizmatch filters + global sort + live verify
 d7906e0 feat(wizmatch): global server-side sort + full-filtered CSV on the server pages
 cbfdde7 test+fix(wizmatch): green the filter rollout (a11y, spec locators, backend test)
 53db7d7 feat(wizmatch): wire Placements, Contact Intelligence, Reports to shared filters
@@ -59,8 +63,6 @@ bcf6eca feat(wizmatch): wire Requirements + Companies to the shared filter syste
 0ecdf81 feat(wizmatch): wire Job Leads/Signals to the shared filter system
 45ef73e feat(wizmatch): shared filter/table system + backend params + Candidates reference
 a05582f docs(ai): record shipped India-only sourcing + live verification + known limitation
-ade021a feat(wizmatch): India-only sourcing — gate US at the source + India-default UI
-4a205b8 docs(ai): record shipped matching-reachability + draft-cascade delete + live walkthrough
 ```
 
 ## npm scripts

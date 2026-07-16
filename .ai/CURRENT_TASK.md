@@ -24,9 +24,11 @@ failed) — the loop caught + fixed 8 regressions (FilterBar contrast a11y acros
 Status control, Companies URL shape, chip/checkbox/transition edge cases). **Live-verified** on prod:
 deploy SUCCESS, no boot errors from the change, zero 5xx since deploy, `api/health` 200, CRM SPA 200,
 wizmatch filter routes 401 (intact) with the new `sort=`/multi-value params. **Known follow-ups (not
-blockers):** the staffing-analytics *date* filter on Reports is still deferred (needs
-`wizmatchDeliveryDomain.analytics()` rework — it accepts no query filters); Reports `Status` is
-single-select (kept a funnel spec meaningful); Placements recruiter/prime filters need backend fields;
+blockers):** the staffing-analytics *date* filter on Reports is now **SHIPPED** (`9767469`, Railway
+deploy `ca1fb1f6` SUCCESS) — `analytics(tenantId, from?, to?)` scopes the funnel/revenue/time-to-
+start/recruiter+source/rejection metrics by the From/To range (SLA exceptions + aging stay
+current-state; clearing the range = all-time); Reports `Status` is single-select (kept a funnel spec
+meaningful); Placements recruiter/prime filters need backend fields;
 client pages past their cap (Companies 500, etc.) need server pagination later. Also still open from
 before: the broken cold-outreach send loop; strict India-only tightening; the deferred region-column
 migration.
