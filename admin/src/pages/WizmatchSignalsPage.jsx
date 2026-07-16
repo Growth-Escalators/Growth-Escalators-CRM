@@ -50,6 +50,105 @@ const SIGNAL_COLUMNS = [
   { key: 'status', label: 'Status', sortable: true, render: (s) => <span className={STATUS_BADGE[s.status] || 'badge-muted'}>{s.status?.replace(/_/g, ' ')}</span> },
 ];
 
+const POC_ROLE_OPTIONS = [
+  { value: 'talent_acquisition', label: 'Talent Acquisition' },
+  { value: 'hr_people', label: 'HR / People' },
+  { value: 'hiring_delivery_manager', label: 'Hiring / Delivery Mgr' },
+  { value: 'vendor_procurement', label: 'Vendor / Procurement' },
+];
+const ALL_POC_ROLES = POC_ROLE_OPTIONS.map((o) => o.value);
+
+// Cost-safe "Find POC": a read-only preview (exact query + remaining SearchAPI
+// allowance + est. cost, calls nothing) with role targeting, before spending a
+// free search. Reuses the /discover-poc/preview + /discover-poc endpoints.
+function PocSearchPreview({ signal, enabled, onRan }) {
+  const [open, setOpen] = useState(false);
+  const [roles, setRoles] = useState(ALL_POC_ROLES);
+  const [preview, setPreview] = useState(null);
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+
+  const loadPreview = async (nextRoles) => {
+    setBusy('preview'); setError('');
+    try {
+      setPreview(await apiFetch(`/api/wizmatch/signals/${signal.id}/discover-poc/preview`, { method: 'POST', body: JSON.stringify({ roles: nextRoles }) }));
+    } catch (e) { setError(e.message || 'Preview failed'); }
+    finally { setBusy(''); }
+  };
+
+  const openPreview = () => { setOpen(true); setPreview(null); loadPreview(roles); };
+
+  const toggleRole = (value) => {
+    const next = roles.includes(value) ? roles.filter((r) => r !== value) : [...roles, value];
+    const applied = next.length ? next : ALL_POC_ROLES; // never empty → all roles
+    setRoles(applied);
+    loadPreview(applied);
+  };
+
+  const runFree = async () => {
+    setBusy('run'); setError('');
+    try {
+      await apiFetch(`/api/wizmatch/signals/${signal.id}/discover-poc`, { method: 'POST', body: JSON.stringify({ roles }) });
+      setOpen(false);
+      onRan?.();
+    } catch (e) { setError(e.message || 'Search failed'); }
+    finally { setBusy(''); }
+  };
+
+  if (!open) {
+    return (
+      <button type="button" disabled={!enabled} title={enabled ? '' : 'POC discovery is disabled in this environment (WIZMATCH_POC_DISCOVERY_ENABLED)'}
+        onClick={openPreview} className="btn-standard disabled:opacity-50">Find POC ▸ preview</button>
+    );
+  }
+  const needsCredit = preview && preview.estimatedSearchApiCredits > 0;
+  const noCreditsLeft = needsCredit && (preview.searchApiUsage?.dailyRemaining ?? 1) <= 0;
+  return (
+    <div className="w-full card p-3 border-primary-200 bg-primary-50/30 space-y-2.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[12.5px] font-semibold text-neutral-800">Find POC — preview (no credits spent until you run)</span>
+        <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="text-neutral-400 hover:text-neutral-600"><X className="w-4 h-4" /></button>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {POC_ROLE_OPTIONS.map((o) => (
+          <button key={o.value} type="button" onClick={() => toggleRole(o.value)}
+            className={`text-[11px] font-semibold px-2 py-1 rounded-full border ${roles.includes(o.value) ? 'border-primary-500 text-primary-700 bg-primary-50' : 'border-neutral-200 text-neutral-500'}`}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+      {error && <div role="alert" className="text-[12px] text-danger-600 bg-danger-500/10 border border-danger-500/30 rounded-md px-2.5 py-1.5">{error}</div>}
+      {busy === 'preview' && !preview ? (
+        <p className="text-[12px] text-neutral-500">Building preview…</p>
+      ) : preview && (
+        <div className="space-y-2 text-[12px]">
+          <div>
+            <div className="text-[11px] uppercase font-semibold text-neutral-500">Search query</div>
+            <code className="block text-[11.5px] text-neutral-700 bg-white border border-neutral-200 rounded px-2 py-1.5 break-words">{preview.query}</code>
+          </div>
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="badge-muted text-[11px]">SearchAPI today {preview.searchApiUsage?.daily ?? 0}/{preview.searchApiUsage?.dailyLimit ?? 5}</span>
+            <span className="badge-muted text-[11px]">month {preview.searchApiUsage?.monthly ?? 0}/{preview.searchApiUsage?.monthlyLimit ?? 80}</span>
+            <span className={needsCredit ? 'badge-warning text-[11px]' : 'badge-success text-[11px]'}>
+              Est. cost: {needsCredit ? '1 free search' : '0 — reuses free sources'}
+            </span>
+            {preview.internalContactsExist && <span className="badge-success text-[11px]">Reuses linked contacts</span>}
+            {preview.inCooldown && <span className="badge-muted text-[11px]">In 30-day cooldown</span>}
+          </div>
+          {(preview.notes || []).map((n, i) => <p key={i} className="text-[11.5px] text-neutral-500">{n}</p>)}
+          {!enabled && <p className="text-[11.5px] text-warning-700">POC discovery is disabled here (WIZMATCH_POC_DISCOVERY_ENABLED). The preview is read-only; running requires it enabled.</p>}
+          <div className="flex justify-end gap-2 pt-1">
+            <button type="button" onClick={() => setOpen(false)} className="btn-standard btn-compact">Cancel</button>
+            <button type="button" disabled={busy === 'run' || !enabled || noCreditsLeft} onClick={runFree} className="btn-primary btn-compact disabled:opacity-50">
+              {busy === 'run' ? 'Searching…' : noCreditsLeft ? 'Daily allowance used' : 'Run free search'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function WizmatchSignalsPage() {
   const navigate = useNavigate();
   const [signals, setSignals] = useState([]);
@@ -167,6 +266,12 @@ export default function WizmatchSignalsPage() {
           )}
         </div>
       )}
+      <div className="mb-3 rounded-md border border-info-200 bg-info-50 px-3 py-2 text-[12px] text-info-800 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="font-semibold">Search credits</span>
+        <span>SearchAPI: {sourcing?.searchApiUsage?.dailyRemaining ?? 5}/{sourcing?.searchApiUsage?.dailyLimit ?? 5} free searches left today · {sourcing?.searchApiUsage?.monthlyRemaining ?? 80}/{sourcing?.searchApiUsage?.monthlyLimit ?? 80} this month</span>
+        {sourcing?.providerAccounts?.searchapi?.remaining != null && <span>· {sourcing.providerAccounts.searchapi.remaining} account credits left</span>}
+        <span className="text-info-700">· Previews (TheirStack “Free preview”, “Find POC ▸ preview”) cost nothing; paid providers stay off.</span>
+      </div>
       <div className="mb-4 grid gap-3 md:grid-cols-3">
         {['theirstack','ats','xray'].map(provider => {
           const cfg = sourcing?.config || {}; const latest = (sourcing?.latestRuns || []).find(run => run.provider===provider);
@@ -314,7 +419,7 @@ export default function WizmatchSignalsPage() {
                   {/* Actions */}
                   <div className="flex flex-wrap gap-2">
                     <button disabled={actionBusy} onClick={()=>runAction('Qualify signal',`/api/wizmatch/signals/${selectedSignal.id}/qualify`)} className="btn-primary">Qualify + POC task</button>
-                    <button disabled={actionBusy||!sourcing?.config?.pocDiscoveryEnabled} onClick={()=>runAction('Find POC',`/api/wizmatch/signals/${selectedSignal.id}/discover-poc`)} className="btn-standard">Find POC</button>
+                    <PocSearchPreview signal={selectedSignal} enabled={!!sourcing?.config?.pocDiscoveryEnabled} onRan={() => { setFeedback('Find POC completed.'); loadSignals(); loadSourcing(); openDetail(selectedSignal); }} />
                     <button disabled={actionBusy} onClick={async ()=>{ const r = await runAction('Create requirement draft',`/api/wizmatch/signals/${selectedSignal.id}/promote-to-requirement`); if (r?.requirement?.id) setPromotedRequirementId(r.requirement.id); }} className="btn-standard">Create requirement draft</button>
                     <button disabled={actionBusy} onClick={()=>runAction('Reject signal',`/api/wizmatch/signals/${selectedSignal.id}/reject`,{reason:'Not a workable staffing requirement'})} className="btn-standard text-danger-700">Reject</button>
                     <button

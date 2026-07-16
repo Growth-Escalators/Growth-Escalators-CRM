@@ -8,7 +8,9 @@ import {
   buildPocSearchQuery,
   classifyPocResult,
   getSearchApiRunUsage,
+  normalizePocRoles,
   searchPublicWeb,
+  type PocRole,
 } from './wizmatchSearchApi';
 
 export type WizmatchSourceProvider = 'theirstack' | 'ats' | 'xray' | 'poc_discovery';
@@ -273,9 +275,10 @@ export async function promoteSignalToRequirement(tenantId: string, signalId: str
   } finally { client.release(); }
 }
 
-export async function discoverFreePocsForSignal(tenantId: string, signalId: string, userId: string) {
+export async function discoverFreePocsForSignal(tenantId: string, signalId: string, userId: string, roles?: PocRole[]) {
   const config = getWizmatchSourcingConfig();
   if (!config.pocDiscoveryEnabled) throw new Error('POC discovery is disabled');
+  const pocRoles = normalizePocRoles(roles);
   const signal = await pool.query(
     `SELECT s.id,s.company_id,c.name AS company_name,c.domain
      FROM wizmatch_job_signals s JOIN wizmatch_companies c ON c.id=s.company_id AND c.tenant_id=s.tenant_id
@@ -323,7 +326,7 @@ export async function discoverFreePocsForSignal(tenantId: string, signalId: stri
       if (!recent.rows.length) {
         const usage = await getSearchApiRunUsage(tenantId);
         assertSearchApiAllowance(usage, { daily: config.searchApiDailyCap, monthly: config.searchApiMonthlyCap });
-        const publicResults = await searchPublicWeb(buildPocSearchQuery(signal.rows[0].company_name, signal.rows[0].domain));
+        const publicResults = await searchPublicWeb(buildPocSearchQuery(signal.rows[0].company_name, signal.rows[0].domain, pocRoles));
         searchApiUsed = true;
         for (const result of publicResults) {
           const classified = classifyPocResult(result);
@@ -385,4 +388,73 @@ export async function discoverFreePocsForSignal(tenantId: string, signalId: stri
     await finishSourceRun(run.id, tenantId, { status: 'failed', errorMessage: error instanceof Error ? error.message : 'POC discovery failed' });
     throw error;
   }
+}
+
+/**
+ * Read-only dry-run for the free POC search. Returns the exact query that WOULD
+ * run, the target company, cooldown/allowance state and the estimated SearchAPI
+ * credit cost — WITHOUT calling any provider (no website scrape, no SearchAPI).
+ * Shares the internal-contacts + cooldown + cap logic with the real run so the
+ * numbers agree.
+ */
+export async function previewFreePocSearch(tenantId: string, signalId: string, roles?: PocRole[]) {
+  const config = getWizmatchSourcingConfig();
+  const pocRoles = normalizePocRoles(roles);
+  const signal = await pool.query(
+    `SELECT s.id,s.company_id,c.name AS company_name,c.domain
+     FROM wizmatch_job_signals s JOIN wizmatch_companies c ON c.id=s.company_id AND c.tenant_id=s.tenant_id
+     WHERE s.id=$1 AND s.tenant_id=$2`,
+    [signalId, tenantId],
+  );
+  if (!signal.rows[0]) throw new Error('Signal company was not found');
+  const company = signal.rows[0];
+
+  const internal = await pool.query(
+    `SELECT COUNT(DISTINCT wc.id)::int AS count
+     FROM wizmatch_company_contacts wc
+     WHERE wc.tenant_id=$1 AND wc.company_id=$2 AND wc.relationship_stage='active'`,
+    [tenantId, company.company_id],
+  );
+  const internalContactsExist = (internal.rows[0]?.count || 0) > 0;
+
+  const recent = await pool.query(
+    `SELECT 1 FROM wizmatch_source_runs WHERE tenant_id=$1 AND provider='poc_discovery' AND company_id=$2
+     AND quota_consumed>0 AND status IN ('succeeded','partial') AND created_at>NOW()-INTERVAL '30 days' LIMIT 1`,
+    [tenantId, company.company_id],
+  );
+  const inCooldown = recent.rows.length > 0;
+
+  const usage = await getSearchApiRunUsage(tenantId);
+  // A SearchAPI credit is only ever spent when there are no reusable internal
+  // contacts, the company isn't in cooldown, and SearchAPI is configured — and
+  // even then only if the free website scrape finds no named contact first.
+  const willConsumeCredit = !internalContactsExist && !inCooldown && config.searchApiConfigured;
+
+  return {
+    company: company.company_name,
+    domain: company.domain || null,
+    roles: pocRoles,
+    query: buildPocSearchQuery(company.company_name, company.domain, pocRoles),
+    pocDiscoveryEnabled: config.pocDiscoveryEnabled,
+    searchApiConfigured: config.searchApiConfigured,
+    internalContactsExist,
+    inCooldown,
+    estimatedSearchApiCredits: willConsumeCredit ? 1 : 0,
+    searchApiUsage: {
+      daily: usage.daily,
+      monthly: usage.monthly,
+      dailyLimit: config.searchApiDailyCap,
+      monthlyLimit: config.searchApiMonthlyCap,
+      dailyRemaining: Math.max(0, config.searchApiDailyCap - usage.daily),
+      monthlyRemaining: Math.max(0, config.searchApiMonthlyCap - usage.monthly),
+    },
+    notes: [
+      internalContactsExist
+        ? 'This company already has linked hiring contacts — reused for free; no search runs.'
+        : inCooldown
+          ? 'Within the 30-day per-company cooldown — a fresh SearchAPI search will not run.'
+          : 'Runs free internal + website checks first; a SearchAPI credit is spent only if no named website contact is found.',
+      'Preview only — no provider is called. Contact channels are never guessed; results still need human verification.',
+    ],
+  };
 }

@@ -32,11 +32,19 @@ test('results-first signal workflow qualifies, discovers POC, and creates one re
   for (const action of ['qualify', 'discover-poc', 'promote-to-requirement']) {
     await page.route(`**/api/wizmatch/signals/signal-1/${action}`, route => { actions.push(action); return json(route, action === 'promote-to-requirement' ? { created: true, requirement: { id: 'req-1' } } : { ok: true }); });
   }
+  // Find POC is now preview-first: a read-only dry-run, then an explicit "Run free search".
+  await page.route('**/api/wizmatch/signals/signal-1/discover-poc/preview', route => json(route, {
+    query: '("Company A") ("talent acquisition" OR recruiter OR "people operations" OR "hiring manager" OR "delivery manager" OR procurement OR "vendor management") (site:linkedin.com/in)',
+    company: 'Company A', domain: null, roles: ['talent_acquisition', 'hr_people', 'hiring_delivery_manager', 'vendor_procurement'],
+    pocDiscoveryEnabled: true, searchApiConfigured: true, internalContactsExist: false, inCooldown: false, estimatedSearchApiCredits: 1,
+    searchApiUsage: { daily: 0, monthly: 0, dailyLimit: 5, monthlyLimit: 80, dailyRemaining: 5, monthlyRemaining: 80 }, notes: ['Preview only — no provider is called.'],
+  }));
   await page.goto('/wizmatch/signals');
   await expect(page.getByText('theirstack').first()).toBeVisible();
   await page.getByRole('row').filter({ hasText: 'SAP ABAP Consultant' }).click();
   await page.getByRole('button', { name: 'Qualify + POC task' }).click();
-  await page.getByRole('button', { name: 'Find POC' }).click();
+  await page.getByRole('button', { name: 'Find POC ▸ preview' }).click();
+  await page.getByRole('button', { name: 'Run free search' }).click();
   await page.getByRole('button', { name: 'Create requirement draft' }).click();
   expect(actions).toEqual(['qualify', 'discover-poc', 'promote-to-requirement']);
   await expect(page.getByRole('status')).toContainText('Create requirement draft completed');

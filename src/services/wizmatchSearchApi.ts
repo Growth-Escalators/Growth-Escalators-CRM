@@ -109,10 +109,31 @@ export function assertSearchApiAllowance(usage: { daily: number; monthly: number
   if (usage.monthly >= limits.monthly) throw new Error('Monthly SearchAPI allowance reached');
 }
 
-export function buildPocSearchQuery(companyName: string, domain?: string | null) {
+// POC role targeting. The term map reproduces the original all-roles query
+// exactly when every role is selected (in this order), so the default behaviour
+// is unchanged — role selection only ever narrows the OR-term set.
+export type PocRole = 'talent_acquisition' | 'hr_people' | 'hiring_delivery_manager' | 'vendor_procurement';
+export const POC_ROLES: PocRole[] = ['talent_acquisition', 'hr_people', 'hiring_delivery_manager', 'vendor_procurement'];
+const POC_ROLE_TERMS: Record<PocRole, string[]> = {
+  talent_acquisition: ['"talent acquisition"', 'recruiter'],
+  hr_people: ['"people operations"'],
+  hiring_delivery_manager: ['"hiring manager"', '"delivery manager"'],
+  vendor_procurement: ['procurement', '"vendor management"'],
+};
+
+/** Keep only known roles (dedup, order-stable); empty/invalid → all roles (today's default). */
+export function normalizePocRoles(roles?: unknown): PocRole[] {
+  if (!Array.isArray(roles)) return POC_ROLES;
+  const picked = POC_ROLES.filter((r) => roles.includes(r));
+  return picked.length ? picked : POC_ROLES;
+}
+
+export function buildPocSearchQuery(companyName: string, domain?: string | null, roles?: PocRole[]) {
   const company = companyName.replace(/["\n\r]/g, ' ').trim();
   const site = domain ? ` OR site:${domain.replace(/^https?:\/\//, '').split('/')[0]}` : '';
-  return `("${company}") ("talent acquisition" OR recruiter OR "people operations" OR "hiring manager" OR "delivery manager" OR procurement OR "vendor management") (site:linkedin.com/in${site})`;
+  const selected = roles && roles.length ? roles : POC_ROLES;
+  const terms = selected.flatMap((role) => POC_ROLE_TERMS[role]);
+  return `("${company}") (${terms.join(' OR ')}) (site:linkedin.com/in${site})`;
 }
 
 export function classifyPocResult(result: SearchApiResult) {

@@ -128,6 +128,7 @@ import {
   discoverFreePocsForSignal,
   getWizmatchSourcingConfig,
   ingestWizmatchSignals,
+  previewFreePocSearch,
   promoteSignalToRequirement,
   qualifySignalAndCreatePocTask,
   rejectSignal,
@@ -3976,8 +3977,15 @@ router.delete('/signals/:id', async (req: Request, res: Response) => {
   }
 });
 
+// Read-only dry-run: shows the exact query + remaining SearchAPI allowance +
+// cooldown/cost estimate for the free POC search. Calls no provider.
+router.post('/signals/:id/discover-poc/preview', async (req: Request, res: Response) => {
+  try { res.json(await previewFreePocSearch(req.user!.tenantId, String(req.params.id), req.body?.roles)); }
+  catch (error) { res.status(404).json({ error: error instanceof Error ? error.message : 'POC preview failed' }); }
+});
+
 router.post('/signals/:id/discover-poc', async (req: Request, res: Response) => {
-  try { res.json(await discoverFreePocsForSignal(req.user!.tenantId, String(req.params.id), req.user!.id)); }
+  try { res.json(await discoverFreePocsForSignal(req.user!.tenantId, String(req.params.id), req.user!.id, req.body?.roles)); }
   catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : 'POC discovery failed' }); }
 });
 
