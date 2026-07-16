@@ -9,7 +9,7 @@ describe('Wizmatch staffing Gate A routes', () => {
   it('registers the operating workspaces and relationship CRUD contract', () => {
     const routes = [
       ['/staffing/access', 'get'],
-      ['/staffing/companies', 'get'], ['/staffing/users', 'get'], ['/staffing/contacts', 'get'],
+      ['/staffing/companies', 'get'], ['/staffing/users', 'get'], ['/staffing/contacts', 'get'], ['/staffing/hiring-contacts', 'get'],
       ['/staffing/companies/:companyId', 'get'], ['/staffing/company-contacts/:companyContactId', 'get'],
       ['/staffing/requirements/:requirementId', 'get'], ['/staffing/my-work', 'get'],
       ['/companies/:companyId/contacts', 'get'], ['/companies/:companyId/contacts', 'post'],
@@ -38,7 +38,7 @@ describe('Wizmatch staffing Gate B/C routes', () => {
       ['/staffing/submissions/:submissionId/withdraw','post'],
       ['/staffing/interviews/:interviewId','put'], ['/staffing/submissions/:submissionId/offers','post'],
       ['/staffing/offers/:offerId/status','put'], ['/staffing/submissions/:submissionId/placement','post'],
-      ['/staffing/placements/:placementId/link-invoice','post'], ['/staffing/delivery-board','get'], ['/staffing/analytics','get'],
+      ['/staffing/placements/:placementId/link-invoice','post'], ['/staffing/placements','get'], ['/staffing/delivery-board','get'], ['/staffing/analytics','get'],
       ['/staffing/placements/:placementId/adjustments','post'], ['/staffing/adjustments/:adjustmentId/resolve','post'],
     ];
     for (const [path, method] of routes) expect(routeExists(path, method), `${method.toUpperCase()} ${path}`).toBe(true);

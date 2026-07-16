@@ -22,19 +22,21 @@ export default function DataTable({
   onRowClick,
   loading = false,
   emptyText = 'No results found',
+  tableLabel = 'Results',
 }) {
   const selectable = !!onToggleRow;
   const allSelected = rows.length > 0 && rows.every((r) => selectedIds.has(r[rowKey]));
 
   return (
-    <div className="bg-white border border-neutral-200 rounded-lg shadow-card overflow-hidden">
-      <table className="w-full text-sm border-collapse">
+    <div className="bg-white border border-neutral-200 rounded-lg shadow-card overflow-x-auto">
+      <table className="w-full min-w-[720px] text-sm border-collapse" aria-label={tableLabel} aria-busy={loading}>
         <thead>
           <tr>
             {selectable && (
               <th className="bg-neutral-50 border-b border-neutral-200 w-10 px-3 py-3">
                 <input
                   type="checkbox"
+                  aria-label={allSelected ? 'Clear all row selections' : 'Select all rows'}
                   checked={allSelected}
                   onChange={onToggleAll}
                   className="rounded border-neutral-300 text-primary-500 focus:ring-primary-400"
@@ -74,6 +76,13 @@ export default function DataTable({
                 <tr
                   key={id}
                   onClick={() => onRowClick?.(row)}
+                  onKeyDown={(event) => {
+                    if (!onRowClick || (event.key !== 'Enter' && event.key !== ' ')) return;
+                    event.preventDefault();
+                    onRowClick(row);
+                  }}
+                  tabIndex={onRowClick ? 0 : undefined}
+                  aria-label={onRowClick ? `Open ${row.name || row.title || row.first_name || 'record'}` : undefined}
                   className={`border-b border-neutral-100 transition-colors duration-150
                     ${onRowClick ? 'cursor-pointer' : ''}
                     ${isSelected
@@ -84,6 +93,7 @@ export default function DataTable({
                     <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
+                        aria-label={`Select ${row.name || row.title || row.first_name || 'row'}`}
                         checked={isSelected}
                         onChange={() => onToggleRow(id)}
                         className="rounded border-neutral-300 text-primary-500 focus:ring-primary-400"

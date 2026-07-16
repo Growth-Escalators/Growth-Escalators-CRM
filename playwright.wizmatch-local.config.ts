@@ -7,6 +7,7 @@ export default defineConfig({
     'wizmatch-gate-a-local.spec.ts',
     'wizmatch-gate-bc-local.spec.ts',
     'wizmatch-sourcing-local.spec.ts',
+    'wizmatch-entity-first-local.spec.ts',
   ],
   fullyParallel: false,
   workers: 1,

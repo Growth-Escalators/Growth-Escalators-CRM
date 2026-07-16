@@ -1,13 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { extractKeywords, pollAshby, pollGreenhouse, pollLever } from '../services/wizmatchAtsPoller';
 import { buildTheirStackQuery, fetchTheirStackPreview, parseTheirStackHiringTeam, previewTheirStackImport, validateTheirStackAccount } from '../services/wizmatchTheirStackImporter';
-import { buildRequirementXraySearch, buildReviewedRequirementXraySearch } from '../services/wizmatchXrayScraper';
-import { assertSearchApiAllowance, buildPocSearchQuery, classifyPocResult, searchPublicWeb, validateSearchApiAccount } from '../services/wizmatchSearchApi';
+import { buildRequirementXraySearch, buildReviewedRequirementXraySearch, capLinkedInProfileResults, normalizeLinkedInProfileUrl, normalizeXrayResultLimit } from '../services/wizmatchXrayScraper';
+import { assertSearchApiAllowance, buildPocSearchQuery, classifyPocResult, SearchApiRequestError, searchPublicWeb, validateSearchApiAccount } from '../services/wizmatchSearchApi';
 import {
+  capPocCandidates,
+  describePocDiscoveryFailure,
   getWizmatchSourcingConfig,
   ingestWizmatchSignals,
   isAuditOnlyRequirementTitle,
 } from '../services/wizmatchSourcing';
+import { extractCanonicalSkillKeywords } from '../services/wizmatchSkillExtraction';
 
 describe('results-first sourcing controls', () => {
   const base = { WIZMATCH_TENANT_ID: 'tenant', DISABLE_BACKGROUND_JOBS: 'false' } as NodeJS.ProcessEnv;
@@ -144,6 +147,25 @@ describe('SearchAPI public research', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('supports a single bounded POC attempt and exposes only sanitized retry metadata', async () => {
+    const timeout = new Error('request contained secret-value and timed out');
+    timeout.name = 'TimeoutError';
+    const fetchMock = vi.fn().mockRejectedValue(timeout);
+    vi.stubGlobal('fetch', fetchMock);
+    const error = await searchPublicWeb('query', {
+      env: { SEARCHAPI_API_KEY: 'secret-value' } as NodeJS.ProcessEnv,
+      count: 3,
+      timeoutMs: 15_000,
+      maxAttempts: 1,
+    }).catch((caught) => caught);
+    expect(error).toBeInstanceOf(SearchApiRequestError);
+    expect(error).toMatchObject({ code: 'provider_timeout', retryable: true, retryAfterSeconds: 600 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const publicFailure = describePocDiscoveryFailure(error);
+    expect(publicFailure).toMatchObject({ status: 504, code: 'provider_timeout', retryable: true, retryAfterSeconds: 600 });
+    expect(JSON.stringify(publicFailure)).not.toContain('secret-value');
+  });
+
   it('reports account allowance and enforces the shared POC/X-Ray cap', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ account: { current_month_usage: 21, monthly_allowance: 100, remaining_credits: 79 } }) }));
     expect(await validateSearchApiAccount({ SEARCHAPI_API_KEY: 'secret' } as NodeJS.ProcessEnv)).toMatchObject({ validated: true, usage: 21, allowance: 100, remaining: 79 });
@@ -184,6 +206,20 @@ describe('ATS provider contracts', () => {
     expect(extractKeywords('SAP FICO Consultant', '')).toContain('sap fico');
     expect(extractKeywords('JavaScript Frontend Developer', '')).toContain('javascript');
   });
+
+  it('uses longest canonical phrases and word boundaries instead of substring noise', () => {
+    expect(extractKeywords('SAP ABAP Consultant', 'Build integrations')).toEqual(['sap abap']);
+    expect(extractKeywords('SAP ABAP Consultant', 'Build SAP integrations')).toEqual(['sap abap']);
+    expect(extractKeywords('SAP FICO Consultant', '')).toEqual(['sap fico']);
+    expect(extractKeywords('JavaScript Frontend Developer', '')).toEqual(expect.arrayContaining(['javascript', 'frontend']));
+    expect(extractKeywords('JavaScript Frontend Developer', '')).not.toContain('java');
+    expect(extractKeywords('We are ready to go', 'rapid AI adoption and trust')).not.toContain('go');
+    expect(extractKeywords('We are ready to go', 'rapid AI adoption and trust')).not.toContain('ai');
+    expect(extractKeywords('We are ready to go', 'rapid AI adoption and trust')).not.toContain('rust');
+    expect(extractKeywords('Go Developer', '')).toContain('go');
+    expect(extractCanonicalSkillKeywords('JavaScript engineer with SAP FICO experience')).toEqual(expect.arrayContaining(['javascript', 'sap fico']));
+    expect(extractCanonicalSkillKeywords('JavaScript engineer with SAP FICO experience')).not.toEqual(expect.arrayContaining(['java', 'sap']));
+  });
 });
 
 describe('requirement-first LinkedIn X-Ray', () => {
@@ -199,5 +235,38 @@ describe('requirement-first LinkedIn X-Ray', () => {
     expect(search.q).toContain('"S/4HANA"');
     expect(search.q).toContain('"5+ years"');
     expect(search.skills).toEqual(['sap abap', 's/4hana']);
+  });
+
+  it('defaults to three candidate leads, validates the authorized cap and deduplicates profile URLs', () => {
+    expect(normalizeXrayResultLimit()).toBe(3);
+    expect(normalizeXrayResultLimit(10)).toBe(10);
+    expect(() => normalizeXrayResultLimit(0)).toThrow(/1 to 10/);
+    expect(normalizeLinkedInProfileUrl('https://in.linkedin.com/in/person-a/?trk=public')).toBe('https://www.linkedin.com/in/person-a');
+    const results = capLinkedInProfileResults([
+      { position: 1, title: 'A', link: 'https://linkedin.com/in/a?trk=1', snippet: '' },
+      { position: 2, title: 'A duplicate', link: 'https://www.linkedin.com/in/a/', snippet: '' },
+      { position: 3, title: 'B', link: 'https://linkedin.com/in/b', snippet: '' },
+      { position: 4, title: 'C', link: 'https://linkedin.com/in/c', snippet: '' },
+      { position: 5, title: 'Not a profile', link: 'https://example.com/a', snippet: '' },
+    ], 3);
+    expect(results.map((item) => item.link)).toEqual([
+      'https://www.linkedin.com/in/a',
+      'https://www.linkedin.com/in/b',
+      'https://www.linkedin.com/in/c',
+    ]);
+  });
+});
+
+describe('POC result cap', () => {
+  it('keeps at most three unique named candidates ahead of generic contacts', () => {
+    const candidates = capPocCandidates([
+      { name: 'Generic HR', title: 'Contact', email: 'hr@example.com', raw: { roleCategory: 'generic' } },
+      { name: 'Person A', title: 'Talent Acquisition', linkedinUrl: 'https://linkedin.com/in/a', raw: { roleCategory: 'talent_acquisition' } },
+      { name: 'Person A', title: 'Talent Acquisition', linkedinUrl: 'https://linkedin.com/in/a', raw: { roleCategory: 'talent_acquisition' } },
+      { name: 'Person B', title: 'Hiring Manager', linkedinUrl: 'https://linkedin.com/in/b', raw: { roleCategory: 'hiring_delivery_manager' } },
+      { name: 'Person C', title: 'Recruiter', linkedinUrl: 'https://linkedin.com/in/c', raw: { roleCategory: 'talent_acquisition' } },
+    ]);
+    expect(candidates).toHaveLength(3);
+    expect(candidates.map((candidate) => candidate.name)).toEqual(['Person A', 'Person B', 'Person C']);
   });
 });

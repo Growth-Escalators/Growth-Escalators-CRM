@@ -2,6 +2,18 @@
 
 _Update this when the working state of the repo meaningfully changes. Keep it short and true._
 
+## 2026-07-14 Team operating SOP (local documentation)
+
+- `docs/wizmatch/WIZMATCH_TEAM_SOP.md` is the editable team guide for the complete operating loop:
+  signal review, POC verification, requirement acceptance, daily work, evidence-backed matching,
+  consent, submission, placement, finance, analytics and system checks.
+- Ten sanitized live-panel screenshots are stored in `docs/wizmatch/sop-assets/`. They contain no
+  credentials and show the current production UI, including the retained historical QA requirement.
+- `scripts/generate-wizmatch-team-sop-pdf.py` generates the shareable nine-page A4 PDF at
+  `output/pdf/Wizmatch-Team-SOP.pdf`. The PDF was generated, text-extracted and visually checked.
+- This unit changed documentation and local artifacts only. It made no production or business-data
+  mutation. Application builds/tests were not rerun because no application code changed.
+
 ## 2026-07-14 Provider activation release candidate (current)
 
 - Commits `c293b88` and `142eb51` implement and harden SearchAPI.io + TheirStack provider activation
@@ -583,6 +595,20 @@ _Update this when the working state of the repo meaningfully changes. Keep it sh
   `PURELYMAIL_PASS_1..6`. The new readiness checker sees the newer Snov and
   `PURELYMAIL_SMTP_*` variables present, so review whether the warnings are legacy alias noise or
   truly needed for active flows.
+
+## Live three-record pilot finding — 2026-07-14
+
+- Exactly three TheirStack signals were qualified and promoted to draft requirements: PwC SAP
+  ABAP, TCS SAP ABAP, and EY Java. Three `Find Main POC` tasks exist. All drafts correctly remain
+  unattributed/unassigned and no candidate, shortlist, consent, submission, or deletion occurred.
+- SearchAPI usage increased by only one request (1/5 to 2/5). PwC POC discovery succeeded; TCS and
+  EY timed out after about 65 seconds and returned 409 without consuming additional allowance.
+- Production blockers before a trustworthy company-to-candidate run: signal detail uses missing
+  `messages.created_at` instead of `sent_at`; POC discovery needs bounded timeout/Error/Retry; and
+  requirement keyword promotion produces unsafe substring noise (including a PwC SAP ABAP draft
+  missing SAP ABAP). LinkedIn X-Ray is still disabled and has no three-result cap in its live UI.
+- Do not accept or match these three drafts until source POCs/channels and canonical skills are
+  manually verified or the defects above are repaired and staged.
 
 ## How to rebuild context fast
 

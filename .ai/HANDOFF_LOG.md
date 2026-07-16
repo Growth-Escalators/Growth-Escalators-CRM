@@ -2477,3 +2477,57 @@ Built in parallel via 3 isolated-worktree subagents, reviewed + merged + deploye
   health, quota, duplicates, access and resource pressure.
 - Next human action: review the imported signals, verify POCs/channels, configure approved ATS
   boards and create genuine accepted requirements before the first manual X-Ray run.
+
+## 2026-07-14 — Wizmatch team SOP and screenshot guide — Codex — LOCAL DOCUMENTATION
+
+**What was produced**
+- Added `docs/wizmatch/WIZMATCH_TEAM_SOP.md`, an editable step-by-step SOP covering the full
+  signal-to-collection workflow, daily operating rhythm, definitions of done, pilot targets and
+  escalation rules.
+- Captured ten sanitized screenshots from the authenticated live Wizmatch panel and stored them in
+  `docs/wizmatch/sop-assets/`. No credential, token or private contact detail is visible.
+- Added `scripts/generate-wizmatch-team-sop-pdf.py` and generated the shareable A4 artifact at
+  `output/pdf/Wizmatch-Team-SOP.pdf`.
+
+**Verification and scope**
+- Python compilation, PDF generation, `pdfinfo`, text extraction, rendered-page visual inspection
+  and `git diff --check` passed. The PDF is nine pages and includes the current provider, staffing,
+  analytics and readiness screens.
+- No application code, environment, provider, production record or document was changed. Full
+  application tests were not rerun because this was a documentation-only unit.
+
+**Next**
+- Share the PDF with Jatin/Kanishk and use the Markdown file as the maintained source whenever the
+  panel workflow or operating policy changes.
+
+## 2026-07-14 — Three-record live sourcing-to-matching pilot — Codex — PARTIAL / BLOCKED HONESTLY
+
+**Production actions and evidence**
+- Used the authenticated Wizmatch admin UI with a hard cap of three genuine TheirStack signals:
+  PwC SAP ABAP, Tata Consultancy Services SAP ABAP, and EY Java Developer.
+- Qualified exactly those three signals. The system created exactly three deduplicated `Find Main
+  POC` tasks; no provider import, outreach, consent, submission, or deletion was performed.
+- POC research succeeded for PwC and consumed one SearchAPI request (shared allowance moved from
+  1/5 to 2/5 for the day). TCS and EY both timed out after roughly 65 seconds and returned 409;
+  neither consumed another SearchAPI request.
+- Promoted exactly the three reviewed signals into traceable draft requirements. All correctly
+  remain `needs_attribution`, unassigned, and draft; no requirement was falsely accepted.
+- Candidate matching returned no matches and LinkedIn X-Ray remained disabled. This prevented any
+  unreviewed candidate lead, shortlist, consent, or submission from being created.
+
+**Defects/findings**
+- P2: `GET /api/wizmatch/signals/:id` returns 500 because the detail query selects/orders
+  `messages.created_at`, but the table uses `sent_at`. The list-fed drawer masks this failure.
+- P2: POC discovery has no useful short timeout/Retry experience; two live calls held the action
+  for about 65 seconds before returning `The operation was aborted due to timeout`.
+- P1 result quality: requirement promotion copies noisy keyword extraction. The PwC SAP ABAP role
+  was tagged `go/rust/r/express` and omitted SAP ABAP; TCS/EY also carried substring noise. These
+  drafts must not enter canonical matching until skills are manually corrected or the parser is
+  repaired.
+- Product gap: the Source Candidates page still exposes legacy GitHub sourcing and reports
+  LinkedIn X-Ray disabled; there is no safe three-result requirement-first X-Ray UI path yet.
+
+**Exact next action**
+- Repair signal detail SQL, bound POC discovery with explicit timeout/Error/Retry, and add a
+  reviewed canonical-skill step plus a hard maximum-candidate-results input before the first live
+  X-Ray run. Verify on staging before production.

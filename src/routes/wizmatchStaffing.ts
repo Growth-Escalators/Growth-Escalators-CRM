@@ -121,6 +121,11 @@ router.get('/staffing/contacts', async (req, res) => {
   catch (error) { return handle(error, res); }
 });
 
+router.get('/staffing/hiring-contacts', async (req, res) => {
+  try { const current = requireRelationshipRole(req); return res.json({ items: await wizmatchStaffingService.listHiringContacts(current.tenantId, String(req.query.search ?? '')) }); }
+  catch (error) { return handle(error, res); }
+});
+
 router.get('/staffing/companies/:companyId', async (req, res) => {
   try { const current = requireRelationshipRole(req); return res.json(await wizmatchStaffingService.getCompany360(current.tenantId, req.params.companyId)); }
   catch (error) { return handle(error, res); }
@@ -407,8 +412,23 @@ router.get('/staffing/delivery-board', requirePhase('C'), async (req, res) => {
   catch (error) { return handle(error, res); }
 });
 
+router.get('/staffing/placements', requirePhase('C'), async (req, res) => {
+  try { const current = requireLead(req); return res.json(await wizmatchDeliveryService.listPlacements(current.tenantId)); }
+  catch (error) { return handle(error, res); }
+});
+
 router.get('/staffing/analytics', requirePhase('C'), async (req, res) => {
-  try { const current = requireLead(req); return res.json(await wizmatchDeliveryService.analytics(current.tenantId)); }
+  try {
+    const current = requireLead(req);
+    return res.json(await wizmatchDeliveryService.analytics(current.tenantId, {
+      from: req.query.from,
+      to: req.query.to,
+      companyId: req.query.companyId,
+      recruiterId: req.query.recruiterId,
+      skillId: req.query.skillId,
+      source: req.query.source,
+    }));
+  }
   catch (error) { return handle(error, res); }
 });
 

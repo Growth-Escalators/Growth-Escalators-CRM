@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useId, useRef } from 'react';
 
 /**
  * Fluent Modal — 12px radius, shadow-modal, blurred backdrop,
@@ -9,12 +9,50 @@ import React, { useEffect } from 'react';
  *   …body…
  * </Modal>
  */
-export default function Modal({ open, onClose, title, footer, width = 480, children }) {
+const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+export default function Modal({ open, onClose, title, description, footer, width = 480, children }) {
+  const titleId = useId();
+  const descriptionId = useId();
+  const panelRef = useRef(null);
+  const previousFocusRef = useRef(null);
+
   useEffect(() => {
     if (!open) return;
-    const onKey = (e) => e.key === 'Escape' && onClose?.();
+    previousFocusRef.current = document.activeElement;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const focusTimer = window.setTimeout(() => {
+      const first = panelRef.current?.querySelector(FOCUSABLE);
+      first?.focus();
+    }, 0);
+
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose?.();
+        return;
+      }
+      if (e.key !== 'Tab' || !panelRef.current) return;
+      const focusable = [...panelRef.current.querySelectorAll(FOCUSABLE)];
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = originalOverflow;
+      previousFocusRef.current?.focus?.();
+    };
   }, [open, onClose]);
 
   if (!open) return null;
@@ -26,15 +64,21 @@ export default function Modal({ open, onClose, title, footer, width = 480, child
       onClick={onClose}
     >
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={description ? descriptionId : undefined}
         style={{ width, maxWidth: '100%' }}
-        className="bg-white rounded-xl shadow-modal overflow-hidden
+        className="min-w-0 bg-white rounded-xl shadow-modal overflow-hidden
           animate-[modalIn_200ms_cubic-bezier(0.16,1,0.3,1)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-6 py-5 border-b border-neutral-100">
-          <h2 className="text-lg font-bold text-neutral-900">{title}</h2>
+        <div className="flex items-start justify-between gap-3 px-6 py-5 border-b border-neutral-100">
+          <div className="min-w-0">
+            <h2 id={titleId} className="break-words text-lg font-bold text-neutral-900">{title}</h2>
+            {description && <p id={descriptionId} className="mt-1 break-words text-sm text-neutral-600">{description}</p>}
+          </div>
           <button
             onClick={onClose}
             aria-label="Close"
@@ -46,9 +90,9 @@ export default function Modal({ open, onClose, title, footer, width = 480, child
             </svg>
           </button>
         </div>
-        <div className="px-6 py-5 text-sm text-neutral-600">{children}</div>
+        <div className="max-h-[72vh] overflow-y-auto px-6 py-5 text-sm text-neutral-600">{children}</div>
         {footer && (
-          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-neutral-100 bg-neutral-50">
+          <div className="flex flex-wrap items-center justify-end gap-3 px-6 py-4 border-t border-neutral-100 bg-neutral-50">
             {footer}
           </div>
         )}

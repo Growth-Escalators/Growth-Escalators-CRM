@@ -43,9 +43,9 @@ export default {
           800: '#1e293b',
           900: '#0f172a',
         },
-        success: { 500: '#22c55e', 600: '#16a34a', 700: '#15803d' },
-        warning: { 500: '#f59e0b', 600: '#d97706', 700: '#b45309' },
-        danger: { 500: '#ef4444', 600: '#dc2626' },
+        success: { 50: '#f0fdf4', 100: '#dcfce7', 200: '#bbf7d0', 500: '#22c55e', 600: '#16a34a', 700: '#15803d', 800: '#166534' },
+        warning: { 50: '#fffbeb', 100: '#fef3c7', 200: '#fde68a', 500: '#f59e0b', 600: '#d97706', 700: '#b45309', 800: '#92400e' },
+        danger: { 50: '#fef2f2', 100: '#fee2e2', 200: '#fecaca', 500: '#ef4444', 600: '#dc2626', 700: '#b91c1c', 800: '#991b1b' },
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],

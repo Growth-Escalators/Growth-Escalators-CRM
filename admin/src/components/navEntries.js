@@ -2,8 +2,9 @@ import {
   Calendar, Home, Users, Kanban, CheckSquare, MessageSquare, TrendingUp,
   Megaphone, Share2, Target, Search, FileText, Brain, MapPin, Zap, Mail,
   Link as LinkIcon, CreditCard, Receipt, Shield, ShieldCheck, ClipboardList, Settings,
-  Briefcase, UserCheck, BarChart3, Network,
+  Briefcase, UserCheck, BarChart3, Building2, UserRound, SendHorizontal,
 } from 'lucide-react';
+import { WIZMATCH_ROUTE_REGISTRY } from '../lib/wizmatchRouteRegistry.js';
 
 // Permission flag bag — derived from user role + per-user permission overrides.
 // Matches the gating that lived inline in Sidebar.jsx pre-refactor.
@@ -57,6 +58,68 @@ export function computeFlags(role, perms = {}, tenantSlug = 'growth-escalators',
     staffingPhaseC: staffingPhases.C === true,
   };
 }
+
+const WIZMATCH_ICONS = {
+  'wm-my-work': Home,
+  'wm-signals': Zap,
+  'wm-relationships': Building2,
+  'wm-hiring-contacts': UserRound,
+  'wm-requirements': FileText,
+  'wm-talent-matching': UserCheck,
+  'wm-delivery': SendHorizontal,
+  'wm-placements': Briefcase,
+  'wm-analytics-new': BarChart3,
+  'wm-inbox': MessageSquare,
+  'wm-outreach': Target,
+  'wm-emails': Mail,
+  'wm-wa-templates': MessageSquare,
+  'wm-contacts': Users,
+  'wm-pipeline': Kanban,
+  'wm-tasks': CheckSquare,
+  'wm-discover': MapPin,
+  'wm-intelligence': Brain,
+  'wm-primes': Users,
+  'wm-billing': CreditCard,
+  'wm-expenses': Receipt,
+  'wm-system': Settings,
+  'wm-permissions': Shield,
+  'wm-audit': ClipboardList,
+  'wm-pipeline-manager': Settings,
+};
+
+function canSeeWizmatchRoute(item, flags) {
+  if (item.phase && flags[`staffingPhase${item.phase}`] !== true) return false;
+  switch (item.permission) {
+    case 'staffing': return flags.canStaffing;
+    case 'staffing-or-admin': return flags.canStaffing || flags.canWizmatch;
+    case 'commercial': return flags.canStaffing && flags.isAdminTier;
+    case 'admin-tier': return flags.isAdminTier;
+    case 'admin': return flags.isAdmin;
+    case 'crm': return flags.canCRM;
+    case 'tasks': return flags.canTasks;
+    case 'inbox': return flags.canInbox;
+    case 'billing': return flags.canBilling;
+    case 'sequences': return flags.canSequences;
+    case 'discovery': return flags.canDiscovery;
+    default: return false;
+  }
+}
+
+const WIZMATCH_NAV_ENTRIES = WIZMATCH_ROUTE_REGISTRY.map((item) => ({
+  id: item.id,
+  label: item.label,
+  to: item.path,
+  icon: WIZMATCH_ICONS[item.id] || FileText,
+  section: item.section,
+  group: item.group,
+  product: 'wizmatch',
+  keywords: item.keywords,
+  description: item.description,
+  aliases: item.aliases,
+  phase: item.phase,
+  badge: item.id === 'wm-inbox' ? 'inbox-unread' : item.id === 'wm-expenses' ? 'pending-leaves' : undefined,
+  visible: (flags) => canSeeWizmatchRoute(item, flags),
+}));
 
 // Shape of a nav entry:
 //   id        — stable key
@@ -190,172 +253,8 @@ export const NAV_ENTRIES = [
     visible: f => f.canBilling,
   },
 
-  // ── WIZMATCH STAFFING ─────────────────────────────────────────
-  {
-    id: 'wm-dashboard', label: 'Dashboard', to: '/wizmatch/dashboard',
-    icon: Home, section: 'CRM', group: null, product: 'wizmatch',
-    visible: () => true,
-  },
-  {
-    id: 'wm-contacts', label: 'Contacts', to: '/wizmatch/contacts',
-    icon: Users, section: 'CRM', group: null, product: 'wizmatch',
-    visible: f => f.canCRM,
-  },
-  {
-    id: 'wm-pipeline', label: 'Pipeline', to: '/wizmatch/pipeline',
-    icon: Kanban, section: 'CRM', group: null, product: 'wizmatch',
-    visible: f => f.canCRM,
-  },
-  {
-    id: 'wm-tasks', label: 'Tasks', to: '/wizmatch/tasks',
-    icon: CheckSquare, section: 'CRM', group: null, product: 'wizmatch',
-    visible: f => f.canTasks,
-  },
-  {
-    id: 'wm-inbox', label: 'Inbox', to: '/wizmatch/inbox',
-    icon: MessageSquare, section: 'CRM', group: null, product: 'wizmatch',
-    badge: 'inbox-unread',
-    visible: f => f.canInbox,
-  },
-  {
-    id: 'wm-outreach', label: 'Outreach', to: '/wizmatch/outreach',
-    icon: Target, section: 'CRM', group: null, product: 'wizmatch',
-    visible: f => f.isAdminTier,
-  },
-  {
-    id: 'wm-intelligence', label: 'AI Intelligence', to: '/wizmatch/intelligence',
-    icon: Brain, section: 'AI & Automation', group: null, product: 'wizmatch',
-    visible: f => f.isAdminTier,
-  },
-  {
-    id: 'wm-discover', label: 'Lead Discovery', to: '/wizmatch/discover',
-    icon: MapPin, section: 'Tools', group: 'tools', product: 'wizmatch', newTab: true,
-    visible: f => f.canDiscovery,
-  },
-  {
-    id: 'wm-emails', label: 'Email Templates', to: '/wizmatch/emails',
-    icon: Mail, section: 'Tools', group: 'tools', product: 'wizmatch', newTab: true,
-    visible: f => f.canSequences,
-  },
-  {
-    id: 'wm-wa-templates', label: 'WA Templates', to: '/wizmatch/whatsapp-templates',
-    icon: MessageSquare, section: 'Tools', group: 'tools', product: 'wizmatch', newTab: true,
-    visible: f => f.canSequences,
-  },
-  {
-    id: 'wm-billing', label: 'Billing', to: '/wizmatch/billing',
-    icon: CreditCard, section: 'Finance', group: 'finance', product: 'wizmatch',
-    visible: f => f.canBilling,
-  },
-  {
-    id: 'wm-expenses', label: 'Expenses', to: '/wizmatch/finance',
-    icon: Receipt, section: 'Finance', group: 'finance', product: 'wizmatch',
-    badge: 'pending-leaves',
-    visible: f => f.canBilling,
-  },
-  {
-    id: 'wm-permissions', label: 'Permissions', to: '/wizmatch/settings/permissions',
-    icon: Shield, section: 'Settings', group: 'settings', product: 'wizmatch',
-    visible: f => f.isAdmin,
-  },
-  {
-    id: 'wm-audit', label: 'Audit Log', to: '/wizmatch/settings/audit',
-    icon: ClipboardList, section: 'Settings', group: 'settings', product: 'wizmatch',
-    visible: f => f.isAdmin,
-  },
-  {
-    id: 'wm-pipeline-manager', label: 'Pipeline Manager', to: '/wizmatch/pipelines/settings',
-    icon: Settings, section: 'Settings', group: 'settings', product: 'wizmatch',
-    visible: f => f.isAdmin,
-  },
-  // ── Wizmatch funnel (canonical order: start → source → contact → rank → match → place → measure) ──
-  {
-    id: 'wm-my-work', label: 'My Work', to: '/wizmatch/my-work',
-    icon: CheckSquare, section: 'Wizmatch', group: null, product: 'wizmatch',
-    visible: f => f.canStaffing && f.staffingPhaseA,
-  },
-  {
-    id: 'wm-relationships', label: 'Companies & Contacts', to: '/wizmatch/relationships',
-    icon: Users, section: 'Wizmatch', group: null, product: 'wizmatch',
-    visible: f => f.canStaffing && f.staffingPhaseA,
-  },
-  {
-    id: 'wm-review-workbench', label: 'Review Workbench', to: '/wizmatch/review-workbench',
-    icon: ClipboardList, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-client-discovery-new', label: 'Client Discovery', to: '/wizmatch/client-discovery',
-    icon: Search, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-signals', label: 'Signals', to: '/wizmatch/signals',
-    icon: Zap, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-contact-intelligence-new', label: 'Contact Intelligence', to: '/wizmatch/contact-intelligence',
-    icon: Network, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-requirement-priority-new', label: 'Requirement Priority', to: '/wizmatch/requirement-priority-new',
-    icon: Target, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-requirements', label: 'Requirements', to: '/wizmatch/requirements',
-    icon: FileText, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-candidate-intelligence-new', label: 'Candidate Intelligence', to: '/wizmatch/candidate-intelligence',
-    icon: ClipboardList, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-candidates', label: 'Candidates', to: '/wizmatch/candidates',
-    icon: UserCheck, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-talent-matching', label: 'Talent Matching', to: '/wizmatch/talent-matching',
-    icon: Target, section: 'Wizmatch', group: null, product: 'wizmatch',
-    visible: f => f.canStaffing && f.staffingPhaseB,
-  },
-  {
-    id: 'wm-delivery', label: 'Submissions & Delivery', to: '/wizmatch/delivery',
-    icon: Briefcase, section: 'Wizmatch', group: null, product: 'wizmatch',
-    visible: f => f.canStaffing && f.staffingPhaseC,
-  },
-  {
-    id: 'wm-source-candidates', label: 'Source Candidates', to: '/wizmatch/source-candidates',
-    icon: Search, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-placements', label: 'Placements', to: '/wizmatch/placements',
-    icon: Briefcase, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-primes', label: 'Primes', to: '/wizmatch/primes',
-    icon: Users, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  {
-    id: 'wm-analytics-new', label: 'Analytics', to: '/wizmatch/analytics',
-    icon: BarChart3, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
-  // ── Diagnostics (out of the daily funnel; Workstream B folds Readiness, Guardrails,
-  //    Domains, and Compliance into one tabbed "System" page/nav entry) ──
-  {
-    id: 'wm-system', label: 'System', to: '/wizmatch/system',
-    icon: Settings, section: 'Wizmatch', group: null,
-    visible: f => f.canWizmatch,
-  },
+  // ── WIZMATCH — generated from the product route registry ─────
+  ...WIZMATCH_NAV_ENTRIES,
 
   // ── SETTINGS (collapsible, pinned to bottom) ──────────────────
   {
@@ -395,6 +294,9 @@ export const GROUP_LABELS = {
   tools: 'Tools',
   finance: 'Finance',
   settings: 'Settings',
+  'more-communication': 'More · Communication',
+  'more-crm': 'More · CRM utilities',
+  'more-admin': 'More · Administration',
 };
 
 // Find which collapsible group (if any) owns a given pathname.
@@ -404,8 +306,11 @@ export function groupForPath(pathname, role, perms, tenantSlug, staffingPhases) 
   // Match longest "to" first so /settings/permissions wins over /settings.
   const sorted = [...entries].sort((a, b) => (b.to?.length || 0) - (a.to?.length || 0));
   for (const e of sorted) {
-    if (!e.to || !e.group) continue;
-    if (pathname === e.to || pathname.startsWith(e.to + '/')) return e.group;
+    if (!e.group) continue;
+    const paths = [e.to, ...(e.aliases || []).map((alias) => alias.path)].filter(Boolean);
+    if (paths.some((path) => pathname === path || pathname.startsWith(path + '/'))) {
+      return e.group.startsWith('more-') ? 'more' : e.group;
+    }
   }
   return null;
 }

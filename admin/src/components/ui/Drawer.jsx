@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useId, useRef } from 'react';
 
 /**
  * Fluent Drawer (slide-in panel) — replaces ContactSlideIn / DealDetailSlideIn
@@ -9,12 +9,44 @@ import React, { useEffect } from 'react';
  *   …detail body…
  * </Drawer>
  */
+const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export default function Drawer({ open, onClose, title, subtitle, footer, wide = false, children }) {
+  const titleId = useId();
+  const subtitleId = useId();
+  const panelRef = useRef(null);
+  const previousFocusRef = useRef(null);
+
   useEffect(() => {
     if (!open) return;
-    const onKey = (e) => e.key === 'Escape' && onClose?.();
+    previousFocusRef.current = document.activeElement;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const focusTimer = window.setTimeout(() => panelRef.current?.querySelector(FOCUSABLE)?.focus(), 0);
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose?.();
+        return;
+      }
+      if (e.key !== 'Tab' || !panelRef.current) return;
+      const focusable = [...panelRef.current.querySelectorAll(FOCUSABLE)];
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault(); last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault(); first.focus();
+      }
+    };
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = originalOverflow;
+      previousFocusRef.current?.focus?.();
+    };
   }, [open, onClose]);
 
   if (!open) return null;
@@ -25,8 +57,11 @@ export default function Drawer({ open, onClose, title, subtitle, footer, wide = 
       onClick={onClose}
     >
       <aside
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={subtitle ? subtitleId : undefined}
         style={{ width: wide ? 640 : 480, maxWidth: '100%' }}
         className="h-full bg-white shadow-modal flex flex-col
           animate-[drawerIn_300ms_cubic-bezier(0.4,0,0.2,1)]"
@@ -35,8 +70,8 @@ export default function Drawer({ open, onClose, title, subtitle, footer, wide = 
         {/* Sticky header */}
         <div className="flex items-start justify-between gap-3 px-6 py-5 border-b border-neutral-100 shrink-0">
           <div className="min-w-0">
-            <h2 className="text-lg font-bold text-neutral-900 truncate">{title}</h2>
-            {subtitle && <p className="text-sm text-neutral-500 mt-0.5 truncate">{subtitle}</p>}
+            <h2 id={titleId} className="text-lg font-bold text-neutral-900 truncate">{title}</h2>
+            {subtitle && <p id={subtitleId} className="text-sm text-neutral-600 mt-0.5 truncate">{subtitle}</p>}
           </div>
           <button
             onClick={onClose}

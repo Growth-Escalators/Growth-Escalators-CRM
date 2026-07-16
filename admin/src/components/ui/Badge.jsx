@@ -8,12 +8,12 @@ import React from 'react';
  * <Badge type="accent" dot>Sent</Badge>
  */
 const TYPES = {
-  success: 'bg-success-500/10 text-success-600 border-success-500/20',
-  warning: 'bg-warning-500/10 text-warning-700 border-warning-500/20',
-  danger: 'bg-danger-500/10 text-danger-600 border-danger-500/20',
-  info: 'bg-primary-500/10 text-primary-700 border-primary-500/20',
-  accent: 'bg-accent-500/10 text-accent-700 border-accent-500/20',
-  muted: 'bg-neutral-200 text-neutral-500 border-neutral-300',
+  success: 'bg-success-50 text-success-700 border-success-200',
+  warning: 'bg-warning-50 text-warning-800 border-warning-200',
+  danger: 'bg-danger-50 text-danger-700 border-danger-200',
+  info: 'bg-primary-50 text-primary-800 border-primary-200',
+  accent: 'bg-accent-50 text-accent-700 border-accent-200',
+  muted: 'bg-neutral-200 text-neutral-700 border-neutral-300',
 };
 
 const DOTS = {

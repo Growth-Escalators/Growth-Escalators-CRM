@@ -2,8 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { logout, getUser, getPermissions, apiFetch } from '../lib/api.js';
 import { getTenantConfig, getTenantSlug } from '../lib/auth.js';
-import { ChevronRight, Menu, X, Wrench, Receipt, Settings as SettingsIcon } from 'lucide-react';
-import { NAV_ENTRIES, GROUP_LABELS, getVisibleEntries, groupForPath } from './navEntries.js';
+import { ChevronRight, Menu, X, Wrench, Receipt, Settings as SettingsIcon, MessageSquare, LayoutGrid } from 'lucide-react';
+import { GROUP_LABELS, getVisibleEntries, groupForPath } from './navEntries.js';
 import CommandPalette from './CommandPalette.jsx';
 import { closedStaffingPhases, normalizeStaffingAccess } from '../lib/staffingAccess.js';
 
@@ -11,21 +11,41 @@ const ROLE_BADGE_COLORS = {
   admin: 'bg-primary-700',
   manager_ops: 'bg-primary-400',
   manager_ads: 'bg-primary-500',
+  team_lead: 'bg-primary-500',
   sales: 'bg-accent-500',
   staff: 'bg-neutral-500',
+  viewer: 'bg-neutral-500',
 };
 
 const ROLE_LABELS = {
   admin: 'Admin',
   manager_ops: 'Manager',
   manager_ads: 'Ads Mgr',
+  team_lead: 'Team Lead',
   sales: 'Sales',
   staff: 'Staff',
+  viewer: 'Viewer',
 };
 
 const STORAGE_KEY = 'ge-crm-nav-groups';
-const DEFAULT_GROUPS = { tools: false, finance: false, settings: false };
-const GROUP_ICONS = { tools: Wrench, finance: Receipt, settings: SettingsIcon };
+const DEFAULT_GROUPS = {
+  tools: false,
+  finance: false,
+  settings: false,
+  more: false,
+  'more-communication': false,
+  'more-crm': false,
+  'more-admin': false,
+};
+const GROUP_ICONS = {
+  tools: Wrench,
+  finance: Receipt,
+  settings: SettingsIcon,
+  more: LayoutGrid,
+  'more-communication': MessageSquare,
+  'more-crm': LayoutGrid,
+  'more-admin': SettingsIcon,
+};
 
 function readStoredGroups() {
   try {
@@ -136,6 +156,8 @@ export default function Sidebar() {
   const [openGroups, setOpenGroups] = useState(readStoredGroups);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [staffingPhases, setStaffingPhases] = useState(closedStaffingPhases);
+  const canReadInbox = ['admin', 'manager_ops', 'team_lead', 'sales', 'creative_assistant'].includes(role);
+  const canReadFinance = role === 'admin' || perms.billingView === true;
 
   // Phase visibility is a runtime server decision. Fail closed so a stale or
   // cached Vite bundle can never expose a phase that the API has disabled.
@@ -159,6 +181,10 @@ export default function Sidebar() {
 
   // Inbox unread badge — poll every 30s
   useEffect(() => {
+    if (!canReadInbox) {
+      setUnreadCount(0);
+      return undefined;
+    }
     function fetchUnread() {
       apiFetch('/api/inbox/unread-count')
         .then(d => setUnreadCount(d?.count ?? 0))
@@ -167,11 +193,15 @@ export default function Sidebar() {
     fetchUnread();
     const interval = setInterval(fetchUnread, 30_000);
     return () => clearInterval(interval);
-  }, []);
+  }, [canReadInbox]);
 
   // Pending leaves badge — poll every 60s. The Expenses entry (route /finance)
   // shows this; approval UI lives there in the Attendance tab.
   useEffect(() => {
+    if (!canReadFinance) {
+      setPendingLeavesCount(0);
+      return undefined;
+    }
     function fetchPending() {
       apiFetch('/api/finance/leaves/pending-count')
         .then(d => setPendingLeavesCount(d?.count ?? 0))
@@ -180,7 +210,7 @@ export default function Sidebar() {
     fetchPending();
     const interval = setInterval(fetchPending, 60_000);
     return () => clearInterval(interval);
-  }, []);
+  }, [canReadFinance]);
 
   // Auto-close mobile drawer on route change
   useEffect(() => { setMobileOpen(false); }, [location.pathname]);
@@ -237,7 +267,7 @@ export default function Sidebar() {
   }, [visible]);
 
   const grouped = useMemo(() => {
-    const map = { tools: [], finance: [], settings: [] };
+    const map = Object.fromEntries(Object.keys(GROUP_LABELS).map((id) => [id, []]));
     for (const e of visible) {
       if (e.group && map[e.group]) map[e.group].push(e);
     }
@@ -245,7 +275,13 @@ export default function Sidebar() {
   }, [visible]);
 
   // Order of flat sections
-  const FLAT_ORDER = ['Personal', 'CRM', 'Marketing', 'AI & Automation', 'Wizmatch'];
+  const flatOrder = String(tenantSlug).toLowerCase() === 'wizmatch'
+    ? ['Wizmatch']
+    : ['Personal', 'CRM', 'Marketing', 'AI & Automation'];
+  const isWizmatch = String(tenantSlug).toLowerCase() === 'wizmatch';
+  const groupOrder = ['tools', 'finance', 'settings'];
+  const wizmatchMoreGroups = ['more-communication', 'more-crm', 'more-admin'];
+  const hasWizmatchMore = isWizmatch && wizmatchMoreGroups.some((groupId) => grouped[groupId]?.length);
 
   return (
     <>
@@ -301,7 +337,7 @@ export default function Sidebar() {
         {/* Nav — flex column so Settings group can mt-auto to bottom */}
         <nav className="flex-1 flex flex-col px-3 py-2 overflow-y-auto">
           {/* Flat sections */}
-          {FLAT_ORDER.map(section => {
+          {flatOrder.map(section => {
             const entries = flatSections.get(section);
             if (!entries || entries.length === 0) return null;
             return (
@@ -314,37 +350,56 @@ export default function Sidebar() {
             );
           })}
 
-          {/* Tools (collapsible) */}
-          {grouped.tools.length > 0 && (
-            <>
-              <div className="pt-3" />
-              <GroupHeader id="tools" label={GROUP_LABELS.tools} isOpen={openGroups.tools} onToggle={() => toggleGroup('tools')} />
-              {openGroups.tools && grouped.tools.map(e => (
-                <NavEntry key={e.id} entry={e} unreadCount={unreadCount} pendingLeavesCount={pendingLeavesCount} nested />
-              ))}
-            </>
-          )}
-
-          {/* Finance (collapsible) */}
-          {grouped.finance.length > 0 && (
-            <>
-              <div className="pt-2" />
-              <GroupHeader id="finance" label={GROUP_LABELS.finance} isOpen={openGroups.finance} onToggle={() => toggleGroup('finance')} />
-              {openGroups.finance && grouped.finance.map(e => (
-                <NavEntry key={e.id} entry={e} unreadCount={unreadCount} pendingLeavesCount={pendingLeavesCount} nested />
-              ))}
-            </>
-          )}
-
-          {/* Settings (collapsible, pinned to bottom of nav) */}
-          {grouped.settings.length > 0 && (
-            <div className="mt-auto pt-2">
-              <GroupHeader id="settings" label={GROUP_LABELS.settings} isOpen={openGroups.settings} onToggle={() => toggleGroup('settings')} />
-              {openGroups.settings && grouped.settings.map(e => (
-                <NavEntry key={e.id} entry={e} unreadCount={unreadCount} pendingLeavesCount={pendingLeavesCount} nested />
-              ))}
+          {/* Secondary tools live behind compact, named groups. Wizmatch uses
+              entity-first primary navigation and keeps shared CRM/admin
+              modules under More; Growth retains its existing groups. */}
+          {hasWizmatchMore && (
+            <div className="pt-3">
+              <GroupHeader
+                id="more"
+                label="More"
+                isOpen={openGroups.more}
+                onToggle={() => toggleGroup('more')}
+              />
+              {openGroups.more && (
+                <div className="pb-2 pl-2">
+                  {wizmatchMoreGroups.map((groupId) => {
+                    const entries = grouped[groupId] || [];
+                    if (!entries.length) return null;
+                    return (
+                      <div key={groupId} className="pt-2">
+                        <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.09em] text-primary-300/70">
+                          {GROUP_LABELS[groupId].replace(/^More · /, '')}
+                        </p>
+                        {entries.map((entry) => (
+                          <NavEntry key={entry.id} entry={entry} unreadCount={unreadCount} pendingLeavesCount={pendingLeavesCount} nested />
+                        ))}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
+
+          {!isWizmatch && groupOrder.map((groupId, index) => {
+            const entries = grouped[groupId] || [];
+            if (!entries.length) return null;
+            const pinned = groupId === 'settings';
+            return (
+              <div key={groupId} className={`${pinned ? 'mt-auto' : ''} ${index === 0 ? 'pt-3' : 'pt-2'}`}>
+                <GroupHeader
+                  id={groupId}
+                  label={GROUP_LABELS[groupId]}
+                  isOpen={openGroups[groupId]}
+                  onToggle={() => toggleGroup(groupId)}
+                />
+                {openGroups[groupId] && entries.map((entry) => (
+                  <NavEntry key={entry.id} entry={entry} unreadCount={unreadCount} pendingLeavesCount={pendingLeavesCount} nested />
+                ))}
+              </div>
+            );
+          })}
         </nav>
 
         {/* User + logout */}
@@ -361,7 +416,7 @@ export default function Sidebar() {
               </div>
             </div>
           </div>
-          <p className="inline-flex items-center border border-white/[0.08] bg-white/[0.08] rounded px-1.5 py-0.5 text-[10px] text-primary-300/70 mb-2">⌘K to search</p>
+          <p className="inline-flex items-center border border-white/[0.08] bg-white/[0.08] rounded px-1.5 py-0.5 text-[10px] text-primary-300/70 mb-2">⌘K for pages</p>
           <button
             onClick={logout}
             className="w-full text-left text-xs text-[rgba(219,234,254,0.6)] hover:text-white transition-colors px-1"

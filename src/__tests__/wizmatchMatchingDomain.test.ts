@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateCandidateRequirementMatch } from '../services/wizmatchMatchingDomain';
+import { calculateCandidateRequirementMatch, createWizmatchMatchingService } from '../services/wizmatchMatchingDomain';
 
 const skills = {
   abap: { id: 'abap', family: 'SAP', specialization: 'ABAP', canonicalLabel: 'SAP ABAP' },
@@ -58,5 +58,38 @@ describe('Gate B matching', () => {
     const result = calculateCandidateRequirementMatch(data);
     expect(result.missingEvidence).toEqual(expect.arrayContaining(['skill_evidence:Java', 'recency:Java']));
     expect(result.dimensions.experienceRecencyEvidence).toBeLessThan(15);
+  });
+
+  it('upserts supplied requirement and candidate skills without deleting omitted evidence', async () => {
+    const statements: string[] = [];
+    const client = {
+      query: async (sql: string) => {
+        statements.push(sql);
+        if (sql.startsWith('SELECT id FROM')) return { rowCount: 1, rows: [{ id: 'owned' }] };
+        return { rowCount: 1, rows: [] };
+      },
+      release: () => {},
+    };
+    const service = createWizmatchMatchingService({ connect: async () => client } as any);
+    await expect(service.replaceRequirementSkills(
+      { tenantId: 'tenant-a', userId: 'reviewer-a' },
+      'requirement-a',
+      [{ skillId: 'abap', importance: 'mandatory', minimumYears: 4, evidence: 'Reviewed JD' }],
+    )).resolves.toMatchObject({ count: 1, upserted: 1, omittedPreserved: true });
+    await expect(service.replaceCandidateSkills(
+      { tenantId: 'tenant-a', userId: 'reviewer-a' },
+      'candidate-a',
+      [{ skillId: 'abap', experienceYears: 5, evidence: 'Project evidence', verified: true }],
+    )).resolves.toMatchObject({ count: 1, upserted: 1, omittedPreserved: true });
+    expect(statements.some((sql) => /DELETE FROM wizmatch_(requirement|candidate)_skills/.test(sql))).toBe(false);
+    expect(statements.filter((sql) => sql.includes('ON CONFLICT (tenant_id,')).length).toBe(2);
+    expect(statements.some((sql) => sql.includes('UPDATE wizmatch_requirements requirement SET'))).toBe(true);
+    const requirementSync = statements.find((sql) => sql.includes('UPDATE wizmatch_requirements requirement SET')) || '';
+    expect(requirementSync).not.toContain('requirement.required_skills');
+    expect(requirementSync).not.toContain('requirement.nice_to_have_skills');
+    expect(requirementSync.match(/'\{\}'::text\[\]/g)).toHaveLength(2);
+    expect(statements.some((sql) => sql.includes('UPDATE wizmatch_candidates candidate SET'))).toBe(true);
+    expect(statements.some((sql) => sql.includes("'requirement_skills_upserted'"))).toBe(true);
+    expect(statements.some((sql) => sql.includes("'candidate_skills_upserted'"))).toBe(true);
   });
 });

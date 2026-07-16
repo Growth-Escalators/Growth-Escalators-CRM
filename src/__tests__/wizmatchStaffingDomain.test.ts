@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { StaffingDomainError, assertStageTransition, createWizmatchStaffingService } from '../services/wizmatchStaffingDomain';
+import {
+  allowedRequirementTransitions,
+  buildNormalizedWorkItems,
+  buildRequirementReadiness,
+  StaffingDomainError,
+  assertStageTransition,
+  createWizmatchStaffingService,
+} from '../services/wizmatchStaffingDomain';
 
 function fakePool(responder: (sql: string, params: unknown[]) => { rows?: any[]; rowCount?: number } = () => ({ rows: [], rowCount: 1 })) {
   const calls: Array<{ sql: string; params: unknown[] }> = [];
@@ -123,5 +130,45 @@ describe('Wizmatch staffing domain', () => {
     expect(fake.calls.find(call => call.sql.includes('INSERT INTO wizmatch_staffing_events'))?.params)
       .toEqual(expect.arrayContaining(['requirement.review_plan_created', 'java-role']));
     expect(fake.calls.at(-1)?.sql).toBe('COMMIT');
+  });
+
+  it('adds normalized actionable work items without changing the legacy arrays', () => {
+    const now = new Date('2026-07-14T10:00:00.000Z');
+    const items = buildNormalizedWorkItems([
+      { id: 'requirement-a', title: 'SAP ABAP', company_name: 'Company A', attribution_status: 'attributed', next_action: 'Review candidates', next_action_due_at: '2026-07-14T09:00:00.000Z' },
+      { id: 'requirement-b', title: 'Java', company_name: 'Company B', attribution_status: 'needs_attribution' },
+      { id: 'requirement-c', title: 'SAP FICO', company_name: 'Company C', attribution_status: 'needs_attribution', next_action: 'Review intake', next_action_due_at: '2026-07-13T09:00:00.000Z' },
+    ], [
+      { id: 'task-a', requirement_id: 'requirement-a', title: 'Review candidates', due_at: '2026-07-14T09:00:00.000Z' },
+      { id: 'task-b', company_id: 'company-b', title: 'Await client response', due_at: '2026-07-16T09:00:00.000Z' },
+      { id: 'task-c', company_id: 'company-c', title: 'Review account plan', due_at: '2026-07-17T09:00:00.000Z' },
+    ], now);
+    expect(items.find((item) => item.id === 'requirement:requirement-a')).toBeUndefined();
+    expect(items.find((item) => item.id === 'task:task-a')).toMatchObject({ bucket: 'overdue', entityHref: '/wizmatch/roles?requirementId=requirement-a' });
+    expect(items.find((item) => item.id === 'requirement:requirement-b')).toMatchObject({ bucket: 'blocked', blocker: 'Source contact attribution is required' });
+    expect(items.find((item) => item.id === 'requirement:requirement-c')).toMatchObject({ bucket: 'blocked', blocker: 'Source contact attribution is required' });
+    expect(items.find((item) => item.id === 'task:task-b')).toMatchObject({ bucket: 'waiting', entityHref: '/wizmatch/companies?companyId=company-b' });
+    expect(items.find((item) => item.id === 'task:task-c')).toMatchObject({ bucket: 'waiting', entityHref: '/wizmatch/companies?companyId=company-c' });
+  });
+
+  it('reports acceptance readiness and disables only a blocked accepted transition', () => {
+    const readiness = buildRequirementReadiness({
+      company_id: 'company-a', sla_due_at: null, next_action: null, next_action_due_at: null,
+    }, {
+      has_primary_source: true, has_primary_channel: false, has_account_owner: true, has_recruiter: false, has_mandatory_skill: true,
+    });
+    expect(readiness.acceptance).toMatchObject({ ready: false, missing: expect.arrayContaining(['primary source contact channel', 'recruiter', 'SLA due date', 'dated next action']) });
+    expect(allowedRequirementTransitions('qualifying', readiness.acceptance.ready).find((item) => item.stage === 'accepted'))
+      .toMatchObject({ allowed: false, blockers: ['Complete requirement acceptance readiness'] });
+  });
+
+  it('lists only tenant-scoped active hiring-contact relationships with channels and requirement counts', async () => {
+    const query = vi.fn(async (_sql: string, _params: unknown[]) => ({ rows: [{ id: 'relationship-a', company_name: 'Company A', verification_state: 'verified', requirement_count: 2 }], rowCount: 1 }));
+    const service = createWizmatchStaffingService({ query } as any);
+    const rows = await service.listHiringContacts('tenant-a', 'Person A');
+    expect(rows).toHaveLength(1);
+    expect(query.mock.calls[0][0]).toContain("cc.tenant_id=$1 AND cc.relationship_stage='active'");
+    expect(query.mock.calls[0][0]).toContain('contact_channels');
+    expect(query.mock.calls[0][1]).toEqual(['tenant-a', 'Person A']);
   });
 });

@@ -19,6 +19,19 @@ export interface SearchApiAccountStatus {
   error?: string;
 }
 
+export class SearchApiRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly code: 'provider_timeout' | 'provider_rate_limited' | 'provider_unavailable' | 'provider_request_failed',
+    public readonly retryable: boolean,
+    public readonly retryAfterSeconds: number | null,
+    public readonly status: number | null = null,
+  ) {
+    super(message);
+    this.name = 'SearchApiRequestError';
+  }
+}
+
 function key(env: NodeJS.ProcessEnv = process.env) {
   return String(env.SEARCHAPI_API_KEY || '').trim();
 }
@@ -28,11 +41,25 @@ async function request(url: URL, apiKey: string, timeoutMs = 20_000) {
     headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
     signal: AbortSignal.timeout(timeoutMs),
   });
-  if (!response.ok) throw new Error(`SearchAPI HTTP ${response.status}`);
+  if (!response.ok) {
+    const retryable = response.status === 429 || response.status >= 500;
+    throw new SearchApiRequestError(
+      `SearchAPI HTTP ${response.status}`,
+      response.status === 429 ? 'provider_rate_limited' : response.status >= 500 ? 'provider_unavailable' : 'provider_request_failed',
+      retryable,
+      retryable ? 600 : null,
+      response.status,
+    );
+  }
   return response.json() as Promise<Record<string, any>>;
 }
 
-export async function searchPublicWeb(query: string, options: { count?: number; env?: NodeJS.ProcessEnv } = {}): Promise<SearchApiResult[]> {
+export async function searchPublicWeb(query: string, options: {
+  count?: number;
+  env?: NodeJS.ProcessEnv;
+  timeoutMs?: number;
+  maxAttempts?: number;
+} = {}): Promise<SearchApiResult[]> {
   const apiKey = key(options.env);
   if (!apiKey) throw new Error('SearchAPI is not configured');
   const url = new URL(SEARCH_URL);
@@ -42,15 +69,20 @@ export async function searchPublicWeb(query: string, options: { count?: number; 
   url.searchParams.set('hl', 'en');
   url.searchParams.set('num', String(Math.min(Math.max(options.count || 10, 1), 10)));
   let body: Record<string, any> | null = null;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  const attempts = Math.min(Math.max(options.maxAttempts ?? 2, 1), 2);
+  for (let attempt = 0; attempt < attempts; attempt++) {
     try {
-      body = await request(url, apiKey, 30_000);
+      body = await request(url, apiKey, options.timeoutMs ?? 30_000);
       break;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const transient = /timeout|aborted|SearchAPI HTTP (429|5\d\d)/i.test(message)
+      const transient = error instanceof SearchApiRequestError ? error.retryable : /timeout|aborted/i.test(message)
         || (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name));
-      if (!transient || attempt === 1) throw error;
+      if (!transient || attempt === attempts - 1) {
+        if (error instanceof SearchApiRequestError) throw error;
+        if (transient) throw new SearchApiRequestError('SearchAPI request timed out', 'provider_timeout', true, 600);
+        throw new SearchApiRequestError('SearchAPI request failed', 'provider_request_failed', false, null);
+      }
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
   }
@@ -98,7 +130,7 @@ export async function getSearchApiRunUsage(tenantId: string) {
     `SELECT COALESCE(SUM(quota_consumed) FILTER (WHERE created_at>=CURRENT_DATE),0)::int AS daily,
             COALESCE(SUM(quota_consumed) FILTER (WHERE created_at>=date_trunc('month',CURRENT_DATE)),0)::int AS monthly
      FROM wizmatch_source_runs
-     WHERE tenant_id=$1 AND provider IN ('xray','poc_discovery') AND status IN ('succeeded','partial','running')`,
+     WHERE tenant_id=$1 AND provider IN ('xray','poc_discovery') AND status NOT IN ('blocked','skipped')`,
     [tenantId],
   );
   return { daily: result.rows[0]?.daily || 0, monthly: result.rows[0]?.monthly || 0 };

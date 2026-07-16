@@ -15,9 +15,9 @@ export default function AppLayout({ children }) {
   return (
     <div className="flex h-screen bg-neutral-50">
       <Sidebar />
-      <main className="flex-1 overflow-y-auto flex flex-col">
+      <main className="flex min-w-0 flex-1 flex-col overflow-y-auto">
         <TopBar onSearchOpen={() => setSearchOpen(true)} />
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           {children}
         </div>
       </main>

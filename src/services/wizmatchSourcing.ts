@@ -7,6 +7,7 @@ import {
   buildPocSearchQuery,
   classifyPocResult,
   getSearchApiRunUsage,
+  SearchApiRequestError,
   searchPublicWeb,
 } from './wizmatchSearchApi';
 
@@ -35,6 +36,83 @@ export interface SignalIngestResult {
 }
 
 type Queryable = { query: (text: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number | null }> };
+
+export type PocDiscoveryFailure = {
+  status: number;
+  error: string;
+  code: string;
+  retryable: boolean;
+  retryAfterSeconds: number | null;
+};
+
+export class PocDiscoveryError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly retryable = false,
+    public readonly retryAfterSeconds: number | null = null,
+  ) {
+    super(message);
+    this.name = 'PocDiscoveryError';
+  }
+}
+
+export function describePocDiscoveryFailure(error: unknown): PocDiscoveryFailure {
+  if (error instanceof PocDiscoveryError) {
+    return {
+      status: error.code === 'poc_retry_cooldown' ? 429 : 409,
+      error: error.message,
+      code: error.code,
+      retryable: error.retryable,
+      retryAfterSeconds: error.retryAfterSeconds,
+    };
+  }
+  if (error instanceof SearchApiRequestError) {
+    return {
+      status: error.code === 'provider_timeout' ? 504 : error.status === 429 ? 429 : error.retryable ? 503 : 409,
+      error: error.code === 'provider_timeout'
+        ? 'POC research timed out before the provider returned evidence.'
+        : error.code === 'provider_rate_limited'
+          ? 'POC research is temporarily rate limited.'
+          : error.retryable
+            ? 'POC research provider is temporarily unavailable.'
+            : 'POC research could not be completed.',
+      code: error.code,
+      retryable: error.retryable,
+      retryAfterSeconds: error.retryAfterSeconds,
+    };
+  }
+  const message = error instanceof Error ? error.message : '';
+  if (/allowance reached/i.test(message)) {
+    return { status: 429, error: 'The shared POC research allowance has been reached.', code: 'provider_allowance_reached', retryable: false, retryAfterSeconds: null };
+  }
+  if (message === 'POC discovery is disabled') {
+    return { status: 403, error: message, code: 'poc_discovery_disabled', retryable: false, retryAfterSeconds: null };
+  }
+  if (message === 'Signal company was not found') {
+    return { status: 404, error: message, code: 'signal_company_not_found', retryable: false, retryAfterSeconds: null };
+  }
+  return { status: 409, error: 'POC discovery could not be completed.', code: 'poc_discovery_failed', retryable: true, retryAfterSeconds: 60 };
+}
+
+export function capPocCandidates<T extends {
+  name?: string | null;
+  email?: string | null;
+  linkedinUrl?: string | null;
+  title?: string | null;
+  raw?: { roleCategory?: string | null } | null;
+}>(candidates: T[], limit = 3): T[] {
+  const seen = new Set<string>();
+  return [...candidates]
+    .sort((a, b) => Number(Boolean(b.name && b.raw?.roleCategory !== 'generic')) - Number(Boolean(a.name && a.raw?.roleCategory !== 'generic')))
+    .filter((candidate) => {
+      const key = String(candidate.email || candidate.linkedinUrl || `${candidate.name || ''}|${candidate.title || ''}`).trim().toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, Math.min(Math.max(limit, 1), 3));
+}
 
 function enabled(value: string | undefined) {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
@@ -283,6 +361,7 @@ export async function discoverFreePocsForSignal(tenantId: string, signalId: stri
   );
   if (!signal.rows[0]) throw new Error('Signal company was not found');
   const run = await createSourceRun({ tenantId, provider: 'poc_discovery', companyId: signal.rows[0].company_id, requestedBy: userId, query: { signalId } });
+  let searchApiAttempted = false;
   try {
     const intelligence = await pool.query(
       `INSERT INTO wizmatch_company_intelligence (tenant_id,company_id,status,review_status,last_qualified_at,created_at,updated_at)
@@ -301,7 +380,7 @@ export async function discoverFreePocsForSignal(tenantId: string, signalId: stri
     );
     if ((internal.rows[0]?.count || 0) > 0) {
       await finishSourceRun(run.id, tenantId, { status: 'succeeded', fetched: internal.rows[0].count, quotaConsumed: 0 });
-      return { state: internal.rows[0].with_channel > 0 ? 'verified' : 'identified_channel_pending', candidatesFound: 0, existingRelationships: internal.rows[0].count, inserted: 0, duplicates: 0, searchApiUsed: false };
+      return { state: internal.rows[0].with_channel > 0 ? 'verified' : 'identified_channel_pending', candidatesFound: 0, candidates: [], existingRelationships: internal.rows[0].count, inserted: 0, duplicates: 0, searchApiUsed: false };
     }
 
     const providers = createDefaultWizmatchContactDiscoveryProviders();
@@ -320,9 +399,29 @@ export async function discoverFreePocsForSignal(tenantId: string, signalId: stri
         [tenantId, signal.rows[0].company_id],
       );
       if (!recent.rows.length) {
+        const failedCooldown = await pool.query(
+          `SELECT GREATEST(1,CEIL(EXTRACT(EPOCH FROM (created_at+INTERVAL '10 minutes'-NOW())))::int) AS retry_after_seconds
+           FROM wizmatch_source_runs
+           WHERE tenant_id=$1 AND provider='poc_discovery' AND company_id=$2 AND status='failed' AND quota_consumed>0
+             AND created_at>NOW()-INTERVAL '10 minutes'
+           ORDER BY created_at DESC LIMIT 1`,
+          [tenantId, signal.rows[0].company_id],
+        );
+        if (failedCooldown.rows.length) {
+          throw new PocDiscoveryError(
+            'poc_retry_cooldown',
+            'POC research recently failed for this company. Retry after the cooldown.',
+            true,
+            Number(failedCooldown.rows[0].retry_after_seconds) || 600,
+          );
+        }
         const usage = await getSearchApiRunUsage(tenantId);
         assertSearchApiAllowance(usage, { daily: config.searchApiDailyCap, monthly: config.searchApiMonthlyCap });
-        const publicResults = await searchPublicWeb(buildPocSearchQuery(signal.rows[0].company_name, signal.rows[0].domain));
+        searchApiAttempted = true;
+        const publicResults = await searchPublicWeb(
+          buildPocSearchQuery(signal.rows[0].company_name, signal.rows[0].domain),
+          { count: 3, timeoutMs: 15_000, maxAttempts: 1 },
+        );
         searchApiUsed = true;
         for (const result of publicResults) {
           const classified = classifyPocResult(result);
@@ -343,9 +442,11 @@ export async function discoverFreePocsForSignal(tenantId: string, signalId: stri
         }
       }
     }
+    const selectedCandidates = capPocCandidates(candidates, 3);
     let inserted = 0;
     let duplicates = 0;
-    for (const candidate of candidates) {
+    const candidateSummaries: Array<Record<string, unknown>> = [];
+    for (const candidate of selectedCandidates) {
       const roleCategory = String(candidate.raw?.roleCategory || 'generic');
       const pocState = roleCategory === 'generic'
         ? 'generic_contact_only'
@@ -356,7 +457,9 @@ export async function discoverFreePocsForSignal(tenantId: string, signalId: stri
           deliverability_status,ranking_score,confidence_score,status,metadata,created_at,updated_at)
          SELECT $1,$2,$3,$4,$5,$6,$7,$8,'india',$9,$10,$11,$12,$13,'needs_review',$14::jsonb,NOW(),NOW()
          WHERE NOT EXISTS (SELECT 1 FROM wizmatch_contact_candidates cc WHERE cc.tenant_id=$1 AND cc.company_id=$3
-           AND (($7::text IS NOT NULL AND LOWER(cc.email)=LOWER($7::text)) OR ($8::text IS NOT NULL AND LOWER(cc.linkedin_url)=LOWER($8::text))))
+           AND (($7::text IS NOT NULL AND LOWER(cc.email)=LOWER($7::text))
+             OR ($8::text IS NOT NULL AND LOWER(cc.linkedin_url)=LOWER($8::text))
+             OR ($7::text IS NULL AND $8::text IS NULL AND LOWER(COALESCE(cc.name,''))=LOWER(COALESCE($4::text,'')) AND LOWER(COALESCE(cc.title,''))=LOWER(COALESCE($5::text,'')))))
          RETURNING id`,
         [tenantId, intelligence.rows[0].id, signal.rows[0].company_id, candidate.name, candidate.title, roleCategory,
           candidate.email?.trim().toLowerCase() || null, candidate.linkedinUrl, candidate.source, candidate.sourceUrl,
@@ -364,17 +467,29 @@ export async function discoverFreePocsForSignal(tenantId: string, signalId: stri
           JSON.stringify({ pocState, signalId, reasons: candidate.reasons, lastVerifiedAt: new Date().toISOString() })],
       );
       if (result.rows.length) inserted++; else duplicates++;
+      candidateSummaries.push({
+        name: candidate.name || null,
+        title: candidate.title || null,
+        roleCategory,
+        profileUrl: candidate.linkedinUrl || candidate.sourceUrl || null,
+        source: candidate.source,
+        state: pocState,
+      });
     }
-    const state = candidates.some((c) => c.raw?.roleCategory !== 'generic')
+    const state = selectedCandidates.some((c) => c.raw?.roleCategory !== 'generic')
       ? 'identified_channel_pending'
-      : candidates.length ? 'generic_contact_only' : 'human_research_required';
+      : selectedCandidates.length ? 'generic_contact_only' : 'human_research_required';
     await finishSourceRun(run.id, tenantId, {
-      status: candidates.length || internal.rows[0]?.count ? 'succeeded' : 'partial', fetched: candidates.length + (internal.rows[0]?.count || 0),
+      status: selectedCandidates.length || internal.rows[0]?.count ? 'succeeded' : 'partial', fetched: selectedCandidates.length + (internal.rows[0]?.count || 0),
       inserted, duplicates, updated: 0, rejected: 0, errors: 0, quotaConsumed: searchApiUsed ? 1 : 0,
     });
-    return { state, candidatesFound: candidates.length, existingRelationships: 0, inserted, duplicates, searchApiUsed };
+    return { state, candidatesFound: selectedCandidates.length, candidates: candidateSummaries, existingRelationships: 0, inserted, duplicates, searchApiUsed };
   } catch (error) {
-    await finishSourceRun(run.id, tenantId, { status: 'failed', errorMessage: error instanceof Error ? error.message : 'POC discovery failed' });
+    await finishSourceRun(run.id, tenantId, {
+      status: error instanceof PocDiscoveryError && error.code === 'poc_retry_cooldown' ? 'blocked' : 'failed',
+      quotaConsumed: searchApiAttempted ? 1 : 0,
+      errorMessage: describePocDiscoveryFailure(error).code,
+    });
     throw error;
   }
 }

@@ -117,11 +117,13 @@ import {
 import logger from '../utils/logger';
 import { isSafeFetchHost } from '../utils/ssrfGuard';
 import { mineGithubCandidates } from '../services/wizmatchGithubMiner';
-import { runRequirementXray, runXrayScrape } from '../services/wizmatchXrayScraper';
+import { normalizeXrayResultLimit, runRequirementXray, runXrayScrape } from '../services/wizmatchXrayScraper';
 import { fetchTheirStackPreview, importTheirStackJobs, previewTheirStackImport, validateTheirStackAccount } from '../services/wizmatchTheirStackImporter';
 import { getSearchApiRunUsage, validateSearchApiAccount } from '../services/wizmatchSearchApi';
 import { detectAtsType, pollAtsBoards } from '../services/wizmatchAtsPoller';
+import { getWizmatchSignalDetail, normalizeWizmatchSignalListItem } from '../services/wizmatchSignalDetail';
 import {
+  describePocDiscoveryFailure,
   discoverFreePocsForSignal,
   getWizmatchSourcingConfig,
   ingestWizmatchSignals,
@@ -3886,7 +3888,16 @@ router.post('/signals/:id/reject', async (req: Request, res: Response) => {
 
 router.post('/signals/:id/discover-poc', async (req: Request, res: Response) => {
   try { res.json(await discoverFreePocsForSignal(req.user!.tenantId, String(req.params.id), req.user!.id)); }
-  catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : 'POC discovery failed' }); }
+  catch (error) {
+    const failure = describePocDiscoveryFailure(error);
+    if (failure.retryAfterSeconds) res.set('Retry-After', String(failure.retryAfterSeconds));
+    res.status(failure.status).json({
+      error: failure.error,
+      code: failure.code,
+      retryable: failure.retryable,
+      retryAfterSeconds: failure.retryAfterSeconds,
+    });
+  }
 });
 
 router.post('/signals/:id/promote-to-requirement', async (req: Request, res: Response) => {
@@ -3898,7 +3909,13 @@ router.post('/signals/:id/promote-to-requirement', async (req: Request, res: Res
 
 router.post('/requirements/:id/source-candidates-xray', async (req: Request, res: Response) => {
   try {
-    const result = await withWizmatchSourceLock(req.user!.tenantId, `xray:${String(req.params.id)}`, () => runRequirementXray(req.user!.tenantId, String(req.params.id), req.user!.id));
+    let maxResults: number;
+    try { maxResults = normalizeXrayResultLimit(req.body?.maxResults ?? 3); }
+    catch {
+      res.status(400).json({ error: 'maxResults must be an integer from 1 to 10', code: 'invalid_result_limit', retryable: false, retryAfterSeconds: null });
+      return;
+    }
+    const result = await withWizmatchSourceLock(req.user!.tenantId, `xray:${String(req.params.id)}`, () => runRequirementXray(req.user!.tenantId, String(req.params.id), req.user!.id, maxResults));
     if (!result) { res.status(409).json({ error: 'Candidate sourcing is already running for this requirement' }); return; }
     res.json(result);
   }
@@ -3945,65 +3962,58 @@ router.get('/signals', async (req: Request, res: Response) => {
 
   const dataResult = await pool.query(
     `SELECT s.*, c.name AS company_name, c.domain AS company_domain,
-            cnt.first_name AS contact_first_name, cnt.last_name AS contact_last_name
+            cnt.first_name AS contact_first_name, cnt.last_name AS contact_last_name,
+            EXISTS(
+              SELECT 1 FROM wizmatch_staffing_events event
+              WHERE event.tenant_id=s.tenant_id AND event.event_type='job_signal.qualified' AND event.source_id=s.id::text
+            ) AS qualified,
+            requirement.id AS linked_requirement_id,requirement.title AS linked_requirement_title,
+            requirement.stage AS linked_requirement_stage,
+            poc_task.id AS poc_task_id,poc_task.status AS poc_task_status,poc_task.due_at AS poc_task_due_at
      FROM wizmatch_job_signals s
      LEFT JOIN wizmatch_companies c ON c.id = s.company_id AND c.tenant_id=s.tenant_id
      LEFT JOIN contacts cnt ON cnt.id = s.contact_id AND cnt.tenant_id=s.tenant_id
+     LEFT JOIN LATERAL (
+       SELECT r.id,r.title,r.stage FROM wizmatch_requirements r
+       WHERE r.tenant_id=s.tenant_id AND r.source_job_signal_id=s.id
+       ORDER BY r.created_at DESC LIMIT 1
+     ) requirement ON true
+     LEFT JOIN LATERAL (
+       SELECT t.id,t.status,t.due_at FROM wizmatch_task_links link
+       JOIN tasks t ON t.id=link.task_id AND t.tenant_id=link.tenant_id
+       WHERE link.tenant_id=s.tenant_id AND link.job_signal_id=s.id AND t.title='Find Main POC'
+       ORDER BY (t.status='open') DESC,t.updated_at DESC LIMIT 1
+     ) poc_task ON true
      WHERE ${whereClause}
      ORDER BY s.score DESC NULLS LAST, s.created_at DESC
      LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
     [...params, limit, offset],
   );
 
-  res.json({ items: dataResult.rows, total });
+  const items = dataResult.rows.map(normalizeWizmatchSignalListItem);
+
+  res.json({ items, total });
 });
 
 // GET /api/wizmatch/signals/:id — full detail
 router.get('/signals/:id', async (req: Request, res: Response) => {
-  const tenantId = req.user!.tenantId;
-  const result = await pool.query(
-    `SELECT s.*, c.name AS company_name, c.domain AS company_domain, c.ats_type,
-            cnt.first_name AS contact_first_name, cnt.last_name AS contact_last_name,
-            cnt.id AS contact_id
-     FROM wizmatch_job_signals s
-     LEFT JOIN wizmatch_companies c ON c.id = s.company_id AND c.tenant_id=s.tenant_id
-     LEFT JOIN contacts cnt ON cnt.id = s.contact_id AND cnt.tenant_id=s.tenant_id
-     WHERE s.id = $1 AND s.tenant_id = $2`,
-    [req.params.id, tenantId],
-  );
-
-  if (result.rows.length === 0) {
-    res.status(404).json({ error: 'Signal not found' });
-    return;
+  try {
+    const tenantId = req.user!.tenantId;
+    const detail = await getWizmatchSignalDetail(tenantId, String(req.params.id));
+    if (!detail) {
+      res.status(404).json({ error: 'Signal not found', code: 'signal_not_found', retryable: false, retryAfterSeconds: null });
+      return;
+    }
+    res.json(detail);
+  } catch (error) {
+    logger.error({ err: error, signalId: req.params.id, tenantId: req.user!.tenantId }, '[wizmatch] signal detail failed');
+    res.status(500).json({
+      error: 'Signal details are temporarily unavailable.',
+      code: 'signal_detail_unavailable',
+      retryable: true,
+      retryAfterSeconds: 5,
+    });
   }
-
-  const signal = result.rows[0];
-
-  // Get matched candidates
-  let matchedCandidates: unknown[] = [];
-  if (signal.matched_candidate_ids && signal.matched_candidate_ids.length > 0) {
-    const candResult = await pool.query(
-      `SELECT wc.id, wc.skills, wc.location, wc.visa_status, wc.rate_hourly,
-              wc.rate_currency, wc.availability_date, wc.availability_status,
-              c.first_name, c.last_name
-       FROM wizmatch_candidates wc
-       JOIN contacts c ON c.id = wc.contact_id AND c.tenant_id=wc.tenant_id
-       WHERE wc.id = ANY($1::uuid[]) AND wc.tenant_id=$2`,
-      [signal.matched_candidate_ids, tenantId],
-    );
-    matchedCandidates = candResult.rows;
-  }
-
-  // Get draft messages
-  const draftsResult = await pool.query(
-    `SELECT id, content, metadata, status, created_at
-     FROM messages
-     WHERE tenant_id=$3 AND contact_id = $1 AND metadata->>'signal_id' = $2
-     ORDER BY created_at DESC`,
-    [signal.contact_id, req.params.id, tenantId],
-  );
-
-  res.json({ ...signal, matched_candidates: matchedCandidates, drafts: draftsResult.rows });
 });
 
 // POST /api/wizmatch/signals/ingest — internal endpoint for CI/cron scrapers
@@ -4381,9 +4391,15 @@ router.get('/candidates', async (req: Request, res: Response) => {
 
   const whereClause = conditions.join(' AND ');
   const dataResult = await pool.query(
-    `SELECT wc.*, c.first_name, c.last_name, c.company_name
+    `SELECT wc.*, c.first_name, c.last_name, c.company_name,
+            EXISTS (
+              SELECT 1 FROM wizmatch_candidate_skills verified_skill
+              WHERE verified_skill.tenant_id=wc.tenant_id
+                AND verified_skill.candidate_id=wc.id
+                AND verified_skill.verified=true
+            ) AS has_verified_skill
      FROM wizmatch_candidates wc
-     JOIN contacts c ON c.id = wc.contact_id
+     JOIN contacts c ON c.id = wc.contact_id AND c.tenant_id=wc.tenant_id
      WHERE ${whereClause}
      ORDER BY wc.created_at DESC
      LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { assertCurrentConsent, calculateStaffingEconomics, createWizmatchDeliveryService } from '../services/wizmatchDeliveryDomain';
+import {
+  assertCurrentConsent,
+  calculateStaffingEconomics,
+  createWizmatchDeliveryService,
+  normalizeStaffingAnalyticsFilters,
+  placementNextAllowedActions,
+  submissionNextAllowedActions,
+} from '../services/wizmatchDeliveryDomain';
 
 describe('Gate C delivery invariants', () => {
   it('requires granted requirement-specific consent', () => {
@@ -228,5 +235,94 @@ describe('Gate C delivery invariants', () => {
     });
     expect(statements.some(sql => sql.includes('INSERT INTO tasks'))).toBe(false);
     expect(statements.some(sql => sql.includes('INSERT INTO wizmatch_staffing_events'))).toBe(false);
+  });
+
+  it('provides explicit delivery and placement next actions', () => {
+    expect(submissionNextAllowedActions('draft')).toEqual(['approve_submission', 'withdraw_submission']);
+    expect(submissionNextAllowedActions('placed')).toEqual([]);
+    expect(placementNextAllowedActions({ status: 'started', invoice_id: null })).toEqual(['link_invoice', 'open_adjustment']);
+    expect(placementNextAllowedActions({ status: 'started', invoice_id: 'invoice-a', amount_due: 100, open_adjustment_count: 1 }))
+      .toEqual(['review_collection', 'open_adjustment', 'resolve_adjustment']);
+  });
+
+  it('returns a tenant-scoped traceable placement read model linked to finance', async () => {
+    const query = async (sql: string, params: unknown[]) => {
+      expect(sql).toContain('WHERE p.tenant_id=$1 AND p.submission_id IS NOT NULL');
+      expect(sql).toContain('pay.tenant_id=p.tenant_id');
+      expect(params).toEqual(['tenant-a']);
+      return {
+        rows: [{
+          id: 'placement-a', status: 'started', linked_submission_id: 'submission-a', linked_requirement_id: 'requirement-a',
+          linked_company_id: 'company-a', linked_candidate_id: 'candidate-a', candidate_first_name: 'Rahul', candidate_last_name: 'Sharma',
+          requirement_title: 'SAP ABAP', company_name: 'Company A', commercial_model: 'permanent', original_amount: 250000,
+          original_currency: 'INR', original_period: 'joining', gross_margin_amount: 250000, invoice_id: 'invoice-a',
+          invoice_number: 'INV-1', invoice_status: 'partially_paid', invoice_total_amount: 250000, invoice_amount_paid: 100000,
+          amount_due: 150000, collection_count: 1, collection_amount: 100000, open_adjustment_count: 0,
+        }],
+      };
+    };
+    const service = createWizmatchDeliveryService({ query } as any);
+    const result = await service.listPlacements('tenant-a');
+    expect(result.items[0]).toMatchObject({
+      placementId: 'placement-a', submissionId: 'submission-a', requirementId: 'requirement-a', companyId: 'company-a',
+      candidateId: 'candidate-a', candidateName: 'Rahul Sharma',
+      economics: { model: 'permanent', originalAmount: 250000, originalCurrency: 'INR' },
+      invoice: { id: 'invoice-a', number: 'INV-1', amountDue: 150000 },
+      collections: { count: 1, amount: 100000 },
+      nextAllowedActions: ['review_collection', 'open_adjustment'],
+    });
+  });
+
+  it('adds tenant-scoped acquisition counts without replacing the delivery funnel', async () => {
+    const queries: Array<{ sql: string; params: unknown[] }> = [];
+    const service = createWizmatchDeliveryService({
+      query: async (sql: string, params: unknown[]) => {
+        queries.push({ sql, params });
+        if (sql.includes('AS job_leads')) return { rows: [{ job_leads: 25, poc_ready: 12, requirements: 7, matches: 20, shortlists: 8 }] };
+        if (sql.includes('SELECT submission.status,COUNT(*)::int AS count')) return { rows: [{ status: 'submitted', count: 4 }] };
+        if (sql.includes('AS companies') && sql.includes('AS recruiters')) return { rows: [{ companies: [], recruiters: [], skills: [], sources: ['theirstack'] }] };
+        return { rows: [] };
+      },
+    } as any);
+    const result = await service.analytics('tenant-a', {
+      from: '2026-07-01', to: '2026-07-14',
+      companyId: '11111111-1111-4111-8111-111111111111',
+      recruiterId: '22222222-2222-4222-8222-222222222222',
+      skillId: '33333333-3333-4333-8333-333333333333',
+      source: 'TheirStack',
+    });
+    expect(result.funnel).toEqual([{ status: 'submitted', count: 4 }]);
+    expect(result.acquisition).toMatchObject({ job_leads: 25, poc_ready: 12, requirements: 7, matches: 20, shortlists: 8 });
+    expect(result.acquisitionFunnel).toEqual([
+      { stage: 'job_leads', count: 25 },
+      { stage: 'poc_ready', count: 12 },
+      { stage: 'requirements', count: 7 },
+      { stage: 'matches', count: 20 },
+      { stage: 'shortlists', count: 8 },
+    ]);
+    const acquisitionSql = queries.find((query) => query.sql.includes('AS job_leads'))?.sql || '';
+    expect(acquisitionSql).toContain("candidate.metadata->>'signalId'=signal.id::text");
+    expect(acquisitionSql).toContain("candidate_match.human_decision='shortlisted'");
+    expect(queries.every((query) => query.params)).toBe(true);
+    expect(queries.every((query) => query.params[0] === 'tenant-a')).toBe(true);
+    const scopedQuery = queries.find((query) => query.params.length === 7);
+    expect(scopedQuery?.params).toEqual([
+      'tenant-a', '2026-07-01', '2026-07-14',
+      '11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222',
+      '33333333-3333-4333-8333-333333333333', 'theirstack',
+    ]);
+    expect(queries.filter((query) => query.params.length === 7).every((query) => query.sql.includes('$4::uuid'))).toBe(true);
+    expect(result.filters).toMatchObject({ from: '2026-07-01', to: '2026-07-14', source: 'theirstack' });
+    expect(result.filterOptions).toMatchObject({ sources: ['theirstack'] });
+  });
+
+  it('validates analytics filters before interpolating tenant-scoped SQL', () => {
+    expect(normalizeStaffingAnalyticsFilters({ from: '2026-07-01', to: '2026-07-14', source: 'ATS' }))
+      .toMatchObject({ from: '2026-07-01', to: '2026-07-14', source: 'ats' });
+    expect(() => normalizeStaffingAnalyticsFilters({ from: '14/07/2026' })).toThrow(/YYYY-MM-DD/);
+    expect(() => normalizeStaffingAnalyticsFilters({ from: '2026-07-15', to: '2026-07-14' })).toThrow(/on or before/);
+    expect(() => normalizeStaffingAnalyticsFilters({ companyId: 'not-a-uuid' })).toThrow(/UUID/);
+    expect(() => normalizeStaffingAnalyticsFilters({ source: 'xray;drop table' })).toThrow(/source is invalid/);
+    expect(() => normalizeStaffingAnalyticsFilters({ source: ['xray'] })).toThrow(/source is invalid/);
   });
 });

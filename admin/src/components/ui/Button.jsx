@@ -5,11 +5,11 @@ import React from 'react';
  * <Button variant="primary" icon={<Plus />}>Add Contact</Button>
  */
 const VARIANTS = {
-  primary: 'bg-primary-500 hover:bg-primary-600 active:bg-primary-700 text-white',
-  accent: 'bg-accent-500 hover:bg-accent-600 active:bg-accent-700 text-white',
-  standard: 'bg-neutral-100 hover:bg-neutral-200 text-neutral-700 border border-neutral-200',
+  primary: 'bg-primary-700 hover:bg-primary-800 active:bg-primary-900 text-white',
+  accent: 'bg-accent-700 hover:bg-accent-600 active:bg-accent-700 text-white',
+  standard: 'bg-neutral-100 hover:bg-neutral-200 text-neutral-900 border border-neutral-300',
   subtle: 'bg-transparent hover:bg-neutral-100 text-neutral-600',
-  danger: 'bg-danger-500 hover:bg-danger-600 text-white',
+  danger: 'bg-danger-700 hover:bg-danger-800 text-white',
 };
 
 const SIZES = {

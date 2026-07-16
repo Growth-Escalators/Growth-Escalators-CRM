@@ -139,31 +139,44 @@ export function createWizmatchMatchingService(dbPool: Pool = pool) {
     async replaceRequirementSkills(actor: { tenantId: string; userId: string }, requirementId: string, skills: unknown[]) {
       return transaction(dbPool, async (client) => {
         await tenantRow(client, 'wizmatch_requirements', actor.tenantId, requirementId);
-        await client.query(`DELETE FROM wizmatch_requirement_skills WHERE tenant_id=$1 AND requirement_id=$2`, [actor.tenantId, requirementId]);
         for (const raw of skills) {
           const item = raw as Record<string, unknown>;
           const skillId = text(item.skillId, 'skillId');
           await tenantRow(client, 'wizmatch_skills', actor.tenantId, skillId);
           const importance = item.importance === 'preferred' ? 'preferred' : 'mandatory';
-          await client.query(`INSERT INTO wizmatch_requirement_skills (tenant_id,requirement_id,skill_id,importance,minimum_years,evidence,allow_broad_family,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [actor.tenantId, requirementId, skillId, importance, item.minimumYears ?? null, item.evidence || null, item.allowBroadFamily === true, actor.userId]);
+          await client.query(`INSERT INTO wizmatch_requirement_skills (tenant_id,requirement_id,skill_id,importance,minimum_years,evidence,allow_broad_family,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (tenant_id,requirement_id,skill_id) DO UPDATE SET importance=EXCLUDED.importance,minimum_years=EXCLUDED.minimum_years,evidence=EXCLUDED.evidence,allow_broad_family=EXCLUDED.allow_broad_family,updated_at=NOW()`, [actor.tenantId, requirementId, skillId, importance, item.minimumYears ?? null, item.evidence || null, item.allowBroadFamily === true, actor.userId]);
         }
-        await client.query(`INSERT INTO wizmatch_staffing_events (tenant_id,actor_user_id,event_type,requirement_id,payload) VALUES ($1,$2,'requirement_skills_replaced',$3,$4::jsonb)`, [actor.tenantId, actor.userId, requirementId, JSON.stringify({ count: skills.length })]);
-        return { requirementId, count: skills.length };
+        await client.query(
+          `UPDATE wizmatch_requirements requirement SET
+             required_skills=COALESCE((SELECT ARRAY_AGG(skill.canonical_label ORDER BY skill.canonical_label) FROM wizmatch_requirement_skills rs JOIN wizmatch_skills skill ON skill.id=rs.skill_id AND skill.tenant_id=rs.tenant_id WHERE rs.tenant_id=$1 AND rs.requirement_id=$2 AND rs.importance='mandatory'),'{}'::text[]),
+             nice_to_have_skills=COALESCE((SELECT ARRAY_AGG(skill.canonical_label ORDER BY skill.canonical_label) FROM wizmatch_requirement_skills rs JOIN wizmatch_skills skill ON skill.id=rs.skill_id AND skill.tenant_id=rs.tenant_id WHERE rs.tenant_id=$1 AND rs.requirement_id=$2 AND rs.importance='preferred'),'{}'::text[]),
+             last_activity_at=NOW(),updated_at=NOW()
+           WHERE requirement.tenant_id=$1 AND requirement.id=$2`,
+          [actor.tenantId, requirementId],
+        );
+        await client.query(`INSERT INTO wizmatch_staffing_events (tenant_id,actor_user_id,event_type,requirement_id,payload) VALUES ($1,$2,'requirement_skills_upserted',$3,$4::jsonb)`, [actor.tenantId, actor.userId, requirementId, JSON.stringify({ upserted: skills.length, omittedPreserved: true })]);
+        return { requirementId, count: skills.length, upserted: skills.length, omittedPreserved: true };
       });
     },
 
     async replaceCandidateSkills(actor: { tenantId: string; userId: string }, candidateId: string, skills: unknown[]) {
       return transaction(dbPool, async (client) => {
         await tenantRow(client, 'wizmatch_candidates', actor.tenantId, candidateId);
-        await client.query(`DELETE FROM wizmatch_candidate_skills WHERE tenant_id=$1 AND candidate_id=$2`, [actor.tenantId, candidateId]);
         for (const raw of skills) {
           const item = raw as Record<string, unknown>;
           const skillId = text(item.skillId, 'skillId');
           await tenantRow(client, 'wizmatch_skills', actor.tenantId, skillId);
-          await client.query(`INSERT INTO wizmatch_candidate_skills (tenant_id,candidate_id,skill_id,experience_years,last_used_at,evidence,confidence,verified,verified_by,verified_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,CASE WHEN $8 THEN NOW() ELSE NULL END)`, [actor.tenantId, candidateId, skillId, item.experienceYears ?? null, item.lastUsedAt || null, item.evidence || null, item.confidence ?? null, item.verified === true, item.verified === true ? actor.userId : null]);
+          await client.query(`INSERT INTO wizmatch_candidate_skills (tenant_id,candidate_id,skill_id,experience_years,last_used_at,evidence,confidence,verified,verified_by,verified_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,CASE WHEN $8 THEN NOW() ELSE NULL END) ON CONFLICT (tenant_id,candidate_id,skill_id) DO UPDATE SET experience_years=EXCLUDED.experience_years,last_used_at=EXCLUDED.last_used_at,evidence=EXCLUDED.evidence,confidence=EXCLUDED.confidence,verified=EXCLUDED.verified,verified_by=EXCLUDED.verified_by,verified_at=EXCLUDED.verified_at,updated_at=NOW()`, [actor.tenantId, candidateId, skillId, item.experienceYears ?? null, item.lastUsedAt || null, item.evidence || null, item.confidence ?? null, item.verified === true, item.verified === true ? actor.userId : null]);
         }
-        await client.query(`INSERT INTO wizmatch_staffing_events (tenant_id,actor_user_id,event_type,payload) VALUES ($1,$2,'candidate_skills_replaced',$3::jsonb)`, [actor.tenantId, actor.userId, JSON.stringify({ candidateId, count: skills.length })]);
-        return { candidateId, count: skills.length };
+        await client.query(
+          `UPDATE wizmatch_candidates candidate SET
+             skills=COALESCE((SELECT ARRAY_AGG(skill.canonical_label ORDER BY skill.canonical_label) FROM wizmatch_candidate_skills cs JOIN wizmatch_skills skill ON skill.id=cs.skill_id AND skill.tenant_id=cs.tenant_id WHERE cs.tenant_id=$1 AND cs.candidate_id=$2),candidate.skills,'{}'::text[]),
+             updated_at=NOW()
+           WHERE candidate.tenant_id=$1 AND candidate.id=$2`,
+          [actor.tenantId, candidateId],
+        );
+        await client.query(`INSERT INTO wizmatch_staffing_events (tenant_id,actor_user_id,event_type,payload) VALUES ($1,$2,'candidate_skills_upserted',$3::jsonb)`, [actor.tenantId, actor.userId, JSON.stringify({ candidateId, upserted: skills.length, omittedPreserved: true })]);
+        return { candidateId, count: skills.length, upserted: skills.length, omittedPreserved: true };
       });
     },
 

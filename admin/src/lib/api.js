@@ -39,6 +39,9 @@ export async function apiFetch(path, options = {}) {
     const error = new Error(msg);
     if (typeof data?.detail === 'string') error.detail = data.detail;
     if (typeof data?.reasonCode === 'string') error.reasonCode = data.reasonCode;
+    if (typeof data?.code === 'string') error.code = data.code;
+    if (typeof data?.retryable === 'boolean') error.retryable = data.retryable;
+    if (Number.isFinite(Number(data?.retryAfterSeconds))) error.retryAfterSeconds = Number(data.retryAfterSeconds);
     throw error;
   }
 
