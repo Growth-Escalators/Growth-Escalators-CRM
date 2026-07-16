@@ -1,13 +1,46 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Users, Search, X, Trash2, CheckCircle2, XCircle, Link2 } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { Users, X, Trash2, CheckCircle2, XCircle, Link2 } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import EmptyState from '../components/wizmatch/EmptyState.jsx';
 import ErrorRetry from '../components/wizmatch/ErrorRetry.jsx';
 import StatusBadge from '../components/wizmatch/StatusBadge.jsx';
 import { useToast } from '../components/wizmatch/Toast.jsx';
+import DataTable from '../components/ui/DataTable.jsx';
+import FilterBar from '../components/wizmatch/filters/FilterBar.jsx';
+import { useTableControls } from '../components/wizmatch/filters/useTableControls.js';
+import { exportRowsToCsv } from '../components/wizmatch/filters/exportCsv.js';
 
 const RELATIONSHIP_STAGES = ['active', 'inactive', 'do_not_contact'];
+const HC_ROLES = ['talent_acquisition', 'hiring_manager', 'coordinator', 'approver', 'interviewer', 'procurement', 'vendor_manager', 'source', 'other'];
+const QUEUE_STATUSES = ['needs_review', 'approved', 'rejected', 'linked_to_crm'];
+const optsHC = (arr) => arr.map((v) => ({ value: v, label: v.replaceAll('_', ' ') }));
+
+const LINKED_FILTERS = [
+  { key: 'q', label: 'Search', type: 'search', placeholder: 'Name, company, email…', fields: ['first_name', 'last_name', 'company_name', 'email', 'phone'] },
+  { key: 'relationship_stage', label: 'Relationship', type: 'multiselect', options: optsHC(RELATIONSHIP_STAGES) },
+  { key: 'roles', label: 'Role', type: 'multiselect', options: optsHC(HC_ROLES) },
+  { key: 'active_reqs', label: 'Active reqs', type: 'numberRange', accessor: (r) => r.active_requirement_count },
+  { key: 'has_next_action', label: 'Has next action', type: 'toggle', predicate: (r) => Boolean(r.next_action) },
+];
+const LINKED_COLUMNS = [
+  { key: 'name', label: 'Contact', sortable: true, sortAccessor: (r) => [r.first_name, r.last_name].filter(Boolean).join(' '), exportValue: (r) => [r.first_name, r.last_name].filter(Boolean).join(' '),
+    render: (c) => (<div><div className="font-medium text-neutral-900">{[c.first_name, c.last_name].filter(Boolean).join(' ') || 'Unnamed contact'}</div><div className="text-[11px] text-neutral-500">{c.email || c.phone || '—'}</div></div>) },
+  { key: 'company_name', label: 'Company', sortable: true, render: (c) => <span className="text-neutral-700">{c.company_name}</span> },
+  { key: 'roles', label: 'Roles', exportValue: (c) => (c.roles || []).join('; '), render: (c) => ((c.roles || []).length ? <div className="flex flex-wrap gap-1">{c.roles.slice(0, 2).map(r => <span key={r} className="badge-info text-[10px]">{r.replaceAll('_', ' ')}</span>)}</div> : <span className="text-neutral-500">—</span>) },
+  { key: 'relationship_stage', label: 'Relationship', sortable: true, render: (c) => <StatusBadge status={c.relationship_stage} /> },
+  { key: 'active_requirement_count', label: 'Active reqs', sortable: true, exportValue: (c) => c.active_requirement_count || 0, render: (c) => <span className="tabular-nums">{c.active_requirement_count || 0}</span> },
+  { key: 'next_action', label: 'Next action', render: (c) => <span className="text-warning-700 text-[11.5px]">{c.next_action || '—'}</span> },
+];
+
+const QUEUE_FILTERS = [
+  { key: 'q', label: 'Search', type: 'search', placeholder: 'Name, title, company…', fields: ['name', 'title', 'companyName', 'email'] },
+  { key: 'status', label: 'Status', type: 'multiselect', options: optsHC(QUEUE_STATUSES) },
+  { key: 'roleCategory', label: 'Category', type: 'search', placeholder: 'Category…', fields: ['roleCategory'] },
+  { key: 'confidenceTier', label: 'Confidence', type: 'search', placeholder: 'Confidence…', fields: ['confidenceTier'] },
+  { key: 'reviewable', label: 'Reviewable only', type: 'toggle', predicate: (c) => c.deliverabilityStatus !== undefined },
+];
 
 const TABS = [
   { id: 'linked', label: 'Linked hiring contacts' },
@@ -15,7 +48,11 @@ const TABS = [
 ];
 
 export default function WizmatchHiringContactsPage() {
-  const [activeTab, setActiveTab] = useState('linked');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') === 'queue' ? 'queue' : 'linked';
+  // Switching tabs resets the query string (to just the tab) so one tab's filter
+  // params never leak into the other's URL-backed state.
+  const switchTab = (id) => setSearchParams(id === 'linked' ? {} : { tab: id }, { replace: true });
 
   return (
     <div className="p-6">
@@ -31,7 +68,7 @@ export default function WizmatchHiringContactsPage() {
           <button
             key={t.id}
             type="button"
-            onClick={() => setActiveTab(t.id)}
+            onClick={() => t.id !== activeTab && switchTab(t.id)}
             className={`rounded-lg px-3 py-1.5 text-[12.5px] font-semibold transition-colors ${
               activeTab === t.id ? 'bg-primary-600 text-white' : 'text-neutral-500 hover:bg-neutral-100'
             }`}
@@ -56,8 +93,8 @@ function LinkedContactsTab() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [search, setSearch] = useState('');
   const [selected, setSelected] = useState(null);
+  const ctl = useTableControls({ pageId: 'wizmatch-hiring-linked', spec: LINKED_FILTERS, columns: LINKED_COLUMNS });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -84,69 +121,41 @@ function LinkedContactsTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter(r => {
-      const name = [r.first_name, r.last_name, r.company_name, r.email, r.phone].filter(Boolean).join(' ').toLowerCase();
-      return name.includes(q);
-    });
-  }, [rows, search]);
+  const filtered = ctl.applyClient(rows);
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap gap-2.5">
-        <div className="relative">
-          <Search className="w-3.5 h-3.5 text-neutral-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-          <input placeholder="Search name, company, email…" value={search} onChange={e => setSearch(e.target.value)} className="input w-[280px] pl-8" />
-        </div>
-      </div>
-
       {error ? (
         <ErrorRetry message={error} onRetry={load} retrying={loading} />
-      ) : loading ? (
-        <div className="card p-8 text-center text-neutral-500">Loading hiring contacts…</div>
-      ) : filtered.length === 0 ? (
-        <EmptyState
-          icon={Users}
-          title={search ? 'No hiring contacts match this search' : 'No hiring contacts linked yet'}
-          description={search ? 'Try a different name or company.' : 'Link a CRM contact to a company from the Companies page, or approve and link a discovery candidate below.'}
-          variant={search ? 'filtered-empty' : 'true-empty'}
-        />
       ) : (
-        <div className="card overflow-hidden">
-          <table className="table-fluent">
-            <thead>
-              <tr>
-                <th>Contact</th>
-                <th>Company</th>
-                <th>Roles</th>
-                <th>Relationship</th>
-                <th className="text-right">Active requirements</th>
-                <th>Next action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(c => (
-                <tr key={c.id} onClick={() => setSelected(c)} className="cursor-pointer hover:bg-neutral-50">
-                  <td>
-                    <div className="font-medium text-neutral-900">{[c.first_name, c.last_name].filter(Boolean).join(' ') || 'Unnamed contact'}</div>
-                    <div className="text-[11px] text-neutral-500">{c.email || c.phone || '—'}</div>
-                  </td>
-                  <td className="text-neutral-700">{c.company_name}</td>
-                  <td>
-                    {(c.roles || []).length ? (
-                      <div className="flex flex-wrap gap-1">{c.roles.slice(0, 2).map(r => <span key={r} className="badge-info text-[10px]">{r.replaceAll('_', ' ')}</span>)}</div>
-                    ) : <span className="text-neutral-500">—</span>}
-                  </td>
-                  <td><StatusBadge status={c.relationship_stage} /></td>
-                  <td className="text-right">{c.active_requirement_count || 0}</td>
-                  <td className="text-warning-700 text-[11.5px]">{c.next_action || '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <FilterBar
+            spec={LINKED_FILTERS}
+            filters={ctl.filters}
+            setFilter={ctl.setFilter}
+            activeChips={ctl.activeChips}
+            clearFilter={ctl.clearFilter}
+            clearAll={ctl.clearAll}
+            columns={LINKED_COLUMNS}
+            hiddenColumns={ctl.hiddenColumns}
+            toggleColumn={ctl.toggleColumn}
+            onExport={() => exportRowsToCsv(filtered, ctl.visibleColumns, 'hiring-contacts.csv')}
+            presets={ctl.presets}
+            savePreset={ctl.savePreset}
+            applyPreset={ctl.applyPreset}
+            deletePreset={ctl.deletePreset}
+          />
+          <DataTable
+            columns={ctl.visibleColumns}
+            rows={filtered}
+            rowKey="id"
+            onRowClick={setSelected}
+            loading={loading}
+            emptyText={rows.length === 0 ? 'No hiring contacts linked yet — link a CRM contact from the Companies page, or approve a discovery candidate.' : 'No hiring contacts match these filters.'}
+            sort={ctl.sort}
+            onSort={ctl.setSort}
+          />
+        </>
       )}
 
       {selected && (
@@ -442,12 +451,20 @@ function LinkedContactDetailDrawer({ companyContactId, onClose, onChanged }) {
 // by candidate row, so two candidates at the same company never share state).
 // ============================================================
 
+const isLinked = (c) => c.status === 'linked_to_crm' || !!c.crmContactId;
+// Rows computed live from internal CRM-contact matching (no discovery run or
+// manual add has happened yet) carry a raw contacts.id as `id` — the review/
+// link/delete routes below all look up wizmatch_contact_candidates by id and
+// 404 on that. mapPersistedCandidate() always emits deliverabilityStatus (even
+// as null); the live-computed shape never has the key, so its presence reliably
+// tells the two apart.
+const isPersisted = (c) => c.deliverabilityStatus !== undefined;
+
 function DiscoveryQueueTab() {
   const { showSuccess, showError } = useToast();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [search, setSearch] = useState('');
   const [selected, setSelected] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -476,13 +493,7 @@ function DiscoveryQueueTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter(c => [c.name, c.title, c.companyName, c.email].filter(Boolean).join(' ').toLowerCase().includes(q));
-  }, [items, search]);
-
-  const review = async (candidate, action) => {
+  const review = useCallback(async (candidate, action) => {
     setBusyId(candidate.id);
     try {
       await apiFetch(`/api/wizmatch/contact-intelligence/contacts/${candidate.id}/review`, {
@@ -497,13 +508,13 @@ function DiscoveryQueueTab() {
     } finally {
       setBusyId(null);
     }
-  };
+  }, [load, showSuccess, showError]);
 
   // Two-step: link the discovery candidate to a CRM contact, then attach that
   // CRM contact to the company as a hiring contact — the review endpoint only
   // does the first step (wizmatch_contact_candidates → contacts), it does not
   // create a wizmatch_company_contacts relationship on its own.
-  const linkAndAttach = async (candidate) => {
+  const linkAndAttach = useCallback(async (candidate) => {
     setBusyId(candidate.id);
     try {
       const { crmContactId } = await apiFetch(`/api/wizmatch/contact-intelligence/contacts/${candidate.id}/link-crm-contact`, { method: 'POST' });
@@ -523,7 +534,7 @@ function DiscoveryQueueTab() {
     } finally {
       setBusyId(null);
     }
-  };
+  }, [load, showSuccess, showError]);
 
   const deleteCandidate = async (reason) => {
     setDeleting(true);
@@ -541,94 +552,74 @@ function DiscoveryQueueTab() {
     }
   };
 
-  const isLinked = (c) => c.status === 'linked_to_crm' || !!c.crmContactId;
-  // Rows computed live from internal CRM-contact matching (no discovery run
-  // or manual add has happened yet) carry a raw contacts.id as `id` — the
-  // review/link/delete routes below all look up wizmatch_contact_candidates
-  // by id and 404 on that. mapPersistedCandidate() always emits
-  // deliverabilityStatus (even as null); the live-computed shape never has
-  // the key at all, so its presence reliably tells the two apart.
-  const isPersisted = (c) => c.deliverabilityStatus !== undefined;
+  const columns = useMemo(() => [
+    { key: 'name', label: 'Candidate', sortable: true, exportValue: (c) => c.name, render: (c) => (<div><div className="font-medium text-neutral-900">{c.name}</div><div className="text-[11px] text-neutral-500">{c.email || c.phone || '—'}</div></div>) },
+    { key: 'title', label: 'Title', sortable: true, render: (c) => <span className="text-neutral-700">{c.title || '—'}</span> },
+    { key: 'roleCategory', label: 'Category', sortable: true, render: (c) => <span className="text-neutral-500">{c.roleCategory || '—'}</span> },
+    { key: 'companyName', label: 'Company', sortable: true, render: (c) => <span className="text-neutral-700">{c.companyName}</span> },
+    { key: 'status', label: 'Status', sortable: true, render: (c) => <StatusBadge status={c.status} /> },
+    { key: 'actions', label: 'Actions', exportable: false, render: (c) => (
+      <div className="flex justify-end gap-1.5" onClick={e => e.stopPropagation()}>
+        {!isPersisted(c) ? (
+          <span className="text-[11px] text-neutral-500" title="This candidate is only computed from CRM contact matching so far — it has no discovery-run or manual-add record yet, so there is nothing to approve/reject/link/delete until one is created.">
+            Not yet reviewable
+          </span>
+        ) : (
+          <>
+            {c.status === 'needs_review' && (
+              <>
+                <button disabled={busyId === c.id} onClick={() => review(c, 'approve_contact')} className="text-success-600 hover:text-success-700" title="Approve"><CheckCircle2 className="w-4 h-4" /></button>
+                <button disabled={busyId === c.id} onClick={() => review(c, 'reject_contact')} className="text-danger-600 hover:text-danger-700" title="Reject"><XCircle className="w-4 h-4" /></button>
+              </>
+            )}
+            {c.status === 'approved' && (
+              <button disabled={busyId === c.id} onClick={() => linkAndAttach(c)} className="text-primary-700 hover:text-primary-800" title="Link to CRM and attach to company"><Link2 className="w-4 h-4" /></button>
+            )}
+            {!isLinked(c) && (
+              <button disabled={busyId === c.id} onClick={() => setDeleteTarget(c)} className="text-neutral-500 hover:text-danger-600" title="Delete permanently"><Trash2 className="w-4 h-4" /></button>
+            )}
+          </>
+        )}
+      </div>
+    ) },
+  ], [busyId, review, linkAndAttach]);
+
+  const ctl = useTableControls({ pageId: 'wizmatch-hiring-queue', spec: QUEUE_FILTERS, columns });
+  const filtered = ctl.applyClient(items);
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap gap-2.5">
-        <div className="relative">
-          <Search className="w-3.5 h-3.5 text-neutral-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-          <input placeholder="Search name, title, company…" value={search} onChange={e => setSearch(e.target.value)} className="input w-[280px] pl-8" />
-        </div>
-      </div>
-
       {error ? (
         <ErrorRetry message={error} onRetry={load} retrying={loading} />
-      ) : loading ? (
-        <div className="card p-8 text-center text-neutral-500">Loading discovery queue…</div>
-      ) : filtered.length === 0 ? (
-        <EmptyState
-          icon={Users}
-          title={search ? 'No candidates match this search' : 'Discovery queue is empty'}
-          description={search ? 'Try a different name, title or company.' : 'Candidates appear here once a company enters contact discovery.'}
-          variant={search ? 'filtered-empty' : 'true-empty'}
-        />
       ) : (
-        <div className="card overflow-hidden">
-          <table className="table-fluent">
-            <thead>
-              <tr>
-                <th>Candidate</th>
-                <th>Title</th>
-                <th>Category</th>
-                <th>Company</th>
-                <th>Status</th>
-                <th className="text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(c => (
-                <tr key={c.id} onClick={() => setSelected(c)} className="cursor-pointer hover:bg-neutral-50">
-                  <td>
-                    <div className="font-medium text-neutral-900">{c.name}</div>
-                    <div className="text-[11px] text-neutral-500">{c.email || c.phone || '—'}</div>
-                  </td>
-                  <td className="text-neutral-700">{c.title || '—'}</td>
-                  <td className="text-neutral-500">{c.roleCategory || '—'}</td>
-                  <td className="text-neutral-700">{c.companyName}</td>
-                  <td><StatusBadge status={c.status} /></td>
-                  <td className="text-right" onClick={e => e.stopPropagation()}>
-                    {!isPersisted(c) ? (
-                      <span className="text-[11px] text-neutral-500" title="This candidate is only computed from CRM contact matching so far — it has no discovery-run or manual-add record yet, so there is nothing to approve/reject/link/delete until one is created.">
-                        Not yet reviewable
-                      </span>
-                    ) : (
-                      <div className="flex justify-end gap-1.5">
-                        {c.status === 'needs_review' && (
-                          <>
-                            <button disabled={busyId === c.id} onClick={() => review(c, 'approve_contact')} className="text-success-600 hover:text-success-700" title="Approve">
-                              <CheckCircle2 className="w-4 h-4" />
-                            </button>
-                            <button disabled={busyId === c.id} onClick={() => review(c, 'reject_contact')} className="text-danger-600 hover:text-danger-700" title="Reject">
-                              <XCircle className="w-4 h-4" />
-                            </button>
-                          </>
-                        )}
-                        {c.status === 'approved' && (
-                          <button disabled={busyId === c.id} onClick={() => linkAndAttach(c)} className="text-primary-700 hover:text-primary-800" title="Link to CRM and attach to company">
-                            <Link2 className="w-4 h-4" />
-                          </button>
-                        )}
-                        {!isLinked(c) && (
-                          <button disabled={busyId === c.id} onClick={() => setDeleteTarget(c)} className="text-neutral-500 hover:text-danger-600" title="Delete permanently">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <FilterBar
+            spec={QUEUE_FILTERS}
+            filters={ctl.filters}
+            setFilter={ctl.setFilter}
+            activeChips={ctl.activeChips}
+            clearFilter={ctl.clearFilter}
+            clearAll={ctl.clearAll}
+            columns={columns}
+            hiddenColumns={ctl.hiddenColumns}
+            toggleColumn={ctl.toggleColumn}
+            onExport={() => exportRowsToCsv(filtered, ctl.visibleColumns, 'discovery-queue.csv')}
+            presets={ctl.presets}
+            savePreset={ctl.savePreset}
+            applyPreset={ctl.applyPreset}
+            deletePreset={ctl.deletePreset}
+          />
+          <DataTable
+            columns={ctl.visibleColumns}
+            rows={filtered}
+            rowKey="id"
+            onRowClick={setSelected}
+            loading={loading}
+            emptyText={items.length === 0 ? 'Discovery queue is empty — candidates appear once a company enters contact discovery.' : 'No candidates match these filters.'}
+            sort={ctl.sort}
+            onSort={ctl.setSort}
+          />
+        </>
       )}
 
       {selected && (
