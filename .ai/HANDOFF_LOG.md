@@ -2589,3 +2589,40 @@ Built in parallel via 3 isolated-worktree subagents, reviewed + merged + deploye
 - Review and decide on pushing `hotfix/wizmatch-signal-detail-created-at`.
 - Manually purge the two residual `PROD_SMOKE_WIZMATCH_20260715221717` records via direct DB access,
   or decide whether a "Delete signal" UI affordance is worth adding.
+
+## 2026-07-16 — Signal-detail 500 fix + manual delete + candidate max-detail — Claude — SHIPPED TO PRODUCTION
+
+**What shipped** (`origin/main` `4e032a6`→`3b1dd05`, fast-forward push; Railway deploy `0e45691d`
+SUCCESS, old `4e032a6` deploy REMOVED)
+- **Signal-detail 500 fixed** (`f9f997c`): `messages.created_at`→`sent_at` in the drafts sub-query
+  of `GET /api/wizmatch/signals/:id`. Verified live: the endpoint that 500'd every call now returns
+  200. Regression guard added (`wizmatchSignalDetailRegression.test.ts`).
+- **Manual delete for every entity the pilot asked for:**
+  - Signals: new "Delete permanently" in the detail panel → existing `DELETE /signals/:id`, via
+    ConfirmDialog; 409 (placed/promoted) surfaces the backend message and steers to Reject.
+  - Hiring contacts (POC): new **hard** delete. `deleteCompanyContact()` deletes the
+    `wizmatch_company_contacts` link + roles + inactive attributions and detaches
+    event/task-link FKs, but never touches the CRM `contacts` row/history. Blocks (409) on an
+    active requirement attribution, a submission recipient, or an interview participant. New
+    lead-only `DELETE /staffing/companies/:id/contacts/:id/hard`; the soft deactivate route stays.
+  - Company/candidate/discovered-contact delete already existed; surfaced consistently as
+    "Delete permanently".
+- **Candidate max-detail:** `candidate360` now returns submissions; the drawer's Submission history
+  section renders them (or an honest empty state) instead of the old "not exposed yet" placeholder.
+- Tests: +4 Vitest (417 total) — POC hard-delete dependency logic (blocks + provably keeps the CRM
+  contact) and the 500 regression guard; +6 Playwright (mocked-session) for signal delete + 409,
+  POC hard delete + 409 + "keeps CRM contact" copy, and candidate submission history.
+
+**Verification**
+- Local loop green in one pass: `npm run build`; 417/417 Vitest; admin build; Playwright 90 passed
+  / 15 skipped (skips = real-backend hardening specs, no `:3000` here — pre-existing).
+- Live (authenticated, disposable records only): signal detail 200 (500 gone); the new
+  signal-delete removed residual signal `5f6a1ac8…`; company delete (typed-name + reason gated)
+  removed residual company `dbef621e…`; candidate Submission history renders new format. Railway:
+  **zero 5xx** since deploy; browser console clean throughout.
+- POC hard-delete not exercised live — production currently has zero linked hiring contacts to
+  click. Covered by unit + e2e tests and deployed.
+- Guardrails: zero changes to schema/migrations/auth/rbac/cashfree/sodEod; no new env var; no
+  pilot-flag change (sending, paid discovery, Google fallback, legacy automation all still off).
+
+**Both residual PROD_SMOKE records are now cleaned.** No open cleanup items from this lineage.

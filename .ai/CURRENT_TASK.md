@@ -2,11 +2,17 @@
 
 ## Active task
 
-**Post-production verification of `4e032a6` complete (2026-07-15). Found and locally hotfixed
-(not pushed) a tenant-wide 500 on `GET /api/wizmatch/signals/:id` — see `.ai/HANDOFF_LOG.md` for
-full detail. Awaiting review of `hotfix/wizmatch-signal-detail-created-at` (commit `f9f997c`)
-before push, plus a decision on purging two residual `PROD_SMOKE_WIZMATCH_20260715221717` test
-records (company + signal) that couldn't be hard-deleted through the UI.**
+**SHIPPED 2026-07-16 (`origin/main` = `3b1dd05`, Railway deploy `0e45691d` SUCCESS): signal-detail
+500 fix + manual-delete for every entity + candidate max-detail.** The tenant-wide 500 on
+`GET /api/wizmatch/signals/:id` (drafts sub-query used `messages.created_at`; that table only has
+`sent_at`) is fixed and verified live (200, no console/Railway 5xx). New manual-delete affordances:
+Job Signals "Delete permanently" (existing backend, new UI); Hiring-contact/POC **hard** delete
+(new `deleteCompanyContact` — relationship-only, keeps the CRM contact + history, blocks on active
+attribution/submission/interview); company/candidate/discovered-contact delete surfaced
+consistently. Candidate 360 now returns + renders submission history. Both residual
+`PROD_SMOKE_WIZMATCH_20260715221717` records (signal + company) were deleted live via the new UI.
+POC hard-delete UI/route is unit+e2e-tested and deployed but wasn't exercised live (production has
+zero linked hiring contacts to click). No schema/migration/guardrail/env/pilot-flag change.
 
 ## Prior active task — entity-first UI/UX push
 

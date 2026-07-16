@@ -2,7 +2,23 @@
 
 _Update this when the working state of the repo meaningfully changes. Keep it short and true._
 
-## 2026-07-15 Entity-first UI/UX + complete-build push (current)
+## 2026-07-16 Signal-detail 500 fix + manual delete + candidate max-detail (current)
+
+- `origin/main` is now `3b1dd05` (fast-forward from `4e032a6`; Railway deploy `0e45691d` SUCCESS).
+- Fixed a tenant-wide 500 on `GET /api/wizmatch/signals/:id` (drafts sub-query used a nonexistent
+  `messages.created_at`; now `sent_at`). Verified live returning 200; zero Railway 5xx since deploy.
+- Manual delete added for every entity: Signals ("Delete permanently" → `DELETE /signals/:id`) and
+  Hiring contacts/POCs (new lead-only hard delete `deleteCompanyContact` →
+  `DELETE /staffing/companies/:id/contacts/:id/hard`, relationship-only — keeps the CRM `contacts`
+  row + history, blocks on active attribution/submission/interview). Company/candidate/discovered
+  contact delete already existed; surfaced consistently.
+- Candidate 360 now returns + renders submission history (was a placeholder).
+- Signal + company delete verified live on disposable records (both prior residual PROD_SMOKE
+  records cleaned). POC hard-delete unit+e2e-tested + deployed but not clicked live (prod has zero
+  linked hiring contacts). No schema/migration/guardrail/env/pilot-flag change.
+- Tests: 417 Vitest, admin build, Playwright 90 passed/15 skipped (real-backend skips).
+
+## 2026-07-15 Entity-first UI/UX + complete-build push
 
 - `origin/main` is now at `2d8ddd6` (26 commits ahead of the prior `3211a1f` release), pushed as a
   clean fast-forward (verified via `git merge-base --is-ancestor` before pushing — no divergent
