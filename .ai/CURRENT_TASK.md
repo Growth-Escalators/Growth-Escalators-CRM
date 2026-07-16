@@ -2,6 +2,30 @@
 
 ## Active task
 
+**SHIPPED 2026-07-16 (`origin/main` = `695a139`, Railway deploy `35c38b14` SUCCESS): cost-safe
+POC/client search — read-only preview + role targeting + credit banner.** Surfaces the existing
+free-first, capped machinery so you can search for POCs (Talent Acquisition / HR-People /
+Hiring-Delivery Mgr / Vendor-Procurement) without wasting credits: `buildPocSearchQuery(company,
+domain, roles?)` is role-parameterized (default = original all-roles query, unchanged); a new
+read-only `POST /signals/:id/discover-poc/preview` (`previewFreePocSearch`) returns the exact query +
+remaining SearchAPI allowance (today X/5 · month Y/80) + cooldown/internal-contacts state + estimated
+credit cost (0 or 1) and **calls no provider** (pure DB read); `/discover-poc` now takes a `roles`
+body. The Signals "Find POC" is preview-first (query + role toggles + credit/cost + "Run free
+search"), plus a Search-credits banner over the sourcing cards. The free run itself is unchanged
+(internal CRM → website scrape → SearchAPI 1 credit only within the 5/day+80/mo caps + 30-day
+cooldown + ≤5 cap; channels never guessed); Apollo/Snov stay OFF behind their gate. No schema/
+migration, no guardrail file, no new env var. **Verified:** tsc, 455 Vitest (new
+`wizmatchPocSearchPreview.test.ts` — role-set query builder + preview cost logic, DB-only/no-provider),
+admin build, 97 Playwright (sourcing spec updated to preview-first). **Live:** deploy SUCCESS, zero
+5xx, `/health` 200, SPA 200, the new preview route 401 (intact). **Enablement (gated, separate
+approval):** the preview is read-only and works regardless of flags; actually *running* the free
+search in prod needs `WIZMATCH_POC_DISCOVERY_ENABLED=true` + `SEARCHAPI_API_KEY` (Railway env change).
+Client-side cost-safety (TheirStack free preview + SearchAPI allowance) is on the same Signals
+sourcing cards; Companies paid `discovery-preview` + Client-Discovery seeding are unchanged (paid
+stays off / seeding is credit-free).
+
+## Prior task — comprehensive filters on every page (SHIPPED `d7906e0` + analytics scoping `9767469`)
+
 **SHIPPED 2026-07-16 (`origin/main` = `d7906e0`, Railway deploy `88cd21cf` SUCCESS): comprehensive,
 consistent filtering on every Wizmatch page.** A new shared filter/table system
 (`admin/src/components/wizmatch/filters/`: `useTableControls` + `FilterBar` + `filterPipeline` +

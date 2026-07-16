@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-16T09:26:44.125Z_
+_Generated: 2026-07-16T13:17:40.590Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -11,48 +11,41 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 ## Repository
 
 - **Repo**: Growth-Escalators/Growth-Escalators-CRM
-- **Branch**: `feat/wizmatch-filters`
-- **Last commit**: 9767469 feat(wizmatch): honor the Reports From/To range on staffing-analytics metrics (10 minutes ago)
+- **Branch**: `feat/wizmatch-search-preview`
+- **Last commit**: 695a139 feat(wizmatch): cost-safe POC search — read-only preview + role targeting + credit banner (3 hours ago)
 - **Uncommitted changes**: 2 file(s)
 
 ## Current task
 
-**SHIPPED 2026-07-16 (`origin/main` = `d7906e0`, Railway deploy `88cd21cf` SUCCESS): comprehensive,
-consistent filtering on every Wizmatch page.** A new shared filter/table system
-(`admin/src/components/wizmatch/filters/`: `useTableControls` + `FilterBar` + `filterPipeline` +
-`exportCsv`, plus a sortable/column-hideable `ui/DataTable`) is wired into all 10 pages: Job
-Leads/Signals, Candidates, Requirements, Companies, Hiring Contacts (both tabs), Talent Matching,
-Submissions/Delivery, Placements, Contact Intelligence, Reports. Every page gets type-aware filters
-(search / multi-select / numeric+date ranges / toggles), active-filter chips + Clear all, **shareable
-URL views** (filters/sort/columns/page in the query string), **saved presets** (localStorage per
-`pageId`), **CSV export of the filtered set**, and — on the table pages — sortable headers + column
-show/hide. Server-paginated pages (Signals/Candidates/Requirements) filter AND **sort globally**
-server-side via a safe allowlisted ORDER BY (`wizmatchOrderBy`; the user key/dir only look up a
-hard-coded column map + normalised direction + `created_at` tiebreaker), and their CSV re-fetches the
-full filtered set at the backend max (200). Client pages (Companies 500-cap, Delivery, Placements,
-Contact Intelligence, Hiring Contacts fan-out) filter/sort in-browser over the loaded set. Backend
-changes are **read-only query params + ORDER BY only** — no schema/migration, no env var, no
-auth/RBAC/Cashfree/SOD-EOD, no pilot-flag change; one CI LATERAL join added to `listCompanies`.
-**Verified:** tsc clean, 446 Vitest (53 files, incl. new `wizmatchRequirementsFilters.test.ts`
-asserting the ORDER BY allowlist + injection-safe fallback), admin build clean, 97 Playwright (0
-failed) — the loop caught + fixed 8 regressions (FilterBar contrast a11y across 6 pages, Reports
-Status control, Companies URL shape, chip/checkbox/transition edge cases). **Live-verified** on prod:
-deploy SUCCESS, no boot errors from the change, zero 5xx since deploy, `api/health` 200, CRM SPA 200,
-wizmatch filter routes 401 (intact) with the new `sort=`/multi-value params. **Known follow-ups (not
-blockers):** the staffing-analytics *date* filter on Reports is now **SHIPPED** (`9767469`, Railway
-deploy `ca1fb1f6` SUCCESS) — `analytics(tenantId, from?, to?)` scopes the funnel/revenue/time-to-
-start/recruiter+source/rejection metrics by the From/To range (SLA exceptions + aging stay
-current-state; clearing the range = all-time); Reports `Status` is single-select (kept a funnel spec
-meaningful); Placements recruiter/prime filters need backend fields;
-client pages past their cap (Companies 500, etc.) need server pagination later. Also still open from
-before: the broken cold-outreach send loop; strict India-only tightening; the deferred region-column
-migration.
+**SHIPPED 2026-07-16 (`origin/main` = `695a139`, Railway deploy `35c38b14` SUCCESS): cost-safe
+POC/client search — read-only preview + role targeting + credit banner.** Surfaces the existing
+free-first, capped machinery so you can search for POCs (Talent Acquisition / HR-People /
+Hiring-Delivery Mgr / Vendor-Procurement) without wasting credits: `buildPocSearchQuery(company,
+domain, roles?)` is role-parameterized (default = original all-roles query, unchanged); a new
+read-only `POST /signals/:id/discover-poc/preview` (`previewFreePocSearch`) returns the exact query +
+remaining SearchAPI allowance (today X/5 · month Y/80) + cooldown/internal-contacts state + estimated
+credit cost (0 or 1) and **calls no provider** (pure DB read); `/discover-poc` now takes a `roles`
+body. The Signals "Find POC" is preview-first (query + role toggles + credit/cost + "Run free
+search"), plus a Search-credits banner over the sourcing cards. The free run itself is unchanged
+(internal CRM → website scrape → SearchAPI 1 credit only within the 5/day+80/mo caps + 30-day
+cooldown + ≤5 cap; channels never guessed); Apollo/Snov stay OFF behind their gate. No schema/
+migration, no guardrail file, no new env var. **Verified:** tsc, 455 Vitest (new
+`wizmatchPocSearchPreview.test.ts` — role-set query builder + preview cost logic, DB-only/no-provider),
+admin build, 97 Playwright (sourcing spec updated to preview-first). **Live:** deploy SUCCESS, zero
+5xx, `/health` 200, SPA 200, the new preview route 401 (intact). **Enablement (gated, separate
+approval):** the preview is read-only and works regardless of flags; actually *running* the free
+search in prod needs `WIZMATCH_POC_DISCOVERY_ENABLED=true` + `SEARCHAPI_API_KEY` (Railway env change).
+Client-side cost-safety (TheirStack free preview + SearchAPI allowance) is on the same Signals
+sourcing cards; Companies paid `discovery-preview` + Client-Discovery seeding are unchanged (paid
+stays off / seeding is credit-free).
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
 
 ## Recent commits
 
 ```
+695a139 feat(wizmatch): cost-safe POC search — read-only preview + role targeting + credit banner
+f07ea17 docs(ai): record shipped Reports From/To staffing-analytics scoping + live verify
 9767469 feat(wizmatch): honor the Reports From/To range on staffing-analytics metrics
 0ee6979 docs(ai): record shipped comprehensive Wizmatch filters + global sort + live verify
 d7906e0 feat(wizmatch): global server-side sort + full-filtered CSV on the server pages
@@ -61,8 +54,6 @@ cbfdde7 test+fix(wizmatch): green the filter rollout (a11y, spec locators, backe
 eb456b5 feat(wizmatch): wire Hiring Contacts, Talent Matching, Delivery to shared filters
 bcf6eca feat(wizmatch): wire Requirements + Companies to the shared filter system
 0ecdf81 feat(wizmatch): wire Job Leads/Signals to the shared filter system
-45ef73e feat(wizmatch): shared filter/table system + backend params + Candidates reference
-a05582f docs(ai): record shipped India-only sourcing + live verification + known limitation
 ```
 
 ## npm scripts

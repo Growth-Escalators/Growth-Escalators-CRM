@@ -6,6 +6,43 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-16 — Cost-safe POC search: read-only preview + role targeting + credit banner — Claude — LIVE PRODUCTION
+
+**What went live** (`f07ea17..695a139` fast-forward onto `main`; Railway deploy `35c38b14` SUCCESS)
+- Surfaces the existing free-first, capped POC-search machinery so you can search without wasting
+  credits — no new provider, no schema/migration, no new env var, no guardrail file touched.
+- `buildPocSearchQuery(company, domain, roles?)` (`wizmatchSearchApi.ts`) is role-parameterized:
+  `talent_acquisition | hr_people | hiring_delivery_manager | vendor_procurement`. Default (all roles,
+  in order) reproduces the original query byte-for-byte; selection only narrows the OR-terms.
+- New read-only `POST /signals/:id/discover-poc/preview` → `previewFreePocSearch` (`wizmatchSourcing.ts`):
+  returns the exact query + remaining SearchAPI allowance (daily/monthly used+remaining vs the 5/day +
+  80/mo caps) + `internalContactsExist`/`inCooldown` + `estimatedSearchApiCredits` (0 or 1). Pure DB
+  read — calls no provider (asserted in tests). `POST /signals/:id/discover-poc` now accepts a `roles`
+  body → threaded to the query; all existing allowance/cooldown/≤5-cap/no-guessed-channel logic intact.
+- `WizmatchSignalsPage.jsx`: "Find POC" is preview-first (`PocSearchPreview`) — query + role toggles +
+  credit/cost + "Run free search"; plus a Search-credits banner over the sourcing cards (free searches
+  left + account credits + "previews cost nothing; paid providers stay off"). Client-side cost-safety
+  (TheirStack "Free preview" + SearchAPI allowance) already lived on these cards; Companies paid
+  `discovery-preview` + Client-Discovery seeding untouched (paid stays off / seeding is credit-free).
+
+**Verification**
+- tsc clean; 455 Vitest (55 files; new `wizmatchPocSearchPreview.test.ts` — role-set query builder,
+  `normalizePocRoles`, and preview cost logic: internal/cooldown → 0 credits, else 1, DB-only);
+  admin build clean; 97 Playwright (0 failed) — `wizmatch-sourcing-local` updated to the preview-first
+  flow (click "Find POC ▸ preview" → "Run free search").
+- Safety gate: no `schema.ts`/migrations/`auth.ts`/`rbac.ts`/`cashfree.ts`/`sodEodService.ts`; additive
+  read-only route + query-string params; no new `process.env` reference.
+- Post-deploy (read-only): deploy `35c38b14` SUCCESS, prior REMOVED; zero 5xx since deploy; `GET
+  /health` 200; CRM SPA 200; `POST /signals/<uuid>/discover-poc/preview` → 401 (route registered +
+  auth-rejected, not 500).
+
+**Enablement (gated — separate approval, NOT done here)**
+- The preview is read-only and works regardless of flags. To actually *run* the free POC search in
+  prod: set `WIZMATCH_POC_DISCOVERY_ENABLED=true` + ensure `SEARCHAPI_API_KEY` is present (Railway env
+  change). Apollo/Snov paid discovery stays OFF behind `WIZMATCH_PAID_DISCOVERY_ENABLED` + its cost guard.
+
+---
+
 ## 2026-07-16 — Reports From/To range now scopes staffing-analytics metrics — Claude — LIVE PRODUCTION
 
 **What went live** (`0ee6979..9767469` fast-forward onto `main`; Railway deploy `ca1fb1f6` SUCCESS)
