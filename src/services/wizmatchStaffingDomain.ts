@@ -104,6 +104,99 @@ export function assertStageTransition(from: string, to: string) {
   }
 }
 
+export function buildRequirementReadiness(requirement: Record<string, any>, checks: Record<string, any>) {
+  const acceptanceMissing: string[] = [];
+  if (!requirement.company_id) acceptanceMissing.push('company');
+  if (!checks.has_primary_source) acceptanceMissing.push('primary source contact');
+  if (!checks.has_primary_channel) acceptanceMissing.push('primary source contact channel');
+  if (!checks.has_account_owner) acceptanceMissing.push('account owner');
+  if (!checks.has_recruiter) acceptanceMissing.push('recruiter');
+  if (!requirement.sla_due_at) acceptanceMissing.push('SLA due date');
+  if (!requirement.next_action || !requirement.next_action_due_at) acceptanceMissing.push('dated next action');
+  const matchingMissing = checks.has_mandatory_skill ? [] : ['reviewed mandatory canonical skill'];
+  return {
+    acceptance: { ready: acceptanceMissing.length === 0, missing: acceptanceMissing },
+    matching: { ready: acceptanceMissing.length === 0 && matchingMissing.length === 0, missing: [...acceptanceMissing, ...matchingMissing] },
+    checks: {
+      company: Boolean(requirement.company_id),
+      primarySource: Boolean(checks.has_primary_source),
+      primarySourceChannel: Boolean(checks.has_primary_channel),
+      accountOwner: Boolean(checks.has_account_owner),
+      recruiter: Boolean(checks.has_recruiter),
+      sla: Boolean(requirement.sla_due_at),
+      datedNextAction: Boolean(requirement.next_action && requirement.next_action_due_at),
+      mandatorySkill: Boolean(checks.has_mandatory_skill),
+    },
+  };
+}
+
+export function allowedRequirementTransitions(stage: string, acceptanceReady: boolean) {
+  return [...(STAGE_TRANSITIONS[stage] ?? [])].map((targetStage) => ({
+    stage: targetStage,
+    allowed: targetStage !== 'accepted' || acceptanceReady,
+    blockers: targetStage === 'accepted' && !acceptanceReady ? ['Complete requirement acceptance readiness'] : [],
+  }));
+}
+
+function workBucket(input: { dueAt?: unknown; blocker?: string | null; text?: unknown }, now: Date) {
+  const dueAt = input.dueAt ? new Date(String(input.dueAt)) : null;
+  if (input.blocker) return 'blocked';
+  if (dueAt && Number.isFinite(dueAt.getTime()) && dueAt.getTime() < now.getTime()) return 'overdue';
+  if (dueAt && dueAt.toDateString() === now.toDateString()) return 'due_today';
+  if (dueAt && Number.isFinite(dueAt.getTime()) && dueAt.getTime() > now.getTime()) return 'waiting';
+  if (/\b(wait|await|pending|follow[ -]?up)\b/i.test(String(input.text || ''))) return 'waiting';
+  return 'recently_changed';
+}
+
+export function buildNormalizedWorkItems(requirements: any[], tasks: any[], now = new Date()) {
+  const taskActions = new Set(tasks.map((task) => `${task.requirement_id || ''}|${String(task.title || '').trim().toLowerCase()}`));
+  const requirementItems = requirements
+    .filter((requirement) => !taskActions.has(`${requirement.id}|${String(requirement.next_action || '').trim().toLowerCase()}`))
+    .map((requirement) => {
+      const blocker = requirement.attribution_status !== 'attributed'
+        ? 'Source contact attribution is required'
+        : !requirement.next_action || !requirement.next_action_due_at ? 'A dated next action is required' : null;
+      const dueAt = requirement.next_action_due_at || requirement.sla_due_at || null;
+      return {
+        id: `requirement:${requirement.id}`,
+        kind: 'requirement',
+        entityType: 'requirement',
+        entityId: requirement.id,
+        entityHref: `/wizmatch/roles?requirementId=${encodeURIComponent(requirement.id)}`,
+        title: requirement.title,
+        companyName: requirement.company_name || null,
+        bucket: workBucket({ dueAt, blocker, text: requirement.next_action }, now),
+        blocker,
+        recommendedAction: requirement.next_action || (blocker ? 'Complete requirement intake' : 'Review requirement'),
+        dueAt,
+        slaDueAt: requirement.sla_due_at || null,
+        capability: 'manageAssignedWork',
+      };
+    });
+  const taskItems = tasks.map((task) => ({
+    id: `task:${task.id}`,
+    kind: 'task',
+    entityType: task.requirement_id ? 'requirement' : task.company_id ? 'company' : 'task',
+    entityId: task.requirement_id || task.company_id || task.id,
+    entityHref: task.requirement_id
+      ? `/wizmatch/roles?requirementId=${encodeURIComponent(task.requirement_id)}`
+      : task.company_id ? `/wizmatch/companies?companyId=${encodeURIComponent(task.company_id)}` : '/wizmatch/today',
+    title: task.title,
+    companyName: null,
+    bucket: workBucket({ dueAt: task.due_at, text: task.title }, now),
+    blocker: null,
+    recommendedAction: task.title,
+    dueAt: task.due_at || null,
+    slaDueAt: null,
+    capability: 'manageAssignedWork',
+  }));
+  const priority: Record<string, number> = { overdue: 0, due_today: 1, blocked: 2, waiting: 3, recently_changed: 4 };
+  return [...requirementItems, ...taskItems].sort((a, b) =>
+    (priority[a.bucket] ?? 9) - (priority[b.bucket] ?? 9)
+      || new Date(String(a.dueAt || '9999-12-31')).getTime() - new Date(String(b.dueAt || '9999-12-31')).getTime(),
+  );
+}
+
 export function createWizmatchStaffingService(dbPool: TransactionPool = pool) {
   return {
     async listCompanies(tenantId: string, search = '') {
