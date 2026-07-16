@@ -14,6 +14,7 @@ describe('Wizmatch staffing Gate A routes', () => {
       ['/staffing/requirements/:requirementId', 'get'], ['/staffing/my-work', 'get'],
       ['/companies/:companyId/contacts', 'get'], ['/companies/:companyId/contacts', 'post'],
       ['/companies/:companyId/contacts/:companyContactId', 'put'], ['/companies/:companyId/contacts/:companyContactId', 'delete'],
+      ['/companies/:companyId/contacts/:companyContactId/hard', 'delete'],
       ['/requirements/:requirementId/contacts', 'get'], ['/requirements/:requirementId/contacts', 'post'],
       ['/requirements/:requirementId/contacts/:attributionId', 'put'], ['/requirements/:requirementId/contacts/:attributionId', 'delete'],
       ['/requirements/:requirementId/assignments', 'get'], ['/requirements/:requirementId/assignments', 'post'],

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, X } from 'lucide-react';
+import { RefreshCw, X, Trash2 } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
+import ConfirmDialog from '../components/ConfirmDialog.jsx';
 
 const STATUS_BADGE = {
   new: 'badge-info',
@@ -26,6 +27,9 @@ export default function WizmatchSignalsPage() {
   const [sourcing, setSourcing] = useState(null);
   const [feedback, setFeedback] = useState('');
   const [actionBusy, setActionBusy] = useState('');
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
 
   const loadSignals = useCallback(async () => {
     setLoading(true);
@@ -78,6 +82,25 @@ export default function WizmatchSignalsPage() {
       console.error('Failed to load detail:', e);
     } finally {
       setDetailLoading(false);
+    }
+  };
+
+  // Permanent delete via DELETE /signals/:id. The backend returns 409 with a
+  // human message for signals that were promoted into a requirement or are
+  // placed — surface it in the dialog and let the user Reject instead.
+  const deleteSignal = async (reason) => {
+    if (!selectedSignal) return;
+    setDeleteBusy(true); setDeleteError(null);
+    try {
+      await apiFetch(`/api/wizmatch/signals/${selectedSignal.id}`, { method: 'DELETE', body: JSON.stringify({ reason }) });
+      setFeedback('Signal deleted.');
+      setShowDeleteDialog(false);
+      setSelectedSignal(null);
+      await loadSignals();
+    } catch (e) {
+      setDeleteError(e.message || 'Delete failed.');
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -319,6 +342,11 @@ export default function WizmatchSignalsPage() {
                       }}
                       className="btn-primary"
                     >Generate Drafts</button>
+                    <button
+                      disabled={actionBusy || deleteBusy}
+                      onClick={() => { setDeleteError(null); setShowDeleteDialog(true); }}
+                      className="btn-standard text-danger-700 inline-flex items-center gap-1"
+                    ><Trash2 className="w-3.5 h-3.5" /> Delete permanently</button>
                   </div>
                 </>
               )}
@@ -326,6 +354,19 @@ export default function WizmatchSignalsPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={showDeleteDialog}
+        title="Delete this signal?"
+        impactSummary={selectedSignal ? `This permanently deletes the job signal "${selectedSignal.job_title}"${selectedSignal.company_name ? ` at ${selectedSignal.company_name}` : ''}. Signals promoted into a requirement or already placed can't be deleted — Reject them instead.` : ''}
+        confirmLabel="Delete permanently"
+        danger
+        requireReason
+        loading={deleteBusy}
+        error={deleteError}
+        onConfirm={deleteSignal}
+        onCancel={() => { setShowDeleteDialog(false); setDeleteError(null); }}
+      />
     </div>
   );
 }

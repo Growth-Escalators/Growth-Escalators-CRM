@@ -175,6 +175,9 @@ function LinkedContactDetailDrawer({ companyContactId, onClose, onChanged }) {
   const [showDeactivateDialog, setShowDeactivateDialog] = useState(false);
   const [deactivating, setDeactivating] = useState(false);
   const [deactivateError, setDeactivateError] = useState(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -233,6 +236,25 @@ function LinkedContactDetailDrawer({ companyContactId, onClose, onChanged }) {
       setDeactivateError(e.message || 'Deactivate failed.');
     } finally {
       setDeactivating(false);
+    }
+  };
+
+  // Permanent hard-delete of the hiring-contact relationship. The CRM contact
+  // record itself is always kept — this only removes the person's link to this
+  // company. Backend returns 409 when they still have an active attribution,
+  // submission or interview; surface that and steer the user to Deactivate.
+  const hardDelete = async (reason) => {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await apiFetch(`/api/wizmatch/companies/${data.contact.company_id}/contacts/${companyContactId}/hard`, { method: 'DELETE', body: JSON.stringify({ reason }) });
+      showSuccess('Hiring contact deleted');
+      onChanged();
+      onClose();
+    } catch (e) {
+      setDeleteError(e.message || 'Delete failed.');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -315,9 +337,14 @@ function LinkedContactDetailDrawer({ companyContactId, onClose, onChanged }) {
               <input id="hc-next-action-due" type="datetime-local" value={nextActionDueAt} onChange={e => setNextActionDueAt(e.target.value)} className="input w-full mt-1" />
             </div>
             <div className="flex justify-between items-center">
-              <button onClick={() => setShowDeactivateDialog(true)} className="text-[12.5px] font-semibold text-danger-600 hover:text-danger-700">
-                Deactivate relationship
-              </button>
+              <div className="flex items-center gap-3">
+                <button onClick={() => setShowDeactivateDialog(true)} className="text-[12.5px] font-semibold text-danger-600 hover:text-danger-700">
+                  Deactivate relationship
+                </button>
+                <button onClick={() => { setDeleteError(null); setShowDeleteDialog(true); }} className="text-[12.5px] font-semibold text-danger-700 hover:text-danger-800">
+                  Delete permanently
+                </button>
+              </div>
               <button onClick={save} disabled={saving} className="btn-primary btn-compact disabled:opacity-50">
                 {saving ? 'Saving…' : 'Save changes'}
               </button>
@@ -390,6 +417,19 @@ function LinkedContactDetailDrawer({ companyContactId, onClose, onChanged }) {
           error={deactivateError}
           onConfirm={deactivate}
           onCancel={() => { setShowDeactivateDialog(false); setDeactivateError(null); }}
+        />
+
+        <ConfirmDialog
+          open={showDeleteDialog}
+          title="Delete this hiring contact?"
+          impactSummary={`This permanently removes ${[contact.first_name, contact.last_name].filter(Boolean).join(' ') || 'this person'} as a hiring contact at ${contact.company_name}, including their role tags and inactive attributions. The underlying CRM contact record, its channels and history are kept. Blocked if they still have an active requirement attribution, a submission, or an interview — deactivate instead in that case.`}
+          confirmLabel="Delete permanently"
+          danger
+          requireReason
+          loading={deleting}
+          error={deleteError}
+          onConfirm={hardDelete}
+          onCancel={() => { setShowDeleteDialog(false); setDeleteError(null); }}
         />
       </div>
     </div>

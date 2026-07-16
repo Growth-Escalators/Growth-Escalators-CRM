@@ -138,4 +138,22 @@ test.describe('Candidates 360', () => {
     await expect(dialog).not.toBeVisible();
     await expect(heading).toBeVisible();
   });
+
+  test('submission history section renders real submissions from the candidate 360 payload', async ({ page }) => {
+    await page.route('**/api/wizmatch/candidates/cand-1', (route) => json(route, { id: 'cand-1', first_name: 'Priya', last_name: 'Sharma', availability_status: 'available', source: 'manual' }));
+    await page.route('**/api/wizmatch/staffing/candidates/cand-1', (route) => json(route, {
+      candidate: { id: 'cand-1' }, skills: [], matches: [],
+      submissions: [{ id: 'sub-1', status: 'interviewing', version: 2, first_sent_at: '2026-07-10T00:00:00.000Z', requirement_title: 'Senior Java Developer', company_name: 'Acme Corp' }],
+    }));
+
+    await page.goto('/wizmatch/candidates');
+    await page.waitForLoadState('networkidle');
+    await page.getByRole('row').filter({ hasText: 'Priya Sharma' }).click();
+    await expect(page.getByRole('heading', { name: 'Priya Sharma' })).toBeVisible();
+
+    const section = page.locator('section').filter({ hasText: 'Submission history' });
+    await expect(section.getByText('Senior Java Developer')).toBeVisible();
+    await expect(section.getByText('Acme Corp', { exact: false })).toBeVisible();
+    await expect(section.getByText(/not been submitted/)).toHaveCount(0);
+  });
 });
