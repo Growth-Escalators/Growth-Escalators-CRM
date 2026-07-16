@@ -18,6 +18,7 @@ import logger from '../utils/logger';
 import { WIZMATCH_INDIA_ONLY, passesIndiaOnlyIngestion } from '../config/constants';
 import { isWizmatchRelevantRole } from './wizmatchRoleRelevance';
 import { createSourceRun, finishSourceRun, ingestWizmatchSignals } from './wizmatchSourcing';
+import { extractCanonicalSkillKeywords } from './wizmatchSkillExtraction';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -183,32 +184,6 @@ export async function pollAshby(slug: string): Promise<IngestedJob[]> {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-// Broad skill taxonomy — languages/frameworks/cloud plus enterprise & functional
-// stacks common in India staffing (SAP, Salesforce, ServiceNow, QA, BA, etc.),
-// so niche roles don't fall through to an empty keyword set.
-const SKILL_KEYWORDS = [
-  // languages / core
-  'java', 'python', 'javascript', 'typescript', 'c#', '.net', 'dotnet', 'go', 'golang',
-  'rust', 'scala', 'ruby', 'php', 'kotlin', 'swift', 'c++', 'perl', 'r ',
-  // web / frameworks
-  'react', 'angular', 'vue', 'node', 'next.js', 'spring', 'spring boot', 'django',
-  'flask', 'laravel', '.net core', 'express', 'graphql', 'rest api',
-  // cloud / infra / devops
-  'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'devops', 'terraform', 'ansible',
-  'jenkins', 'ci/cd', 'cloud', 'linux', 'microservices',
-  // data / ml
-  'sql', 'postgres', 'mysql', 'oracle', 'mongodb', 'redis', 'kafka', 'spark', 'hadoop',
-  'airflow', 'snowflake', 'databricks', 'tableau', 'power bi', 'etl', 'data engineer',
-  'data scientist', 'data analyst', 'machine learning', 'ml', 'ai', 'nlp', 'tensorflow', 'pytorch',
-  // enterprise / functional (India-heavy)
-  'sap', 'sap abap', 'sap fico', 'sap mm', 'salesforce', 'servicenow', 'workday', 'peoplesoft',
-  'guidewire', 'pega', 'sharepoint', 'dynamics 365', 'mulesoft', 'informatica', 'mainframe', 'cobol',
-  // roles / disciplines
-  'full stack', 'frontend', 'backend', 'mobile', 'ios', 'android', 'qa', 'automation',
-  'selenium', 'manual testing', 'business analyst', 'scrum master', 'project manager',
-  'product manager', 'ui/ux', 'security', 'network', 'sre', 'embedded',
-];
-
 // Stopwords stripped when falling back to job-title tokens.
 const TITLE_STOPWORDS = new Set([
   'senior', 'sr', 'junior', 'jr', 'lead', 'principal', 'staff', 'engineer', 'developer',
@@ -228,9 +203,8 @@ function normalizeEmploymentType(raw: string | null): string | null {
 }
 
 export function extractKeywords(title: string, extra: string): string[] {
-  const text = `${title} ${extra}`.toLowerCase();
-  const matched = SKILL_KEYWORDS.filter((skill) => text.includes(skill)).map((s) => s.trim());
-  if (matched.length > 0) return Array.from(new Set(matched));
+  const matched = extractCanonicalSkillKeywords(`${title} ${extra}`);
+  if (matched.length > 0) return matched;
 
   // Fallback: significant tokens from the title, so the matcher (which relies on
   // keyword overlap) still has something to work with for niche/unlisted roles.
