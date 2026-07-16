@@ -3,6 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { RefreshCw, X, Trash2, ArrowRight } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
+import DataTable from '../components/ui/DataTable.jsx';
+import FilterBar from '../components/wizmatch/filters/FilterBar.jsx';
+import { useTableControls } from '../components/wizmatch/filters/useTableControls.js';
+import { applySort } from '../components/wizmatch/filters/filterPipeline.js';
+import { exportRowsToCsv } from '../components/wizmatch/filters/exportCsv.js';
 
 const STATUS_BADGE = {
   new: 'badge-info',
@@ -17,13 +22,42 @@ const STATUS_BADGE = {
   placed: 'badge-success',
 };
 
+const scoreColor = (score) => {
+  if (score >= 8) return 'bg-success-500/10 text-success-600 border-success-500/20';
+  if (score >= 7) return 'bg-warning-500/10 text-warning-700 border-warning-500/20';
+  if (score >= 5) return 'bg-primary-500/10 text-primary-700 border-primary-500/20';
+  return 'bg-neutral-200 text-neutral-500 border-neutral-300';
+};
+
+const sigOpts = (arr) => arr.map((v) => ({ value: v, label: v }));
+const SIGNAL_DEFAULTS = { region: 'india' };
+const SIGNAL_FILTERS = [
+  { key: 'q', label: 'Search', type: 'search', placeholder: 'Title or company…' },
+  { key: 'status', label: 'Status', type: 'multiselect', options: sigOpts(['new', 'scored', 'enriched', 'matched', 'drafted', 'sent', 'replied_positive', 'replied_other', 'dead', 'placed']) },
+  { key: 'source', label: 'Source', type: 'multiselect', options: sigOpts(['theirstack', 'greenhouse', 'lever', 'ashby', 'dice', 'manual', 'jobspy', 'ats', 'xray']) },
+  { key: 'employment_type', label: 'Employment', type: 'multiselect', options: sigOpts(['contract', 'contract_c2c', 'contract_w2', 'C2C', 'W2', '1099', 'FTE', 'permanent', 'unknown']) },
+  { key: 'score', label: 'Score', type: 'numberRange', serverMinKey: 'min_score', serverMaxKey: 'score_max' },
+  { key: 'days_open', label: 'Days open', type: 'numberRange', serverMinKey: 'days_open_min', serverMaxKey: 'days_open_max' },
+  { key: 'has_contact', label: 'Has decision-maker', type: 'toggle' },
+  { key: 'posted', label: 'Posted', type: 'dateRange', serverFromKey: 'posted_from', serverToKey: 'posted_to' },
+  { key: 'region', label: 'Region', type: 'select', options: [{ value: 'india', label: 'India only' }, { value: 'all', label: 'All regions' }, { value: 'us', label: 'US only' }] },
+];
+const SIGNAL_COLUMNS = [
+  { key: 'job_title', label: 'Job Title', sortable: true, exportValue: (s) => s.job_title, render: (s) => <span className="font-medium text-neutral-900">{s.job_title}</span> },
+  { key: 'company_name', label: 'Company', sortable: true, render: (s) => s.company_name || '—' },
+  { key: 'days_open', label: 'Days Open', sortable: true, exportValue: (s) => s.days_open || 0, render: (s) => <span className={s.days_open >= 30 ? 'text-danger-600 font-bold' : 'text-neutral-600'}>{s.days_open || 0}d</span> },
+  { key: 'score', label: 'Score', sortable: true, exportValue: (s) => s.score || 0, render: (s) => <span className={`inline-flex items-center justify-center w-7 h-7 rounded-md text-sm font-bold border ${scoreColor(s.score || 0)}`}>{s.score || 0}</span> },
+  { key: 'source', label: 'Source', sortable: true, render: (s) => <span className="text-neutral-500">{s.source}</span> },
+  { key: 'status', label: 'Status', sortable: true, render: (s) => <span className={STATUS_BADGE[s.status] || 'badge-muted'}>{s.status?.replace(/_/g, ' ')}</span> },
+];
+
 export default function WizmatchSignalsPage() {
   const navigate = useNavigate();
   const [signals, setSignals] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({ status: '', min_score: '', source: '', region: 'india' });
-  const [page, setPage] = useState(0);
+  const ctl = useTableControls({ pageId: 'wizmatch-signals', spec: SIGNAL_FILTERS, columns: SIGNAL_COLUMNS, defaults: SIGNAL_DEFAULTS });
+  const { toQueryParams, page, setPage } = ctl;
   const [selectedSignal, setSelectedSignal] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [sourcing, setSourcing] = useState(null);
@@ -37,11 +71,7 @@ export default function WizmatchSignalsPage() {
   const loadSignals = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ limit: 50, offset: page * 50 });
-      if (filters.status) params.set('status', filters.status);
-      if (filters.min_score) params.set('min_score', filters.min_score);
-      if (filters.source) params.set('source', filters.source);
-      params.set('region', filters.region || 'india');
+      const params = toQueryParams({ limit: 50, offset: page * 50 });
       const data = await apiFetch(`/api/wizmatch/signals?${params}`);
       setSignals(data.items || []);
       setTotal(data.total || 0);
@@ -50,7 +80,7 @@ export default function WizmatchSignalsPage() {
     } finally {
       setLoading(false);
     }
-  }, [filters, page]);
+  }, [toQueryParams, page]);
 
   useEffect(() => { loadSignals(); }, [loadSignals]);
   const loadSourcing = useCallback(async () => {
@@ -108,12 +138,7 @@ export default function WizmatchSignalsPage() {
     }
   };
 
-  const scoreColor = (score) => {
-    if (score >= 8) return 'bg-success-500/10 text-success-600 border-success-500/20';
-    if (score >= 7) return 'bg-warning-500/10 text-warning-700 border-warning-500/20';
-    if (score >= 5) return 'bg-primary-500/10 text-primary-700 border-primary-500/20';
-    return 'bg-neutral-200 text-neutral-500 border-neutral-300';
-  };
+  const rows = applySort(signals, ctl.sort, SIGNAL_COLUMNS);
 
   return (
     <div className="p-6">
@@ -142,112 +167,40 @@ export default function WizmatchSignalsPage() {
         })}
       </div>
 
-      {/* Filters */}
-      <div className="mb-4 flex gap-3 items-center flex-wrap">
-        <select
-          value={filters.status}
-          onChange={(e) => { setFilters({...filters, status: e.target.value}); setPage(0); }}
-          className="input w-auto"
-        >
-          <option value="">All Status</option>
-          <option value="new">New</option>
-          <option value="scored">Scored</option>
-          <option value="enriched">Enriched</option>
-          <option value="matched">Matched</option>
-          <option value="drafted">Drafted</option>
-          <option value="sent">Sent</option>
-          <option value="replied_positive">Positive Reply</option>
-          <option value="dead">Dead</option>
-        </select>
-        <select
-          value={filters.min_score}
-          onChange={(e) => { setFilters({...filters, min_score: e.target.value}); setPage(0); }}
-          className="input w-auto"
-        >
-          <option value="">Any Score</option>
-          <option value="7">7+ (Priority)</option>
-          <option value="8">8+ (High)</option>
-          <option value="5">5+</option>
-        </select>
-        <input
-          type="text"
-          placeholder="Source filter..."
-          value={filters.source}
-          onChange={(e) => { setFilters({...filters, source: e.target.value}); setPage(0); }}
-          className="input w-40"
-        />
-        <select
-          value={filters.region}
-          onChange={(e) => { setFilters({...filters, region: e.target.value}); setPage(0); }}
-          className="input w-auto"
-          title="Wizmatch sources India hiring; existing US signals are hidden here, not deleted."
-        >
-          <option value="india">India only</option>
-          <option value="all">All regions</option>
-        </select>
-        <button onClick={loadSignals} className="btn-standard btn-compact">
-          <RefreshCw className="w-3.5 h-3.5" /> Refresh
-        </button>
-      </div>
+      <FilterBar
+        spec={SIGNAL_FILTERS}
+        filters={ctl.filters}
+        setFilter={ctl.setFilter}
+        activeChips={ctl.activeChips}
+        clearFilter={ctl.clearFilter}
+        clearAll={ctl.clearAll}
+        columns={SIGNAL_COLUMNS}
+        hiddenColumns={ctl.hiddenColumns}
+        toggleColumn={ctl.toggleColumn}
+        onExport={() => exportRowsToCsv(rows, ctl.visibleColumns, 'job-signals.csv')}
+        presets={ctl.presets}
+        savePreset={ctl.savePreset}
+        applyPreset={ctl.applyPreset}
+        deletePreset={ctl.deletePreset}
+        rightSlot={<button onClick={loadSignals} className="btn-standard btn-compact"><RefreshCw className="w-3.5 h-3.5" /> Refresh</button>}
+      />
 
-      {/* Table */}
-      <div className="card overflow-hidden">
-        <table className="table-fluent">
-          <thead>
-            <tr>
-              <th>Job Title</th>
-              <th>Company</th>
-              <th>Days Open</th>
-              <th>Score</th>
-              <th>Source</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan="6" className="px-4 py-8 text-center text-neutral-400">Loading...</td></tr>
-            ) : signals.length === 0 ? (
-              <tr><td colSpan="6" className="px-4 py-8 text-center text-neutral-400">No signals found</td></tr>
-            ) : signals.map((s) => (
-              <tr key={s.id} onClick={() => openDetail(s)} className="cursor-pointer">
-                <td className="font-medium text-neutral-900">{s.job_title}</td>
-                <td>{s.company_name || '—'}</td>
-                <td>
-                  <span className={s.days_open >= 30 ? 'text-danger-600 font-bold' : 'text-neutral-600'}>
-                    {s.days_open || 0}d
-                  </span>
-                </td>
-                <td>
-                  <span className={`inline-flex items-center justify-center w-7 h-7 rounded-md text-sm font-bold border ${scoreColor(s.score || 0)}`}>
-                    {s.score || 0}
-                  </span>
-                </td>
-                <td className="text-neutral-500">{s.source}</td>
-                <td>
-                  <span className={STATUS_BADGE[s.status] || 'badge-muted'}>
-                    {s.status?.replace(/_/g, ' ')}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        columns={ctl.visibleColumns}
+        rows={rows}
+        rowKey="id"
+        onRowClick={openDetail}
+        loading={loading}
+        emptyText="No signals match these filters"
+        sort={ctl.sort}
+        onSort={ctl.setSort}
+      />
 
-      {/* Pagination */}
       {total > 50 && (
         <div className="mt-4 flex justify-between items-center">
-          <button
-            disabled={page === 0}
-            onClick={() => setPage(page - 1)}
-            className="btn-standard btn-compact disabled:opacity-50"
-          >Previous</button>
+          <button disabled={page === 0} onClick={() => setPage(page - 1)} className="btn-standard btn-compact disabled:opacity-50">Previous</button>
           <span className="text-sm text-neutral-500">Page {page + 1} of {Math.ceil(total / 50)}</span>
-          <button
-            disabled={(page + 1) * 50 >= total}
-            onClick={() => setPage(page + 1)}
-            className="btn-standard btn-compact disabled:opacity-50"
-          >Next</button>
+          <button disabled={(page + 1) * 50 >= total} onClick={() => setPage(page + 1)} className="btn-standard btn-compact disabled:opacity-50">Next</button>
         </div>
       )}
 
