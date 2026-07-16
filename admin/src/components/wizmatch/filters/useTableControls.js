@@ -144,6 +144,7 @@ export function useTableControls({ pageId, spec, columns, defaults = NO_DEFAULTS
       const [curKey, curDir] = (p.get('sort') || '').split(':');
       const dir = curKey === key && curDir === 'asc' ? 'desc' : 'asc';
       p.set('sort', `${key}:${dir}`);
+      p.set('page', '0'); // server pages sort globally — jump to the first page
     });
   }, [mutate]);
 

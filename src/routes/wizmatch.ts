@@ -3997,6 +3997,20 @@ router.post('/requirements/:id/source-candidates-xray', async (req: Request, res
   catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : 'Requirement X-Ray failed' }); }
 });
 
+// Safe ORDER BY builder for the filterable list endpoints. The frontend sends
+// `sort=<columnKey>:<asc|desc>`; SQL is only ever emitted from a fixed allowlist
+// (values are hard-coded column expressions) and the direction is normalised —
+// the user-supplied key/dir are used solely to look things up, never interpolated.
+// A stable tiebreaker keeps pagination deterministic across pages.
+function wizmatchOrderBy(sortRaw: unknown, allow: Record<string, string>, fallback: string, tiebreak: string): string {
+  if (typeof sortRaw === 'string' && sortRaw.includes(':')) {
+    const [key, dirRaw] = sortRaw.split(':');
+    const col = allow[key];
+    if (col) return `ORDER BY ${col} ${dirRaw === 'desc' ? 'DESC' : 'ASC'} NULLS LAST, ${tiebreak}`;
+  }
+  return fallback;
+}
+
 // GET /api/wizmatch/signals — list with filters
 router.get('/signals', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
@@ -4082,6 +4096,10 @@ router.get('/signals', async (req: Request, res: Response) => {
   }
 
   const whereClause = conditions.join(' AND ');
+  const orderBy = wizmatchOrderBy(req.query.sort, {
+    job_title: 's.job_title', company_name: 'c.name', days_open: 's.days_open',
+    score: 's.score', source: 's.source', status: 's.status',
+  }, 'ORDER BY s.score DESC NULLS LAST, s.created_at DESC', 's.created_at DESC');
 
   const countResult = await pool.query(
     `SELECT COUNT(*)::int AS total FROM wizmatch_job_signals s
@@ -4098,7 +4116,7 @@ router.get('/signals', async (req: Request, res: Response) => {
      LEFT JOIN wizmatch_companies c ON c.id = s.company_id AND c.tenant_id=s.tenant_id
      LEFT JOIN contacts cnt ON cnt.id = s.contact_id AND cnt.tenant_id=s.tenant_id
      WHERE ${whereClause}
-     ORDER BY s.score DESC NULLS LAST, s.created_at DESC
+     ${orderBy}
      LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
     [...params, limit, offset],
   );
@@ -4552,12 +4570,17 @@ router.get('/candidates', async (req: Request, res: Response) => {
   }
 
   const whereClause = conditions.join(' AND ');
+  const orderBy = wizmatchOrderBy(req.query.sort, {
+    name: "concat_ws(' ', c.first_name, c.last_name)", location: 'wc.location',
+    visa_status: 'wc.visa_status', experience_years: 'wc.experience_years',
+    rate_hourly: 'wc.rate_hourly', availability_status: 'wc.availability_status', source: 'wc.source',
+  }, 'ORDER BY wc.created_at DESC', 'wc.created_at DESC');
   const dataResult = await pool.query(
     `SELECT wc.*, c.first_name, c.last_name, c.company_name
      FROM wizmatch_candidates wc
      JOIN contacts c ON c.id = wc.contact_id
      WHERE ${whereClause}
-     ORDER BY wc.created_at DESC
+     ${orderBy}
      LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
     [...params, limit, offset],
   );
@@ -5721,6 +5744,10 @@ router.get('/requirements', async (req: Request, res: Response) => {
   }
 
   const whereClause = conditions.join(' AND ');
+  const orderBy = wizmatchOrderBy(req.query.sort, {
+    title: 'r.title', company_name: 'comp.name', location: 'r.location', positions: 'r.positions',
+    budget: 'COALESCE(r.budget_max, r.budget_min)', region: 'r.region', status: 'r.status', candidates: 'match_count',
+  }, 'ORDER BY r.created_at DESC', 'r.created_at DESC');
   const dataResult = await pool.query(
     `SELECT r.*, comp.name AS company_name, ci.qualification_tier AS company_tier,
             source_person.company_contact_id AS primary_source_relationship_id,
@@ -5752,7 +5779,7 @@ router.get('/requirements', async (req: Request, res: Response) => {
        WHERE a.tenant_id=r.tenant_id AND a.requirement_id=r.id AND a.active
      ) team ON true
      WHERE ${whereClause}
-     ORDER BY r.created_at DESC
+     ${orderBy}
      LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
     [...params, limit, offset],
   );
