@@ -8,6 +8,20 @@ import ErrorRetry from '../components/wizmatch/ErrorRetry.jsx';
 import EmptyState from '../components/wizmatch/EmptyState.jsx';
 import StatusBadge from '../components/wizmatch/StatusBadge.jsx';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
+import FilterBar from '../components/wizmatch/filters/FilterBar.jsx';
+import { useTableControls } from '../components/wizmatch/filters/useTableControls.js';
+import { exportRowsToCsv } from '../components/wizmatch/filters/exportCsv.js';
+
+const PLACEMENT_EXPORT_COLUMNS = [
+  { key: 'candidate', label: 'Candidate', exportValue: (p) => [p.candidate_first, p.candidate_last].filter(Boolean).join(' ') },
+  { key: 'company_name', label: 'Company' },
+  { key: 'job_title', label: 'Role' },
+  { key: 'status', label: 'Status' },
+  { key: 'placement_type', label: 'Type' },
+  { key: 'currency', label: 'Currency', exportValue: (p) => p.currency || 'INR' },
+  { key: 'commercial', label: 'Commercial', exportValue: (p) => formatPlacementCommercial(p) },
+  { key: 'contract_start_date', label: 'Start date', exportValue: (p) => p.contract_start_date || '' },
+];
 
 const STAGES = ['submitted', 'interviewing', 'offered', 'started', 'ended', 'lost'];
 const STAGE_LABELS = { submitted: 'Submitted', interviewing: 'Interviewing', offered: 'Offered', started: 'Started', ended: 'Ended', lost: 'Lost' };
@@ -39,7 +53,6 @@ export default function WizmatchPlacementsPage() {
   const [loadError, setLoadError] = useState('');
   const [capabilities, setCapabilities] = useState({});
   const [draggedId, setDraggedId] = useState(null);
-  const [roleFilter, setRoleFilter] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [detailPlacement, setDetailPlacement] = useState(null);
 
@@ -74,11 +87,19 @@ export default function WizmatchPlacementsPage() {
   };
 
   // Client-side only — derived from already-loaded placements, no new fetch.
-  const roles = useMemo(
-    () => Array.from(new Set(placements.map(p => p.job_title).filter(Boolean))).sort(),
-    [placements],
-  );
-  const filteredPlacements = roleFilter ? placements.filter(p => p.job_title === roleFilter) : placements;
+  // Role/currency options are faceted from the loaded rows; the filter applies
+  // across every Kanban column at once.
+  const roleOptions = useMemo(() => [...new Set(placements.map(p => p.job_title).filter(Boolean))].sort().map(v => ({ value: v, label: v })), [placements]);
+  const currencyOptions = useMemo(() => [...new Set(placements.map(p => p.currency).filter(Boolean))].sort().map(v => ({ value: v, label: v })), [placements]);
+  const placementFilters = useMemo(() => [
+    { key: 'q', label: 'Search', type: 'search', placeholder: 'Candidate, company, role…', fields: ['candidate_first', 'candidate_last', 'company_name', 'job_title'] },
+    { key: 'job_title', label: 'Role', type: 'select', options: roleOptions, placeholder: 'All roles' },
+    { key: 'placement_type', label: 'Type', type: 'multiselect', options: [{ value: 'contract_c2c', label: 'Contract — C2C' }, { value: 'contract_w2', label: 'Contract — W2' }, { value: 'contract_1099', label: 'Contract — 1099' }, { value: 'permanent', label: 'Permanent' }] },
+    { key: 'currency', label: 'Currency', type: 'multiselect', options: currencyOptions },
+    { key: 'started', label: 'Started', type: 'dateRange', accessor: (p) => p.contract_start_date },
+  ], [roleOptions, currencyOptions]);
+  const ctl = useTableControls({ pageId: 'wizmatch-placements', spec: placementFilters, columns: undefined });
+  const filteredPlacements = ctl.applyClient(placements);
   const commercialSummary = summarizePlacementCommercials(filteredPlacements);
 
   if (loading) return <div className="p-6"><p className="text-neutral-500">Loading...</p></div>;
@@ -87,32 +108,36 @@ export default function WizmatchPlacementsPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Command bar */}
-      <div className="bg-white border-b border-neutral-200 px-6 py-3.5 flex items-center gap-3">
-        <select aria-label="Filter by role" value={roleFilter} onChange={e => setRoleFilter(e.target.value)} className="input w-auto min-w-[170px]">
-          <option value="">All roles</option>
-          {roles.map(r => <option key={r} value={r}>{r}</option>)}
-        </select>
-        <span className="text-[12.5px] font-semibold text-primary-700 bg-primary-500/10 border border-primary-500/20 px-2.5 py-0.5 rounded-full">
-          {filteredPlacements.length} placements · {commercialSummary}
-        </span>
-        <button type="button" disabled className="h-8 px-3 text-[12.5px] font-medium text-neutral-700 bg-white border border-neutral-300 rounded-sm disabled:opacity-100 disabled:cursor-not-allowed">
-          All recruiters
-        </button>
-        <button type="button" disabled className="h-8 px-3 text-[12.5px] font-medium text-neutral-700 bg-white border border-neutral-300 rounded-sm disabled:opacity-100 disabled:cursor-not-allowed">
-          All primes
-        </button>
-        <div className="flex-1" />
-        <button className="btn-standard">
-          <Download className="w-3.5 h-3.5" /> Export
-        </button>
-        {/* Legacy creation path — see AddPlacementModal below. Product rules say the only
-            legitimate placement-creation path is an accepted offer on the Submissions &
-            Delivery board (POST .../submissions/:id/placement). This button predates that
-            rule and still posts directly to /api/wizmatch/placements. Left in place per
-            instruction not to silently remove a working entry point; flagged in the PR report. */}
-        <button onClick={() => setShowAddModal(true)} className="btn-primary">
-          + Add Placement
-        </button>
+      <div className="bg-white border-b border-neutral-200 px-6 py-3.5 space-y-3">
+        <div className="flex items-center gap-3">
+          <span className="text-[12.5px] font-semibold text-primary-700 bg-primary-500/10 border border-primary-500/20 px-2.5 py-0.5 rounded-full">
+            {filteredPlacements.length} placements · {commercialSummary}
+          </span>
+          <div className="flex-1" />
+          <button onClick={() => exportRowsToCsv(filteredPlacements, PLACEMENT_EXPORT_COLUMNS, 'placements.csv')} className="btn-standard">
+            <Download className="w-3.5 h-3.5" /> Export
+          </button>
+          {/* Legacy creation path — see AddPlacementModal below. Product rules say the only
+              legitimate placement-creation path is an accepted offer on the Submissions &
+              Delivery board (POST .../submissions/:id/placement). This button predates that
+              rule and still posts directly to /api/wizmatch/placements. Left in place per
+              instruction not to silently remove a working entry point; flagged in the PR report. */}
+          <button onClick={() => setShowAddModal(true)} className="btn-primary">
+            + Add Placement
+          </button>
+        </div>
+        <FilterBar
+          spec={placementFilters}
+          filters={ctl.filters}
+          setFilter={ctl.setFilter}
+          activeChips={ctl.activeChips}
+          clearFilter={ctl.clearFilter}
+          clearAll={ctl.clearAll}
+          presets={ctl.presets}
+          savePreset={ctl.savePreset}
+          applyPreset={ctl.applyPreset}
+          deletePreset={ctl.deletePreset}
+        />
       </div>
 
       {placements.length === 0 ? (

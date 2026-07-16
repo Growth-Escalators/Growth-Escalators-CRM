@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  AlertTriangle, BarChart3, CheckCircle2, Clock, Filter, IndianRupee,
+  AlertTriangle, BarChart3, CheckCircle2, Clock, IndianRupee,
   Info, RefreshCw, ShieldCheck, TrendingUp, Users, XCircle,
 } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
 import EmptyState from '../components/wizmatch/EmptyState.jsx';
 import ErrorRetry from '../components/wizmatch/ErrorRetry.jsx';
+import FilterBar from '../components/wizmatch/filters/FilterBar.jsx';
+import { useTableControls } from '../components/wizmatch/filters/useTableControls.js';
+import { exportRowsToCsv } from '../components/wizmatch/filters/exportCsv.js';
 
 const STATUS_BADGE = {
   healthy: 'badge-success',
@@ -297,14 +300,22 @@ function ModuleScorecard({ item }) {
   );
 }
 
-const DEFAULT_FILTERS = { from: '', to: '', company: '', skill: '', status: '', assignedUserId: '' };
-
 function defaultFrom() {
   return new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
 }
 function defaultTo() {
   return new Date().toISOString().slice(0, 10);
 }
+
+// Module-level for stable identity (the hook keys memoization off `defaults`).
+const REPORTS_DEFAULTS = { period: { from: defaultFrom(), to: defaultTo() } };
+const REPORTS_STATUS_OPTIONS = REQUIREMENT_STATUS_OPTIONS.map((v) => ({ value: v, label: v.replace(/_/g, ' ') }));
+const REPORTS_EXPORT_COLUMNS = [
+  { key: 'title', label: 'Requirement' },
+  { key: 'company_name', label: 'Company' },
+  { key: 'status', label: 'Status' },
+  { key: 'required_skills', label: 'Skills', exportValue: (r) => (r.required_skills || []).join('; ') },
+];
 
 export default function WizmatchAnalyticsPage({ demoMode = false }) {
   const [analytics, setAnalytics] = useState(demoMode ? DEMO_ANALYTICS : null);
@@ -315,9 +326,32 @@ export default function WizmatchAnalyticsPage({ demoMode = false }) {
   const [recruiters, setRecruiters] = useState(demoMode ? DEMO_USERS.items : []);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(!demoMode);
-  const [filters, setFilters] = useState({ ...DEFAULT_FILTERS, from: defaultFrom(), to: defaultTo() });
-  const [sourceFilter, setSourceFilter] = useState('');
-  const setFilter = (k, v) => setFilters((f) => ({ ...f, [k]: v }));
+
+  // Filter state lives in the URL (shareable + presettable) via the shared hook.
+  // `source` stays a client-only filter; the rest drive the server fetches below.
+  const sourceOptionsForSpec = useMemo(() => {
+    const set = new Set();
+    (roi?.sourceBreakdown || []).forEach((src) => src.source && set.add(src.source));
+    (analytics?.sources || []).forEach((src) => src.source && set.add(src.source));
+    (delivery?.sourcePerformance || []).forEach((src) => src.source && set.add(src.source));
+    return [...set].sort().map((v) => ({ value: v, label: v }));
+  }, [roi, analytics, delivery]);
+  const reportsFilters = useMemo(() => [
+    { key: 'period', label: 'Period', type: 'dateRange' },
+    { key: 'company', label: 'Company', type: 'search', placeholder: 'Company…' },
+    { key: 'skill', label: 'Skill', type: 'search', placeholder: 'Skill…' },
+    { key: 'status', label: 'Req status', type: 'multiselect', options: REPORTS_STATUS_OPTIONS },
+    { key: 'recruiter', label: 'Recruiter', type: 'select', options: recruiters.map((u) => ({ value: u.id, label: u.name })), placeholder: 'Any recruiter' },
+    { key: 'source', label: 'Source', type: 'select', options: sourceOptionsForSpec, placeholder: 'Any source' },
+  ], [recruiters, sourceOptionsForSpec]);
+  const ctl = useTableControls({ pageId: 'wizmatch-reports', spec: reportsFilters, columns: undefined, defaults: REPORTS_DEFAULTS });
+  const fromParam = ctl.filters.period?.from || '';
+  const toParam = ctl.filters.period?.to || '';
+  const companyParam = ctl.filters.company || '';
+  const skillParam = ctl.filters.skill || '';
+  const statusParam = (ctl.filters.status || []).join(',');
+  const recruiterParam = ctl.filters.recruiter || '';
+  const sourceParam = ctl.filters.source || '';
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -334,14 +368,14 @@ export default function WizmatchAnalyticsPage({ demoMode = false }) {
     }
 
     const period = new URLSearchParams();
-    if (filters.from) period.set('from', filters.from);
-    if (filters.to) period.set('to', filters.to);
+    if (fromParam) period.set('from', fromParam);
+    if (toParam) period.set('to', toParam);
 
     const reqParams = new URLSearchParams({ limit: '10' });
-    if (filters.company) reqParams.set('company', filters.company);
-    if (filters.skill) reqParams.set('skill', filters.skill);
-    if (filters.status) reqParams.set('status', filters.status);
-    if (filters.assignedUserId) reqParams.set('assigned_user_id', filters.assignedUserId);
+    if (companyParam) reqParams.set('company', companyParam);
+    if (skillParam) reqParams.set('skill', skillParam);
+    if (statusParam) reqParams.set('status', statusParam);
+    if (recruiterParam) reqParams.set('assigned_user_id', recruiterParam);
 
     const [analyticsR, digestR, roiR, deliveryR, requirementsR, usersR] = await Promise.allSettled([
       apiFetch(`/api/wizmatch/analytics?${period}`),
@@ -374,7 +408,7 @@ export default function WizmatchAnalyticsPage({ demoMode = false }) {
 
     setErrors(nextErrors);
     setLoading(false);
-  }, [demoMode, filters.from, filters.to, filters.company, filters.skill, filters.status, filters.assignedUserId]);
+  }, [demoMode, fromParam, toParam, companyParam, skillParam, statusParam, recruiterParam]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -400,25 +434,16 @@ export default function WizmatchAnalyticsPage({ demoMode = false }) {
   const outstanding = invoiced != null && collected != null ? Math.max(0, invoiced - collected) : null;
   const collectionRate = invoiced != null && invoiced > 0 ? pct(collected, invoiced) : null;
 
-  const sourceOptions = useMemo(() => {
-    const set = new Set();
-    (roi?.sourceBreakdown || []).forEach((src) => src.source && set.add(src.source));
-    (analytics?.sources || []).forEach((src) => src.source && set.add(src.source));
-    (delivery?.sourcePerformance || []).forEach((src) => src.source && set.add(src.source));
-    return Array.from(set).sort();
-  }, [roi, analytics, delivery]);
-
   const signalSourceRows = useMemo(
-    () => (roi?.sourceBreakdown || analytics?.sources || []).filter((src) => !sourceFilter || src.source === sourceFilter),
-    [roi, analytics, sourceFilter],
+    () => (roi?.sourceBreakdown || analytics?.sources || []).filter((src) => !sourceParam || src.source === sourceParam),
+    [roi, analytics, sourceParam],
   );
   const staffingSourceRows = useMemo(
-    () => (delivery?.sourcePerformance || []).filter((src) => !sourceFilter || src.source === sourceFilter),
-    [delivery, sourceFilter],
+    () => (delivery?.sourcePerformance || []).filter((src) => !sourceParam || src.source === sourceParam),
+    [delivery, sourceParam],
   );
 
-  const filtersActive = filters.company || filters.skill || filters.status || filters.assignedUserId || sourceFilter
-    || filters.from !== defaultFrom() || filters.to !== defaultTo();
+  const filtersActive = ctl.activeChips.length > 0;
 
   if (loading) return <div className="p-6"><p className="text-neutral-500">Loading...</p></div>;
 
@@ -436,69 +461,25 @@ export default function WizmatchAnalyticsPage({ demoMode = false }) {
         </button>
       </div>
 
-      {/* Filters */}
+      {/* Filters — URL-shareable + presettable via the shared toolbar */}
       <div className="card p-4 mb-6">
-        <div className="flex items-center gap-2 mb-3">
-          <Filter className="w-4 h-4 text-primary-600" />
-          <h2 className="text-[13px] font-semibold text-neutral-800">Filters</h2>
-          {filtersActive && (
-            <button
-              onClick={() => { setFilters({ ...DEFAULT_FILTERS, from: defaultFrom(), to: defaultTo() }); setSourceFilter(''); }}
-              className="text-[12px] text-neutral-500 hover:text-neutral-600 ml-auto"
-            >
-              Clear filters
-            </button>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-2.5">
-          <label className="text-[11px] text-neutral-500 flex flex-col gap-1">
-            From
-            <input type="date" value={filters.from} onChange={(e) => setFilter('from', e.target.value)} className="input w-[150px]" />
-          </label>
-          <label className="text-[11px] text-neutral-500 flex flex-col gap-1">
-            To
-            <input type="date" value={filters.to} onChange={(e) => setFilter('to', e.target.value)} className="input w-[150px]" />
-          </label>
-          <label className="text-[11px] text-neutral-500 flex flex-col gap-1">
-            Company
-            <input placeholder="Company…" value={filters.company} onChange={(e) => setFilter('company', e.target.value)} className="input w-[150px]" />
-          </label>
-          <label className="text-[11px] text-neutral-500 flex flex-col gap-1">
-            Skill
-            <input placeholder="Skill…" value={filters.skill} onChange={(e) => setFilter('skill', e.target.value)} className="input w-[130px]" />
-          </label>
-          <label className="text-[11px] text-neutral-500 flex flex-col gap-1">
-            Status
-            <select value={filters.status} onChange={(e) => setFilter('status', e.target.value)} className="input w-auto">
-              <option value="">Any status</option>
-              {REQUIREMENT_STATUS_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt.replace(/_/g, ' ')}</option>)}
-            </select>
-          </label>
-          <label className="text-[11px] text-neutral-500 flex flex-col gap-1">
-            Recruiter
-            <select value={filters.assignedUserId} onChange={(e) => setFilter('assignedUserId', e.target.value)} className="input w-auto">
-              <option value="">Any recruiter</option>
-              {recruiters.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-            </select>
-          </label>
-          <label className="text-[11px] text-neutral-500 flex flex-col gap-1">
-            Source
-            <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} className="input w-auto">
-              <option value="">Any source</option>
-              {sourceOptions.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
-            </select>
-          </label>
-          <label className="text-[11px] text-neutral-500 flex flex-col gap-1" title="Filtering the whole funnel by a single requirement isn't wired to the backend yet — no funnel endpoint accepts a requirement_id parameter.">
-            Requirement
-            <select disabled className="input w-auto opacity-50 cursor-not-allowed">
-              <option>Not wired yet</option>
-            </select>
-          </label>
-        </div>
-        <p className="text-[11px] text-neutral-500 mt-3">
+        <FilterBar
+          spec={reportsFilters}
+          filters={ctl.filters}
+          setFilter={ctl.setFilter}
+          activeChips={ctl.activeChips}
+          clearFilter={ctl.clearFilter}
+          clearAll={ctl.clearAll}
+          onExport={() => exportRowsToCsv(requirementsSummary?.items || [], REPORTS_EXPORT_COLUMNS, 'requirements-report.csv')}
+          presets={ctl.presets}
+          savePreset={ctl.savePreset}
+          applyPreset={ctl.applyPreset}
+          deletePreset={ctl.deletePreset}
+        />
+        <p className="text-[11px] text-neutral-500 mt-1">
           From/To scope the <b>Job Lead</b> and <b>Requirement/Match-adjacent</b> discovery metrics (GET /api/wizmatch/analytics + /analytics/roi).
-          Company, Skill, Status and Recruiter scope the <b>Requirement</b> stage and table below (GET /api/wizmatch/requirements).
-          Source filters the signal/source breakdown tables. <b>Submission → Start, SLA/aging, time-to-start and revenue figures are all-time totals</b> — GET /api/wizmatch/staffing/analytics does not accept any query filters yet.
+          Company, Skill, Req status and Recruiter scope the <b>Requirement</b> stage and table below (GET /api/wizmatch/requirements).
+          Source filters the signal/source breakdown tables. <b>Submission → Start, SLA/aging, time-to-start and revenue figures are all-time totals</b> — GET /api/wizmatch/staffing/analytics does not accept any query filters yet. Filtering the whole funnel by a single requirement isn't wired to the backend yet.
         </p>
       </div>
 
@@ -758,7 +739,7 @@ export default function WizmatchAnalyticsPage({ demoMode = false }) {
                     </div>
                   </div>
                 ))}
-                {signalSourceRows.length === 0 && <p className="text-neutral-500 text-sm">{sourceFilter ? 'No signals for this source' : 'No signals yet'}</p>}
+                {signalSourceRows.length === 0 && <p className="text-neutral-500 text-sm">{sourceParam ? 'No signals for this source' : 'No signals yet'}</p>}
               </>
             )}
           </div>
@@ -778,7 +759,7 @@ export default function WizmatchAnalyticsPage({ demoMode = false }) {
                     </div>
                   </div>
                 ))}
-                {staffingSourceRows.length === 0 && <p className="text-neutral-500 text-sm">{sourceFilter ? 'No staffing outcomes for this source' : 'No candidate submissions yet'}</p>}
+                {staffingSourceRows.length === 0 && <p className="text-neutral-500 text-sm">{sourceParam ? 'No staffing outcomes for this source' : 'No candidate submissions yet'}</p>}
               </>
             )}
           </div>

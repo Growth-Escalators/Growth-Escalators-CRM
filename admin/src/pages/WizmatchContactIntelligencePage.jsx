@@ -1,6 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowRight, CheckCircle2, Clock, RefreshCw, ShieldCheck, Sparkles, Users } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
+import FilterBar from '../components/wizmatch/filters/FilterBar.jsx';
+import { useTableControls } from '../components/wizmatch/filters/useTableControls.js';
+import { exportRowsToCsv } from '../components/wizmatch/filters/exportCsv.js';
+
+const CI_EXPORT_COLUMNS = [
+  { key: 'companyName', label: 'Company' },
+  { key: 'companyDomain', label: 'Domain' },
+  { key: 'targetRegion', label: 'Region' },
+  { key: 'qualificationTier', label: 'Tier' },
+  { key: 'qualificationScore', label: 'Score' },
+  { key: 'companyStatus', label: 'Status' },
+  { key: 'discoveryRunStatus', label: 'Discovery' },
+  { key: 'contacts', label: 'Contacts', exportValue: (r) => r.contactCandidates?.length || 0 },
+  { key: 'reviewStatus', label: 'Review', exportValue: (r) => r.persisted?.reviewStatus || '' },
+];
 
 const TIER_BADGE = {
   A: 'badge-success',
@@ -559,6 +574,23 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
     return { tierA, blocked, contacts };
   }, [items]);
 
+  // Faceted from loaded companies (status/discovery/review enums vary); filters
+  // the company list on the left client-side. Selection is untouched by filtering.
+  const ciStatusOptions = useMemo(() => [...new Set(items.map(i => i.companyStatus).filter(Boolean))].sort().map(v => ({ value: v, label: v.replace(/_/g, ' ') })), [items]);
+  const ciDiscoveryOptions = useMemo(() => [...new Set(items.map(i => i.discoveryRunStatus).filter(Boolean))].sort().map(v => ({ value: v, label: v.replace(/_/g, ' ') })), [items]);
+  const ciReviewOptions = useMemo(() => [...new Set(items.map(i => i.persisted?.reviewStatus).filter(Boolean))].sort().map(v => ({ value: v, label: v.replace(/_/g, ' ') })), [items]);
+  const ciFilters = useMemo(() => [
+    { key: 'q', label: 'Search', type: 'search', placeholder: 'Company or domain…', fields: ['companyName', 'companyDomain'] },
+    { key: 'qualificationTier', label: 'Tier', type: 'multiselect', options: ['A', 'B', 'C', 'Reject'].map(v => ({ value: v, label: `Tier ${v}` })) },
+    { key: 'companyStatus', label: 'Status', type: 'multiselect', options: ciStatusOptions },
+    { key: 'targetRegion', label: 'Region', type: 'select', options: [{ value: 'india', label: 'India' }, { value: 'us', label: 'US' }], placeholder: 'Any region' },
+    { key: 'discoveryRunStatus', label: 'Discovery', type: 'multiselect', options: ciDiscoveryOptions },
+    { key: 'reviewStatus', label: 'Review', type: 'multiselect', accessor: (r) => r.persisted?.reviewStatus, options: ciReviewOptions },
+    { key: 'has_contacts', label: 'Has contacts', type: 'toggle', predicate: (r) => (r.contactCandidates?.length || 0) > 0 },
+  ], [ciStatusOptions, ciDiscoveryOptions, ciReviewOptions]);
+  const ctl = useTableControls({ pageId: 'wizmatch-contact-intelligence', spec: ciFilters, columns: undefined });
+  const filteredItems = ctl.applyClient(items);
+
   return (
     <div className="p-6">
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -607,13 +639,29 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
         </div>
       )}
 
+      <FilterBar
+        spec={ciFilters}
+        filters={ctl.filters}
+        setFilter={ctl.setFilter}
+        activeChips={ctl.activeChips}
+        clearFilter={ctl.clearFilter}
+        clearAll={ctl.clearAll}
+        onExport={() => exportRowsToCsv(filteredItems, CI_EXPORT_COLUMNS, 'contact-intelligence.csv')}
+        presets={ctl.presets}
+        savePreset={ctl.savePreset}
+        applyPreset={ctl.applyPreset}
+        deletePreset={ctl.deletePreset}
+      />
+
       <div className="grid grid-cols-1 xl:grid-cols-[420px_1fr] gap-5">
         <div className="space-y-3">
           {loading ? (
             <div className="card p-8 text-center text-neutral-400">Loading Contact Intelligence...</div>
           ) : items.length === 0 ? (
             <div className="card p-8 text-center text-neutral-400">No companies with job signals found yet.</div>
-          ) : items.map((item) => (
+          ) : filteredItems.length === 0 ? (
+            <div className="card p-8 text-center text-neutral-400">No companies match these filters.</div>
+          ) : filteredItems.map((item) => (
             <CompanyPanel
               key={item.companyId}
               item={item}
