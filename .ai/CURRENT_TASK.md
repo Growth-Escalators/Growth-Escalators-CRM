@@ -2,6 +2,37 @@
 
 ## Active task
 
+**SHIPPED 2026-07-16 (`origin/main` = `d7906e0`, Railway deploy `88cd21cf` SUCCESS): comprehensive,
+consistent filtering on every Wizmatch page.** A new shared filter/table system
+(`admin/src/components/wizmatch/filters/`: `useTableControls` + `FilterBar` + `filterPipeline` +
+`exportCsv`, plus a sortable/column-hideable `ui/DataTable`) is wired into all 10 pages: Job
+Leads/Signals, Candidates, Requirements, Companies, Hiring Contacts (both tabs), Talent Matching,
+Submissions/Delivery, Placements, Contact Intelligence, Reports. Every page gets type-aware filters
+(search / multi-select / numeric+date ranges / toggles), active-filter chips + Clear all, **shareable
+URL views** (filters/sort/columns/page in the query string), **saved presets** (localStorage per
+`pageId`), **CSV export of the filtered set**, and — on the table pages — sortable headers + column
+show/hide. Server-paginated pages (Signals/Candidates/Requirements) filter AND **sort globally**
+server-side via a safe allowlisted ORDER BY (`wizmatchOrderBy`; the user key/dir only look up a
+hard-coded column map + normalised direction + `created_at` tiebreaker), and their CSV re-fetches the
+full filtered set at the backend max (200). Client pages (Companies 500-cap, Delivery, Placements,
+Contact Intelligence, Hiring Contacts fan-out) filter/sort in-browser over the loaded set. Backend
+changes are **read-only query params + ORDER BY only** — no schema/migration, no env var, no
+auth/RBAC/Cashfree/SOD-EOD, no pilot-flag change; one CI LATERAL join added to `listCompanies`.
+**Verified:** tsc clean, 446 Vitest (53 files, incl. new `wizmatchRequirementsFilters.test.ts`
+asserting the ORDER BY allowlist + injection-safe fallback), admin build clean, 97 Playwright (0
+failed) — the loop caught + fixed 8 regressions (FilterBar contrast a11y across 6 pages, Reports
+Status control, Companies URL shape, chip/checkbox/transition edge cases). **Live-verified** on prod:
+deploy SUCCESS, no boot errors from the change, zero 5xx since deploy, `api/health` 200, CRM SPA 200,
+wizmatch filter routes 401 (intact) with the new `sort=`/multi-value params. **Known follow-ups (not
+blockers):** the staffing-analytics *date* filter on Reports is still deferred (needs
+`wizmatchDeliveryDomain.analytics()` rework — it accepts no query filters); Reports `Status` is
+single-select (kept a funnel spec meaningful); Placements recruiter/prime filters need backend fields;
+client pages past their cap (Companies 500, etc.) need server pagination later. Also still open from
+before: the broken cold-outreach send loop; strict India-only tightening; the deferred region-column
+migration.
+
+## Prior task — India-only sourcing (SHIPPED `ade021a`)
+
 **SHIPPED 2026-07-16 (`origin/main` = `ade021a`, Railway deploy `b508ecc1` SUCCESS): India-only
 sourcing.** Behind a `WIZMATCH_INDIA_ONLY` flag (default on, no infra change): the ATS poller drops
 confident-US postings at ingest (keeps India + remote/blank — neutralizes US even if a US company

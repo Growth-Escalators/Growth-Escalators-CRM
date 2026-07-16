@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-14T09:45:56.682Z_
+_Generated: 2026-07-16T08:59:23.491Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -11,35 +11,56 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 ## Repository
 
 - **Repo**: Growth-Escalators/Growth-Escalators-CRM
-- **Branch**: `codex/wizmatch-phase0-trust`
-- **Last commit**: 05a5c5a docs(wizmatch): hand off provider activation release (9 minutes ago)
-- **Uncommitted changes**: 4 file(s)
+- **Branch**: `feat/wizmatch-filters`
+- **Last commit**: d7906e0 feat(wizmatch): global server-side sort + full-filtered CSV on the server pages (24 minutes ago)
+- **Uncommitted changes**: 2 file(s)
 
 ## Current task
 
-**Wizmatch results-first sourcing — provider release is live for the Jatin/Kanishk production
-pilot. Review genuine signals and configure approved ATS boards; enable X-Ray only after the first
-genuine accepted, skill-reviewed requirement exists.**
-
-Work only in `/Users/jatinagrawal/repo-comparison/v2-wizmatch-phase0-trust` on
-`codex/wizmatch-phase0-trust`. Preserve the unrelated dirty workspace at
-`/Users/jatinagrawal/repo-comparison/v2`.
+**SHIPPED 2026-07-16 (`origin/main` = `d7906e0`, Railway deploy `88cd21cf` SUCCESS): comprehensive,
+consistent filtering on every Wizmatch page.** A new shared filter/table system
+(`admin/src/components/wizmatch/filters/`: `useTableControls` + `FilterBar` + `filterPipeline` +
+`exportCsv`, plus a sortable/column-hideable `ui/DataTable`) is wired into all 10 pages: Job
+Leads/Signals, Candidates, Requirements, Companies, Hiring Contacts (both tabs), Talent Matching,
+Submissions/Delivery, Placements, Contact Intelligence, Reports. Every page gets type-aware filters
+(search / multi-select / numeric+date ranges / toggles), active-filter chips + Clear all, **shareable
+URL views** (filters/sort/columns/page in the query string), **saved presets** (localStorage per
+`pageId`), **CSV export of the filtered set**, and — on the table pages — sortable headers + column
+show/hide. Server-paginated pages (Signals/Candidates/Requirements) filter AND **sort globally**
+server-side via a safe allowlisted ORDER BY (`wizmatchOrderBy`; the user key/dir only look up a
+hard-coded column map + normalised direction + `created_at` tiebreaker), and their CSV re-fetches the
+full filtered set at the backend max (200). Client pages (Companies 500-cap, Delivery, Placements,
+Contact Intelligence, Hiring Contacts fan-out) filter/sort in-browser over the loaded set. Backend
+changes are **read-only query params + ORDER BY only** — no schema/migration, no env var, no
+auth/RBAC/Cashfree/SOD-EOD, no pilot-flag change; one CI LATERAL join added to `listCompanies`.
+**Verified:** tsc clean, 446 Vitest (53 files, incl. new `wizmatchRequirementsFilters.test.ts`
+asserting the ORDER BY allowlist + injection-safe fallback), admin build clean, 97 Playwright (0
+failed) — the loop caught + fixed 8 regressions (FilterBar contrast a11y across 6 pages, Reports
+Status control, Companies URL shape, chip/checkbox/transition edge cases). **Live-verified** on prod:
+deploy SUCCESS, no boot errors from the change, zero 5xx since deploy, `api/health` 200, CRM SPA 200,
+wizmatch filter routes 401 (intact) with the new `sort=`/multi-value params. **Known follow-ups (not
+blockers):** the staffing-analytics *date* filter on Reports is still deferred (needs
+`wizmatchDeliveryDomain.analytics()` rework — it accepts no query filters); Reports `Status` is
+single-select (kept a funnel spec meaningful); Placements recruiter/prime filters need backend fields;
+client pages past their cap (Companies 500, etc.) need server pagination later. Also still open from
+before: the broken cold-outreach send loop; strict India-only tightening; the deferred region-column
+migration.
 
 > Full detail in [`.ai/CURRENT_TASK.md`](CURRENT_TASK.md) · state in [`.ai/CURRENT_STATE.md`](CURRENT_STATE.md)
 
 ## Recent commits
 
 ```
-05a5c5a docs(wizmatch): hand off provider activation release
-142eb51 fix(wizmatch): harden provider quota and retries
-c293b88 feat(wizmatch): integrate provider sourcing adapters
-22581fb docs(wizmatch): record sourcing phase-one release
-1112e47 feat(wizmatch): add results-first sourcing workflow
-38efd3c docs(wizmatch): record controlled production launch
-187c741 fix(wizmatch): block quota sourcing when providers are off
-9bbb570 fix(wizmatch): use runtime staffing phase access
-e38bdb9 fix(wizmatch): require dedicated private document bucket
-20e68da docs(wizmatch): hand off production launch gate
+d7906e0 feat(wizmatch): global server-side sort + full-filtered CSV on the server pages
+cbfdde7 test+fix(wizmatch): green the filter rollout (a11y, spec locators, backend test)
+53db7d7 feat(wizmatch): wire Placements, Contact Intelligence, Reports to shared filters
+eb456b5 feat(wizmatch): wire Hiring Contacts, Talent Matching, Delivery to shared filters
+bcf6eca feat(wizmatch): wire Requirements + Companies to the shared filter system
+0ecdf81 feat(wizmatch): wire Job Leads/Signals to the shared filter system
+45ef73e feat(wizmatch): shared filter/table system + backend params + Candidates reference
+a05582f docs(ai): record shipped India-only sourcing + live verification + known limitation
+ade021a feat(wizmatch): India-only sourcing — gate US at the source + India-default UI
+4a205b8 docs(ai): record shipped matching-reachability + draft-cascade delete + live walkthrough
 ```
 
 ## npm scripts

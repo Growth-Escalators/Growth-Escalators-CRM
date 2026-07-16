@@ -6,6 +6,50 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-16 — Comprehensive filters on every Wizmatch page (shared filter system) — Claude — LIVE PRODUCTION
+
+**What went live** (`a05582f..d7906e0` fast-forward onto `main`, 7 commits; Railway deploy `88cd21cf` SUCCESS)
+- New shared filter/table system in `admin/src/components/wizmatch/filters/`: `useTableControls`
+  (URL-synced filters/sort/hidden-columns/page + localStorage presets keyed by `pageId`), `FilterBar`
+  (declarative toolbar), `filterPipeline` (pure client filter+sort), `exportCsv`; plus `ui/DataTable`
+  extended with sortable headers + column visibility. Wired into all 10 Wizmatch pages.
+- Per page: type-aware filters (search / select / multiselect / numberRange / dateRange / toggle),
+  active-filter chips + Clear all, shareable URL views, saved presets, CSV export of the filtered set,
+  and column show/hide + sort on the table pages.
+- Server pages (Signals/Candidates/Requirements): backend gained read-only multi-value (`= ANY`),
+  range, search, tier-join and `has_matches` params, a global allowlisted ORDER BY (`wizmatchOrderBy`
+  — user key/dir only look up a hard-coded column map + normalised direction + `created_at`
+  tiebreaker; injection-safe), a requirements offset pager, and `experience_max`. CSV re-fetches the
+  full filtered set at the 200 cap. Client pages filter/sort in-browser (`listCompanies` gained a CI
+  LATERAL join + 500 cap; Hiring Contacts keys its active tab into the URL so the two tabs' filter
+  params can't collide).
+- No schema/migration, no env var, no auth/RBAC/Cashfree/SOD-EOD, no pilot-flag change. Guardrail
+  safety-gate: `git diff origin/main` on all six guardrail paths was empty.
+
+**Verification**
+- Local loop green: tsc clean; 446 Vitest (53 files, incl. new `wizmatchRequirementsFilters.test.ts`
+  — ORDER BY allowlist mapping + `'…DROP TABLE…'` injection-safe fallback + multi-value/range params);
+  admin build clean; 97 Playwright (0 failed, 15 skipped).
+- The loop caught 8 regressions, all fixed before push: FilterBar label color-contrast (axe, 6 pages);
+  Reports `Status` reverted to single-select to keep the funnel spec's `selectOption`; the Companies
+  parameterless URL vs a strict `companies?**` mock; a filter-chip making `getByLabel('Status')`
+  ambiguous; the Companies filter toggle-checkboxes vs a bare `getByRole('checkbox')`; and a mid-
+  `transition-colors` frame making the active Hiring-Contacts tab fail contrast (dropped the transition).
+- Post-deploy (read-only): deploy `88cd21cf` SUCCESS, prior deploy REMOVED; deploy logs show clean
+  boot (only pre-existing missing-optional-integration warnings); zero 5xx since deploy; `GET /health`
+  200; CRM SPA 200; `/api/wizmatch/candidates?sort=name:asc&visa_status=H1B` and
+  `/api/wizmatch/requirements?sort=budget:desc&status=draft,shared` both 401 (route intact, not 500).
+
+**Known follow-ups (not blockers)**
+- Staffing-analytics *date* filter on Reports still deferred (needs `wizmatchDeliveryDomain.analytics()`
+  rework — it accepts no query filters). Reports `Status` is single-select. Placements recruiter/prime
+  filters need backend fields. Client pages past their cap (Companies 500, etc.) need server pagination.
+- Two pre-existing e2e specs were updated to match the new (correct) UI, not behaviour changes:
+  `wizmatch-phase0-local` (parameterless companies URL + scoped the discovery confirm checkbox) and
+  `wizmatch-reports-funnel` (`getByLabel('Status', { exact: true })`).
+
+---
+
 ## 2026-07-15 — Entity-first UI/UX + complete-build push — Claude — LIVE PRODUCTION
 
 **What went live**
