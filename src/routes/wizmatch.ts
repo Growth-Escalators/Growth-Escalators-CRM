@@ -4010,17 +4010,52 @@ router.get('/signals', async (req: Request, res: Response) => {
   const params: unknown[] = [tenantId];
   let paramIdx = 2;
 
+  // Comma-separated multi-value support: "a,b" → = ANY(...). Single value works too.
+  const csv = (raw: unknown) => String(raw).split(',').map((s) => s.trim()).filter(Boolean);
+
+  if (req.query.q) {
+    conditions.push(`(s.job_title ILIKE $${paramIdx} OR c.name ILIKE $${paramIdx})`);
+    params.push(`%${String(req.query.q)}%`);
+    paramIdx++;
+  }
   if (req.query.status) {
-    conditions.push(`s.status = $${paramIdx++}`);
-    params.push(req.query.status);
+    conditions.push(`s.status = ANY($${paramIdx++}::text[])`);
+    params.push(csv(req.query.status));
+  }
+  if (req.query.source) {
+    conditions.push(`s.source = ANY($${paramIdx++}::text[])`);
+    params.push(csv(req.query.source));
+  }
+  if (req.query.employment_type) {
+    conditions.push(`s.employment_type = ANY($${paramIdx++}::text[])`);
+    params.push(csv(req.query.employment_type));
   }
   if (req.query.min_score) {
     conditions.push(`s.score >= $${paramIdx++}`);
     params.push(Number(req.query.min_score));
   }
-  if (req.query.source) {
-    conditions.push(`s.source = $${paramIdx++}`);
-    params.push(req.query.source);
+  if (req.query.score_max) {
+    conditions.push(`s.score <= $${paramIdx++}`);
+    params.push(Number(req.query.score_max));
+  }
+  if (req.query.days_open_min) {
+    conditions.push(`s.days_open >= $${paramIdx++}`);
+    params.push(Number(req.query.days_open_min));
+  }
+  if (req.query.days_open_max) {
+    conditions.push(`s.days_open <= $${paramIdx++}`);
+    params.push(Number(req.query.days_open_max));
+  }
+  if (req.query.has_contact === '1') {
+    conditions.push('s.contact_id IS NOT NULL');
+  }
+  if (req.query.posted_from) {
+    conditions.push(`s.posted_at >= $${paramIdx++}`);
+    params.push(req.query.posted_from);
+  }
+  if (req.query.posted_to) {
+    conditions.push(`s.posted_at <= $${paramIdx++}`);
+    params.push(req.query.posted_to);
   }
   if (req.query.company_id) {
     conditions.push(`s.company_id = $${paramIdx++}`);
@@ -4049,7 +4084,9 @@ router.get('/signals', async (req: Request, res: Response) => {
   const whereClause = conditions.join(' AND ');
 
   const countResult = await pool.query(
-    `SELECT COUNT(*)::int AS total FROM wizmatch_job_signals s WHERE ${whereClause}`,
+    `SELECT COUNT(*)::int AS total FROM wizmatch_job_signals s
+     LEFT JOIN wizmatch_companies c ON c.id = s.company_id AND c.tenant_id = s.tenant_id
+     WHERE ${whereClause}`,
     params,
   );
   const total = countResult.rows[0]?.total ?? 0;
@@ -4464,21 +4501,29 @@ router.get('/candidates', async (req: Request, res: Response) => {
   const params: unknown[] = [tenantId];
   let paramIdx = 2;
 
+  const csv = (raw: unknown) => String(raw).split(',').map((s) => s.trim()).filter(Boolean);
+
+  if (req.query.q) {
+    conditions.push(`(c.first_name ILIKE $${paramIdx} OR c.last_name ILIKE $${paramIdx})`);
+    params.push(`%${String(req.query.q)}%`);
+    paramIdx++;
+  }
   if (req.query.skill) {
-    conditions.push(`$${paramIdx++}::text = ANY(wc.skills)`);
-    params.push(req.query.skill);
+    // Multi-skill: candidate has ANY of the requested skills (array overlap).
+    conditions.push(`wc.skills && $${paramIdx++}::text[]`);
+    params.push(csv(req.query.skill));
   }
   if (req.query.visa_status) {
-    conditions.push(`wc.visa_status = $${paramIdx++}`);
-    params.push(req.query.visa_status);
+    conditions.push(`wc.visa_status = ANY($${paramIdx++}::text[])`);
+    params.push(csv(req.query.visa_status));
   }
   if (req.query.availability_status) {
-    conditions.push(`wc.availability_status = $${paramIdx++}`);
-    params.push(req.query.availability_status);
+    conditions.push(`wc.availability_status = ANY($${paramIdx++}::text[])`);
+    params.push(csv(req.query.availability_status));
   }
   if (req.query.source) {
-    conditions.push(`wc.source = $${paramIdx++}`);
-    params.push(req.query.source);
+    conditions.push(`wc.source = ANY($${paramIdx++}::text[])`);
+    params.push(csv(req.query.source));
   }
   if (req.query.location) {
     conditions.push(`wc.location ILIKE '%' || $${paramIdx++} || '%'`);
@@ -4488,6 +4533,22 @@ router.get('/candidates', async (req: Request, res: Response) => {
   if (req.query.min_experience && Number.isFinite(minExperience)) {
     conditions.push(`wc.experience_years >= $${paramIdx++}`);
     params.push(minExperience);
+  }
+  const maxExperience = Number(req.query.experience_max);
+  if (req.query.experience_max && Number.isFinite(maxExperience)) {
+    conditions.push(`wc.experience_years <= $${paramIdx++}`);
+    params.push(maxExperience);
+  }
+  if (req.query.rate_min) {
+    conditions.push(`wc.rate_hourly >= $${paramIdx++}`);
+    params.push(Number(req.query.rate_min));
+  }
+  if (req.query.rate_max) {
+    conditions.push(`wc.rate_hourly <= $${paramIdx++}`);
+    params.push(Number(req.query.rate_max));
+  }
+  if (req.query.certified === '1') {
+    conditions.push('wc.is_wizmatch_certified = true');
   }
 
   const whereClause = conditions.join(' AND ');
@@ -4502,7 +4563,9 @@ router.get('/candidates', async (req: Request, res: Response) => {
   );
 
   const countResult = await pool.query(
-    `SELECT COUNT(*)::int AS total FROM wizmatch_candidates wc WHERE ${whereClause}`,
+    `SELECT COUNT(*)::int AS total FROM wizmatch_candidates wc
+     JOIN contacts c ON c.id = wc.contact_id
+     WHERE ${whereClause}`,
     params,
   );
 
@@ -5609,16 +5672,27 @@ router.get('/requirements', async (req: Request, res: Response) => {
   const conditions: string[] = ['r.tenant_id = $1'];
   const params: unknown[] = [tenantId];
   let paramIdx = 2;
-  if (req.query.status) { conditions.push(`r.status = $${paramIdx++}`); params.push(req.query.status); }
-  if (req.query.stage) { conditions.push(`r.stage = $${paramIdx++}`); params.push(req.query.stage); }
-  if (req.query.attribution_status) { conditions.push(`r.attribution_status = $${paramIdx++}`); params.push(req.query.attribution_status); }
+  const csvReq = (raw: unknown) => String(raw).split(',').map((s) => s.trim()).filter(Boolean);
+  const multiReq = (col: string, key: string) => {
+    if (req.query[key]) { conditions.push(`${col} = ANY($${paramIdx++}::text[])`); params.push(csvReq(req.query[key])); }
+  };
+  if (req.query.q) { conditions.push(`r.title ILIKE $${paramIdx++}`); params.push(`%${req.query.q}%`); }
+  multiReq('r.status', 'status');
+  multiReq('r.stage', 'stage');
+  multiReq('r.attribution_status', 'attribution_status');
+  multiReq('r.work_mode', 'work_mode');
+  multiReq('r.employment_type', 'employment_type');
+  multiReq('r.priority', 'priority');
   if (req.query.region) { conditions.push(`r.region = $${paramIdx++}`); params.push(req.query.region); }
+  if (req.query.tier) { conditions.push(`ci.qualification_tier = ANY($${paramIdx++}::text[])`); params.push(csvReq(req.query.tier)); }
   if (req.query.company) { conditions.push(`comp.name ILIKE $${paramIdx++}`); params.push(`%${req.query.company}%`); }
   if (req.query.skill) { conditions.push(`$${paramIdx++} = ANY(r.required_skills)`); params.push(req.query.skill); }
   if (req.query.location) { conditions.push(`r.location ILIKE $${paramIdx++}`); params.push(`%${req.query.location}%`); }
-  if (req.query.work_mode) { conditions.push(`r.work_mode = $${paramIdx++}`); params.push(req.query.work_mode); }
-  if (req.query.employment_type) { conditions.push(`r.employment_type = $${paramIdx++}`); params.push(req.query.employment_type); }
-  if (req.query.priority) { conditions.push(`r.priority = $${paramIdx++}`); params.push(req.query.priority); }
+  if (req.query.budget_min) { conditions.push(`COALESCE(r.budget_max, r.budget_min) >= $${paramIdx++}`); params.push(Number(req.query.budget_min)); }
+  if (req.query.budget_max) { conditions.push(`COALESCE(r.budget_min, r.budget_max) <= $${paramIdx++}`); params.push(Number(req.query.budget_max)); }
+  if (req.query.has_matches === '1') { conditions.push('EXISTS (SELECT 1 FROM wizmatch_candidate_requirement_matches m WHERE m.tenant_id=r.tenant_id AND m.requirement_id=r.id)'); }
+  if (req.query.created_from) { conditions.push(`r.created_at >= $${paramIdx++}`); params.push(req.query.created_from); }
+  if (req.query.created_to) { conditions.push(`r.created_at <= $${paramIdx++}`); params.push(req.query.created_to); }
   if (req.query.source_contact) {
     conditions.push(`EXISTS (SELECT 1 FROM wizmatch_requirement_contacts src_rc JOIN wizmatch_company_contacts src_cc ON src_cc.id=src_rc.company_contact_id JOIN contacts src_c ON src_c.id=src_cc.contact_id WHERE src_rc.tenant_id=r.tenant_id AND src_rc.requirement_id=r.id AND src_rc.active AND concat_ws(' ',src_c.first_name,src_c.last_name) ILIKE $${paramIdx++})`);
     params.push(`%${req.query.source_contact}%`);
@@ -5676,6 +5750,7 @@ router.get('/requirements', async (req: Request, res: Response) => {
     `SELECT COUNT(*)::int AS total
      FROM wizmatch_requirements r
      LEFT JOIN wizmatch_companies comp ON comp.id = r.company_id AND comp.tenant_id = r.tenant_id
+     LEFT JOIN wizmatch_company_intelligence ci ON ci.company_id = r.company_id AND ci.tenant_id = r.tenant_id
      WHERE ${whereClause}`,
     params,
   );
