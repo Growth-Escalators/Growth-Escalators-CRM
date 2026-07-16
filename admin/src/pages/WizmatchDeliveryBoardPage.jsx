@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, RefreshCw, ShieldCheck } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
 import { useToast } from '../components/wizmatch/Toast.jsx';
@@ -11,10 +11,24 @@ import SubmissionDialog from '../components/wizmatch/SubmissionDialog.jsx';
 import InterviewDialog from '../components/wizmatch/InterviewDialog.jsx';
 import OfferDialog from '../components/wizmatch/OfferDialog.jsx';
 import WithdrawCancelDialog from '../components/wizmatch/WithdrawCancelDialog.jsx';
+import FilterBar from '../components/wizmatch/filters/FilterBar.jsx';
+import { useTableControls } from '../components/wizmatch/filters/useTableControls.js';
+import { exportRowsToCsv } from '../components/wizmatch/filters/exportCsv.js';
 
 const LABEL = { draft: 'Draft', approved: 'Approved', submitted: 'Submitted', interviewing: 'Interviewing', offered: 'Offered', placed: 'Placed', rejected: 'Rejected', withdrawn: 'Withdrawn' };
 const TERMINAL = ['placed', 'withdrawn', 'closed', 'rejected'];
 const TERMINAL_OFFER_STATUSES = ['accepted', 'declined', 'withdrawn'];
+
+const DELIVERY_EXPORT_COLUMNS = [
+  { key: 'candidate', label: 'Candidate', exportValue: (r) => [r.first_name, r.last_name].filter(Boolean).join(' ') },
+  { key: 'requirement_title', label: 'Requirement' },
+  { key: 'company_name', label: 'Company' },
+  { key: 'consent_status', label: 'Consent' },
+  { key: 'status', label: 'Status' },
+  { key: 'resend_count', label: 'Resends', exportValue: (r) => r.resend_count || 0 },
+  { key: 'interview_count', label: 'Interviews', exportValue: (r) => r.interview_count || 0 },
+  { key: 'offer_status', label: 'Offer status', exportValue: (r) => r.offer_status || '' },
+];
 
 function candidateName(item) {
   return [item.first_name, item.last_name].filter(Boolean).join(' ') || 'Unnamed candidate';
@@ -185,6 +199,21 @@ export default function WizmatchDeliveryBoardPage() {
     }
   }
 
+  // Faceted from the loaded rows so status/consent options always match real
+  // data (their enums vary by tenant/config). Filtering is client-side.
+  const statusOptions = useMemo(() => [...new Set(items.map((i) => i.status).filter(Boolean))].sort().map((v) => ({ value: v, label: LABEL[v] || String(v).replaceAll('_', ' ') })), [items]);
+  const consentOptions = useMemo(() => [...new Set(items.map((i) => i.consent_status).filter(Boolean))].sort().map((v) => ({ value: v, label: String(v).replaceAll('_', ' ') })), [items]);
+  const deliveryFilters = useMemo(() => [
+    { key: 'q', label: 'Search', type: 'search', placeholder: 'Candidate, requirement, company…', fields: ['first_name', 'last_name', 'requirement_title', 'company_name'] },
+    { key: 'requirement', label: 'Requirement', type: 'search', placeholder: 'Requirement…', fields: ['requirement_title'] },
+    { key: 'status', label: 'Status', type: 'multiselect', options: statusOptions },
+    { key: 'consent_status', label: 'Consent', type: 'multiselect', options: consentOptions },
+    { key: 'has_interview', label: 'Has interview', type: 'toggle', predicate: (r) => (r.interview_count || 0) > 0 },
+    { key: 'has_offer', label: 'Has offer', type: 'toggle', predicate: (r) => Boolean(r.latest_offer_id) },
+  ], [statusOptions, consentOptions]);
+  const ctl = useTableControls({ pageId: 'wizmatch-delivery', spec: deliveryFilters, columns: undefined });
+  const filtered = ctl.applyClient(items);
+
   const money = analytics?.commercial || {};
   const exceptions = analytics?.exceptions || {};
 
@@ -237,7 +266,21 @@ export default function WizmatchDeliveryBoardPage() {
       ) : items.length === 0 ? (
         <EmptyState title="No submission drafts yet" description="Drafts are created from a shortlisted candidate match against a requirement." />
       ) : (
-        <div className="card overflow-hidden">
+        <>
+          <FilterBar
+            spec={deliveryFilters}
+            filters={ctl.filters}
+            setFilter={ctl.setFilter}
+            activeChips={ctl.activeChips}
+            clearFilter={ctl.clearFilter}
+            clearAll={ctl.clearAll}
+            onExport={() => exportRowsToCsv(filtered, DELIVERY_EXPORT_COLUMNS, 'delivery.csv')}
+            presets={ctl.presets}
+            savePreset={ctl.savePreset}
+            applyPreset={ctl.applyPreset}
+            deletePreset={ctl.deletePreset}
+          />
+          <div className="card overflow-hidden">
           <table className="table-fluent">
             <thead>
               <tr>
@@ -251,7 +294,9 @@ export default function WizmatchDeliveryBoardPage() {
               </tr>
             </thead>
             <tbody>
-              {items.map((item) => {
+              {filtered.length === 0 ? (
+                <tr><td colSpan="7" className="px-4 py-8 text-center text-neutral-400">No submissions match these filters.</td></tr>
+              ) : filtered.map((item) => {
                 const consentGranted = item.consent_status === 'granted';
                 const isTerminal = TERMINAL.includes(item.status);
                 const isBusy = busy === item.id;
@@ -324,7 +369,8 @@ export default function WizmatchDeliveryBoardPage() {
               })}
             </tbody>
           </table>
-        </div>
+          </div>
+        </>
       )}
 
       <ConsentDialog
