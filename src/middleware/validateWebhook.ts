@@ -55,6 +55,55 @@ export function validateMetaWebhook(req: Request, res: Response, next: NextFunct
 }
 
 // ---------------------------------------------------------------------------
+// validateCashfreeWebhook
+// Verifies Cashfree's Payment Gateway v2023-08-01 webhook signature:
+//   signature = base64(HMAC-SHA256(timestamp + rawBody, secretKey))
+// sent as the `x-webhook-signature` header, paired with `x-webhook-timestamp`.
+// The webhook secret is the same client secret used for API auth
+// (CASHFREE_SECRET_KEY) — Cashfree does not issue a separate webhook secret.
+// Fails CLOSED: a missing secret means payments aren't functioning anyway
+// (create-order would also fail), so there is no legitimate traffic to lose
+// by rejecting unverifiable webhooks rather than accepting them.
+// ---------------------------------------------------------------------------
+export function validateCashfreeWebhook(req: Request, res: Response, next: NextFunction): void {
+  const secret = process.env.CASHFREE_SECRET_KEY;
+  if (!secret) {
+    console.error('[validateCashfreeWebhook] CASHFREE_SECRET_KEY not set — rejecting webhook');
+    res.status(503).json({ error: 'payment webhook verification not configured' });
+    return;
+  }
+
+  const signature = req.headers['x-webhook-signature'] as string | undefined;
+  const timestamp = req.headers['x-webhook-timestamp'] as string | undefined;
+  if (!signature || !timestamp) {
+    res.status(401).json({ error: 'missing webhook signature headers' });
+    return;
+  }
+
+  const rawBody = req.rawBody;
+  if (!rawBody) {
+    res.status(401).json({ error: 'raw body unavailable for signature verification' });
+    return;
+  }
+
+  const expected = createHmac('sha256', secret).update(timestamp + rawBody).digest('base64');
+
+  try {
+    const sigBuffer = Buffer.from(signature, 'base64');
+    const expBuffer = Buffer.from(expected, 'base64');
+    if (sigBuffer.length !== expBuffer.length || !timingSafeEqual(sigBuffer, expBuffer)) {
+      res.status(401).json({ error: 'invalid webhook signature' });
+      return;
+    }
+  } catch {
+    res.status(401).json({ error: 'signature verification failed' });
+    return;
+  }
+
+  next();
+}
+
+// ---------------------------------------------------------------------------
 // validateGenericWebhook
 // Placeholder — add per-source validation logic here as needed
 // ---------------------------------------------------------------------------
