@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
-import { RefreshCw, ShieldCheck, UserCheck } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { RefreshCw, ShieldCheck, UserCheck, ArrowRight } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
 
 export default function WizmatchTalentMatchingPage() {
+  const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
+  const [hideBlocked, setHideBlocked] = useState(false);
   const [consentFiles, setConsentFiles] = useState({});
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -36,12 +39,16 @@ export default function WizmatchTalentMatchingPage() {
     } catch (e) { setError(e.message || 'Consent/submission draft could not be recorded.'); }
     finally { setBusy(''); }
   }
+  const sorted = items.slice().sort((a, b) => (b.score || 0) - (a.score || 0));
+  const blockedCount = sorted.filter(i => (i.blockers || []).length > 0).length;
+  const visible = hideBlocked ? sorted.filter(i => (i.blockers || []).length === 0) : sorted;
+
   return <div className="p-6 space-y-5">
-    <div className="flex items-start justify-between"><div><h1 className="text-[20px] font-bold text-neutral-900">Talent Matching</h1><p className="text-[12.5px] text-neutral-500 mt-1">Explainable, requirement-specific matches. Decisions never submit or contact a candidate.</p></div><button className="btn-standard btn-compact" onClick={load}><RefreshCw className="w-3.5 h-3.5"/> Refresh</button></div>
+    <div className="flex items-start justify-between"><div><h1 className="text-[20px] font-bold text-neutral-900">Talent Matching</h1><p className="text-[12.5px] text-neutral-500 mt-1">Explainable, requirement-specific matches, ranked by score. Decisions never submit or contact a candidate.</p></div><div className="flex items-center gap-3">{blockedCount > 0 && <label className="text-[11.5px] text-neutral-600 flex items-center gap-1.5 cursor-pointer"><input type="checkbox" checked={hideBlocked} onChange={e => setHideBlocked(e.target.checked)}/> Hide blocked ({blockedCount})</label>}<button className="btn-standard btn-compact" onClick={load}><RefreshCw className="w-3.5 h-3.5"/> Refresh</button></div></div>
     <div className="rounded-md border border-info-200 bg-info-50 p-3 text-[12.5px] text-info-800 flex gap-2"><ShieldCheck className="w-4 h-4 shrink-0"/> SAP ABAP/FICO and Java/JavaScript stay separate unless a requirement explicitly allows a broad-family rule.</div>
     {error && <div role="alert" className="border border-danger-200 bg-danger-50 text-danger-700 rounded-md p-3">{error} <button className="underline font-semibold ml-2" onClick={load}>Retry</button></div>}
     {loading ? <div className="card p-8 text-center text-neutral-400">Loading recruiter decisions…</div> : <div className="grid lg:grid-cols-2 gap-3">
-      {!items.length ? <div className="card p-8 text-center text-neutral-400 lg:col-span-2">No candidate matches need your review.</div> : items.map(item => <article className="card p-4" key={item.id}>
+      {!sorted.length ? <div className="card p-8 text-center lg:col-span-2"><p className="text-neutral-500 font-medium">No candidate matches need your review yet.</p><p className="text-[12.5px] text-neutral-400 mt-1 mb-3">This queue fills from a requirement's "Recalculate matches". Open a requirement and recalculate to populate it.</p><button onClick={() => navigate('/wizmatch/requirements')} className="btn-primary btn-compact inline-flex items-center gap-1">Go to Requirements <ArrowRight className="w-3.5 h-3.5"/></button></div> : visible.map(item => <article className="card p-4" key={item.id}>
         <div className="flex justify-between gap-3"><div><div className="font-semibold text-neutral-900">{[item.first_name,item.last_name].filter(Boolean).join(' ')}</div><div className="text-[12px] text-neutral-500">{item.requirement_title}</div></div><div className="text-right"><div className="text-xl font-bold text-primary-700">{item.score}</div><div className="text-[10px] text-neutral-400">{item.score_version}</div></div></div>
         <div className="mt-3 flex flex-wrap gap-1">{(item.blockers || []).map(value => <span className="badge-danger" key={value}>{String(value).replaceAll('_',' ')}</span>)}{!(item.blockers || []).length && <span className="badge-success">No hard blockers</span>}</div>
         <div className="text-[11.5px] text-neutral-500 mt-2">Missing evidence: {(item.missing_evidence || []).join(', ') || 'none recorded'}</div>

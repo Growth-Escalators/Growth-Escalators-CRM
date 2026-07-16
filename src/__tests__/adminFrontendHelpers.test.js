@@ -58,17 +58,24 @@ describe('admin tenant and pipeline outcome helpers', () => {
   });
 
   it('never surfaces pending-merge Wizmatch pages in nav, regardless of phase state', () => {
-    // My Work, Talent Matching, etc. stay routed + alias-protected but are
-    // deliberately absent from Sidebar/CommandPalette until their Phase 2/3
-    // entity merge lands — see wizmatchRouteRegistry.ts.
+    // My Work, etc. stay routed + alias-protected but are deliberately absent
+    // from Sidebar/CommandPalette until their Phase 2/3 entity merge lands —
+    // see wizmatchRouteRegistry.ts. (Talent Matching was promoted into nav so
+    // the actionable matcher is reachable — asserted separately below.)
     const permissions = { staffingPilotAccess: true };
     const allPhases = getVisibleEntries('admin', permissions, 'wizmatch', { A: true, B: true, C: true }).map(entry => entry.id);
     for (const pendingMergeId of [
       'my-work', 'review-workbench', 'client-discovery', 'requirement-priority',
-      'candidate-intelligence', 'talent-matching', 'source-candidates',
+      'candidate-intelligence', 'source-candidates',
     ]) {
       expect(allPhases).not.toContain(pendingMergeId);
     }
+  });
+
+  it('surfaces Talent Matching in nav once staffing Phase B is on', () => {
+    const permissions = { staffingPilotAccess: true, canStaffing: true, staffingPhaseB: true };
+    const allPhases = getVisibleEntries('admin', permissions, 'wizmatch', { A: true, B: true, C: true }).map(entry => entry.id);
+    expect(allPhases).toContain('talent-matching');
   });
 
   it('buckets the unified Wizmatch "More" nav into primary vs. labeled subsections', () => {

@@ -5621,11 +5621,17 @@ router.get('/requirements', async (req: Request, res: Response) => {
             source_person.contact_id AS primary_source_contact_id,
             source_person.source_name AS primary_source_name,
             source_person.source_email AS primary_source_email,
-            COALESCE(team.assignments, '[]'::jsonb) AS assignments
+            COALESCE(team.assignments, '[]'::jsonb) AS assignments,
+            COALESCE(match_rollup.match_count, 0) AS match_count
      FROM wizmatch_requirements r
      LEFT JOIN wizmatch_companies comp ON comp.id = r.company_id AND comp.tenant_id = r.tenant_id
      LEFT JOIN wizmatch_company_intelligence ci
        ON ci.company_id = r.company_id AND ci.tenant_id = r.tenant_id
+     LEFT JOIN LATERAL (
+       SELECT COUNT(*)::int AS match_count
+       FROM wizmatch_candidate_requirement_matches m
+       WHERE m.tenant_id = r.tenant_id AND m.requirement_id = r.id
+     ) match_rollup ON true
      LEFT JOIN LATERAL (
        SELECT cc.id AS company_contact_id,c.id AS contact_id,concat_ws(' ',c.first_name,c.last_name) AS source_name,
               (SELECT channel_value FROM contact_channels ch WHERE ch.tenant_id=r.tenant_id AND ch.contact_id=c.id AND ch.channel_type='email' ORDER BY ch.is_primary DESC,ch.created_at LIMIT 1) AS source_email
@@ -5829,12 +5835,17 @@ router.delete('/requirements/:id', async (req: Request, res: Response) => {
       });
       return;
     }
-    const [matches, submissions] = await Promise.all([
-      client.query(`SELECT COUNT(*)::int AS n FROM wizmatch_candidate_requirement_matches WHERE tenant_id=$1 AND requirement_id=$2`, [tenantId, requirementId]),
+    // A draft requirement's algorithm-computed matches are recomputable and carry
+    // no human intent until someone shortlists/watches/rejects them, so a draft
+    // with only *undecided* matches (and no submissions) is genuinely disposable —
+    // deleting it cascades those match rows. Any human-decided match, or any
+    // submission, still blocks: those represent real work that must not vanish.
+    const [decidedMatches, submissions] = await Promise.all([
+      client.query(`SELECT COUNT(*)::int AS n FROM wizmatch_candidate_requirement_matches WHERE tenant_id=$1 AND requirement_id=$2 AND human_decision IS NOT NULL AND human_decision <> 'unreviewed'`, [tenantId, requirementId]),
       client.query(`SELECT COUNT(*)::int AS n FROM wizmatch_submissions WHERE tenant_id=$1 AND requirement_id=$2`, [tenantId, requirementId]),
     ]);
     const dependencies: string[] = [];
-    if (matches.rows[0].n > 0) dependencies.push(`${matches.rows[0].n} candidate match(es)`);
+    if (decidedMatches.rows[0].n > 0) dependencies.push(`${decidedMatches.rows[0].n} reviewed candidate match(es)`);
     if (submissions.rows[0].n > 0) dependencies.push(`${submissions.rows[0].n} submission(s)`);
     if (dependencies.length) {
       await client.query('ROLLBACK');
@@ -5857,6 +5868,10 @@ router.delete('/requirements/:id', async (req: Request, res: Response) => {
     await client.query(`DELETE FROM wizmatch_requirement_contacts WHERE tenant_id=$1 AND requirement_id=$2`, [tenantId, requirementId]);
     await client.query(`DELETE FROM wizmatch_requirement_assignments WHERE tenant_id=$1 AND requirement_id=$2`, [tenantId, requirementId]);
     await client.query(`DELETE FROM wizmatch_requirement_skills WHERE tenant_id=$1 AND requirement_id=$2`, [tenantId, requirementId]);
+    // Cascade the recomputable, undecided match rows for this draft. Snapshots
+    // FK to the match rows, so they must go first; both FK to the requirement.
+    await client.query(`DELETE FROM wizmatch_match_snapshots WHERE tenant_id=$1 AND requirement_id=$2`, [tenantId, requirementId]);
+    await client.query(`DELETE FROM wizmatch_candidate_requirement_matches WHERE tenant_id=$1 AND requirement_id=$2`, [tenantId, requirementId]);
     await client.query(`DELETE FROM wizmatch_requirements WHERE id=$1 AND tenant_id=$2`, [requirementId, tenantId]);
     await client.query('COMMIT');
     res.json({ deleted: true, id: requirementId });

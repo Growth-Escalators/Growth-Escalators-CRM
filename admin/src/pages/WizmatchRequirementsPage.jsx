@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { FileText, Upload, Sparkles, X, Download, Users } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { FileText, Upload, Sparkles, X, Download, Users, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
+import MatchExplanation from '../components/wizmatch/MatchExplanation.jsx';
 
 const STATUS_BADGE = {
   draft: 'badge-muted',
@@ -47,7 +49,28 @@ export default function WizmatchRequirementsPage() {
   const [matchesFor, setMatchesFor] = useState(null);
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [actionError, setActionError] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
   const setFilter = (k, v) => setFilters((f) => ({ ...f, [k]: v }));
+
+  // Deep link: /wizmatch/requirements?id=<uuid> opens that requirement's drawer
+  // directly (used by Global Search, Today, and the signal→requirement CTA).
+  useEffect(() => {
+    const id = searchParams.get('id');
+    if (!id) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await apiFetch(`/api/wizmatch/requirements/${id}`);
+        if (!cancelled) setSelected(r);
+      } catch { /* invalid/removed id — leave the list as-is */ }
+    })();
+    return () => { cancelled = true; };
+  }, [searchParams]);
+
+  const closeDetail = () => {
+    setSelected(null);
+    if (searchParams.get('id')) setSearchParams({}, { replace: true });
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -181,9 +204,14 @@ export default function WizmatchRequirementsPage() {
                   )}
                 </td>
                 <td className="text-right" onClick={e => e.stopPropagation()}>
-                  <button onClick={() => setMatchesFor(r)} className="btn-standard btn-compact">
-                    <Users className="w-3.5 h-3.5" /> Find
-                  </button>
+                  <div className="flex items-center justify-end gap-2">
+                    {r.match_count > 0 && (
+                      <span className="badge-info text-[10px]" title="Recalculated candidate matches on file">{r.match_count} matched</span>
+                    )}
+                    <button onClick={() => setMatchesFor(r)} className="btn-standard btn-compact">
+                      <Users className="w-3.5 h-3.5" /> Find
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -201,8 +229,8 @@ export default function WizmatchRequirementsPage() {
       {selected && (
         <RequirementDetailDrawer
           requirement={selected}
-          onClose={() => setSelected(null)}
-          onSaved={() => { setSelected(null); load(); }}
+          onClose={closeDetail}
+          onSaved={() => { closeDetail(); load(); }}
           onFindCandidates={() => setMatchesFor(selected)}
         />
       )}
@@ -494,6 +522,110 @@ function toDetailFormState(r) {
 
 // Detail/edit drawer for an existing requirement — modeled on RequirementDrawer above,
 // but preloaded from the row and saved via PUT /requirements/:id (existing allowlisted route).
+// Actionable Gate-B matcher, wired into the requirement drawer. This is the only
+// place in the admin that calls POST /staffing/requirements/:id/matches/recalculate
+// (previously the matcher had no UI trigger) and renders the ranked, decidable
+// wizmatch_candidate_requirement_matches rows — distinct from the read-only
+// intelligence "Find candidates" modal.
+function GateBMatchesPanel({ requirement }) {
+  const [matches, setMatches] = useState(null); // null = not loaded yet
+  const [loading, setLoading] = useState(false);
+  const [recalculating, setRecalculating] = useState(false);
+  const [error, setError] = useState(null);
+  const [decidingId, setDecidingId] = useState(null);
+  const [hideBlocked, setHideBlocked] = useState(false);
+
+  const hasMandatorySkills = (requirement.required_skills?.length || 0) > 0;
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const data = await apiFetch(`/api/wizmatch/staffing/requirements/${requirement.id}/matches`);
+      setMatches(data.items || []);
+    } catch (e) { setError(e.message || 'Could not load matches.'); }
+    finally { setLoading(false); }
+  }, [requirement.id]);
+
+  const recalculate = async () => {
+    setRecalculating(true); setError(null);
+    try {
+      await apiFetch(`/api/wizmatch/staffing/requirements/${requirement.id}/matches/recalculate`, { method: 'POST' });
+      await load();
+    } catch (e) { setError(e.message || 'Recalculate failed.'); }
+    finally { setRecalculating(false); }
+  };
+
+  const decide = async (matchId, decision) => {
+    setDecidingId(matchId); setError(null);
+    try {
+      await apiFetch(`/api/wizmatch/staffing/matches/${matchId}/decision`, { method: 'POST', body: JSON.stringify({ decision }) });
+      await load();
+    } catch (e) { setError(e.message || 'Could not record the decision.'); }
+    finally { setDecidingId(null); }
+  };
+
+  const sorted = (matches || []).slice().sort((a, b) => (b.score || 0) - (a.score || 0));
+  const blockedCount = sorted.filter(m => (m.blockers || []).length > 0).length;
+  const visible = hideBlocked ? sorted.filter(m => (m.blockers || []).length === 0) : sorted;
+
+  return (
+    <section className="border border-neutral-200 rounded-lg p-4 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-[13px] font-bold text-neutral-900">Matched candidates</h3>
+        <div className="flex items-center gap-2">
+          {matches !== null && (
+            <button onClick={load} disabled={loading || recalculating} className="btn-standard btn-compact disabled:opacity-50">Refresh</button>
+          )}
+          <button onClick={recalculate} disabled={recalculating || loading} className="btn-primary btn-compact disabled:opacity-50">
+            <RefreshCw className={`w-3.5 h-3.5 ${recalculating ? 'animate-spin' : ''}`} /> {recalculating ? 'Recalculating…' : 'Recalculate matches'}
+          </button>
+        </div>
+      </div>
+
+      {!hasMandatorySkills && (
+        <p className="text-[12px] text-warning-700 bg-warning-500/10 border border-warning-500/30 rounded-md px-2.5 py-1.5">
+          Add must-have skills to this requirement first — the matcher scores 50% on mandatory-skill overlap, so with none it can't rank candidates meaningfully.
+        </p>
+      )}
+
+      {error && (
+        <div role="alert" className="text-[12.5px] text-danger-600 bg-danger-500/10 border border-danger-500/30 rounded-md px-2.5 py-1.5">{error}</div>
+      )}
+
+      {matches === null ? (
+        <p className="text-[12px] text-neutral-500">Click “Recalculate matches” to score every candidate against this requirement and rank them here.</p>
+      ) : loading ? (
+        <p className="text-[12px] text-neutral-500">Loading matches…</p>
+      ) : sorted.length === 0 ? (
+        <p className="text-[12px] text-neutral-500">No candidate matches yet{hasMandatorySkills ? '.' : ' — add must-have skills first.'}</p>
+      ) : (
+        <>
+          <div className="flex items-center justify-between">
+            <span className="text-[11.5px] text-neutral-500">{visible.length} of {sorted.length} shown · sorted by score</span>
+            {blockedCount > 0 && (
+              <label className="text-[11.5px] text-neutral-600 flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" checked={hideBlocked} onChange={e => setHideBlocked(e.target.checked)} /> Hide blocked ({blockedCount})
+              </label>
+            )}
+          </div>
+          <div className="space-y-2">
+            {visible.map(m => (
+              <MatchExplanation
+                key={m.id}
+                match={m}
+                busy={decidingId === m.id}
+                onShortlist={() => decide(m.id, 'shortlisted')}
+                onWatch={() => decide(m.id, 'watch')}
+                onReject={() => decide(m.id, 'rejected')}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 function RequirementDetailDrawer({ requirement, onClose, onSaved, onFindCandidates }) {
   const [form, setForm] = useState(() => toDetailFormState(requirement));
   const [saving, setSaving] = useState(false);
@@ -565,6 +697,7 @@ function RequirementDetailDrawer({ requirement, onClose, onSaved, onFindCandidat
 
         <div className="p-6 space-y-5">
           <RequirementOperations requirement={requirement} />
+          <GateBMatchesPanel requirement={requirement} />
           {feedback && (
             <div role={feedback.kind === 'error' ? 'alert' : 'status'} className="text-[12.5px] text-danger-600 bg-danger-500/10 border border-danger-500/30 rounded-md px-2.5 py-1.5">
               {feedback.message}

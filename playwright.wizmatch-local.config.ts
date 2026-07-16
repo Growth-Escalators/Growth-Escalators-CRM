@@ -19,6 +19,7 @@ export default defineConfig({
     'wizmatch-placements-detail.spec.ts',
     'wizmatch-reports-funnel.spec.ts',
     'wizmatch-delete-detail-local.spec.ts',
+    'wizmatch-matching-ux-local.spec.ts',
   ],
   fullyParallel: false,
   workers: 1,

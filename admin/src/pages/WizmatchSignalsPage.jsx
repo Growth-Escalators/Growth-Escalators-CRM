@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, X, Trash2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { RefreshCw, X, Trash2, ArrowRight } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
 
@@ -17,6 +18,7 @@ const STATUS_BADGE = {
 };
 
 export default function WizmatchSignalsPage() {
+  const navigate = useNavigate();
   const [signals, setSignals] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -26,6 +28,7 @@ export default function WizmatchSignalsPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [sourcing, setSourcing] = useState(null);
   const [feedback, setFeedback] = useState('');
+  const [promotedRequirementId, setPromotedRequirementId] = useState(null);
   const [actionBusy, setActionBusy] = useState('');
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -56,7 +59,7 @@ export default function WizmatchSignalsPage() {
   useEffect(() => { loadSourcing(); }, [loadSourcing]);
 
   async function runAction(label, path, body) {
-    setActionBusy(label); setFeedback('');
+    setActionBusy(label); setFeedback(''); setPromotedRequirementId(null);
     try {
       const result = await apiFetch(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined });
       setFeedback(`${label} completed.`); await loadSignals(); await loadSourcing();
@@ -118,7 +121,17 @@ export default function WizmatchSignalsPage() {
         <p className="text-[12.5px] text-neutral-500 mt-1">{total} total signals · auto-refreshes every 30s</p>
       </div>
 
-      {feedback && <div role="status" className="mb-4 rounded-md border border-info-200 bg-info-50 p-3 text-sm text-info-800">{feedback}</div>}
+      {feedback && (
+        <div role="status" className="mb-4 rounded-md border border-info-200 bg-info-50 p-3 text-sm text-info-800 flex items-center justify-between gap-3">
+          <span>{feedback}</span>
+          {promotedRequirementId && (
+            <button
+              onClick={() => navigate(`/wizmatch/requirements?id=${promotedRequirementId}`)}
+              className="btn-primary btn-compact shrink-0 inline-flex items-center gap-1"
+            >Open requirement <ArrowRight className="w-3.5 h-3.5" /></button>
+          )}
+        </div>
+      )}
       <div className="mb-4 grid gap-3 md:grid-cols-3">
         {['theirstack','ats','xray'].map(provider => {
           const cfg = sourcing?.config || {}; const latest = (sourcing?.latestRuns || []).find(run => run.provider===provider);
@@ -330,7 +343,7 @@ export default function WizmatchSignalsPage() {
                   <div className="flex flex-wrap gap-2">
                     <button disabled={actionBusy} onClick={()=>runAction('Qualify signal',`/api/wizmatch/signals/${selectedSignal.id}/qualify`)} className="btn-primary">Qualify + POC task</button>
                     <button disabled={actionBusy||!sourcing?.config?.pocDiscoveryEnabled} onClick={()=>runAction('Find POC',`/api/wizmatch/signals/${selectedSignal.id}/discover-poc`)} className="btn-standard">Find POC</button>
-                    <button disabled={actionBusy} onClick={()=>runAction('Create requirement draft',`/api/wizmatch/signals/${selectedSignal.id}/promote-to-requirement`)} className="btn-standard">Create requirement draft</button>
+                    <button disabled={actionBusy} onClick={async ()=>{ const r = await runAction('Create requirement draft',`/api/wizmatch/signals/${selectedSignal.id}/promote-to-requirement`); if (r?.requirement?.id) setPromotedRequirementId(r.requirement.id); }} className="btn-standard">Create requirement draft</button>
                     <button disabled={actionBusy} onClick={()=>runAction('Reject signal',`/api/wizmatch/signals/${selectedSignal.id}/reject`,{reason:'Not a workable staffing requirement'})} className="btn-standard text-danger-700">Reject</button>
                     <button
                       onClick={async () => {

@@ -61,7 +61,7 @@ describe('wizmatchRouteRegistry', () => {
   it('leaves pending-merge entries with no group, so they are excluded from nav generation', () => {
     const pendingMergeIds = [
       'my-work', 'review-workbench', 'client-discovery', 'requirement-priority',
-      'candidate-intelligence', 'talent-matching', 'source-candidates',
+      'candidate-intelligence', 'source-candidates',
     ];
     for (const id of pendingMergeIds) {
       const route = WIZMATCH_ROUTES.find((r) => r.id === id);
@@ -69,6 +69,13 @@ describe('wizmatchRouteRegistry', () => {
       expect(route.group).toBeUndefined();
       expect(route.searchVisible).toBe(false);
     }
+  });
+
+  it('surfaces Talent Matching in nav + search (the actionable matching workspace)', () => {
+    const route = WIZMATCH_ROUTES.find((r) => r.id === 'talent-matching');
+    expect(route).toBeDefined();
+    expect(route.group).toBe('more.crmUtilities');
+    expect(route.searchVisible).toBe(true);
   });
 
   describe('evaluateWizmatchPermission', () => {

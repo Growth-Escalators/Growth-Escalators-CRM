@@ -260,8 +260,8 @@ export const WIZMATCH_ROUTES: WizmatchRouteDefinition[] = [
   },
   {
     id: 'talent-matching', label: 'Talent Matching', path: '/wizmatch/talent-matching', icon: Target,
-    permission: ['canStaffing', 'staffingPhaseB'],
-    breadcrumb: { label: 'Talent Matching' }, legacyAliases: [], searchVisible: false,
+    group: 'more.crmUtilities', moreSection: 'CRM Utilities', permission: ['canStaffing', 'staffingPhaseB'],
+    breadcrumb: { label: 'Talent Matching' }, legacyAliases: [], searchVisible: true,
   },
   {
     id: 'source-candidates', label: 'Source Candidates', path: '/wizmatch/source-candidates', icon: Search,
