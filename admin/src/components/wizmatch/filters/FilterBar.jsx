@@ -81,7 +81,7 @@ export default function FilterBar({
   return (
     <div className="mb-4 space-y-2">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-neutral-400">
+        <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">
           <SlidersHorizontal className="w-3.5 h-3.5" /> Filters
         </span>
         {spec.map((def) => <FilterControl key={def.key} def={def} value={filters[def.key]} setFilter={setFilter} />)}

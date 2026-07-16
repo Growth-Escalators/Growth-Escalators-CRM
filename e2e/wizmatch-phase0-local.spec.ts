@@ -106,7 +106,7 @@ test('Company discovery previews before a confirmed mocked run and preserves rev
   let discoverBody: unknown = null;
 
   await page.route('**/api/wizmatch/staffing/access', (route) => fulfillJson(route, { allowed: true, phases: { A: true, B: false, C: false } }));
-  await page.route('**/api/wizmatch/staffing/companies?**', (route) => fulfillJson(route, {
+  await page.route('**/api/wizmatch/staffing/companies*', (route) => fulfillJson(route, {
     items: [{ id: 'company-1', name: 'Example Staffing Client', domain: 'example.test', contact_count: 0, open_requirement_count: 0 }],
   }));
   await page.route('**/api/wizmatch/staffing/companies/company-1', (route) => fulfillJson(route, {
@@ -157,7 +157,9 @@ test('Company discovery previews before a confirmed mocked run and preserves rev
   const runButton = page.getByRole('button', { name: 'Run discovery' });
   expect(discoverBody).toBeNull();
 
-  await page.getByRole('checkbox').check();
+  // Scope to the discovery confirm checkbox — the Companies list behind the drawer
+  // now carries filter toggle checkboxes (Prime only / Has open reqs / Has contacts).
+  await page.getByRole('checkbox', { name: /reviewed the cost/i }).check();
   await expect(runButton).toBeEnabled();
   await runButton.click();
   await expect(page.getByText(/No outreach was sent/)).toBeVisible();

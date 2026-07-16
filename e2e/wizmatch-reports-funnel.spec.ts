@@ -95,10 +95,10 @@ test.describe('Reports funnel', () => {
     await page.waitForLoadState('networkidle');
     await expect(page.getByText('10').first()).toBeVisible();
 
-    await page.getByLabel('Status').selectOption('draft');
+    await page.getByLabel('Status', { exact: true }).selectOption('draft');
     await expect(page.getByText('1').first()).toBeVisible();
 
-    await page.getByLabel('Status').selectOption('closed');
+    await page.getByLabel('Status', { exact: true }).selectOption('closed');
     await expect(page.getByText('7').first()).toBeVisible();
   });
 });

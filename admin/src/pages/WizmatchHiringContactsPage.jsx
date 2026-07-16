@@ -69,8 +69,8 @@ export default function WizmatchHiringContactsPage() {
             key={t.id}
             type="button"
             onClick={() => t.id !== activeTab && switchTab(t.id)}
-            className={`rounded-lg px-3 py-1.5 text-[12.5px] font-semibold transition-colors ${
-              activeTab === t.id ? 'bg-primary-600 text-white' : 'text-neutral-500 hover:bg-neutral-100'
+            className={`rounded-lg px-3 py-1.5 text-[12.5px] font-semibold ${
+              activeTab === t.id ? 'bg-primary-700 text-white' : 'text-neutral-500 hover:bg-neutral-100'
             }`}
           >
             {t.label}
