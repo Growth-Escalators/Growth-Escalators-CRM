@@ -100,9 +100,11 @@ router.post('/conversations/:contactId/send', async (req: Request, res: Response
   if (!message) { res.status(400).json({ error: 'message required' }); return; }
 
   try {
-    // Get contact's WhatsApp number
+    // Get contact's WhatsApp number — tenant-scoped so a caller can't send a
+    // real WhatsApp message to another tenant's contact from the shared
+    // business number.
     const [channel] = await db.select().from(contactChannels)
-      .where(and(eq(contactChannels.contactId, contactId), eq(contactChannels.channelType, 'whatsapp')))
+      .where(and(eq(contactChannels.contactId, contactId), eq(contactChannels.tenantId, tenantId), eq(contactChannels.channelType, 'whatsapp')))
       .limit(1);
     if (!channel) { res.status(400).json({ error: 'contact has no WhatsApp number' }); return; }
 
@@ -160,8 +162,9 @@ router.post('/conversations/:contactId/send-template', async (req: Request, res:
   if (!templateName) { res.status(400).json({ error: 'templateName required' }); return; }
 
   try {
+    // Tenant-scoped for the same reason as /send above — see comment there.
     const [channel] = await db.select().from(contactChannels)
-      .where(and(eq(contactChannels.contactId, contactId), eq(contactChannels.channelType, 'whatsapp')))
+      .where(and(eq(contactChannels.contactId, contactId), eq(contactChannels.tenantId, tenantId), eq(contactChannels.channelType, 'whatsapp')))
       .limit(1);
     if (!channel) { res.status(400).json({ error: 'contact has no WhatsApp number' }); return; }
 
