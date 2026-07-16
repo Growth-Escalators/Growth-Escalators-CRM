@@ -286,6 +286,53 @@ export function createWizmatchStaffingService(dbPool: TransactionPool = pool) {
       });
     },
 
+    // Permanent delete of a hiring-contact (POC) *relationship* only. The
+    // underlying CRM contact row, its channels and history are NEVER touched —
+    // this removes the person's link to this company plus their role rows.
+    // Blocked when the POC is still load-bearing: an active requirement
+    // attribution, or a real delivery record (submission recipient / interview
+    // participant) that must not be orphaned. Deactivate instead in that case.
+    async deleteCompanyContact(actor: Actor, companyId: string, companyContactId: string) {
+      return inTransaction(dbPool, async (client) => {
+        const existing = await client.query(
+          `SELECT cc.id, cc.contact_id, c.first_name, c.last_name
+           FROM wizmatch_company_contacts cc JOIN contacts c ON c.id=cc.contact_id AND c.tenant_id=cc.tenant_id
+           WHERE cc.id=$1 AND cc.company_id=$2 AND cc.tenant_id=$3`,
+          [companyContactId, companyId, actor.tenantId],
+        );
+        if (!existing.rowCount) throw new StaffingDomainError(404, 'not_found', 'Company contact relationship was not found');
+        const contactId = existing.rows[0].contact_id;
+
+        const [activeAttr, recipients, interviews] = await Promise.all([
+          client.query(`SELECT COUNT(*)::int AS n FROM wizmatch_requirement_contacts WHERE tenant_id=$1 AND company_contact_id=$2 AND active`, [actor.tenantId, companyContactId]),
+          client.query(`SELECT COUNT(*)::int AS n FROM wizmatch_submission_recipients WHERE tenant_id=$1 AND company_contact_id=$2`, [actor.tenantId, companyContactId]),
+          client.query(`SELECT COUNT(*)::int AS n FROM wizmatch_interview_participants WHERE tenant_id=$1 AND company_contact_id=$2`, [actor.tenantId, companyContactId]),
+        ]);
+        const dependencies: string[] = [];
+        if (activeAttr.rows[0].n > 0) dependencies.push(`${activeAttr.rows[0].n} active requirement attribution(s)`);
+        if (recipients.rows[0].n > 0) dependencies.push(`${recipients.rows[0].n} submission(s)`);
+        if (interviews.rows[0].n > 0) dependencies.push(`${interviews.rows[0].n} interview(s)`);
+        if (dependencies.length) {
+          throw new StaffingDomainError(409, 'has_dependencies', `Cannot delete — this hiring contact has ${dependencies.join(', ')}. Deactivate the relationship instead (the CRM contact record is always kept).`);
+        }
+
+        // Remove NOT NULL children (role rows + inactive historical attributions).
+        await client.query(`DELETE FROM wizmatch_company_contact_roles WHERE tenant_id=$1 AND company_contact_id=$2`, [actor.tenantId, companyContactId]);
+        await client.query(`DELETE FROM wizmatch_requirement_contacts WHERE tenant_id=$1 AND company_contact_id=$2`, [actor.tenantId, companyContactId]);
+        // Detach nullable FK history/operational rows BEFORE the delete.
+        await client.query(`UPDATE wizmatch_task_links SET company_contact_id = NULL WHERE tenant_id=$1 AND company_contact_id=$2`, [actor.tenantId, companyContactId]);
+        await client.query(`UPDATE wizmatch_staffing_events SET company_contact_id = NULL WHERE tenant_id=$1 AND company_contact_id=$2`, [actor.tenantId, companyContactId]);
+
+        const result = await client.query(`DELETE FROM wizmatch_company_contacts WHERE id=$1 AND company_id=$2 AND tenant_id=$3 RETURNING id`, [companyContactId, companyId, actor.tenantId]);
+        if (!result.rowCount) throw new StaffingDomainError(404, 'not_found', 'Company contact relationship was not found');
+        // Keep the CRM contact row itself; just bump its activity timestamp.
+        await client.query(`UPDATE contacts SET last_activity_at=now(),updated_at=now() WHERE id=$1 AND tenant_id=$2`, [contactId, actor.tenantId]);
+        const name = [existing.rows[0].first_name, existing.rows[0].last_name].filter(Boolean).join(' ');
+        await appendEvent(client, actor, 'company_contact.deleted', { companyId, contactId, companyContactId: null }, { deletedCompanyContactId: companyContactId, name });
+        return { deleted: true, id: companyContactId };
+      });
+    },
+
     // Permanent delete, empty companies only — no signals, requirements, or
     // linked hiring contacts. Anything with activity must stay (there is no
     // "archive company" concept; qualification/rejection lives on the

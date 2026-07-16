@@ -376,6 +376,7 @@ function CandidateDetailDrawer({ candidateId, onClose, onChanged }) {
   const fullName = [detail.first_name, detail.last_name].filter(Boolean).join(' ') || 'Unnamed candidate';
   const matches = staffing?.matches || [];
   const canonicalSkills = staffing?.skills || [];
+  const submissions = staffing?.submissions || [];
   const alreadyBenched = detail.availability_status === 'benched';
   const hasKnownDependencies = dependencyConfirmed || matches.length > 0;
 
@@ -469,7 +470,27 @@ function CandidateDetailDrawer({ candidateId, onClose, onChanged }) {
 
           <section className="border-t border-neutral-100 pt-4">
             <h3 className="text-[13px] font-bold text-neutral-900 mb-2">Submission history</h3>
-            <p className="text-[12px] text-neutral-500">Not exposed by the candidate API yet — check the requirement's delivery board for submissions tied to this candidate.</p>
+            {staffingUnavailable ? (
+              <p className="text-[12px] text-neutral-500">Submission history isn't available in this environment (Wizmatch staffing Gate B is off).</p>
+            ) : submissions.length === 0 ? (
+              <p className="text-[12px] text-neutral-500">This candidate has not been submitted to any requirement yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {submissions.map(sub => (
+                  <div key={sub.id} className="rounded-lg border border-neutral-200 p-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-neutral-900 text-[13px] truncate">{sub.requirement_title}</p>
+                      <p className="text-[11.5px] text-neutral-500 mt-0.5">
+                        {sub.company_name || 'Unknown company'}
+                        {sub.first_sent_at ? ` · sent ${new Date(sub.first_sent_at).toLocaleDateString()}` : ' · not yet sent'}
+                        {sub.version > 1 ? ` · v${sub.version}` : ''}
+                      </p>
+                    </div>
+                    <StatusBadge status={sub.status} />
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
 
           <section className="border-t border-neutral-100 pt-4 flex items-center justify-between">

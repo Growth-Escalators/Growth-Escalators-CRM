@@ -210,11 +210,12 @@ export function createWizmatchMatchingService(dbPool: Pool = pool) {
     async candidate360(tenantId: string, candidateId: string) {
       const candidate = await dbPool.query(`SELECT c.*,p.first_name,p.last_name,p.company_name FROM wizmatch_candidates c JOIN contacts p ON p.id=c.contact_id AND p.tenant_id=c.tenant_id WHERE c.tenant_id=$1 AND c.id=$2`, [tenantId, candidateId]);
       if (!candidate.rowCount) throw new StaffingDomainError(404, 'not_found', 'Candidate was not found');
-      const [skills, matches] = await Promise.all([
+      const [skills, matches, submissions] = await Promise.all([
         dbPool.query(`SELECT cs.*,s.family,s.specialization,s.canonical_label FROM wizmatch_candidate_skills cs JOIN wizmatch_skills s ON s.id=cs.skill_id AND s.tenant_id=cs.tenant_id WHERE cs.tenant_id=$1 AND cs.candidate_id=$2 ORDER BY s.family,s.specialization`, [tenantId, candidateId]),
         dbPool.query(`SELECT m.*,r.title AS requirement_title,r.stage FROM wizmatch_candidate_requirement_matches m JOIN wizmatch_requirements r ON r.id=m.requirement_id AND r.tenant_id=m.tenant_id WHERE m.tenant_id=$1 AND m.candidate_id=$2 ORDER BY m.score DESC`, [tenantId, candidateId]),
+        dbPool.query(`SELECT sub.id,sub.status,sub.version,sub.first_sent_at,sub.last_sent_at,sub.next_action,sub.next_action_due_at,sub.created_at,r.title AS requirement_title,co.name AS company_name FROM wizmatch_submissions sub JOIN wizmatch_requirements r ON r.id=sub.requirement_id AND r.tenant_id=sub.tenant_id LEFT JOIN wizmatch_companies co ON co.id=r.company_id AND co.tenant_id=r.tenant_id WHERE sub.tenant_id=$1 AND sub.candidate_id=$2 ORDER BY sub.created_at DESC`, [tenantId, candidateId]),
       ]);
-      return { candidate: candidate.rows[0], skills: skills.rows, matches: matches.rows };
+      return { candidate: candidate.rows[0], skills: skills.rows, matches: matches.rows, submissions: submissions.rows };
     },
 
     async recruiterWork(tenantId: string, userId: string) {

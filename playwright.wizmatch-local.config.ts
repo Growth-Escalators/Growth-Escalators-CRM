@@ -18,6 +18,7 @@ export default defineConfig({
     'wizmatch-candidates-360.spec.ts',
     'wizmatch-placements-detail.spec.ts',
     'wizmatch-reports-funnel.spec.ts',
+    'wizmatch-delete-detail-local.spec.ts',
   ],
   fullyParallel: false,
   workers: 1,

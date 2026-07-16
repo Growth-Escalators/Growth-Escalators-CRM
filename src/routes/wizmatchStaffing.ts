@@ -161,6 +161,14 @@ router.delete('/companies/:companyId/contacts/:companyContactId', async (req, re
   catch (error) { return handle(error, res); }
 });
 
+// Permanent hard-delete of the hiring-contact relationship (lead-only). The
+// underlying CRM contact is preserved — see deleteCompanyContact. Kept separate
+// from the soft deactivate route above so the reversible option still exists.
+router.delete('/companies/:companyId/contacts/:companyContactId/hard', async (req, res) => {
+  try { return res.json(await wizmatchStaffingService.deleteCompanyContact(requireLead(req), req.params.companyId, req.params.companyContactId)); }
+  catch (error) { return handle(error, res); }
+});
+
 router.get('/requirements/:requirementId/contacts', async (req, res) => {
   try { const current = actor(req); await requireRequirementAccess(pool, current, req.params.requirementId); return res.json({ items: await wizmatchStaffingService.listRequirementContacts(current.tenantId, req.params.requirementId) }); }
   catch (error) { return handle(error, res); }

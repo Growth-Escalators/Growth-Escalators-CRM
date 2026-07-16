@@ -124,4 +124,53 @@ describe('Wizmatch staffing domain', () => {
       .toEqual(expect.arrayContaining(['requirement.review_plan_created', 'java-role']));
     expect(fake.calls.at(-1)?.sql).toBe('COMMIT');
   });
+
+  it('blocks hard-deleting a hiring contact that still has an active attribution, submission or interview', async () => {
+    const fake = fakePool((sql) => {
+      if (sql.includes('SELECT cc.id, cc.contact_id')) return { rows: [{ id: 'poc-a', contact_id: 'person-a', first_name: 'Asha', last_name: 'Rao' }], rowCount: 1 };
+      if (sql.includes('FROM wizmatch_submission_recipients')) return { rows: [{ n: 2 }], rowCount: 1 };
+      if (sql.includes('COUNT(*)')) return { rows: [{ n: 0 }], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    });
+    const service = createWizmatchStaffingService(fake.pool);
+
+    await expect(service.deleteCompanyContact(
+      { tenantId: 'tenant-a', userId: 'lead-a' }, 'company-a', 'poc-a',
+    )).rejects.toMatchObject({ status: 409, code: 'has_dependencies' });
+
+    // Never destructive when blocked: no company_contact delete, and the CRM
+    // contact row is untouched. Transaction rolls back.
+    expect(fake.calls.some(call => call.sql.includes('DELETE FROM wizmatch_company_contacts'))).toBe(false);
+    expect(fake.calls.some(call => call.sql.includes('DELETE FROM contacts'))).toBe(false);
+    expect(fake.calls.at(-1)?.sql).toBe('ROLLBACK');
+  });
+
+  it('hard-deletes a clean hiring contact relationship while preserving the CRM contact row', async () => {
+    const fake = fakePool((sql) => {
+      if (sql.includes('SELECT cc.id, cc.contact_id')) return { rows: [{ id: 'poc-a', contact_id: 'person-a', first_name: 'Asha', last_name: 'Rao' }], rowCount: 1 };
+      if (sql.includes('COUNT(*)')) return { rows: [{ n: 0 }], rowCount: 1 };
+      if (sql.includes('DELETE FROM wizmatch_company_contacts')) return { rows: [{ id: 'poc-a' }], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    });
+    const service = createWizmatchStaffingService(fake.pool);
+
+    const result = await service.deleteCompanyContact(
+      { tenantId: 'tenant-a', userId: 'lead-a' }, 'company-a', 'poc-a',
+    );
+    expect(result).toEqual({ deleted: true, id: 'poc-a' });
+
+    // Removes NOT NULL children, detaches nullable history FKs, deletes the link.
+    expect(fake.calls.some(call => call.sql.includes('DELETE FROM wizmatch_company_contact_roles'))).toBe(true);
+    expect(fake.calls.some(call => call.sql.includes('DELETE FROM wizmatch_requirement_contacts'))).toBe(true);
+    expect(fake.calls.some(call => call.sql.includes('UPDATE wizmatch_task_links SET company_contact_id = NULL'))).toBe(true);
+    expect(fake.calls.some(call => call.sql.includes('UPDATE wizmatch_staffing_events SET company_contact_id = NULL'))).toBe(true);
+    expect(fake.calls.some(call => call.sql.includes('DELETE FROM wizmatch_company_contacts'))).toBe(true);
+    // The CRM contact row itself is preserved — only its activity is bumped.
+    expect(fake.calls.some(call => call.sql.includes('DELETE FROM contacts'))).toBe(false);
+    expect(fake.calls.some(call => call.sql.includes('UPDATE contacts SET last_activity_at'))).toBe(true);
+    // Audits the deletion with the detached (null) company_contact link.
+    const event = fake.calls.find(call => call.sql.includes('INSERT INTO wizmatch_staffing_events'));
+    expect(event?.params).toEqual(expect.arrayContaining(['company_contact.deleted']));
+    expect(fake.calls.at(-1)?.sql).toBe('COMMIT');
+  });
 });
