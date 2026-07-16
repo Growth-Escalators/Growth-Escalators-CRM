@@ -2626,3 +2626,49 @@ SUCCESS, old `4e032a6` deploy REMOVED)
   pilot-flag change (sending, paid discovery, Google fallback, legacy automation all still off).
 
 **Both residual PROD_SMOKE records are now cleaned.** No open cleanup items from this lineage.
+
+## 2026-07-16 — Matching reachable + discardable draft requirements — Claude — SHIPPED TO PRODUCTION
+
+**Problem** (found via 2 read-only Explore agents): the actionable Gate-B matcher
+(`POST /staffing/requirements/:id/matches/recalculate`) had **no admin UI trigger**, and the
+`WizmatchTalentMatchingPage` workspace was hidden from nav + Cmd-K search. So a user could not get
+from a requirement to recalculated, decidable matched candidates through the product at all.
+
+**What shipped** (`origin/main` `0686b7b`→`5cb7c31`, fast-forward; Railway `f4274479` SUCCESS)
+- Requirement drawer: new **"Recalculate matches"** button → the existing recalculate endpoint,
+  then renders the ranked Gate-B matches (`MatchExplanation`) with Shortlist/Watch/Reject, sorted
+  by score, with a "hide blocked" toggle and an honest "add must-have skills first" hint.
+- **Talent Matching** promoted into nav (More → CRM Utilities) + `searchVisible:true`; its empty
+  state links to Requirements.
+- Requirement **`?id=` deep-link** opens the detail drawer; signal **"Create requirement draft"**
+  now offers an **"Open requirement →"** CTA; requirement rows show a **matched-count badge**
+  (match COUNT added to the list SQL).
+- Backend: a **draft** requirement with only undecided (algorithm-computed) matches + no
+  submissions is now **deletable, cascading its match rows + snapshots** — discard experimental
+  drafts. Non-draft / human-decided / submitted requirements still 409.
+
+**Live walkthrough (capped, disposable `PROD_SMOKE_WIZMATCH_20260716` data, paid discovery OFF)**
+- Confirmed the new build live (Talent Matching in nav). Seeded a disposable company + signal via
+  the seed-prospect flow → qualified (Find-POC task created) → **Find POC once** on the free path:
+  `searchApiUsed:true`, `candidatesFound:0` (a fake company has no real web presence — well within
+  the ≤2 cap, zero provider spend) → promoted to a requirement (the "Open requirement →" CTA
+  appeared) → opened it → clicked **Recalculate matches**: `POST …/recalculate 200` (4.3s, scored
+  all candidates), `GET …/matches 200` → **311 ranked matched candidates rendered, sorted by
+  score**, each with Shortlist/Watch/Reject. Did NOT commit a decision (keeps the draft discardable).
+- Teardown proved the new refinement: **draft-cascade delete removed the requirement + all 311
+  undecided matches** (`DELETE …/requirements/:id 200`), then the signal and company were deleted,
+  and the run's "Find Main POC" task was marked done. Zero browser console errors; **zero Railway
+  5xx** across the whole window.
+
+**Notes / follow-ups**
+- The requirement delete-dialog's impact copy still reads "no candidate matches" — stale frontend
+  text; the backend now allows deleting a draft with undecided matches. Cosmetic; worth a one-line
+  copy fix next pass.
+- Canonical requirement skills (`wizmatch_requirement_skills`, skill_id based) still have **no UI**
+  — the drawer edits free-text `required_skills` only, so the matcher's mandatory-skill dimension
+  defaults to 50 for all candidates (they all ranked, none blocked). A future "add canonical skills
+  from the JD" affordance would make the ranking skill-discriminating.
+- Tests: 423 Vitest (+ new `wizmatchRequirementDelete.test.ts` behavioral coverage of the
+  draft-cascade rule; nav/registry tests updated for the promoted Talent Matching entry); Playwright
+  95 passed / 15 skipped. Guardrails clean: no schema/migration/auth/rbac/cashfree/sodEod change, no
+  new env var, no pilot-flag change.

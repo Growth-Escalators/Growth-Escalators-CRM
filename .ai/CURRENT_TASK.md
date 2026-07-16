@@ -2,7 +2,27 @@
 
 ## Active task
 
-**SHIPPED 2026-07-16 (`origin/main` = `3b1dd05`, Railway deploy `0e45691d` SUCCESS): signal-detail
+**SHIPPED 2026-07-16 (`origin/main` = `5cb7c31`, Railway deploy `f4274479` SUCCESS): candidate
+matching is now reachable through the UI + draft requirements are discardable.** The actionable
+Gate-B matcher (`POST /staffing/requirements/:id/matches/recalculate`) had no UI trigger and the
+Talent Matching workspace was hidden, so a user couldn't get from a requirement to recalculated
+matches. Now: a "Recalculate matches" button in the requirement drawer runs the matcher and renders
+ranked candidates (score/dimensions/blockers) with Shortlist/Watch/Reject, sorted by score + a
+hide-blocked toggle + an "add must-have skills first" hint; Talent Matching is in nav + Cmd-K
+search; requirement `?id=` deep-links open the drawer; the signal "Create requirement draft" shows
+an "Open requirement →" CTA; requirement rows show a matched-candidate count badge. Backend: a DRAFT
+requirement with only undecided (algorithm-computed) matches + no submissions is now deletable,
+cascading its match rows + snapshots (discard experimental drafts); non-draft/human-decided/submitted
+still 409. **Live walkthrough proved it end-to-end**: seeded a disposable company+signal → qualified
+→ free Find-POC (paid off, 0 contacts found, ≤2 cap honored) → promoted → **Recalculate produced 311
+ranked matched candidates** → draft-cascade delete removed the requirement + all 311 matches → signal
++ company deleted. Zero console errors, zero Railway 5xx. No schema/migration/guardrail/env/pilot-flag
+change. Minor follow-up: the requirement delete-dialog copy still says "no candidate matches" (stale
+frontend text; backend now allows undecided matches).
+
+## Prior task — signal-500 fix + manual delete + candidate max-detail (SHIPPED `3b1dd05`)
+
+**SHIPPED 2026-07-16 (Railway deploy `0e45691d` SUCCESS): signal-detail
 500 fix + manual-delete for every entity + candidate max-detail.** The tenant-wide 500 on
 `GET /api/wizmatch/signals/:id` (drafts sub-query used `messages.created_at`; that table only has
 `sent_at`) is fixed and verified live (200, no console/Railway 5xx). New manual-delete affordances:
