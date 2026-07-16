@@ -2541,3 +2541,51 @@ Built in parallel via 3 isolated-worktree subagents, reviewed + merged + deploye
   health, quota, duplicates, access and resource pressure.
 - Next human action: review the imported signals, verify POCs/channels, configure approved ATS
   boards and create genuine accepted requirements before the first manual X-Ray run.
+
+## 2026-07-15 — Post-production verification of `4e032a6` — Claude — LIVE PRODUCTION, READ-MOSTLY
+
+**Verification scope**
+- Authenticated production pass (Jatin/Admin) against `crm.growthescalators.com`: auth/logout/
+  session, every entity-first nav destination + all 4 More subsections, legacy route redirects,
+  Companies/Hiring Contacts/Requirements/Candidates pages, contact-discovery cap, safe data actions
+  (delete/dependency-block/protected-entity), Submissions/Placements, Reports (filters, no
+  fabricated values), breadcrumbs/Command Palette/keyboard/mobile nav, Railway logs, health/
+  readiness endpoints. Only disposable `PROD_SMOKE_WIZMATCH_<timestamp>` records touched; no real
+  provider discovery call made (paid discovery is off tenant-wide, confirmed live); no financial
+  record created.
+
+**Defect found and hotfixed (not yet pushed)**
+- `GET /api/wizmatch/signals/:id` 500s on every call, tenant-wide — its drafts sub-query selects/
+  orders by `messages.created_at`, but `messages` only has `sent_at` (`src/db/schema.ts:218`).
+  Confirmed via Railway deploy log: `column "created_at" does not exist`. Frontend degrades
+  gracefully (falls back to row-level fields, empty score breakdown) rather than crashing, but the
+  signal detail view has effectively been broken since this shipped.
+- Fix committed locally on `hotfix/wizmatch-signal-detail-created-at` (commit `f9f997c`, based on
+  `4e032a6`): `created_at` → `sent_at` in both SELECT and ORDER BY. Build clean; 413/413 Vitest
+  pass. **Not pushed — awaiting explicit review per task instructions.**
+
+**Other findings**
+- Company hard-delete correctly blocked by real backend dependency check (409, "Cannot delete —
+  this company has 1 job signal(s)") — matches previously documented client-side-check limitation;
+  backend enforcement worked as designed.
+- The Job Leads/Signals page has no "Delete signal" UI affordance even though `DELETE
+  /signals/:id` exists and is safe (blocks on `placed` status and on promoted-requirement linkage).
+  This is why the disposable signal below could only be rejected (soft), not hard-deleted, through
+  the UI — a real product gap worth a small follow-up, not touched in this pass.
+- Pre-existing, unrelated: Express `trust proxy` warning in deploy logs (`X-Forwarded-For` set but
+  `trust proxy` false) — affects rate-limiter IP accuracy, not a new regression, not fixed here.
+- No other 5xx in Railway logs over the session window besides the two hits on the bug above.
+
+**Residual test data (cleanup incomplete — documented, not hidden)**
+- Company `PROD_SMOKE_WIZMATCH_20260715221717 Test Co` (`dbef621e-e284-4e84-8cc5-6226cffa5fd3`):
+  still exists, delete correctly blocked by its one linked signal.
+- Signal `PROD_SMOKE_WIZMATCH_20260715221717 Test Role` (`5f6a1ac8-4b1d-465a-903a-9e7eae5dcb4f`):
+  rejected via the real UI action; hard-delete not reachable without direct DB access or a future
+  "Delete signal" UI addition. Once that one row is removed, the company delete cascades cleanly
+  (intelligence/discovery-run rows auto-delete, not separate blockers).
+- Both records are unambiguously prefixed and carry no real business data.
+
+**Next human action**
+- Review and decide on pushing `hotfix/wizmatch-signal-detail-created-at`.
+- Manually purge the two residual `PROD_SMOKE_WIZMATCH_20260715221717` records via direct DB access,
+  or decide whether a "Delete signal" UI affordance is worth adding.

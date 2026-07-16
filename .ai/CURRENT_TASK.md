@@ -2,6 +2,14 @@
 
 ## Active task
 
+**Post-production verification of `4e032a6` complete (2026-07-15). Found and locally hotfixed
+(not pushed) a tenant-wide 500 on `GET /api/wizmatch/signals/:id` — see `.ai/HANDOFF_LOG.md` for
+full detail. Awaiting review of `hotfix/wizmatch-signal-detail-created-at` (commit `f9f997c`)
+before push, plus a decision on purging two residual `PROD_SMOKE_WIZMATCH_20260715221717` test
+records (company + signal) that couldn't be hard-deleted through the UI.**
+
+## Prior active task — entity-first UI/UX push
+
 **Entity-first UI/UX + complete-build push is live (commit `2d8ddd6`, Railway deployment
 `baec1d83`, `SUCCESS`) — a navigation/UX/safety-tooling release, not a pilot-scope change. The
 Wizmatch results-first sourcing pilot task below is still the substantive product work in front of
