@@ -43,7 +43,7 @@ test.describe('Reports funnel', () => {
   test('unsupported stages render "Not available yet", never a fabricated number', async ({ page }) => {
     await page.route('**/api/wizmatch/analytics?**', (route) => json(route, { funnel: [], sources: [] }));
     await page.route('**/api/wizmatch/analytics/roi?**', (route) => json(route, { funnel: [{ stage: 'Signals captured', count: 5 }], sourceBreakdown: [] }));
-    await page.route('**/api/wizmatch/staffing/analytics', (route) => json(route, {
+    await page.route('**/api/wizmatch/staffing/analytics**', (route) => json(route, {
       funnel: [{ status: 'submitted', count: 2 }], commercial: { gross_margin: '0', starts: 1, invoiced: '0', collected: '0' },
       exceptions: { overdue_submissions: 0, missing_next_action: 0 }, cohorts: [], timeToFill: { average_days: null }, aging: [], rejectionReasons: [], recruiterPerformance: [], sourcePerformance: [],
     }));
@@ -64,7 +64,7 @@ test.describe('Reports funnel', () => {
   test('a failed fetch for a supported stage renders a distinct retryable error, not "Not available yet"', async ({ page }) => {
     await page.route('**/api/wizmatch/analytics?**', (route) => json(route, { funnel: [], sources: [] }));
     await page.route('**/api/wizmatch/analytics/roi?**', (route) => json(route, { funnel: [{ stage: 'Signals captured', count: 5 }], sourceBreakdown: [] }));
-    await page.route('**/api/wizmatch/staffing/analytics', (route) => json(route, { error: 'Staffing analytics unavailable' }, 500));
+    await page.route('**/api/wizmatch/staffing/analytics**', (route) => json(route, { error: 'Staffing analytics unavailable' }, 500));
     await page.route('**/api/wizmatch/requirements?**', (route) => json(route, { items: [], total: 3 }));
 
     await page.goto('/wizmatch/reports');
@@ -80,7 +80,7 @@ test.describe('Reports funnel', () => {
   test('changing the Status filter changes the Requirement stage count', async ({ page }) => {
     await page.route('**/api/wizmatch/analytics?**', (route) => json(route, { funnel: [], sources: [] }));
     await page.route('**/api/wizmatch/analytics/roi?**', (route) => json(route, { funnel: [{ stage: 'Signals captured', count: 5 }], sourceBreakdown: [] }));
-    await page.route('**/api/wizmatch/staffing/analytics', (route) => json(route, {
+    await page.route('**/api/wizmatch/staffing/analytics**', (route) => json(route, {
       funnel: [], commercial: { gross_margin: '0', starts: 0, invoiced: '0', collected: '0' }, exceptions: { overdue_submissions: 0, missing_next_action: 0 },
       cohorts: [], timeToFill: { average_days: null }, aging: [], rejectionReasons: [], recruiterPerformance: [], sourcePerformance: [],
     }));

@@ -179,7 +179,7 @@ function buildDeliveryFunnel({ roi, requirementsSummary, delivery, roiError, req
     },
     {
       key: 'submission', label: 'Submission', supported: true, errored: !!deliveryError, count: totalSubmissions,
-      note: 'All submissions ever created, from GET /api/wizmatch/staffing/analytics. All-time — this endpoint has no date-range filter.',
+      note: 'Submissions created in the selected From/To range (all-time if the range is cleared), from GET /api/wizmatch/staffing/analytics.',
     },
     {
       key: 'interview', label: 'Interview', supported: true, errored: !!deliveryError, count: interviewCount,
@@ -191,7 +191,7 @@ function buildDeliveryFunnel({ roi, requirementsSummary, delivery, roiError, req
     },
     {
       key: 'start', label: 'Start', supported: true, errored: !!deliveryError, count: startCount,
-      note: 'Placements ever started (wizmatch_placements), from GET /api/wizmatch/staffing/analytics commercial.starts.',
+      note: 'Placements started in the selected From/To range (all-time if the range is cleared), from GET /api/wizmatch/staffing/analytics commercial.starts.',
     },
   ];
 
@@ -381,7 +381,7 @@ export default function WizmatchAnalyticsPage({ demoMode = false }) {
       apiFetch(`/api/wizmatch/analytics?${period}`),
       apiFetch('/api/wizmatch/digest'),
       apiFetch(`/api/wizmatch/analytics/roi?${period}`),
-      apiFetch('/api/wizmatch/staffing/analytics'),
+      apiFetch(`/api/wizmatch/staffing/analytics?${period}`),
       apiFetch(`/api/wizmatch/requirements?${reqParams}`),
       apiFetch('/api/wizmatch/staffing/users'),
     ]);
@@ -479,7 +479,7 @@ export default function WizmatchAnalyticsPage({ demoMode = false }) {
         <p className="text-[11px] text-neutral-500 mt-1">
           From/To scope the <b>Job Lead</b> and <b>Requirement/Match-adjacent</b> discovery metrics (GET /api/wizmatch/analytics + /analytics/roi).
           Company, Skill, Req status and Recruiter scope the <b>Requirement</b> stage and table below (GET /api/wizmatch/requirements).
-          Source filters the signal/source breakdown tables. <b>Submission → Start, SLA/aging, time-to-start and revenue figures are all-time totals</b> — GET /api/wizmatch/staffing/analytics does not accept any query filters yet. Filtering the whole funnel by a single requirement isn't wired to the backend yet.
+          Source filters the signal/source breakdown tables. From/To now also scope the <b>Submission→Start funnel, revenue, time-to-start and recruiter/source performance</b> (by each row's primary event date); <b>SLA exceptions and aging stay current-state</b> ("now", unaffected by the range). Clear the date range for all-time totals. Filtering the whole funnel by a single requirement isn't wired to the backend yet.
         </p>
       </div>
 
@@ -528,7 +528,7 @@ export default function WizmatchAnalyticsPage({ demoMode = false }) {
           <IndianRupee className="w-4 h-4 text-primary-600" />
           <h2 className="text-[15px] font-semibold text-neutral-800">Revenue &amp; Collection</h2>
         </div>
-        <p className="text-[11.5px] text-neutral-500 mb-4">All placements, all time — GET /api/wizmatch/staffing/analytics has no date-range filter.</p>
+        <p className="text-[11.5px] text-neutral-500 mb-4">{delivery?.range ? `Placements started ${delivery.range.from} → ${delivery.range.to}.` : 'All placements, all time (clear the date range to scope by period).'}</p>
         {errors.delivery ? (
           <ErrorRetry message={errors.delivery} onRetry={load} retrying={loading} />
         ) : (
@@ -549,7 +549,7 @@ export default function WizmatchAnalyticsPage({ demoMode = false }) {
             <Clock className="w-4 h-4 text-primary-600" />
             <h2 className="text-[15px] font-semibold text-neutral-800">SLA &amp; Aging</h2>
           </div>
-          <p className="text-[11.5px] text-neutral-500 mb-4">Open submissions only — all time.</p>
+          <p className="text-[11.5px] text-neutral-500 mb-4">Open submissions right now — current-state, not affected by the date range.</p>
           {errors.delivery ? (
             <ErrorRetry message={errors.delivery} onRetry={load} retrying={loading} />
           ) : (
@@ -587,7 +587,7 @@ export default function WizmatchAnalyticsPage({ demoMode = false }) {
             <Clock className="w-4 h-4 text-primary-600" />
             <h2 className="text-[15px] font-semibold text-neutral-800">Time to Start</h2>
           </div>
-          <p className="text-[11.5px] text-neutral-500 mb-4">Requirement accepted → placement started. All time.</p>
+          <p className="text-[11.5px] text-neutral-500 mb-4">Requirement accepted → placement started.{delivery?.range ? ' Placements started in the selected range.' : ' All time.'}</p>
           {errors.delivery ? (
             <ErrorRetry message={errors.delivery} onRetry={load} retrying={loading} />
           ) : delivery?.timeToFill?.average_days == null ? (

@@ -421,8 +421,13 @@ router.get('/staffing/delivery-board', requirePhase('C'), async (req, res) => {
 });
 
 router.get('/staffing/analytics', requirePhase('C'), async (req, res) => {
-  try { const current = requireLead(req); return res.json(await wizmatchDeliveryService.analytics(current.tenantId)); }
-  catch (error) { return handle(error, res); }
+  try {
+    const current = requireLead(req);
+    const isDate = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+    const from = isDate(req.query.from) ? req.query.from : undefined;
+    const to = isDate(req.query.to) ? req.query.to : undefined;
+    return res.json(await wizmatchDeliveryService.analytics(current.tenantId, from, to));
+  } catch (error) { return handle(error, res); }
 });
 
 export default router;
