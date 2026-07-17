@@ -144,7 +144,32 @@ export class DocumensoProvider implements ESignatureProvider {
     // Documenso returns an upload URL to PUT the PDF bytes into.
     const uploadUrl = resp?.uploadUrl ?? resp?.upload?.url;
     if (uploadUrl) await this.uploadPdf(String(uploadUrl), input.pdf);
-    return this.mapCreateResult(resp);
+    const result = this.mapCreateResult(resp);
+    // Documenso's /send returns 400 ("Signers must have at least one signature
+    // field") unless every signer has a field. Place a default SIGNATURE field
+    // per recipient so the document is sendable.
+    await this.placeDefaultSignatureFields(result.externalDocumentId, result.recipients);
+    return result;
+  }
+
+  // Default field placement: one SIGNATURE field per recipient on page 1,
+  // staggered vertically so multiple signers don't overlap. (A drag-to-place
+  // field UI can refine positions later; this is the minimum Documenso needs.)
+  private async placeDefaultSignatureFields(
+    documentId: string,
+    recipients: Array<{ externalRecipientId: string }>,
+  ): Promise<void> {
+    let i = 0;
+    for (const r of recipients) {
+      const recipientId = Number(r.externalRecipientId);
+      if (recipientId) {
+        await this.request(`/api/v1/documents/${encodeURIComponent(documentId)}/fields`, {
+          method: 'POST',
+          body: { recipientId, type: 'SIGNATURE', pageNumber: 1, pageX: 12, pageY: Math.min(85, 68 + i * 10), pageWidth: 38, pageHeight: 8 },
+        });
+      }
+      i++;
+    }
   }
 
   async createFromTemplate(input: CreateFromTemplateInput): Promise<CreateDocumentResult> {
