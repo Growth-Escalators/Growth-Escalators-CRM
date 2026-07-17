@@ -48,3 +48,15 @@ Consequences: exposure remains until the user rotates + scrubs; not blocking thi
 **D8 — Branch `feat/contracts-esign`; retired 3 stale native-signing worktrees.**
 Reason: those scaffolds assumed the scrapped native-signing approach. Consequences: clean single
 worktree; migration lands as `0034` off `origin/main`.
+
+---
+**D9 — Stripped pre-existing schema drift from the generated migration 0034.**
+`npm run db:generate` folded three unrelated statements into 0034 because the 0033 snapshot is drifted:
+`ALTER TABLE events ADD COLUMN processed_at` + `events_type_processed_idx` (both already created by
+migration 0031) and `invoice_series_tenant_type_fy_uniq_idx` (already created by 0030). Left in, they
+would fail on apply ("already exists") on any DB past 0030/0031. Removed all three from
+`0034_lame_proemial_gods.sql` so the migration is **contract-only** (5 tables + their indexes/FKs).
+The generated `0034_snapshot.json` still reflects the full, correct schema, so future `db:generate`
+runs diff against it and won't re-emit the drift — 0034 effectively heals the drift going forward.
+Verified: full chain `0000→0034` applies cleanly on a fresh Postgres 16 DB; all contract tables/indexes/
+FKs present. Did NOT touch already-applied migrations or the 0033 snapshot (guarded paths).
