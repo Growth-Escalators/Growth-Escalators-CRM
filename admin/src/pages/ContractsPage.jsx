@@ -18,6 +18,16 @@ const STATUS_BADGE = {
 
 const FILTERS = ['ALL', 'DRAFT', 'GENERATED', 'READY_TO_SEND', 'SENT', 'PARTIALLY_SIGNED', 'COMPLETED', 'VOIDED'];
 
+// Extra-recipient roles the sender can add beyond the client signer + optional
+// countersigner. Values are the CRM signingRole; the backend maps them to
+// Documenso SIGNER/APPROVER/CC/VIEWER (approver/cc/viewer get no signature field).
+const RECIPIENT_ROLES = [
+  { value: 'client_signer', label: 'Signer' },
+  { value: 'approver', label: 'Approver' },
+  { value: 'cc', label: 'CC (copy only)' },
+  { value: 'viewer', label: 'Viewer' },
+];
+
 function Badge({ status }) {
   return (
     <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[status] || 'bg-neutral-100 text-neutral-700'}`}>
@@ -29,11 +39,13 @@ function Badge({ status }) {
 const emptyForm = () => ({
   title: '',
   terms: '',
+  templateId: '',
   clientName: '',
   clientEmail: '',
   withCountersigner: false,
   counterName: '',
   counterEmail: '',
+  extraRecipients: [], // [{ name, email, role }]
 });
 
 export default function ContractsPage() {
@@ -46,6 +58,8 @@ export default function ContractsPage() {
   const [form, setForm] = useState(emptyForm());
   const [detail, setDetail] = useState(null); // { contract, recipients, events }
   const [links, setLinks] = useState({}); // recipientId -> signing url
+  const [templates, setTemplates] = useState([]); // CRM-registered templates
+  const [showTemplates, setShowTemplates] = useState(false); // templates manager modal
   const fileInputRef = useRef(null);
   // Kept in a ref (not state): the OS file chooser resolves asynchronously after
   // the button click, so onFileChosen must read the target id deterministically
@@ -68,6 +82,18 @@ export default function ContractsPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  const loadTemplates = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/contracts/templates');
+      setTemplates(res.templates || []);
+    } catch {
+      // Non-fatal: the picker just stays empty if templates can't be loaded.
+      setTemplates([]);
+    }
+  }, []);
+
+  useEffect(() => { loadTemplates(); }, [loadTemplates]);
+
   async function createContract(e) {
     e.preventDefault();
     setBusyId('new');
@@ -79,9 +105,19 @@ export default function ContractsPage() {
       if (form.withCountersigner && form.counterEmail) {
         recipients.push({ name: form.counterName, email: form.counterEmail, signingRole: 'internal_countersigner', signingOrder: 2 });
       }
+      // Additional recipients (approver / cc / viewer / extra signer) after the
+      // client + countersigner, continuing the signing order.
+      for (const r of form.extraRecipients) {
+        if (!r.name?.trim() || !r.email?.trim()) continue;
+        recipients.push({ name: r.name, email: r.email, signingRole: r.role || 'cc', signingOrder: recipients.length + 1 });
+      }
+      const payload = { title: form.title, recipients };
+      // A template auto-fills its own fields — the local "terms" PDF isn't used.
+      if (form.templateId) payload.templateId = form.templateId;
+      else payload.terms = form.terms;
       await apiFetch('/api/contracts', {
         method: 'POST',
-        body: JSON.stringify({ title: form.title, terms: form.terms, recipients }),
+        body: JSON.stringify(payload),
       });
       setShowNew(false);
       setForm(emptyForm());
@@ -176,6 +212,17 @@ export default function ContractsPage() {
     }
   }
 
+  // --- extra-recipient (approver/cc/viewer/signer) helpers for the New form ---
+  function addExtraRecipient() {
+    setForm((f) => ({ ...f, extraRecipients: [...f.extraRecipients, { name: '', email: '', role: 'cc' }] }));
+  }
+  function updateExtraRecipient(i, patch) {
+    setForm((f) => ({ ...f, extraRecipients: f.extraRecipients.map((r, idx) => (idx === i ? { ...r, ...patch } : r)) }));
+  }
+  function removeExtraRecipient(i) {
+    setForm((f) => ({ ...f, extraRecipients: f.extraRecipients.filter((_, idx) => idx !== i) }));
+  }
+
   function rowActions(c) {
     const busy = busyId === c.id;
     const btn = 'rounded px-2 py-1 text-xs font-medium disabled:opacity-50';
@@ -200,7 +247,10 @@ export default function ContractsPage() {
             <h1 className="text-2xl font-semibold text-neutral-900">Contracts</h1>
             <p className="text-sm text-neutral-500">Create, send, and track e-signature contracts.</p>
           </div>
-          <button className="rounded bg-neutral-900 px-4 py-2 text-sm font-medium text-white" onClick={() => setShowNew(true)}>New contract</button>
+          <div className="flex gap-2">
+            <button className="rounded border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700" onClick={() => setShowTemplates(true)}>Manage templates</button>
+            <button className="rounded bg-neutral-900 px-4 py-2 text-sm font-medium text-white" onClick={() => setShowNew(true)}>New contract</button>
+          </div>
         </div>
 
         <div className="mb-4 flex flex-wrap gap-2">
@@ -248,6 +298,14 @@ export default function ContractsPage() {
             <label className="mb-2 block text-sm">Title
               <input required className="mt-1 w-full rounded border border-neutral-300 px-3 py-2" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
             </label>
+            <label className="mb-2 block text-sm">Template (optional)
+              <select className="mt-1 w-full rounded border border-neutral-300 px-3 py-2" value={form.templateId} onChange={(e) => setForm({ ...form, templateId: e.target.value })}>
+                <option value="">None — generate from terms below</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}{t.category ? ` · ${t.category}` : ''}</option>
+                ))}
+              </select>
+            </label>
             <div className="mb-2 grid grid-cols-2 gap-2">
               <label className="block text-sm">Client name
                 <input required className="mt-1 w-full rounded border border-neutral-300 px-3 py-2" value={form.clientName} onChange={(e) => setForm({ ...form, clientName: e.target.value })} />
@@ -266,9 +324,36 @@ export default function ContractsPage() {
                 <input placeholder="Countersigner email" type="email" className="rounded border border-neutral-300 px-3 py-2" value={form.counterEmail} onChange={(e) => setForm({ ...form, counterEmail: e.target.value })} />
               </div>
             )}
-            <label className="mb-4 block text-sm">Terms
-              <textarea rows={4} className="mt-1 w-full rounded border border-neutral-300 px-3 py-2" value={form.terms} onChange={(e) => setForm({ ...form, terms: e.target.value })} />
-            </label>
+
+            <div className="mb-3">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-sm font-medium text-neutral-700">Additional recipients</span>
+                <button type="button" className="rounded bg-neutral-100 px-2 py-0.5 text-xs text-neutral-700" onClick={addExtraRecipient}>+ Add recipient</button>
+              </div>
+              {form.extraRecipients.length === 0 && (
+                <p className="text-xs text-neutral-400">Optional: add an approver (must approve before completion), or CC / viewer recipients (receive a copy, don't sign).</p>
+              )}
+              {form.extraRecipients.map((r, i) => (
+                <div key={i} className="mb-2 grid grid-cols-[1fr_1fr_auto_auto] gap-2">
+                  <input placeholder="Name" className="rounded border border-neutral-300 px-2 py-1 text-sm" value={r.name} onChange={(e) => updateExtraRecipient(i, { name: e.target.value })} />
+                  <input placeholder="Email" type="email" className="rounded border border-neutral-300 px-2 py-1 text-sm" value={r.email} onChange={(e) => updateExtraRecipient(i, { email: e.target.value })} />
+                  <select className="rounded border border-neutral-300 px-2 py-1 text-sm" value={r.role} onChange={(e) => updateExtraRecipient(i, { role: e.target.value })}>
+                    {RECIPIENT_ROLES.map((role) => <option key={role.value} value={role.value}>{role.label}</option>)}
+                  </select>
+                  <button type="button" className="rounded px-2 text-sm text-neutral-400 hover:text-red-600" onClick={() => removeExtraRecipient(i)} title="Remove">✕</button>
+                </div>
+              ))}
+            </div>
+
+            {form.templateId ? (
+              <p className="mb-4 rounded border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                This contract is generated from the selected template — its fields are auto-filled (client name, company, date). No terms needed.
+              </p>
+            ) : (
+              <label className="mb-4 block text-sm">Terms
+                <textarea rows={4} className="mt-1 w-full rounded border border-neutral-300 px-3 py-2" value={form.terms} onChange={(e) => setForm({ ...form, terms: e.target.value })} />
+              </label>
+            )}
             <div className="flex justify-end gap-2">
               <button type="button" className="rounded px-4 py-2 text-sm" onClick={() => setShowNew(false)}>Cancel</button>
               <button type="submit" disabled={busyId === 'new'} className="rounded bg-neutral-900 px-4 py-2 text-sm text-white disabled:opacity-50">Create draft</button>
@@ -332,6 +417,104 @@ export default function ContractsPage() {
           </div>
         </div>
       )}
+
+      {showTemplates && (
+        <TemplatesManager
+          registered={templates}
+          onClose={() => setShowTemplates(false)}
+          onChanged={loadTemplates}
+        />
+      )}
+    </div>
+  );
+}
+
+// Lightweight templates manager: lists CRM-registered templates and registers a
+// Documenso template as a reusable CRM template (name → documensoTemplateId).
+// Kept as its own component so its (transient) Documenso-list state doesn't live
+// in the page. Not full CRUD — authoring happens in the Documenso console.
+function TemplatesManager({ registered, onClose, onChanged }) {
+  const [docTemplates, setDocTemplates] = useState(null); // null = not loaded yet
+  const [reg, setReg] = useState({ documensoTemplateId: '', name: '', category: '' });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  async function loadDocumenso() {
+    setBusy(true); setErr('');
+    try {
+      const res = await apiFetch('/api/contracts/templates/documenso');
+      setDocTemplates(res.templates || []);
+    } catch (e) {
+      setErr(e.message || 'Could not load Documenso templates');
+      setDocTemplates([]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function register(e) {
+    e.preventDefault();
+    if (!reg.documensoTemplateId || !reg.name.trim()) { setErr('Pick a Documenso template and give it a name.'); return; }
+    setBusy(true); setErr('');
+    try {
+      await apiFetch('/api/contracts/templates', {
+        method: 'POST',
+        body: JSON.stringify({ name: reg.name.trim(), documensoTemplateId: reg.documensoTemplateId, category: reg.category || undefined }),
+      });
+      setReg({ documensoTemplateId: '', name: '', category: '' });
+      await onChanged();
+    } catch (e2) {
+      setErr(e2.message || 'Could not register template');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
+      <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <h2 className="mb-1 text-lg font-semibold">Contract templates</h2>
+        <p className="mb-4 text-xs text-neutral-500">Author templates in Documenso (with fields placed), then register them here so they appear in the New contract picker.</p>
+
+        {err && <div className="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>}
+
+        <h3 className="mb-2 text-sm font-semibold text-neutral-700">Registered</h3>
+        {registered.length === 0 ? (
+          <p className="mb-4 text-xs text-neutral-400">No templates registered yet.</p>
+        ) : (
+          <ul className="mb-4 space-y-1 text-sm">
+            {registered.map((t) => (
+              <li key={t.id} className="flex justify-between rounded border border-neutral-100 px-2 py-1">
+                <span>{t.name}{t.category ? <span className="text-neutral-400"> · {t.category}</span> : null}</span>
+                <span className="font-mono text-xs text-neutral-400">#{t.documensoTemplateId}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <h3 className="mb-2 text-sm font-semibold text-neutral-700">Register from Documenso</h3>
+        {docTemplates === null ? (
+          <button className="mb-2 rounded bg-neutral-100 px-3 py-1 text-xs text-neutral-700 disabled:opacity-50" disabled={busy} onClick={loadDocumenso}>
+            {busy ? 'Loading…' : 'Load Documenso templates'}
+          </button>
+        ) : docTemplates.length === 0 ? (
+          <p className="mb-2 text-xs text-neutral-400">No templates found in Documenso. Create one in the Documenso console first.</p>
+        ) : (
+          <form className="space-y-2" onSubmit={register}>
+            <select required className="w-full rounded border border-neutral-300 px-3 py-2 text-sm" value={reg.documensoTemplateId} onChange={(e) => setReg({ ...reg, documensoTemplateId: e.target.value })}>
+              <option value="">Choose a Documenso template…</option>
+              {docTemplates.map((t) => <option key={t.id} value={t.id}>{t.title}{t.recipientCount ? ` (${t.recipientCount} recipients)` : ''}</option>)}
+            </select>
+            <div className="grid grid-cols-2 gap-2">
+              <input required placeholder="Display name" className="rounded border border-neutral-300 px-3 py-2 text-sm" value={reg.name} onChange={(e) => setReg({ ...reg, name: e.target.value })} />
+              <input placeholder="Category (optional)" className="rounded border border-neutral-300 px-3 py-2 text-sm" value={reg.category} onChange={(e) => setReg({ ...reg, category: e.target.value })} />
+            </div>
+            <button type="submit" disabled={busy} className="rounded bg-neutral-900 px-4 py-2 text-sm text-white disabled:opacity-50">Register template</button>
+          </form>
+        )}
+
+        <button className="mt-6 w-full rounded border border-neutral-300 py-2 text-sm" onClick={onClose}>Close</button>
+      </div>
     </div>
   );
 }
