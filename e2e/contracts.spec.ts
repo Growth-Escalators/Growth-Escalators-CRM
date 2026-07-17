@@ -1,5 +1,4 @@
 import { test, expect, type Page, type APIRequestContext, request as pwRequest } from '@playwright/test';
-import crypto from 'crypto';
 
 // Real-backend E2E for the Contracts / e-signature module. Requires
 // scripts/run-contracts-e2e.sh (backend on :3000, mock provider + local storage,
@@ -93,8 +92,8 @@ test('full lifecycle: create → generate → approve → send → sign → COMP
 
   // Documenso would now POST a completion webhook — simulate it (mock has auto-signed).
   const body = JSON.stringify({ event: 'DOCUMENT_COMPLETED', webhookEventId: `e2e-${Date.now()}`, payload: { id: contract.documensoDocumentId } });
-  const sig = crypto.createHmac('sha256', WEBHOOK_SECRET).update(body).digest('hex');
-  const hook = await api.post('/webhooks/documenso', { headers: { 'content-type': 'application/json', 'x-documenso-signature': sig }, data: body });
+  // Documenso sends the configured secret verbatim in X-Documenso-Secret.
+  const hook = await api.post('/webhooks/documenso', { headers: { 'content-type': 'application/json', 'x-documenso-secret': WEBHOOK_SECRET }, data: body });
   expect(hook.status()).toBe(200);
 
   // Verify completion via API + a signed-document download that streams a PDF.

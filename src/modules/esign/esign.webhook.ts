@@ -7,8 +7,18 @@
 //      from the provider (service.syncFromProvider) and download/hash/store the
 //      signed PDF there. A storage failure leaves the contract un-completed and
 //      the delivery un-marked ⇒ safely retryable.
-import { verifyWebhookSignature } from '../../routes/webhooks';
+import crypto from 'crypto';
 import { HttpError } from '../../utils/errors';
+
+// Documenso does NOT HMAC-sign webhooks — it sends the configured secret
+// verbatim in the X-Documenso-Secret header. Compare it constant-time.
+function secretMatches(received: string | undefined, expected: string): boolean {
+  if (!received) return false;
+  const a = Buffer.from(received);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  try { return crypto.timingSafeEqual(a, b); } catch { return false; }
+}
 import * as repo from './esign.repository';
 import * as service from './esign.service';
 
@@ -42,11 +52,11 @@ export interface WebhookResult {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function handleDocumensoWebhook(rawBody: string, signature: string | undefined, body: any): Promise<WebhookResult> {
+export async function handleDocumensoWebhook(receivedSecret: string | undefined, body: any): Promise<WebhookResult> {
   const secret = process.env.DOCUMENSO_WEBHOOK_SECRET;
   if (!secret) throw new HttpError(503, 'documenso webhook is not configured', 'INTERNAL_ERROR');
-  if (!verifyWebhookSignature(secret, rawBody, signature)) {
-    throw new HttpError(401, 'invalid webhook signature', 'UNAUTHORIZED');
+  if (!secretMatches(receivedSecret, secret)) {
+    throw new HttpError(401, 'invalid webhook secret', 'UNAUTHORIZED');
   }
 
   const deliveryId = extractDeliveryId(body);

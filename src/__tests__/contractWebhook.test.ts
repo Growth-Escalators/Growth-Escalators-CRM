@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import crypto from 'crypto';
 
 const store = vi.hoisted(() => ({
   contracts: new Map<string, any>(),
@@ -37,10 +36,11 @@ let savedSecret: string | undefined;
 beforeAll(() => { savedSecret = process.env.DOCUMENSO_WEBHOOK_SECRET; process.env.DOCUMENSO_WEBHOOK_SECRET = SECRET; });
 afterAll(() => { if (savedSecret === undefined) delete process.env.DOCUMENSO_WEBHOOK_SECRET; else process.env.DOCUMENSO_WEBHOOK_SECRET = savedSecret; });
 
-function sign(bodyObj: unknown) {
-  const rawBody = JSON.stringify(bodyObj);
-  const sig = crypto.createHmac('sha256', SECRET).update(rawBody).digest('hex');
-  return { rawBody, sig, body: bodyObj };
+// Documenso sends the configured secret verbatim in X-Documenso-Secret; the
+// route forwards it, so the handler is called with (receivedSecret, body).
+// Valid deliveries pass SECRET; invalid ones pass a wrong secret.
+function evt(bodyObj: unknown): any {
+  return bodyObj;
 }
 
 let mock: MockESignProvider;
@@ -82,9 +82,9 @@ describe('Documenso webhook — completion & integrity', () => {
     const docId = await seedSentContract();
     mock.__sign(docId, 'client@x.com');
     mock.__sign(docId, 'gm@ge.com');
-    const { rawBody, sig, body } = sign({ event: 'DOCUMENT_COMPLETED', webhookEventId: 'evt-1', payload: { id: docId } });
+    const body = evt({ event: 'DOCUMENT_COMPLETED', webhookEventId: 'evt-1', payload: { id: docId } });
 
-    const res = await handleDocumensoWebhook(rawBody, sig, body);
+    const res = await handleDocumensoWebhook(SECRET, body);
     expect(res.status).toBe('ok');
     const c = store.contracts.get('c1');
     expect(c.status).toBe('COMPLETED');
@@ -99,33 +99,33 @@ describe('Documenso webhook — completion & integrity', () => {
   it('[2] rejects an invalid signature (401), no state change', async () => {
     const docId = await seedSentContract();
     mock.__sign(docId, 'client@x.com'); mock.__sign(docId, 'gm@ge.com');
-    const { rawBody, body } = sign({ event: 'DOCUMENT_COMPLETED', webhookEventId: 'e', payload: { id: docId } });
-    await expect(handleDocumensoWebhook(rawBody, 'deadbeef', body)).rejects.toMatchObject({ statusCode: 401 });
+    const body = evt({ event: 'DOCUMENT_COMPLETED', webhookEventId: 'e', payload: { id: docId } });
+    await expect(handleDocumensoWebhook('wrong-secret', body)).rejects.toMatchObject({ statusCode: 401 });
     expect(store.contracts.get('c1').status).toBe('SENT');
   });
 
   it('[3+5] a duplicate delivery is applied once (no double upload)', async () => {
     const docId = await seedSentContract();
     mock.__sign(docId, 'client@x.com'); mock.__sign(docId, 'gm@ge.com');
-    const { rawBody, sig, body } = sign({ event: 'DOCUMENT_COMPLETED', webhookEventId: 'evt-dup', payload: { id: docId } });
-    await handleDocumensoWebhook(rawBody, sig, body);
+    const body = evt({ event: 'DOCUMENT_COMPLETED', webhookEventId: 'evt-dup', payload: { id: docId } });
+    await handleDocumensoWebhook(SECRET, body);
     const callsAfterFirst = vi.mocked(storeContractArtifact).mock.calls.length;
-    const res2 = await handleDocumensoWebhook(rawBody, sig, body);
+    const res2 = await handleDocumensoWebhook(SECRET, body);
     expect(res2.status).toBe('already_processed');
     expect(vi.mocked(storeContractArtifact).mock.calls.length).toBe(callsAfterFirst);
   });
 
   it('[4] unknown document → 404', async () => {
-    const { rawBody, sig, body } = sign({ event: 'DOCUMENT_COMPLETED', webhookEventId: 'e', payload: { id: 'no-such-doc' } });
-    await expect(handleDocumensoWebhook(rawBody, sig, body)).rejects.toMatchObject({ statusCode: 404 });
+    const body = evt({ event: 'DOCUMENT_COMPLETED', webhookEventId: 'e', payload: { id: 'no-such-doc' } });
+    await expect(handleDocumensoWebhook(SECRET, body)).rejects.toMatchObject({ statusCode: 404 });
   });
 
   it('[6] cross-tenant: a webhook only mutates the contract that owns the document', async () => {
     await seedSentContract('tA', 'cA');
     const docB = await seedSentContract('tB', 'cB');
     mock.__sign(docB, 'client@x.com'); mock.__sign(docB, 'gm@ge.com');
-    const { rawBody, sig, body } = sign({ event: 'DOCUMENT_COMPLETED', webhookEventId: 'evt-b', payload: { id: docB } });
-    await handleDocumensoWebhook(rawBody, sig, body);
+    const body = evt({ event: 'DOCUMENT_COMPLETED', webhookEventId: 'evt-b', payload: { id: docB } });
+    await handleDocumensoWebhook(SECRET, body);
     expect(store.contracts.get('cB').status).toBe('COMPLETED');
     expect(store.contracts.get('cA').status).toBe('SENT'); // untouched
   });
@@ -133,9 +133,9 @@ describe('Documenso webhook — completion & integrity', () => {
   it('[6b] out-of-order/stale event after completion does not regress state', async () => {
     const docId = await seedSentContract();
     mock.__sign(docId, 'client@x.com'); mock.__sign(docId, 'gm@ge.com');
-    await handleDocumensoWebhook(...Object.values(sign({ event: 'DOCUMENT_COMPLETED', webhookEventId: 'e1', payload: { id: docId } })) as [string, string, any]);
+    await handleDocumensoWebhook(SECRET, evt({ event: 'DOCUMENT_COMPLETED', webhookEventId: 'e1', payload: { id: docId } }));
     // a later, stale delivery (different id) re-syncs to authoritative status
-    const res = await handleDocumensoWebhook(...Object.values(sign({ event: 'DOCUMENT_OPENED', webhookEventId: 'e2', payload: { id: docId } })) as [string, string, any]);
+    const res = await handleDocumensoWebhook(SECRET, evt({ event: 'DOCUMENT_OPENED', webhookEventId: 'e2', payload: { id: docId } }));
     expect(res.status).toBe('ok');
     expect(store.contracts.get('c1').status).toBe('COMPLETED');
   });
@@ -144,8 +144,8 @@ describe('Documenso webhook — completion & integrity', () => {
     const docId = await seedSentContract();
     mock.__sign(docId, 'client@x.com'); mock.__sign(docId, 'gm@ge.com');
     vi.spyOn(mock, 'downloadCompletedDocument').mockRejectedValueOnce(new Error('provider 503'));
-    const { rawBody, sig, body } = sign({ event: 'DOCUMENT_COMPLETED', webhookEventId: 'evt-fail', payload: { id: docId } });
-    await expect(handleDocumensoWebhook(rawBody, sig, body)).rejects.toThrow(/503/);
+    const body = evt({ event: 'DOCUMENT_COMPLETED', webhookEventId: 'evt-fail', payload: { id: docId } });
+    await expect(handleDocumensoWebhook(SECRET, body)).rejects.toThrow(/503/);
     expect(store.contracts.get('c1').status).not.toBe('COMPLETED');
     expect(store.processed.has('documenso:evt-fail')).toBe(false); // not marked → retryable
   });
@@ -154,8 +154,8 @@ describe('Documenso webhook — completion & integrity', () => {
     const docId = await seedSentContract();
     mock.__sign(docId, 'client@x.com'); mock.__sign(docId, 'gm@ge.com');
     vi.mocked(storeContractArtifact).mockRejectedValueOnce(new Error('R2 down'));
-    const { rawBody, sig, body } = sign({ event: 'DOCUMENT_COMPLETED', webhookEventId: 'evt-store', payload: { id: docId } });
-    await expect(handleDocumensoWebhook(rawBody, sig, body)).rejects.toThrow(/R2 down/);
+    const body = evt({ event: 'DOCUMENT_COMPLETED', webhookEventId: 'evt-store', payload: { id: docId } });
+    await expect(handleDocumensoWebhook(SECRET, body)).rejects.toThrow(/R2 down/);
     const c = store.contracts.get('c1');
     expect(c.status).not.toBe('COMPLETED');
     expect(c.completedFileKey).toBeNull();
@@ -166,7 +166,7 @@ describe('Documenso webhook — completion & integrity', () => {
   it('fails closed with a 503 when the webhook secret is unset', async () => {
     const prev = process.env.DOCUMENSO_WEBHOOK_SECRET;
     delete process.env.DOCUMENSO_WEBHOOK_SECRET;
-    await expect(handleDocumensoWebhook('{}', 'x', {})).rejects.toMatchObject({ statusCode: 503 });
+    await expect(handleDocumensoWebhook('x', {})).rejects.toMatchObject({ statusCode: 503 });
     process.env.DOCUMENSO_WEBHOOK_SECRET = prev;
   });
 });
