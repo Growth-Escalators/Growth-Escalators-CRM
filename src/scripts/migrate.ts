@@ -24,6 +24,7 @@ async function runMigrations() {
   // instance waits for the first to finish and commit before it re-checks
   // what's pending, rather than racing or skipping.
   const lockClient = await pool.connect();
+  let exitCode = 0;
   try {
     console.log('[migrate] Acquiring migration lock...');
     await lockClient.query('SELECT pg_advisory_lock($1)', [MIGRATE_LOCK_KEY]);
@@ -31,19 +32,24 @@ async function runMigrations() {
 
     await migrate(db, { migrationsFolder });
     console.log('[migrate] Migration complete');
-    await pool.end();
-    process.exit(0);
   } catch (error) {
     console.error('[migrate] Migration failed:', error);
-    await pool.end();
-    process.exit(1);
+    exitCode = 1;
   } finally {
-    // Unreachable after pool.end() above on both the success and failure
-    // paths (process.exit already fired), but kept for the case migrate()
-    // throws before either branch runs a query on the now-ended pool.
+    // Release the advisory lock AND return this client to the pool *before*
+    // pool.end() below. pool.end() blocks until every checked-out client is
+    // released; if lockClient is still checked out it hangs forever, so
+    // process.exit() never fires and the start command's
+    // `&& node dist/index.js` never runs — the server never boots and the
+    // deploy dies on a silent healthcheck failure. (Regression from the
+    // advisory-lock change: process.exit() used to sit inside try/catch,
+    // making this finally unreachable.)
     await lockClient.query('SELECT pg_advisory_unlock($1)', [MIGRATE_LOCK_KEY]).catch(() => {});
     lockClient.release();
   }
+
+  await pool.end();
+  process.exit(exitCode);
 }
 
 runMigrations();
