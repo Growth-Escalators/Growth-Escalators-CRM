@@ -4,8 +4,8 @@
 
 ## Current status
 - **Branch:** `feat/contracts-esign` (worktree `.claude/worktrees/feat+contracts-esign`, off `origin/main` 1b78a62).
-- **Phase:** P3 — provider abstraction + Documenso + Docker (DONE). Next: P4 — service + routes + RBAC.
-- **Next:** P4 — contract service, `/api/contracts` routes, `CONTRACTS_*` permissions, numbering.
+- **Phase:** P4 — service + routes + RBAC (DONE). Next: P5 — signing + consent.
+- **Next:** P5 — HMAC signed-link mint/verify, public sign route, consent capture, signing session.
 
 ## Completed
 - Discovery (read-only): architecture, tenancy, storage audit, deployment, webhooks, permissions. See
@@ -25,6 +25,17 @@
 - P3: vendor-neutral `ESignatureProvider` interface + `esign.types.ts` + `MockESignProvider` (in-memory,
   full lifecycle) + `DocumensoProvider` (v1 REST, server-to-server, fail-closed config) + factory
   (`ESIGN_PROVIDER`) + `docs/esign/docker-compose.documenso.yml` (pinned). `esignProvider.test.ts`: 11 passed.
+
+- P4: `CONTRACTS_*` in `PERMISSION_MAP` (fail-closed); `contract-numbering` (invoice_series
+  series_type=contract); `contract-pdf` (pdfkit); `esign.repository` (tenant-scoped);
+  `esign.service` (create/generate/approve/send/void/clone/download + audit events);
+  `esign.controller` + `esign.routes` (`/api/contracts`, permission-gated); mounted in `index.ts`.
+  Tests: `contractService.test.ts` (7), `contractRoutesAndPermissions.test.ts` (5).
+
+## Regression
+- Full suite: **658 passed**. 2 suites fail ONLY due to missing admin `lucide-react` in the fresh
+  worktree (`adminFrontendHelpers`, `wizmatchRouteRegistry`) — environmental, unrelated to this work;
+  cleared by `npm --prefix admin install` (running, needed for P8).
 
 ## Known verification gaps (not blockers)
 - `DocumensoProvider` endpoint paths + embedded-signing token flow are coded to Documenso's documented
