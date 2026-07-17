@@ -10,6 +10,7 @@ import {
   contractConsents,
   contractEvents,
   contractTemplates,
+  processedEvents,
 } from '../../db/schema';
 
 export type ContractRow = typeof contracts.$inferSelect;
@@ -145,6 +146,16 @@ export async function listEvents(tenantId: string, contractId: string): Promise<
     .from(contractEvents)
     .where(and(eq(contractEvents.tenantId, tenantId), eq(contractEvents.contractId, contractId)))
     .orderBy(contractEvents.occurredAt);
+}
+
+// ---- webhook idempotency (shared processed_events guard) ----
+export async function isEventProcessed(eventId: string): Promise<boolean> {
+  const [row] = await db.select().from(processedEvents).where(eq(processedEvents.eventId, eventId)).limit(1);
+  return !!row;
+}
+
+export async function markEventProcessed(eventId: string, source: string): Promise<void> {
+  await db.insert(processedEvents).values({ eventId, source }).onConflictDoNothing();
 }
 
 // ---- templates ----

@@ -6,6 +6,7 @@
 import { HttpError } from '../../utils/errors';
 import {
   assertTransition,
+  canTransition,
   computeStatusFromRecipients,
   isTerminal,
   type ContractStatus,
@@ -356,5 +357,125 @@ export async function recomputeStatus(ctx: Ctx, id: string): Promise<ContractSta
   );
 }
 
+// ---- provider-driven status sync + completion (webhook / cron) ----
+function sysCtx(tenantId: string): Ctx {
+  return { tenantId, userId: 'system', role: 'system' };
+}
+
+async function appendSystemEvent(
+  tenantId: string,
+  contractId: string,
+  eventType: string,
+  metadata: Record<string, unknown> = {},
+  opts: { recipientId?: string; externalEventId?: string; eventSource?: string } = {},
+): Promise<void> {
+  const payload = { eventType, contractId, ...opts, metadata };
+  try {
+    await repo.appendEvent({
+      contractId,
+      recipientId: opts.recipientId ?? null,
+      tenantId,
+      eventType,
+      eventSource: opts.eventSource ?? 'documenso',
+      externalEventId: opts.externalEventId ?? null,
+      metadata,
+      eventHash: sha256Hex(Buffer.from(JSON.stringify(payload))),
+      occurredAt: new Date(),
+    });
+  } catch (err) {
+    // A duplicate externalEventId (idempotent webhook replay) hits the partial
+    // unique index — that's expected; swallow it. Anything else re-throws.
+    if (opts.externalEventId) return;
+    throw err;
+  }
+}
+
+/**
+ * Re-fetch authoritative status from the provider, sync recipient rows, and move
+ * the contract to the implied state. On completion, downloads + hashes + stores
+ * the signed PDF and audit certificate. Idempotent: a contract already COMPLETED
+ * (with a stored file) is not re-downloaded/re-uploaded.
+ */
+export async function syncFromProvider(tenantId: string, contractId: string, externalEventId?: string): Promise<ContractDetail> {
+  const contract = requireFound(await repo.getContract(tenantId, contractId));
+  if (!contract.documensoDocumentId) return getContractDetail(sysCtx(tenantId), contractId);
+
+  const providerStatus = await getESignProvider().getDocumentStatus(contract.documensoDocumentId);
+
+  // Sync recipient statuses from the provider (match by provider id, else email).
+  const recipients = await repo.listRecipients(tenantId, contractId);
+  for (const pr of providerStatus.recipients) {
+    const match = recipients.find(
+      (r) => (r.documensoRecipientId && r.documensoRecipientId === pr.externalRecipientId) || r.email === pr.email.toLowerCase(),
+    );
+    if (!match || match.status === pr.status) continue;
+    const patch: Record<string, unknown> = { status: pr.status };
+    if (pr.status === 'signed') patch.signedAt = pr.signedAt ? new Date(pr.signedAt) : new Date();
+    else if (pr.status === 'rejected') patch.rejectedAt = new Date();
+    else if (pr.status === 'viewed' && !match.viewedAt) patch.viewedAt = new Date();
+    await repo.updateRecipient(tenantId, match.id, patch);
+    await appendSystemEvent(tenantId, contractId, `recipient.${pr.status}`, { email: match.email }, { recipientId: match.id });
+  }
+
+  if (providerStatus.status === 'completed') {
+    return completeFromProvider(tenantId, contract, providerStatus.completedAt, externalEventId);
+  }
+
+  // Otherwise derive contract status from recipient rows + provider signal.
+  const fresh = await repo.listRecipients(tenantId, contractId);
+  const derived = computeStatusFromRecipients(fresh.map((r) => ({ status: (r.status ?? 'pending') as 'pending' | 'viewed' | 'signed' | 'rejected' })));
+  const current = contract.status as ContractStatus;
+  let to: ContractStatus | null = null;
+  if (providerStatus.status === 'rejected' || derived === 'REJECTED') to = 'REJECTED';
+  else if (derived === 'PARTIALLY_SIGNED') to = 'PARTIALLY_SIGNED';
+  else if (derived === 'VIEWED') to = 'VIEWED';
+  if (to && to !== current && canTransition(current, to)) {
+    await repo.updateContract(tenantId, contractId, { status: to });
+    await appendSystemEvent(tenantId, contractId, `contract.${to.toLowerCase()}`, {}, { externalEventId });
+    if (to === 'PARTIALLY_SIGNED') {
+      try { await inviteNextSigner(sysCtx(tenantId), contractId); } catch { /* invite is best-effort */ }
+    }
+  }
+  return getContractDetail(sysCtx(tenantId), contractId);
+}
+
+async function completeFromProvider(
+  tenantId: string,
+  contract: ContractRow,
+  completedAt: string | undefined,
+  externalEventId: string | undefined,
+): Promise<ContractDetail> {
+  // Idempotent: already completed + stored → no re-download/re-upload.
+  if (contract.status === 'COMPLETED' && contract.completedFileKey) {
+    return getContractDetail(sysCtx(tenantId), contract.id);
+  }
+  if (contract.status === 'VOIDED') return getContractDetail(sysCtx(tenantId), contract.id);
+
+  const provider = getESignProvider();
+  const docId = contract.documensoDocumentId!;
+  // Download + store BEFORE flipping status, so a storage failure leaves the
+  // contract un-completed and the webhook safely retryable (no false completion).
+  const pdf = await provider.downloadCompletedDocument(docId);
+  const completed = await storeContractArtifact({ tenantId, contractId: contract.id, version: contract.version, artifact: 'completed', buffer: pdf });
+  let auditRef: string | null = null;
+  let auditHash: string | null = null;
+  const cert = await provider.downloadAuditCertificate(docId);
+  if (cert) {
+    const a = await storeContractArtifact({ tenantId, contractId: contract.id, version: contract.version, artifact: 'audit-certificate', buffer: cert });
+    auditRef = a.reference;
+    auditHash = a.hash;
+  }
+  await repo.updateContract(tenantId, contract.id, {
+    status: 'COMPLETED',
+    completedAt: completedAt ? new Date(completedAt) : new Date(),
+    completedFileKey: completed.reference,
+    completedDocumentHash: completed.hash,
+    auditCertificateFileKey: auditRef,
+    auditCertificateHash: auditHash,
+  });
+  await appendSystemEvent(tenantId, contract.id, 'contract.completed', { completedHash: completed.hash, auditHash }, { externalEventId });
+  return getContractDetail(sysCtx(tenantId), contract.id);
+}
+
 // exported for tests/other modules
-export const _internal = { appendEvent, transition, buildRecipientRow, randomId: () => crypto.randomUUID() };
+export const _internal = { appendEvent, transition, buildRecipientRow, appendSystemEvent, randomId: () => crypto.randomUUID() };

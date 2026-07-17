@@ -4,8 +4,8 @@
 
 ## Current status
 - **Branch:** `feat/contracts-esign` (worktree `.claude/worktrees/feat+contracts-esign`, off `origin/main` 1b78a62).
-- **Phase:** P5 — signing + consent (DONE). Next: P6 — webhook + completion.
-- **Next:** P6 — validateDocumensoWebhook, idempotent handler, status re-confirm, download→hash→R2→COMPLETED.
+- **Phase:** P6 — webhook + completion (DONE). Next: P7 — crons (expiry + reminders).
+- **Next:** P7 — expiry sweep + reminder emails wired into src/worker.ts.
 
 ## Completed
 - Discovery (read-only): architecture, tenancy, storage audit, deployment, webhooks, permissions. See
@@ -39,9 +39,16 @@
   + emails the current-turn signer; `inviteNextSigner` for later signers. Tests:
   `contractSigningLink.test.ts` (6), `contractSigning.test.ts` (7).
 
+- P6: `esign.webhook` (HMAC-verify via reused `verifyWebhookSignature`, fail-closed; processed_events
+  idempotency checked-up-front/marked-after-success; **authoritative provider status re-fetch**, never
+  the payload); `esign.service.syncFromProvider`/`completeFromProvider` (recipient sync → download →
+  hash → store → COMPLETED, storage-failure-safe ordering); public `/webhooks/documenso` mount before
+  the auth wall. `contractWebhook.test.ts`: 9 tests covering all 8 scenarios (valid, invalid-auth,
+  duplicate/no-double-upload, unknown-doc, cross-tenant, out-of-order, download-fail retry, storage-fail
+  no-false-complete) + fail-closed.
+
 ## Regression
-- Full suite after P5: **693 passed / 83 files / 0 failures** (admin deps installed → the 2 earlier
-  environmental failures are gone).
+- Full suite after P6: **702 passed / 84 files / 0 failures**.
 
 ## Known verification gaps (not blockers)
 - `DocumensoProvider` endpoint paths + embedded-signing token flow are coded to Documenso's documented
