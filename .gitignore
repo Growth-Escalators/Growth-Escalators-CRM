@@ -8,6 +8,7 @@ wizmatch-railway-env.txt
 .claude/handoffs/
 
 # Generated / regenerated artifacts — should not be committed
+storage/
 .swarm/
 .claude-flow/
 playwright-report/

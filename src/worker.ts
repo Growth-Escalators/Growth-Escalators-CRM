@@ -23,6 +23,7 @@ import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_PERF_MARKETIN
 import { isPaused } from './config/featureFlags';
 import { getWizmatchAutomationStatus, WIZMATCH_STAFFING_REMINDER_CRON } from './services/wizmatchAutomation';
 import { extractErrorCount } from './services/cronErrorExtraction';
+import { expireOverdueContracts, sendSigningReminders } from './modules/esign/esign.jobs';
 
 // True when this file is run directly (`node dist/worker.js`).
 // False when imported by `src/index.ts` so background jobs run inside `web`.
@@ -255,6 +256,10 @@ console.log('[cron] team SOD prompt scheduled — 10:15 AM IST Mon-Sat');
 
 // EOD prompt — 7:00 PM IST (13:30 UTC) in #sod-eod, tags Kanishk/Kratika/Sneha
 cron.schedule('30 13 * * 1-6', () => safeCron('Team EOD Prompt', sendTeamEODPrompt), { timezone: 'UTC' });
+
+// Contracts / e-signature — daily expiry sweep then signing reminders (see src/modules/esign/esign.jobs.ts)
+cron.schedule('20 4 * * *', () => safeCron('Contract Expiry Sweep', async () => { await expireOverdueContracts(); }), { timezone: 'UTC' });
+cron.schedule('40 4 * * *', () => safeCron('Contract Signing Reminders', async () => { await sendSigningReminders(); }), { timezone: 'UTC' });
 console.log('[cron] team EOD prompt scheduled — 7:00 PM IST Mon-Sat');
 
 // Social media posting prompt — 9:30 AM IST (04:00 UTC) in #social-media-posting,

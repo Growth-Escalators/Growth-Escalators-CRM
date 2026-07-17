@@ -38,6 +38,19 @@ const PERMISSION_MAP: Record<string, string[]> = {
   MARKETING_VIEW:      ['admin', 'manager_ads', 'viewer'],
   MARKETING_MANAGE:    ['admin', 'manager_ads'],
   DISCOVERY_VIEW:      ['admin', 'manager_ops', 'team_lead', 'sales', 'viewer'],
+  // Contracts & e-signature module (see src/modules/esign/). Fail-closed like
+  // the rest of the map. SEND/APPROVE/VOID are the money-/legally-sensitive
+  // actions and are the most restricted; VIEW/DOWNLOAD include the read-only viewer.
+  CONTRACTS_VIEW:             ['admin', 'manager_ops', 'team_lead', 'sales', 'viewer'],
+  CONTRACTS_CREATE:           ['admin', 'manager_ops', 'team_lead'],
+  CONTRACTS_EDIT:             ['admin', 'manager_ops', 'team_lead'],
+  CONTRACTS_SEND:             ['admin', 'manager_ops'],
+  CONTRACTS_APPROVE:          ['admin'],
+  CONTRACTS_SIGN:             ['admin', 'manager_ops', 'team_lead'],
+  CONTRACTS_VOID:             ['admin'],
+  CONTRACTS_DOWNLOAD:         ['admin', 'manager_ops', 'team_lead', 'viewer'],
+  CONTRACTS_VIEW_AUDIT:       ['admin', 'manager_ops'],
+  CONTRACTS_MANAGE_TEMPLATES: ['admin'],
 };
 
 // Roles that get admin-tier operational tools (Outreach, AI Intelligence,

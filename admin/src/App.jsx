@@ -10,6 +10,8 @@ const PipelinePage = lazy(() => import('./pages/PipelinePage.jsx'));
 const PipelineManagerPage = lazy(() => import('./pages/PipelineManagerPage.jsx'));
 const EmailTemplatesPage = lazy(() => import('./pages/EmailTemplatesPage.jsx'));
 const BillingPage = lazy(() => import('./pages/BillingPage.jsx'));
+const ContractsPage = lazy(() => import('./pages/ContractsPage.jsx'));
+const SignContractPage = lazy(() => import('./pages/SignContractPage.jsx'));
 const FinancePage = lazy(() => import('./pages/FinancePage.jsx'));
 const PermissionsPage = lazy(() => import('./pages/PermissionsPage.jsx'));
 const AdsPage = lazy(() => import('./pages/AdsPage.jsx'));
@@ -214,6 +216,8 @@ export default function App() {
         <Suspense fallback={<div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh'}}><p>Loading...</p></div>}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            {/* Public signing page — external signers have no CRM login; the token in the URL is the authorization */}
+            <Route path="/sign/:token" element={<SignContractPage />} />
             {import.meta.env.DEV && <Route path="/__qa/query-boundary" element={<QueryBoundaryQaPage />} />}
             <Route path="/dashboard" element={<PrivateRoute><DashboardPage /></PrivateRoute>} />
             <Route path="/contacts" element={<PrivateRoute><ContactsPage /></PrivateRoute>} />
@@ -223,6 +227,7 @@ export default function App() {
             <Route path="/health" element={<Navigate to="/intelligence?tab=health" replace />} />
             <Route path="/emails" element={<PrivateRoute><EmailTemplatesPage /></PrivateRoute>} />
             <Route path="/billing" element={<PrivateRoute><BillingPage /></PrivateRoute>} />
+            <Route path="/contracts" element={<PrivateRoute><ContractsPage /></PrivateRoute>} />
             <Route path="/finance" element={<PrivateRoute><FinancePage /></PrivateRoute>} />
             <Route path="/settings/permissions" element={<PrivateRoute><PermissionsPage /></PrivateRoute>} />
             <Route path="/settings/audit" element={<PrivateRoute><AuditPage /></PrivateRoute>} />
@@ -257,6 +262,7 @@ export default function App() {
             <Route path="/wizmatch/tasks" element={<PrivateRoute><TasksBoardPage /></PrivateRoute>} />
             <Route path="/wizmatch/inbox" element={<PrivateRoute><InboxPage /></PrivateRoute>} />
             <Route path="/wizmatch/billing" element={<PrivateRoute><BillingPage /></PrivateRoute>} />
+            <Route path="/wizmatch/contracts" element={<PrivateRoute><ContractsPage /></PrivateRoute>} />
             <Route path="/wizmatch/finance" element={<PrivateRoute><FinancePage /></PrivateRoute>} />
             <Route path="/wizmatch/emails" element={<PrivateRoute><AppLayout><EmailTemplatesPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/whatsapp-templates" element={<PrivateRoute><WhatsAppTemplatesPage /></PrivateRoute>} />

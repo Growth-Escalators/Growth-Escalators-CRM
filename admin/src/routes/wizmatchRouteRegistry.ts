@@ -38,6 +38,7 @@ export type WizmatchPermissionFlag =
   | 'canSequences'
   | 'canDiscovery'
   | 'canBilling'
+  | 'canContracts'
   | 'isAdmin'
   | 'isAdminTier'
   | 'canStaffing'
@@ -228,6 +229,11 @@ export const WIZMATCH_ROUTES: WizmatchRouteDefinition[] = [
     id: 'more-billing', label: 'Billing', path: '/wizmatch/billing', icon: CreditCard,
     group: 'more.finance', moreSection: 'Finance', permission: 'canBilling',
     breadcrumb: { label: 'Billing' }, legacyAliases: [], searchVisible: true,
+  },
+  {
+    id: 'more-contracts', label: 'Contracts', path: '/wizmatch/contracts', icon: FileText,
+    group: 'more.finance', moreSection: 'Finance', permission: 'canContracts',
+    breadcrumb: { label: 'Contracts' }, legacyAliases: [], searchVisible: true,
   },
   {
     id: 'more-expenses', label: 'Expenses', path: '/wizmatch/finance', icon: Receipt,

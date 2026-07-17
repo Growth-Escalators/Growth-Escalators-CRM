@@ -39,6 +39,7 @@ export const WIZMATCH_SHARED_ROUTE_MAP = {
   '/tasks/v2': '/wizmatch/tasks',
   '/inbox': '/wizmatch/inbox',
   '/billing': '/wizmatch/billing',
+  '/contracts': '/wizmatch/contracts',
   '/finance': '/wizmatch/finance',
   '/emails': '/wizmatch/emails',
   '/whatsapp-templates': '/wizmatch/whatsapp-templates',

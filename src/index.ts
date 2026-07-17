@@ -73,6 +73,9 @@ import tasksRouter from './routes/tasks';
 import taskAttachmentsRouter from './routes/taskAttachments';
 import taskListsRouter from './routes/task-lists';
 import teamRouter from './routes/team';
+import contractsRouter from './modules/esign/esign.routes';
+import contractsPublicRouter from './modules/esign/esign.public.routes';
+import contractsWebhookRouter from './modules/esign/esign.webhook.routes';
 import { requireAuth, requireStrictAuth, optionalAuth, verifyAuthToken } from './middleware/auth';
 import { contactBelongsToTenant } from './services/socketAuth';
 import { requireRole } from './middleware/rbac';
@@ -228,6 +231,7 @@ app.use(shortLinksRouter);
 app.use('/', healthRouter);
 app.use('/api', healthRouter); // alias: /api/health matches the /api/* convention used by external monitors
 app.use('/auth', authRouter);
+app.use('/webhooks/documenso', contractsWebhookRouter); // Documenso e-sign completion webhook (HMAC-verified, public) — before the generic /webhooks mount
 app.use('/webhooks', webhooksRouter);
 app.use('/book', bookingRouter);
 app.use('/api/cashfree', cashfreeRouter);
@@ -279,6 +283,10 @@ app.use('/api/tasks', requireAuth, tasksRouter);
 app.use('/api/tasks', requireAuth, taskAttachmentsRouter);
 app.use('/api/task-lists', requireAuth, taskListsRouter);
 app.use('/api/team', requireAuth, teamRouter);
+// Public signing carve-out MUST be registered before the requireAuth mount below
+// (external signers have no JWT; the token in the path is the authorization).
+app.use('/api/contracts/sign', contractsPublicRouter);
+app.use('/api/contracts', requireAuth, contractsRouter);
 app.use('/api/funnel', funnelRouter);
 app.use('/api/leads', leadsRouter);
 // Wizmatch access model (three lanes, in REGISTRATION-order-matters priority):
