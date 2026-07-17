@@ -2,7 +2,14 @@
 // ONLY on these shapes — never on Documenso's response models — so the signing
 // engine can be swapped (mock ↔ documenso ↔ future) without touching callers.
 
-export type ProviderRecipientRole = 'client_signer' | 'internal_countersigner';
+// Our two signer roles map to Documenso SIGNER; the rest map 1:1 to Documenso's
+// non-signing recipient roles (approver holds completion, cc/viewer never sign).
+export type ProviderRecipientRole =
+  | 'client_signer'
+  | 'internal_countersigner'
+  | 'approver'
+  | 'cc'
+  | 'viewer';
 
 export type ProviderRecipientStatus = 'pending' | 'viewed' | 'signed' | 'rejected';
 

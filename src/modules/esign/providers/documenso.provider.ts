@@ -28,8 +28,22 @@ const NAME = 'documenso';
 const TIMEOUT_MS = 15_000;
 
 function mapRecipientRole(role: ProviderRecipientInput['role']): string {
-  // Documenso recipient roles: SIGNER | APPROVER | CC | VIEWER. Both our roles sign.
-  return role === 'internal_countersigner' ? 'SIGNER' : 'SIGNER';
+  // Documenso recipient roles: SIGNER | APPROVER | CC | VIEWER. Our two signer
+  // roles (client_signer / internal_countersigner) both become SIGNER; the rest
+  // map 1:1. Only SIGNER (and APPROVER) act on the doc; CC/VIEWER just receive it.
+  switch (role) {
+    case 'approver': return 'APPROVER';
+    case 'cc': return 'CC';
+    case 'viewer': return 'VIEWER';
+    default: return 'SIGNER';
+  }
+}
+
+// Documenso only requires — and only accepts — signature fields on SIGNER
+// recipients. Placing a field on an APPROVER/CC/VIEWER is rejected, so field
+// placement is gated on this.
+function roleNeedsSignatureField(role: ProviderRecipientInput['role']): boolean {
+  return mapRecipientRole(role) === 'SIGNER';
 }
 
 function mapDocumentStatus(raw: unknown): ProviderDocumentStatus {
@@ -148,28 +162,32 @@ export class DocumensoProvider implements ESignatureProvider {
     const result = this.mapCreateResult(resp);
     // Documenso's /send returns 400 ("Signers must have at least one signature
     // field") unless every signer has a field. Place a default SIGNATURE field
-    // per recipient so the document is sendable.
-    await this.placeDefaultSignatureFields(result.externalDocumentId, result.recipients);
+    // per SIGNER so the document is sendable — approver/cc/viewer get none.
+    const roleByEmail = new Map(input.recipients.map((r) => [r.email.trim().toLowerCase(), r.role]));
+    await this.placeDefaultSignatureFields(result.externalDocumentId, result.recipients, roleByEmail);
     return result;
   }
 
-  // Default field placement: one SIGNATURE field per recipient on page 1,
-  // staggered vertically so multiple signers don't overlap. (A drag-to-place
+  // Default field placement: one SIGNATURE field per SIGNER recipient on page 1,
+  // staggered vertically so multiple signers don't overlap. APPROVER/CC/VIEWER
+  // recipients are skipped (Documenso rejects fields on them). (A drag-to-place
   // field UI can refine positions later; this is the minimum Documenso needs.)
   private async placeDefaultSignatureFields(
     documentId: string,
-    recipients: Array<{ externalRecipientId: string }>,
+    recipients: Array<{ email: string; externalRecipientId: string }>,
+    roleByEmail: Map<string, ProviderRecipientInput['role']>,
   ): Promise<void> {
     let i = 0;
     for (const r of recipients) {
+      const role = roleByEmail.get(r.email.toLowerCase()) ?? 'client_signer';
       const recipientId = Number(r.externalRecipientId);
-      if (recipientId) {
+      if (recipientId && roleNeedsSignatureField(role)) {
         await this.request(`/api/v1/documents/${encodeURIComponent(documentId)}/fields`, {
           method: 'POST',
           body: { recipientId, type: 'SIGNATURE', pageNumber: 1, pageX: 12, pageY: Math.min(85, 68 + i * 10), pageWidth: 38, pageHeight: 8 },
         });
+        i++; // stagger only the signers that actually receive a field
       }
-      i++;
     }
   }
 

@@ -62,13 +62,16 @@ export interface Ctx {
   role: string;
 }
 
+export type SigningRole = 'client_signer' | 'internal_countersigner' | 'approver' | 'cc' | 'viewer';
+const SIGNING_ROLES: readonly SigningRole[] = ['client_signer', 'internal_countersigner', 'approver', 'cc', 'viewer'];
+
 export interface RecipientInput {
   name: string;
   email: string;
   phone?: string;
   companyName?: string;
   designation?: string;
-  signingRole?: 'client_signer' | 'internal_countersigner';
+  signingRole?: SigningRole;
   signingOrder?: number;
   contactId?: string;
   crmUserId?: string;
@@ -161,6 +164,11 @@ export async function createContract(ctx: Ctx, input: CreateContractInput): Prom
 function buildRecipientRow(ctx: Ctx, contractId: string, r: RecipientInput, index: number): repo.NewRecipientRow {
   if (!r.email?.trim() || !r.name?.trim()) {
     throw new HttpError(400, 'each recipient needs a name and email', 'VALIDATION_ERROR');
+  }
+  // Fail-closed on an unknown role — it flows straight to Documenso as a recipient
+  // role, so a typo must not silently become a signer.
+  if (r.signingRole && !SIGNING_ROLES.includes(r.signingRole)) {
+    throw new HttpError(400, `invalid signingRole "${r.signingRole}"`, 'VALIDATION_ERROR');
   }
   return {
     contractId,
