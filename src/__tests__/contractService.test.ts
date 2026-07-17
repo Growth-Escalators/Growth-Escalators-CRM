@@ -56,6 +56,7 @@ function twoParty() {
 
 let mock: MockESignProvider;
 beforeEach(() => {
+  process.env.CONTRACTS_SIGNING_SECRET = 'test-secret';
   stores.contracts.clear();
   stores.recipients.clear();
   stores.events.length = 0;

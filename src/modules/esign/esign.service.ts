@@ -18,7 +18,26 @@ import { generateContractPdf } from './contract-pdf';
 import { storeContractArtifact, getContractDownloadUrl } from './document-storage.service';
 import { sha256Hex } from './document-hash.service';
 import { getNextContractNumber } from './contract-numbering';
+import { mintSigningToken, hashSigningToken } from './contract-signing-link';
+import { sendTransactionalEmail } from '../../services/emailService';
 import crypto from 'crypto';
+
+function buildSignUrl(token: string): string {
+  const base = (process.env.CRM_BASE_URL || process.env.BASE_URL || process.env.FRONTEND_URL || '').replace(/\/+$/, '');
+  return base ? `${base}/sign/${token}` : `/sign/${token}`;
+}
+
+async function sendSignInvite(recipient: RecipientRow, contract: ContractRow, url: string): Promise<void> {
+  try {
+    const subject = `Please sign: ${contract.title} (${contract.referenceNumber})`;
+    const html = `<p>Hi ${recipient.name},</p><p>You have a document to review and sign: <strong>${contract.title}</strong> (${contract.referenceNumber}).</p><p><a href="${url}">Open and sign the document</a></p><p>This link is unique to you — please do not forward it.</p>`;
+    const text = `Hi ${recipient.name},\n\nPlease review and sign "${contract.title}" (${contract.referenceNumber}):\n${url}\n\nThis link is unique to you — please do not forward it.`;
+    await sendTransactionalEmail(recipient.email, recipient.name, subject, html, text);
+  } catch (err) {
+    // Non-fatal: the contract is sent; a failed invite email can be retried.
+    console.error('[esign] sign-invite email failed', { recipientId: recipient.id, error: (err as Error).message });
+  }
+}
 
 export interface Ctx {
   tenantId: string;
@@ -236,9 +255,32 @@ export async function sendContract(ctx: Ctx, id: string): Promise<ContractDetail
   if (!contract.documensoDocumentId) throw new HttpError(409, 'contract has not been generated', 'CONFLICT');
   const provider = getESignProvider();
   await provider.sendDocument(contract.documensoDocumentId);
-  await transition(ctx, contract, 'SENT', { sentBy: ctx.userId, sentAt: new Date() });
-  await appendEvent(ctx, id, 'contract.sent', {});
+  const sent = await transition(ctx, contract, 'SENT', { sentBy: ctx.userId, sentAt: new Date() });
+
+  // Mint a per-recipient signing link and store its hash (so re-issuing
+  // invalidates old links). Email only the current-turn signer(s); later
+  // signers are invited when their turn comes (on prior completion).
+  const recipients = await repo.listRecipients(ctx.tenantId, id);
+  const minOrder = Math.min(...recipients.map((r) => r.signingOrder ?? 1));
+  for (const r of recipients) {
+    const token = mintSigningToken(id, r.id);
+    await repo.updateRecipient(ctx.tenantId, r.id, { signingTokenHash: hashSigningToken(token) });
+    if ((r.signingOrder ?? 1) === minOrder) await sendSignInvite(r, sent, buildSignUrl(token));
+  }
+  await appendEvent(ctx, id, 'contract.sent', { recipients: recipients.length });
   return getContractDetail(ctx, id);
+}
+
+/** Re-mint + email a signing link to the next unsigned recipient in order (used by reminders / on prior-signer completion). */
+export async function inviteNextSigner(ctx: Ctx, id: string): Promise<void> {
+  const contract = requireFound(await repo.getContract(ctx.tenantId, id));
+  const recipients = await repo.listRecipients(ctx.tenantId, id);
+  const pending = recipients.filter((r) => r.status !== 'signed' && r.status !== 'rejected').sort((a, b) => (a.signingOrder ?? 1) - (b.signingOrder ?? 1));
+  const next = pending[0];
+  if (!next) return;
+  const token = mintSigningToken(id, next.id);
+  await repo.updateRecipient(ctx.tenantId, next.id, { signingTokenHash: hashSigningToken(token) });
+  await sendSignInvite(next, contract, buildSignUrl(token));
 }
 
 // ---- void + clone-to-new-version ----
