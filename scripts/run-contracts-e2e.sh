@@ -54,8 +54,8 @@ done
 curl -sf --max-time 3 "http://localhost:$PORT/health" >/dev/null 2>&1 || { echo "BACKEND NOT HEALTHY:"; tail -20 "$BACKEND_LOG"; exit 1; }
 echo "backend healthy"
 
-echo "== run Playwright =="
-npx playwright test --config=playwright.contracts-local.config.ts
+echo "== run Playwright (${E2E_CONFIG:-playwright.contracts-local.config.ts}) =="
+npx playwright test --config="${E2E_CONFIG:-playwright.contracts-local.config.ts}"
 RESULT=$?
 echo "== playwright exit: $RESULT =="
 exit $RESULT

@@ -50,7 +50,9 @@ export class MockESignProvider implements ESignatureProvider {
 
   private nextId(prefix: string): string {
     this.seq += 1;
-    return `${prefix}_${this.seq}`;
+    // Include randomness so ids are globally unique (like a real provider's UUIDs)
+    // — sequential ids collide across process restarts against a persistent DB.
+    return `${prefix}_${this.seq}_${Math.random().toString(36).slice(2, 8)}`;
   }
 
   private require(externalDocumentId: string): MockDoc {
