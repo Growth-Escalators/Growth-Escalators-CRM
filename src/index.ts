@@ -207,7 +207,7 @@ app.use('/auth', authRouter);
 app.use('/webhooks', webhooksRouter);
 app.use('/book', bookingRouter);
 app.use('/api/cashfree', cashfreeRouter);
-app.use('/api/cashfree', requireStrictAuth, cashfreeAdminRouter); // simulate-webhook + debug-orders (admin-only)
+app.use('/api/cashfree', requireStrictAuth, requireRole('admin'), cashfreeAdminRouter); // simulate-webhook + debug-orders (admin-only)
 
 // ---------------------------------------------------------------------------
 // Protected CRM routes (require JWT)
