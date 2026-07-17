@@ -187,12 +187,17 @@ export const events = pgTable(
     sourceId: text('source_id'),
     occurredAt: timestamp('occurred_at').defaultNow(),
     createdAt: timestamp('created_at').defaultNow(),
+    // Nullable marker stamped once a cron/consumer has handled this event
+    // (e.g. the pipeline-placement cron). Lets scans filter on an indexed
+    // column instead of an ever-growing NOT EXISTS anti-join.
+    processedAt: timestamp('processed_at', { withTimezone: true }),
   },
   (t) => ({
     tenantIdIdx: index('events_tenant_id_idx').on(t.tenantId),
     contactIdIdx: index('events_contact_id_idx').on(t.contactId),
     eventTypeIdx: index('events_event_type_idx').on(t.eventType),
     occurredAtIdx: index('events_occurred_at_idx').on(t.occurredAt),
+    typeProcessedIdx: index('events_type_processed_idx').on(t.eventType, t.processedAt),
   }),
 );
 

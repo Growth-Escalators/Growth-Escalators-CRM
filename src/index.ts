@@ -11,6 +11,7 @@ import helmet from 'helmet';
 import { Server as SocketServer } from 'socket.io';
 // Migrations run via dist/scripts/migrate.js at startup (see railway.json)
 import { pool } from './db/index';
+import { claimBootBackfill } from './services/bootBackfillGuard';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import webhooksRouter from './routes/webhooks';
@@ -573,6 +574,10 @@ async function startServer() {
   // because the webhook was broken and no events were created for past purchases.
   setTimeout(async () => {
     try {
+      if (!(await claimBootBackfill(pool, 'comprehensive-purchase-backfill'))) {
+        console.log('[startup-backfill] Already completed on a prior boot — skipping');
+        return;
+      }
       const { pool: dbPool } = await import('./db/index');
       const { placePipelineContact, ensurePipelineContactsTable } = await import('./services/pipelineService');
 
@@ -684,6 +689,10 @@ async function startServer() {
   // One-time startup: run PageSpeed if site_health_metrics is empty
   setTimeout(async () => {
     try {
+      if (!(await claimBootBackfill(pool, 'initial-pagespeed-check'))) {
+        console.log('[startup] PageSpeed backfill already completed on a prior boot — skipping');
+        return;
+      }
       const { pool: dbPool } = await import('./db/index');
       const r = await dbPool.query(`SELECT COUNT(*)::int AS c FROM site_health_metrics`);
       if ((r.rows[0] as { c: number }).c === 0) {
@@ -698,6 +707,10 @@ async function startServer() {
   // One-time startup: generate programmatic pages if client_pages is empty
   setTimeout(async () => {
     try {
+      if (!(await claimBootBackfill(pool, 'initial-programmatic-seo-pages'))) {
+        console.log('[startup] Programmatic SEO backfill already completed on a prior boot — skipping');
+        return;
+      }
       const { pool: dbPool } = await import('./db/index');
       // Ensure programmatic SEO columns exist on the Drizzle-managed client_pages table
       const { ensureClientPagesTable } = await import('./services/programmaticSeoService');
