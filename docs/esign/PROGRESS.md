@@ -66,8 +66,20 @@
   migration re-confirmed. Wrote ACCEPTANCE.md. Live Documenso (Docker down) + R2-backed
   generate→complete are documented remaining steps (covered by mocked integration tests).
 
+## Post-build: ship + live testing
+- Pushed `feat/contracts-esign`; draft PR #55.
+- E2E affordances (gated, off by default in prod): local-FS storage backend (`CONTRACTS_STORAGE=local`)
+  + authed `GET /:id/file/:artifact` stream route; `ESIGN_MOCK_AUTOSIGN` flag; copy/resend signing-link
+  endpoint (`POST /:id/recipients/:rid/signing-link`) + admin "Copy link" button; signing-token nonce
+  so re-issuing always rotates. 7 new unit tests.
+- **Playwright E2E** (`e2e/contracts.spec.ts`, `playwright.contracts-local.config.ts`,
+  `scripts/run-contracts-e2e.sh`, `src/scripts/seedContractsE2E.ts`): real browser + real backend
+  (mock provider + local storage, seeded growth-escalators admin). **4/4 pass** — full lifecycle
+  create→generate→approve→send→sign(consent+iframe)→COMPLETED(via HMAC webhook)→download(PDF 200),
+  plus countersignature (2 recipients), void→VOIDED, and bad-token error.
+
 ## Regression
-- Full suite: **706 passed / 85 files / 0 failures**; `npm run admin:build` green.
+- Full unit suite: **713 passed / 86 files / 0 failures**; `npm run admin:build` green; Playwright 4/4.
 
 ## Known verification gaps (not blockers)
 - `DocumensoProvider` endpoint paths + embedded-signing token flow are coded to Documenso's documented
