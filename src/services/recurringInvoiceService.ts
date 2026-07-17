@@ -5,7 +5,11 @@ import { getNextInvoiceNumber } from './invoiceNumberService';
 import { amountInWords } from './amountInWordsService';
 import { COMPANY_GSTIN } from '../config/constants';
 
-function calculateTax(
+// Exported so tests exercise the real tax calculation instead of a copy
+// (see the review's M2 finding — billing.test.ts previously re-implemented
+// this function inline, so a real change here could break production GST
+// math while every test stayed green).
+export function calculateTax(
   subtotalPaise: number,
   taxType: 'igst' | 'cgst_sgst' | null,
 ): {
@@ -44,9 +48,16 @@ export async function generateMonthlyDraftInvoices(
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
     const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
 
+    // Scoped to invoices THIS cron created (is_recurring=true) and still
+    // live (not cancelled) — previously matched ANY invoice in the month,
+    // so a manual one-off (e.g. a setup-fee invoice) raised for the client
+    // silently blocked that month's retainer draft from ever being
+    // generated, and a cancelled draft permanently blocked regeneration.
     const existing = await db.execute(sql`
       SELECT id FROM invoices
       WHERE client_id = ${client.id}
+        AND is_recurring = true
+        AND status != 'cancelled'
         AND invoice_date >= ${monthStart.toISOString()}
         AND invoice_date <= ${monthEnd.toISOString()}
       LIMIT 1
@@ -56,12 +67,23 @@ export async function generateMonthlyDraftInvoices(
 
     try {
       const invoiceType = client.isGst ? 'gst' : 'non_gst';
+      // Only apply a tax type to actually-GST clients — a stale taxType left
+      // over from before a client switched to non-GST previously still
+      // produced tax lines on a "non_gst" invoice, charging GST on a
+      // document that shouldn't carry any.
+      const effectiveTaxType = client.isGst ? (client.taxType as 'igst' | 'cgst_sgst' | null) : null;
       const { number, series, financialYear } = await getNextInvoiceNumber(tenantId, invoiceType);
 
       const subtotal = client.retainerAmount;
-      const tax = calculateTax(subtotal, client.taxType as 'igst' | 'cgst_sgst' | null);
+      const tax = calculateTax(subtotal, effectiveTaxType);
 
-      const invoiceDate = new Date(today.getFullYear(), today.getMonth(), client.invoiceDayOfMonth ?? 1);
+      // Clamp the configured billing day to the actual length of this
+      // month — new Date(y, m, 31) silently rolls into next month on a
+      // 30-day month (e.g. April), which both mis-dates the invoice and
+      // makes the dedup check above look at the wrong month on the next run.
+      const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+      const invoiceDay = Math.min(client.invoiceDayOfMonth ?? 1, daysInMonth);
+      const invoiceDate = new Date(today.getFullYear(), today.getMonth(), invoiceDay);
       const dueDate = new Date(invoiceDate);
       dueDate.setDate(dueDate.getDate() + 15);
 
@@ -90,7 +112,7 @@ export async function generateMonthlyDraftInvoices(
         clientState: client.state,
         clientStateCode: client.stateCode,
         companyGstin: COMPANY_GSTIN,
-        taxType: client.taxType,
+        taxType: effectiveTaxType,
         serviceDescription: client.serviceDescription,
         sacCode: client.sacCode ?? '9983',
         isRecurring: true,

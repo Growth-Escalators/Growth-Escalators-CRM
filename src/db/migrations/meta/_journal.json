@@ -211,6 +211,13 @@
       "when": 1784014403920,
       "tag": "0029_premium_shape",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1784244682031,
+      "tag": "0030_stiff_sheva_callister",
+      "breakpoints": true
     }
   ]
 }
