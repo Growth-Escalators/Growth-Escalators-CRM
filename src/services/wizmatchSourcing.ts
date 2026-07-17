@@ -9,6 +9,7 @@ import {
   classifyPocResult,
   getSearchApiRunUsage,
   normalizePocRoles,
+  SearchApiRequestError,
   searchPublicWeb,
   type PocRole,
 } from './wizmatchSearchApi';
@@ -38,6 +39,64 @@ export interface SignalIngestResult {
 }
 
 type Queryable = { query: (text: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number | null }> };
+
+export type PocDiscoveryFailure = {
+  status: number;
+  error: string;
+  code: string;
+  retryable: boolean;
+  retryAfterSeconds: number | null;
+};
+
+export class PocDiscoveryError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly retryable = false,
+    public readonly retryAfterSeconds: number | null = null,
+  ) {
+    super(message);
+    this.name = 'PocDiscoveryError';
+  }
+}
+
+export function describePocDiscoveryFailure(error: unknown): PocDiscoveryFailure {
+  if (error instanceof PocDiscoveryError) {
+    return {
+      status: error.code === 'poc_retry_cooldown' ? 429 : 409,
+      error: error.message,
+      code: error.code,
+      retryable: error.retryable,
+      retryAfterSeconds: error.retryAfterSeconds,
+    };
+  }
+  if (error instanceof SearchApiRequestError) {
+    return {
+      status: error.code === 'provider_timeout' ? 504 : error.status === 429 ? 429 : error.retryable ? 503 : 409,
+      error: error.code === 'provider_timeout'
+        ? 'POC research timed out before the provider returned evidence.'
+        : error.code === 'provider_rate_limited'
+          ? 'POC research is temporarily rate limited.'
+          : error.retryable
+            ? 'POC research provider is temporarily unavailable.'
+            : 'POC research could not be completed.',
+      code: error.code,
+      retryable: error.retryable,
+      retryAfterSeconds: error.retryAfterSeconds,
+    };
+  }
+  const message = error instanceof Error ? error.message : '';
+  if (/allowance reached/i.test(message)) {
+    return { status: 429, error: 'The shared POC research allowance has been reached.', code: 'provider_allowance_reached', retryable: false, retryAfterSeconds: null };
+  }
+  if (message === 'POC discovery is disabled') {
+    return { status: 403, error: message, code: 'poc_discovery_disabled', retryable: false, retryAfterSeconds: null };
+  }
+  if (message === 'Signal company was not found') {
+    return { status: 404, error: message, code: 'signal_company_not_found', retryable: false, retryAfterSeconds: null };
+  }
+  return { status: 409, error: 'POC discovery could not be completed.', code: 'poc_discovery_failed', retryable: true, retryAfterSeconds: 60 };
+}
 
 function enabled(value: string | undefined) {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
@@ -287,6 +346,7 @@ export async function discoverFreePocsForSignal(tenantId: string, signalId: stri
   );
   if (!signal.rows[0]) throw new Error('Signal company was not found');
   const run = await createSourceRun({ tenantId, provider: 'poc_discovery', companyId: signal.rows[0].company_id, requestedBy: userId, query: { signalId } });
+  let searchApiAttempted = false;
   try {
     const intelligence = await pool.query(
       `INSERT INTO wizmatch_company_intelligence (tenant_id,company_id,status,review_status,last_qualified_at,created_at,updated_at)
@@ -324,8 +384,25 @@ export async function discoverFreePocsForSignal(tenantId: string, signalId: stri
         [tenantId, signal.rows[0].company_id],
       );
       if (!recent.rows.length) {
+        const failedCooldown = await pool.query(
+          `SELECT GREATEST(1,CEIL(EXTRACT(EPOCH FROM (created_at+INTERVAL '10 minutes'-NOW())))::int) AS retry_after_seconds
+           FROM wizmatch_source_runs
+           WHERE tenant_id=$1 AND provider='poc_discovery' AND company_id=$2 AND status='failed' AND quota_consumed>0
+             AND created_at>NOW()-INTERVAL '10 minutes'
+           ORDER BY created_at DESC LIMIT 1`,
+          [tenantId, signal.rows[0].company_id],
+        );
+        if (failedCooldown.rows.length) {
+          throw new PocDiscoveryError(
+            'poc_retry_cooldown',
+            'POC research recently failed for this company. Retry after the cooldown.',
+            true,
+            Number(failedCooldown.rows[0].retry_after_seconds) || 600,
+          );
+        }
         const usage = await getSearchApiRunUsage(tenantId);
         assertSearchApiAllowance(usage, { daily: config.searchApiDailyCap, monthly: config.searchApiMonthlyCap });
+        searchApiAttempted = true;
         const publicResults = await searchPublicWeb(buildPocSearchQuery(signal.rows[0].company_name, signal.rows[0].domain, pocRoles));
         searchApiUsed = true;
         for (const result of publicResults) {
@@ -385,7 +462,11 @@ export async function discoverFreePocsForSignal(tenantId: string, signalId: stri
     });
     return { state, candidatesFound: cappedCandidates.length, existingRelationships: 0, inserted, duplicates, searchApiUsed };
   } catch (error) {
-    await finishSourceRun(run.id, tenantId, { status: 'failed', errorMessage: error instanceof Error ? error.message : 'POC discovery failed' });
+    await finishSourceRun(run.id, tenantId, {
+      status: error instanceof PocDiscoveryError && error.code === 'poc_retry_cooldown' ? 'blocked' : 'failed',
+      quotaConsumed: searchApiAttempted ? 1 : 0,
+      errorMessage: describePocDiscoveryFailure(error).code,
+    });
     throw error;
   }
 }

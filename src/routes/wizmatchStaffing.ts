@@ -121,6 +121,11 @@ router.get('/staffing/contacts', async (req, res) => {
   catch (error) { return handle(error, res); }
 });
 
+router.get('/staffing/hiring-contacts', async (req, res) => {
+  try { const current = requireRelationshipRole(req); return res.json({ items: await wizmatchStaffingService.listHiringContacts(current.tenantId, String(req.query.search ?? '')) }); }
+  catch (error) { return handle(error, res); }
+});
+
 router.get('/staffing/companies/:companyId', async (req, res) => {
   try { const current = requireRelationshipRole(req); return res.json(await wizmatchStaffingService.getCompany360(current.tenantId, req.params.companyId)); }
   catch (error) { return handle(error, res); }
