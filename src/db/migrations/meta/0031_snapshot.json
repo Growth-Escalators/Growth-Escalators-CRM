@@ -1,6 +1,6 @@
 {
-  "id": "06e46d1f-c29d-433d-9661-5dbc3b549ea6",
-  "prevId": "d4c61afa-2132-4ba2-9122-d9d4a64ece88",
+  "id": "1732b41a-0ea7-4e66-9a5f-c750804ceb2a",
+  "prevId": "06e46d1f-c29d-433d-9661-5dbc3b549ea6",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2581,6 +2581,12 @@
           "primaryKey": false,
           "notNull": false,
           "default": "now()"
+        },
+        "processed_at": {
+          "name": "processed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -2634,6 +2640,27 @@
           "columns": [
             {
               "expression": "occurred_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "events_type_processed_idx": {
+          "name": "events_type_processed_idx",
+          "columns": [
+            {
+              "expression": "event_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "processed_at",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -3167,35 +3194,7 @@
           "default": "now()"
         }
       },
-      "indexes": {
-        "invoice_series_tenant_type_fy_uniq_idx": {
-          "name": "invoice_series_tenant_type_fy_uniq_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "series_type",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "financial_year",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
         "invoice_series_tenant_id_tenants_id_fk": {
           "name": "invoice_series_tenant_id_tenants_id_fk",

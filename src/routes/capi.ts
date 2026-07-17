@@ -1,6 +1,6 @@
 import logger from '../utils/logger';
 import { Router } from 'express';
-import { desc, like, eq } from 'drizzle-orm';
+import { and, desc, like, eq } from 'drizzle-orm';
 import { db, events, contacts, tenants } from '../db/index';
 import { sendCapiEvent } from '../services/metaCapi';
 
@@ -17,7 +17,7 @@ router.get('/status', async (req, res) => {
     const recentEvents = await db
       .select()
       .from(events)
-      .where(like(events.eventType, 'capi_%'))
+      .where(and(eq(events.tenantId, tenantId), like(events.eventType, 'capi_%')))
       .orderBy(desc(events.createdAt))
       .limit(10);
 

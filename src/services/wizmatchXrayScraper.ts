@@ -17,6 +17,7 @@ import { findOrCreateContact } from './contactService';
 import logger from '../utils/logger';
 import { createSourceRun, finishSourceRun, getWizmatchSourcingConfig } from './wizmatchSourcing';
 import { assertSearchApiAllowance, getSearchApiRunUsage, searchPublicWeb } from './wizmatchSearchApi';
+import { extractCanonicalSkillKeywords } from './wizmatchSkillExtraction';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -39,6 +40,40 @@ interface XrayResult {
   candidates_created: number;
   skipped_exists: number;
   errors: number;
+}
+
+export function normalizeLinkedInProfileUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (!/(^|\.)linkedin\.com$/i.test(url.hostname) || !url.pathname.toLowerCase().startsWith('/in/')) return null;
+    url.protocol = 'https:';
+    url.hostname = 'www.linkedin.com';
+    url.search = '';
+    url.hash = '';
+    url.pathname = url.pathname.replace(/\/+$/, '');
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return null;
+  }
+}
+
+export function normalizeXrayResultLimit(value: unknown = 3): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 10) throw new RangeError('maxResults must be an integer from 1 to 10');
+  return parsed;
+}
+
+export function capLinkedInProfileResults(results: SerpResult[], maxResults: number, seen = new Set<string>()): SerpResult[] {
+  const limit = normalizeXrayResultLimit(maxResults);
+  return results
+    .map((result) => ({ ...result, link: normalizeLinkedInProfileUrl(result.link) }))
+    .filter((result): result is SerpResult => Boolean(result.link))
+    .filter((result) => {
+      if (seen.has(result.link)) return false;
+      seen.add(result.link);
+      return true;
+    })
+    .slice(0, limit);
 }
 
 // ── Search templates ─────────────────────────────────────────────────────────
@@ -112,20 +147,6 @@ const XRAY_QUERIES: XrayQuery[] = WIZMATCH_INDIA_ONLY ? INDIA_XRAY_QUERIES : GLO
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const SKILL_KEYWORDS = [
-  'java', 'python', 'react', 'node', '.net', 'c#', 'javascript', 'typescript',
-  'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'devops', 'spring', 'django',
-  'flask', 'vue', 'angular', 'sql', 'postgres', 'mongodb', 'redis', 'kafka',
-  'spark', 'airflow', 'tensorflow', 'pytorch', 'machine learning', 'data engineer',
-  'full stack', 'frontend', 'backend', 'mobile', 'ios', 'android', 'swift',
-  'kotlin', 'go', 'rust', 'scala', 'ruby', 'php', 'laravel', 'salesforce',
-];
-
-function extractSkillsFromText(text: string): string[] {
-  const lower = text.toLowerCase();
-  return SKILL_KEYWORDS.filter((skill) => lower.includes(skill));
-}
-
 function extractLocationFromQuery(query: XrayQuery): string | null {
   const match = query.q.match(/"([^"]+)"[^"]*$/);
   // Try to find the location between the last two quoted strings
@@ -179,7 +200,7 @@ export function buildReviewedRequirementXraySearch(input: {
 export async function runXrayScrape(
   maxQueries = 3,
   adhocQuery?: { skill: string; location: string; query?: XrayQuery },
-  context: { requirementId?: string | null; requestedBy?: string | null } = {},
+  context: { requirementId?: string | null; requestedBy?: string | null; maxResults?: number } = {},
 ): Promise<XrayResult> {
   const tenantId = process.env.WIZMATCH_TENANT_ID;
   const searchApiKey = process.env.SEARCHAPI_API_KEY;
@@ -194,9 +215,31 @@ export async function runXrayScrape(
     return { queries_run: 0, candidates_found: 0, candidates_created: 0, skipped_exists: 0, errors: 0 };
   }
 
-  const sourceRun = context.requirementId
-    ? await createSourceRun({ tenantId, provider: 'xray', requirementId: context.requirementId, requestedBy: context.requestedBy, query: adhocQuery || {} })
-    : null;
+  // The daily cron called this function directly with no allowance check at
+  // all (only the recruiter-triggered runRequirementXray path checked the
+  // cap, before calling in here). Checked here too so every caller —
+  // present and future — respects the cap, not just the one that happens
+  // to remember to check first.
+  const config = getWizmatchSourcingConfig();
+  const usage = await getSearchApiRunUsage(tenantId);
+  try {
+    assertSearchApiAllowance(usage, { daily: config.searchApiDailyCap, monthly: config.searchApiMonthlyCap });
+  } catch (e) {
+    logger.warn('[wizmatch-xray] SearchAPI allowance reached — skipping run:', e instanceof Error ? e.message : String(e));
+    return { queries_run: 0, candidates_found: 0, candidates_created: 0, skipped_exists: 0, errors: 0 };
+  }
+
+  // Always create a source_run row — including the daily cron path, which
+  // previously passed no requirementId and so recorded nothing at all here.
+  // getSearchApiRunUsage() sums quota_consumed from this table, so those ~3
+  // credits/day were invisible to the cost cap: the cron could keep running
+  // indefinitely after the account's SearchAPI allowance was actually
+  // exhausted, since nothing it did ever counted against the check other
+  // callers rely on.
+  const sourceRun = await createSourceRun({
+    tenantId, provider: 'xray', trigger: adhocQuery ? 'manual' : 'scheduled',
+    requirementId: context.requirementId ?? null, requestedBy: context.requestedBy, query: adhocQuery || {},
+  });
 
   let todayQueries: XrayQuery[];
   if (adhocQuery) {
@@ -217,22 +260,24 @@ export async function runXrayScrape(
   let totalCreated = 0;
   let skippedExists = 0;
   let totalErrors = 0;
+  const maxResults = normalizeXrayResultLimit(context.maxResults ?? 3);
+  const seenProfileUrls = new Set<string>();
 
   for (const search of todayQueries) {
+    const remaining = maxResults - totalFound;
+    if (remaining <= 0) break;
     try {
-      const results = await searchPublicWeb(search.q) as SerpResult[];
+      const results = capLinkedInProfileResults(await searchPublicWeb(search.q, { count: remaining }) as SerpResult[], remaining, seenProfileUrls);
 
       totalFound += results.length;
 
       for (const result of results) {
         try {
-          // Must be a LinkedIn profile URL
-          if (!result.link.includes('linkedin.com/in/')) continue;
-
-          // Check if candidate already exists (by LinkedIn URL)
+          // Check if candidate already exists (by LinkedIn URL, normalised)
           const existing = await pool.query(
             `SELECT id FROM wizmatch_candidates
-             WHERE tenant_id = $1 AND linkedin_url = $2`,
+             WHERE tenant_id = $1
+               AND REGEXP_REPLACE(LOWER(SPLIT_PART(linkedin_url,'?',1)),'/$','') = LOWER($2)`,
             [tenantId, result.link],
           ).catch(() => ({ rows: [] }));
 
@@ -246,7 +291,7 @@ export async function runXrayScrape(
 
           // Extract skills from snippet + title
           const combinedText = `${result.title} ${result.snippet}`;
-          const skills = [...new Set([...search.skills, ...extractSkillsFromText(combinedText)])];
+          const skills = [...new Set([...search.skills, ...extractCanonicalSkillKeywords(combinedText)])];
           const location = extractLocationFromQuery(search);
 
           // We don't have an email from X-ray — create contact with LinkedIn URL only
@@ -293,12 +338,10 @@ export async function runXrayScrape(
     if (todayQueries.length > 1) await new Promise((r) => setTimeout(r, 1000));
   }
 
-  if (sourceRun) {
-    await finishSourceRun(sourceRun.id, tenantId, {
-      status: totalErrors ? 'partial' : 'succeeded', fetched: totalFound, inserted: totalCreated,
-      updated: 0, duplicates: skippedExists, rejected: 0, errors: totalErrors, quotaConsumed: todayQueries.length,
-    });
-  }
+  await finishSourceRun(sourceRun.id, tenantId, {
+    status: totalErrors ? 'partial' : 'succeeded', fetched: totalFound, inserted: totalCreated,
+    updated: 0, duplicates: skippedExists, rejected: 0, errors: totalErrors, quotaConsumed: todayQueries.length,
+  });
 
   logger.info(
     `[wizmatch-xray] Scraped ${todayQueries.length} queries: ${totalFound} results found, ${totalCreated} candidates created, ${skippedExists} already existed, ${totalErrors} errors`,
@@ -313,7 +356,7 @@ export async function runXrayScrape(
   };
 }
 
-export async function runRequirementXray(tenantId: string, requirementId: string, requestedBy: string) {
+export async function runRequirementXray(tenantId: string, requirementId: string, requestedBy: string, maxResults = 3) {
   if (tenantId !== process.env.WIZMATCH_TENANT_ID) throw new Error('X-Ray tenant is not configured');
   const config = getWizmatchSourcingConfig();
   if (!config.xrayEnabled) throw new Error('Requirement-first X-Ray is disabled or not configured');
@@ -348,5 +391,9 @@ export async function runRequirementXray(tenantId: string, requirementId: string
     workMode: requirement.rows[0].work_mode,
     minExperience: requirement.rows[0].min_experience,
   });
-  return runXrayScrape(1, { skill: skills[0], location: requirement.rows[0].location || 'India', query }, { requirementId, requestedBy });
+  return runXrayScrape(
+    1,
+    { skill: skills[0], location: requirement.rows[0].location || 'India', query },
+    { requirementId, requestedBy, maxResults: normalizeXrayResultLimit(maxResults) },
+  );
 }

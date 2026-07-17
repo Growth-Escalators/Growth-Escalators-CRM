@@ -682,15 +682,28 @@ export const payments = pgTable('payments', {
 // ---------------------------------------------------------------------------
 // TABLE 26 — invoice_series
 // ---------------------------------------------------------------------------
-export const invoiceSeries = pgTable('invoice_series', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
-  seriesType: text('series_type').notNull(), // 'gst' | 'non_gst'
-  financialYear: text('financial_year').notNull(),
-  lastNumber: integer('last_number').default(0),
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at').defaultNow(),
-});
+export const invoiceSeries = pgTable(
+  'invoice_series',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    seriesType: text('series_type').notNull(), // 'gst' | 'non_gst'
+    financialYear: text('financial_year').notNull(),
+    lastNumber: integer('last_number').default(0),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (t) => ({
+    // invoiceNumberService's getNextInvoiceNumber() upserts via
+    // ON CONFLICT (tenant_id, series_type, financial_year) — that target
+    // constraint did not exist until this migration, so the upsert either
+    // relied on an untracked hand-added index in prod, or every invoice
+    // creation was one Postgres error away from failing outright, or (worst
+    // case) concurrent invoice creations could both insert a fresh row and
+    // produce duplicate GST serial numbers on real legal documents.
+    tenantTypeYearUniq: uniqueIndex('invoice_series_tenant_type_fy_uniq_idx').on(t.tenantId, t.seriesType, t.financialYear),
+  }),
+);
 
 // ---------------------------------------------------------------------------
 // TABLE 27 — social_accounts

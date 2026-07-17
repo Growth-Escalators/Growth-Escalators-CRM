@@ -1,17 +1,16 @@
 import logger from '../utils/logger';
 import { Router, type Request, type Response } from 'express';
-import { eq, and, desc, inArray } from 'drizzle-orm';
+import { eq, and, desc, inArray, sql } from 'drizzle-orm';
 import { db } from '../db/index';
 import {
   discoverySearches,
   discoveryResults,
   discoveryApiUsage,
   contacts,
-  contactChannels,
-  tenants,
 } from '../db/schema';
 import ExcelJS from 'exceljs';
 import { insertOutreachLead } from '../services/outreachLeadsService';
+import { findOrCreateContact } from '../services/contactService';
 
 const router = Router();
 
@@ -119,41 +118,32 @@ function checkRateLimit(tenantId: string): boolean {
   return true;
 }
 
-/** Update or insert monthly API usage record */
-async function trackApiUsage(
+/**
+ * Update or insert monthly API usage record — a single atomic upsert (the
+ * table already has a unique index on tenantId+monthYear). The previous
+ * select-then-write version read costUsd, computed the new total in JS, then
+ * wrote it back: two searches finishing concurrently could both read the
+ * same starting value and the slower write would clobber the faster one,
+ * silently losing tracked spend against the $200/mo budget guard.
+ * Exported for direct unit testing.
+ */
+export async function trackApiUsage(
   tenantId: string,
   calls: number,
   costUsd: number,
 ): Promise<void> {
   const monthYear = currentMonthYear();
-  const existing = await db
-    .select()
-    .from(discoveryApiUsage)
-    .where(
-      and(
-        eq(discoveryApiUsage.tenantId, tenantId),
-        eq(discoveryApiUsage.monthYear, monthYear),
-      ),
-    )
-    .limit(1);
-
-  if (existing.length > 0) {
-    await db
-      .update(discoveryApiUsage)
-      .set({
-        apiCalls: (existing[0].apiCalls ?? 0) + calls,
-        costUsd: String(parseFloat(existing[0].costUsd ?? '0') + costUsd),
+  await db
+    .insert(discoveryApiUsage)
+    .values({ tenantId, monthYear, apiCalls: calls, costUsd: String(costUsd) })
+    .onConflictDoUpdate({
+      target: [discoveryApiUsage.tenantId, discoveryApiUsage.monthYear],
+      set: {
+        apiCalls: sql`${discoveryApiUsage.apiCalls} + ${calls}`,
+        costUsd: sql`${discoveryApiUsage.costUsd}::numeric + ${costUsd}`,
         updatedAt: new Date(),
-      })
-      .where(eq(discoveryApiUsage.id, existing[0].id));
-  } else {
-    await db.insert(discoveryApiUsage).values({
-      tenantId,
-      monthYear,
-      apiCalls: calls,
-      costUsd: String(costUsd),
+      },
     });
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -218,13 +208,19 @@ router.post('/', async (req: Request, res: Response) => {
     })
     .returning();
 
+  // Hoisted above the try block so the catch handler below can still count
+  // any Google Places calls already made (and billed) toward the monthly
+  // cap even when the search fails partway through — previously a mid-search
+  // failure discarded the search record without ever calling
+  // trackApiUsage(), silently un-counting real, already-billed API spend
+  // against the $200/mo budget guard.
+  let totalApiCalls = 0;
+  let totalCost = 0;
+
   try {
     // --- Phase 1: Text Search (collect place IDs + basic data) ---
     const fullQuery = encodeURIComponent(`${query} ${location}`);
     const textSearchUrl = `${PLACES_API_BASE}/textsearch/json?query=${fullQuery}&radius=${radiusMeters}&key=${apiKey}`;
-
-    let totalApiCalls = 0;
-    let totalCost = 0;
 
     const rawPlaces: Array<{
       place_id: string;
@@ -357,6 +353,15 @@ router.post('/', async (req: Request, res: Response) => {
     });
   } catch (err) {
     logger.error('[discover] search error:', err);
+    // Any Google Places calls made before the failure were already billed —
+    // count them against the monthly cap even though this search failed, so
+    // a mid-search error can't be used (accidentally or repeatedly) to spend
+    // API budget the cap never sees.
+    if (totalApiCalls > 0) {
+      await trackApiUsage(tenantId, totalApiCalls, totalCost).catch((trackErr) => {
+        logger.error('[discover] failed to track partial API usage after search error:', trackErr);
+      });
+    }
     // Clean up empty search record
     await db.delete(discoverySearches).where(eq(discoverySearches.id, search.id));
     return res.status(500).json({ error: String(err) });
@@ -463,61 +468,51 @@ router.post('/import', async (req: Request, res: Response) => {
     const imported: string[] = [];
     const skipped: string[] = [];
 
-    // Get the tenant ID for import (use the first tenant for now)
-    const tenantRows = await db
-      .select({ id: tenants.id })
-      .from(tenants)
-      .limit(1);
-    const tId = tenantRows[0]?.id ?? tenantId;
-
     for (const row of rows) {
       if (row.imported) {
         skipped.push(row.id);
         continue;
       }
 
-      // Create contact
+      // Routed through findOrCreateContact (not a raw insert) so this import
+      // gets the same tenant-scoped dedup, phone normalization, and
+      // (channel_type, channel_value) uniqueness every other contact-write
+      // path relies on — a raw insert here previously created a fresh
+      // duplicate contact even when the same company/phone already existed
+      // in the CRM under a differently-formatted number.
       const nameParts = row.companyName.split(' ');
-      const [newContact] = await db
-        .insert(contacts)
-        .values({
-          tenantId: tId,
-          firstName: nameParts[0] ?? row.companyName,
-          lastName: nameParts.slice(1).join(' ') || undefined,
-          companyName: row.companyName,
-          source: 'lead_discovery',
-          sourceDetail: `Google Places — ${row.address ?? ''}`,
-          assignedTo,
-          status: 'lead',
-          tags: ['discovery'],
-          metadata: {
-            placeId: row.placeId,
-            address: row.address,
-            rating: row.rating,
-            reviewCount: row.reviewCount,
-            fitScore: row.fitScore,
-          },
-        })
-        .returning();
+      const channels = row.phoneNumber
+        ? [{ channelType: 'phone', channelValue: row.phoneNumber, isPrimary: true }]
+        : [];
 
-      // Add phone channel if available
-      if (row.phoneNumber) {
-        await db.insert(contactChannels).values({
-          tenantId: tId,
-          contactId: newContact.id,
-          channelType: 'phone',
-          channelValue: row.phoneNumber,
-          isPrimary: true,
-        }).onConflictDoNothing();
-      }
+      const { contact: newContact, created } = await findOrCreateContact(tenantId, {
+        firstName: nameParts[0] ?? row.companyName,
+        lastName: nameParts.slice(1).join(' ') || undefined,
+        companyName: row.companyName,
+        source: 'lead_discovery',
+        sourceDetail: `Google Places — ${row.address ?? ''}`,
+        tags: ['discovery'],
+        metadata: {
+          placeId: row.placeId,
+          address: row.address,
+          rating: row.rating,
+          reviewCount: row.reviewCount,
+          fitScore: row.fitScore,
+          ...(row.websiteUrl ? { websiteUrl: row.websiteUrl } : {}),
+        },
+        channels,
+      });
 
-      // Add website as metadata
-      if (row.websiteUrl) {
-        await db
-          .update(contacts)
-          .set({ metadata: { ...(newContact.metadata as Record<string, unknown> ?? {}), websiteUrl: row.websiteUrl } })
-          .where(eq(contacts.id, newContact.id));
-      }
+      // findOrCreateContact only sets classification (companyName/tags/
+      // metadata) on CREATE, and never touches assignedTo/lastActivityAt —
+      // this always bumps lastActivityAt (the CRM sorts by it; see the
+      // load-bearing contact-write invariant in CLAUDE.md/AGENTS.md), and
+      // only sets status on a fresh contact so re-discovering an existing
+      // lead can't silently reset a won/qualified contact back to 'lead'.
+      await db
+        .update(contacts)
+        .set({ assignedTo, status: created ? 'lead' : undefined, lastActivityAt: new Date(), updatedAt: new Date() })
+        .where(eq(contacts.id, newContact.id));
 
       // Mark result as imported
       await db
