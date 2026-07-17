@@ -73,15 +73,33 @@ async function fetchOverdueTasksForUser(userId: string): Promise<OverdueTask[]> 
   }
 }
 
-// In-memory daily dedup: taskId+date → true
-const alertedToday = new Map<string, boolean>();
-let lastResetDate = '';
-
-function resetIfNewDay() {
-  const today = new Date().toISOString().split('T')[0];
-  if (today !== lastResetDate) {
-    alertedToday.clear();
-    lastResetDate = today;
+// Daily dedup was previously an in-memory Map, cleared on every process
+// restart — on a heavy-deploy day the same blocker re-pinged after every
+// deploy. It also computed "today" via toISOString() (UTC), so the day
+// boundary silently flipped at 05:30 IST instead of local midnight. Both
+// are fixed by persisting the dedup check against the events table (which
+// logAlertSent below already writes to on every alert, but — until now —
+// never read back): a task already alerted on the current IST calendar
+// date is skipped, computed in Postgres so the IST conversion is exact
+// regardless of server timezone.
+async function alreadyAlertedTodayIST(tenantId: string, taskId: string): Promise<boolean> {
+  try {
+    const result = await db.execute(sql`
+      SELECT 1 FROM events
+      WHERE tenant_id = ${tenantId} AND event_type = 'blocker_alert_sent'
+        AND payload->>'taskId' = ${taskId}
+        AND (created_at AT TIME ZONE 'Asia/Kolkata')::date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+      LIMIT 1
+    `);
+    return result.rows.length > 0;
+  } catch (e) {
+    // Fail OPEN (treat as "not yet alerted today") on a query error — this
+    // is a Slack notification, not a security control, and an occasional
+    // duplicate ping is far cheaper than a genuinely blocked task silently
+    // going unmentioned because a transient DB blip happened to coincide
+    // with the daily check.
+    logger.error('[blockers] dedup check failed — will still attempt to alert:', e);
+    return false;
   }
 }
 
@@ -111,8 +129,8 @@ async function logAlertSent(taskId: string, taskName: string, assigneeName: stri
 
 export async function checkAndAlertBlockers(): Promise<{ checked: number; alerted: number; skipped: number }> {
   console.log('[blockers] starting check…');
-  resetIfNewDay();
 
+  const tenantId = await getTenantId();
   const team = await getTeamMembers();
   const allOverdue: Array<{ task: OverdueTask; member: TeamMember }> = [];
 
@@ -136,8 +154,7 @@ export async function checkAndAlertBlockers(): Promise<{ checked: number; alerte
   let skipped = 0;
 
   for (const { task, member } of allOverdue) {
-    const dedupKey = `${task.id}_${lastResetDate}`;
-    if (alertedToday.has(dedupKey)) { skipped++; continue; }
+    if (tenantId && await alreadyAlertedTodayIST(tenantId, task.id)) { skipped++; continue; }
 
     let tagLine = `<@${JATIN_SLACK}>`;
     if (member.slackId !== JATIN_SLACK) {
@@ -162,7 +179,6 @@ export async function checkAndAlertBlockers(): Promise<{ checked: number; alerte
       await sendSlackDM(JATIN_SLACK, dmMsg);
     }
 
-    alertedToday.set(dedupKey, true);
     await logAlertSent(task.id, task.name, member.name, task.daysOverdue);
     alerted++;
 
