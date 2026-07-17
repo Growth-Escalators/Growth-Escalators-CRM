@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import ContactSlideIn from '../components/ContactSlideIn.jsx';
 import { apiFetch } from '../lib/api.js';
+import { getAuthToken } from '../lib/auth.js';
 import { safeLower, safeText } from '../lib/safe.js';
 import { MessageSquare, Send, Search, Check, CheckCheck, Image, FileText, Phone, User, ArrowLeft, Pencil, Mail } from 'lucide-react';
 import { io } from 'socket.io-client';
@@ -111,7 +112,7 @@ export default function InboxPage() {
 
   // Socket.io for real-time — connect once on mount
   useEffect(() => {
-    const socket = io('/', { path: '/socket.io', transports: ['websocket', 'polling'] });
+    const socket = io('/', { path: '/socket.io', transports: ['websocket', 'polling'], auth: { token: getAuthToken() } });
     socketRef.current = socket;
 
     socket.on('new_message', (msg) => {

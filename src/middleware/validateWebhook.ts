@@ -19,12 +19,14 @@ export function validateMetaWebhook(req: Request, res: Response, next: NextFunct
     return;
   }
 
-  // POST — verify HMAC signature
+  // POST — verify HMAC signature. Fails CLOSED when the secret is unset —
+  // silently accepting unverified inbound WhatsApp messages let anyone who
+  // discovers the endpoint inject fabricated messages that create contacts
+  // and emit socket events.
   const appSecret = process.env.META_APP_SECRET;
   if (!appSecret) {
-    // No secret configured — allow through with a warning (dev/test only)
-    console.warn('[validateMetaWebhook] META_APP_SECRET not set — skipping signature check');
-    next();
+    console.error('[validateMetaWebhook] META_APP_SECRET not set — rejecting webhook');
+    res.status(503).json({ error: 'webhook verification not configured' });
     return;
   }
 
@@ -34,10 +36,18 @@ export function validateMetaWebhook(req: Request, res: Response, next: NextFunct
     return;
   }
 
-  // NOTE: In production, use the raw request body buffer (before JSON.parse) for accuracy.
-  // Here we re-serialize req.body which is sufficient for development and testing.
-  const body = JSON.stringify(req.body);
-  const expected = 'sha256=' + createHmac('sha256', appSecret).update(body).digest('hex');
+  const rawBody = req.rawBody;
+  if (!rawBody) {
+    res.status(403).json({ error: 'raw body unavailable for signature verification' });
+    return;
+  }
+
+  // Signed over the exact bytes Meta sent, not a re-serialization of the
+  // parsed body — JSON.stringify(req.body) rarely reproduces the original
+  // bytes (key order, whitespace, number formatting), so genuine Meta
+  // signatures would fail against it while a same-shape forged payload with
+  // no signature at all previously fell through to the fail-open branch above.
+  const expected = 'sha256=' + createHmac('sha256', appSecret).update(rawBody).digest('hex');
 
   try {
     const sigBuffer = Buffer.from(signature);

@@ -72,12 +72,21 @@ import tasksRouter from './routes/tasks';
 import taskAttachmentsRouter from './routes/taskAttachments';
 import taskListsRouter from './routes/task-lists';
 import teamRouter from './routes/team';
-import { requireAuth, requireStrictAuth, optionalAuth } from './middleware/auth';
+import { requireAuth, requireStrictAuth, optionalAuth, verifyAuthToken } from './middleware/auth';
+import { contactBelongsToTenant } from './services/socketAuth';
 import { requireRole } from './middleware/rbac';
 import { validateEnv } from './config/env';
 import { serializeError, HttpError } from './utils/errors';
 
 const app = express();
+
+// Trust Railway's front proxy so req.ip (and therefore express-rate-limit's
+// per-IP buckets) reflect the real client, not the proxy hop. Without this,
+// every request appears to originate from the same peer — either collapsing
+// all clients into one shared rate-limit bucket (one noisy client throttles
+// everyone, including the login brute-force guard locking out all users) or
+// failing to isolate a real attacker's IP at all.
+app.set('trust proxy', 1);
 
 // ---------------------------------------------------------------------------
 // Security headers
@@ -257,39 +266,44 @@ app.use('/api/task-lists', requireAuth, taskListsRouter);
 app.use('/api/team', requireAuth, teamRouter);
 app.use('/api/funnel', funnelRouter);
 app.use('/api/leads', leadsRouter);
-// Wizmatch access model (three lanes, in priority order):
+// Wizmatch access model (three lanes, in REGISTRATION-order-matters priority):
 //   1. Internal ingest/pipeline POSTs (CI scrapers + the worker's
 //      score/enrich/match crons) authenticate with a shared service token via
 //      `requireInternalToken` — they have no browser JWT, so they bypass the
 //      JWT wall here. Every one of those paths independently enforces the
-//      shared secret at the route level, so this widens access only to
-//      secret-holders, never anonymously.
+//      shared secret at the route level (see src/routes/wizmatch.ts), so this
+//      widens access only to secret-holders, never anonymously.
 //   2. The recipient-facing `GET /unsubscribe` link is public — the clicker is
 //      an email recipient with no JWT, and the route verifies an HMAC signature
 //      in-handler. Without this lane the unsubscribe link 401s (CAN-SPAM risk).
 //   3. Everything else is an operator action (contact discovery spend, cold
 //      send, data mutations) and requires an authenticated admin/team_lead —
-//      the same tier gate `/api/outbound` uses. Plain `requireAuth` alone let
-//      any tenant user hit money/send routes; that authorization hole is closed
-//      here.
+//      the same tier gate `/api/outbound` uses.
+//
+// This carve-out mount MUST be registered FIRST, before any requireAuth-gated
+// `/api/wizmatch` mount. requireAuth terminates the response (401) without
+// calling next() on failure, so if this ran after an auth-gated mount it
+// would be unreachable dead code for exactly the unauthenticated callers it
+// exists to serve — which is what broke CI signal ingestion and the
+// unsubscribe link when the mounts were previously ordered the other way.
 const WIZMATCH_INTERNAL_POST = /^\/(signals\/ingest|signals\/[^/]+\/(score|enrich|match)|candidates\/ingest|classify-reply)$/;
 const WIZMATCH_PUBLIC_GET = /^\/unsubscribe$/;
-// `viewer` (the read-only Command Deck sync account) is included for GET access to
-// Wizmatch data. Safe because requireAuth (below) blocks the viewer role on any
-// non-GET method, so viewer can read the Wizmatch surfaces but never trigger a write.
-const wizmatchRequireAdmin = requireRole('admin', 'team_lead', 'viewer');
+app.use('/api/wizmatch', (req, res, next) => {
+  const isInternalIngest = req.method === 'POST' && WIZMATCH_INTERNAL_POST.test(req.path);
+  const isPublicUnsubscribe = req.method === 'GET' && WIZMATCH_PUBLIC_GET.test(req.path);
+  if (isInternalIngest || isPublicUnsubscribe) return wizmatchRouter(req, res, next);
+  next();
+});
 // Gate A operational endpoints are isolated from legacy send/spend routes. Recruiter-level
 // operators can use My Work and staffing relationships without gaining access to outreach,
 // provider or other admin mutations. Viewer remains read-only through requireAuth.
 const wizmatchRequireStaffing = requireRole('admin', 'team_lead', 'manager_ops', 'sales', 'staff', 'viewer');
 app.use('/api/wizmatch', (req, res, next) => requireAuth(req, res, () => wizmatchRequireStaffing(req, res, next)), wizmatchStaffingRouter);
-app.use('/api/wizmatch', (req, res, next) => {
-  if (req.method === 'POST' && WIZMATCH_INTERNAL_POST.test(req.path)) return next();
-  if (req.method === 'GET' && WIZMATCH_PUBLIC_GET.test(req.path)) return next();
-  // requireAuth sends its own 401 and does not call next() on failure, so the
-  // role check only runs once a valid JWT has populated req.user.
-  return requireAuth(req, res, () => wizmatchRequireAdmin(req, res, next));
-}, wizmatchRouter);
+// `viewer` (the read-only Command Deck sync account) is included for GET access to
+// Wizmatch data. Safe because requireAuth (below) blocks the viewer role on any
+// non-GET method, so viewer can read the Wizmatch surfaces but never trigger a write.
+const wizmatchRequireAdmin = requireRole('admin', 'team_lead', 'viewer');
+app.use('/api/wizmatch', requireAuth, wizmatchRequireAdmin, wizmatchRouter);
 // Funnel-configs: /public/* needs no auth (checkout frontend hits it
 // unauthenticated from ecom.growthescalators.com); everything else is
 // behind requireAuth. The previous hoisted app.get wrapper was a no-op —
@@ -453,12 +467,33 @@ async function startServer() {
   // Inject socket.io into inbox router
   setSocketIO(io);
 
+  // Handshake auth: previously any client that could reach the socket.io
+  // endpoint connected with no credentials at all and could join any
+  // caller-supplied `contact:<id>` room, receiving a live stream of that
+  // contact's WhatsApp messages regardless of tenant. The frontend now sends
+  // its JWT via the `auth.token` handshake option (see admin/src/pages/
+  // InboxPage.jsx) — same token, same verification rules as every HTTP
+  // route. A connection without a valid token is rejected before
+  // 'connection' ever fires.
+  io.use((socket, next) => {
+    const token = socket.handshake.auth?.token as string | undefined;
+    if (!token) return next(new Error('unauthorized'));
+    const user = verifyAuthToken(token);
+    if (!user) return next(new Error('unauthorized'));
+    socket.data.user = user;
+    next();
+  });
+
   // Socket.io: clients join room by contactId for real-time inbox
   io.on('connection', (socket) => {
     console.log('[socket.io] client connected:', socket.id);
 
-    socket.on('join_contact', (contactId: string) => {
-      socket.join(`contact:${contactId}`);
+    socket.on('join_contact', async (contactId: string) => {
+      const user = socket.data.user as { tenantId: string } | undefined;
+      if (!user) return;
+      if (await contactBelongsToTenant(pool, contactId, user.tenantId)) {
+        socket.join(`contact:${contactId}`);
+      }
     });
 
     socket.on('leave_contact', (contactId: string) => {

@@ -13,9 +13,12 @@ import {
   verifyMetaLeadSignature,
 } from '../services/facebookLeadForms';
 
-// Webhook signature verification helper
-function verifyWebhookSignature(secret: string | undefined, rawBody: string, signature: string | undefined, algorithm = 'sha256'): boolean {
-  if (!secret) { logger.warn('[webhook] signature secret not configured — allowing request'); return true; }
+// Webhook signature verification helper. Fails CLOSED when the secret is
+// unset — a missing secret previously meant every request was accepted
+// unverified, letting anyone who discovers a webhook URL inject fabricated
+// bookings/form-submits/conversation events. Exported for direct unit testing.
+export function verifyWebhookSignature(secret: string | undefined, rawBody: string, signature: string | undefined, algorithm = 'sha256'): boolean {
+  if (!secret) { logger.error('[webhook] signature secret not configured — rejecting request'); return false; }
   if (!signature) return false;
   const expected = crypto.createHmac(algorithm, secret).update(rawBody).digest('hex');
   const sigValue = signature.startsWith('sha256=') ? signature.slice(7) : signature;
@@ -247,9 +250,10 @@ router.post('/meta-wa', validateMetaWebhook, async (req, res) => {
 // POST /webhooks/calcom — Cal.com booking webhook
 // ---------------------------------------------------------------------------
 router.post('/calcom', async (req, res) => {
-  // Verify Cal.com webhook signature
+  // Verify Cal.com webhook signature — signed over the exact bytes Cal.com
+  // sent, not a re-serialization of the parsed body.
   const calSig = req.headers['x-cal-signature-256'] as string | undefined;
-  if (!verifyWebhookSignature(process.env.CAL_WEBHOOK_SECRET, JSON.stringify(req.body), calSig)) {
+  if (!verifyWebhookSignature(process.env.CAL_WEBHOOK_SECRET, req.rawBody || JSON.stringify(req.body), calSig)) {
     res.status(401).json({ error: 'invalid signature' }); return;
   }
   const uid: string | undefined = req.body?.payload?.uid;
@@ -290,7 +294,7 @@ router.post('/calcom', async (req, res) => {
 // ---------------------------------------------------------------------------
 router.post('/tally', async (req, res) => {
   const tallySig = req.headers['x-tally-signature'] as string | undefined;
-  if (!verifyWebhookSignature(process.env.TALLY_WEBHOOK_SECRET, JSON.stringify(req.body), tallySig)) {
+  if (!verifyWebhookSignature(process.env.TALLY_WEBHOOK_SECRET, req.rawBody || JSON.stringify(req.body), tallySig)) {
     res.status(401).json({ error: 'invalid signature' }); return;
   }
   const responseId: string | undefined = req.body?.data?.responseId ?? req.body?.eventId;
@@ -316,7 +320,7 @@ router.post('/tally', async (req, res) => {
 // ---------------------------------------------------------------------------
 router.post('/chatwoot', async (req, res) => {
   const chatwootSig = req.headers['x-chatwoot-hmac-sha256'] as string | undefined;
-  if (!verifyWebhookSignature(process.env.CHATWOOT_WEBHOOK_SECRET, JSON.stringify(req.body), chatwootSig)) {
+  if (!verifyWebhookSignature(process.env.CHATWOOT_WEBHOOK_SECRET, req.rawBody || JSON.stringify(req.body), chatwootSig)) {
     res.status(401).json({ error: 'invalid signature' }); return;
   }
   const rawId = req.body?.id;
