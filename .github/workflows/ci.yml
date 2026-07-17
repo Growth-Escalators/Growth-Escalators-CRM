@@ -21,6 +21,13 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
+      # A handful of root-level tests (adminFrontendHelpers, wizmatchRouteRegistry,
+      # wizmatchFilterPipeline, wizmatchPlacementCommercials) import admin/src/*
+      # directly to validate its nav entries/routes, which pulls in admin's own
+      # deps (e.g. lucide-react) — not installed by the root npm ci above.
+      - name: Install admin dependencies
+        run: cd admin && npm ci --legacy-peer-deps
+
       - name: Build (tsc)
         run: npm run build
 
