@@ -185,6 +185,11 @@ export const WIZMATCH_ROUTES: WizmatchRouteDefinition[] = [
     group: 'more.crmUtilities', moreSection: 'CRM Utilities', permission: 'canDiscovery',
     breadcrumb: { label: 'Lead Discovery' }, legacyAliases: [], searchVisible: true,
   },
+  {
+    id: 'find-contact', label: 'Find Contact', path: '/wizmatch/find-contact', icon: Search,
+    group: 'more.crmUtilities', moreSection: 'CRM Utilities', permission: 'canWizmatch',
+    breadcrumb: { label: 'Find Contact' }, legacyAliases: [], searchVisible: true,
+  },
 
   // ── MORE → Administration ────────────────────────────────────────────
   {
