@@ -1075,6 +1075,7 @@ export const prospects = pgTable(
   'prospects',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
     firstName: text('first_name'),
     lastName: text('last_name'),
     title: text('title'),
@@ -1098,6 +1099,7 @@ export const prospects = pgTable(
     icpSegmentIdx: index('prospects_icp_segment_idx').on(t.icpSegment),
     createdAtIdx: index('prospects_created_at_idx').on(t.createdAt),
     crmContactIdx: index('prospects_crm_contact_idx').on(t.crmContactId),
+    tenantIdIdx: index('prospects_tenant_id_idx').on(t.tenantId),
   }),
 );
 

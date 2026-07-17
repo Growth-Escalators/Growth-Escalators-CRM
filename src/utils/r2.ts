@@ -18,6 +18,69 @@ function getClient(): S3Client | null {
   return _client;
 }
 
+// H17 (Fable review) — an attacker-controlled `originalname` (the multipart
+// field is client-supplied, not validated) was previously sanitized with a
+// single regex applied to the WHOLE string, which kept `.` and `/` intact —
+// a `..` traversal segment survives that unchanged. Some callers build a
+// "directory/filename"-style key themselves before calling uploadPrivateToR2
+// (e.g. `wizmatch/consents/<tenantId>/${Date.now()}-${originalname}`), so a
+// crafted originalname could escape the intended tenant-scoped prefix
+// entirely. Sanitizing per path SEGMENT and dropping any segment that is
+// exactly `.` or `..` closes this regardless of how a caller assembled the
+// string — the escape segments are removed, not just character-filtered.
+function sanitizeR2Key(rawKey: string): string {
+  return rawKey
+    .split('/')
+    .map((seg) => seg.replace(/[^a-zA-Z0-9._-]+/g, '-'))
+    .filter((seg) => seg.length > 0 && seg !== '.' && seg !== '..')
+    .join('/');
+}
+
+// Same traversal risk applies to the file extension derived from
+// originalname below: an originalname with no `.` at all (e.g.
+// "evil/../../etc") makes `.split('.').pop()` return the ENTIRE string,
+// embedding `/` and `..` into the generated filename. Cap length and
+// restrict to a safe charset.
+function sanitizeExtension(raw: string | undefined): string {
+  const cleaned = (raw ?? '').replace(/[^a-zA-Z0-9]+/g, '');
+  return cleaned.length > 0 ? cleaned.slice(0, 10) : 'bin';
+}
+
+// Minimal magic-byte sniffing for the small fixed set of types this app
+// accepts — avoids pulling in a new dependency (e.g. `file-type`) for a
+// handful of well-known signatures. multer's fileFilter only sees
+// file.mimetype, which is the client-supplied Content-Type header on the
+// multipart part and trivially spoofable; this checks the actual bytes.
+// Returns the sniffed MIME type, or null if it doesn't match anything known.
+export function sniffFileType(buf: Buffer): string | null {
+  if (buf.length < 12) return null;
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
+  if (buf.subarray(0, 4).toString('ascii') === 'GIF8') return 'image/gif';
+  if (buf.subarray(0, 4).toString('ascii') === 'RIFF' && buf.subarray(8, 12).toString('ascii') === 'WEBP') return 'image/webp';
+  // ISO base media container (MP4/QuickTime) — a 4-byte box size followed by
+  // an "ftyp" box type at offset 4. Covers both; brand bytes after that vary
+  // too much across encoders to distinguish reliably, and this app accepts
+  // both under the same upload flow anyway.
+  if (buf.subarray(4, 8).toString('ascii') === 'ftyp') return 'video/mp4';
+  return null;
+}
+
+export const R2_ALLOWED_UPLOAD_MIME_TYPES = [
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/quicktime',
+] as const;
+
+// True if the buffer's actual bytes match a known-safe signature. video/quicktime
+// shares the ftyp box signature with video/mp4 (both ISO base media containers),
+// so a claimed video/quicktime is accepted when the bytes sniff as video/mp4.
+export function isAllowedUploadContent(buf: Buffer, claimedMimeType: string): boolean {
+  const sniffed = sniffFileType(buf);
+  if (!sniffed) return false;
+  if (sniffed === claimedMimeType) return true;
+  if (sniffed === 'video/mp4' && claimedMimeType === 'video/quicktime') return true;
+  return false;
+}
+
 export async function uploadToR2(
   file: Buffer,
   originalName: string,
@@ -27,7 +90,7 @@ export async function uploadToR2(
   if (!client) throw new Error('R2 not configured — set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY');
 
   const bucket = process.env.R2_BUCKET_NAME || 'ge-media';
-  const ext = originalName.split('.').pop() || 'bin';
+  const ext = sanitizeExtension(originalName.split('.').pop());
   const filename = `${crypto.randomUUID()}-${Date.now()}.${ext}`;
 
   await client.send(new PutObjectCommand({
@@ -50,7 +113,7 @@ export async function uploadPrivateToR2(
   const client = getClient();
   if (!client) throw new Error('R2 not configured — set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY');
   const bucket = resolvePrivateR2Bucket();
-  const safeName = originalName.replace(/[^a-zA-Z0-9._/-]+/g, '-').replace(/^\/+/, '');
+  const safeName = sanitizeR2Key(originalName);
   const key = safeName.includes('/') ? safeName : `private/${crypto.randomUUID()}-${Date.now()}-${safeName}`;
   await client.send(new PutObjectCommand({
     Bucket: bucket,

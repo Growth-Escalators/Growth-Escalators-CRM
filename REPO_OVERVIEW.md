@@ -461,7 +461,7 @@ npm run admin:build    # Build admin SPA
 4. **Phantom `X-Edge-Token` removed** — CORS header that implied auth where none existed
 
 ### Performance
-5. **40+ database indexes added** — Migration `0001_add_missing_indexes.sql` covers tasks, bookings, invoices, payments, user_permissions, password_reset_tokens, and composite indexes for tenant+status queries
+5. **40+ database indexes added** — Migration `0032_fold_orphaned_indexes.sql` (folded from two earlier migration files that predated `_journal.json` tracking and were never actually applied by the migrator) covers tasks, bookings, invoices, payments, user_permissions, password_reset_tokens, and composite indexes for tenant+status queries
 
 ### Frontend
 6. **Code splitting** — Client SPA pages now lazily loaded

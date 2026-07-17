@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE — do not edit by hand. Regenerate with: npm run ai:brief -->
 
-_Generated: 2026-07-16T13:39:50.814Z_
+_Generated: 2026-07-17T00:36:21.493Z_
 
 This is a machine-generated snapshot of local repo state. It exists so any AI agent or fresh
 chat can rebuild context from the repo alone. For durable guidance read `AGENTS.md`,
@@ -11,9 +11,9 @@ chat can rebuild context from the repo alone. For durable guidance read `AGENTS.
 ## Repository
 
 - **Repo**: Growth-Escalators/Growth-Escalators-CRM
-- **Branch**: `feat/wizmatch-search-preview`
-- **Last commit**: 7223b49 chore(wizmatch): redeploy to apply WIZMATCH_POC_DISCOVERY_ENABLED=true (free POC search) (4 minutes ago)
-- **Uncommitted changes**: 2 file(s)
+- **Branch**: `fix/dx-observability`
+- **Last commit**: e8af0f8 docs(ai): record free POC discovery enabled in prod (WIZMATCH_POC_DISCOVERY_ENABLED) (11 hours ago)
+- **Uncommitted changes**: 21 file(s)
 
 ## Current task
 
@@ -49,6 +49,7 @@ stays off / seeding is credit-free).
 ## Recent commits
 
 ```
+e8af0f8 docs(ai): record free POC discovery enabled in prod (WIZMATCH_POC_DISCOVERY_ENABLED)
 7223b49 chore(wizmatch): redeploy to apply WIZMATCH_POC_DISCOVERY_ENABLED=true (free POC search)
 3522799 docs(ai): record shipped cost-safe POC search preview + role targeting + live verify
 695a139 feat(wizmatch): cost-safe POC search — read-only preview + role targeting + credit banner
@@ -58,7 +59,6 @@ f07ea17 docs(ai): record shipped Reports From/To staffing-analytics scoping + li
 d7906e0 feat(wizmatch): global server-side sort + full-filtered CSV on the server pages
 cbfdde7 test+fix(wizmatch): green the filter rollout (a11y, spec locators, backend test)
 53db7d7 feat(wizmatch): wire Placements, Contact Intelligence, Reports to shared filters
-eb456b5 feat(wizmatch): wire Hiring Contacts, Talent Matching, Delivery to shared filters
 ```
 
 ## npm scripts

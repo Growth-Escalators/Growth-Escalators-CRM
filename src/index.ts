@@ -78,6 +78,8 @@ import { contactBelongsToTenant } from './services/socketAuth';
 import { requireRole } from './middleware/rbac';
 import { validateEnv } from './config/env';
 import { serializeError, HttpError } from './utils/errors';
+import logger from './utils/logger';
+import { runWithRequestContext } from './utils/requestContext';
 
 const app = express();
 
@@ -136,7 +138,16 @@ if (process.env.NODE_ENV === 'production' && !process.env.CORS_EXTRA_ORIGIN) {
 // ---------------------------------------------------------------------------
 // Request logging
 // ---------------------------------------------------------------------------
-app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+// Morgan's format function runs when the response finishes, not when this
+// middleware fires — by then the request-id middleware below (registered
+// later in the chain) has already set req.requestId on the same req object,
+// so it's safe to reference it here despite the registration order.
+morgan.token('request-id', (req: Request) => req.requestId ?? '-');
+app.use(morgan(
+  process.env.NODE_ENV === 'production'
+    ? ':request-id :remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent"'
+    : ':request-id :method :url :status :response-time ms - :res[content-length]'
+));
 
 // ---------------------------------------------------------------------------
 // JSON body parser. 2mb cap protects against malicious / runaway uploads;
@@ -167,7 +178,10 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   const requestId = (req.headers['x-request-id'] as string) || crypto.randomUUID();
   req.requestId = requestId;
   res.setHeader('X-Request-ID', requestId);
-  next();
+  // Calling next() inside runWithRequestContext (not after) is what makes the
+  // requestId visible to every downstream middleware/route/service's async
+  // continuations — AsyncLocalStorage tracks the causality chain from here.
+  runWithRequestContext({ requestId }, () => next());
 });
 
 // ---------------------------------------------------------------------------
@@ -432,14 +446,18 @@ app.use((_req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
-  // Log with request context for easier debugging
-  console.error('[error]', {
-    message: err.message,
+  // Structured (pino) instead of console.error so Railway's level-based log
+  // filtering actually sees 500s. requestId is also picked up automatically
+  // by every other logger.* call made while handling this request (see
+  // utils/requestContext.ts), but it's included explicitly here too since
+  // this is the one line every prod incident search starts from.
+  logger.error({
+    err,
     requestId: req.requestId,
     path: req.path,
     method: req.method,
     ...(err instanceof HttpError ? { code: err.code, statusCode: err.statusCode } : {}),
-  });
+  }, '[error] unhandled request error');
 
   const { status, body } = serializeError(err);
   res.status(status).json(body);

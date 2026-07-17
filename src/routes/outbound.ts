@@ -57,6 +57,21 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB — ample for tens of thousands of rows
 });
 
+// H18 — prospects has no tenant_id historically; every route below now
+// filters/stamps on it. signals/replies/outbound_events don't carry their
+// own tenant_id — they're only ever reached through a prospect_id that this
+// same handler has already tenant-checked via the prospects table (the root
+// of the object graph), so the boundary holds without duplicating the
+// column onto every child table.
+function requireTenantId(req: Request, res: Response): string | null {
+  const tenantId = req.user?.tenantId;
+  if (!tenantId) {
+    res.status(401).json({ error: 'missing tenant context' });
+    return null;
+  }
+  return tenantId;
+}
+
 // ---------------------------------------------------------------------------
 // CSV parser — RFC4180-ish: handles quoted fields, escaped quotes, CRLF.
 // Small inline implementation to avoid pulling in a new dependency. Returns
@@ -207,6 +222,9 @@ export function mapHeaderIndices(headerRow: string[]): Record<string, number> {
 // they never abort the whole import.
 // ---------------------------------------------------------------------------
 router.post('/prospects/import-csv', upload.single('file'), async (req: Request, res: Response): Promise<void> => {
+  const tenantId = requireTenantId(req, res);
+  if (!tenantId) return;
+
   let csvText = '';
   if (req.file?.buffer) {
     csvText = req.file.buffer.toString('utf8');
@@ -303,14 +321,14 @@ router.post('/prospects/import-csv', upload.single('file'), async (req: Request,
     try {
       const result = await pool.query(
         `INSERT INTO prospects (
-            first_name, last_name, title, company, company_size,
+            tenant_id, first_name, last_name, title, company, company_size,
             linkedin_url, email, email_status, icp_segment,
             status, channel, source
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'new',$10,$11)
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'new',$11,$12)
          ON CONFLICT DO NOTHING
          RETURNING id`,
         [
-          firstName, lastName, title, company, companySize,
+          tenantId, firstName, lastName, title, company, companySize,
           linkedinUrl, email, emailStatus, icpSegmentRaw,
           channel, source,
         ],
@@ -351,6 +369,9 @@ router.post('/prospects/import-csv', upload.single('file'), async (req: Request,
 // GET /prospects?status=&icp_segment=&limit=&offset=
 // ---------------------------------------------------------------------------
 router.get('/prospects', async (req: Request, res: Response): Promise<void> => {
+  const tenantId = requireTenantId(req, res);
+  if (!tenantId) return;
+
   const status = s(req.query.status as string | undefined);
   const icpSegment = s(req.query.icp_segment as string | undefined);
   const limit = Math.min(parseInt(String(req.query.limit ?? '50'), 10) || 50, 500);
@@ -367,9 +388,10 @@ router.get('/prospects', async (req: Request, res: Response): Promise<void> => {
 
   const conds: string[] = [];
   const args: unknown[] = [];
+  args.push(tenantId); conds.push(`tenant_id = $${args.length}`);
   if (status)     { args.push(status);     conds.push(`status = $${args.length}`); }
   if (icpSegment) { args.push(icpSegment); conds.push(`icp_segment = $${args.length}`); }
-  const where = conds.length > 0 ? `WHERE ${conds.join(' AND ')}` : '';
+  const where = `WHERE ${conds.join(' AND ')}`;
 
   args.push(limit);  const limitIdx  = args.length;
   args.push(offset); const offsetIdx = args.length;
@@ -405,6 +427,9 @@ router.get('/prospects', async (req: Request, res: Response): Promise<void> => {
 // GET /prospects/:id  →  prospect + signals + replies
 // ---------------------------------------------------------------------------
 router.get('/prospects/:id', async (req: Request, res: Response): Promise<void> => {
+  const tenantId = requireTenantId(req, res);
+  if (!tenantId) return;
+
   const id = String(req.params.id ?? '');
   // Defensive UUID guard so a typo doesn't yield an opaque 500 from postgres.
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
@@ -419,8 +444,8 @@ router.get('/prospects/:id', async (req: Request, res: Response): Promise<void> 
                 linkedin_url, email, email_status, icp_segment, status,
                 channel, source, crm_contact_id, crm_deal_id,
                 created_at, updated_at
-           FROM prospects WHERE id = $1`,
-        [id],
+           FROM prospects WHERE id = $1 AND tenant_id = $2`,
+        [id, tenantId],
       ),
       pool.query(
         `SELECT id, signal_type, signal_detail, signal_date, is_fresh, created_at
@@ -457,6 +482,9 @@ router.get('/prospects/:id', async (req: Request, res: Response): Promise<void> 
 // row so the audit trail is honest about touch-points.
 // ---------------------------------------------------------------------------
 router.patch('/prospects/:id/status', async (req: Request, res: Response): Promise<void> => {
+  const tenantId = requireTenantId(req, res);
+  if (!tenantId) return;
+
   const id = String(req.params.id ?? '');
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
     res.status(400).json({ error: 'invalid prospect id (uuid)' });
@@ -477,8 +505,8 @@ router.patch('/prospects/:id/status', async (req: Request, res: Response): Promi
     await client.query('BEGIN');
 
     const current = await client.query(
-      `SELECT status FROM prospects WHERE id = $1 FOR UPDATE`,
-      [id],
+      `SELECT status FROM prospects WHERE id = $1 AND tenant_id = $2 FOR UPDATE`,
+      [id, tenantId],
     );
     if (current.rowCount === 0) {
       await client.query('ROLLBACK');
@@ -488,8 +516,8 @@ router.patch('/prospects/:id/status', async (req: Request, res: Response): Promi
     const fromStatus = (current.rows[0] as { status: string }).status;
 
     await client.query(
-      `UPDATE prospects SET status = $1, updated_at = NOW() WHERE id = $2`,
-      [toStatus, id],
+      `UPDATE prospects SET status = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3`,
+      [toStatus, id, tenantId],
     );
     await client.query(
       `INSERT INTO outbound_events (prospect_id, event_type, from_status, to_status, note)
@@ -515,6 +543,9 @@ router.patch('/prospects/:id/status', async (req: Request, res: Response): Promi
 // imported `unverified`, or after the user has corrected an email.
 // ---------------------------------------------------------------------------
 router.post('/prospects/:id/validate-email', async (req: Request, res: Response): Promise<void> => {
+  const tenantId = requireTenantId(req, res);
+  if (!tenantId) return;
+
   const id = String(req.params.id ?? '');
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
     res.status(400).json({ error: 'invalid prospect id (uuid)' });
@@ -522,7 +553,7 @@ router.post('/prospects/:id/validate-email', async (req: Request, res: Response)
   }
 
   try {
-    const found = await pool.query(`SELECT email, email_status FROM prospects WHERE id=$1`, [id]);
+    const found = await pool.query(`SELECT email, email_status FROM prospects WHERE id=$1 AND tenant_id=$2`, [id, tenantId]);
     if (found.rowCount === 0) {
       res.status(404).json({ error: 'prospect not found' });
       return;
@@ -531,8 +562,8 @@ router.post('/prospects/:id/validate-email', async (req: Request, res: Response)
     const newStatus = await validateEmailAddress(email);
 
     await pool.query(
-      `UPDATE prospects SET email_status=$1, updated_at=NOW() WHERE id=$2`,
-      [newStatus, id],
+      `UPDATE prospects SET email_status=$1, updated_at=NOW() WHERE id=$2 AND tenant_id=$3`,
+      [newStatus, id, tenantId],
     );
     await pool.query(
       `INSERT INTO outbound_events (prospect_id, event_type, note)
@@ -570,7 +601,7 @@ type EnrichmentPayload = Partial<Record<EnrichableField, string | null>> & {
 
 const SIGNAL_TYPES_SET = new Set(['open_roles','funding','new_exec','tech_match','content_post','agency_growth']);
 
-async function applyEnrichment(prospectId: string, payload: EnrichmentPayload): Promise<{ updated: number; signals_inserted: number }> {
+async function applyEnrichment(prospectId: string, tenantId: string, payload: EnrichmentPayload): Promise<{ updated: number; signals_inserted: number }> {
   const sets: string[] = [];
   const args: unknown[] = [];
   for (const f of ENRICHABLE_FIELDS) {
@@ -582,9 +613,9 @@ async function applyEnrichment(prospectId: string, payload: EnrichmentPayload): 
 
   let updated = 0;
   if (sets.length > 0) {
-    args.push(prospectId);
+    args.push(prospectId, tenantId);
     const result = await pool.query(
-      `UPDATE prospects SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${args.length} RETURNING id`,
+      `UPDATE prospects SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${args.length - 1} AND tenant_id = $${args.length} RETURNING id`,
       args,
     );
     updated = result.rowCount ?? 0;
@@ -614,6 +645,9 @@ async function applyEnrichment(prospectId: string, payload: EnrichmentPayload): 
 
 // POST /prospects/:id/enrich — single-prospect enrichment
 router.post('/prospects/:id/enrich', async (req: Request, res: Response): Promise<void> => {
+  const tenantId = requireTenantId(req, res);
+  if (!tenantId) return;
+
   const id = String(req.params.id ?? '');
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
     res.status(400).json({ error: 'invalid prospect id (uuid)' });
@@ -622,12 +656,12 @@ router.post('/prospects/:id/enrich', async (req: Request, res: Response): Promis
 
   const payload = (req.body ?? {}) as EnrichmentPayload;
   try {
-    const exists = await pool.query(`SELECT id FROM prospects WHERE id=$1`, [id]);
+    const exists = await pool.query(`SELECT id FROM prospects WHERE id=$1 AND tenant_id=$2`, [id, tenantId]);
     if (exists.rowCount === 0) {
       res.status(404).json({ error: 'prospect not found' });
       return;
     }
-    const result = await applyEnrichment(id, payload);
+    const result = await applyEnrichment(id, tenantId, payload);
     res.json({ id, ...result });
   } catch (err) {
     logger.error({ err, id }, '[outbound] enrich error');
@@ -638,6 +672,9 @@ router.post('/prospects/:id/enrich', async (req: Request, res: Response): Promis
 // POST /prospects/bulk-enrich — accepts { rows: [{ key: {email|linkedin_url}, ...payload }] }
 // Resolves each row to a prospect via email or linkedin_url, then enriches.
 router.post('/prospects/bulk-enrich', async (req: Request, res: Response): Promise<void> => {
+  const tenantId = requireTenantId(req, res);
+  if (!tenantId) return;
+
   const body = (req.body ?? {}) as { rows?: Array<EnrichmentPayload & { email?: string; linkedin_url?: string }> };
   const rows = Array.isArray(body.rows) ? body.rows : [];
   if (rows.length === 0) {
@@ -664,11 +701,11 @@ router.post('/prospects/bulk-enrich', async (req: Request, res: Response): Promi
       const emailKey = normaliseEmail(r.email);
       const liKey = s(r.linkedin_url);
       if (emailKey) {
-        const m = await pool.query(`SELECT id FROM prospects WHERE lower(email)=$1 LIMIT 1`, [emailKey]);
+        const m = await pool.query(`SELECT id FROM prospects WHERE lower(email)=$1 AND tenant_id=$2 LIMIT 1`, [emailKey, tenantId]);
         if (m.rowCount && m.rowCount > 0) prospectId = (m.rows[0] as { id: string }).id;
       }
       if (!prospectId && liKey) {
-        const m = await pool.query(`SELECT id FROM prospects WHERE lower(linkedin_url)=lower($1) LIMIT 1`, [liKey]);
+        const m = await pool.query(`SELECT id FROM prospects WHERE lower(linkedin_url)=lower($1) AND tenant_id=$2 LIMIT 1`, [liKey, tenantId]);
         if (m.rowCount && m.rowCount > 0) prospectId = (m.rows[0] as { id: string }).id;
       }
       if (!prospectId) {
@@ -676,7 +713,7 @@ router.post('/prospects/bulk-enrich', async (req: Request, res: Response): Promi
         continue;
       }
 
-      const result = await applyEnrichment(prospectId, r);
+      const result = await applyEnrichment(prospectId, tenantId, r);
       summary.matched += 1;
       summary.signals_inserted += result.signals_inserted;
     } catch (err) {
@@ -698,6 +735,9 @@ router.post('/prospects/bulk-enrich', async (req: Request, res: Response): Promi
 // re-POST the same body if they want to avoid duplicate rows.
 // ---------------------------------------------------------------------------
 router.post('/prospects/:id/replies', async (req: Request, res: Response): Promise<void> => {
+  const tenantId = requireTenantId(req, res);
+  if (!tenantId) return;
+
   const id = String(req.params.id ?? '');
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
     res.status(400).json({ error: 'invalid prospect id (uuid)' });
@@ -725,8 +765,8 @@ router.post('/prospects/:id/replies', async (req: Request, res: Response): Promi
     await client.query('BEGIN');
 
     const prospect = await client.query(
-      `SELECT id, status, company FROM prospects WHERE id=$1 FOR UPDATE`,
-      [id],
+      `SELECT id, status, company FROM prospects WHERE id=$1 AND tenant_id=$2 FOR UPDATE`,
+      [id, tenantId],
     );
     if (prospect.rowCount === 0) {
       await client.query('ROLLBACK');
@@ -769,8 +809,8 @@ router.post('/prospects/:id/replies', async (req: Request, res: Response): Promi
         const isHotter = HOTTER.indexOf(currentStatus) >= HOTTER.indexOf('replied');
         if (classification.category === 'INTERESTED' && !isHotter) {
           await pool.query(
-            `UPDATE prospects SET status='replied', updated_at=NOW() WHERE id=$1`,
-            [id],
+            `UPDATE prospects SET status='replied', updated_at=NOW() WHERE id=$1 AND tenant_id=$2`,
+            [id, tenantId],
           );
           await pool.query(
             `INSERT INTO outbound_events (prospect_id, event_type, from_status, to_status, note)
@@ -782,8 +822,7 @@ router.post('/prospects/:id/replies', async (req: Request, res: Response): Promi
           // logged but don't roll back the reply. Opt out by setting
           // OUTBOUND_AUTO_CONVERT_INTERESTED=false in env.
           const autoConvert = process.env.OUTBOUND_AUTO_CONVERT_INTERESTED !== 'false';
-          const tenantId = req.user?.tenantId;
-          if (autoConvert && tenantId) {
+          if (autoConvert) {
             try {
               await convertProspectToCrm(id, tenantId, {
                 note: 'auto-converted from INTERESTED reply',
@@ -818,20 +857,23 @@ router.post('/prospects/:id/replies', async (req: Request, res: Response): Promi
 // Counts per status + ICP segment + a 7-day daily trend of new prospects.
 // Everything in one round-trip so the SPA doesn't fan out.
 // ---------------------------------------------------------------------------
-router.get('/stats', async (_req: Request, res: Response): Promise<void> => {
+router.get('/stats', async (req: Request, res: Response): Promise<void> => {
+  const tenantId = requireTenantId(req, res);
+  if (!tenantId) return;
+
   try {
     const [statusR, icpR, trendR, totalR, convertedR] = await Promise.all([
-      pool.query(`SELECT status, COUNT(*)::int AS count FROM prospects GROUP BY status`),
-      pool.query(`SELECT icp_segment, COUNT(*)::int AS count FROM prospects WHERE icp_segment IS NOT NULL GROUP BY icp_segment`),
+      pool.query(`SELECT status, COUNT(*)::int AS count FROM prospects WHERE tenant_id=$1 GROUP BY status`, [tenantId]),
+      pool.query(`SELECT icp_segment, COUNT(*)::int AS count FROM prospects WHERE tenant_id=$1 AND icp_segment IS NOT NULL GROUP BY icp_segment`, [tenantId]),
       pool.query(`
         SELECT created_at::date AS date, COUNT(*)::int AS count
           FROM prospects
-         WHERE created_at >= NOW() - INTERVAL '7 days'
+         WHERE tenant_id=$1 AND created_at >= NOW() - INTERVAL '7 days'
          GROUP BY created_at::date
          ORDER BY date
-      `),
-      pool.query(`SELECT COUNT(*)::int AS total FROM prospects`),
-      pool.query(`SELECT COUNT(*)::int AS count FROM prospects WHERE crm_contact_id IS NOT NULL`),
+      `, [tenantId]),
+      pool.query(`SELECT COUNT(*)::int AS total FROM prospects WHERE tenant_id=$1`, [tenantId]),
+      pool.query(`SELECT COUNT(*)::int AS count FROM prospects WHERE tenant_id=$1 AND crm_contact_id IS NOT NULL`, [tenantId]),
     ]);
 
     const byStatus: Record<string, number> = {};
@@ -882,8 +924,8 @@ async function convertProspectToCrm(
   const found = await pool.query(
     `SELECT id, first_name, last_name, title, company, email, linkedin_url, source,
             crm_contact_id, crm_deal_id
-       FROM prospects WHERE id=$1`,
-    [prospectId],
+       FROM prospects WHERE id=$1 AND tenant_id=$2`,
+    [prospectId, tenantId],
   );
   if (found.rowCount === 0) throw new Error('prospect not found');
   const p = found.rows[0] as {
@@ -953,8 +995,8 @@ async function convertProspectToCrm(
 
   // Back-link onto the prospect + audit
   await pool.query(
-    `UPDATE prospects SET crm_contact_id=$1, crm_deal_id=$2, updated_at=NOW() WHERE id=$3`,
-    [contact.id, deal.id, p.id],
+    `UPDATE prospects SET crm_contact_id=$1, crm_deal_id=$2, updated_at=NOW() WHERE id=$3 AND tenant_id=$4`,
+    [contact.id, deal.id, p.id, tenantId],
   );
   await pool.query(
     `INSERT INTO outbound_events (prospect_id, event_type, note)
