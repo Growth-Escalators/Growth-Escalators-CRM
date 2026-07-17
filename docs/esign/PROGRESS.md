@@ -4,8 +4,8 @@
 
 ## Current status
 - **Branch:** `feat/contracts-esign` (worktree `.claude/worktrees/feat+contracts-esign`, off `origin/main` 1b78a62).
-- **Phase:** P2 — storage + hash (DONE). Next: P3 — provider abstraction + Documenso + Docker.
-- **Next:** P3 — `ESignatureProvider` interface + mock + documenso provider + docker-compose.
+- **Phase:** P3 — provider abstraction + Documenso + Docker (DONE). Next: P4 — service + routes + RBAC.
+- **Next:** P4 — contract service, `/api/contracts` routes, `CONTRACTS_*` permissions, numbering.
 
 ## Completed
 - Discovery (read-only): architecture, tenancy, storage audit, deployment, webhooks, permissions. See
@@ -22,6 +22,14 @@
 - P2: added `%PDF` to `sniffFileType` + `application/pdf` to the R2 allow-list; `document-hash.service`
   (sha256 + constant-time verify) + `document-storage.service` (immutable versioned keys, private-only,
   PDF-magic-byte validation).
+- P3: vendor-neutral `ESignatureProvider` interface + `esign.types.ts` + `MockESignProvider` (in-memory,
+  full lifecycle) + `DocumensoProvider` (v1 REST, server-to-server, fail-closed config) + factory
+  (`ESIGN_PROVIDER`) + `docs/esign/docker-compose.documenso.yml` (pinned). `esignProvider.test.ts`: 11 passed.
+
+## Known verification gaps (not blockers)
+- `DocumensoProvider` endpoint paths + embedded-signing token flow are coded to Documenso's documented
+  v1 API but **not yet validated against a live instance** — do so when the Docker Documenso is up
+  (P6/P9). Automated tests cover the interface via the mock; the real HTTP mapping is the live step.
 
 ## Outstanding defects
 - None. (Handled pre-existing 0033-snapshot drift in D9 — not a defect I introduced.)

@@ -1,0 +1,58 @@
+# Local Documenso Community Edition for verifying the CRM's e-sign integration.
+# LOCAL / STAGING ONLY — not a production deployment (prod = separate Railway
+# services, see DEPLOYMENT.md). Documenso is AGPL and runs as its OWN service
+# with its OWN Postgres; the CRM never imports it or touches its DB.
+#
+# Pin the image tag (never `latest`). Confirm the exact published tag against
+# https://github.com/documenso/documenso/releases before running, then adjust.
+# Bring up:  docker compose -f docs/esign/docker-compose.documenso.yml up -d
+# Then set in the CRM .env:
+#   ESIGN_PROVIDER=documenso
+#   DOCUMENSO_API_URL=http://localhost:3030
+#   DOCUMENSO_API_TOKEN=<create in the Documenso UI: Settings → API Tokens>
+#   DOCUMENSO_WEBHOOK_SECRET=<set a webhook in Documenso → this secret>
+#   DOCUMENSO_EMBED_ORIGIN=http://localhost:5174   # the CRM admin dev origin
+
+services:
+  documenso-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: documenso
+      POSTGRES_PASSWORD: documenso_local_only
+      POSTGRES_DB: documenso
+    volumes:
+      - documenso_db_data:/var/lib/postgresql/data
+    # Not exposed on the host — only the documenso service reaches it.
+
+  documenso:
+    image: documenso/documenso:v1.11.0 # <-- verify/adjust tag before use
+    restart: unless-stopped
+    depends_on:
+      - documenso-db
+    ports:
+      - '3030:3000'
+    environment:
+      # --- core ---
+      NEXTAUTH_URL: http://localhost:3030
+      NEXT_PUBLIC_WEBAPP_URL: http://localhost:3030
+      # Generate real secrets locally: `openssl rand -base64 32`
+      NEXTAUTH_SECRET: CHANGE_ME_local_nextauth_secret
+      NEXT_PRIVATE_ENCRYPTION_KEY: CHANGE_ME_local_primary_key
+      NEXT_PRIVATE_ENCRYPTION_SECONDARY_KEY: CHANGE_ME_local_secondary_key
+      # --- database (its own; NOT the CRM DB) ---
+      NEXT_PRIVATE_DATABASE_URL: postgresql://documenso:documenso_local_only@documenso-db:5432/documenso
+      NEXT_PRIVATE_DIRECT_DATABASE_URL: postgresql://documenso:documenso_local_only@documenso-db:5432/documenso
+      # --- embedding: allow the CRM origin to iframe the signing UI ---
+      NEXT_PUBLIC_ALLOW_IFRAME: 'true'
+      # --- email (optional locally; use a mailpit/maildev container if needed) ---
+      NEXT_PRIVATE_SMTP_TRANSPORT: smtp
+      NEXT_PRIVATE_SMTP_HOST: ${DOCUMENSO_SMTP_HOST:-}
+      NEXT_PRIVATE_SMTP_PORT: ${DOCUMENSO_SMTP_PORT:-587}
+      NEXT_PRIVATE_SMTP_USERNAME: ${DOCUMENSO_SMTP_USER:-}
+      NEXT_PRIVATE_SMTP_PASSWORD: ${DOCUMENSO_SMTP_PASS:-}
+      NEXT_PRIVATE_SMTP_FROM_NAME: 'Documenso (local)'
+      NEXT_PRIVATE_SMTP_FROM_ADDRESS: no-reply@localhost
+
+volumes:
+  documenso_db_data:
