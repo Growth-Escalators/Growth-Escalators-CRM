@@ -4,8 +4,8 @@
 
 ## Current status
 - **Branch:** `feat/contracts-esign` (worktree `.claude/worktrees/feat+contracts-esign`, off `origin/main` 1b78a62).
-- **Phase:** P1 — schema + state machine + migration 0034 (DONE). Next: P2 — storage + hash.
-- **Next:** P2 — `%PDF` sniff + key scheme + document-storage/hash services.
+- **Phase:** P2 — storage + hash (DONE). Next: P3 — provider abstraction + Documenso + Docker.
+- **Next:** P3 — `ESignatureProvider` interface + mock + documenso provider + docker-compose.
 
 ## Completed
 - Discovery (read-only): architecture, tenancy, storage audit, deployment, webhooks, permissions. See
@@ -17,8 +17,11 @@
   (pure module) + migration `0034_lame_proemial_gods.sql` (drift-stripped to contract-only — see D9).
 
 ## Tests
-- `contractStateMachine.test.ts`: 13 passed. Migration chain 0000→0034 applied clean on fresh Postgres 16.
-- tsc build: green.
+- `contractStateMachine.test.ts`: 13 passed. `contractDocumentStorage.test.ts`: 11 passed (24 total).
+- Migration chain 0000→0034 applied clean on fresh Postgres 16. tsc build: green.
+- P2: added `%PDF` to `sniffFileType` + `application/pdf` to the R2 allow-list; `document-hash.service`
+  (sha256 + constant-time verify) + `document-storage.service` (immutable versioned keys, private-only,
+  PDF-magic-byte validation).
 
 ## Outstanding defects
 - None. (Handled pre-existing 0033-snapshot drift in D9 — not a defect I introduced.)

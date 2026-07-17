@@ -58,6 +58,11 @@ export function sniffFileType(buf: Buffer): string | null {
   if (buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
   if (buf.subarray(0, 4).toString('ascii') === 'GIF8') return 'image/gif';
   if (buf.subarray(0, 4).toString('ascii') === 'RIFF' && buf.subarray(8, 12).toString('ascii') === 'WEBP') return 'image/webp';
+  // PDF — the contracts/e-sign module stores source/generated/completed/audit
+  // PDFs; multer only sees the spoofable Content-Type, so the actual %PDF-1.x
+  // header (25 50 44 46) is the real gate. Kept in the shared sniffer so
+  // isAllowedUploadContent can validate contract uploads by bytes.
+  if (buf.subarray(0, 4).toString('ascii') === '%PDF') return 'application/pdf';
   // ISO base media container (MP4/QuickTime) — a 4-byte box size followed by
   // an "ftyp" box type at offset 4. Covers both; brand bytes after that vary
   // too much across encoders to distinguish reliably, and this app accepts
@@ -68,6 +73,7 @@ export function sniffFileType(buf: Buffer): string | null {
 
 export const R2_ALLOWED_UPLOAD_MIME_TYPES = [
   'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/quicktime',
+  'application/pdf',
 ] as const;
 
 // True if the buffer's actual bytes match a known-safe signature. video/quicktime
