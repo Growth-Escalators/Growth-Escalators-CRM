@@ -5,7 +5,7 @@ import { eq, and, lte, gte, sql } from 'drizzle-orm';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import multer from 'multer';
-import { uploadToR2, deleteFromR2, listR2Objects } from '../utils/r2';
+import { uploadToR2, deleteFromR2, listR2Objects, isAllowedUploadContent } from '../utils/r2';
 import { getFacebookLeadFormsStatus, subscribeFacebookPageToLeadgen } from '../services/facebookLeadForms';
 
 const router = Router();
@@ -359,6 +359,15 @@ router.delete('/posts/:id', async (req: Request, res: Response) => {
 router.post('/upload', upload.single('file'), async (req: Request, res: Response) => {
   const file = req.file;
   if (!file) { res.status(400).json({ error: 'file required (images or videos only)' }); return; }
+
+  // H17 — fileFilter above only checked file.mimetype, the client-supplied
+  // Content-Type header on the multipart part (trivially spoofable). The
+  // buffer is only available here, after multer has fully read it into
+  // memory, so the magic-byte check has to live in the handler, not fileFilter.
+  if (!isAllowedUploadContent(file.buffer, file.mimetype)) {
+    res.status(400).json({ error: 'file content does not match an allowed image/video type' });
+    return;
+  }
 
   try {
     const url = await uploadToR2(file.buffer, file.originalname, file.mimetype);
