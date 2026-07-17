@@ -68,6 +68,18 @@ export const generateContract = h(async (req, res) => {
   res.json(await service.generateContract(ctxOf(req), String(req.params.id)));
 });
 
+// Bring-your-own-PDF: multipart upload (field "file") stored via multer memory
+// storage. The buffer is validated as a real PDF inside the service before it
+// reaches the provider.
+export const uploadContractPdf = h(async (req, res) => {
+  const file = (req as unknown as { file?: { buffer?: Buffer } }).file;
+  if (!file?.buffer?.length) {
+    res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'a PDF file is required (multipart form field "file")' } });
+    return;
+  }
+  res.json(await service.uploadContractPdf(ctxOf(req), String(req.params.id), file.buffer));
+});
+
 export const approveContract = h(async (req, res) => {
   res.json(await service.approveContract(ctxOf(req), String(req.params.id)));
 });

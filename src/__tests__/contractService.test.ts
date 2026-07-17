@@ -99,6 +99,23 @@ describe('contract lifecycle', () => {
     expect(types).toEqual(expect.arrayContaining(['contract.created', 'contract.generated', 'contract.approved', 'contract.sent']));
   });
 
+  it('accepts an uploaded PDF (bring-your-own) → GENERATED, then approve → send', async () => {
+    const { contract } = await service.createContract(ctx, { title: 'Uploaded NDA', recipients: twoParty() });
+
+    const up = await service.uploadContractPdf(ctx, contract.id, Buffer.from('%PDF-1.4 my own contract'));
+    expect(up.contract.status).toBe('GENERATED');
+    expect(up.contract.generatedFileKey).toBe('r2://priv/generated');
+    expect(up.contract.documensoDocumentId).toBeTruthy();
+    expect(up.recipients.every((r) => r.documensoRecipientId)).toBe(true);
+    expect(up.events.some((e) => e.eventType === 'contract.generated')).toBe(true);
+
+    // the rest of the lifecycle is identical to a generated contract
+    const appr = await service.approveContract(ctx, contract.id);
+    expect(appr.contract.status).toBe('READY_TO_SEND');
+    const sent = await service.sendContract(ctx, contract.id);
+    expect(sent.contract.status).toBe('SENT');
+  });
+
   it('reissues a signing link for a recipient on a SENT contract (rotates the stored hash)', async () => {
     const { contract, recipients } = await service.createContract(ctx, { title: 'MSA', recipients: twoParty() });
     await service.generateContract(ctx, contract.id);

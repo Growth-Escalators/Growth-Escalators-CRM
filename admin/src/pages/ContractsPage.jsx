@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import { apiFetch } from '../lib/api.js';
 
@@ -46,6 +46,8 @@ export default function ContractsPage() {
   const [form, setForm] = useState(emptyForm());
   const [detail, setDetail] = useState(null); // { contract, recipients, events }
   const [links, setLinks] = useState({}); // recipientId -> signing url
+  const fileInputRef = useRef(null);
+  const [uploadTargetId, setUploadTargetId] = useState(''); // contract awaiting an uploaded PDF
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -135,11 +137,48 @@ export default function ContractsPage() {
     }
   }
 
+  // Bring-your-own-PDF: open the file picker for a specific DRAFT contract.
+  function pickPdf(id) {
+    setUploadTargetId(id);
+    setError('');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+      fileInputRef.current.click();
+    }
+  }
+
+  async function onFileChosen(e) {
+    const file = e.target.files?.[0];
+    const id = uploadTargetId;
+    if (!file || !id) return;
+    if (file.type && file.type !== 'application/pdf') {
+      setError('Please choose a PDF file.');
+      setUploadTargetId('');
+      return;
+    }
+    setBusyId(id);
+    setError('');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      // apiFetch omits Content-Type for FormData so the browser sets the multipart boundary.
+      await apiFetch(`/api/contracts/${id}/upload`, { method: 'POST', body: fd });
+      await load();
+      if (detail?.contract?.id === id) await openDetail(id);
+    } catch (err) {
+      setError(err.message || 'Upload failed');
+    } finally {
+      setBusyId('');
+      setUploadTargetId('');
+    }
+  }
+
   function rowActions(c) {
     const busy = busyId === c.id;
     const btn = 'rounded px-2 py-1 text-xs font-medium disabled:opacity-50';
     const out = [];
     if (c.status === 'DRAFT') out.push(<button key="g" disabled={busy} className={`${btn} bg-blue-600 text-white`} onClick={() => act(c.id, 'generate')}>Generate</button>);
+    if (c.status === 'DRAFT') out.push(<button key="u" disabled={busy} className={`${btn} bg-slate-600 text-white`} onClick={() => pickPdf(c.id)} title="Sign a PDF you already have instead of generating one">Upload PDF</button>);
     if (c.status === 'GENERATED') out.push(<button key="a" disabled={busy} className={`${btn} bg-indigo-600 text-white`} onClick={() => act(c.id, 'approve')}>Approve</button>);
     if (c.status === 'READY_TO_SEND') out.push(<button key="s" disabled={busy} className={`${btn} bg-amber-600 text-white`} onClick={() => act(c.id, 'send')}>Send</button>);
     if (c.status === 'COMPLETED') out.push(<button key="d" className={`${btn} bg-green-600 text-white`} onClick={() => download(c.id, 'completed')}>Download</button>);
@@ -150,6 +189,8 @@ export default function ContractsPage() {
   return (
     <div className="flex h-screen bg-neutral-50">
       <Sidebar />
+      {/* Hidden picker for the "Upload PDF" action (bring-your-own-PDF). */}
+      <input ref={fileInputRef} type="file" accept="application/pdf" className="hidden" onChange={onFileChosen} />
       <main className="flex-1 overflow-y-auto p-8">
         <div className="mb-6 flex items-center justify-between">
           <div>

@@ -242,6 +242,52 @@ export async function generateContract(ctx: Ctx, id: string): Promise<ContractDe
   return getContractDetail(ctx, updated.id);
 }
 
+/**
+ * Bring-your-own-PDF variant of generateContract: instead of rendering the PDF
+ * from the contract's terms (pdfkit), take an already-made PDF the user uploaded,
+ * store it as the 'generated' artifact, and register it with the signing
+ * provider. Everything downstream (approve → send → sign → complete → download)
+ * is byte-for-byte identical to the generated path. storeContractArtifact runs
+ * assertPdf (magic-byte check) before anything is created at the provider, so a
+ * spoofed / non-PDF upload is rejected with a 400 and never reaches Documenso.
+ */
+export async function uploadContractPdf(ctx: Ctx, id: string, pdf: Buffer): Promise<ContractDetail> {
+  const contract = requireFound(await repo.getContract(ctx.tenantId, id));
+  const recipients = await repo.listRecipients(ctx.tenantId, id);
+  if (recipients.length === 0) throw new HttpError(400, 'add at least one recipient before uploading', 'VALIDATION_ERROR');
+  if (!recipients.some((r) => (r.signingRole ?? 'client_signer') === 'client_signer')) {
+    throw new HttpError(400, 'a client signer is required', 'VALIDATION_ERROR');
+  }
+
+  const stored = await storeContractArtifact({
+    tenantId: ctx.tenantId, contractId: id, version: contract.version, artifact: 'generated', buffer: pdf,
+  });
+
+  // Register the uploaded PDF at the provider (stays draft until send).
+  const provider = getESignProvider();
+  const created = await provider.createDocument({
+    title: contract.title,
+    pdf,
+    recipients: toProviderRecipients(recipients),
+    externalReference: id,
+    metadata: { tenantId: ctx.tenantId, referenceNumber: contract.referenceNumber },
+  });
+
+  for (const pr of created.recipients) {
+    const match = recipients.find((r) => r.email === pr.email.toLowerCase());
+    if (match) await repo.updateRecipient(ctx.tenantId, match.id, { documensoRecipientId: pr.externalRecipientId });
+  }
+
+  const updated = await transition(ctx, contract, 'GENERATED', {
+    generatedFileKey: stored.reference,
+    generatedDocumentHash: stored.hash,
+    documensoDocumentId: created.externalDocumentId,
+    provider: provider.name,
+  });
+  await appendEvent(ctx, id, 'contract.generated', { generatedHash: stored.hash, provider: provider.name, uploaded: true });
+  return getContractDetail(ctx, updated.id);
+}
+
 // ---- approval gate ----
 export async function approveContract(ctx: Ctx, id: string): Promise<ContractDetail> {
   const contract = requireFound(await repo.getContract(ctx.tenantId, id));
