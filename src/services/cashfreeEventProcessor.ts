@@ -115,89 +115,111 @@ export async function processCashfreeEvent(
     return { ok: true, status: 'skipped', reason: 'already processed' };
   }
 
-  const [tenant] = await db.select().from(tenants).where(eq(tenants.slug, 'growth-escalators')).limit(1);
-  if (!tenant) {
-    logger.error('[cashfree] Tenant growth-escalators NOT FOUND — aborting');
-    return { ok: true, status: 'skipped', reason: 'tenant not found' };
-  }
-  logger.info(`[cashfree] Processing: order=${body.data?.order?.order_id} amount=₹${orderAmount} name=${name} email=${email}`);
-
-  const funnelConfig = await getFunnelConfig(funnelSlug, tenant.id);
-
-  const amount = Math.round(orderAmount);
+  // The claim above commits immediately (Drizzle auto-commits single
+  // statements), so a thrown error anywhere in the critical path below would
+  // otherwise leave this payment permanently marked "processed" with no
+  // contact, deal, or event ever written — a silent, unrecoverable revenue
+  // loss, since Cashfree's retry would just see the claim and skip again.
+  // Release the claim on any failure so the next webhook redelivery (Cashfree
+  // retries automatically on a non-2xx response) can reprocess this payment.
+  let tenant: { id: string; slug: string } | undefined;
+  let contact: Awaited<ReturnType<typeof findOrCreateContact>>['contact'];
+  let created: boolean;
   let stage: string;
   let productLabel: string;
-  if (funnelConfig) {
-    stage = stageForAmount(funnelConfig, amount);
-    productLabel = labelForStage(funnelConfig, stage);
-  } else {
-    if (Math.abs(amount - 9) <= 5) stage = 'paid_9';
-    else if (Math.abs(amount - 208) <= 5) stage = 'paid_208';
-    else if (Math.abs(amount - 508) <= 5) stage = 'paid_508';
-    else if (Math.abs(amount - 707) <= 5) stage = 'paid_707';
-    else stage = 'paid_9';
-    productLabel = 'D2C Funnel Breakdown Pack';
-  }
-
-  const products: string[] = ['core_product'];
-  if (bump1 && (funnelConfig?.bump1_price || !funnelConfig)) products.push('growth_kit');
-  if (bump2 && (funnelConfig?.bump2_price || !funnelConfig)) products.push('audit_call');
-
-  // Normalize for dedup: emails are case-insensitive (RFC 5321 §2.3.11 — local
-  // part is technically case-sensitive but in practice every mail server
-  // lowercases). Phones strip non-digits then prefix 91 if missing. Without
-  // this, "Jatin@x.com" and "jatin@x.com" become two separate contacts.
-  const channels: { channelType: 'email' | 'whatsapp'; channelValue: string; isPrimary?: boolean }[] = [];
-  const normalizedPhone = phone ? (phone.startsWith('91') ? phone.replace(/\D/g, '') : `91${phone.replace(/\D/g, '')}`) : '';
-  const normalizedEmail = email ? email.trim().toLowerCase() : '';
-  if (normalizedPhone) channels.push({ channelType: 'whatsapp', channelValue: normalizedPhone });
-  if (normalizedEmail) channels.push({ channelType: 'email', channelValue: normalizedEmail, isPrimary: true });
-  const parts = name.trim().split(' ');
-  const firstName = parts[0] ?? name;
-  const lastName = parts.slice(1).join(' ') || undefined;
-
-  const { contact, created } = await findOrCreateContact(tenant.id, {
-    firstName, lastName, source: 'checkout', channels,
-  });
-  logger.info(`[cashfree] Contact ${created ? 'CREATED' : 'FOUND'}: ${contact.id} (${firstName} ${lastName || ''})`);
-
-  const existingContact = await db.select().from(contacts).where(eq(contacts.id, contact.id)).limit(1);
-  const existingMeta = (existingContact[0]?.metadata ?? {}) as Record<string, unknown>;
-  const existingTags = (existingContact[0]?.tags ?? []) as string[];
-  const newTags = [...new Set([...existingTags, 'slo_buyer', `funnel:${funnelSlug}`, segment, ...products])];
-
-  // Bump lastActivityAt so repeat buyers surface at the top of the CRM contact
-  // list (sorted by lastActivityAt DESC). Without this, an existing contact
-  // making a fresh purchase wouldn't visually move — the buy would still
-  // create a new deal + event row, but the contact list ordering would lie.
-  const now = new Date();
-  await db.update(contacts).set({
-    status: 'prospect',
-    tags: newTags,
-    metadata: { ...existingMeta, paymentStatus: 'paid', paidAmount: orderAmount, segment, bump1, bump2, products, funnelSlug, ...utmData },
-    updatedAt: now,
-    lastActivityAt: now,
-  }).where(eq(contacts.id, contact.id));
-
-  const serviceType = funnelConfig?.service_type || 'ecom';
-  await db.insert(deals).values({
-    tenantId: tenant.id, contactId: contact.id,
-    title: `${funnelConfig?.name || 'SLO'} Purchase — ${name}`, stage, serviceType, value: String(orderAmount),
-  });
-  logger.info(`[cashfree] Deal created: stage=${stage} value=₹${orderAmount} funnel=${funnelSlug}`);
+  let funnelConfig: Awaited<ReturnType<typeof getFunnelConfig>>;
+  let firstName: string;
+  let lastName: string | undefined;
 
   try {
-    await db.insert(events).values({
-      tenantId: tenant.id, contactId: contact.id, eventType: 'slo_purchase',
-      payload: { amount: orderAmount, segment, products, cfPaymentId, funnelSlug },
+    [tenant] = await db.select().from(tenants).where(eq(tenants.slug, 'growth-escalators')).limit(1);
+    if (!tenant) {
+      logger.error('[cashfree] Tenant growth-escalators NOT FOUND — aborting');
+      throw new Error('tenant not found');
+    }
+    logger.info(`[cashfree] Processing: order=${body.data?.order?.order_id} amount=₹${orderAmount} name=${name} email=${email}`);
+
+    funnelConfig = await getFunnelConfig(funnelSlug, tenant.id);
+
+    const amount = Math.round(orderAmount);
+    if (funnelConfig) {
+      stage = stageForAmount(funnelConfig, amount);
+      productLabel = labelForStage(funnelConfig, stage);
+    } else {
+      if (Math.abs(amount - 9) <= 5) stage = 'paid_9';
+      else if (Math.abs(amount - 208) <= 5) stage = 'paid_208';
+      else if (Math.abs(amount - 508) <= 5) stage = 'paid_508';
+      else if (Math.abs(amount - 707) <= 5) stage = 'paid_707';
+      else stage = 'paid_9';
+      productLabel = 'D2C Funnel Breakdown Pack';
+    }
+
+    const products: string[] = ['core_product'];
+    if (bump1 && (funnelConfig?.bump1_price || !funnelConfig)) products.push('growth_kit');
+    if (bump2 && (funnelConfig?.bump2_price || !funnelConfig)) products.push('audit_call');
+
+    // Normalize for dedup: emails are case-insensitive (RFC 5321 §2.3.11 —
+    // local part is technically case-sensitive but in practice every mail
+    // server lowercases). Phones strip non-digits then prefix 91 if missing.
+    // Without this, "Jatin@x.com" and "jatin@x.com" become two separate contacts.
+    const channels: { channelType: 'email' | 'whatsapp'; channelValue: string; isPrimary?: boolean }[] = [];
+    const normalizedPhone = phone ? (phone.startsWith('91') ? phone.replace(/\D/g, '') : `91${phone.replace(/\D/g, '')}`) : '';
+    const normalizedEmail = email ? email.trim().toLowerCase() : '';
+    if (normalizedPhone) channels.push({ channelType: 'whatsapp', channelValue: normalizedPhone });
+    if (normalizedEmail) channels.push({ channelType: 'email', channelValue: normalizedEmail, isPrimary: true });
+    const parts = name.trim().split(' ');
+    firstName = parts[0] ?? name;
+    lastName = parts.slice(1).join(' ') || undefined;
+
+    ({ contact, created } = await findOrCreateContact(tenant.id, {
+      firstName, lastName, source: 'checkout', channels,
+    }));
+    logger.info(`[cashfree] Contact ${created ? 'CREATED' : 'FOUND'}: ${contact.id} (${firstName} ${lastName || ''})`);
+
+    const existingContact = await db.select().from(contacts).where(eq(contacts.id, contact.id)).limit(1);
+    const existingMeta = (existingContact[0]?.metadata ?? {}) as Record<string, unknown>;
+    const existingTags = (existingContact[0]?.tags ?? []) as string[];
+    const newTags = [...new Set([...existingTags, 'slo_buyer', `funnel:${funnelSlug}`, segment, ...products])];
+
+    // Bump lastActivityAt so repeat buyers surface at the top of the CRM
+    // contact list (sorted by lastActivityAt DESC). Without this, an existing
+    // contact making a fresh purchase wouldn't visually move — the buy would
+    // still create a new deal + event row, but the contact list ordering
+    // would lie.
+    const now = new Date();
+    await db.update(contacts).set({
+      status: 'prospect',
+      tags: newTags,
+      metadata: { ...existingMeta, paymentStatus: 'paid', paidAmount: orderAmount, segment, bump1, bump2, products, funnelSlug, ...utmData },
+      updatedAt: now,
+      lastActivityAt: now,
+    }).where(eq(contacts.id, contact.id));
+
+    const serviceType = funnelConfig?.service_type || 'ecom';
+    await db.insert(deals).values({
+      tenantId: tenant.id, contactId: contact.id,
+      title: `${funnelConfig?.name || 'SLO'} Purchase — ${name}`, stage, serviceType, value: String(orderAmount),
     });
-  } catch (eventErr) {
-    logger.error('[cashfree] event insert via Drizzle failed, trying raw SQL:', eventErr);
-    await pool.query(
-      `INSERT INTO events (id, tenant_id, contact_id, event_type, payload, created_at)
-       VALUES (gen_random_uuid(), $1, $2, 'slo_purchase', $3::jsonb, NOW())`,
-      [tenant.id, contact.id, JSON.stringify({ amount: orderAmount, segment, products, cfPaymentId, funnelSlug })],
-    );
+    logger.info(`[cashfree] Deal created: stage=${stage} value=₹${orderAmount} funnel=${funnelSlug}`);
+
+    try {
+      await db.insert(events).values({
+        tenantId: tenant.id, contactId: contact.id, eventType: 'slo_purchase',
+        payload: { amount: orderAmount, segment, products, cfPaymentId, funnelSlug },
+      });
+    } catch (eventErr) {
+      logger.error('[cashfree] event insert via Drizzle failed, trying raw SQL:', eventErr);
+      await pool.query(
+        `INSERT INTO events (id, tenant_id, contact_id, event_type, payload, created_at)
+         VALUES (gen_random_uuid(), $1, $2, 'slo_purchase', $3::jsonb, NOW())`,
+        [tenant.id, contact.id, JSON.stringify({ amount: orderAmount, segment, products, cfPaymentId, funnelSlug })],
+      );
+    }
+  } catch (err) {
+    await db.delete(processedEvents).where(eq(processedEvents.eventId, cfPaymentId)).catch((delErr) => {
+      logger.error(`[cashfree] CRITICAL: failed to release claim for ${cfPaymentId} after a processing error — this payment will NOT be retried automatically. Manual replay required.`, delErr);
+    });
+    throw err;
   }
 
   // processed_events row was already inserted at the top of the function as

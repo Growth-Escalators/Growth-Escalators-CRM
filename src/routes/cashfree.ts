@@ -5,6 +5,7 @@ import { db, pool, tenants, deals, contacts, processedEvents, events } from '../
 import { findOrCreateContact, normalizeChannelValue } from '../services/contactService';
 import { getFunnelConfig, stageForAmount, labelForStage } from '../services/funnelConfigService';
 import { processCashfreeEvent, type CashfreeWebhookBody } from '../services/cashfreeEventProcessor';
+import { validateCashfreeWebhook } from '../middleware/validateWebhook';
 
 const router = Router();
 
@@ -102,8 +103,15 @@ router.post('/create-order', async (req: Request, res: Response) => {
 //      which already verified Cashfree's signature and pushed to Upstash. The
 //      drainer also calls processCashfreeEvent(), so this endpoint is now a
 //      thin shell around the shared service for the legacy path.
+//
+// validateCashfreeWebhook re-verifies Cashfree's own x-webhook-signature on
+// every call to this route (both callers above forward Cashfree's original
+// headers unmodified) — this endpoint must never trust an unsigned body,
+// since a forged PAYMENT_SUCCESS_WEBHOOK here creates a real deal, fires a
+// Meta CAPI purchase event, and delivers paid product assets over
+// WhatsApp/email to whatever recipient the forged payload names.
 // ---------------------------------------------------------------------------
-router.post('/webhook', async (req: Request, res: Response) => {
+router.post('/webhook', validateCashfreeWebhook, async (req: Request, res: Response) => {
   const body = req.body as CashfreeWebhookBody;
 
   console.log('[cashfree webhook] RECEIVED:', JSON.stringify({

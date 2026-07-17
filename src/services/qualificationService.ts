@@ -33,6 +33,16 @@ function detectLakhs(val: string): number | null {
   return null;
 }
 
+// "above N"/"more than N" as a bounded whole-number match — NOT a plain
+// substring. .includes('above 1') previously matched "above 10k", "above
+// 15k", "above 100000" (anything starting with that prefix), scoring a
+// ₹10k/month spender as if they'd said "above 1 lakh". \bN\b(?!\d) requires
+// N to end at a word boundary with no digit immediately following, so "1"
+// matches "above 1", "above 1 lakh", "above 1,00,000" but not "above 10".
+function matchesAboveThreshold(val: string, n: number): boolean {
+  return new RegExp(`\\b(above|more than)\\s+${n}\\b(?!\\d)`, 'i').test(val);
+}
+
 // ---------------------------------------------------------------------------
 // scoreBooking
 // Scores qualification answers and returns totalScore, breakdown, and tier.
@@ -44,8 +54,7 @@ export function scoreBooking(answers: Answers): ScoreResult {
   const spendLakhs = detectLakhs(spendVal);
   if (
     (spendLakhs !== null && spendLakhs >= 1) ||
-    spendVal.includes('above 1') ||
-    spendVal.includes('more than 1')
+    matchesAboveThreshold(spendVal, 1)
   ) {
     adSpend = 40;
   } else if (
@@ -71,7 +80,7 @@ export function scoreBooking(answers: Answers): ScoreResult {
   if (
     (revLakhs !== null && revLakhs >= 10) ||
     revenueVal.includes('1000000') ||
-    revenueVal.includes('above 10')
+    matchesAboveThreshold(revenueVal, 10)
   ) {
     revenue = 20;
   } else if (

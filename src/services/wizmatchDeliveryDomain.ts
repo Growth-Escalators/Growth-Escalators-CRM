@@ -62,6 +62,27 @@ export function assertCurrentConsent(consent: { status: string; expires_at?: Dat
   if (consent.expires_at && new Date(consent.expires_at).getTime() <= Date.now()) throw new StaffingDomainError(409, 'consent_expired', 'Candidate consent has expired');
 }
 
+export function submissionNextAllowedActions(status: string) {
+  const actions: Record<string, string[]> = {
+    draft: ['approve_submission', 'withdraw_submission'],
+    approved: ['record_sent', 'withdraw_submission'],
+    submitted: ['schedule_interview', 'withdraw_submission'],
+    interviewing: ['record_interview_feedback', 'create_offer', 'withdraw_submission'],
+    offered: ['update_offer', 'create_placement', 'withdraw_submission'],
+    placed: [], rejected: [], withdrawn: [], closed: [],
+  };
+  return actions[status] || [];
+}
+
+export function placementNextAllowedActions(input: { status?: string | null; invoice_id?: string | null; amount_due?: number | string | null; open_adjustment_count?: number | string | null }) {
+  const actions: string[] = [];
+  if (!input.invoice_id && ['started', 'ended'].includes(String(input.status || ''))) actions.push('link_invoice');
+  if (input.invoice_id) actions.push(Number(input.amount_due || 0) > 0 ? 'review_collection' : 'review_invoice');
+  if (['started', 'ended'].includes(String(input.status || ''))) actions.push('open_adjustment');
+  if (Number(input.open_adjustment_count || 0) > 0) actions.push('resolve_adjustment');
+  return actions;
+}
+
 function privateDocumentReference(value: unknown) {
   if (value === null || value === undefined || value === '') return null;
   const reference = required(value, 'documentReference');
