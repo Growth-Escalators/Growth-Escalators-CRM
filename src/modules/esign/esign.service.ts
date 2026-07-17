@@ -21,7 +21,23 @@ import { sha256Hex } from './document-hash.service';
 import { getNextContractNumber } from './contract-numbering';
 import { mintSigningToken, hashSigningToken } from './contract-signing-link';
 import { sendTransactionalEmail } from '../../services/emailService';
+import { db, users } from '../../db/index';
+import { eq } from 'drizzle-orm';
 import crypto from 'crypto';
+
+// Notify the internal owner (contract creator / sender) — NOT a contact-facing
+// bulk email, so it goes straight through the transactional sender and is never
+// gated by the automated-email kill-switch. Best-effort; never blocks the flow.
+async function notifyOwner(userId: string | null | undefined, subject: string, html: string, text: string): Promise<void> {
+  if (!userId) return;
+  try {
+    const [u] = await db.select({ email: users.email, name: users.name }).from(users).where(eq(users.id, userId)).limit(1);
+    if (!u?.email) return;
+    await sendTransactionalEmail(u.email, u.name || 'there', subject, html, text);
+  } catch (err) {
+    console.error('[esign] owner notification failed', { userId, error: (err as Error).message });
+  }
+}
 
 function buildSignUrl(token: string): string {
   const base = (process.env.CRM_BASE_URL || process.env.BASE_URL || process.env.FRONTEND_URL || '').replace(/\/+$/, '');
@@ -314,6 +330,13 @@ export async function sendContract(ctx: Ctx, id: string): Promise<ContractDetail
     await repo.updateRecipient(ctx.tenantId, r.id, { signingTokenHash: hashSigningToken(token) });
     if ((r.signingOrder ?? 1) === minOrder) await sendSignInvite(r, sent, buildSignUrl(token));
   }
+  // Confirmation to the sender (internal owner) — so they know it went out.
+  await notifyOwner(
+    ctx.userId,
+    `Sent for signature: ${sent.title} (${sent.referenceNumber})`,
+    `<p>Your contract <strong>${sent.title}</strong> (${sent.referenceNumber}) was sent for signature to ${recipients.map((r) => r.name).join(', ')}.</p><p>You'll be emailed when it's completed. Track it on the CRM Contracts page.</p>`,
+    `Your contract "${sent.title}" (${sent.referenceNumber}) was sent for signature to ${recipients.map((r) => r.name).join(', ')}. You'll be emailed when it's completed.`,
+  );
   await appendEvent(ctx, id, 'contract.sent', { recipients: recipients.length });
   return getContractDetail(ctx, id);
 }
@@ -551,6 +574,13 @@ async function completeFromProvider(
     auditCertificateHash: auditHash,
   });
   await appendSystemEvent(tenantId, contract.id, 'contract.completed', { completedHash: completed.hash, auditHash }, { externalEventId });
+  // Notify the contract's creator that it's fully signed + downloadable.
+  await notifyOwner(
+    contract.createdBy,
+    `Completed: ${contract.title} (${contract.referenceNumber})`,
+    `<p>Your contract <strong>${contract.title}</strong> (${contract.referenceNumber}) has been fully signed and completed.</p><p>Download the signed PDF and audit certificate on the CRM Contracts page.</p>`,
+    `Your contract "${contract.title}" (${contract.referenceNumber}) has been fully signed and completed. Download it on the CRM Contracts page.`,
+  );
   return getContractDetail(sysCtx(tenantId), contract.id);
 }
 
