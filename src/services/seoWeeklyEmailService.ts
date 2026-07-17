@@ -8,6 +8,12 @@ export async function sendSEOWeeklyEmail(): Promise<void> {
   const brevoKey = process.env.BREVO_API_KEY;
   if (!brevoKey) { logger.warn('[seo-email] BREVO_API_KEY not set'); return; }
 
+  // Automated weekly email — gate on the master kill-switch (default off).
+  if (process.env.AUTOMATED_EMAILS_ENABLED !== 'true') {
+    logger.warn('[seo-email] weekly email suppressed — AUTOMATED_EMAILS_ENABLED is off');
+    return;
+  }
+
   // Fetch data
   const [weeklyR, keywordsR, alertsR] = await Promise.all([
     pool.query(`

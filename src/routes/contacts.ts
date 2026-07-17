@@ -589,6 +589,12 @@ router.post('/bulk-delete', async (req, res) => {
 router.post('/bulk-email', async (req, res) => {
   try {
     const tenantId = req.user!.tenantId;
+    // Master automated-email kill-switch: blasting the contact list is blocked
+    // unless AUTOMATED_EMAILS_ENABLED is deliberately turned on.
+    if (process.env.AUTOMATED_EMAILS_ENABLED !== 'true') {
+      res.status(403).json({ error: 'Bulk email is disabled (AUTOMATED_EMAILS_ENABLED is off)' });
+      return;
+    }
     const { contactIds, templateId } = req.body as { contactIds?: string[]; templateId?: string };
 
     if (!Array.isArray(contactIds) || contactIds.length === 0 || !templateId) {
