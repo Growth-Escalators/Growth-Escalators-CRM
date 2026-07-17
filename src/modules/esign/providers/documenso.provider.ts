@@ -173,9 +173,14 @@ export class DocumensoProvider implements ESignatureProvider {
   }
 
   async sendDocument(externalDocumentId: string): Promise<void> {
+    // The CRM owns recipient notifications: it emails each signer their unique
+    // signing link via its own transactional provider (see esign.service
+    // sendSignInvite). We therefore tell Documenso NOT to send its own signing
+    // emails — both to avoid duplicate messages and because some hosts (e.g.
+    // Railway) block outbound SMTP, so Documenso's mailer can't deliver anyway.
     await this.request(`/api/v1/documents/${encodeURIComponent(externalDocumentId)}/send`, {
       method: 'POST',
-      body: {},
+      body: { sendEmail: false },
     });
   }
 
