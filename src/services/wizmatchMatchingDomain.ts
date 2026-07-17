@@ -58,8 +58,13 @@ export function calculateCandidateRequirementMatch(input: MatchInput) {
     if (pair.candidate && pair.candidate.lastUsedAt == null) missingEvidence.push(`recency:${pair.required.canonicalLabel}`);
   }
 
-  const mandatoryScore = mandatory.length ? Math.round(50 * mandatoryMatches.filter((pair) => pair.candidate).length / mandatory.length) : 50;
-  const preferredScore = preferred.length ? Math.round(15 * preferred.filter((skill) => candidateSkill(skill, input.candidate.skills)).length / preferred.length) : 15;
+  // A requirement with zero mandatory/preferred skills tagged (e.g. mid-edit,
+  // between replaceRequirementSkills([]) clearing them and new ones being
+  // added) previously scored full marks here (50/15) — as if every
+  // candidate perfectly matched criteria that don't exist. Score 0 instead:
+  // nothing was specified, so nothing can be said to match.
+  const mandatoryScore = mandatory.length ? Math.round(50 * mandatoryMatches.filter((pair) => pair.candidate).length / mandatory.length) : 0;
+  const preferredScore = preferred.length ? Math.round(15 * preferred.filter((skill) => candidateSkill(skill, input.candidate.skills)).length / preferred.length) : 0;
   const matchedSkills = mandatoryMatches.map((pair) => pair.candidate).filter(Boolean) as Skill[];
   const evidenceScore = matchedSkills.length
     ? Math.round(15 * matchedSkills.reduce((sum, skill) => sum + (skill.verified ? 1 : skill.evidence ? 0.7 : 0) + (skill.lastUsedAt ? 0.3 : 0), 0) / (matchedSkills.length * 1.3))
@@ -138,7 +143,16 @@ export function createWizmatchMatchingService(dbPool: Pool = pool) {
 
     async replaceRequirementSkills(actor: { tenantId: string; userId: string }, requirementId: string, skills: unknown[]) {
       return transaction(dbPool, async (client) => {
-        await tenantRow(client, 'wizmatch_requirements', actor.tenantId, requirementId);
+        // FOR UPDATE, not the plain tenantRow existence check — this
+        // serializes concurrent skill-replace calls for the SAME
+        // requirement. Under READ COMMITTED, two overlapping edits could
+        // otherwise both DELETE from a snapshot that predates the other's
+        // just-committed INSERTs, and the join table would end up as the
+        // union (or duplicates) of both edits rather than either one alone,
+        // with the denormalised columns faithfully re-deriving that
+        // corrupted union.
+        const locked = await client.query(`SELECT id FROM wizmatch_requirements WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, [actor.tenantId, requirementId]);
+        if (!locked.rowCount) throw new StaffingDomainError(404, 'not_found', 'Referenced record was not found');
         await client.query(`DELETE FROM wizmatch_requirement_skills WHERE tenant_id=$1 AND requirement_id=$2`, [actor.tenantId, requirementId]);
         for (const raw of skills) {
           const item = raw as Record<string, unknown>;
@@ -165,7 +179,9 @@ export function createWizmatchMatchingService(dbPool: Pool = pool) {
 
     async replaceCandidateSkills(actor: { tenantId: string; userId: string }, candidateId: string, skills: unknown[]) {
       return transaction(dbPool, async (client) => {
-        await tenantRow(client, 'wizmatch_candidates', actor.tenantId, candidateId);
+        // FOR UPDATE — same reasoning as replaceRequirementSkills above.
+        const locked = await client.query(`SELECT id FROM wizmatch_candidates WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, [actor.tenantId, candidateId]);
+        if (!locked.rowCount) throw new StaffingDomainError(404, 'not_found', 'Referenced record was not found');
         await client.query(`DELETE FROM wizmatch_candidate_skills WHERE tenant_id=$1 AND candidate_id=$2`, [actor.tenantId, candidateId]);
         for (const raw of skills) {
           const item = raw as Record<string, unknown>;

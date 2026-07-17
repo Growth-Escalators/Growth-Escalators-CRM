@@ -215,9 +215,31 @@ export async function runXrayScrape(
     return { queries_run: 0, candidates_found: 0, candidates_created: 0, skipped_exists: 0, errors: 0 };
   }
 
-  const sourceRun = context.requirementId
-    ? await createSourceRun({ tenantId, provider: 'xray', requirementId: context.requirementId, requestedBy: context.requestedBy, query: adhocQuery || {} })
-    : null;
+  // The daily cron called this function directly with no allowance check at
+  // all (only the recruiter-triggered runRequirementXray path checked the
+  // cap, before calling in here). Checked here too so every caller —
+  // present and future — respects the cap, not just the one that happens
+  // to remember to check first.
+  const config = getWizmatchSourcingConfig();
+  const usage = await getSearchApiRunUsage(tenantId);
+  try {
+    assertSearchApiAllowance(usage, { daily: config.searchApiDailyCap, monthly: config.searchApiMonthlyCap });
+  } catch (e) {
+    logger.warn('[wizmatch-xray] SearchAPI allowance reached — skipping run:', e instanceof Error ? e.message : String(e));
+    return { queries_run: 0, candidates_found: 0, candidates_created: 0, skipped_exists: 0, errors: 0 };
+  }
+
+  // Always create a source_run row — including the daily cron path, which
+  // previously passed no requirementId and so recorded nothing at all here.
+  // getSearchApiRunUsage() sums quota_consumed from this table, so those ~3
+  // credits/day were invisible to the cost cap: the cron could keep running
+  // indefinitely after the account's SearchAPI allowance was actually
+  // exhausted, since nothing it did ever counted against the check other
+  // callers rely on.
+  const sourceRun = await createSourceRun({
+    tenantId, provider: 'xray', trigger: adhocQuery ? 'manual' : 'scheduled',
+    requirementId: context.requirementId ?? null, requestedBy: context.requestedBy, query: adhocQuery || {},
+  });
 
   let todayQueries: XrayQuery[];
   if (adhocQuery) {
@@ -316,12 +338,10 @@ export async function runXrayScrape(
     if (todayQueries.length > 1) await new Promise((r) => setTimeout(r, 1000));
   }
 
-  if (sourceRun) {
-    await finishSourceRun(sourceRun.id, tenantId, {
-      status: totalErrors ? 'partial' : 'succeeded', fetched: totalFound, inserted: totalCreated,
-      updated: 0, duplicates: skippedExists, rejected: 0, errors: totalErrors, quotaConsumed: todayQueries.length,
-    });
-  }
+  await finishSourceRun(sourceRun.id, tenantId, {
+    status: totalErrors ? 'partial' : 'succeeded', fetched: totalFound, inserted: totalCreated,
+    updated: 0, duplicates: skippedExists, rejected: 0, errors: totalErrors, quotaConsumed: todayQueries.length,
+  });
 
   logger.info(
     `[wizmatch-xray] Scraped ${todayQueries.length} queries: ${totalFound} results found, ${totalCreated} candidates created, ${skippedExists} already existed, ${totalErrors} errors`,
