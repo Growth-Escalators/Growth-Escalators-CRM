@@ -94,6 +94,17 @@ export async function listRecipients(tenantId: string, contractId: string): Prom
     .orderBy(contractRecipients.signingOrder);
 }
 
+/**
+ * Load a recipient by id WITHOUT a tenant filter. Used ONLY by the public
+ * signing flow, where the caller has no tenant context — authorization there is
+ * the HMAC signing token + a stored-token-hash match, and the recipient's
+ * tenantId is then used to scope every subsequent query. Do not use elsewhere.
+ */
+export async function getRecipientById(id: string): Promise<RecipientRow | null> {
+  const [row] = await db.select().from(contractRecipients).where(eq(contractRecipients.id, id)).limit(1);
+  return row ?? null;
+}
+
 export async function getRecipient(tenantId: string, id: string): Promise<RecipientRow | null> {
   const [row] = await db
     .select()

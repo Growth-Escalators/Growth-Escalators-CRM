@@ -74,6 +74,7 @@ import taskAttachmentsRouter from './routes/taskAttachments';
 import taskListsRouter from './routes/task-lists';
 import teamRouter from './routes/team';
 import contractsRouter from './modules/esign/esign.routes';
+import contractsPublicRouter from './modules/esign/esign.public.routes';
 import { requireAuth, requireStrictAuth, optionalAuth, verifyAuthToken } from './middleware/auth';
 import { contactBelongsToTenant } from './services/socketAuth';
 import { requireRole } from './middleware/rbac';
@@ -280,6 +281,9 @@ app.use('/api/tasks', requireAuth, tasksRouter);
 app.use('/api/tasks', requireAuth, taskAttachmentsRouter);
 app.use('/api/task-lists', requireAuth, taskListsRouter);
 app.use('/api/team', requireAuth, teamRouter);
+// Public signing carve-out MUST be registered before the requireAuth mount below
+// (external signers have no JWT; the token in the path is the authorization).
+app.use('/api/contracts/sign', contractsPublicRouter);
 app.use('/api/contracts', requireAuth, contractsRouter);
 app.use('/api/funnel', funnelRouter);
 app.use('/api/leads', leadsRouter);

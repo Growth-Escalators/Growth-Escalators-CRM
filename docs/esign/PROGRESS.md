@@ -4,8 +4,8 @@
 
 ## Current status
 - **Branch:** `feat/contracts-esign` (worktree `.claude/worktrees/feat+contracts-esign`, off `origin/main` 1b78a62).
-- **Phase:** P4 — service + routes + RBAC (DONE). Next: P5 — signing + consent.
-- **Next:** P5 — HMAC signed-link mint/verify, public sign route, consent capture, signing session.
+- **Phase:** P5 — signing + consent (DONE). Next: P6 — webhook + completion.
+- **Next:** P6 — validateDocumensoWebhook, idempotent handler, status re-confirm, download→hash→R2→COMPLETED.
 
 ## Completed
 - Discovery (read-only): architecture, tenancy, storage audit, deployment, webhooks, permissions. See
@@ -32,10 +32,16 @@
   `esign.controller` + `esign.routes` (`/api/contracts`, permission-gated); mounted in `index.ts`.
   Tests: `contractService.test.ts` (7), `contractRoutesAndPermissions.test.ts` (5).
 
+- P5: `contract-signing-link` (HMAC token mint/verify/hash, fail-closed); `esign.signing.service`
+  (public flow — token+stored-hash auth, signable-state/expiry/signing-order checks, 4 unchecked
+  consents recorded with ip/ua/doc-hash, provider signing session); `esign.public.controller/routes`
+  mounted at `/api/contracts/sign` BEFORE the auth wall; `sendContract` now mints per-recipient links
+  + emails the current-turn signer; `inviteNextSigner` for later signers. Tests:
+  `contractSigningLink.test.ts` (6), `contractSigning.test.ts` (7).
+
 ## Regression
-- Full suite: **658 passed**. 2 suites fail ONLY due to missing admin `lucide-react` in the fresh
-  worktree (`adminFrontendHelpers`, `wizmatchRouteRegistry`) — environmental, unrelated to this work;
-  cleared by `npm --prefix admin install` (running, needed for P8).
+- Full suite after P5: **693 passed / 83 files / 0 failures** (admin deps installed → the 2 earlier
+  environmental failures are gone).
 
 ## Known verification gaps (not blockers)
 - `DocumensoProvider` endpoint paths + embedded-signing token flow are coded to Documenso's documented
