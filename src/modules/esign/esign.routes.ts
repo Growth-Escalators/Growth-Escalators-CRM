@@ -4,10 +4,15 @@
 import { Router } from 'express';
 import { requirePermission } from '../../middleware/rbac';
 import { validateBody, validateParams } from '../../middleware/validate';
+import multer from 'multer';
 import * as c from './esign.controller';
 
 const router = Router();
 const idParam = validateParams({ id: 'uuid|required' });
+
+// Bring-your-own-PDF upload: held in memory (never written to disk), 15 MB cap.
+// The bytes are validated as a real PDF (magic bytes) in the service layer.
+const uploadPdf = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
 // collection
 router.get('/', requirePermission('CONTRACTS_VIEW'), c.listContracts);
@@ -38,6 +43,7 @@ router.post(
   c.reissueSigningLink,
 );
 router.post('/:id/generate', requirePermission('CONTRACTS_EDIT'), idParam, c.generateContract);
+router.post('/:id/upload', requirePermission('CONTRACTS_EDIT'), idParam, uploadPdf.single('file'), c.uploadContractPdf);
 router.post('/:id/approve', requirePermission('CONTRACTS_APPROVE'), idParam, c.approveContract);
 router.post('/:id/send', requirePermission('CONTRACTS_SEND'), idParam, c.sendContract);
 router.post(

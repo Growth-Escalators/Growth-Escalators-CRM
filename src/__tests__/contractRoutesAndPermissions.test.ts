@@ -46,6 +46,7 @@ describe('/api/contracts router registration', () => {
     expect(routeExists(contractsRouter, '/:id/download', 'get')).toBe(true);
     expect(routeExists(contractsRouter, '/:id/recipients', 'post')).toBe(true);
     expect(routeExists(contractsRouter, '/:id/generate', 'post')).toBe(true);
+    expect(routeExists(contractsRouter, '/:id/upload', 'post')).toBe(true);
     expect(routeExists(contractsRouter, '/:id/approve', 'post')).toBe(true);
     expect(routeExists(contractsRouter, '/:id/send', 'post')).toBe(true);
     expect(routeExists(contractsRouter, '/:id/void', 'post')).toBe(true);
