@@ -4,8 +4,8 @@
 
 ## Current status
 - **Branch:** `feat/contracts-esign` (worktree `.claude/worktrees/feat+contracts-esign`, off `origin/main` 1b78a62).
-- **Phase:** P7 — crons (expiry + reminders) (DONE). Next: P8 — frontend (admin + signing page).
-- **Next:** P8 — admin ContractsPage + nav + a public signing page (consent + embedded iframe).
+- **Phase:** P8 — frontend (DONE). Next: P9 — independent verification + docs.
+- **Next:** P9 — live end-to-end drive, fresh-DB migration, secret scan, finalize docs + acceptance report.
 
 ## Completed
 - Discovery (read-only): architecture, tenancy, storage audit, deployment, webhooks, permissions. See
@@ -52,8 +52,14 @@
   expired/never-sent, failure-isolated); `service.expireContract`/`remindCurrentSigner`; two daily
   `cron.schedule` in `src/worker.ts`. `contractJobs.test.ts`: 4 tests.
 
+- P8: admin `ContractsPage.jsx` (mirrors BillingPage shell — Sidebar + apiFetch + status badges;
+  list/filter, create, generate/approve/send/void, detail drawer with recipients + audit timeline +
+  downloads); public `SignContractPage.jsx` (plain fetch, 4 unchecked consents, embedded signing
+  iframe, legal-scope notice); routes in `App.jsx` (`/contracts` authed, `/sign/:token` public) +
+  `navEntries.js` (`canContracts` + Finance nav item). Admin build green.
+
 ## Regression
-- Full suite after P7: **706 passed / 85 files / 0 failures**.
+- Full suite after P8: **706 passed / 85 files / 0 failures**; `npm run admin:build` green.
 
 ## Known verification gaps (not blockers)
 - `DocumensoProvider` endpoint paths + embedded-signing token flow are coded to Documenso's documented
