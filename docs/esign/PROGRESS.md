@@ -4,8 +4,9 @@
 
 ## Current status
 - **Branch:** `feat/contracts-esign` (worktree `.claude/worktrees/feat+contracts-esign`, off `origin/main` 1b78a62).
-- **Phase:** P8 — frontend (DONE). Next: P9 — independent verification + docs.
-- **Next:** P9 — live end-to-end drive, fresh-DB migration, secret scan, finalize docs + acceptance report.
+- **Phase:** ALL PHASES P0–P9 DONE. See ACCEPTANCE.md for the criteria report + remaining live steps.
+- **State:** build + tests green (706); admin build green; migration clean on fresh DB; live drive of the
+  real HTTP+DB+auth+RBAC+numbering+audit paths passed; fail-closed HMAC verified live; no bundle secrets.
 
 ## Completed
 - Discovery (read-only): architecture, tenancy, storage audit, deployment, webhooks, permissions. See
@@ -58,8 +59,15 @@
   iframe, legal-scope notice); routes in `App.jsx` (`/contracts` authed, `/sign/:token` public) +
   `navEntries.js` (`canContracts` + Finance nav item). Admin build green.
 
+- P9: live drive (real server + scratch DB + mock provider) of boot/health, auth wall, authed list,
+  fail-closed public-token + webhook (401), numbering preview/claim, create→DRAFT+recipients+
+  countersignature (confirmed in Postgres directly), append-only audit event, graceful R2-missing 500,
+  sales RBAC view; secret scan of the admin bundle (no leaks); `git diff --check` clean; fresh-DB
+  migration re-confirmed. Wrote ACCEPTANCE.md. Live Documenso (Docker down) + R2-backed
+  generate→complete are documented remaining steps (covered by mocked integration tests).
+
 ## Regression
-- Full suite after P8: **706 passed / 85 files / 0 failures**; `npm run admin:build` green.
+- Full suite: **706 passed / 85 files / 0 failures**; `npm run admin:build` green.
 
 ## Known verification gaps (not blockers)
 - `DocumensoProvider` endpoint paths + embedded-signing token flow are coded to Documenso's documented
