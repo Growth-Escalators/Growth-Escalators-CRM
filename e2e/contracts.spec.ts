@@ -1,4 +1,5 @@
 import { test, expect, type Page, type APIRequestContext, request as pwRequest } from '@playwright/test';
+import path from 'path';
 
 // Real-backend E2E for the Contracts / e-signature module. Requires
 // scripts/run-contracts-e2e.sh (backend on :3000, mock provider + local storage,
@@ -108,6 +109,89 @@ test('full lifecycle: create → generate → approve → send → sign → COMP
   await page.reload();
   await expect(rowFor(page, title).getByText('COMPLETED')).toBeVisible({ timeout: 15_000 });
   await api.dispose();
+});
+
+test('upload PDF: create → upload → GENERATED → approve → send → sign → COMPLETED → download', async ({ page, browser }) => {
+  await login(page);
+  await gotoContracts(page);
+
+  const title = `E2E Upload ${Date.now()}`;
+  await openNewContractForm(page, title);
+  await expect(rowFor(page, title).getByText('DRAFT')).toBeVisible({ timeout: 15_000 });
+
+  // Bring-your-own-PDF: "Upload PDF" opens the OS file chooser; feed it the fixture.
+  const [chooser] = await Promise.all([
+    page.waitForEvent('filechooser'),
+    rowFor(page, title).getByRole('button', { name: 'Upload PDF' }).click(),
+  ]);
+  await chooser.setFiles(path.join(__dirname, 'fixtures/sample-contract.pdf'));
+  // The uploaded PDF becomes the document — no pdfkit generation.
+  await expect(rowFor(page, title).getByText('GENERATED')).toBeVisible({ timeout: 15_000 });
+
+  await rowFor(page, title).getByRole('button', { name: 'Approve' }).click();
+  await expect(rowFor(page, title).getByText('READY TO SEND')).toBeVisible({ timeout: 15_000 });
+
+  await rowFor(page, title).getByRole('button', { name: 'Send' }).click();
+  await expect(rowFor(page, title).getByText('SENT')).toBeVisible({ timeout: 15_000 });
+
+  const api = await apiCtx(page);
+  const list = await (await api.get('/api/contracts')).json();
+  const contract = list.contracts.find((c: any) => c.title === title);
+  expect(contract).toBeTruthy();
+
+  await rowFor(page, title).locator('td', { hasText: title }).first().click();
+  await expect(page.getByRole('heading', { name: title })).toBeVisible();
+  await page.getByRole('button', { name: 'Copy link' }).first().click();
+  const signingUrl = await page.locator('[data-testid^="signing-link-"]').first().inputValue();
+  expect(signingUrl).toContain('/sign/');
+
+  const signerCtx = await browser.newContext();
+  const signer = await signerCtx.newPage();
+  await signer.goto(signingUrl);
+  await expect(signer.getByText(/consent to conduct this transaction electronically/i)).toBeVisible({ timeout: 15_000 });
+  const boxes = signer.locator('input[type="checkbox"]');
+  const n = await boxes.count();
+  for (let i = 0; i < n; i++) await boxes.nth(i).check();
+  await signer.getByRole('button', { name: /Agree & continue to sign/i }).click();
+  await expect(signer.locator('iframe[title="Sign document"]')).toBeVisible({ timeout: 15_000 });
+  await signerCtx.close();
+
+  const body = JSON.stringify({ event: 'DOCUMENT_COMPLETED', webhookEventId: `e2e-up-${Date.now()}`, payload: { id: contract.documensoDocumentId } });
+  const hook = await api.post('/webhooks/documenso', { headers: { 'content-type': 'application/json', 'x-documenso-secret': WEBHOOK_SECRET }, data: body });
+  expect(hook.status()).toBe(200);
+
+  const detail = await (await api.get(`/api/contracts/${contract.id}`)).json();
+  expect(detail.contract.status).toBe('COMPLETED');
+  const dl = await (await api.get(`/api/contracts/${contract.id}/download?artifact=completed`)).json();
+  const fileRes = await api.get(dl.url);
+  expect(fileRes.status()).toBe(200);
+  expect(fileRes.headers()['content-type']).toContain('pdf');
+
+  await page.reload();
+  await expect(rowFor(page, title).getByText('COMPLETED')).toBeVisible({ timeout: 15_000 });
+  await api.dispose();
+});
+
+test('upload PDF: a non-PDF (spoofed content-type) is rejected server-side; contract stays DRAFT', async ({ page }) => {
+  await login(page);
+  await gotoContracts(page);
+
+  const title = `E2E Upload Reject ${Date.now()}`;
+  await openNewContractForm(page, title);
+  await expect(rowFor(page, title).getByText('DRAFT')).toBeVisible({ timeout: 15_000 });
+
+  // Spoof the mime type as application/pdf so it clears the client guard and
+  // reaches the server — assertPdf (magic bytes) must reject it with a 400.
+  const [chooser] = await Promise.all([
+    page.waitForEvent('filechooser'),
+    rowFor(page, title).getByRole('button', { name: 'Upload PDF' }).click(),
+  ]);
+  await chooser.setFiles({ name: 'fake.pdf', mimeType: 'application/pdf', buffer: Buffer.from('this is definitely not a pdf') });
+
+  await expect(page.getByText(/File is not a valid PDF/i)).toBeVisible({ timeout: 10_000 });
+  // Never transitioned — still a draft.
+  await expect(rowFor(page, title).getByText('DRAFT')).toBeVisible();
+  await expect(rowFor(page, title).getByText('GENERATED')).toHaveCount(0);
 });
 
 test('countersignature contract shows two recipients', async ({ page }) => {

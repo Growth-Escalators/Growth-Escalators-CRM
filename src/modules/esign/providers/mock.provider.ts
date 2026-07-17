@@ -14,6 +14,7 @@ import {
   type ProviderRecipientInput,
   type ProviderRecipientStatus,
   type SigningSessionResult,
+  type TemplateSummary,
 } from '../esign.types';
 
 interface MockRecipient {
@@ -82,6 +83,13 @@ export class MockESignProvider implements ESignatureProvider {
   async createFromTemplate(input: CreateFromTemplateInput): Promise<CreateDocumentResult> {
     if (!input.templateId) throw new ESignProviderError('mock', 'templateId required', 400);
     return this.persist(input.title, input.recipients);
+  }
+
+  async listTemplates(): Promise<TemplateSummary[]> {
+    return [
+      { id: 'tmpl_nda', title: 'Mutual NDA (mock template)', recipientCount: 2 },
+      { id: 'tmpl_msa', title: 'Master Services Agreement (mock template)', recipientCount: 2 },
+    ];
   }
 
   private persist(title: string, recipients: ProviderRecipientInput[]): CreateDocumentResult {

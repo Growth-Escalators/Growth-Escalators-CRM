@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const stores = vi.hoisted(() => ({
   contracts: new Map<string, any>(),
   recipients: new Map<string, any>(),
+  templates: new Map<string, any>(),
   events: [] as any[],
   seq: 0,
 }));
@@ -23,6 +24,9 @@ vi.mock('../modules/esign/esign.repository', () => {
     insertConsent: async (row: any) => ({ id: uid('cons'), ...row }),
     appendEvent: async (row: any) => { const e = { id: uid('e'), ...row }; stores.events.push(e); return e; },
     listEvents: async (tenantId: string, contractId: string) => stores.events.filter((e) => e.tenantId === tenantId && e.contractId === contractId),
+    createTemplate: async (v: any) => { const id = uid('tmpl'); const row = { id, ...v }; stores.templates.set(id, row); return row; },
+    getTemplate: async (tenantId: string, id: string) => { const r = stores.templates.get(id); return r && r.tenantId === tenantId ? r : null; },
+    listTemplates: async (tenantId: string) => [...stores.templates.values()].filter((t) => t.tenantId === tenantId),
   };
 });
 
@@ -59,6 +63,7 @@ beforeEach(() => {
   process.env.CONTRACTS_SIGNING_SECRET = 'test-secret';
   stores.contracts.clear();
   stores.recipients.clear();
+  stores.templates.clear();
   stores.events.length = 0;
   stores.seq = 0;
   mock = new MockESignProvider();
@@ -97,6 +102,49 @@ describe('contract lifecycle', () => {
     // audit trail recorded each step
     const types = sent.events.map((e) => e.eventType);
     expect(types).toEqual(expect.arrayContaining(['contract.created', 'contract.generated', 'contract.approved', 'contract.sent']));
+  });
+
+  it('accepts an uploaded PDF (bring-your-own) → GENERATED, then approve → send', async () => {
+    const { contract } = await service.createContract(ctx, { title: 'Uploaded NDA', recipients: twoParty() });
+
+    const up = await service.uploadContractPdf(ctx, contract.id, Buffer.from('%PDF-1.4 my own contract'));
+    expect(up.contract.status).toBe('GENERATED');
+    expect(up.contract.generatedFileKey).toBe('r2://priv/generated');
+    expect(up.contract.documensoDocumentId).toBeTruthy();
+    expect(up.recipients.every((r) => r.documensoRecipientId)).toBe(true);
+    expect(up.events.some((e) => e.eventType === 'contract.generated')).toBe(true);
+
+    // the rest of the lifecycle is identical to a generated contract
+    const apprUp = await service.approveContract(ctx, contract.id);
+    expect(apprUp.contract.status).toBe('READY_TO_SEND');
+    const sentUp = await service.sendContract(ctx, contract.id);
+    expect(sentUp.contract.status).toBe('SENT');
+  });
+
+  it('registers a Documenso template + generates a contract from it (auto-fill, no local PDF)', async () => {
+    const tmpl = await service.registerTemplate(ctx, { name: 'Mutual NDA', documensoTemplateId: '42', category: 'nda' });
+    expect(tmpl.documensoTemplateId).toBe('42');
+    expect((await service.listContractTemplates(ctx)).map((t) => t.id)).toContain(tmpl.id);
+
+    const { contract } = await service.createContract(ctx, { title: 'NDA — Acme', templateId: tmpl.id, recipients: twoParty() });
+    const gen = await service.generateContract(ctx, contract.id);
+    expect(gen.contract.status).toBe('GENERATED');
+    expect(gen.contract.documensoDocumentId).toBeTruthy();
+    expect(gen.contract.generatedFileKey ?? null).toBeNull(); // template path stores no local PDF
+    expect(gen.recipients.every((r) => r.documensoRecipientId)).toBe(true);
+
+    // rest of the lifecycle is unchanged
+    const appr = await service.approveContract(ctx, contract.id);
+    expect(appr.contract.status).toBe('READY_TO_SEND');
+    const sent = await service.sendContract(ctx, contract.id);
+    expect(sent.contract.status).toBe('SENT');
+  });
+
+  it('refuses to generate when the referenced template has no Documenso link', async () => {
+    const tmpl = await service.registerTemplate(ctx, { name: 'Broken', documensoTemplateId: 'x' });
+    stores.templates.get(tmpl.id).documensoTemplateId = null; // simulate an unlinked template
+    const { contract } = await service.createContract(ctx, { title: 'X', templateId: tmpl.id, recipients: twoParty() });
+    await expect(service.generateContract(ctx, contract.id)).rejects.toThrow(/not linked to a Documenso template/);
   });
 
   it('reissues a signing link for a recipient on a SENT contract (rotates the stored hash)', async () => {
