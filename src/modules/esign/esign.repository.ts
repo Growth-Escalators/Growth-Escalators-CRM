@@ -3,7 +3,7 @@
 // cross-tenant id), including single-row lookups. Pure DB layer: no HTTP, no
 // business rules (those live in esign.service.ts).
 import { db } from '../../db/index';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import {
   contracts,
   contractRecipients,
@@ -146,6 +146,30 @@ export async function listEvents(tenantId: string, contractId: string): Promise<
     .from(contractEvents)
     .where(and(eq(contractEvents.tenantId, tenantId), eq(contractEvents.contractId, contractId)))
     .orderBy(contractEvents.occurredAt);
+}
+
+// ---- cron helpers (cross-tenant; used by expiry + reminder jobs) ----
+const OPEN_STATUSES = ['SENT', 'VIEWED', 'PARTIALLY_SIGNED'];
+
+/** All in-flight contracts across every tenant (bounded). */
+export async function findOpenContracts(limit = 500): Promise<ContractRow[]> {
+  return db
+    .select()
+    .from(contracts)
+    .where(inArray(contracts.status, OPEN_STATUSES))
+    .orderBy(contracts.createdAt)
+    .limit(limit);
+}
+
+/** Most recent occurredAt among the given event types for a contract, or null. */
+export async function latestEventAt(tenantId: string, contractId: string, eventTypes: string[]): Promise<Date | null> {
+  const [row] = await db
+    .select({ occurredAt: contractEvents.occurredAt })
+    .from(contractEvents)
+    .where(and(eq(contractEvents.tenantId, tenantId), eq(contractEvents.contractId, contractId), inArray(contractEvents.eventType, eventTypes)))
+    .orderBy(desc(contractEvents.occurredAt))
+    .limit(1);
+  return row?.occurredAt ?? null;
 }
 
 // ---- webhook idempotency (shared processed_events guard) ----

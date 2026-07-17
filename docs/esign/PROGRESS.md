@@ -4,8 +4,8 @@
 
 ## Current status
 - **Branch:** `feat/contracts-esign` (worktree `.claude/worktrees/feat+contracts-esign`, off `origin/main` 1b78a62).
-- **Phase:** P6 — webhook + completion (DONE). Next: P7 — crons (expiry + reminders).
-- **Next:** P7 — expiry sweep + reminder emails wired into src/worker.ts.
+- **Phase:** P7 — crons (expiry + reminders) (DONE). Next: P8 — frontend (admin + signing page).
+- **Next:** P8 — admin ContractsPage + nav + a public signing page (consent + embedded iframe).
 
 ## Completed
 - Discovery (read-only): architecture, tenancy, storage audit, deployment, webhooks, permissions. See
@@ -47,8 +47,13 @@
   duplicate/no-double-upload, unknown-doc, cross-tenant, out-of-order, download-fail retry, storage-fail
   no-false-complete) + fail-closed.
 
+- P7: `esign.jobs` — `expireOverdueContracts` (open + past expiresAt → EXPIRED, provider-cancel
+  best-effort) + `sendSigningReminders` (throttled to `CONTRACTS_REMINDER_INTERVAL_DAYS`, skips
+  expired/never-sent, failure-isolated); `service.expireContract`/`remindCurrentSigner`; two daily
+  `cron.schedule` in `src/worker.ts`. `contractJobs.test.ts`: 4 tests.
+
 ## Regression
-- Full suite after P6: **702 passed / 84 files / 0 failures**.
+- Full suite after P7: **706 passed / 85 files / 0 failures**.
 
 ## Known verification gaps (not blockers)
 - `DocumensoProvider` endpoint paths + embedded-signing token flow are coded to Documenso's documented

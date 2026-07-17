@@ -477,5 +477,24 @@ async function completeFromProvider(
   return getContractDetail(sysCtx(tenantId), contract.id);
 }
 
+// ---- cron-driven operations ----
+/** Expire an overdue open contract (cancels at the provider best-effort). No-op if not transitionable. */
+export async function expireContract(tenantId: string, id: string): Promise<boolean> {
+  const contract = requireFound(await repo.getContract(tenantId, id));
+  if (!canTransition(contract.status as ContractStatus, 'EXPIRED')) return false;
+  if (contract.documensoDocumentId) {
+    try { await getESignProvider().cancelDocument(contract.documensoDocumentId); } catch { /* best-effort */ }
+  }
+  await repo.updateContract(tenantId, id, { status: 'EXPIRED' });
+  await appendSystemEvent(tenantId, id, 'contract.expired', {}, { eventSource: 'cron' });
+  return true;
+}
+
+/** Re-invite the current-turn unsigned signer and record a reminder event. */
+export async function remindCurrentSigner(tenantId: string, id: string): Promise<void> {
+  await inviteNextSigner(sysCtx(tenantId), id);
+  await appendSystemEvent(tenantId, id, 'contract.reminder_sent', {}, { eventSource: 'cron' });
+}
+
 // exported for tests/other modules
 export const _internal = { appendEvent, transition, buildRecipientRow, appendSystemEvent, randomId: () => crypto.randomUUID() };
