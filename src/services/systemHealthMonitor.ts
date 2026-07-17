@@ -113,6 +113,18 @@ export async function logCronSuccess(logId: number, durationMs: number, recordsP
   ).catch(() => {});
 }
 
+// A cron whose per-item loop fails on SOME items (e.g. 30 of 50 Slack DMs
+// failed) previously still called logCronSuccess — the run shows green in
+// cron_job_logs and never alerts, even though roughly two-thirds of the
+// work silently didn't happen. Distinct from logCronFailure (the whole run
+// threw) — this is "the run completed but wasn't fully successful."
+export async function logCronPartial(logId: number, durationMs: number, recordsProcessed: number, errorSummary: string): Promise<void> {
+  await pool.query(
+    `UPDATE cron_job_logs SET status='partial', completed_at=NOW(), duration_ms=$1, records_processed=$2, error_message=$3 WHERE id=$4`,
+    [durationMs, recordsProcessed, errorSummary.slice(0, 500), logId],
+  ).catch(() => {});
+}
+
 export async function logCronFailure(logId: number, durationMs: number, error: string): Promise<void> {
   await pool.query(
     `UPDATE cron_job_logs SET status='failed', completed_at=NOW(), duration_ms=$1, error_message=$2 WHERE id=$3`,

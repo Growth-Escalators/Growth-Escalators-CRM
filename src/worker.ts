@@ -21,6 +21,7 @@ import { deliverDailyIntelligence } from './services/intelligenceDelivery';
 import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_PERF_MARKETING_CHANNEL, SLACK_SEO_CHANNEL, SLACK_OUTREACH_CHANNEL, SLACK_SOD_EOD_CHANNEL, DEFAULT_TENANT_SLUG, WIZMATCH_LEADS_CHANNEL, WIZMATCH_SYSTEM_CHANNEL } from './config/constants';
 import { isPaused } from './config/featureFlags';
 import { getWizmatchAutomationStatus, WIZMATCH_STAFFING_REMINDER_CRON } from './services/wizmatchAutomation';
+import { extractErrorCount } from './services/cronErrorExtraction';
 
 // True when this file is run directly (`node dist/worker.js`).
 // False when imported by `src/index.ts` so background jobs run inside `web`.
@@ -66,12 +67,16 @@ if (_missingEnvVars.length > 0) {
 const _intervals: ReturnType<typeof setInterval>[] = [];
 
 // One-time startup: ensure enrichment columns + reply alert columns + self-healing columns + funnel metrics
-import('./services/outreachEnrichmentService').then(m => m.ensureEnrichmentColumns()).catch(() => {});
-import('./services/outreachAlertService').then(m => m.ensureOutreachAlertColumns()).catch(() => {});
-import('./services/workflowSelfHealingService').then(m => m.ensureSelfHealingColumns()).catch(() => {});
-import('./services/outreachFunnelMetrics').then(m => m.ensureOutreachFunnelTable()).catch(() => {});
-import('./services/websiteCacheService').then(m => m.ensureWebsiteCacheTable()).catch(() => {});
-import('./services/attendanceColumns').then(m => m.ensureAttendanceColumns()).catch(() => {});
+// Each failure is logged (was previously a silent .catch(() => {})) — a
+// failed schema-bootstrap here left zero evidence, so the FIRST symptom was
+// a cron throwing "column does not exist" hours later with no link back to
+// the actual boot-time failure.
+import('./services/outreachEnrichmentService').then(m => m.ensureEnrichmentColumns()).catch(e => console.error('[worker] ensureEnrichmentColumns failed:', e instanceof Error ? e.message : e));
+import('./services/outreachAlertService').then(m => m.ensureOutreachAlertColumns()).catch(e => console.error('[worker] ensureOutreachAlertColumns failed:', e instanceof Error ? e.message : e));
+import('./services/workflowSelfHealingService').then(m => m.ensureSelfHealingColumns()).catch(e => console.error('[worker] ensureSelfHealingColumns failed:', e instanceof Error ? e.message : e));
+import('./services/outreachFunnelMetrics').then(m => m.ensureOutreachFunnelTable()).catch(e => console.error('[worker] ensureOutreachFunnelTable failed:', e instanceof Error ? e.message : e));
+import('./services/websiteCacheService').then(m => m.ensureWebsiteCacheTable()).catch(e => console.error('[worker] ensureWebsiteCacheTable failed:', e instanceof Error ? e.message : e));
+import('./services/attendanceColumns').then(m => m.ensureAttendanceColumns()).catch(e => console.error('[worker] ensureAttendanceColumns failed:', e instanceof Error ? e.message : e));
 pool.query(`
   UPDATE outreach_leads SET status = 'New', updated_at = NOW()
   WHERE status = 'Enriching' AND updated_at < NOW() - INTERVAL '30 minutes'
@@ -104,7 +109,20 @@ function hashCode(s: string): number {
   return hash;
 }
 
-async function safeCron(name: string, fn: () => Promise<unknown>, useAdvisoryLock = false): Promise<void> {
+// extractErrorCount lives in ./services/cronErrorExtraction — pure function,
+// unit tested there without triggering this file's module-scope side effects
+// (cron.schedule/setInterval registration) that firing on import.
+
+// Cross-process advisory locking now defaults ON. Every one of the ~25
+// safeCron() call sites in this file previously left this false (none
+// passed the third argument), so overlap protection was in-process only
+// (_cronRunning below). Background jobs run inside the `web` process by
+// default (see index.ts), so during a Railway rolling deploy the old and
+// new containers briefly coexist — every cron fired in both, duplicating
+// Slack alerts, invoice drafts, and (worst case) the 5-minute placement
+// job racing itself on the same slo_purchase events. pg_try_advisory_lock
+// is cheap and non-blocking, so defaulting it on has no real downside.
+async function safeCron(name: string, fn: () => Promise<unknown>, useAdvisoryLock = true): Promise<void> {
   // Overlap protection — skip if already running (in-process)
   if (_cronRunning.get(name)) {
     console.log(`[CRON] ${name} already running — skipping`);
@@ -132,10 +150,31 @@ async function safeCron(name: string, fn: () => Promise<unknown>, useAdvisoryLoc
   } catch { /* logging non-critical */ }
 
   try {
-    await fn();
+    const result = await fn();
+    // Many crons already return { errors: [...] } or { errors: N } from an
+    // internal per-item loop (Slack DM sends, signal scoring, etc.) and
+    // just console.log the count — previously that count was never fed
+    // back here, so a cron where every single item failed still logged
+    // 'success' and never alerted. Duck-typed so this works for any cron
+    // whose result already carries an error count, with no per-cron changes.
+    const errorCount = extractErrorCount(result);
     if (logId) {
-      const { logCronSuccess } = await import('./services/systemHealthMonitor');
-      await logCronSuccess(logId, Date.now() - start).catch(() => {});
+      const { logCronSuccess, logCronPartial } = await import('./services/systemHealthMonitor');
+      if (errorCount > 0) {
+        await logCronPartial(logId, Date.now() - start, 0, `${errorCount} item(s) failed within a successful run`).catch(() => {});
+      } else {
+        await logCronSuccess(logId, Date.now() - start).catch(() => {});
+      }
+    }
+    if (errorCount > 0) {
+      console.warn(`[CRON PARTIAL] ${name}: ${errorCount} item(s) failed`);
+      try {
+        const { sendSlackDM } = await import('./services/slackService');
+        const ts = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+        await sendSlackDM(SLACK_JATIN,
+          `⚠️ *CRON PARTIAL: ${name}*\n\n${errorCount} item(s) failed within an otherwise-successful run.\nTime: ${ts}\n\nCheck worker logs for details.`
+        );
+      } catch { /* Slack send failed */ }
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -561,15 +600,18 @@ console.log('[cron] Co-pilot message poller scheduled — every 10 minutes');
 // ---------------------------------------------------------------------------
 // Runs every 5 minutes — fast enough for delivery, reduces DB load from 2880 to 288 queries/day
 const PLACEMENT_INTERVAL = setInterval(() => safeCron('Pipeline Placement', async () => {
+  // processed_at IS NULL is an indexed equality filter (events_type_processed_idx)
+  // — cheap regardless of table size. It replaces a NOT EXISTS anti-join against
+  // pipeline_contacts that had to re-scan every slo_purchase event ever recorded
+  // on every run. Only stamped on a *successful* placement (below), so a
+  // transient placePipelineContact failure still gets retried on the next tick —
+  // same retry semantics as before, just an indexed instead of anti-join filter.
   const { rows } = await pool.query(`
       SELECT e.id, e.contact_id, e.payload, e.tenant_id
       FROM events e
       WHERE e.event_type = 'slo_purchase'
         AND e.contact_id IS NOT NULL
-        AND NOT EXISTS (
-          SELECT 1 FROM pipeline_contacts pc
-          WHERE pc.contact_id = e.contact_id
-        )
+        AND e.processed_at IS NULL
       ORDER BY e.created_at ASC
       LIMIT 100
     `);
@@ -578,7 +620,7 @@ const PLACEMENT_INTERVAL = setInterval(() => safeCron('Pipeline Placement', asyn
 
     console.log(`[CRON] Pipeline placement: processing ${rows.length} unplaced contact(s)`);
     for (const row of rows as Array<{ id: string; contact_id: string; payload: Record<string, unknown>; tenant_id: string }>) {
-      const { contact_id, payload, tenant_id } = row;
+      const { id: eventId, contact_id, payload, tenant_id } = row;
       const segment = (payload.segment as string) || 'd2c';
       const amount  = typeof payload.amount === 'number' ? payload.amount : 9;
       const bump1   = Boolean(payload.bump1);
@@ -586,7 +628,11 @@ const PLACEMENT_INTERVAL = setInterval(() => safeCron('Pipeline Placement', asyn
       const funnelSlug = (payload.funnelSlug as string) || 'ecom';
       try {
         const result = await placePipelineContact({ contactId: contact_id, segment, amount, bump1, bump2, tenantId: tenant_id, funnelSlug });
-        if (!result.success) {
+        if (result.success) {
+          await pool.query(`UPDATE events SET processed_at = NOW() WHERE id = $1`, [eventId]).catch(e =>
+            console.error('[CRON] Failed to stamp processed_at for event', eventId, ':', e)
+          );
+        } else {
           console.warn(`[CRON] Pipeline placement failed for ${contact_id} (${funnelSlug}) — delivering assets anyway`);
         }
 
