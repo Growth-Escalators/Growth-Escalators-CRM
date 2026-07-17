@@ -2066,3 +2066,143 @@ export const wizmatchStaffingAdjustments = pgTable('wizmatch_staffing_adjustment
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 }, (t) => ({ placementIdx: index('wizmatch_staffing_adjustments_placement_idx').on(t.tenantId, t.placementId, t.status) }));
+
+// ---------------------------------------------------------------------------
+// Contracts & E-Signature (Documenso signing engine — see docs/esign/)
+// Tenant-scoped by tenant_id. Documents live in private R2 (r2:// refs), never
+// as blobs. contract_events is append-only; sent contracts are immutable
+// (edits = void + clone to v{n+1}). See src/modules/esign/.
+// ---------------------------------------------------------------------------
+
+// TABLE — contract_templates
+export const contractTemplates = pgTable('contract_templates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  name: text('name').notNull(),
+  description: text('description'),
+  category: text('category'), // 'msa' | 'nda' | 'sow' | 'rtr' | 'onboarding' | ...
+  sourceType: text('source_type').notNull().default('documenso_template'), // 'documenso_template' | 'uploaded_pdf' | 'generated'
+  documensoTemplateId: text('documenso_template_id'),
+  currentVersion: integer('current_version').notNull().default(1),
+  isActive: boolean('is_active').notNull().default(true),
+  metadata: jsonb('metadata').notNull().default({}),
+  createdBy: uuid('created_by').references(() => users.id),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (t) => ({
+  tenantIdx: index('contract_templates_tenant_idx').on(t.tenantId),
+  activeIdx: index('contract_templates_active_idx').on(t.tenantId, t.isActive),
+}));
+
+// TABLE — contracts
+export const contracts = pgTable('contracts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  clientCompanyId: uuid('client_company_id').references(() => billingClients.id),
+  templateId: uuid('template_id').references(() => contractTemplates.id),
+  parentContractId: uuid('parent_contract_id'), // versioning lineage (clone-on-void); no FK to avoid self-cycle
+  title: text('title').notNull(),
+  referenceNumber: text('reference_number').notNull(),
+  version: integer('version').notNull().default(1),
+  status: text('status').notNull().default('DRAFT'), // see contract-state-machine.ts
+  provider: text('provider').notNull().default('documenso'),
+  documensoDocumentId: text('documenso_document_id'),
+  sourceFileKey: text('source_file_key'), // r2:// ref
+  generatedFileKey: text('generated_file_key'),
+  completedFileKey: text('completed_file_key'),
+  auditCertificateFileKey: text('audit_certificate_file_key'),
+  sourceDocumentHash: text('source_document_hash'), // sha256 hex
+  generatedDocumentHash: text('generated_document_hash'),
+  completedDocumentHash: text('completed_document_hash'),
+  auditCertificateHash: text('audit_certificate_hash'),
+  requiresCountersignature: boolean('requires_countersignature').notNull().default(false),
+  metadata: jsonb('metadata').notNull().default({}),
+  createdBy: uuid('created_by').references(() => users.id),
+  approvedBy: uuid('approved_by').references(() => users.id),
+  approvedAt: timestamp('approved_at'),
+  sentBy: uuid('sent_by').references(() => users.id),
+  sentAt: timestamp('sent_at'),
+  completedAt: timestamp('completed_at'),
+  expiresAt: timestamp('expires_at'),
+  voidedAt: timestamp('voided_at'),
+  voidReason: text('void_reason'),
+  failureReason: text('failure_reason'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (t) => ({
+  tenantStatusIdx: index('contracts_tenant_status_idx').on(t.tenantId, t.status),
+  clientIdx: index('contracts_client_idx').on(t.tenantId, t.clientCompanyId),
+  refUniq: uniqueIndex('contracts_reference_number_uniq').on(t.tenantId, t.referenceNumber),
+  documensoIdx: index('contracts_documenso_doc_idx').on(t.documensoDocumentId),
+}));
+
+// TABLE — contract_recipients
+export const contractRecipients = pgTable('contract_recipients', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  contractId: uuid('contract_id').notNull().references(() => contracts.id),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  contactId: uuid('contact_id').references(() => contacts.id),
+  crmUserId: uuid('crm_user_id').references(() => users.id),
+  name: text('name').notNull(),
+  email: text('email').notNull(),
+  phone: text('phone'),
+  companyName: text('company_name'),
+  designation: text('designation'),
+  signingRole: text('signing_role').notNull().default('client_signer'), // 'client_signer' | 'internal_countersigner'
+  signingOrder: integer('signing_order').notNull().default(1),
+  status: text('status').notNull().default('pending'), // pending | viewed | signed | rejected
+  documensoRecipientId: text('documenso_recipient_id'),
+  signingTokenHash: text('signing_token_hash'), // sha256 of the issued HMAC signing-link token (revocation/lookup)
+  viewedAt: timestamp('viewed_at'),
+  signedAt: timestamp('signed_at'),
+  rejectedAt: timestamp('rejected_at'),
+  rejectionReason: text('rejection_reason'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (t) => ({
+  contractIdx: index('contract_recipients_contract_idx').on(t.contractId, t.signingOrder),
+  tenantIdx: index('contract_recipients_tenant_idx').on(t.tenantId),
+  documensoIdx: index('contract_recipients_documenso_idx').on(t.documensoRecipientId),
+}));
+
+// TABLE — contract_consents (electronic-signing consent, server-recorded)
+export const contractConsents = pgTable('contract_consents', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  contractId: uuid('contract_id').notNull().references(() => contracts.id),
+  recipientId: uuid('recipient_id').notNull().references(() => contractRecipients.id),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  consentText: text('consent_text').notNull(),
+  consentVersion: text('consent_version').notNull(),
+  electronicTransactionConsent: boolean('electronic_transaction_consent').notNull().default(false),
+  reviewedDocument: boolean('reviewed_document').notNull().default(false),
+  intentToSign: boolean('intent_to_sign').notNull().default(false),
+  authorityConfirmed: boolean('authority_confirmed').notNull().default(false),
+  documentHashAtConsent: text('document_hash_at_consent'),
+  ipAddress: text('ip_address'),
+  userAgent: text('user_agent'),
+  acceptedAt: timestamp('accepted_at').notNull().defaultNow(),
+}, (t) => ({
+  contractIdx: index('contract_consents_contract_idx').on(t.contractId),
+  recipientIdx: index('contract_consents_recipient_idx').on(t.recipientId),
+}));
+
+// TABLE — contract_events (append-only audit trail; idempotent on external events)
+export const contractEvents = pgTable('contract_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  contractId: uuid('contract_id').notNull().references(() => contracts.id),
+  recipientId: uuid('recipient_id').references(() => contractRecipients.id),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  externalEventId: text('external_event_id'),
+  eventType: text('event_type').notNull(),
+  eventSource: text('event_source').notNull().default('crm'), // 'crm' | 'documenso'
+  ipAddress: text('ip_address'),
+  userAgent: text('user_agent'),
+  metadata: jsonb('metadata').notNull().default({}),
+  eventHash: text('event_hash'),
+  occurredAt: timestamp('occurred_at').notNull().defaultNow(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (t) => ({
+  contractIdx: index('contract_events_contract_idx').on(t.contractId, t.occurredAt),
+  externalUniq: uniqueIndex('contract_events_external_uniq').on(t.eventSource, t.externalEventId)
+    .where(sql`${t.externalEventId} IS NOT NULL`),
+}));
