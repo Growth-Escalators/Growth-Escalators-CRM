@@ -64,6 +64,26 @@ export const addRecipients = h(async (req, res) => {
   res.json(await service.addRecipients(ctxOf(req), String(req.params.id), recipients));
 });
 
+export const listTemplates = h(async (req, res) => {
+  res.json({ templates: await service.listContractTemplates(ctxOf(req)) });
+});
+
+export const listDocumensoTemplates = h(async (req, res) => {
+  res.json({ templates: await service.listDocumensoTemplates(ctxOf(req)) });
+});
+
+export const registerTemplate = h(async (req, res) => {
+  const b = req.body ?? {};
+  res.status(201).json(
+    await service.registerTemplate(ctxOf(req), {
+      name: b.name,
+      documensoTemplateId: b.documensoTemplateId,
+      category: b.category,
+      description: b.description,
+    }),
+  );
+});
+
 export const generateContract = h(async (req, res) => {
   res.json(await service.generateContract(ctxOf(req), String(req.params.id)));
 });

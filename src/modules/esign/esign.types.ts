@@ -47,6 +47,14 @@ export interface CreateFromTemplateInput {
   prefill?: Record<string, string>;
 }
 
+/** A reusable provider template the CRM can generate contracts from. */
+export interface TemplateSummary {
+  id: string;
+  title: string;
+  /** Recipient placeholders defined on the template, if the provider exposes them. */
+  recipientCount?: number;
+}
+
 export interface CreateDocumentResult {
   externalDocumentId: string;
   recipients: ProviderRecipientResult[];

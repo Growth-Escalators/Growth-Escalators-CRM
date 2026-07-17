@@ -21,6 +21,7 @@ import {
   type ProviderRecipientInput,
   type ProviderRecipientStatus,
   type SigningSessionResult,
+  type TemplateSummary,
 } from '../esign.types';
 
 const NAME = 'documenso';
@@ -186,6 +187,18 @@ export class DocumensoProvider implements ESignatureProvider {
       },
     );
     return this.mapCreateResult(resp);
+  }
+
+  async listTemplates(): Promise<TemplateSummary[]> {
+    const resp: any = await this.request('/api/v1/templates?page=1&perPage=100');
+    const list: any[] = resp?.templates ?? resp?.data ?? (Array.isArray(resp) ? resp : []);
+    return list
+      .map((t) => ({
+        id: String(t?.id ?? t?.templateId ?? ''),
+        title: String(t?.title ?? t?.name ?? 'Untitled template'),
+        recipientCount: Array.isArray(t?.recipients) ? t.recipients.length : undefined,
+      }))
+      .filter((t) => t.id);
   }
 
   async addRecipients(input: AddRecipientsInput): Promise<void> {

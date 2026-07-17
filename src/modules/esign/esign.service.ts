@@ -14,7 +14,7 @@ import {
 import * as repo from './esign.repository';
 import type { ContractRow, RecipientRow, EventRow } from './esign.repository';
 import { getESignProvider } from './providers';
-import type { ProviderRecipientInput } from './esign.types';
+import type { ProviderRecipientInput, TemplateSummary } from './esign.types';
 import { generateContractPdf } from './contract-pdf';
 import { storeContractArtifact, getContractDownloadUrl, isLocalReference } from './document-storage.service';
 import { sha256Hex } from './document-hash.service';
@@ -208,12 +208,84 @@ export async function addRecipients(ctx: Ctx, id: string, recipients: RecipientI
 }
 
 // ---- generate: build PDF, store, create the (draft) provider document ----
+// Auto-fill values the CRM knows about into a template's fields. The template
+// author names their fields after these keys (clientName, clientCompany, date…).
+function buildTemplatePrefill(contract: ContractRow, recipients: RecipientRow[]): Record<string, string> {
+  const client = recipients.find((r) => (r.signingRole ?? 'client_signer') === 'client_signer') ?? recipients[0];
+  return {
+    title: contract.title,
+    referenceNumber: contract.referenceNumber,
+    date: new Date().toISOString().slice(0, 10),
+    clientName: client?.name ?? '',
+    clientCompany: client?.companyName ?? '',
+    clientEmail: client?.email ?? '',
+  };
+}
+
+/** CRM-registered templates (each maps a friendly name → a Documenso template). */
+export async function listContractTemplates(ctx: Ctx): Promise<repo.TemplateRow[]> {
+  return repo.listTemplates(ctx.tenantId);
+}
+
+/** Raw provider templates (Documenso) — used when registering a new CRM template. */
+export async function listDocumensoTemplates(_ctx: Ctx): Promise<TemplateSummary[]> {
+  return getESignProvider().listTemplates();
+}
+
+/** Register a Documenso template as a reusable CRM template. */
+export async function registerTemplate(
+  ctx: Ctx,
+  input: { name: string; documensoTemplateId: string; category?: string; description?: string },
+): Promise<repo.TemplateRow> {
+  if (!input.name?.trim()) throw new HttpError(400, 'template name is required', 'VALIDATION_ERROR');
+  if (!input.documensoTemplateId?.trim()) throw new HttpError(400, 'documensoTemplateId is required', 'VALIDATION_ERROR');
+  return repo.createTemplate({
+    tenantId: ctx.tenantId,
+    name: input.name.trim(),
+    description: input.description ?? null,
+    category: input.category ?? null,
+    sourceType: 'documenso_template',
+    documensoTemplateId: input.documensoTemplateId.trim(),
+    createdBy: ctx.userId,
+  });
+}
+
 export async function generateContract(ctx: Ctx, id: string): Promise<ContractDetail> {
   const contract = requireFound(await repo.getContract(ctx.tenantId, id));
   const recipients = await repo.listRecipients(ctx.tenantId, id);
   if (recipients.length === 0) throw new HttpError(400, 'add at least one recipient before generating', 'VALIDATION_ERROR');
   if (!recipients.some((r) => (r.signingRole ?? 'client_signer') === 'client_signer')) {
     throw new HttpError(400, 'a client signer is required', 'VALIDATION_ERROR');
+  }
+
+  const provider = getESignProvider();
+
+  // Template path: the document is generated from a pre-built provider template
+  // (fields already placed by the author). CRM data is auto-filled into the
+  // template's fields; there is no locally-rendered PDF to store — the signed
+  // copy is downloaded from the provider on completion.
+  if (contract.templateId) {
+    const tmpl = await repo.getTemplate(ctx.tenantId, contract.templateId);
+    if (!tmpl?.documensoTemplateId) {
+      throw new HttpError(400, 'this contract references a template not linked to a Documenso template', 'VALIDATION_ERROR');
+    }
+    const created = await provider.createFromTemplate({
+      templateId: tmpl.documensoTemplateId,
+      title: contract.title,
+      recipients: toProviderRecipients(recipients),
+      externalReference: id,
+      prefill: buildTemplatePrefill(contract, recipients),
+    });
+    for (const pr of created.recipients) {
+      const match = recipients.find((r) => r.email === pr.email.toLowerCase());
+      if (match) await repo.updateRecipient(ctx.tenantId, match.id, { documensoRecipientId: pr.externalRecipientId });
+    }
+    const updatedT = await transition(ctx, contract, 'GENERATED', {
+      documensoDocumentId: created.externalDocumentId,
+      provider: provider.name,
+    });
+    await appendEvent(ctx, id, 'contract.generated', { provider: provider.name, fromTemplate: contract.templateId });
+    return getContractDetail(ctx, updatedT.id);
   }
 
   const terms = typeof (contract.metadata as Record<string, unknown>)?.terms === 'string'
@@ -233,7 +305,6 @@ export async function generateContract(ctx: Ctx, id: string): Promise<ContractDe
   });
 
   // Create the document at the provider (stays draft until send).
-  const provider = getESignProvider();
   const created = await provider.createDocument({
     title: contract.title,
     pdf,

@@ -9,6 +9,7 @@ import type {
   CreateSigningSessionInput,
   SigningSessionResult,
   DocumentStatusResult,
+  TemplateSummary,
 } from '../esign.types';
 
 export interface ESignatureProvider {
@@ -20,6 +21,9 @@ export interface ESignatureProvider {
 
   /** Create a signable document from a pre-built provider template. */
   createFromTemplate(input: CreateFromTemplateInput): Promise<CreateDocumentResult>;
+
+  /** List reusable templates the CRM can generate contracts from. */
+  listTemplates(): Promise<TemplateSummary[]>;
 
   /** Attach (additional) recipients to a draft document. */
   addRecipients(input: AddRecipientsInput): Promise<void>;
