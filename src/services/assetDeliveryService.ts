@@ -31,6 +31,28 @@ export async function deliverPurchaseAssets(params: {
 }): Promise<void> {
   const { contactId, firstName, phone, email, bump1, bump2, segment, funnelSlug } = params;
 
+  // The pipeline-placement cron (worker.ts) re-selects any slo_purchase
+  // event whose contact hasn't landed in pipeline_contacts yet, and calls
+  // this function "regardless of pipeline placement" every 5 minutes. If
+  // placePipelineContact keeps failing (a deactivated pipeline, a stage
+  // rename, etc.), the contact never enters pipeline_contacts and this
+  // function was previously called again every 5 minutes forever — the
+  // full WhatsApp + email sequence re-sent up to 288x/day with no dedupe
+  // check at all. Skip if a delivery already succeeded on at least one
+  // channel for this contact+funnel recently.
+  const alreadyDelivered = await pool.query(
+    `SELECT 1 FROM purchase_delivery_log
+     WHERE contact_id = $1 AND funnel_slug = $2
+       AND (wa_status = 'sent' OR email_status = 'sent')
+       AND created_at > NOW() - INTERVAL '24 hours'
+     LIMIT 1`,
+    [contactId, funnelSlug || 'ecom'],
+  ).catch(() => ({ rows: [] }));
+  if (alreadyDelivered.rows.length > 0) {
+    logger.info(`[asset-delivery] skipping re-send for ${contactId} (${funnelSlug}) — already delivered on at least one channel in the last 24h`);
+    return;
+  }
+
   // Load funnel config for this purchase
   const config = funnelSlug ? await getFunnelConfig(funnelSlug) : null;
 
