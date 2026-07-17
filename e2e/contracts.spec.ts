@@ -220,3 +220,63 @@ test('public signing page rejects an invalid token', async ({ page }) => {
   await page.goto('/sign/not-a-real-token');
   await expect(page.getByText(/not valid|expired|not found/i)).toBeVisible({ timeout: 15_000 });
 });
+
+test('templates: register a Documenso template, then create + generate a contract from it', async ({ page }) => {
+  await login(page);
+  await gotoContracts(page);
+
+  // Register a Documenso template as a CRM template via the manager modal.
+  await page.getByRole('button', { name: 'Manage templates' }).click();
+  await page.getByRole('button', { name: 'Load Documenso templates' }).click();
+  // Only the manager's Documenso-picker <select> is on screen here.
+  await page.locator('select').selectOption('tmpl_nda'); // mock provider template id
+  await page.getByPlaceholder('Display name').fill('E2E NDA Template');
+  await page.getByRole('button', { name: 'Register template' }).click();
+  await expect(page.getByText('E2E NDA Template')).toBeVisible({ timeout: 10_000 });
+  await page.getByRole('button', { name: 'Close' }).click();
+
+  // Create a contract FROM that template — the terms field is replaced by the
+  // template note, and generation goes through createFromTemplate (no local PDF).
+  const title = `E2E Template ${Date.now()}`;
+  await page.getByRole('button', { name: 'New contract' }).click();
+  await page.getByLabel('Title').fill(title);
+  await page.getByLabel('Template (optional)').selectOption({ label: 'E2E NDA Template' });
+  await page.getByLabel('Client name').fill('Client Co');
+  await page.getByLabel('Client email').fill('client@example.com');
+  await page.getByRole('button', { name: 'Create draft' }).click();
+  await expect(rowFor(page, title).getByText('DRAFT')).toBeVisible({ timeout: 15_000 });
+
+  await rowFor(page, title).getByRole('button', { name: 'Generate' }).click();
+  await expect(rowFor(page, title).getByText('GENERATED')).toBeVisible({ timeout: 15_000 });
+});
+
+test('roles: a CC recipient is added, shown, and the contract still generates → sends', async ({ page }) => {
+  await login(page);
+  await gotoContracts(page);
+
+  const title = `E2E CC ${Date.now()}`;
+  await page.getByRole('button', { name: 'New contract' }).click();
+  await page.getByLabel('Title').fill(title);
+  await page.getByLabel('Client name').fill('Client Co');
+  await page.getByLabel('Client email').fill('client@example.com');
+  // Add a CC recipient (role select defaults to "CC (copy only)").
+  await page.getByRole('button', { name: '+ Add recipient' }).click();
+  await page.getByPlaceholder('Name').fill('Ops Copy');
+  await page.getByPlaceholder('Email').fill('ops@ge.test');
+  await page.getByRole('button', { name: 'Create draft' }).click();
+  await expect(rowFor(page, title).getByText('DRAFT')).toBeVisible({ timeout: 15_000 });
+
+  // A CC recipient must not block the lifecycle (it gets no signature field).
+  await rowFor(page, title).getByRole('button', { name: 'Generate' }).click();
+  await expect(rowFor(page, title).getByText('GENERATED')).toBeVisible({ timeout: 15_000 });
+  await rowFor(page, title).getByRole('button', { name: 'Approve' }).click();
+  await expect(rowFor(page, title).getByText('READY TO SEND')).toBeVisible({ timeout: 15_000 });
+  await rowFor(page, title).getByRole('button', { name: 'Send' }).click();
+  await expect(rowFor(page, title).getByText('SENT')).toBeVisible({ timeout: 15_000 });
+
+  // The CC recipient + its role are visible in the detail drawer.
+  await rowFor(page, title).locator('td', { hasText: title }).first().click();
+  await expect(page.getByRole('heading', { name: title })).toBeVisible();
+  await expect(page.getByText('Ops Copy')).toBeVisible();
+  await expect(page.getByText('(cc)')).toBeVisible();
+});

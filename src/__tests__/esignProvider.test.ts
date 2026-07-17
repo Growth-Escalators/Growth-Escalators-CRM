@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MockESignProvider } from '../modules/esign/providers/mock.provider';
 import { DocumensoProvider } from '../modules/esign/providers/documenso.provider';
 import {
@@ -160,5 +160,74 @@ describe('DocumensoProvider config guard', () => {
       name: 'ESignProviderError',
       statusCode: 503,
     });
+  });
+});
+
+describe('DocumensoProvider — recipient roles + field placement', () => {
+  // Stub global fetch: echo the create call's recipients back with ids, and
+  // record every field-placement POST so we can assert which recipients got one.
+  const calls: Array<{ url: string; method: string; body: any }> = [];
+  let savedUrl: string | undefined;
+  let savedToken: string | undefined;
+
+  function rolesInput(): ProviderRecipientInput[] {
+    return [
+      { email: 'Signer@x.com', name: 'Signer', role: 'client_signer', signingOrder: 1 },
+      { email: 'counter@ge.com', name: 'Counter', role: 'internal_countersigner', signingOrder: 2 },
+      { email: 'boss@ge.com', name: 'Approver', role: 'approver', signingOrder: 3 },
+      { email: 'cc@x.com', name: 'Cc', role: 'cc', signingOrder: 4 },
+      { email: 'viewer@x.com', name: 'Viewer', role: 'viewer', signingOrder: 5 },
+    ];
+  }
+
+  beforeEach(() => {
+    calls.length = 0;
+    savedUrl = process.env.DOCUMENSO_API_URL;
+    savedToken = process.env.DOCUMENSO_API_TOKEN;
+    process.env.DOCUMENSO_API_URL = 'https://documenso.example';
+    process.env.DOCUMENSO_API_TOKEN = 'test-token';
+    vi.stubGlobal('fetch', vi.fn(async (url: any, opts: any = {}) => {
+      const method = opts.method ?? 'GET';
+      const body = opts.body ? JSON.parse(opts.body) : undefined;
+      calls.push({ url: String(url), method, body });
+      if (String(url).endsWith('/api/v1/documents') && method === 'POST') {
+        // Echo recipients with sequential provider ids, preserving order.
+        const recipients = body.recipients.map((r: any, i: number) => ({ email: r.email, recipientId: 100 + i }));
+        return new Response(JSON.stringify({ documentId: 'doc_9', recipients }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (/\/api\/v1\/documents\/doc_9\/fields$/.test(String(url)) && method === 'POST') {
+        return new Response(JSON.stringify({ id: 1 }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response('not found', { status: 404 });
+    }));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    if (savedUrl === undefined) delete process.env.DOCUMENSO_API_URL; else process.env.DOCUMENSO_API_URL = savedUrl;
+    if (savedToken === undefined) delete process.env.DOCUMENSO_API_TOKEN; else process.env.DOCUMENSO_API_TOKEN = savedToken;
+  });
+
+  it('maps each CRM role to the correct Documenso recipient role', async () => {
+    await new DocumensoProvider().createDocument({ title: 'Roles', pdf: PDF, recipients: rolesInput() });
+    const createCall = calls.find((c) => c.url.endsWith('/api/v1/documents') && c.method === 'POST');
+    expect(createCall?.body.recipients.map((r: any) => r.role)).toEqual(['SIGNER', 'SIGNER', 'APPROVER', 'CC', 'VIEWER']);
+  });
+
+  it('places a SIGNATURE field only for SIGNER recipients (approver/cc/viewer get none)', async () => {
+    await new DocumensoProvider().createDocument({ title: 'Roles', pdf: PDF, recipients: rolesInput() });
+    const fieldCalls = calls.filter((c) => /\/fields$/.test(c.url) && c.method === 'POST');
+    // Two signers (client_signer + internal_countersigner) → 100 & 101; the rest skipped.
+    expect(fieldCalls).toHaveLength(2);
+    expect(fieldCalls.map((c) => c.body.recipientId).sort()).toEqual([100, 101]);
+    expect(fieldCalls.every((c) => c.body.type === 'SIGNATURE')).toBe(true);
+  });
+
+  it('a document with only non-signer recipients places no fields', async () => {
+    await new DocumensoProvider().createDocument({
+      title: 'Viewers only', pdf: PDF,
+      recipients: [{ email: 'v@x.com', name: 'V', role: 'viewer', signingOrder: 1 }],
+    });
+    expect(calls.filter((c) => /\/fields$/.test(c.url))).toHaveLength(0);
   });
 });
