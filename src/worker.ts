@@ -1120,8 +1120,8 @@ cron.schedule('0 2 * * 0', () => safeCron('PageSpeed Monitor', async () => {
 }), { timezone: 'UTC' });
 console.log('[cron] PageSpeed monitor scheduled — Sundays 7:30 AM IST');
 
-// PAUSED 2026-05-03 — Rank Tracking (Serper.dev). Re-enable by uncommenting.
-/*
+// RE-ENABLED 2026-07 (seo-learning-loop) — Serper calls now go through
+// checkAndIncrementSeoSerperCap() (seoWorkflowHealthService.ts) before this fires.
 cron.schedule('30 3 * * 2', () => safeCron('Rank Tracking', async () => {
   const startedAt = new Date();
   const { runRankChecks } = await import('./services/rankTrackingService');
@@ -1142,8 +1142,6 @@ cron.schedule('30 3 * * 2', () => safeCron('Rank Tracking', async () => {
   }
 }), { timezone: 'UTC' });
 console.log('[cron] Rank tracking scheduled — Tuesdays 9:00 AM IST (Serper.dev)');
-*/
-console.log('[cron] Rank tracking — PAUSED 2026-05-03');
 
 // SEO Alert Triggers — Daily 9 AM IST (3:30 UTC) — runs directly (no n8n dependency)
 cron.schedule('30 3 * * *', () => safeCron('SEO Alert Triggers', async () => {
@@ -1168,8 +1166,8 @@ cron.schedule('30 3 * * *', () => safeCron('SEO Alert Triggers', async () => {
 }), { timezone: 'UTC' });
 console.log('[cron] SEO alert triggers scheduled — daily 9:00 AM IST (backend-native)');
 
-// PAUSED 2026-05-03 — SEO Backlink Monitor (Serper.dev). Re-enable by uncommenting.
-/*
+// RE-ENABLED 2026-07 (seo-learning-loop) — Serper calls now go through
+// checkAndIncrementSeoSerperCap() (seoWorkflowHealthService.ts) before this fires.
 cron.schedule('30 3 * * 5', () => safeCron('SEO Backlink Monitor', async () => {
   const startedAt = new Date();
   const { runBacklinkCheck } = await import('./services/seoBacklinkService');
@@ -1190,11 +1188,10 @@ cron.schedule('30 3 * * 5', () => safeCron('SEO Backlink Monitor', async () => {
   }
 }), { timezone: 'UTC' });
 console.log('[cron] SEO backlink monitor scheduled — Fridays 9:00 AM IST (backend-native)');
-*/
-console.log('[cron] SEO backlink monitor — PAUSED 2026-05-03');
 
-// PAUSED 2026-05-03 — SEO Content Decay Detection (Serper.dev). Re-enable by uncommenting.
-/*
+// RE-ENABLED 2026-07 (seo-learning-loop) — content decay reads keyword_rankings
+// (no direct Serper call), unaffected by the cap but re-enabled alongside its
+// upstream (Rank Tracking above) so decay detection has fresh data to work from.
 cron.schedule('30 3 * * 1', () => safeCron('SEO Content Decay', async () => {
   const startedAt = new Date();
   const { runContentDecayDetection } = await import('./services/seoContentDecayService');
@@ -1215,8 +1212,6 @@ cron.schedule('30 3 * * 1', () => safeCron('SEO Content Decay', async () => {
   }
 }), { timezone: 'UTC' });
 console.log('[cron] SEO content decay scheduled — Every Monday 9:00 AM IST (backend-native)');
-*/
-console.log('[cron] SEO content decay — PAUSED 2026-05-03');
 
 // SEO Weekly Opportunity Digest — Friday 5 PM IST (11:30 UTC) — sends via Slack directly
 cron.schedule('30 11 * * 5', () => safeCron('SEO Weekly Digest', async () => {
@@ -1251,16 +1246,14 @@ cron.schedule('30 3 1,15 * *', () => safeCron('Competitor Content Analysis', asy
 }), { timezone: 'UTC' });
 console.log('[cron] Competitor content analysis scheduled — 1st & 15th of month at 9:00 AM IST');
 
-// PAUSED 2026-05-03 — SEO Content Gap Analysis (Serper.dev). Re-enable by uncommenting.
-/*
+// RE-ENABLED 2026-07 (seo-learning-loop) — Serper calls now go through
+// checkAndIncrementSeoSerperCap() (seoWorkflowHealthService.ts) before this fires.
 cron.schedule('30 4 15 * *', () => safeCron('SEO Content Gap Analysis', async () => {
   const { runContentGapAnalysis } = await import('./services/seoContentGapService');
   const result = await runContentGapAnalysis();
   console.log(`[CRON] Content gap analysis: ${result.gaps} gaps, ${result.opportunities} opportunities`);
 }), { timezone: 'UTC' });
 console.log('[cron] SEO content gap analysis scheduled — 15th of month at 10:00 AM IST');
-*/
-console.log('[cron] SEO content gap analysis — PAUSED 2026-05-03');
 
 // Directory Scrapers — Daily 11 AM IST (5:30 UTC) — Clutch, GoodFirms, Upwork, LinkedIn
 cron.schedule('30 5 * * *', () => safeCron('Directory Scrapers', async () => {

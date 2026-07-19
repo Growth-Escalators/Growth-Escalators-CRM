@@ -253,6 +253,13 @@
       "when": 1784434366650,
       "tag": "0035_seo_tables_tenant_id",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1784464092263,
+      "tag": "0036_seo_content_calendar_link",
+      "breakpoints": true
     }
   ]
 }

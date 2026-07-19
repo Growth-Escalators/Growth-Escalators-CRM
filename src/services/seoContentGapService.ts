@@ -42,6 +42,11 @@ interface SerperResult { title: string; link: string; snippet: string; position?
 
 async function serperSearch(query: string, num = 10): Promise<SerperResult[]> {
   if (!SERPER_API_KEY) return [];
+  const { checkAndIncrementSeoSerperCap } = await import('./seoWorkflowHealthService');
+  if (!checkAndIncrementSeoSerperCap()) {
+    logger.warn(`[content-gap] SEO Serper daily cap reached — skipping query "${query}"`);
+    return [];
+  }
   try {
     const res = await fetch(SERPER_API_URL, {
       method: 'POST',
@@ -74,6 +79,11 @@ export async function runContentGapAnalysis(): Promise<{ gaps: number; opportuni
 
   let gaps = 0, opportunities = 0;
   const tenantId = await resolveDefaultSeoTenantId();
+
+  // Learning loop: historical outcome success rates per opportunity type, computed
+  // once per run and used to nudge priority scores (see applySuccessRateAdjustment).
+  const { computeOpportunityTypeSuccessRates, applySuccessRateAdjustment } = await import('./seoDigestService');
+  const successRates = await computeOpportunityTypeSuccessRates();
 
   // Get all clients with keywords and domain
   const clientsR = await pool.query(`
@@ -159,6 +169,9 @@ export async function runContentGapAnalysis(): Promise<{ gaps: number; opportuni
       if (competitorUrls.length > 3) priorityScore += 10;
       if (competitorUrls.length > 0) priorityScore += 5;
       priorityScore = Math.min(100, priorityScore);
+      // Learning loop: nudge the score using how well past content_gap opportunities
+      // actually performed (no-op until sampleSize >= 10 for this opportunity type).
+      priorityScore = applySuccessRateAdjustment(priorityScore, successRates, 'content_gap', { min: 0, max: 100 });
 
       // 5. Insert into content_gap_analysis
       if (competitorUrls.length > 0 || ourPosition === null || ourPosition > 10) {
@@ -173,24 +186,10 @@ export async function runContentGapAnalysis(): Promise<{ gaps: number; opportuni
         const gapId = (gapInsert.rows as Array<{ id: string }>)[0]?.id;
         gaps++;
 
-        // Auto-populate content calendar from gap
-        try {
-          await pool.query(`
-            INSERT INTO seo_content_calendar (client_domain, keyword, content_type, title, status, priority, source, source_id)
-            VALUES ($1, $2, 'blog', $3, 'planned', $4, 'content_gap', $5)
-            ON CONFLICT (client_domain, keyword, content_type) DO NOTHING
-          `, [
-            client.client_domain,
-            keyword,
-            `${keyword.split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')} — Complete Guide`,
-            priorityScore >= 80 ? 'high' : priorityScore >= 60 ? 'medium' : 'low',
-            gapId,
-          ]);
-        } catch (calErr) {
-          logger.warn(`[content-gap] calendar insert skipped: ${calErr instanceof Error ? calErr.message : String(calErr)}`);
-        }
-
-        // 6. Create corresponding opportunity
+        // 6. Create corresponding opportunity FIRST (before the calendar insert) so
+        // its id is available to link the calendar row below — this is what lets
+        // the calendar's PATCH published_url handler propagate back to
+        // seo_opportunities and lets the weekly digest measure the outcome.
         const impact = priorityScore >= 80 ? 'high' : priorityScore >= 60 ? 'medium' : 'low';
         const effort = ourPosition && ourPosition < 25 ? 'low' : 'medium';
         const desc = ourPosition
@@ -202,13 +201,35 @@ export async function runContentGapAnalysis(): Promise<{ gaps: number; opportuni
           `SELECT id FROM seo_opportunities WHERE project_name = $1 AND description LIKE $2 AND identified_at > NOW() - INTERVAL '30 days' AND tenant_id = $3 LIMIT 1`,
           [client.project_name, `%${keyword}%`, tenantId],
         );
+        let opportunityId: string | null = null;
         if ((existingOpp.rows as unknown[]).length === 0) {
-          await pool.query(
+          const oppInsert = await pool.query(
             `INSERT INTO seo_opportunities (id, project_name, opportunity_type, description, estimated_impact, effort_level, status, identified_at, client_domain, tenant_id)
-             VALUES (gen_random_uuid(), $1, 'content_gap', $2, $3, $4, 'open', NOW(), $5, $6)`,
+             VALUES (gen_random_uuid(), $1, 'content_gap', $2, $3, $4, 'open', NOW(), $5, $6)
+             RETURNING id`,
             [client.project_name, desc, impact, effort, client.client_domain, tenantId],
           );
+          opportunityId = (oppInsert.rows as Array<{ id: string }>)[0]?.id ?? null;
           opportunities++;
+        }
+
+        // Auto-populate content calendar from gap, linked to the opportunity when one
+        // was actually created (dedup hits leave opportunityId null — nothing to link).
+        try {
+          await pool.query(`
+            INSERT INTO seo_content_calendar (client_domain, keyword, content_type, title, status, priority, source, source_id, opportunity_id)
+            VALUES ($1, $2, 'blog', $3, 'planned', $4, 'content_gap', $5, $6)
+            ON CONFLICT (client_domain, keyword, content_type) DO NOTHING
+          `, [
+            client.client_domain,
+            keyword,
+            `${keyword.split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')} — Complete Guide`,
+            priorityScore >= 80 ? 'high' : priorityScore >= 60 ? 'medium' : 'low',
+            gapId,
+            opportunityId,
+          ]);
+        } catch (calErr) {
+          logger.warn(`[content-gap] calendar insert skipped: ${calErr instanceof Error ? calErr.message : String(calErr)}`);
         }
       }
     }

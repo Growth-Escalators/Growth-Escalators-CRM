@@ -3,6 +3,27 @@ import logger from '../utils/logger';
 import { resolveDefaultSeoTenantId } from './seoTenantContext';
 
 // ---------------------------------------------------------------------------
+// Serper.dev daily cost cap — SEO side.
+//
+// Unlike Wizmatch sourcing (see wizmatchSourcing.ts / wizmatchCostGuard.ts),
+// there was previously ZERO cap on SEO's Serper usage. In-memory + reset on
+// process restart is deliberately simple: these crons fire at most once a day
+// each, so losing the count for a few hours after a restart isn't a real cost
+// risk at this volume.
+// ---------------------------------------------------------------------------
+const SEO_SERPER_DAILY_CAP = Number(process.env.SEO_SERPER_DAILY_CAP) || 50;
+let seoSerperCallCount = 0;
+let seoSerperCountDate = new Date().toDateString();
+
+export function checkAndIncrementSeoSerperCap(): boolean {
+  const today = new Date().toDateString();
+  if (today !== seoSerperCountDate) { seoSerperCountDate = today; seoSerperCallCount = 0; }
+  if (seoSerperCallCount >= SEO_SERPER_DAILY_CAP) return false;
+  seoSerperCallCount++;
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Ensure SEO tables exist (called on startup)
 // ---------------------------------------------------------------------------
 export async function ensureSeoTables(): Promise<void> {

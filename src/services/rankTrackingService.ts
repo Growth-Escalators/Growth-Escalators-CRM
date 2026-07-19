@@ -113,6 +113,12 @@ async function checkSerperRank(
     return { position: null, url: null, featuredSnippet: false };
   }
 
+  const { checkAndIncrementSeoSerperCap } = await import('./seoWorkflowHealthService');
+  if (!checkAndIncrementSeoSerperCap()) {
+    logger.warn(`[rank-tracking] SEO Serper daily cap reached — skipping "${keyword}"`);
+    return { position: null, url: null, featuredSnippet: false };
+  }
+
   try {
     const res = await fetch(SERPER_API_URL, {
       method: 'POST',
