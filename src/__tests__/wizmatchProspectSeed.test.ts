@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeDomain } from '../routes/wizmatch';
+import { normalizeDomain } from '../services/wizmatchContactIntelligenceRepo';
 
 describe('wizmatch seed-company helpers', () => {
   describe('normalizeDomain', () => {

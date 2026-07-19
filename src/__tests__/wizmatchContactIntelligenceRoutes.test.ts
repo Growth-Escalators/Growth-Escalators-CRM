@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import router, { isOptionalWizmatchSchemaError } from '../routes/wizmatch';
+import router from '../routes/wizmatch';
+import { isOptionalWizmatchSchemaError } from '../services/wizmatchOptionalSchema';
 
 function routeExists(path: string, method: string) {
   return router.stack.some((layer: any) =>
