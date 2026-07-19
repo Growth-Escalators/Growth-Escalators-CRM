@@ -34,6 +34,12 @@ export async function fetchCompetitorPages(keyword: string): Promise<CompetitorP
     return [];
   }
 
+  const { checkAndIncrementSeoSerperCap } = await import('./seoWorkflowHealthService');
+  if (!checkAndIncrementSeoSerperCap()) {
+    logger.warn(`[competitor-content] SEO Serper daily cap reached — skipping "${keyword}"`);
+    return [];
+  }
+
   try {
     const res = await fetch('https://google.serper.dev/search', {
       method: 'POST',
@@ -100,6 +106,12 @@ export async function analyzeCompetitorContent(
     .map((c, i) => `${i + 1}. [Pos ${c.position}] ${c.title}\n   ${c.link}\n   ${c.snippet}`)
     .join('\n\n');
 
+  // Learning loop: give the model historical context on how well this class of
+  // opportunity has actually performed, when there's enough data to trust it.
+  const { computeOpportunityTypeSuccessRates, formatHistoricalPerformanceNote } = await import('./seoDigestService');
+  const successRates = await computeOpportunityTypeSuccessRates();
+  const historicalNote = formatHistoricalPerformanceNote('content_gap', successRates);
+
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -117,6 +129,7 @@ Client's current ranking: ${currentPosition != null ? `Position ${currentPositio
 
 Top 5 competitor pages:
 ${competitorSummary}
+${historicalNote}
 
 Based on the competitor titles and snippets, identify what topics, questions, and content elements are likely covered by competitors but potentially missing from the client's content.
 
@@ -184,6 +197,11 @@ export async function runCompetitorContentAnalysis(): Promise<{ analyzed: number
 
     logger.info(`[competitor-content] Analyzing ${keywords.length} keywords with improvement potential`);
 
+    // Learning loop: historical outcome success rates per opportunity type, computed
+    // once per run and used to nudge priority scores (see applySuccessRateAdjustment).
+    const { computeOpportunityTypeSuccessRates, applySuccessRateAdjustment } = await import('./seoDigestService');
+    const successRates = await computeOpportunityTypeSuccessRates();
+
     for (const kw of keywords) {
       try {
         const competitors = await fetchCompetitorPages(kw.keyword);
@@ -201,6 +219,11 @@ export async function runCompetitorContentAnalysis(): Promise<{ analyzed: number
           continue;
         }
 
+        // Priority: higher for closer-to-top keywords, nudged by how well past
+        // content_gap opportunities have actually performed (no-op below sampleSize 10).
+        const rawPriorityScore = Math.max(0, 30 - Number(kw.current_position)) * 3;
+        const priorityScore = applySuccessRateAdjustment(rawPriorityScore, successRates, 'content_gap', { min: 0 });
+
         // Store in content_gap_analysis table
         await pool.query(
           `INSERT INTO content_gap_analysis
@@ -215,7 +238,7 @@ export async function runCompetitorContentAnalysis(): Promise<{ analyzed: number
             JSON.stringify(analysis.missing_topics),
             JSON.stringify(analysis.missing_questions),
             analysis.recommended_word_count,
-            Math.max(0, 30 - Number(kw.current_position)) * 3, // higher priority for closer-to-top
+            priorityScore,
             tenantId,
           ],
         );

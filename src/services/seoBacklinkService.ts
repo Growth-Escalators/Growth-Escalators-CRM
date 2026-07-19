@@ -39,8 +39,15 @@ export async function runBacklinkCheck(): Promise<{ found: number; errors: numbe
   let errors = 0;
   const tenantId = await resolveDefaultSeoTenantId();
 
+  const { checkAndIncrementSeoSerperCap } = await import('./seoWorkflowHealthService');
+
   for (const domain of CLIENT_DOMAINS) {
     try {
+      if (!checkAndIncrementSeoSerperCap()) {
+        logger.warn(`[backlinks] SEO Serper daily cap reached — skipping ${domain}`);
+        continue;
+      }
+
       // Search for pages linking to this domain (excluding the domain itself)
       const query = `link:${domain} -site:${domain}`;
       const res = await fetch(SERPER_API_URL, {

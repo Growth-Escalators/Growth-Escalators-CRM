@@ -142,3 +142,62 @@ describe('rankTrackingService', () => {
     vi.unstubAllGlobals();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Tests for seoWorkflowHealthService.checkAndIncrementSeoSerperCap()
+//
+// The SEO-side Serper daily cost cap (seo-learning-loop). rankTrackingService
+// is the cap's first/primary consumer, so this lives alongside its tests.
+// SEO_SERPER_DAILY_CAP is read once at module load time, so each test resets
+// the module registry with the env var set before re-importing.
+// ---------------------------------------------------------------------------
+describe('checkAndIncrementSeoSerperCap', () => {
+  const originalCap = process.env.SEO_SERPER_DAILY_CAP;
+
+  afterEach(() => {
+    if (originalCap !== undefined) {
+      process.env.SEO_SERPER_DAILY_CAP = originalCap;
+    } else {
+      delete process.env.SEO_SERPER_DAILY_CAP;
+    }
+    vi.useRealTimers();
+  });
+
+  it('allows calls under the cap and blocks at/over it', async () => {
+    process.env.SEO_SERPER_DAILY_CAP = '3';
+    vi.resetModules();
+    const { checkAndIncrementSeoSerperCap } = await import('../services/seoWorkflowHealthService');
+
+    expect(checkAndIncrementSeoSerperCap()).toBe(true);  // 1 — under cap
+    expect(checkAndIncrementSeoSerperCap()).toBe(true);  // 2 — under cap
+    expect(checkAndIncrementSeoSerperCap()).toBe(true);  // 3 — at cap (this call itself is allowed)
+    expect(checkAndIncrementSeoSerperCap()).toBe(false); // 4 — over cap, blocked
+    expect(checkAndIncrementSeoSerperCap()).toBe(false); // 5 — still blocked
+  });
+
+  it('falls back to a default cap of 50 when SEO_SERPER_DAILY_CAP is unset', async () => {
+    delete process.env.SEO_SERPER_DAILY_CAP;
+    vi.resetModules();
+    const { checkAndIncrementSeoSerperCap } = await import('../services/seoWorkflowHealthService');
+
+    for (let i = 0; i < 50; i++) {
+      expect(checkAndIncrementSeoSerperCap()).toBe(true);
+    }
+    expect(checkAndIncrementSeoSerperCap()).toBe(false); // 51st call blocked
+  });
+
+  it('resets the count on a new calendar day', async () => {
+    process.env.SEO_SERPER_DAILY_CAP = '1';
+    vi.resetModules();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-19T10:00:00Z'));
+
+    const { checkAndIncrementSeoSerperCap } = await import('../services/seoWorkflowHealthService');
+
+    expect(checkAndIncrementSeoSerperCap()).toBe(true);  // uses today's only allowed call
+    expect(checkAndIncrementSeoSerperCap()).toBe(false); // capped for today
+
+    vi.setSystemTime(new Date('2026-07-20T10:00:00Z')); // next day
+    expect(checkAndIncrementSeoSerperCap()).toBe(true);  // resets on the new day
+  });
+});

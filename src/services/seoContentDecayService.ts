@@ -34,6 +34,11 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
       return { opportunities: 0 };
     }
 
+    // Learning loop: historical outcome success rates per opportunity type, computed
+    // once per run and used to nudge priority scores (see applySuccessRateAdjustment).
+    const { computeOpportunityTypeSuccessRates, applySuccessRateAdjustment } = await import('./seoDigestService');
+    const successRates = await computeOpportunityTypeSuccessRates();
+
     // Find keywords that dropped >5 positions in the last 30 days
     const decayed = await pool.query(`
       WITH recent AS (
@@ -91,7 +96,10 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
 
       const positionDrop = currentPos - oldPos;  // this is the drop magnitude (positive number)
       const impactWeight = impact === 'high' ? 3 : impact === 'medium' ? 2 : 1;
-      const priorityScore = Math.round(positionDrop * impactWeight);
+      const rawPriorityScore = Math.round(positionDrop * impactWeight);
+      // Learning loop: nudge the score using how well past content_decay opportunities
+      // actually performed (no-op until sampleSize >= 10 for this opportunity type).
+      const priorityScore = applySuccessRateAdjustment(rawPriorityScore, successRates, 'content_decay', { min: 0 });
 
       const insertResult = await pool.query(
         `INSERT INTO seo_opportunities
@@ -109,9 +117,19 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
         ],
       );
       opportunities++;
+      const decayOppId = (insertResult.rows[0] as { id: string }).id;
 
-      // newId not used since ClickUp opportunity task creation removed (2026-05-09)
-      void (insertResult.rows[0] as { id: string }).id;
+      // Link a content-calendar row to this opportunity so it's measurable the same
+      // way content-gap opportunities are (mirrors seoContentGapService.ts's shape).
+      try {
+        await pool.query(`
+          INSERT INTO seo_content_calendar (client_domain, keyword, content_type, title, status, priority, source, opportunity_id)
+          VALUES ($1, $2, 'refresh', $3, 'planned', $4, 'content_decay', $5)
+          ON CONFLICT (client_domain, keyword, content_type) DO NOTHING
+        `, [domain, keyword, `Refresh: "${keyword}"`, impact, decayOppId]);
+      } catch (calErr) {
+        logger.warn(`[content-decay] calendar insert skipped: ${calErr instanceof Error ? calErr.message : String(calErr)}`);
+      }
     }
 
     // Also detect pages that fell out of top 100
@@ -154,7 +172,10 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
       if ((existing.rows as unknown[]).length > 0) continue;
 
       const currentPos = Number(row.current_position);
-      const priorityScore = Math.max(1, 50 - (currentPos ?? 100));
+      const rawPriorityScore = Math.max(1, 50 - (currentPos ?? 100));
+      // Learning loop: nudge the score using how well past lost_ranking opportunities
+      // actually performed (no-op until sampleSize >= 10 for this opportunity type).
+      const priorityScore = applySuccessRateAdjustment(rawPriorityScore, successRates, 'lost_ranking', { min: 1 });
 
       const lostInsertResult = await pool.query(
         `INSERT INTO seo_opportunities
@@ -164,9 +185,19 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
         [domain, `"${keyword}" lost ranking entirely (was #${row.current_position}, last seen ${new Date(row.recorded_date as string).toLocaleDateString('en-IN')}). Needs content refresh or new backlinks.`, keyword, priorityScore, tenantId],
       );
       opportunities++;
+      const lostOppId = (lostInsertResult.rows[0] as { id: string }).id;
 
-      // lostNewId not used since ClickUp opportunity task creation removed (2026-05-09)
-      void (lostInsertResult.rows[0] as { id: string }).id;
+      // Link a content-calendar row to this opportunity so it's measurable the same
+      // way content-gap opportunities are (mirrors seoContentGapService.ts's shape).
+      try {
+        await pool.query(`
+          INSERT INTO seo_content_calendar (client_domain, keyword, content_type, title, status, priority, source, opportunity_id)
+          VALUES ($1, $2, 'refresh', $3, 'planned', 'high', 'lost_ranking', $4)
+          ON CONFLICT (client_domain, keyword, content_type) DO NOTHING
+        `, [domain, keyword, `Recover: "${keyword}"`, lostOppId]);
+      } catch (calErr) {
+        logger.warn(`[content-decay] calendar insert skipped (lost_ranking): ${calErr instanceof Error ? calErr.message : String(calErr)}`);
+      }
     }
   } catch (e) {
     logger.error('[content-decay] error:', e instanceof Error ? e.message : String(e));
