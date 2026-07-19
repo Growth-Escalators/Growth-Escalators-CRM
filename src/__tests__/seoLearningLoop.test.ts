@@ -8,6 +8,15 @@ vi.mock('../db/index', () => ({
   pool: { query: vi.fn() },
 }));
 
+// seoDigestService.ts calls resolveDefaultSeoTenantId() (added by the H18 tenant-
+// isolation work, merged in after this file was originally written) at the top of
+// sendWeeklyOpportunityDigest(). The real implementation calls db.select(...), which
+// throws against the empty `db: {}` mock above — caught by that function's outer
+// try/catch, silently producing { sent: false } instead of the exception surfacing.
+vi.mock('../services/seoTenantContext', () => ({
+  resolveDefaultSeoTenantId: vi.fn().mockResolvedValue('tenant-seo-default'),
+}));
+
 vi.mock('../services/slackService', () => ({
   sendSlackMessage: vi.fn().mockResolvedValue(true),
 }));
@@ -254,8 +263,9 @@ describe('seo-learning-loop', () => {
         ([sql]) => typeof sql === 'string' && sql.includes('UPDATE seo_opportunities SET outcome'),
       );
       expect(outcomeUpdateCall).toBeDefined();
-      // rank improved from #22 to #4 (a >5-position gain) -> 'recovered'
-      expect(outcomeUpdateCall![1]).toEqual(['recovered', 'opp-loop-1']);
+      // rank improved from #22 to #4 (a >5-position gain) -> 'recovered'.
+      // Third param is tenant_id (H18's tenant scoping, merged into this same UPDATE).
+      expect(outcomeUpdateCall![1]).toEqual(['recovered', 'opp-loop-1', 'tenant-seo-default']);
     });
   });
 });
