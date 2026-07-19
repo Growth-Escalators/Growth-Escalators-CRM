@@ -278,6 +278,11 @@ describe('routes/systemHealth.ts — unauthenticated seo-data diagnostic', () =>
 // ---------------------------------------------------------------------------
 describe('services — cron tenant scoping via resolveDefaultSeoTenantId()', () => {
   it('rankTrackingService.runRankChecks() binds the resolved tenant id on the keyword_rankings INSERT', async () => {
+    // The earlier "GET /health/seo-data" test stubbed this whole module via
+    // vi.doMock (ensureSeoTables only) — that registration persists until
+    // explicitly undone, and rankTrackingService's Serper-cap check dynamically
+    // imports this same module, so restore the real implementation first.
+    vi.doUnmock('../services/seoWorkflowHealthService');
     mockResolveTenant.mockResolvedValue(TENANT_A);
     process.env.SERPER_API_KEY = 'test-key';
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({

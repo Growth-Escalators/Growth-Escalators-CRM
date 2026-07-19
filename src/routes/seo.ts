@@ -563,7 +563,21 @@ router.patch('/content-calendar/:id', async (req: Request, res: Response) => {
     idx++; values.push(id);
     const result = await dbPool.query(`UPDATE seo_content_calendar SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`, values);
     if (result.rows.length === 0) { res.status(404).json({ error: 'Not found' }); return; }
-    res.json(result.rows[0]);
+    const row = result.rows[0] as Record<string, unknown>;
+
+    // Close the outcome-measurement loop: propagate published_url back onto the
+    // seo_opportunities row this calendar entry was created from (if any), so
+    // sendWeeklyOpportunityDigest's 14-day outcome check can actually fire.
+    if (published_url !== undefined && row.opportunity_id) {
+      await dbPool.query(
+        `UPDATE seo_opportunities SET published_url = $1 WHERE id = $2`,
+        [published_url, row.opportunity_id],
+      ).catch((e) => {
+        logger.warn(`[seo] failed to propagate published_url to opportunity ${row.opportunity_id}: ${e instanceof Error ? e.message : String(e)}`);
+      });
+    }
+
+    res.json(row);
   } catch (e) {
     logger.error('[seo] content-calendar patch error:', e);
     res.status(500).json({ error: 'Failed to update calendar entry' });

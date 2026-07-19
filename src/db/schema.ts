@@ -4,6 +4,7 @@ import {
   text,
   boolean,
   integer,
+  serial,
   timestamp,
   jsonb,
   numeric,
@@ -2337,3 +2338,41 @@ export const contractEvents = pgTable('contract_events', {
   externalUniq: uniqueIndex('contract_events_external_uniq').on(t.eventSource, t.externalEventId)
     .where(sql`${t.externalEventId} IS NOT NULL`),
 }));
+
+// ---------------------------------------------------------------------------
+// TABLE — seo_content_calendar
+// Previously an ensure*-pattern table only (created via CREATE TABLE IF NOT
+// EXISTS in seoContentGapService.ts / seoWorkflowHealthService.ts, never
+// tracked in schema.ts). Brought into drizzle here (seo-learning-loop,
+// migration 0035) so the new opportunity_id FK link is tracked like any
+// other column — this is what lets a published calendar row's outcome be
+// measured against the seo_opportunities row it was created from. Column
+// shape otherwise matches the live ensureContentCalendarTable() DDL exactly.
+// ---------------------------------------------------------------------------
+export const seoContentCalendar = pgTable(
+  'seo_content_calendar',
+  {
+    id: serial('id').primaryKey(),
+    tenantId: uuid('tenant_id').default('00000000-0000-0000-0000-000000000001'),
+    clientDomain: text('client_domain').notNull(),
+    keyword: text('keyword').notNull(),
+    contentType: text('content_type').notNull().default('blog'),
+    title: text('title'),
+    status: text('status').notNull().default('planned'),
+    priority: text('priority').default('medium'),
+    source: text('source'),
+    sourceId: text('source_id'),
+    opportunityId: uuid('opportunity_id').references(() => seoOpportunities.id),
+    targetPublishDate: date('target_publish_date'),
+    publishedUrl: text('published_url'),
+    assignedTo: text('assigned_to'),
+    notes: text('notes'),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (t) => ({
+    uniqueIdx: uniqueIndex('seo_content_calendar_unique_idx').on(t.clientDomain, t.keyword, t.contentType),
+    statusIdx: index('seo_calendar_status_idx').on(t.status),
+    clientIdx: index('seo_calendar_client_idx').on(t.clientDomain),
+  }),
+);
