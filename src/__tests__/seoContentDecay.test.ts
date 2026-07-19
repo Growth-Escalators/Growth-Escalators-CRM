@@ -223,7 +223,9 @@ describe('seoContentDecayService', () => {
     expect(insertCall).toBeDefined();
     // raw score: drop=15, impact='medium' (10<15<=20) -> weight 2 -> 15*2=30
     // successRate 0.8 -> multiplier clamped to 1.2 -> round(30*1.2) = 36
+    // priority_score is second-to-last bound param — tenant_id (H18) is last.
     const params = insertCall![1] as unknown[];
-    expect(params[params.length - 1]).toBe(36);
+    expect(params[params.length - 2]).toBe(36);
+    expect(params[params.length - 1]).toBe('tenant-seo-default');
   });
 });
