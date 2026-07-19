@@ -1,5 +1,6 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
+import { resolveDefaultSeoTenantId } from './seoTenantContext';
 
 /**
  * Backend-native SEO alert generation.
@@ -11,15 +12,16 @@ import logger from '../utils/logger';
 const CLIENT_DOMAINS = ['aarohaom.com', 'blackpandaenterprises.com', 'ageddentistry.org'];
 
 export async function runSeoAlertChecks(): Promise<{ alerts: number }> {
+  const tenantId = await resolveDefaultSeoTenantId();
   // Pre-flight: if all upstream tables are empty, the "zero alerts" we'd produce
   // is meaningless — it's indistinguishable from "all pipelines are broken".
   // Bail loudly so the Railway env / cron health gets checked.
   const upstreamQ = await pool.query(`
     SELECT
-      (SELECT COUNT(*) FROM keyword_rankings WHERE recorded_date >= CURRENT_DATE - INTERVAL '10 days')::int AS rankings,
-      (SELECT COUNT(*) FROM site_health_metrics WHERE checked_at >= NOW() - INTERVAL '10 days')::int AS health,
-      (SELECT COUNT(*) FROM seo_weekly_metrics WHERE week_start_date >= CURRENT_DATE - INTERVAL '14 days')::int AS gsc
-  `);
+      (SELECT COUNT(*) FROM keyword_rankings WHERE recorded_date >= CURRENT_DATE - INTERVAL '10 days' AND tenant_id = $1)::int AS rankings,
+      (SELECT COUNT(*) FROM site_health_metrics WHERE checked_at >= NOW() - INTERVAL '10 days' AND tenant_id = $1)::int AS health,
+      (SELECT COUNT(*) FROM seo_weekly_metrics WHERE week_start_date >= CURRENT_DATE - INTERVAL '14 days' AND tenant_id = $1)::int AS gsc
+  `, [tenantId]);
   const { rankings, health, gsc } = upstreamQ.rows[0] as { rankings: number; health: number; gsc: number };
   if (Number(rankings) === 0 && Number(health) === 0 && Number(gsc) === 0) {
     const msg = 'seo-alerts: all 3 upstream tables (keyword_rankings, site_health_metrics, seo_weekly_metrics) are empty for the last 10-14 days — upstream crons are broken, skipping alert generation to avoid false all-clear';
@@ -43,12 +45,13 @@ export async function runSeoAlertChecks(): Promise<{ alerts: number }> {
         WHERE (client_domain = $1 OR project_name ILIKE '%' || $1 || '%')
           AND position_change IS NOT NULL AND position_change < -5
           AND recorded_date >= CURRENT_DATE - INTERVAL '7 days'
+          AND tenant_id = $2
         ORDER BY position_change ASC
         LIMIT 10
-      `, [domain]);
+      `, [domain, tenantId]);
 
       for (const row of drops.rows as Array<Record<string, unknown>>) {
-        await insertAlert(domain, 'rank_drop',
+        await insertAlert(tenantId, domain, 'rank_drop',
           `Keyword "${row.keyword}" dropped ${Math.abs(Number(row.position_change))} positions (now #${row.current_position})`,
           'warning');
         alerts++;
@@ -59,22 +62,22 @@ export async function runSeoAlertChecks(): Promise<{ alerts: number }> {
       const healthCheck = await pool.query(`
         SELECT pagespeed_mobile, pagespeed_desktop, lcp, cls
         FROM site_health_metrics
-        WHERE project_name ILIKE '%' || $1 || '%'
+        WHERE project_name ILIKE '%' || $1 || '%' AND tenant_id = $2
         ORDER BY checked_at DESC LIMIT 2
-      `, [domain.split('.')[0]]);
+      `, [domain.split('.')[0], tenantId]);
 
       if (healthCheck.rows.length >= 2) {
         const current = healthCheck.rows[0] as Record<string, number>;
         const previous = healthCheck.rows[1] as Record<string, number>;
         if (current.pagespeed_mobile && previous.pagespeed_mobile &&
             current.pagespeed_mobile < previous.pagespeed_mobile - 10) {
-          await insertAlert(domain, 'pagespeed_drop',
+          await insertAlert(tenantId, domain, 'pagespeed_drop',
             `Mobile PageSpeed dropped from ${previous.pagespeed_mobile} to ${current.pagespeed_mobile}`,
             'warning');
           alerts++;
         }
         if (current.lcp && current.lcp > 4.0) {
-          await insertAlert(domain, 'lcp_slow',
+          await insertAlert(tenantId, domain, 'lcp_slow',
             `LCP is ${current.lcp}s (should be <2.5s)`,
             'high');
           alerts++;
@@ -85,14 +88,14 @@ export async function runSeoAlertChecks(): Promise<{ alerts: number }> {
       const noTraffic = await pool.query(`
         SELECT total_clicks, total_impressions
         FROM seo_weekly_metrics
-        WHERE (client_domain = $1 OR project_name ILIKE '%' || $1 || '%')
+        WHERE (client_domain = $1 OR project_name ILIKE '%' || $1 || '%') AND tenant_id = $2
         ORDER BY week_start_date DESC LIMIT 1
-      `, [domain]);
+      `, [domain, tenantId]);
 
       if (noTraffic.rows.length > 0) {
         const row = noTraffic.rows[0] as Record<string, number>;
         if (row.total_clicks === 0 && row.total_impressions === 0) {
-          await insertAlert(domain, 'zero_traffic',
+          await insertAlert(tenantId, domain, 'zero_traffic',
             `Zero clicks and impressions this week — check GSC indexing`,
             'critical');
           alerts++;
@@ -106,11 +109,12 @@ export async function runSeoAlertChecks(): Promise<{ alerts: number }> {
         WHERE (client_domain = $1 OR project_name ILIKE '%' || $1 || '%')
           AND current_position <= 10 AND previous_position > 10
           AND recorded_date >= CURRENT_DATE - INTERVAL '7 days'
+          AND tenant_id = $2
         LIMIT 5
-      `, [domain]);
+      `, [domain, tenantId]);
 
       for (const row of newTop10.rows as Array<Record<string, string>>) {
-        await insertAlert(domain, 'new_top10',
+        await insertAlert(tenantId, domain, 'new_top10',
           `"${row.keyword}" entered top 10 (now #${row.current_position})`,
           'info');
         alerts++;
@@ -124,20 +128,21 @@ export async function runSeoAlertChecks(): Promise<{ alerts: number }> {
   return { alerts };
 }
 
-async function insertAlert(domain: string, alertType: string, message: string, severity: string): Promise<void> {
+async function insertAlert(tenantId: string, domain: string, alertType: string, message: string, severity: string): Promise<void> {
   // Deduplicate: don't insert if same alert exists in last 24h
   const existing = await pool.query(
     `SELECT id FROM seo_alerts_log
      WHERE project_name = $1 AND alert_type = $2 AND message = $3
        AND created_at > NOW() - INTERVAL '24 hours'
+       AND tenant_id = $4
      LIMIT 1`,
-    [domain, alertType, message],
+    [domain, alertType, message, tenantId],
   );
   if ((existing.rows as unknown[]).length > 0) return;
 
   await pool.query(
-    `INSERT INTO seo_alerts_log (project_name, client_domain, alert_type, message, severity)
-     VALUES ($1, $1, $2, $3, $4)`,
-    [domain, alertType, message, severity],
+    `INSERT INTO seo_alerts_log (project_name, client_domain, alert_type, message, severity, tenant_id)
+     VALUES ($1, $1, $2, $3, $4, $5)`,
+    [domain, alertType, message, severity, tenantId],
   );
 }

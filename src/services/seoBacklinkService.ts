@@ -1,5 +1,6 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
+import { resolveDefaultSeoTenantId } from './seoTenantContext';
 
 /**
  * Backend-native backlink monitoring.
@@ -36,6 +37,7 @@ export async function runBacklinkCheck(): Promise<{ found: number; errors: numbe
 
   let found = 0;
   let errors = 0;
+  const tenantId = await resolveDefaultSeoTenantId();
 
   for (const domain of CLIENT_DOMAINS) {
     try {
@@ -65,16 +67,17 @@ export async function runBacklinkCheck(): Promise<{ found: number; errors: numbe
           `SELECT id FROM backlink_data
            WHERE project_name = $1
              AND source_url = $2
+             AND tenant_id = $3
            LIMIT 1`,
-          [domain, result.link],
+          [domain, result.link, tenantId],
         );
         if ((existing.rows as unknown[]).length > 0) continue;
 
         await pool.query(
           `INSERT INTO backlink_data
-            (project_name, source_url, target_url, anchor_text, link_type, first_seen, status)
-           VALUES ($1, $2, $3, $4, 'dofollow', CURRENT_DATE, 'active')`,
-          [domain, result.link, `https://${domain}`, result.title || sourceDomain],
+            (project_name, source_url, target_url, anchor_text, link_type, first_seen, status, tenant_id)
+           VALUES ($1, $2, $3, $4, 'dofollow', CURRENT_DATE, 'active', $5)`,
+          [domain, result.link, `https://${domain}`, result.title || sourceDomain, tenantId],
         );
         found++;
       }
@@ -93,9 +96,9 @@ export async function runBacklinkCheck(): Promise<{ found: number; errors: numbe
   try {
     const lost = await pool.query(`
       UPDATE backlink_data SET status = 'lost'
-      WHERE status = 'active' AND last_seen < NOW() - INTERVAL '30 days'
+      WHERE status = 'active' AND last_seen < NOW() - INTERVAL '30 days' AND tenant_id = $1
       RETURNING id
-    `);
+    `, [tenantId]);
     if (lost.rowCount && lost.rowCount > 0) {
       logger.info(`[backlinks] marked ${lost.rowCount} backlinks as lost`);
     }

@@ -721,7 +721,11 @@ async function fetchMonthlyAdMetrics(adAccountId: string, month: string) {
   } catch { return null; }
 }
 
-async function fetchMonthlySeoSummary(clientName: string, month: string) {
+// Note: this deliberately still has no client_domain filter (a pre-existing
+// bug, invisible today only because there's a single tenant) — that's a
+// separate, out-of-scope issue from H18 tenant isolation. Only tenant_id
+// scoping is added here, consistent with the rest of this file.
+async function fetchMonthlySeoSummary(clientName: string, month: string, tenantId: string) {
   const { pool } = await import('../db/index');
   const { start, end } = monthRange(month);
 
@@ -731,19 +735,20 @@ async function fetchMonthlySeoSummary(clientName: string, month: string) {
         SELECT keyword, current_position AS position, previous_position,
           (previous_position - current_position) AS change
         FROM keyword_rankings
-        WHERE checked_at >= $1 AND checked_at <= $2
+        WHERE checked_at >= $1 AND checked_at <= $2 AND tenant_id = $3
         ORDER BY (previous_position - current_position) DESC NULLS LAST
         LIMIT 20
-      `, [start, end]),
+      `, [start, end, tenantId]),
       pool.query(`
         SELECT pagespeed_mobile, pagespeed_desktop
         FROM site_health_metrics
+        WHERE tenant_id = $1
         ORDER BY checked_at DESC LIMIT 1
-      `),
+      `, [tenantId]),
       pool.query(`
         SELECT COUNT(*) AS count FROM seo_alerts_log
-        WHERE created_at >= $1 AND created_at <= $2
-      `, [start, end]),
+        WHERE created_at >= $1 AND created_at <= $2 AND tenant_id = $3
+      `, [start, end, tenantId]),
     ]);
 
     const keywords = keywordRes.rows as Array<Record<string, unknown>>;
@@ -817,7 +822,7 @@ router.get('/generate-monthly', async (req: Request, res: Response) => {
     const { start, end } = monthRange(month);
     const [adMetrics, seoSummary, billing] = await Promise.all([
       client.metaAdAccountId ? fetchMonthlyAdMetrics(client.metaAdAccountId, month) : Promise.resolve(null),
-      fetchMonthlySeoSummary(client.name, month),
+      fetchMonthlySeoSummary(client.name, month, tenantId),
       fetchMonthlyBilling(clientId, tenantId, month),
     ]);
 
@@ -858,7 +863,7 @@ router.get('/monthly-pdf', async (req: Request, res: Response) => {
     const { start, end } = monthRange(month);
     const [adMetrics, seoSummary, billing] = await Promise.all([
       client.metaAdAccountId ? fetchMonthlyAdMetrics(client.metaAdAccountId, month) : Promise.resolve(null),
-      fetchMonthlySeoSummary(client.name, month),
+      fetchMonthlySeoSummary(client.name, month, tenantId),
       fetchMonthlyBilling(clientId, tenantId, month),
     ]);
 

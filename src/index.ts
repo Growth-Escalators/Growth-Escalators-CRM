@@ -720,7 +720,9 @@ async function startServer() {
         return;
       }
       const { pool: dbPool } = await import('./db/index');
-      const r = await dbPool.query(`SELECT COUNT(*)::int AS c FROM site_health_metrics`);
+      const { resolveDefaultSeoTenantId } = await import('./services/seoTenantContext');
+      const tenantId = await resolveDefaultSeoTenantId();
+      const r = await dbPool.query(`SELECT COUNT(*)::int AS c FROM site_health_metrics WHERE tenant_id = $1`, [tenantId]);
       if ((r.rows[0] as { c: number }).c === 0) {
         console.log('[startup] site_health_metrics empty — running PageSpeed checks');
         const { runPageSpeedChecks } = await import('./services/pagespeedService');
@@ -741,7 +743,9 @@ async function startServer() {
       // Ensure programmatic SEO columns exist on the Drizzle-managed client_pages table
       const { ensureClientPagesTable } = await import('./services/programmaticSeoService');
       await ensureClientPagesTable();
-      const r = await dbPool.query(`SELECT COUNT(*)::int AS c FROM client_pages WHERE client_domain = 'ageddentistry.org'`);
+      const { resolveDefaultSeoTenantId } = await import('./services/seoTenantContext');
+      const tenantId = await resolveDefaultSeoTenantId();
+      const r = await dbPool.query(`SELECT COUNT(*)::int AS c FROM client_pages WHERE client_domain = 'ageddentistry.org' AND tenant_id = $1`, [tenantId]);
       if ((r.rows[0] as { c: number }).c === 0) {
         console.log('[startup] No programmatic pages — generating for Aged Dentistry');
         const { generateLocationPages } = await import('./services/programmaticSeoService');

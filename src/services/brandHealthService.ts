@@ -2,6 +2,7 @@ import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { fetchWithRetry } from '../utils/fetchWithRetry';
 import { type GrowthOSClient, sendWhatsAppMessage } from './growthOSSetup';
+import { resolveDefaultSeoTenantId } from './seoTenantContext';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -172,9 +173,10 @@ async function calcAdsScore(client: GrowthOSClient): Promise<{ score: number; de
 
 async function calcSeoScore(clientName: string): Promise<{ score: number; detail: Record<string, unknown> }> {
   try {
+    const tenantId = await resolveDefaultSeoTenantId();
     const [weeklyRes, rankRes] = await Promise.all([
-      pool.query(`SELECT COUNT(*) AS total FROM seo_weekly_metrics`).catch(() => ({ rows: [{ total: '0' }] })),
-      pool.query(`SELECT COUNT(*) AS improved, SUM(CASE WHEN (previous_position - current_position) > 0 THEN 1 ELSE 0 END) AS gains FROM keyword_rankings WHERE recorded_date >= CURRENT_DATE - 7`).catch(() => ({ rows: [{ improved: '0', gains: '0' }] })),
+      pool.query(`SELECT COUNT(*) AS total FROM seo_weekly_metrics WHERE tenant_id = $1`, [tenantId]).catch(() => ({ rows: [{ total: '0' }] })),
+      pool.query(`SELECT COUNT(*) AS improved, SUM(CASE WHEN (previous_position - current_position) > 0 THEN 1 ELSE 0 END) AS gains FROM keyword_rankings WHERE recorded_date >= CURRENT_DATE - 7 AND tenant_id = $1`, [tenantId]).catch(() => ({ rows: [{ improved: '0', gains: '0' }] })),
     ]);
 
     const weeklyTotal = Number((weeklyRes.rows[0] as { total: string }).total ?? 0);

@@ -1,5 +1,6 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
+import { resolveDefaultSeoTenantId } from './seoTenantContext';
 
 // ---------------------------------------------------------------------------
 // Bootstrap content calendar table (idempotent — safe to call every run)
@@ -72,13 +73,14 @@ export async function runContentGapAnalysis(): Promise<{ gaps: number; opportuni
   }
 
   let gaps = 0, opportunities = 0;
+  const tenantId = await resolveDefaultSeoTenantId();
 
   // Get all clients with keywords and domain
   const clientsR = await pool.query(`
     SELECT project_name, primary_keywords, competitors, client_domain
     FROM client_knowledge_base
-    WHERE primary_keywords IS NOT NULL AND client_domain IS NOT NULL AND client_domain != ''
-  `);
+    WHERE primary_keywords IS NOT NULL AND client_domain IS NOT NULL AND client_domain != '' AND tenant_id = $1
+  `, [tenantId]);
 
   for (const client of clientsR.rows as Array<{ project_name: string; primary_keywords: string; competitors: string; client_domain: string }>) {
     const keywords = client.primary_keywords.split(',').map(k => k.trim()).filter(Boolean);
@@ -102,8 +104,8 @@ export async function runContentGapAnalysis(): Promise<{ gaps: number; opportuni
     for (const keyword of keywords.slice(0, 8)) { // Max 8 keywords per client per run
       // Check if already analyzed in last 30 days
       const existing = await pool.query(
-        `SELECT id FROM content_gap_analysis WHERE project_name = $1 AND target_keyword = $2 AND analysed_at > NOW() - INTERVAL '30 days' LIMIT 1`,
-        [client.project_name, keyword],
+        `SELECT id FROM content_gap_analysis WHERE project_name = $1 AND target_keyword = $2 AND analysed_at > NOW() - INTERVAL '30 days' AND tenant_id = $3 LIMIT 1`,
+        [client.project_name, keyword, tenantId],
       );
       if ((existing.rows as unknown[]).length > 0) continue;
 
@@ -161,12 +163,12 @@ export async function runContentGapAnalysis(): Promise<{ gaps: number; opportuni
       // 5. Insert into content_gap_analysis
       if (competitorUrls.length > 0 || ourPosition === null || ourPosition > 10) {
         const gapInsert = await pool.query(
-          `INSERT INTO content_gap_analysis (id, project_name, target_keyword, our_url, our_position, competitor_urls, topics_missing, questions_missing, priority_score, status, analysed_at, client_domain)
-           VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, 'open', NOW(), $9)
+          `INSERT INTO content_gap_analysis (id, project_name, target_keyword, our_url, our_position, competitor_urls, topics_missing, questions_missing, priority_score, status, analysed_at, client_domain, tenant_id)
+           VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, 'open', NOW(), $9, $10)
            RETURNING id`,
           [client.project_name, keyword, ourUrl, ourPosition,
            JSON.stringify(competitorUrls), JSON.stringify([...new Set(topicsMissing)]),
-           JSON.stringify([...new Set(questionsMissing)]), priorityScore, client.client_domain],
+           JSON.stringify([...new Set(questionsMissing)]), priorityScore, client.client_domain, tenantId],
         );
         const gapId = (gapInsert.rows as Array<{ id: string }>)[0]?.id;
         gaps++;
@@ -197,14 +199,14 @@ export async function runContentGapAnalysis(): Promise<{ gaps: number; opportuni
 
         // Dedup opportunities
         const existingOpp = await pool.query(
-          `SELECT id FROM seo_opportunities WHERE project_name = $1 AND description LIKE $2 AND identified_at > NOW() - INTERVAL '30 days' LIMIT 1`,
-          [client.project_name, `%${keyword}%`],
+          `SELECT id FROM seo_opportunities WHERE project_name = $1 AND description LIKE $2 AND identified_at > NOW() - INTERVAL '30 days' AND tenant_id = $3 LIMIT 1`,
+          [client.project_name, `%${keyword}%`, tenantId],
         );
         if ((existingOpp.rows as unknown[]).length === 0) {
           await pool.query(
-            `INSERT INTO seo_opportunities (id, project_name, opportunity_type, description, estimated_impact, effort_level, status, identified_at, client_domain)
-             VALUES (gen_random_uuid(), $1, 'content_gap', $2, $3, $4, 'open', NOW(), $5)`,
-            [client.project_name, desc, impact, effort, client.client_domain],
+            `INSERT INTO seo_opportunities (id, project_name, opportunity_type, description, estimated_impact, effort_level, status, identified_at, client_domain, tenant_id)
+             VALUES (gen_random_uuid(), $1, 'content_gap', $2, $3, $4, 'open', NOW(), $5, $6)`,
+            [client.project_name, desc, impact, effort, client.client_domain, tenantId],
           );
           opportunities++;
         }

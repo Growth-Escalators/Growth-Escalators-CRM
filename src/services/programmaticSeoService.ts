@@ -2,6 +2,7 @@ import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { sendSlackMessage } from './slackService';
 import { SLACK_SEO_CHANNEL } from '../config/constants';
+import { resolveDefaultSeoTenantId } from './seoTenantContext';
 
 // AGeD programmatic pages — 3 categories for Indian dental professionals
 const AGED_PAGES = [
@@ -177,6 +178,7 @@ async function publishToWordPress(
 // ---------------------------------------------------------------------------
 export async function generateLocationPages(): Promise<{ generated: number; wpPublished: number; errors: number }> {
   await ensureClientPagesTable();
+  const tenantId = await resolveDefaultSeoTenantId();
 
   let generated = 0, wpPublished = 0, errors = 0;
 
@@ -188,8 +190,8 @@ export async function generateLocationPages(): Promise<{ generated: number; wpPu
       // Check if already generated
       try {
         const existing = await pool.query(
-          `SELECT id FROM client_pages WHERE client_domain = 'ageddentistry.org' AND page_slug = $1`,
-          [slug],
+          `SELECT id FROM client_pages WHERE client_domain = 'ageddentistry.org' AND page_slug = $1 AND tenant_id = $2`,
+          [slug, tenantId],
         );
         if (existing.rows.length > 0) {
           logger.info(`[prog-seo] ${location} already exists — skipping`);
@@ -206,8 +208,8 @@ export async function generateLocationPages(): Promise<{ generated: number; wpPu
 
       // Store in client_pages (existing Drizzle table with UUID PK)
       await pool.query(
-        `INSERT INTO client_pages (id, project_name, page_url, page_title, wp_post_id, client_domain, page_slug, status, page_type, meta_description, content)
-         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, 'programmatic_seo', $8, $9)`,
+        `INSERT INTO client_pages (id, project_name, page_url, page_title, wp_post_id, client_domain, page_slug, status, page_type, meta_description, content, tenant_id)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, 'programmatic_seo', $8, $9, $10)`,
         [
           'ageddentistry.org',
           wpResult?.url ?? `https://ageddentistry.org/${slug}/`,
@@ -216,6 +218,7 @@ export async function generateLocationPages(): Promise<{ generated: number; wpPu
           'ageddentistry.org', slug,
           wpResult ? 'draft_wp' : 'draft_local',
           content.meta_description, content.content_html,
+          tenantId,
         ],
       );
 
@@ -249,12 +252,14 @@ export async function generateLocationPages(): Promise<{ generated: number; wpPu
 // ---------------------------------------------------------------------------
 export async function publishPendingToWordPress(): Promise<{ published: number; failed: number; urls: string[] }> {
   await ensureClientPagesTable();
+  const tenantId = await resolveDefaultSeoTenantId();
 
   const result = await pool.query(
     `SELECT id, page_title, page_slug, content, meta_description
      FROM client_pages
-     WHERE client_domain = 'ageddentistry.org' AND status = 'draft_local'
+     WHERE client_domain = 'ageddentistry.org' AND status = 'draft_local' AND tenant_id = $1
      ORDER BY id`,
+    [tenantId],
   );
 
   let published = 0, failed = 0;
@@ -280,8 +285,8 @@ export async function publishPendingToWordPress(): Promise<{ published: number; 
         // Update ALL rows with this slug (handles duplicates)
         await pool.query(
           `UPDATE client_pages SET status = 'draft_wp', wp_post_id = $1, page_url = $2
-           WHERE client_domain = 'ageddentistry.org' AND page_slug = $3`,
-          [wpResult.wpPageId, wpResult.url, page.page_slug],
+           WHERE client_domain = 'ageddentistry.org' AND page_slug = $3 AND tenant_id = $4`,
+          [wpResult.wpPageId, wpResult.url, page.page_slug, tenantId],
         );
         published++;
         urls.push(wpResult.url);

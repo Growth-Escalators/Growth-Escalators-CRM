@@ -15,6 +15,13 @@ vi.mock('../config/constants', () => ({
   SLACK_SEO_CHANNEL: 'C_SEO_TEST',
 }));
 
+// H18 — runContentDecayDetection() now resolves the single default SEO tenant
+// before running any query. Mock it directly rather than the full db.select()
+// chain seoTenantContext.ts uses internally.
+vi.mock('../services/seoTenantContext', () => ({
+  resolveDefaultSeoTenantId: vi.fn().mockResolvedValue('tenant-seo-default'),
+}));
+
 // Static imports get the mocked versions (vi.mock hoisting guarantees this)
 import { pool } from '../db/index';
 import { sendSlackMessage } from '../services/slackService';

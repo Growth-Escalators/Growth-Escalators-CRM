@@ -1,6 +1,7 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { DEFAULT_TENANT_SLUG } from '../config/constants';
+import { resolveDefaultSeoTenantId } from './seoTenantContext';
 
 // ---------------------------------------------------------------------------
 // SEO Workflow Health types + collector (exported so worker can call directly)
@@ -31,8 +32,9 @@ export interface SEOWorkflowHealth {
 
 const N8N_BASE = process.env.N8N_BASE_URL || 'https://primary-production-6c6f5.up.railway.app';
 
-export async function collectSEOWorkflowHealth(): Promise<SEOWorkflowHealth> {
+export async function collectSEOWorkflowHealth(tenantId?: string): Promise<SEOWorkflowHealth> {
   const now = new Date();
+  const resolvedTenantId = tenantId ?? await resolveDefaultSeoTenantId();
 
   // Step 1: Check n8n is alive
   let n8nAlive = false;
@@ -52,7 +54,7 @@ export async function collectSEOWorkflowHealth(): Promise<SEOWorkflowHealth> {
     {
       id: 'WF-SEO-01', name: 'GSC + GA4 Data Pull', schedule: 'Monday 8AM IST', critical: true,
       check: async () => {
-        const r = await pool.query(`SELECT MAX(week_start_date) AS last_run, COUNT(*) AS total FROM seo_weekly_metrics`);
+        const r = await pool.query(`SELECT MAX(week_start_date) AS last_run, COUNT(*) AS total FROM seo_weekly_metrics WHERE tenant_id = $1`, [resolvedTenantId]);
         const lastRun = (r.rows[0] as { last_run: string | null }).last_run;
         const daysSince = lastRun ? Math.floor((now.getTime() - new Date(lastRun).getTime()) / 86400000) : 999;
         return { lastRun, daysSince, total: Number((r.rows[0] as { total: string }).total), healthy: daysSince <= 8 };
@@ -61,7 +63,7 @@ export async function collectSEOWorkflowHealth(): Promise<SEOWorkflowHealth> {
     {
       id: 'WF-SEO-02', name: 'Alert Triggers', schedule: 'Daily 9AM IST', critical: true,
       check: async () => {
-        const r = await pool.query(`SELECT MAX(created_at) AS last_run, COUNT(*) AS total FROM seo_alerts_log WHERE created_at > NOW() - INTERVAL '7 days'`);
+        const r = await pool.query(`SELECT MAX(created_at) AS last_run, COUNT(*) AS total FROM seo_alerts_log WHERE created_at > NOW() - INTERVAL '7 days' AND tenant_id = $1`, [resolvedTenantId]);
         const lastRun = (r.rows[0] as { last_run: string | null }).last_run;
         const daysSince = lastRun ? Math.floor((now.getTime() - new Date(lastRun).getTime()) / 86400000) : 999;
         return { lastRun, daysSince, total: Number((r.rows[0] as { total: string }).total), healthy: daysSince <= 2 };
@@ -70,7 +72,7 @@ export async function collectSEOWorkflowHealth(): Promise<SEOWorkflowHealth> {
     {
       id: 'WF-SEO-05', name: 'PageSpeed Monitor', schedule: 'Sunday 7AM IST', critical: false,
       check: async () => {
-        const r = await pool.query(`SELECT MAX(checked_at) AS last_run, COUNT(*) AS total FROM site_health_metrics`);
+        const r = await pool.query(`SELECT MAX(checked_at) AS last_run, COUNT(*) AS total FROM site_health_metrics WHERE tenant_id = $1`, [resolvedTenantId]);
         const lastRun = (r.rows[0] as { last_run: string | null }).last_run;
         const daysSince = lastRun ? Math.floor((now.getTime() - new Date(lastRun).getTime()) / 86400000) : 999;
         return { lastRun, daysSince, total: Number((r.rows[0] as { total: string }).total), healthy: daysSince <= 8 };
@@ -79,7 +81,7 @@ export async function collectSEOWorkflowHealth(): Promise<SEOWorkflowHealth> {
     {
       id: 'WF-SEO-06', name: 'Rank Tracking', schedule: 'Tuesday 9AM IST', critical: true,
       check: async () => {
-        const r = await pool.query(`SELECT MAX(checked_at) AS last_run, COUNT(*) AS total, COUNT(DISTINCT keyword) AS keywords_tracked FROM keyword_rankings`);
+        const r = await pool.query(`SELECT MAX(checked_at) AS last_run, COUNT(*) AS total, COUNT(DISTINCT keyword) AS keywords_tracked FROM keyword_rankings WHERE tenant_id = $1`, [resolvedTenantId]);
         const lastRun = (r.rows[0] as { last_run: string | null }).last_run;
         const daysSince = lastRun ? Math.floor((now.getTime() - new Date(lastRun).getTime()) / 86400000) : 999;
         return { lastRun, daysSince, total: Number((r.rows[0] as { total: string }).total), keywordsTracked: Number((r.rows[0] as { keywords_tracked: string }).keywords_tracked), healthy: daysSince <= 8 };
@@ -98,7 +100,7 @@ export async function collectSEOWorkflowHealth(): Promise<SEOWorkflowHealth> {
     {
       id: 'WF-SEO-11', name: 'Content Decay Detection', schedule: 'Every Monday 9AM IST', critical: false,
       check: async () => {
-        const r = await pool.query(`SELECT MAX(created_at) AS last_run, COUNT(*) AS total FROM seo_opportunities`);
+        const r = await pool.query(`SELECT MAX(created_at) AS last_run, COUNT(*) AS total FROM seo_opportunities WHERE tenant_id = $1`, [resolvedTenantId]);
         const lastRun = (r.rows[0] as { last_run: string | null }).last_run;
         const daysSince = lastRun ? Math.floor((now.getTime() - new Date(lastRun).getTime()) / 86400000) : 999;
         return { lastRun, daysSince, total: Number((r.rows[0] as { total: string }).total), healthy: daysSince <= 10 };
@@ -527,22 +529,24 @@ async function _collectDailyDataInner(client: Queryable, errors: string[]): Prom
         FROM keyword_rankings
         WHERE recorded_date >= CURRENT_DATE - INTERVAL '2 days'
           AND previous_position IS NOT NULL AND current_position IS NOT NULL
+          AND tenant_id = $1
         ORDER BY improvement DESC
-      `),
+      `, [tenantId]),
       client.query(`
         SELECT message FROM seo_alerts_log
-        WHERE created_at >= NOW() - INTERVAL '1 day'
+        WHERE created_at >= NOW() - INTERVAL '1 day' AND tenant_id = $1
         ORDER BY created_at DESC LIMIT 5
-      `),
+      `, [tenantId]),
       client.query(`
         SELECT pagespeed_mobile AS mobile_performance_score,
                pagespeed_desktop AS desktop_performance_score
-        FROM site_health_metrics ORDER BY checked_at DESC LIMIT 1
-      `),
+        FROM site_health_metrics WHERE tenant_id = $1 ORDER BY checked_at DESC LIMIT 1
+      `, [tenantId]),
       client.query(`
         SELECT ga4_sessions AS total_sessions FROM seo_weekly_metrics
+        WHERE tenant_id = $1
         ORDER BY week_start_date DESC LIMIT 1
-      `),
+      `, [tenantId]),
     ]);
 
     type KwRow = { keyword: string; improvement: string };
@@ -668,7 +672,7 @@ async function _collectDailyDataInner(client: Queryable, errors: string[]): Prom
     allHealthy: false, healthyCount: 0, totalCount: 0,
   };
   seoWorkflows = await withTimeout(
-    collectSEOWorkflowHealth(),
+    collectSEOWorkflowHealth(tenantId || undefined),
     'SEO workflow health',
     seoWorkflows,
     8000,

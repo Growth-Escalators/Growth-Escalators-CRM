@@ -1,5 +1,6 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
+import { resolveDefaultSeoTenantId } from './seoTenantContext';
 
 // ---------------------------------------------------------------------------
 // Ensure SEO tables exist (called on startup)
@@ -258,15 +259,16 @@ export async function checkWorkflowHealth(): Promise<{
   workflows: WorkflowStatus[];
   summary: { healthy: number; warning: number; error: number; manual: number; lastChecked: string };
 }> {
+  const tenantId = await resolveDefaultSeoTenantId();
   const client = await pool.connect();
   try {
     const [wm, al, sh, kr, bd, op, logs] = await Promise.all([
-      client.query('SELECT MAX(week_start_date) AS last_run, COUNT(*) AS cnt FROM seo_weekly_metrics'),
-      client.query('SELECT MAX(created_at)  AS last_run, COUNT(*) AS cnt FROM seo_alerts_log'),
-      client.query('SELECT MAX(checked_at)  AS last_run, COUNT(*) AS cnt FROM site_health_metrics'),
-      client.query('SELECT MAX(recorded_date) AS last_run, COUNT(*) AS cnt FROM keyword_rankings'),
-      client.query('SELECT MAX(checked_at)  AS last_run, COUNT(*) AS cnt FROM backlink_data'),
-      client.query('SELECT MAX(created_at)  AS last_run, COUNT(*) AS cnt FROM seo_opportunities'),
+      client.query('SELECT MAX(week_start_date) AS last_run, COUNT(*) AS cnt FROM seo_weekly_metrics WHERE tenant_id = $1', [tenantId]),
+      client.query('SELECT MAX(created_at)  AS last_run, COUNT(*) AS cnt FROM seo_alerts_log WHERE tenant_id = $1', [tenantId]),
+      client.query('SELECT MAX(checked_at)  AS last_run, COUNT(*) AS cnt FROM site_health_metrics WHERE tenant_id = $1', [tenantId]),
+      client.query('SELECT MAX(recorded_date) AS last_run, COUNT(*) AS cnt FROM keyword_rankings WHERE tenant_id = $1', [tenantId]),
+      client.query('SELECT MAX(checked_at)  AS last_run, COUNT(*) AS cnt FROM backlink_data WHERE tenant_id = $1', [tenantId]),
+      client.query('SELECT MAX(created_at)  AS last_run, COUNT(*) AS cnt FROM seo_opportunities WHERE tenant_id = $1', [tenantId]),
       client.query(`
         SELECT workflow_id, MAX(created_at) AS last_run, COUNT(*) AS cnt
         FROM seo_workflow_logs GROUP BY workflow_id

@@ -118,16 +118,19 @@ router.get('/logs', async (req: Request, res: Response) => {
 // GET /api/seo-workflows/content-decay-stats
 // Lightweight stats for the Content Decay admin card
 // ---------------------------------------------------------------------------
-router.get('/content-decay-stats', async (_req: Request, res: Response) => {
+router.get('/content-decay-stats', async (req: Request, res: Response) => {
   try {
+    const tenantId = req.user!.tenantId;
     const [openQ, recentRowsQ] = await Promise.all([
       pool.query(
         `SELECT COUNT(*)::int AS count FROM seo_opportunities
-         WHERE opportunity_type IN ('content_decay', 'lost_ranking') AND status = 'open'`,
+         WHERE opportunity_type IN ('content_decay', 'lost_ranking') AND status = 'open' AND tenant_id = $1`,
+        [tenantId],
       ),
       pool.query(
         `SELECT COUNT(*)::int AS count FROM keyword_rankings
-         WHERE recorded_date >= CURRENT_DATE - INTERVAL '10 days'`,
+         WHERE recorded_date >= CURRENT_DATE - INTERVAL '10 days' AND tenant_id = $1`,
+        [tenantId],
       ),
     ]);
     res.json({
@@ -144,12 +147,13 @@ router.get('/content-decay-stats', async (_req: Request, res: Response) => {
 // GET /api/seo-workflows/rank-tracking-stats
 // Lightweight stats for the Rank Tracking admin card
 // ---------------------------------------------------------------------------
-router.get('/rank-tracking-stats', async (_req: Request, res: Response) => {
+router.get('/rank-tracking-stats', async (req: Request, res: Response) => {
   try {
+    const tenantId = req.user!.tenantId;
     const [totalQ, recentQ, dropsQ] = await Promise.all([
-      pool.query(`SELECT COUNT(DISTINCT keyword)::int AS keywords FROM keyword_rankings`),
-      pool.query(`SELECT COUNT(*)::int AS count FROM keyword_rankings WHERE recorded_date >= CURRENT_DATE - INTERVAL '7 days'`),
-      pool.query(`SELECT COUNT(*)::int AS count FROM keyword_rankings WHERE position_change < -5 AND recorded_date >= CURRENT_DATE - INTERVAL '7 days'`),
+      pool.query(`SELECT COUNT(DISTINCT keyword)::int AS keywords FROM keyword_rankings WHERE tenant_id = $1`, [tenantId]),
+      pool.query(`SELECT COUNT(*)::int AS count FROM keyword_rankings WHERE recorded_date >= CURRENT_DATE - INTERVAL '7 days' AND tenant_id = $1`, [tenantId]),
+      pool.query(`SELECT COUNT(*)::int AS count FROM keyword_rankings WHERE position_change < -5 AND recorded_date >= CURRENT_DATE - INTERVAL '7 days' AND tenant_id = $1`, [tenantId]),
     ]);
     res.json({
       totalKeywords: Number(totalQ.rows[0].keywords),
@@ -166,12 +170,13 @@ router.get('/rank-tracking-stats', async (_req: Request, res: Response) => {
 // GET /api/seo-workflows/backlinks-stats
 // Lightweight stats for the Backlink Monitor admin card
 // ---------------------------------------------------------------------------
-router.get('/backlinks-stats', async (_req: Request, res: Response) => {
+router.get('/backlinks-stats', async (req: Request, res: Response) => {
   try {
+    const tenantId = req.user!.tenantId;
     const [totalQ, last7Q, lastAtQ] = await Promise.all([
-      pool.query(`SELECT COUNT(*)::int AS count FROM backlink_data WHERE status = 'active'`),
-      pool.query(`SELECT COUNT(*)::int AS count FROM backlink_data WHERE first_seen >= NOW() - INTERVAL '7 days'`),
-      pool.query(`SELECT MAX(first_seen) AS last_at FROM backlink_data`),
+      pool.query(`SELECT COUNT(*)::int AS count FROM backlink_data WHERE status = 'active' AND tenant_id = $1`, [tenantId]),
+      pool.query(`SELECT COUNT(*)::int AS count FROM backlink_data WHERE first_seen >= NOW() - INTERVAL '7 days' AND tenant_id = $1`, [tenantId]),
+      pool.query(`SELECT MAX(first_seen) AS last_at FROM backlink_data WHERE tenant_id = $1`, [tenantId]),
     ]);
     res.json({
       totalBacklinks: Number(totalQ.rows[0].count),
@@ -189,12 +194,13 @@ router.get('/backlinks-stats', async (_req: Request, res: Response) => {
 // Lightweight stats for the Weekly Digest admin card —
 // shows what the next digest WOULD contain if it ran right now.
 // ---------------------------------------------------------------------------
-router.get('/digest-stats', async (_req: Request, res: Response) => {
+router.get('/digest-stats', async (req: Request, res: Response) => {
   try {
+    const tenantId = req.user!.tenantId;
     const [oppsQ, alertsQ, rankingsQ] = await Promise.all([
-      pool.query(`SELECT COUNT(*)::int AS count FROM seo_opportunities WHERE status = 'open'`),
-      pool.query(`SELECT COUNT(*)::int AS count FROM seo_alerts_log WHERE created_at > NOW() - INTERVAL '7 days'`),
-      pool.query(`SELECT COUNT(*)::int AS count FROM keyword_rankings WHERE recorded_date >= CURRENT_DATE - INTERVAL '10 days'`),
+      pool.query(`SELECT COUNT(*)::int AS count FROM seo_opportunities WHERE status = 'open' AND tenant_id = $1`, [tenantId]),
+      pool.query(`SELECT COUNT(*)::int AS count FROM seo_alerts_log WHERE created_at > NOW() - INTERVAL '7 days' AND tenant_id = $1`, [tenantId]),
+      pool.query(`SELECT COUNT(*)::int AS count FROM keyword_rankings WHERE recorded_date >= CURRENT_DATE - INTERVAL '10 days' AND tenant_id = $1`, [tenantId]),
     ]);
     res.json({
       openOpportunities: Number(oppsQ.rows[0].count),
@@ -210,23 +216,24 @@ router.get('/digest-stats', async (_req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/seo-workflows/data-health
 // ---------------------------------------------------------------------------
-router.get('/data-health', async (_req: Request, res: Response) => {
+router.get('/data-health', async (req: Request, res: Response) => {
   try {
+    const tenantId = req.user!.tenantId;
     const client = await pool.connect();
     try {
       const [wm, kr, sh, al, op, bd, cg] = await Promise.all([
-        client.query(`SELECT COUNT(*) AS count, MAX(week_start) AS last_entry, COUNT(DISTINCT client_domain) AS clients FROM seo_weekly_metrics`),
-        client.query(`SELECT COUNT(*) AS count, MAX(checked_at) AS last_entry, COUNT(DISTINCT keyword) AS keywords FROM keyword_rankings`),
-        client.query(`SELECT COUNT(*) AS count, MAX(checked_at) AS last_entry FROM site_health_metrics`),
-        client.query(`SELECT COUNT(*) AS count, MAX(created_at) AS last_entry FROM seo_alerts_log`),
+        client.query(`SELECT COUNT(*) AS count, MAX(week_start) AS last_entry, COUNT(DISTINCT client_domain) AS clients FROM seo_weekly_metrics WHERE tenant_id = $1`, [tenantId]),
+        client.query(`SELECT COUNT(*) AS count, MAX(checked_at) AS last_entry, COUNT(DISTINCT keyword) AS keywords FROM keyword_rankings WHERE tenant_id = $1`, [tenantId]),
+        client.query(`SELECT COUNT(*) AS count, MAX(checked_at) AS last_entry FROM site_health_metrics WHERE tenant_id = $1`, [tenantId]),
+        client.query(`SELECT COUNT(*) AS count, MAX(created_at) AS last_entry FROM seo_alerts_log WHERE tenant_id = $1`, [tenantId]),
         client.query(`
           SELECT COUNT(*) AS count,
             COUNT(*) FILTER (WHERE status = 'open')   AS open,
             COUNT(*) FILTER (WHERE status = 'closed') AS closed
-          FROM seo_opportunities
-        `),
-        client.query(`SELECT COUNT(*) AS count, MAX(checked_at) AS last_entry FROM backlink_data`),
-        client.query(`SELECT COUNT(*) AS count, MAX(created_at) AS last_entry FROM content_gap_analysis`),
+          FROM seo_opportunities WHERE tenant_id = $1
+        `, [tenantId]),
+        client.query(`SELECT COUNT(*) AS count, MAX(checked_at) AS last_entry FROM backlink_data WHERE tenant_id = $1`, [tenantId]),
+        client.query(`SELECT COUNT(*) AS count, MAX(created_at) AS last_entry FROM content_gap_analysis WHERE tenant_id = $1`, [tenantId]),
       ]);
 
       res.json({

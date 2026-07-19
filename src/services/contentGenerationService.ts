@@ -1,5 +1,6 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
+import { resolveDefaultSeoTenantId } from './seoTenantContext';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -29,16 +30,17 @@ interface GeneratedContent {
 // ---------------------------------------------------------------------------
 // Get client brand data from knowledge base
 // ---------------------------------------------------------------------------
-export async function getClientBrandData(clientDomain: string): Promise<BrandData | null> {
+export async function getClientBrandData(clientDomain: string, tenantId?: string): Promise<BrandData | null> {
   try {
+    const resolvedTenantId = tenantId ?? await resolveDefaultSeoTenantId();
     const result = await pool.query(
       `SELECT brand_name, industry, target_audience, unique_value_prop,
               primary_keywords, tone_of_voice, competitors, content_themes,
               cta_style, wordpress_url
        FROM client_knowledge_base
-       WHERE client_domain = $1
+       WHERE client_domain = $1 AND tenant_id = $2
        LIMIT 1`,
-      [clientDomain],
+      [clientDomain, resolvedTenantId],
     );
 
     if (result.rows.length === 0) {
@@ -138,8 +140,10 @@ export async function generateContentForClient(
   clientDomain: string,
   keyword: string,
   pageType?: string,
+  tenantId?: string,
 ): Promise<GeneratedContent | null> {
-  const brandData = await getClientBrandData(clientDomain);
+  const resolvedTenantId = tenantId ?? await resolveDefaultSeoTenantId();
+  const brandData = await getClientBrandData(clientDomain, resolvedTenantId);
   if (!brandData) {
     logger.error(`[content-gen] No brand data for ${clientDomain} — cannot generate content`);
     return null;
@@ -229,8 +233,8 @@ Return ONLY valid JSON (no markdown):
 
     // Store in client_pages with status draft_local
     await pool.query(
-      `INSERT INTO client_pages (id, project_name, page_url, page_title, client_domain, page_slug, status, page_type, meta_description, content)
-       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 'draft_local', $6, $7, $8)`,
+      `INSERT INTO client_pages (id, project_name, page_url, page_title, client_domain, page_slug, status, page_type, meta_description, content, tenant_id)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 'draft_local', $6, $7, $8, $9)`,
       [
         clientDomain,
         `https://${clientDomain}/${keyword.toLowerCase().replace(/\s+/g, '-')}/`,
@@ -240,6 +244,7 @@ Return ONLY valid JSON (no markdown):
         pageType ?? 'ai_generated',
         parsed.meta_description,
         parsed.content_html,
+        resolvedTenantId,
       ],
     );
 
@@ -257,8 +262,10 @@ Return ONLY valid JSON (no markdown):
 export async function generateAIOptimizedContent(
   clientDomain: string,
   keyword: string,
+  tenantId?: string,
 ): Promise<GeneratedContent | null> {
-  const brandData = await getClientBrandData(clientDomain);
+  const resolvedTenantId = tenantId ?? await resolveDefaultSeoTenantId();
+  const brandData = await getClientBrandData(clientDomain, resolvedTenantId);
   if (!brandData) {
     logger.error(`[content-gen] No brand data for ${clientDomain} — cannot generate AI-optimized content`);
     return null;
@@ -346,8 +353,8 @@ Return ONLY valid JSON (no markdown):
     parsed.content_html = (parsed.content_html ?? '') + '\n' + schemaMarkup;
 
     await pool.query(
-      `INSERT INTO client_pages (id, project_name, page_url, page_title, client_domain, page_slug, status, page_type, meta_description, content)
-       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 'draft_local', 'ai_optimized', $6, $7)`,
+      `INSERT INTO client_pages (id, project_name, page_url, page_title, client_domain, page_slug, status, page_type, meta_description, content, tenant_id)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 'draft_local', 'ai_optimized', $6, $7, $8)`,
       [
         clientDomain,
         `https://${clientDomain}/${keyword.toLowerCase().replace(/\s+/g, '-')}/`,
@@ -356,6 +363,7 @@ Return ONLY valid JSON (no markdown):
         keyword.toLowerCase().replace(/\s+/g, '-'),
         parsed.meta_description,
         parsed.content_html,
+        resolvedTenantId,
       ],
     );
 

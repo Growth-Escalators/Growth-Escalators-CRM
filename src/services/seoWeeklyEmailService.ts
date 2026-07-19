@@ -1,5 +1,6 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
+import { resolveDefaultSeoTenantId } from './seoTenantContext';
 
 /**
  * Send SEO weekly summary email to Jatin via Brevo.
@@ -15,27 +16,29 @@ export async function sendSEOWeeklyEmail(): Promise<void> {
   }
 
   // Fetch data
+  const tenantId = await resolveDefaultSeoTenantId();
   const [weeklyR, keywordsR, alertsR] = await Promise.all([
     pool.query(`
       SELECT client_domain, client_name, total_clicks, total_impressions,
              avg_position, week_start
       FROM seo_weekly_metrics
-      WHERE week_start >= CURRENT_DATE - 14
+      WHERE week_start >= CURRENT_DATE - 14 AND tenant_id = $1
       ORDER BY client_domain, week_start DESC
-    `).catch(() => ({ rows: [] })),
+    `, [tenantId]).catch(() => ({ rows: [] })),
     pool.query(`
       SELECT keyword, COALESCE(client_domain, project_name) AS client_domain,
              current_position AS position, previous_position,
              (current_position - previous_position) AS change
       FROM keyword_rankings
+      WHERE tenant_id = $1
       ORDER BY current_position ASC NULLS LAST LIMIT 20
-    `).catch(() => ({ rows: [] })),
+    `, [tenantId]).catch(() => ({ rows: [] })),
     pool.query(`
       SELECT alert_type, project_name, message, created_at
       FROM seo_alerts_log
-      WHERE created_at >= NOW() - INTERVAL '7 days'
+      WHERE created_at >= NOW() - INTERVAL '7 days' AND tenant_id = $1
       ORDER BY created_at DESC LIMIT 10
-    `).catch(() => ({ rows: [] })),
+    `, [tenantId]).catch(() => ({ rows: [] })),
   ]);
 
   const today = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
