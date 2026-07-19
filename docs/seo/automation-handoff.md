@@ -98,13 +98,13 @@ GCP_OAUTH_CLIENT_ID  605266695454-ppkgsbl441grhftqgbr5f***.apps.googleuserconten
 GCP_OAUTH_CLIENT_SECRET GOCSPX-c-k3UvohUlPat***
 WP_AAROHAOM_URL      https://aarohaom.com
 WP_AAROHAOM_USER     admin
-WP_AAROHAOM_PASS     ETIs mGJz yx8p wlLb iAlS G8xP
+WP_AAROHAOM_PASS     ***REDACTED 2026-07-19 — plaintext value found committed here, removed from working tree; still in git history and matches the live Railway env var as of this writing — treat as compromised until rotated***
 WP_BLACKPANDA_URL    https://blackpandaenterprises.com
 WP_BLACKPANDA_USER   admin
-WP_BLACKPANDA_PASS   OHuY cOxD KqyH wNrF WMMg 410S
+WP_BLACKPANDA_PASS   ***REDACTED 2026-07-19 — plaintext value found committed here, removed from working tree; still in git history and matches the live Railway env var as of this writing — treat as compromised until rotated***
 WP_AGEDDENTISTRY_URL https://ageddentistry.org
 WP_AGEDDENTISTRY_USER admin
-WP_AGEDDENTISTRY_PASS Dgij blyc s9LP 5gBH zQXw K4kh
+WP_AGEDDENTISTRY_PASS ***REDACTED 2026-07-19 — plaintext value found committed here, removed from working tree; still in git history and matches the live Railway env var as of this writing — treat as compromised until rotated***
 ```
 
 ### ⚠️ MUST ADD to Railway (n8n service)
