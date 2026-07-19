@@ -14,7 +14,14 @@
 
 export const PAUSED_FEATURES = {
   // Flag-guarded (toggleable via this file alone)
-  seo: true,                  // SEO Weekly Email/Digest, PageSpeed, SEO Alert Triggers, Competitor Content Analysis
+  // seo: re-enabled 2026-07 (seo-learning-loop) — Serper calls are now capped via
+  // checkAndIncrementSeoSerperCap() (seoWorkflowHealthService.ts) before this flips
+  // any cron back on. SEO Weekly Email/Digest, PageSpeed, SEO Alert Triggers,
+  // Competitor Content Analysis are gated by this flag; Rank Tracking / Backlink
+  // Monitor / Content Decay / Content Gap Analysis were also uncommented in
+  // worker.ts as part of the same change (SEO Workflow Health stays commented out
+  // — see the note at its cron.schedule block).
+  seo: false,
   outreachEnrichment: true,   // also pauses the discovery-freshness signal in checkOutreach
 
   // Comment-guarded (documentation only; also requires uncommenting in worker.ts)

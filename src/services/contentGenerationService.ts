@@ -160,6 +160,12 @@ export async function generateContentForClient(
 
   const today = new Date().toISOString().split('T')[0];
 
+  // Learning loop: give the model historical context on how well this class of
+  // opportunity has actually performed, when there's enough data to trust it.
+  const { computeOpportunityTypeSuccessRates, formatHistoricalPerformanceNote } = await import('./seoDigestService');
+  const successRates = await computeOpportunityTypeSuccessRates();
+  const historicalNote = formatHistoricalPerformanceNote('content_gap', successRates);
+
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -184,6 +190,7 @@ ${pageType ? `- Page type: ${pageType}` : ''}
 Target keyword: ${keyword}
 
 ${paaQuestions.length > 0 ? `People Also Ask questions to include as FAQ:\n${paaQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}` : 'Generate 3-5 relevant FAQ questions for this keyword.'}
+${historicalNote}
 
 AI Overview optimization requirements:
 - First sentence MUST directly answer the search query for "${keyword}"
@@ -282,6 +289,12 @@ export async function generateAIOptimizedContent(
 
   const today = new Date().toISOString().split('T')[0];
 
+  // Learning loop: give the model historical context on how well this class of
+  // opportunity has actually performed, when there's enough data to trust it.
+  const { computeOpportunityTypeSuccessRates, formatHistoricalPerformanceNote } = await import('./seoDigestService');
+  const successRates = await computeOpportunityTypeSuccessRates();
+  const historicalNote = formatHistoricalPerformanceNote('content_gap', successRates);
+
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -303,6 +316,7 @@ Brand context:
 Target keyword: ${keyword}
 
 ${paaQuestions.length > 0 ? `People Also Ask questions to include as FAQ:\n${paaQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}` : 'Generate 3-5 relevant FAQ questions.'}
+${historicalNote}
 
 CRITICAL AI OPTIMIZATION INSTRUCTIONS:
 - Write as if answering a direct question from an AI assistant
