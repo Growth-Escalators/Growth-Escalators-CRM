@@ -45,6 +45,7 @@ const WizmatchMyWorkPage = lazy(() => import('./pages/WizmatchMyWorkPage.jsx'));
 const WizmatchRelationshipsPage = lazy(() => import('./pages/WizmatchRelationshipsPage.jsx'));
 const WizmatchCompaniesPage = lazy(() => import('./pages/WizmatchCompaniesPage.jsx'));
 const WizmatchHiringContactsPage = lazy(() => import('./pages/WizmatchHiringContactsPage.jsx'));
+const WizmatchFindContactPage = lazy(() => import('./pages/WizmatchFindContactPage.jsx'));
 const WizmatchTalentMatchingPage = lazy(() => import('./pages/WizmatchTalentMatchingPage.jsx'));
 const WizmatchDeliveryBoardPage = lazy(() => import('./pages/WizmatchDeliveryBoardPage.jsx'));
 const WizmatchSignalsPage = lazy(() => import('./pages/WizmatchSignalsPage.jsx'));
@@ -306,6 +307,7 @@ export default function App() {
             {import.meta.env.DEV && <Route path="/wizmatch/contact-intelligence-new-demo" element={<WizmatchContactIntelligenceNewPage demoMode />} />}
             <Route path="/wizmatch/contact-intelligence" element={<Navigate to="/wizmatch/hiring-contacts" replace />} />
             <Route path="/wizmatch/hiring-contacts" element={<PrivateRoute><AppLayout><WizmatchHiringContactsPage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/find-contact" element={<PrivateRoute><AppLayout><WizmatchFindContactPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/contact-intelligence-new" element={<Navigate to="/wizmatch/hiring-contacts" replace />} />
             {/* Diagnostics — folded into the single System page (Workstream B). Old
                 standalone routes redirect to the matching System tab; -demo variants
