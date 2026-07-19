@@ -109,8 +109,11 @@ async function fetchPipeline(): Promise<Record<string, unknown>> {
   }
 }
 
-async function fetchSEO(): Promise<Record<string, unknown>> {
-  const cached = getCached('seo');
+async function fetchSEO(tenantId: string): Promise<Record<string, unknown>> {
+  // Cache key includes tenantId — this cache is process-wide, so without it
+  // one tenant's fetch would poison the 5-minute cache for every other tenant.
+  const cacheKey = `seo:${tenantId}`;
+  const cached = getCached(cacheKey);
   if (cached) return cached as Record<string, unknown>;
 
   try {
@@ -119,9 +122,9 @@ async function fetchSEO(): Promise<Record<string, unknown>> {
         COUNT(*) FILTER (WHERE current_position < previous_position) AS improved,
         COUNT(*) FILTER (WHERE current_position > previous_position) AS dropped,
         COUNT(*) FILTER (WHERE checked_at >= NOW() - INTERVAL '7 days') AS tracked_7d,
-        (SELECT COUNT(*) FROM seo_alerts_log WHERE created_at >= NOW() - INTERVAL '7 days') AS alerts_7d
-      FROM keyword_rankings
-    `);
+        (SELECT COUNT(*) FROM seo_alerts_log WHERE created_at >= NOW() - INTERVAL '7 days' AND tenant_id = $1) AS alerts_7d
+      FROM keyword_rankings WHERE tenant_id = $1
+    `, [tenantId]);
     const row = r.rows[0] as Record<string, string> ?? {};
     const result = {
       keywords_improved: parseInt(row.improved ?? '0'),
@@ -129,7 +132,7 @@ async function fetchSEO(): Promise<Record<string, unknown>> {
       keywords_tracked_7d: parseInt(row.tracked_7d ?? '0'),
       alerts_7d: parseInt(row.alerts_7d ?? '0'),
     };
-    setCache('seo', result);
+    setCache(cacheKey, result);
     return result;
   } catch {
     return { note: 'SEO data unavailable' };
@@ -193,20 +196,21 @@ async function fetchCronHealth(): Promise<Record<string, unknown>> {
   }
 }
 
-async function fetchSEOWorkflows(): Promise<Record<string, unknown>> {
-  const cached = getCached('seo_workflows');
+async function fetchSEOWorkflows(tenantId: string): Promise<Record<string, unknown>> {
+  const cacheKey = `seo_workflows:${tenantId}`;
+  const cached = getCached(cacheKey);
   if (cached) return cached as Record<string, unknown>;
 
   try {
     const { collectSEOWorkflowHealth } = await import('../services/intelligenceDataCollector');
-    const health = await collectSEOWorkflowHealth();
+    const health = await collectSEOWorkflowHealth(tenantId);
     const result = {
       n8n_alive: health.n8nAlive,
       healthy: health.healthyCount,
       total: health.totalCount,
       broken_critical: health.brokenCritical.map(w => ({ name: w.name, days_overdue: w.daysSince })),
     };
-    setCache('seo_workflows', result);
+    setCache(cacheKey, result);
     return result;
   } catch {
     return { note: 'SEO workflow data unavailable' };
@@ -239,11 +243,11 @@ async function fetchTasksOverview(): Promise<Record<string, unknown>> {
 // ---------------------------------------------------------------------------
 // Build compact data snapshot for system prompt (injected once per message)
 // ---------------------------------------------------------------------------
-async function buildDataSnapshot(): Promise<Record<string, unknown>> {
+async function buildDataSnapshot(tenantId: string): Promise<Record<string, unknown>> {
   const [metaAds, pipeline, seo, billing, cronHealth] = await Promise.allSettled([
     fetchMetaAds(),
     fetchPipeline(),
-    fetchSEO(),
+    fetchSEO(tenantId),
     fetchBilling(),
     fetchCronHealth(),
   ]);
@@ -350,12 +354,12 @@ async function executeTool(
         let data: Record<string, unknown>;
         switch (category) {
           case 'meta_ads': data = await fetchMetaAds(); break;
-          case 'seo': data = await fetchSEO(); break;
+          case 'seo': data = await fetchSEO(req.user!.tenantId); break;
           case 'pipeline': data = await fetchPipeline(); break;
           case 'tasks': data = await fetchTasksOverview(); break;
           case 'billing': data = await fetchBilling(); break;
           case 'cron_health': data = await fetchCronHealth(); break;
-          case 'seo_workflows': data = await fetchSEOWorkflows(); break;
+          case 'seo_workflows': data = await fetchSEOWorkflows(req.user!.tenantId); break;
           default: data = { error: `Unknown category: ${category}` };
         }
         return JSON.stringify(data);
@@ -492,7 +496,7 @@ router.post('/chat', async (req: Request, res: Response) => {
 
   try {
     // Build compact data snapshot (used in system prompt)
-    const snapshot = await buildDataSnapshot();
+    const snapshot = await buildDataSnapshot(req.user!.tenantId);
 
     const systemPrompt = `You are the Growth Escalators Operations Co-Pilot — Jatin's private AI assistant.
 You have access to live business data and can take real actions via tools.

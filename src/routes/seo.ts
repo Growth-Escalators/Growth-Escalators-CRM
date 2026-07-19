@@ -26,8 +26,9 @@ const WORKFLOWS = [
 // ---------------------------------------------------------------------------
 // GET /api/seo/overview — summary across all clients with week-over-week trend
 // ---------------------------------------------------------------------------
-router.get('/overview', async (_req: Request, res: Response) => {
+router.get('/overview', async (req: Request, res: Response) => {
   try {
+    const tenantId = req.user!.tenantId;
     // Per-client keyword ranking summary (works without GSC/GA4)
     const clientStats = await pool.query(`
       SELECT
@@ -44,17 +45,17 @@ router.get('/overview', async (_req: Request, res: Response) => {
         COUNT(*) FILTER (WHERE featured_snippet = true) AS featured_snippets,
         MAX(COALESCE(checked_at, recorded_date::timestamp)) AS last_checked
       FROM keyword_rankings
-      WHERE keyword IS NOT NULL
+      WHERE keyword IS NOT NULL AND tenant_id = $1
       GROUP BY COALESCE(client_domain, project_name)
       ORDER BY COALESCE(client_domain, project_name)
-    `);
+    `, [tenantId]);
 
     // Site health per client
     const healthStats = await pool.query(`
       SELECT DISTINCT ON (project_name) project_name AS client_domain,
         pagespeed_mobile, pagespeed_desktop, lcp, cls, checked_at
-      FROM site_health_metrics ORDER BY project_name, checked_at DESC
-    `);
+      FROM site_health_metrics WHERE tenant_id = $1 ORDER BY project_name, checked_at DESC
+    `, [tenantId]);
     const healthMap: Record<string, Record<string, unknown>> = {};
     for (const h of healthStats.rows as Array<Record<string, unknown>>) {
       healthMap[h.client_domain as string] = h;
@@ -68,12 +69,12 @@ router.get('/overview', async (_req: Request, res: Response) => {
         COUNT(*) FILTER (WHERE position_change > 0) AS total_improved,
         COUNT(*) FILTER (WHERE position_change < 0) AS total_dropped,
         COUNT(*) FILTER (WHERE featured_snippet = true) AS total_featured
-      FROM keyword_rankings WHERE keyword IS NOT NULL
-    `);
+      FROM keyword_rankings WHERE keyword IS NOT NULL AND tenant_id = $1
+    `, [tenantId]);
 
-    const opps = await pool.query(`SELECT COUNT(*)::int AS count FROM seo_opportunities WHERE status = 'open'`).catch(() => ({ rows: [{ count: 0 }] }));
-    const alerts = await pool.query(`SELECT COUNT(*)::int AS count FROM seo_alerts_log WHERE created_at > NOW() - INTERVAL '7 days'`).catch(() => ({ rows: [{ count: 0 }] }));
-    const backlinks = await pool.query(`SELECT COUNT(*)::int AS count FROM backlink_data WHERE status = 'active'`).catch(() => ({ rows: [{ count: 0 }] }));
+    const opps = await pool.query(`SELECT COUNT(*)::int AS count FROM seo_opportunities WHERE status = 'open' AND tenant_id = $1`, [tenantId]).catch(() => ({ rows: [{ count: 0 }] }));
+    const alerts = await pool.query(`SELECT COUNT(*)::int AS count FROM seo_alerts_log WHERE created_at > NOW() - INTERVAL '7 days' AND tenant_id = $1`, [tenantId]).catch(() => ({ rows: [{ count: 0 }] }));
+    const backlinks = await pool.query(`SELECT COUNT(*)::int AS count FROM backlink_data WHERE status = 'active' AND tenant_id = $1`, [tenantId]).catch(() => ({ rows: [{ count: 0 }] }));
 
     res.json({
       clients: clientStats.rows,
@@ -94,11 +95,12 @@ router.get('/overview', async (_req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 router.get('/client/:domain', async (req: Request, res: Response) => {
   const { domain } = req.params;
+  const tenantId = req.user!.tenantId;
   try {
     const [weekly, keywords, healthRes, alerts, opportunities, content, backlinks] = await Promise.all([
       db.execute(sql`
         SELECT * FROM seo_weekly_metrics
-        WHERE client_domain = ${domain}
+        WHERE client_domain = ${domain} AND tenant_id = ${tenantId}
         ORDER BY week_start DESC LIMIT 12
       `),
       db.execute(sql`
@@ -107,32 +109,32 @@ router.get('/client/:domain', async (req: Request, res: Response) => {
           (current_position - previous_position) AS position_change,
           search_volume, url_ranking AS url, recorded_date AS checked_at
         FROM keyword_rankings
-        WHERE client_domain = ${domain} OR project_name = ${domain}
+        WHERE (client_domain = ${domain} OR project_name = ${domain}) AND tenant_id = ${tenantId}
         ORDER BY keyword, recorded_date DESC
       `),
       db.execute(sql`
         SELECT * FROM site_health_metrics
-        WHERE client_domain = ${domain} OR project_name = ${domain}
+        WHERE (client_domain = ${domain} OR project_name = ${domain}) AND tenant_id = ${tenantId}
         ORDER BY checked_at DESC LIMIT 1
       `),
       db.execute(sql`
         SELECT * FROM seo_alerts_log
-        WHERE client_domain = ${domain} OR project_name = ${domain}
+        WHERE (client_domain = ${domain} OR project_name = ${domain}) AND tenant_id = ${tenantId}
         ORDER BY created_at DESC LIMIT 10
       `),
       db.execute(sql`
         SELECT * FROM seo_opportunities
-        WHERE (client_domain = ${domain} OR project_name = ${domain}) AND status = 'open'
+        WHERE (client_domain = ${domain} OR project_name = ${domain}) AND status = 'open' AND tenant_id = ${tenantId}
         ORDER BY priority_score DESC NULLS LAST, created_at DESC LIMIT 10
       `),
       db.execute(sql`
         SELECT * FROM content_gap_analysis
-        WHERE client_domain = ${domain} OR project_name = ${domain}
+        WHERE (client_domain = ${domain} OR project_name = ${domain}) AND tenant_id = ${tenantId}
         ORDER BY analysed_at DESC LIMIT 5
       `),
       db.execute(sql`
         SELECT * FROM backlink_data
-        WHERE client_domain = ${domain} OR project_name = ${domain}
+        WHERE (client_domain = ${domain} OR project_name = ${domain}) AND tenant_id = ${tenantId}
         ORDER BY first_seen DESC NULLS LAST LIMIT 20
       `),
     ]);
@@ -157,13 +159,14 @@ router.get('/client/:domain', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 router.get('/keywords/:domain', async (req: Request, res: Response) => {
   const { domain } = req.params;
+  const tenantId = req.user!.tenantId;
   try {
     const result = await db.execute(sql`
       SELECT keyword, current_position AS position, previous_position,
         (current_position - previous_position) AS change,
         search_volume, url_ranking AS url, recorded_date AS checked_at
       FROM keyword_rankings
-      WHERE client_domain = ${domain} OR project_name = ${domain}
+      WHERE (client_domain = ${domain} OR project_name = ${domain}) AND tenant_id = ${tenantId}
       ORDER BY current_position ASC NULLS LAST
     `);
     res.json({ keywords: result.rows });
@@ -176,10 +179,12 @@ router.get('/keywords/:domain', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/seo/alerts — all recent alerts across all clients
 // ---------------------------------------------------------------------------
-router.get('/alerts', async (_req: Request, res: Response) => {
+router.get('/alerts', async (req: Request, res: Response) => {
   try {
+    const tenantId = req.user!.tenantId;
     const result = await db.execute(sql`
       SELECT * FROM seo_alerts_log
+      WHERE tenant_id = ${tenantId}
       ORDER BY created_at DESC LIMIT 20
     `);
     res.json({ alerts: result.rows });
@@ -260,8 +265,9 @@ router.post('/trigger/:workflowId', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/seo/keywords-all — all keywords across all clients
 // ---------------------------------------------------------------------------
-router.get('/keywords-all', async (_req: Request, res: Response) => {
+router.get('/keywords-all', async (req: Request, res: Response) => {
   try {
+    const tenantId = req.user!.tenantId;
     const result = await db.execute(sql`
       SELECT keyword, COALESCE(client_domain, project_name) AS client_domain,
         current_position AS position,
@@ -270,6 +276,7 @@ router.get('/keywords-all', async (_req: Request, res: Response) => {
         search_volume,
         recorded_date AS checked_at
       FROM keyword_rankings
+      WHERE tenant_id = ${tenantId}
       ORDER BY current_position ASC NULLS LAST
       LIMIT 200
     `);
@@ -306,8 +313,10 @@ router.post('/regenerate-pages', async (req: Request, res: Response) => {
 
   try {
     const { pool } = await import('../db/index');
-    // Delete old pages
-    const del = await pool.query(`DELETE FROM client_pages WHERE client_domain = 'ageddentistry.org'`);
+    const { resolveDefaultSeoTenantId } = await import('../services/seoTenantContext');
+    const tenantId = await resolveDefaultSeoTenantId();
+    // Delete old pages (scoped to the same tenant generateLocationPages() writes under)
+    const del = await pool.query(`DELETE FROM client_pages WHERE client_domain = 'ageddentistry.org' AND tenant_id = $1`, [tenantId]);
     logger.info(`[seo] Deleted ${del.rowCount} old pages`);
 
     // Generate new pages
@@ -340,11 +349,12 @@ router.post('/publish-pending-pages', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/seo/pages — list all generated pages
 // ---------------------------------------------------------------------------
-router.get('/pages', async (_req: Request, res: Response) => {
+router.get('/pages', async (req: Request, res: Response) => {
   try {
     const { pool } = await import('../db/index');
     const result = await pool.query(
-      `SELECT * FROM client_pages ORDER BY created_at DESC LIMIT 100`,
+      `SELECT * FROM client_pages WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 100`,
+      [req.user!.tenantId],
     );
     res.json({ pages: result.rows });
   } catch (e) {
@@ -355,13 +365,15 @@ router.get('/pages', async (_req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/seo/content-gaps — all content gaps across clients
 // ---------------------------------------------------------------------------
-router.get('/content-gaps', async (_req: Request, res: Response) => {
+router.get('/content-gaps', async (req: Request, res: Response) => {
   try {
+    const tenantId = req.user!.tenantId;
     const result = await db.execute(sql`
       SELECT id, project_name, target_keyword, our_url, our_position,
              competitor_urls, topics_missing, questions_missing,
              word_count_gap, priority_score, status, analysed_at
       FROM content_gap_analysis
+      WHERE tenant_id = ${tenantId}
       ORDER BY priority_score DESC NULLS LAST, analysed_at DESC
       LIMIT 100
     `);
@@ -375,14 +387,15 @@ router.get('/content-gaps', async (_req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/seo/backlinks — all backlinks across clients
 // ---------------------------------------------------------------------------
-router.get('/backlinks', async (_req: Request, res: Response) => {
+router.get('/backlinks', async (req: Request, res: Response) => {
   try {
+    const tenantId = req.user!.tenantId;
     const result = await db.execute(sql`
       SELECT id, project_name, source_url, target_url,
              domain_authority, anchor_text, link_type,
              first_seen, last_seen, status
       FROM backlink_data
-      WHERE status = 'active'
+      WHERE status = 'active' AND tenant_id = ${tenantId}
       ORDER BY domain_authority DESC NULLS LAST, first_seen DESC
       LIMIT 200
     `);
@@ -408,11 +421,11 @@ router.post('/generate-content', async (req: Request, res: Response) => {
   try {
     if (aiOptimized) {
       const { generateAIOptimizedContent } = await import('../services/contentGenerationService');
-      const result = await generateAIOptimizedContent(clientDomain, keyword);
+      const result = await generateAIOptimizedContent(clientDomain, keyword, req.user!.tenantId);
       res.json(result);
     } else {
       const { generateContentForClient } = await import('../services/contentGenerationService');
-      const result = await generateContentForClient(clientDomain, keyword);
+      const result = await generateContentForClient(clientDomain, keyword, undefined, req.user!.tenantId);
       res.json(result);
     }
   } catch (e) {
@@ -451,7 +464,7 @@ router.post('/competitor-brief', async (req: Request, res: Response) => {
   try {
     const { fetchCompetitorPages, analyzeCompetitorContent } = await import('../services/competitorContentService');
     const competitors = await fetchCompetitorPages(keyword);
-    const analysis = await analyzeCompetitorContent(keyword, clientDomain, competitors);
+    const analysis = await analyzeCompetitorContent(keyword, clientDomain, competitors, req.user!.tenantId);
     res.json({ keyword, clientDomain, competitors, analysis });
   } catch (e) {
     logger.error('[seo] competitor-brief error:', e);
@@ -462,21 +475,24 @@ router.post('/competitor-brief', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/seo/content-briefs — list generated content and briefs
 // ---------------------------------------------------------------------------
-router.get('/content-briefs', async (_req: Request, res: Response) => {
+router.get('/content-briefs', async (req: Request, res: Response) => {
   try {
+    const tenantId = req.user!.tenantId;
     const { pool: dbPool } = await import('../db/index');
     const [pages, gaps] = await Promise.all([
       dbPool.query(`
         SELECT id, project_name, client_domain, page_title, page_slug, status, page_type, target_keyword, created_at
         FROM client_pages
+        WHERE tenant_id = $1
         ORDER BY created_at DESC LIMIT 50
-      `).catch(() => ({ rows: [] })),
+      `, [tenantId]).catch(() => ({ rows: [] })),
       dbPool.query(`
         SELECT id, project_name, target_keyword, our_position, priority_score, status, analysed_at,
                topics_missing, questions_missing, word_count_gap
         FROM content_gap_analysis
+        WHERE tenant_id = $1
         ORDER BY priority_score DESC NULLS LAST, analysed_at DESC LIMIT 30
-      `).catch(() => ({ rows: [] })),
+      `, [tenantId]).catch(() => ({ rows: [] })),
     ]);
     res.json({ pages: pages.rows, briefs: gaps.rows });
   } catch (e) {

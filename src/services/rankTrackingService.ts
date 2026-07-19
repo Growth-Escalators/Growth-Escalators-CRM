@@ -1,5 +1,6 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
+import { resolveDefaultSeoTenantId } from './seoTenantContext';
 
 // ---------------------------------------------------------------------------
 // Serper.dev API configuration
@@ -54,7 +55,7 @@ interface KeywordToTrack {
 // ---------------------------------------------------------------------------
 // Get keywords to track (from DB or starter set)
 // ---------------------------------------------------------------------------
-async function getKeywordsToTrack(): Promise<KeywordToTrack[]> {
+async function getKeywordsToTrack(tenantId: string): Promise<KeywordToTrack[]> {
   try {
     // First: check if we have existing keywords in the DB
     const existing = await pool.query(`
@@ -63,9 +64,9 @@ async function getKeywordsToTrack(): Promise<KeywordToTrack[]> {
         COALESCE(client_domain, project_name, '') AS client_domain,
         keyword
       FROM keyword_rankings
-      WHERE keyword IS NOT NULL AND keyword != ''
+      WHERE keyword IS NOT NULL AND keyword != '' AND tenant_id = $1
       ORDER BY client_domain, keyword
-    `);
+    `, [tenantId]);
 
     if (existing.rows.length > 0) {
       // Deduplicate by keyword+domain
@@ -158,13 +159,13 @@ async function checkSerperRank(
 // ---------------------------------------------------------------------------
 // Get previous position for a keyword
 // ---------------------------------------------------------------------------
-async function getPreviousPosition(projectName: string, keyword: string): Promise<number | null> {
+async function getPreviousPosition(tenantId: string, projectName: string, keyword: string): Promise<number | null> {
   try {
     const r = await pool.query(
       `SELECT current_position FROM keyword_rankings
-       WHERE (project_name = $1 OR client_domain = $1) AND keyword = $2
+       WHERE (project_name = $1 OR client_domain = $1) AND keyword = $2 AND tenant_id = $3
        ORDER BY recorded_date DESC LIMIT 1`,
-      [projectName, keyword],
+      [projectName, keyword, tenantId],
     );
     const pos = (r.rows[0] as Record<string, string> | undefined)?.current_position;
     return pos != null ? Number(pos) : null;
@@ -191,14 +192,15 @@ export async function runRankChecks(): Promise<{ checked: number; errors: number
   let checked = 0;
   let errors = 0;
   const today = new Date().toISOString().split('T')[0];
+  const tenantId = await resolveDefaultSeoTenantId();
 
-  const keywords = await getKeywordsToTrack();
+  const keywords = await getKeywordsToTrack(tenantId);
   logger.info(`[rank-tracking] checking ${keywords.length} keywords via Serper.dev`);
 
   for (const kw of keywords) {
     try {
       const { position, url, featuredSnippet } = await checkSerperRank(kw.keyword, kw.clientDomain);
-      const previousPosition = await getPreviousPosition(kw.projectName, kw.keyword);
+      const previousPosition = await getPreviousPosition(tenantId, kw.projectName, kw.keyword);
       const positionChange = (previousPosition != null && position != null)
         ? previousPosition - position
         : null;
@@ -206,8 +208,8 @@ export async function runRankChecks(): Promise<{ checked: number; errors: number
       await pool.query(
         `INSERT INTO keyword_rankings
           (project_name, client_domain, keyword, current_position, previous_position,
-           position_change, url_ranking, featured_snippet, recorded_date)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+           position_change, url_ranking, featured_snippet, recorded_date, tenant_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [
           kw.projectName,
           kw.clientDomain,
@@ -218,6 +220,7 @@ export async function runRankChecks(): Promise<{ checked: number; errors: number
           url,
           featuredSnippet,
           today,
+          tenantId,
         ],
       );
 

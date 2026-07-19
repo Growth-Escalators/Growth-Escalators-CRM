@@ -243,7 +243,7 @@ router.get('/:clientId/360', requirePermission('REPORTS_VIEW'), async (req: Requ
       fetchAd30Days(client.metaAdAccountId),
 
       // SEO data (match by client name)
-      fetchClientSeo(client.name),
+      fetchClientSeo(client.name, tenantId),
     ]);
 
     res.json({
@@ -312,13 +312,13 @@ async function fetchAd30Days(adAccountId: string | null): Promise<Record<string,
   }
 }
 
-async function fetchClientSeo(clientName: string): Promise<Record<string, unknown> | null> {
+async function fetchClientSeo(clientName: string, tenantId: string): Promise<Record<string, unknown> | null> {
   const { pool } = await import('../db/index');
   try {
     // Try to find SEO data by matching client name to seo_weekly_metrics
     const domainRes = await pool.query(
-      `SELECT DISTINCT client_domain FROM seo_weekly_metrics WHERE client_name ILIKE $1 OR project_name ILIKE $1 LIMIT 1`,
-      [`%${clientName.split(' ')[0]}%`],
+      `SELECT DISTINCT client_domain FROM seo_weekly_metrics WHERE (client_name ILIKE $1 OR project_name ILIKE $1) AND tenant_id = $2 LIMIT 1`,
+      [`%${clientName.split(' ')[0]}%`, tenantId],
     );
     const domain = (domainRes.rows[0] as { client_domain?: string })?.client_domain;
     if (!domain) return null;
@@ -328,13 +328,14 @@ async function fetchClientSeo(clientName: string): Promise<Record<string, unknow
         SELECT COUNT(*) AS total,
           COUNT(*) FILTER (WHERE current_position < previous_position) AS improved,
           COUNT(*) FILTER (WHERE current_position > previous_position) AS dropped
-        FROM keyword_rankings WHERE client_domain = $1
-      `, [domain]),
+        FROM keyword_rankings WHERE client_domain = $1 AND tenant_id = $2
+      `, [domain, tenantId]),
       pool.query(`
         SELECT pagespeed_mobile, pagespeed_desktop, checked_at
         FROM site_health_metrics
+        WHERE tenant_id = $1
         ORDER BY checked_at DESC LIMIT 1
-      `),
+      `, [tenantId]),
     ]);
 
     const kw = keywordsRes.rows[0] as Record<string, string>;
@@ -395,9 +396,9 @@ router.get('/:clientId/quick-update', requirePermission('REPORTS_VIEW'), async (
       const kw = await dbPool.query(`
         SELECT COUNT(*) FILTER (WHERE current_position < previous_position) AS improved,
                COUNT(*) FILTER (WHERE current_position > previous_position) AS dropped
-        FROM keyword_rankings
-      `);
-      const health = await dbPool.query(`SELECT pagespeed_mobile, pagespeed_desktop FROM site_health_metrics ORDER BY checked_at DESC LIMIT 1`);
+        FROM keyword_rankings WHERE tenant_id = $1
+      `, [tenantId]);
+      const health = await dbPool.query(`SELECT pagespeed_mobile, pagespeed_desktop FROM site_health_metrics WHERE tenant_id = $1 ORDER BY checked_at DESC LIMIT 1`, [tenantId]);
       const k = kw.rows[0] as Record<string, string>;
       const h = health.rows[0] as Record<string, string> | undefined;
       seoText = `${k?.improved || 0} keywords ↑, ${k?.dropped || 0} ↓`;

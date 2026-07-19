@@ -1,5 +1,6 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
+import { resolveDefaultSeoTenantId } from './seoTenantContext';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -72,6 +73,7 @@ export async function analyzeCompetitorContent(
   keyword: string,
   clientDomain: string,
   competitors: CompetitorPage[],
+  tenantId?: string,
 ): Promise<CompetitorContentAnalysis | null> {
   const apiKey = process.env.CLAUDE_API_KEY;
   if (!apiKey) {
@@ -79,14 +81,16 @@ export async function analyzeCompetitorContent(
     return null;
   }
 
+  const resolvedTenantId = tenantId ?? await resolveDefaultSeoTenantId();
+
   // Get client's current position for this keyword
   let currentPosition: number | null = null;
   try {
     const posResult = await pool.query(
       `SELECT current_position FROM keyword_rankings
-       WHERE client_domain = $1 AND keyword = $2
+       WHERE client_domain = $1 AND keyword = $2 AND tenant_id = $3
        ORDER BY recorded_date DESC LIMIT 1`,
-      [clientDomain, keyword],
+      [clientDomain, keyword, resolvedTenantId],
     );
     const pos = (posResult.rows[0] as Record<string, string> | undefined)?.current_position;
     currentPosition = pos != null ? Number(pos) : null;
@@ -158,6 +162,7 @@ Return ONLY valid JSON (no markdown):
 export async function runCompetitorContentAnalysis(): Promise<{ analyzed: number; errors: number }> {
   let analyzed = 0;
   let errors = 0;
+  const tenantId = await resolveDefaultSeoTenantId();
 
   try {
     // Keywords ranked 5-30 have the most improvement potential
@@ -166,9 +171,10 @@ export async function runCompetitorContentAnalysis(): Promise<{ analyzed: number
       FROM keyword_rankings
       WHERE current_position IS NOT NULL
         AND current_position BETWEEN 5 AND 30
+        AND tenant_id = $1
       ORDER BY keyword, recorded_date DESC
       LIMIT 10
-    `);
+    `, [tenantId]);
 
     const keywords = result.rows as Array<{ keyword: string; client_domain: string; current_position: string }>;
     if (keywords.length === 0) {
@@ -189,7 +195,7 @@ export async function runCompetitorContentAnalysis(): Promise<{ analyzed: number
 
         await new Promise(r => setTimeout(r, 1500)); // rate limit between Serper and Claude
 
-        const analysis = await analyzeCompetitorContent(kw.keyword, kw.client_domain, competitors);
+        const analysis = await analyzeCompetitorContent(kw.keyword, kw.client_domain, competitors, tenantId);
         if (!analysis) {
           errors++;
           continue;
@@ -199,8 +205,8 @@ export async function runCompetitorContentAnalysis(): Promise<{ analyzed: number
         await pool.query(
           `INSERT INTO content_gap_analysis
             (id, project_name, target_keyword, our_position, competitor_urls,
-             topics_missing, questions_missing, word_count_gap, priority_score, status, analysed_at)
-           VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, 'pending', NOW())`,
+             topics_missing, questions_missing, word_count_gap, priority_score, status, analysed_at, tenant_id)
+           VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, 'pending', NOW(), $9)`,
           [
             kw.client_domain,
             kw.keyword,
@@ -210,6 +216,7 @@ export async function runCompetitorContentAnalysis(): Promise<{ analyzed: number
             JSON.stringify(analysis.missing_questions),
             analysis.recommended_word_count,
             Math.max(0, 30 - Number(kw.current_position)) * 3, // higher priority for closer-to-top
+            tenantId,
           ],
         );
 

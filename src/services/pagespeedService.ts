@@ -1,5 +1,6 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
+import { resolveDefaultSeoTenantId } from './seoTenantContext';
 
 // Fallback client list — used if client_knowledge_base is empty
 const FALLBACK_CLIENTS = [
@@ -8,13 +9,13 @@ const FALLBACK_CLIENTS = [
   { project: 'ageddentistry', url: 'https://ageddentistry.org' },
 ];
 
-async function getClients(): Promise<Array<{ project: string; url: string }>> {
+async function getClients(tenantId: string): Promise<Array<{ project: string; url: string }>> {
   try {
     // Try to get clients from knowledge base with their domains
     const r = await pool.query(`
       SELECT project_name,
         COALESCE(
-          (SELECT 'https://' || client_domain FROM seo_weekly_metrics WHERE project_name = kb.project_name AND client_domain IS NOT NULL LIMIT 1),
+          (SELECT 'https://' || client_domain FROM seo_weekly_metrics WHERE project_name = kb.project_name AND client_domain IS NOT NULL AND tenant_id = $1 LIMIT 1),
           CASE
             WHEN project_name ILIKE '%aaroha%' THEN 'https://aarohaom.com'
             WHEN project_name ILIKE '%blackpanda%' OR project_name ILIKE '%black%panda%' THEN 'https://blackpandaenterprises.com'
@@ -23,9 +24,9 @@ async function getClients(): Promise<Array<{ project: string; url: string }>> {
           END
         ) AS url
       FROM client_knowledge_base kb
-      WHERE project_name IS NOT NULL
+      WHERE project_name IS NOT NULL AND tenant_id = $1
       LIMIT 20
-    `);
+    `, [tenantId]);
     if (r.rows.length > 0) {
       const clients = (r.rows as Array<{ project_name: string; url: string }>)
         .filter(row => row.url && row.url !== 'https://')
@@ -59,8 +60,9 @@ async function fetchScore(url: string, strategy: 'mobile' | 'desktop'): Promise<
 
 export async function runPageSpeedChecks(): Promise<{ checked: number; errors: number }> {
   let checked = 0, errors = 0;
+  const tenantId = await resolveDefaultSeoTenantId();
 
-  const clients = await getClients();
+  const clients = await getClients(tenantId);
   for (const client of clients) {
     try {
       const [mobileData, desktopData] = await Promise.all([
@@ -80,9 +82,9 @@ export async function runPageSpeedChecks(): Promise<{ checked: number; errors: n
       const cls = parseFloat((audits?.['cumulative-layout-shift']?.numericValue ?? 0).toFixed(3));
 
       await pool.query(
-        `INSERT INTO site_health_metrics (project_name, pagespeed_mobile, pagespeed_desktop, lcp, fid, cls, checked_at)
-         VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-        [client.project, mobileScore, desktopScore, lcp, fid, cls],
+        `INSERT INTO site_health_metrics (project_name, pagespeed_mobile, pagespeed_desktop, lcp, fid, cls, checked_at, tenant_id)
+         VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7)`,
+        [client.project, mobileScore, desktopScore, lcp, fid, cls, tenantId],
       );
 
       logger.info(`[pagespeed] ${client.project}: mobile=${mobileScore} desktop=${desktopScore} lcp=${lcp}s`);

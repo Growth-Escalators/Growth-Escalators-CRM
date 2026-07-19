@@ -35,7 +35,12 @@ router.get('/health/ping', (_req, res) => {
   res.json({ status: 'ok', ts: Date.now() });
 });
 
-// GET /api/system/health/seo-data — public diagnostic for SEO tables
+// GET /api/system/health/seo-data — public diagnostic for SEO tables.
+// H18: this route has no auth (the whole /api/system mount is unauthenticated
+// by design — that's a separate, out-of-scope finding, not changed here), so
+// it can't use req.user.tenantId. Scope every query to the single default SEO
+// tenant instead — fixes the cross-tenant read half of the finding without
+// touching the route's access level.
 router.get('/health/seo-data', async (_req, res) => {
   const { pool } = await import('../db/index');
   try {
@@ -45,17 +50,20 @@ router.get('/health/seo-data', async (_req, res) => {
       await ensureSeoTables();
     } catch { /* non-critical */ }
 
+    const { resolveDefaultSeoTenantId } = await import('../services/seoTenantContext');
+    const tenantId = await resolveDefaultSeoTenantId();
+
     const tables = ['seo_weekly_metrics', 'keyword_rankings', 'site_health_metrics', 'backlink_data', 'seo_opportunities', 'seo_alerts_log'];
     const results: Record<string, { count: number; latest: string | null }> = {};
     for (const table of tables) {
       try {
-        const countR = await pool.query(`SELECT COUNT(*)::int AS count FROM ${table}`);
+        const countR = await pool.query(`SELECT COUNT(*)::int AS count FROM ${table} WHERE tenant_id = $1`, [tenantId]);
         const count = (countR.rows[0] as { count: number }).count;
         // Try common timestamp columns
         let latest: string | null = null;
         for (const col of ['created_at', 'checked_at', 'identified_at', 'week_start', 'recorded_date']) {
           try {
-            const r = await pool.query(`SELECT MAX(${col})::text AS latest FROM ${table}`);
+            const r = await pool.query(`SELECT MAX(${col})::text AS latest FROM ${table} WHERE tenant_id = $1`, [tenantId]);
             latest = (r.rows[0] as { latest: string | null }).latest;
             if (latest) break;
           } catch { continue; }

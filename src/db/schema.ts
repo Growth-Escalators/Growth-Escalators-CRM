@@ -894,43 +894,85 @@ export const passwordResetTokens = pgTable('password_reset_tokens', {
 // ---------------------------------------------------------------------------
 // TABLE 36 — client_knowledge_base
 // ---------------------------------------------------------------------------
-export const clientKnowledgeBase = pgTable('client_knowledge_base', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  projectName: text('project_name').notNull(),
-  brandSummary: text('brand_summary'),
-  idealCustomer: text('ideal_customer'),
-  uniqueValueProposition: text('unique_value_proposition'),
-  keyDifferentiators: jsonb('key_differentiators').default([]),
-  proofPoints: jsonb('proof_points').default([]),
-  brandVoice: text('brand_voice'),
-  wordsAlwaysUse: jsonb('words_always_use').default([]),
-  wordsNeverUse: jsonb('words_never_use').default([]),
-  credentials: jsonb('credentials').default([]),
-  topServices: jsonb('top_services').default([]),
-  competitorDomains: jsonb('competitor_domains').default([]),
-  targetKeywordsPriority: jsonb('target_keywords_priority').default([]),
-  contentExamples: text('content_examples'),
-  updatedAt: timestamp('updated_at').defaultNow(),
-});
+// H18 (Fable review) — this and the other 9 SEO automation tables below had
+// no tenant_id at all; see migration 0035 header comment for the full finding.
+// Also reconciles column drift: ensureSeoTables()/ensureClientPagesTable()
+// (src/services/seoWorkflowHealthService.ts, programmaticSeoService.ts) have
+// been `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`-ing extra columns onto these
+// live tables for years without schema.ts ever knowing about them.
+export const clientKnowledgeBase = pgTable(
+  'client_knowledge_base',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    projectName: text('project_name').notNull(),
+    brandSummary: text('brand_summary'),
+    idealCustomer: text('ideal_customer'),
+    uniqueValueProposition: text('unique_value_proposition'),
+    keyDifferentiators: jsonb('key_differentiators').default([]),
+    proofPoints: jsonb('proof_points').default([]),
+    brandVoice: text('brand_voice'),
+    wordsAlwaysUse: jsonb('words_always_use').default([]),
+    wordsNeverUse: jsonb('words_never_use').default([]),
+    credentials: jsonb('credentials').default([]),
+    topServices: jsonb('top_services').default([]),
+    competitorDomains: jsonb('competitor_domains').default([]),
+    targetKeywordsPriority: jsonb('target_keywords_priority').default([]),
+    contentExamples: text('content_examples'),
+    // Drift columns — live via ensureSeoTables().
+    clientDomain: text('client_domain'),
+    brandName: text('brand_name'),
+    industry: text('industry'),
+    targetAudience: text('target_audience'),
+    uniqueValueProp: text('unique_value_prop'),
+    primaryKeywords: text('primary_keywords'),
+    toneOfVoice: text('tone_of_voice'),
+    competitors: text('competitors'),
+    contentThemes: text('content_themes'),
+    ctaStyle: text('cta_style'),
+    ga4PropertyId: text('ga4_property_id'),
+    gscDomain: text('gsc_domain'),
+    wordpressUrl: text('wordpress_url'),
+    targetMonthlyTraffic: integer('target_monthly_traffic'),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (t) => ({
+    tenantIdIdx: index('client_knowledge_base_tenant_id_idx').on(t.tenantId),
+  }),
+);
 
 // ---------------------------------------------------------------------------
 // TABLE 37 — client_pages
 // ---------------------------------------------------------------------------
-export const clientPages = pgTable('client_pages', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  projectName: text('project_name').notNull(),
-  pageUrl: text('page_url').notNull(),
-  pageTitle: text('page_title'),
-  targetKeyword: text('target_keyword'),
-  wordCount: integer('word_count').default(0),
-  internalLinksIn: jsonb('internal_links_in').default([]),
-  internalLinksOut: jsonb('internal_links_out').default([]),
-  publishedDate: timestamp('published_date'),
-  lastUpdated: timestamp('last_updated'),
-  wpPostId: integer('wp_post_id'),
-  indexed: boolean('indexed').default(false),
-  createdAt: timestamp('created_at').defaultNow(),
-});
+export const clientPages = pgTable(
+  'client_pages',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    projectName: text('project_name').notNull(),
+    pageUrl: text('page_url').notNull(),
+    pageTitle: text('page_title'),
+    targetKeyword: text('target_keyword'),
+    wordCount: integer('word_count').default(0),
+    internalLinksIn: jsonb('internal_links_in').default([]),
+    internalLinksOut: jsonb('internal_links_out').default([]),
+    publishedDate: timestamp('published_date'),
+    lastUpdated: timestamp('last_updated'),
+    wpPostId: integer('wp_post_id'),
+    indexed: boolean('indexed').default(false),
+    // Drift columns — live via ensureClientPagesTable() (programmaticSeoService.ts).
+    clientDomain: text('client_domain'),
+    pageSlug: text('page_slug'),
+    status: text('status').default('draft'),
+    pageType: text('page_type').default('manual'),
+    metaDescription: text('meta_description'),
+    content: text('content'),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    tenantIdIdx: index('client_pages_tenant_id_idx').on(t.tenantId),
+  }),
+);
 
 // ---------------------------------------------------------------------------
 // TABLE 38 — keyword_rankings
@@ -939,6 +981,7 @@ export const keywordRankings = pgTable(
   'keyword_rankings',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
     projectName: text('project_name').notNull(),
     keyword: text('keyword').notNull(),
     currentPosition: numeric('current_position'),
@@ -948,11 +991,15 @@ export const keywordRankings = pgTable(
     urlRanking: text('url_ranking'),
     featuredSnippet: boolean('featured_snippet').default(false),
     recordedDate: date('recorded_date').notNull(),
+    // Drift columns — live via ensureSeoTables().
+    clientDomain: text('client_domain'),
+    checkedAt: timestamp('checked_at').defaultNow(),
     createdAt: timestamp('created_at').defaultNow(),
   },
   (t) => ({
     projectKeywordIdx: index('keyword_rankings_project_keyword_idx').on(t.projectName, t.keyword),
     recordedDateIdx: index('keyword_rankings_recorded_date_idx').on(t.recordedDate),
+    tenantIdIdx: index('keyword_rankings_tenant_id_idx').on(t.tenantId),
   }),
 );
 
@@ -963,6 +1010,7 @@ export const backlinkData = pgTable(
   'backlink_data',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
     projectName: text('project_name').notNull(),
     sourceUrl: text('source_url'),
     targetUrl: text('target_url'),
@@ -972,11 +1020,15 @@ export const backlinkData = pgTable(
     firstSeen: date('first_seen'),
     lastSeen: date('last_seen'),
     status: text('status').default('active'),
+    // Drift columns — live via ensureSeoTables().
+    clientDomain: text('client_domain'),
+    checkedAt: timestamp('checked_at').defaultNow(),
     createdAt: timestamp('created_at').defaultNow(),
   },
   (t) => ({
     projectIdx: index('backlink_data_project_idx').on(t.projectName),
     statusIdx: index('backlink_data_status_idx').on(t.status),
+    tenantIdIdx: index('backlink_data_tenant_id_idx').on(t.tenantId),
   }),
 );
 
@@ -987,6 +1039,7 @@ export const contentGapAnalysis = pgTable(
   'content_gap_analysis',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
     projectName: text('project_name').notNull(),
     targetKeyword: text('target_keyword').notNull(),
     ourUrl: text('our_url'),
@@ -998,11 +1051,14 @@ export const contentGapAnalysis = pgTable(
     wordCountGap: integer('word_count_gap').default(0),
     priorityScore: numeric('priority_score').default('0'),
     status: text('status').default('pending'),
+    // Drift column — live via ensureSeoTables().
+    clientDomain: text('client_domain'),
     analysedAt: timestamp('analysed_at').defaultNow(),
   },
   (t) => ({
     projectKeywordIdx: index('content_gap_project_keyword_idx').on(t.projectName, t.targetKeyword),
     priorityScoreIdx: index('content_gap_priority_score_idx').on(t.priorityScore),
+    tenantIdIdx: index('content_gap_analysis_tenant_id_idx').on(t.tenantId),
   }),
 );
 
@@ -1013,6 +1069,7 @@ export const seoOpportunities = pgTable(
   'seo_opportunities',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
     projectName: text('project_name').notNull(),
     opportunityType: text('opportunity_type'),
     description: text('description'),
@@ -1020,9 +1077,21 @@ export const seoOpportunities = pgTable(
     effortLevel: text('effort_level'),
     status: text('status').default('open'),
     identifiedAt: timestamp('identified_at').defaultNow(),
+    // Drift columns — live via ensureSeoTables().
+    createdAt: timestamp('created_at').defaultNow(),
+    clientDomain: text('client_domain'),
+    clickupTaskId: text('clickup_task_id'),
+    clickupTaskUrl: text('clickup_task_url'),
+    priorityScore: integer('priority_score').default(0),
+    publishedUrl: text('published_url'),
+    outcome: text('outcome'),
+    outcomeMeasuredAt: timestamp('outcome_measured_at'),
+    keyword: text('keyword'),
+    notes: text('notes'),
   },
   (t) => ({
     projectStatusIdx: index('seo_opportunities_project_status_idx').on(t.projectName, t.status),
+    tenantIdIdx: index('seo_opportunities_tenant_id_idx').on(t.tenantId),
   }),
 );
 
@@ -1033,6 +1102,7 @@ export const siteHealthMetrics = pgTable(
   'site_health_metrics',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
     projectName: text('project_name').notNull(),
     pagespeedMobile: numeric('pagespeed_mobile'),
     pagespeedDesktop: numeric('pagespeed_desktop'),
@@ -1042,20 +1112,26 @@ export const siteHealthMetrics = pgTable(
     brokenLinksCount: integer('broken_links_count').default(0),
     indexedPagesCount: integer('indexed_pages_count').default(0),
     crawlErrorsCount: integer('crawl_errors_count').default(0),
+    // Drift column — live via ensureSeoTables().
+    clientDomain: text('client_domain'),
     checkedAt: timestamp('checked_at').defaultNow(),
   },
   (t) => ({
     projectCheckedAtIdx: index('site_health_project_checked_at_idx').on(t.projectName, t.checkedAt),
+    tenantIdIdx: index('site_health_metrics_tenant_id_idx').on(t.tenantId),
   }),
 );
 
 // ---------------------------------------------------------------------------
 // TABLE 43 — brand_mentions
 // ---------------------------------------------------------------------------
+// No client_domain drift column here — ensureSeoTables() never added one to
+// this table, and it has zero code touch-points anywhere in the app today.
 export const brandMentions = pgTable(
   'brand_mentions',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
     projectName: text('project_name').notNull(),
     mentionUrl: text('mention_url'),
     mentionText: text('mention_text'),
@@ -1065,6 +1141,61 @@ export const brandMentions = pgTable(
   },
   (t) => ({
     projectIdx: index('brand_mentions_project_idx').on(t.projectName),
+    tenantIdIdx: index('brand_mentions_tenant_id_idx').on(t.tenantId),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// seo_weekly_metrics — GSC/GA4 weekly rollups. Existed only as a raw
+// `CREATE TABLE IF NOT EXISTS` in ensureSeoTables() (src/services/
+// seoWorkflowHealthService.ts) with no Drizzle definition at all. Added here
+// so schema.ts reflects the live DB shape (H18, migration 0035).
+// ---------------------------------------------------------------------------
+export const seoWeeklyMetrics = pgTable(
+  'seo_weekly_metrics',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    projectName: text('project_name'),
+    clientDomain: text('client_domain'),
+    clientName: text('client_name'),
+    weekStart: date('week_start'),
+    weekStartDate: date('week_start_date'),
+    totalClicks: integer('total_clicks').default(0),
+    totalImpressions: integer('total_impressions').default(0),
+    avgPosition: numeric('avg_position'),
+    avgCtr: numeric('avg_ctr'),
+    totalSessions: integer('total_sessions').default(0),
+    ga4Sessions: integer('ga4_sessions').default(0),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    domainWeekIdx: index('seo_weekly_metrics_domain_week_idx').on(t.clientDomain, t.weekStart),
+    tenantIdIdx: index('seo_weekly_metrics_tenant_id_idx').on(t.tenantId),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// seo_alerts_log — SEO monitoring alerts. Same story as seo_weekly_metrics:
+// raw `CREATE TABLE IF NOT EXISTS` only, no Drizzle definition until now
+// (H18, migration 0035).
+// ---------------------------------------------------------------------------
+export const seoAlertsLog = pgTable(
+  'seo_alerts_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    projectName: text('project_name').notNull(),
+    alertType: text('alert_type'),
+    message: text('message'),
+    severity: text('severity').default('info'),
+    resolved: boolean('resolved').default(false),
+    createdAt: timestamp('created_at').defaultNow(),
+    clientDomain: text('client_domain'),
+  },
+  (t) => ({
+    createdIdx: index('seo_alerts_log_created_idx').on(t.createdAt),
+    tenantIdIdx: index('seo_alerts_log_tenant_id_idx').on(t.tenantId),
   }),
 );
 

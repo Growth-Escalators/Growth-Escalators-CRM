@@ -3,6 +3,7 @@ import logger from '../utils/logger';
 import { sendSlackDM } from './slackService';
 import { SLACK_JATIN } from '../config/constants';
 import { isPaused } from '../config/featureFlags';
+import { resolveDefaultSeoTenantId } from './seoTenantContext';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -220,11 +221,12 @@ async function checkSeo(): Promise<SubsystemHealth> {
   let recentRankings = 0;
 
   try {
+    const tenantId = await resolveDefaultSeoTenantId();
     const r = await pool.query(`
       SELECT
-        (SELECT COUNT(*)::int FROM seo_weekly_metrics WHERE week_start_date >= CURRENT_DATE - 14) AS recent_metrics,
-        (SELECT COUNT(*)::int FROM keyword_rankings WHERE checked_at >= NOW() - INTERVAL '48 hours') AS recent_rankings
-    `);
+        (SELECT COUNT(*)::int FROM seo_weekly_metrics WHERE week_start_date >= CURRENT_DATE - 14 AND tenant_id = $1) AS recent_metrics,
+        (SELECT COUNT(*)::int FROM keyword_rankings WHERE checked_at >= NOW() - INTERVAL '48 hours' AND tenant_id = $1) AS recent_rankings
+    `, [tenantId]);
     const m = r.rows[0] as Record<string, string>;
     recentMetrics = parseInt(m.recent_metrics ?? '0');
     recentRankings = parseInt(m.recent_rankings ?? '0');

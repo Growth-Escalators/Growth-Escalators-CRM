@@ -1,5 +1,6 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
+import { resolveDefaultSeoTenantId } from './seoTenantContext';
 
 /**
  * Backend-native content decay detection.
@@ -10,6 +11,7 @@ import logger from '../utils/logger';
 
 export async function runContentDecayDetection(): Promise<{ opportunities: number }> {
   let opportunities = 0;
+  const tenantId = await resolveDefaultSeoTenantId();
 
   try {
     // Pre-flight: if upstream rank tracker is silently broken (missing SERPER_API_KEY,
@@ -17,7 +19,8 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
     // returns 0 with no signal. Fail loudly in that case.
     const recentRowsQ = await pool.query(
       `SELECT COUNT(*)::int AS cnt FROM keyword_rankings
-       WHERE recorded_date >= CURRENT_DATE - INTERVAL '10 days'`,
+       WHERE recorded_date >= CURRENT_DATE - INTERVAL '10 days' AND tenant_id = $1`,
+      [tenantId],
     );
     const recentRows = Number((recentRowsQ.rows[0] as { cnt: number }).cnt);
     if (recentRows === 0) {
@@ -39,6 +42,7 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
         FROM keyword_rankings
         WHERE recorded_date >= CURRENT_DATE - INTERVAL '7 days'
           AND current_position IS NOT NULL
+          AND tenant_id = $1
         ORDER BY client_domain, keyword, recorded_date DESC
       ),
       older AS (
@@ -48,6 +52,7 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
         WHERE recorded_date >= CURRENT_DATE - INTERVAL '35 days'
           AND recorded_date < CURRENT_DATE - INTERVAL '7 days'
           AND current_position IS NOT NULL
+          AND tenant_id = $1
         ORDER BY client_domain, keyword, recorded_date DESC
       )
       SELECT r.client_domain, r.project_name, r.keyword,
@@ -59,7 +64,7 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
       WHERE r.current_position > o.old_position + 5
       ORDER BY (r.current_position - o.old_position) DESC
       LIMIT 20
-    `);
+    `, [tenantId]);
 
     for (const row of decayed.rows as Array<Record<string, unknown>>) {
       const domain = String(row.client_domain);
@@ -75,8 +80,9 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
            AND opportunity_type = 'content_decay'
            AND description ILIKE '%' || $2 || '%'
            AND created_at > NOW() - INTERVAL '14 days'
+           AND tenant_id = $3
          LIMIT 1`,
-        [domain, keyword],
+        [domain, keyword, tenantId],
       );
       if ((existing.rows as unknown[]).length > 0) continue;
 
@@ -89,8 +95,8 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
 
       const insertResult = await pool.query(
         `INSERT INTO seo_opportunities
-          (project_name, client_domain, opportunity_type, description, estimated_impact, effort_level, status, keyword, priority_score)
-         VALUES ($1, $1, 'content_decay', $2, $3, $4, 'open', $5, $6)
+          (project_name, client_domain, opportunity_type, description, estimated_impact, effort_level, status, keyword, priority_score, tenant_id)
+         VALUES ($1, $1, 'content_decay', $2, $3, $4, 'open', $5, $6, $7)
          RETURNING id`,
         [
           domain,
@@ -99,6 +105,7 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
           effort,
           keyword,
           priorityScore,
+          tenantId,
         ],
       );
       opportunities++;
@@ -114,6 +121,7 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
           client_domain, project_name, keyword, current_position, recorded_date
         FROM keyword_rankings
         WHERE current_position IS NOT NULL AND current_position <= 100
+          AND tenant_id = $1
         ORDER BY client_domain, keyword, recorded_date DESC
       )
       SELECT ls.client_domain, ls.project_name, ls.keyword, ls.current_position, ls.recorded_date
@@ -124,9 +132,10 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
           WHERE kr.client_domain = ls.client_domain AND kr.keyword = ls.keyword
             AND kr.recorded_date >= CURRENT_DATE - INTERVAL '14 days'
             AND kr.current_position IS NOT NULL
+            AND kr.tenant_id = $1
         )
       LIMIT 10
-    `);
+    `, [tenantId]);
 
     for (const row of lostRankings.rows as Array<Record<string, unknown>>) {
       const domain = String(row.client_domain);
@@ -138,8 +147,9 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
            AND opportunity_type = 'lost_ranking'
            AND description ILIKE '%' || $2 || '%'
            AND created_at > NOW() - INTERVAL '30 days'
+           AND tenant_id = $3
          LIMIT 1`,
-        [domain, keyword],
+        [domain, keyword, tenantId],
       );
       if ((existing.rows as unknown[]).length > 0) continue;
 
@@ -148,10 +158,10 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
 
       const lostInsertResult = await pool.query(
         `INSERT INTO seo_opportunities
-          (project_name, client_domain, opportunity_type, description, estimated_impact, effort_level, status, keyword, priority_score)
-         VALUES ($1, $1, 'lost_ranking', $2, 'high', 'medium', 'open', $3, $4)
+          (project_name, client_domain, opportunity_type, description, estimated_impact, effort_level, status, keyword, priority_score, tenant_id)
+         VALUES ($1, $1, 'lost_ranking', $2, 'high', 'medium', 'open', $3, $4, $5)
          RETURNING id`,
-        [domain, `"${keyword}" lost ranking entirely (was #${row.current_position}, last seen ${new Date(row.recorded_date as string).toLocaleDateString('en-IN')}). Needs content refresh or new backlinks.`, keyword, priorityScore],
+        [domain, `"${keyword}" lost ranking entirely (was #${row.current_position}, last seen ${new Date(row.recorded_date as string).toLocaleDateString('en-IN')}). Needs content refresh or new backlinks.`, keyword, priorityScore, tenantId],
       );
       opportunities++;
 

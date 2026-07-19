@@ -18,6 +18,13 @@ vi.mock('../config/constants', () => ({
   SLACK_SEO_CHANNEL: 'C_SEO_TEST',
 }));
 
+// H18 — runRankChecks() now resolves the single default SEO tenant before
+// running any query. Mock it directly rather than the full db.select() chain
+// seoTenantContext.ts uses internally.
+vi.mock('../services/seoTenantContext', () => ({
+  resolveDefaultSeoTenantId: vi.fn().mockResolvedValue('tenant-seo-default'),
+}));
+
 // ---------------------------------------------------------------------------
 // Tests for rankTrackingService.runRankChecks()
 // ---------------------------------------------------------------------------
@@ -59,6 +66,9 @@ describe('rankTrackingService', () => {
     vi.mock('../config/constants', () => ({
       SLACK_SEO_CHANNEL: 'C_SEO_TEST',
     }));
+    vi.mock('../services/seoTenantContext', () => ({
+      resolveDefaultSeoTenantId: vi.fn().mockResolvedValue('tenant-seo-default'),
+    }));
 
     const { runRankChecks } = await import('../services/rankTrackingService');
     const { sendSlackMessage } = await import('../services/slackService');
@@ -85,6 +95,9 @@ describe('rankTrackingService', () => {
     }));
     vi.mock('../config/constants', () => ({
       SLACK_SEO_CHANNEL: 'C_SEO_TEST',
+    }));
+    vi.mock('../services/seoTenantContext', () => ({
+      resolveDefaultSeoTenantId: vi.fn().mockResolvedValue('tenant-seo-default'),
     }));
 
     // Mock global fetch
