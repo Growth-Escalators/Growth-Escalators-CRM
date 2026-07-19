@@ -183,6 +183,28 @@ CREATE TABLE IF NOT EXISTS "seo_weekly_metrics" (
   "ga4_sessions" integer DEFAULT 0,
   "created_at" timestamp DEFAULT now()
 );--> statement-breakpoint
+-- HOTFIX (post-merge production failure): CREATE TABLE IF NOT EXISTS is a
+-- no-op against a table that already exists — and it already does, created
+-- long ago by an earlier version of ensureSeoTables()'s literal, before
+-- several of these columns were added to it. That earlier version never got
+-- retrofitted with ALTER statements for client_domain (only week_start has
+-- one, at ensureSeoTables():98), so the live table was missing client_domain
+-- when the next line's CREATE INDEX ran, and the whole migration transaction
+-- rolled back with `column "client_domain" does not exist`. Defensively
+-- ALTER every column of this table (matching the CREATE TABLE list exactly)
+-- so this is correct regardless of which subset actually exists live.
+ALTER TABLE "seo_weekly_metrics" ADD COLUMN IF NOT EXISTS "project_name" text;--> statement-breakpoint
+ALTER TABLE "seo_weekly_metrics" ADD COLUMN IF NOT EXISTS "client_domain" text;--> statement-breakpoint
+ALTER TABLE "seo_weekly_metrics" ADD COLUMN IF NOT EXISTS "client_name" text;--> statement-breakpoint
+ALTER TABLE "seo_weekly_metrics" ADD COLUMN IF NOT EXISTS "week_start" date;--> statement-breakpoint
+ALTER TABLE "seo_weekly_metrics" ADD COLUMN IF NOT EXISTS "week_start_date" date;--> statement-breakpoint
+ALTER TABLE "seo_weekly_metrics" ADD COLUMN IF NOT EXISTS "total_clicks" integer DEFAULT 0;--> statement-breakpoint
+ALTER TABLE "seo_weekly_metrics" ADD COLUMN IF NOT EXISTS "total_impressions" integer DEFAULT 0;--> statement-breakpoint
+ALTER TABLE "seo_weekly_metrics" ADD COLUMN IF NOT EXISTS "avg_position" numeric;--> statement-breakpoint
+ALTER TABLE "seo_weekly_metrics" ADD COLUMN IF NOT EXISTS "avg_ctr" numeric;--> statement-breakpoint
+ALTER TABLE "seo_weekly_metrics" ADD COLUMN IF NOT EXISTS "total_sessions" integer DEFAULT 0;--> statement-breakpoint
+ALTER TABLE "seo_weekly_metrics" ADD COLUMN IF NOT EXISTS "ga4_sessions" integer DEFAULT 0;--> statement-breakpoint
+ALTER TABLE "seo_weekly_metrics" ADD COLUMN IF NOT EXISTS "created_at" timestamp DEFAULT now();--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "seo_weekly_metrics_domain_week_idx" ON "seo_weekly_metrics" USING btree ("client_domain","week_start");--> statement-breakpoint
 ALTER TABLE "seo_weekly_metrics" ADD COLUMN IF NOT EXISTS "tenant_id" uuid;--> statement-breakpoint
 UPDATE "seo_weekly_metrics" SET "tenant_id" = (SELECT id FROM "tenants" ORDER BY created_at ASC LIMIT 1) WHERE "tenant_id" IS NULL;--> statement-breakpoint
@@ -206,6 +228,16 @@ CREATE TABLE IF NOT EXISTS "seo_alerts_log" (
   "created_at" timestamp DEFAULT now(),
   "client_domain" text
 );--> statement-breakpoint
+-- Same defensive treatment as seo_weekly_metrics above (see hotfix note
+-- there) — this table also predates this CREATE TABLE literal in production,
+-- so CREATE TABLE IF NOT EXISTS is a no-op against it. Applying these
+-- defensively regardless of which columns are actually already present.
+ALTER TABLE "seo_alerts_log" ADD COLUMN IF NOT EXISTS "alert_type" text;--> statement-breakpoint
+ALTER TABLE "seo_alerts_log" ADD COLUMN IF NOT EXISTS "message" text;--> statement-breakpoint
+ALTER TABLE "seo_alerts_log" ADD COLUMN IF NOT EXISTS "severity" text DEFAULT 'info';--> statement-breakpoint
+ALTER TABLE "seo_alerts_log" ADD COLUMN IF NOT EXISTS "resolved" boolean DEFAULT false;--> statement-breakpoint
+ALTER TABLE "seo_alerts_log" ADD COLUMN IF NOT EXISTS "created_at" timestamp DEFAULT now();--> statement-breakpoint
+ALTER TABLE "seo_alerts_log" ADD COLUMN IF NOT EXISTS "client_domain" text;--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "seo_alerts_log_created_idx" ON "seo_alerts_log" USING btree ("created_at");--> statement-breakpoint
 ALTER TABLE "seo_alerts_log" ADD COLUMN IF NOT EXISTS "tenant_id" uuid;--> statement-breakpoint
 UPDATE "seo_alerts_log" SET "tenant_id" = (SELECT id FROM "tenants" ORDER BY created_at ASC LIMIT 1) WHERE "tenant_id" IS NULL;--> statement-breakpoint
