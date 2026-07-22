@@ -289,8 +289,7 @@ async function test7_naturalLanguageApi(): Promise<void> {
 async function test8_n8nWorkflows(): Promise<void> {
   console.log('\n─── TEST 8: n8n workflows ───');
 
-  const n8nApiKey = process.env.N8N_SEO_API_KEY ||
-    '***REDACTED-ROTATED-2026-07-23***';
+  const n8nApiKey = process.env.N8N_SEO_API_KEY || N8N_API_KEY;
 
   const expectedWorkflows = [
     { id: 'YXmClFSKZB9DMkyu', name: 'WF-SEO-01' },
