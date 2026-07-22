@@ -21,13 +21,17 @@ import * as os from 'os';
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
 
+function requireEnv(name: string, label: string): string {
+  const v = process.env[name];
+  if (!v) throw new Error(`${label} missing — set ${name} in the environment before running seo-doctor`);
+  return v;
+}
+
 const N8N_URL       = 'https://primary-production-6c6f5.up.railway.app';
 const N8N_EMAIL     = 'jatin@growthescalators.com';
-const N8N_PASS      = 'GEn8n2026secure';
+const N8N_PASS      = requireEnv('N8N_ADMIN_PASSWORD', 'n8n login password');
 // Read-only API key (workflow:read scope) — used for GET /api/v1/workflows
-const N8N_API_KEY_RO = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI4ODVlYWFmZC1lMTYzLTQ3N2YtYjM3Yy01ZDVlYTIxNmYxYzQiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwianRpIjoiODBkMTZmNDgtZDNhMi00MWYzLWJiODUtNTE5ZmM1MjllMjgzIiwiaWF0IjoxNzc1MjExNDgyLCJleHAiOjE4MDY3NDc0ODE3Mjl9.np8WTP9KbRkMxpvefpPSwJrvYE_npY4n57XiMrR424w';
-
-const DB_PUBLIC_URL = 'postgresql://postgres:QQfAJEuFQBMoZxYpAerRJtTjcHDGtNHE@nozomi.proxy.rlwy.net:46852/railway';
+const N8N_API_KEY_RO = requireEnv('N8N_API_KEY', 'n8n API key');
 
 const RAILWAY_TOKEN      = (() => { try { const d = JSON.parse(fs.readFileSync(os.homedir() + '/.railway/config.json','utf8')); return d?.user?.token ?? ''; } catch { return ''; } })();
 const RAILWAY_PROJECT_ID = 'eef927aa-8e3a-4515-85fd-781b7d1d95c1';
@@ -363,7 +367,7 @@ const tableRowCounts: Record<string, number | null> = {};
 async function check4_database(): Promise<void> {
   log('\n══════ CHECK 4 — Database Tables & Row Counts ══════');
 
-  const dbUrl = process.env.DATABASE_URL ?? DB_PUBLIC_URL;
+  const dbUrl = process.env.DATABASE_URL ?? requireEnv('DATABASE_PUBLIC_URL', 'public Postgres connection string');
   try {
     pool = new Pool({ connectionString: dbUrl, connectionTimeoutMillis: 10000, ssl: dbUrl.includes('railway.internal') ? false : { rejectUnauthorized: false } });
     await pool.query('SELECT 1');
