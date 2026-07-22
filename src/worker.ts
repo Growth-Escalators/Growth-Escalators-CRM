@@ -1085,6 +1085,35 @@ cron.schedule('0 5 * * 4', () => safeCron('SEO Weekly Email', async () => {
 console.log('[cron] SEO weekly email scheduled — Thursdays 10:30 AM IST');
 
 // ---------------------------------------------------------------------------
+// GE SEO Pull — Monday 8:15 AM IST (2:45 UTC)
+// Runs scripts/ge-seo-pull.ts (a standalone CLI script, not a shared service
+// module — spawned as a subprocess rather than imported) to pull Search
+// Console + GA4 for growthescalators.com. Auth: GOOGLE_SEO_OAUTH_REFRESH_TOKEN
+// + GCP_OAUTH_CLIENT_ID/SECRET env vars in Railway (falls back to the local
+// ~/.ge-seo/oauth_credentials.json file, unused here, or a service account —
+// see getAuth() in the script). Doesn't collide with Weekly Outreach Summary
+// (2:30 UTC, same day) — 15 min offset.
+// Writes docs/seo/state/growthescalators.{json,md} to the container's local
+// filesystem — that's ephemeral on Railway (reset on every deploy/restart),
+// which is fine: it's a state cache Claude reads mid-session, not the source
+// of truth (GSC/GA4 are). Out of scope to persist it anywhere else.
+// ---------------------------------------------------------------------------
+cron.schedule('45 2 * * 1', () => safeCron('GE SEO Pull', async () => {
+  if (isPaused('seo')) return;
+  const { execFile } = await import('child_process');
+  const { promisify } = await import('util');
+  const execFileAsync = promisify(execFile);
+  const { stdout, stderr } = await execFileAsync('npx', ['tsx', 'scripts/ge-seo-pull.ts'], {
+    cwd: process.cwd(),
+    timeout: 5 * 60 * 1000, // 5 min — GSC + GA4 pull is a handful of API calls
+    env: process.env,
+  });
+  if (stdout) console.log(`[CRON] GE SEO Pull:\n${stdout}`);
+  if (stderr) console.warn(`[CRON] GE SEO Pull stderr:\n${stderr}`);
+}), { timezone: 'UTC' });
+console.log('[cron] GE SEO pull scheduled — Mondays 8:15 AM IST (2:45 UTC)');
+
+// ---------------------------------------------------------------------------
 // Task 7: Weekly Outreach Performance Summary — Monday 8:00 AM IST (2:30 UTC)
 // Posts pipeline stats + reply activity to Jatin's Slack DM
 // ---------------------------------------------------------------------------

@@ -4,13 +4,25 @@
  *
  * Replaces the dead n8n "WF-SEO-01 GSC + GA4 Data Pull". Pulls Search Console +
  * GA4 for growthescalators.com and writes a state file Claude reads each session.
- * Run manually only:  npx tsx scripts/ge-seo-pull.ts   (or: npm run ge:seo)
+ * Run manually:  npx tsx scripts/ge-seo-pull.ts   (or: npm run ge:seo)
+ * Also runs on a weekly Railway cron (see 'GE SEO Pull' in src/worker.ts).
  *
- * Requires `googleapis` (npm i googleapis) and a Google SERVICE ACCOUNT granted:
- *   - GSC property : Search Console → Settings → Users & permissions → add SA email
- *   - GA4 property : Admin → Property access management → add SA email (Viewer)
- * Provide the key + ids via env (NEVER commit them):
- *   GOOGLE_SA_KEY_PATH=/abs/path/sa.json     (or GOOGLE_SA_KEY_JSON='{...}')
+ * Auth, checked in this order (see getAuth() below):
+ *   1) Env-var OAuth (Railway cron) — set all three:
+ *        GOOGLE_SEO_OAUTH_REFRESH_TOKEN=...
+ *        GCP_OAUTH_CLIENT_ID=...       (already set in Railway for other flows)
+ *        GCP_OAUTH_CLIENT_SECRET=...   (already set in Railway for other flows)
+ *   2) Local OAuth file (manual runs) — ~/.ge-seo/oauth_credentials.json,
+ *      minted by scripts/mint_seo_refresh_token.py. Same client/refresh-token
+ *      shape as (1), just sourced from disk instead of env.
+ *   3) Service account (fallback) — requires `googleapis` (npm i googleapis)
+ *      and a Google SERVICE ACCOUNT granted:
+ *        - GSC property : Search Console → Settings → Users & permissions → add SA email
+ *        - GA4 property : Admin → Property access management → add SA email (Viewer)
+ *      Provide the key via env (NEVER commit it):
+ *        GOOGLE_SA_KEY_PATH=/abs/path/sa.json     (or GOOGLE_SA_KEY_JSON='{...}')
+ *
+ * Other env:
  *   GSC_PROPERTY=sc-domain:growthescalators.com   (default)
  *   GA4_PROPERTY_ID=123456789
  */
@@ -36,8 +48,16 @@ function getAuth() {
     'https://www.googleapis.com/auth/webmasters.readonly',
     'https://www.googleapis.com/auth/analytics.readonly',
   ];
-  // 1) OAuth refresh token minted by scripts/mint_seo_refresh_token.py (preferred:
-  //    authenticates as a user who already has GSC + GA4 access → no property grants).
+  // 1) Env-var OAuth refresh token (Railway cron — no local file on the container).
+  //    Same client/refresh-token pair as (2), just sourced from env instead of disk.
+  if (process.env.GOOGLE_SEO_OAUTH_REFRESH_TOKEN && process.env.GCP_OAUTH_CLIENT_ID && process.env.GCP_OAUTH_CLIENT_SECRET) {
+    const oauth = new google.auth.OAuth2(process.env.GCP_OAUTH_CLIENT_ID, process.env.GCP_OAUTH_CLIENT_SECRET);
+    oauth.setCredentials({ refresh_token: process.env.GOOGLE_SEO_OAUTH_REFRESH_TOKEN });
+    return oauth;
+  }
+  // 2) OAuth refresh token minted by scripts/mint_seo_refresh_token.py (preferred for
+  //    local/manual runs: authenticates as a user who already has GSC + GA4 access →
+  //    no property grants).
   const credsFile =
     process.env.GOOGLE_OAUTH_CREDS_FILE || path.join(os.homedir(), '.ge-seo', 'oauth_credentials.json');
   if (fs.existsSync(credsFile)) {
@@ -46,12 +66,12 @@ function getAuth() {
     oauth.setCredentials({ refresh_token: c.refresh_token });
     return oauth;
   }
-  // 2) Service-account fallback.
+  // 3) Service-account fallback.
   if (process.env.GOOGLE_SA_KEY_PATH)
     return new google.auth.GoogleAuth({ keyFile: process.env.GOOGLE_SA_KEY_PATH, scopes });
   if (process.env.GOOGLE_SA_KEY_JSON)
     return new google.auth.GoogleAuth({ credentials: JSON.parse(process.env.GOOGLE_SA_KEY_JSON), scopes });
-  throw new Error('No auth — run scripts/mint_seo_refresh_token.py first (or set GOOGLE_SA_KEY_PATH)');
+  throw new Error('No auth — set GOOGLE_SEO_OAUTH_REFRESH_TOKEN (+ GCP_OAUTH_CLIENT_ID/SECRET), or run scripts/mint_seo_refresh_token.py first, or set GOOGLE_SA_KEY_PATH');
 }
 
 async function pullGSC(auth: any) {
