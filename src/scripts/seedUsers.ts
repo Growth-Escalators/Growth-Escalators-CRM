@@ -6,9 +6,15 @@ import { db } from '../db/index';
 import { users } from '../db/schema';
 import { eq } from 'drizzle-orm';
 
+function requireEnv(name: string, label: string): string {
+  const v = process.env[name];
+  if (!v) throw new Error(`${label} missing — set ${name} in the environment before running seedUsers`);
+  return v;
+}
+
 const SEED_USERS = [
-  { name: 'Jatin Agrawal', email: 'jatin@growthescalators.com', password: '***REDACTED-ROTATED-2026-07-23***' },
-  { name: 'Sales Rep',     email: 'sales@growthescalators.com', password: '***REDACTED-ROTATED-2026-07-23***' },
+  { name: 'Jatin Agrawal', email: 'jatin@growthescalators.com', password: requireEnv('SEED_JATIN_PASSWORD', 'Jatin seed password') },
+  { name: 'Sales Rep',     email: 'sales@growthescalators.com', password: requireEnv('SEED_SALES_PASSWORD', 'Sales seed password') },
 ];
 
 async function seedUsers() {

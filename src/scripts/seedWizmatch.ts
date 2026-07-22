@@ -22,9 +22,15 @@ import { db, pool } from '../db/index';
 import { sql } from 'drizzle-orm';
 import { tenants, pipelines, sequences, wizmatchDomainHealth } from '../db/schema';
 
+function requireEnv(name: string, label: string): string {
+  const v = process.env[name];
+  if (!v) throw new Error(`${label} missing — set ${name} in the environment before running seedWizmatch`);
+  return v;
+}
+
 const ADMIN_EMAIL = 'jatin@wizmatch.com';
 const ADMIN_NAME = 'Jatin';
-const ADMIN_PASSWORD = process.env.WIZMATCH_ADMIN_PASSWORD || '***REDACTED-ROTATED-2026-07-23***';
+const ADMIN_PASSWORD = requireEnv('WIZMATCH_ADMIN_PASSWORD', 'Wizmatch admin seed password');
 const TENANT_SLUG = 'wizmatch';
 
 // 7-stage placements pipeline for Wizmatch staffing

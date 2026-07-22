@@ -45,7 +45,7 @@
         },
         "sendBody": true,
         "specifyBody": "string",
-        "body": "=JSON.stringify({\"email\": \"jatin@growthescalators.com\", \"password\": $env.GE_CRM_PASSWORD || \"***REDACTED-ROTATED-2026-07-23***\"})",
+        "body": "=JSON.stringify({\"email\": \"jatin@growthescalators.com\", \"password\": $env.GE_CRM_PASSWORD || \"\"})",
         "options": {
           "response": {
             "response": {
