@@ -8,10 +8,14 @@
  * Also runs on a weekly Railway cron (see 'GE SEO Pull' in src/worker.ts).
  *
  * Auth, checked in this order (see getAuth() below):
- *   1) Env-var OAuth (Railway cron) — set all three:
+ *   1) Env-var OAuth (Railway cron) — set all three. This MUST be its own
+ *      dedicated OAuth client, matching whatever client minted the refresh
+ *      token below — do NOT point this at Railway's other GCP_OAUTH_CLIENT_ID/
+ *      SECRET vars, they belong to an unrelated OAuth client and a refresh
+ *      token from one client will fail against another:
  *        GOOGLE_SEO_OAUTH_REFRESH_TOKEN=...
- *        GCP_OAUTH_CLIENT_ID=...       (already set in Railway for other flows)
- *        GCP_OAUTH_CLIENT_SECRET=...   (already set in Railway for other flows)
+ *        GOOGLE_SEO_OAUTH_CLIENT_ID=...
+ *        GOOGLE_SEO_OAUTH_CLIENT_SECRET=...
  *   2) Local OAuth file (manual runs) — ~/.ge-seo/oauth_credentials.json,
  *      minted by scripts/mint_seo_refresh_token.py. Same client/refresh-token
  *      shape as (1), just sourced from disk instead of env.
@@ -49,9 +53,9 @@ function getAuth() {
     'https://www.googleapis.com/auth/analytics.readonly',
   ];
   // 1) Env-var OAuth refresh token (Railway cron — no local file on the container).
-  //    Same client/refresh-token pair as (2), just sourced from env instead of disk.
-  if (process.env.GOOGLE_SEO_OAUTH_REFRESH_TOKEN && process.env.GCP_OAUTH_CLIENT_ID && process.env.GCP_OAUTH_CLIENT_SECRET) {
-    const oauth = new google.auth.OAuth2(process.env.GCP_OAUTH_CLIENT_ID, process.env.GCP_OAUTH_CLIENT_SECRET);
+  //    Dedicated client — must match whatever client minted the refresh token.
+  if (process.env.GOOGLE_SEO_OAUTH_REFRESH_TOKEN && process.env.GOOGLE_SEO_OAUTH_CLIENT_ID && process.env.GOOGLE_SEO_OAUTH_CLIENT_SECRET) {
+    const oauth = new google.auth.OAuth2(process.env.GOOGLE_SEO_OAUTH_CLIENT_ID, process.env.GOOGLE_SEO_OAUTH_CLIENT_SECRET);
     oauth.setCredentials({ refresh_token: process.env.GOOGLE_SEO_OAUTH_REFRESH_TOKEN });
     return oauth;
   }
@@ -71,7 +75,7 @@ function getAuth() {
     return new google.auth.GoogleAuth({ keyFile: process.env.GOOGLE_SA_KEY_PATH, scopes });
   if (process.env.GOOGLE_SA_KEY_JSON)
     return new google.auth.GoogleAuth({ credentials: JSON.parse(process.env.GOOGLE_SA_KEY_JSON), scopes });
-  throw new Error('No auth — set GOOGLE_SEO_OAUTH_REFRESH_TOKEN (+ GCP_OAUTH_CLIENT_ID/SECRET), or run scripts/mint_seo_refresh_token.py first, or set GOOGLE_SA_KEY_PATH');
+  throw new Error('No auth — set GOOGLE_SEO_OAUTH_REFRESH_TOKEN (+ GOOGLE_SEO_OAUTH_CLIENT_ID/SECRET), or run scripts/mint_seo_refresh_token.py first, or set GOOGLE_SA_KEY_PATH');
 }
 
 async function pullGSC(auth: any) {
