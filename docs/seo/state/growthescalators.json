@@ -1,25 +1,25 @@
 {
-  "pulledAt": "2026-07-22T19:38:45.104Z",
+  "pulledAt": "2026-07-23T03:49:58.250Z",
   "gsc": {
     "range": {
-      "startDate": "2026-06-24",
-      "endDate": "2026-07-21"
+      "startDate": "2026-06-25",
+      "endDate": "2026-07-22"
     },
     "totals": {
-      "clicks": 48,
-      "impressions": 977,
-      "ctr": 0.04912998976458546,
-      "position": 18.097236438075743
+      "clicks": 46,
+      "impressions": 959,
+      "ctr": 0.047966631908237745,
+      "position": 18.234619395203335
     },
     "topQueries": [
       {
         "keys": [
           "growth escalators"
         ],
-        "clicks": 30,
-        "impressions": 62,
-        "ctr": 0.4838709677419355,
-        "position": 1.129032258064516
+        "clicks": 28,
+        "impressions": 59,
+        "ctr": 0.4745762711864407,
+        "position": 1.1355932203389831
       },
       {
         "keys": [
@@ -243,28 +243,28 @@
         "keys": [
           "https://www.growthescalators.com/"
         ],
-        "clicks": 31,
-        "impressions": 173,
-        "ctr": 0.1791907514450867,
-        "position": 7.202312138728324
+        "clicks": 29,
+        "impressions": 164,
+        "ctr": 0.17682926829268292,
+        "position": 7.4817073170731705
       },
       {
         "keys": [
           "https://www.growthescalators.com/blog/top-5-performance-marketing-agencies-jaipur"
         ],
         "clicks": 11,
-        "impressions": 363,
-        "ctr": 0.030303030303030304,
-        "position": 9.658402203856749
+        "impressions": 359,
+        "ctr": 0.03064066852367688,
+        "position": 9.545961002785516
       },
       {
         "keys": [
           "https://growthescalators.com/"
         ],
         "clicks": 3,
-        "impressions": 148,
-        "ctr": 0.02027027027027027,
-        "position": 10.013513513513514
+        "impressions": 140,
+        "ctr": 0.02142857142857143,
+        "position": 10.064285714285715
       },
       {
         "keys": [
@@ -460,11 +460,154 @@
           "https://www.growthescalators.com/contact"
         ],
         "clicks": 0,
-        "impressions": 62,
+        "impressions": 58,
         "ctr": 0,
-        "position": 4
+        "position": 4.103448275862069
       }
     ]
   },
-  "ga4": null
+  "ga4": null,
+  "indexStatus": {
+    "sampleSize": 10,
+    "sitemaps": [
+      {
+        "path": "https://www.growthescalators.com/sitemap.xml",
+        "isPending": false,
+        "isSitemapsIndex": false,
+        "lastDownloaded": "2026-07-21T00:27:37.498Z",
+        "lastSubmitted": "2026-07-11T14:18:55.618Z",
+        "errors": 0,
+        "warnings": 0,
+        "contents": [
+          {
+            "type": "web",
+            "submitted": 44
+          }
+        ]
+      },
+      {
+        "path": "https://growthescalators.com/sitemap_index.xml",
+        "isPending": false,
+        "isSitemapsIndex": true,
+        "lastDownloaded": "2026-04-14T12:40:02.572Z",
+        "lastSubmitted": "2025-04-28T09:22:12.929Z",
+        "errors": 1,
+        "warnings": 4,
+        "contents": []
+      }
+    ],
+    "sitemapsError": null,
+    "urlStatus": [
+      {
+        "url": "https://growthescalators.com/",
+        "verdict": "NEUTRAL",
+        "coverageState": "Page with redirect",
+        "indexingState": "INDEXING_ALLOWED",
+        "robotsTxtState": "ALLOWED",
+        "pageFetchState": "SUCCESSFUL",
+        "lastCrawlTime": "2026-07-22T10:03:37Z",
+        "googleCanonical": "https://www.growthescalators.com/",
+        "userCanonical": "https://www.growthescalators.com/"
+      },
+      {
+        "url": "https://www.growthescalators.com/",
+        "verdict": "PASS",
+        "coverageState": "Submitted and indexed",
+        "indexingState": "INDEXING_ALLOWED",
+        "robotsTxtState": "ALLOWED",
+        "pageFetchState": "SUCCESSFUL",
+        "lastCrawlTime": "2026-07-22T10:03:37Z",
+        "googleCanonical": "https://www.growthescalators.com/",
+        "userCanonical": "https://www.growthescalators.com/"
+      },
+      {
+        "url": "https://www.growthescalators.com/blog/top-5-performance-marketing-agencies-jaipur",
+        "verdict": "PASS",
+        "coverageState": "Submitted and indexed",
+        "indexingState": "INDEXING_ALLOWED",
+        "robotsTxtState": "ALLOWED",
+        "pageFetchState": "SUCCESSFUL",
+        "lastCrawlTime": "2026-07-13T14:32:34Z",
+        "googleCanonical": "https://www.growthescalators.com/blog/top-5-performance-marketing-agencies-jaipur",
+        "userCanonical": "https://www.growthescalators.com/blog/top-5-performance-marketing-agencies-jaipur"
+      },
+      {
+        "url": "https://www.growthescalators.com/blog/google-ads-vs-meta-ecommerce-2026",
+        "verdict": "PASS",
+        "coverageState": "Submitted and indexed",
+        "indexingState": "INDEXING_ALLOWED",
+        "robotsTxtState": "ALLOWED",
+        "pageFetchState": "SUCCESSFUL",
+        "lastCrawlTime": "2026-07-11T21:11:36Z",
+        "googleCanonical": "https://www.growthescalators.com/blog/google-ads-vs-meta-ecommerce-2026",
+        "userCanonical": "https://www.growthescalators.com/blog/google-ads-vs-meta-ecommerce-2026"
+      },
+      {
+        "url": "https://www.growthescalators.com/blog/top-10-digital-marketing-agencies-in-jaipur-2026",
+        "verdict": "PASS",
+        "coverageState": "Submitted and indexed",
+        "indexingState": "INDEXING_ALLOWED",
+        "robotsTxtState": "ALLOWED",
+        "pageFetchState": "SUCCESSFUL",
+        "lastCrawlTime": "2026-07-16T11:33:04Z",
+        "googleCanonical": "https://www.growthescalators.com/blog/top-10-digital-marketing-agencies-in-jaipur-2026",
+        "userCanonical": "https://www.growthescalators.com/blog/top-10-digital-marketing-agencies-in-jaipur-2026"
+      },
+      {
+        "url": "https://www.growthescalators.com/d2c/beauty",
+        "verdict": "PASS",
+        "coverageState": "Submitted and indexed",
+        "indexingState": "INDEXING_ALLOWED",
+        "robotsTxtState": "ALLOWED",
+        "pageFetchState": "SUCCESSFUL",
+        "lastCrawlTime": "2026-07-18T17:25:47Z",
+        "googleCanonical": "https://www.growthescalators.com/d2c/beauty",
+        "userCanonical": "https://www.growthescalators.com/d2c/beauty"
+      },
+      {
+        "url": "https://www.growthescalators.com/services",
+        "verdict": "PASS",
+        "coverageState": "Submitted and indexed",
+        "indexingState": "INDEXING_ALLOWED",
+        "robotsTxtState": "ALLOWED",
+        "pageFetchState": "SUCCESSFUL",
+        "lastCrawlTime": "2026-07-22T09:02:44Z",
+        "googleCanonical": "https://www.growthescalators.com/services",
+        "userCanonical": "https://www.growthescalators.com/services"
+      },
+      {
+        "url": "https://dtc.growthescalators.com/",
+        "verdict": "PASS",
+        "coverageState": "Submitted and indexed",
+        "indexingState": "INDEXING_ALLOWED",
+        "robotsTxtState": "ALLOWED",
+        "pageFetchState": "SUCCESSFUL",
+        "lastCrawlTime": "2026-05-24T16:43:54Z",
+        "googleCanonical": "https://dtc.growthescalators.com/",
+        "userCanonical": null
+      },
+      {
+        "url": "https://dtc.growthescalators.com/ecom-discovery-booking-calendar",
+        "verdict": "PASS",
+        "coverageState": "Submitted and indexed",
+        "indexingState": "INDEXING_ALLOWED",
+        "robotsTxtState": "ALLOWED",
+        "pageFetchState": "SUCCESSFUL",
+        "lastCrawlTime": "2026-06-01T11:05:26Z",
+        "googleCanonical": "https://dtc.growthescalators.com/ecom-discovery-booking-calendar",
+        "userCanonical": null
+      },
+      {
+        "url": "https://ecom.growthescalators.com/",
+        "verdict": "PASS",
+        "coverageState": "Submitted and indexed",
+        "indexingState": "INDEXING_ALLOWED",
+        "robotsTxtState": "ALLOWED",
+        "pageFetchState": "SUCCESSFUL",
+        "lastCrawlTime": "2026-07-03T07:14:03Z",
+        "googleCanonical": "https://ecom.growthescalators.com/",
+        "userCanonical": null
+      }
+    ]
+  }
 }
