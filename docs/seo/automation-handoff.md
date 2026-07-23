@@ -332,7 +332,7 @@ VALUES ('aarohaom', 'https://aarohaom.com/page/', 'Page Title', 'target keyword'
 - **Check:** Claude API credits at console.anthropic.com
 
 ### Claude API (WF-SEO-04) fails entity scoring
-- NL API key used: `GCP_NL_API_KEY` = `AIzaSyBu6ZkzPyXbYK1QKnidBqsQkbGhxODGnrc`
+- NL API key used: `GCP_NL_API_KEY` = `***REDACTED 2026-07-23 — plaintext value found committed here, removed from working tree; still in git history — treat as compromised until rotated***`
 - GCP Project: `clickup-auto-prod-260311`
 - Free tier: 5,000 natural language units/month
 - If quota exceeded, the workflow continues without entity scoring
@@ -347,7 +347,7 @@ railway run npx tsx scripts/test-seo-system.ts
 
 # Run with external DB (from local machine)
 DATABASE_URL="postgresql://postgres:PASSWORD@nozomi.proxy.rlwy.net:46852/railway" \
-  GOOGLE_PLACES_API_KEY="AIzaSyBu6ZkzPyXbYK1QKnidBqsQkbGhxODGnrc" \
+  GOOGLE_PLACES_API_KEY="***REDACTED 2026-07-23 — plaintext value found committed here (mislabeled copy-paste of the GCP_NL_API_KEY value above), removed from working tree; still in git history — treat as compromised until rotated***" \
   SLACK_BOT_TOKEN="xoxb-***" \
   npx tsx scripts/test-seo-system.ts
 ```

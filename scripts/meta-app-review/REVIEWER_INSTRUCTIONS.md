@@ -8,7 +8,7 @@
 ## Test Credentials
 
 - **Email:** `meta-reviewer@growthescalators.com`
-- **Password:** `2xItcLc1ch42MUUY1fwFzz8N`
+- **Password:** `***REDACTED 2026-07-23 — plaintext value found committed here, removed from working tree; still in git history and matches the live production CRM login as of this writing — treat as compromised until rotated; request the current password from Jatin, do not commit it***`
 
 Use Chrome incognito mode for cleanest experience.
 
@@ -57,7 +57,7 @@ Growth Escalators is a CRM for D2C marketing agencies and brands. Business clien
 ```bash
 curl -X POST https://api.growthescalators.com/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"meta-reviewer@growthescalators.com","password":"2xItcLc1ch42MUUY1fwFzz8N"}'
+  -d '{"email":"meta-reviewer@growthescalators.com","password":"<PASSWORD — request from Jatin, do not commit>"}'
 ```
 
 Response: `200 { "token": "<JWT>", "user": { "id", "name", "email", "role": "admin" } }`. Rate limit is 5 requests per minute per IP.
