@@ -7,6 +7,25 @@
  * Run manually:  npx tsx scripts/ge-seo-pull.ts   (or: npm run ge:seo)
  * Also runs on a weekly Railway cron (see 'GE SEO Pull' in src/worker.ts).
  *
+ * Indexing/coverage (on top of the original clicks/impressions pull — see
+ * pullIndexStatus() below):
+ *   - sitemaps.list — per-sitemap submitted-URL counts, pending/error/warning state.
+ *     NOTE: Google's `WmxSitemapContent.indexed` field is documented deprecated and
+ *     comes back empty — there is no reliable sitemap-level "indexed count" from this
+ *     API. We only surface `submitted` counts; we do not invent an indexed number.
+ *   - urlInspection.index.inspect — real per-URL indexing/coverage status (coverageState,
+ *     verdict, robots/fetch state). Checked live against Google's current usage-limits
+ *     docs: quota is 2,000 QPD / 600 QPM per property — generous enough for a small fixed
+ *     sample, NOT for whole-site coverage. We inspect the homepage + the top pages already
+ *     returned by the performance pull (capped at INDEX_SAMPLE_SIZE), not every indexed URL.
+ *     (The "~10-12/day" figure in the SEO standard's readiness checklist is the separate
+ *     "Request Indexing" UI-button quota, not this read-only inspection API.)
+ *   - This is a single-pull snapshot. The script overwrites state every run, so there is no
+ *     history yet to compute a real "trending worse over 4+ weeks" signal (the standard's
+ *     "Crawled - currently not indexed" pause-publishing trigger) — that needs this data
+ *     retained across runs (e.g. appended rows), which doesn't exist yet. Flagged as a gap
+ *     below rather than faked.
+ *
  * Auth, checked in this order (see getAuth() below):
  *   1) Env-var OAuth (Railway cron) — set all three. This MUST be its own
  *      dedicated OAuth client, matching whatever client minted the refresh
@@ -29,6 +48,7 @@
  * Other env:
  *   GSC_PROPERTY=sc-domain:growthescalators.com   (default)
  *   GA4_PROPERTY_ID=123456789
+ *   INDEX_SAMPLE_SIZE=10                          (URL Inspection sample size, default 10)
  */
 import { google } from 'googleapis';
 import * as fs from 'fs';
@@ -40,11 +60,18 @@ const GA4_PROPERTY_ID = process.env.GA4_PROPERTY_ID || '';
 const OUT_DIR = path.resolve(__dirname, '../docs/seo/state');
 const DAYS = 28;
 const AI_REFERRERS = ['chatgpt.com', 'perplexity.ai', 'gemini.google.com', 'copilot.microsoft.com', 'claude.ai'];
+const INDEX_SAMPLE_SIZE = Number(process.env.INDEX_SAMPLE_SIZE || 10);
 
 function isoDaysAgo(n: number): string {
   const d = new Date();
   d.setDate(d.getDate() - n);
   return d.toISOString().slice(0, 10);
+}
+
+// sc-domain: properties have no single canonical URL — derive the homepage for URL
+// Inspection (which needs a real URL, not a domain-property identifier).
+function siteHomepage(): string {
+  return GSC_PROPERTY.startsWith('sc-domain:') ? `https://${GSC_PROPERTY.slice('sc-domain:'.length)}/` : GSC_PROPERTY;
 }
 
 function getAuth() {
@@ -126,7 +153,67 @@ async function pullGA4(auth: any) {
   return { channels: channels.rows || [], aiReferrers };
 }
 
-function toMarkdown(gsc: any, ga4: any): string {
+/**
+ * Indexing/coverage snapshot: sitemap-level submitted counts + a per-URL indexing-status
+ * sample (homepage + top pages from the performance pull). See the file header for the
+ * quota research and the "sitemap indexed count is deprecated" caveat — both are real
+ * constraints of the Search Console API today, not something this script works around.
+ */
+async function pullIndexStatus(auth: any, gsc: any) {
+  const sc = google.searchconsole({ version: 'v1', auth });
+
+  let sitemaps: any[] = [];
+  let sitemapsError: string | null = null;
+  try {
+    const res = await sc.sitemaps.list({ siteUrl: GSC_PROPERTY });
+    sitemaps = (res.data.sitemap || []).map((s: any) => ({
+      path: s.path || null,
+      isPending: !!s.isPending,
+      isSitemapsIndex: !!s.isSitemapsIndex,
+      lastDownloaded: s.lastDownloaded || null,
+      lastSubmitted: s.lastSubmitted || null,
+      errors: Number(s.errors || 0),
+      warnings: Number(s.warnings || 0),
+      // `contents[].indexed` is documented deprecated by Google and comes back empty —
+      // deliberately not surfaced. `submitted` is the only trustworthy count here.
+      contents: (s.contents || []).map((c: any) => ({ type: c.type || null, submitted: Number(c.submitted || 0) })),
+    }));
+  } catch (e: any) {
+    sitemapsError = e.message;
+    console.error('sitemaps.list error:', e.message);
+  }
+
+  const homepage = siteHomepage();
+  const sampleUrls = Array.from(new Set([homepage, ...gsc.topPages.map((p: any) => p.keys[0])])).slice(
+    0,
+    INDEX_SAMPLE_SIZE
+  );
+
+  const urlStatus: any[] = [];
+  for (const url of sampleUrls) {
+    try {
+      const res = await sc.urlInspection.index.inspect({ requestBody: { inspectionUrl: url, siteUrl: GSC_PROPERTY } });
+      const r = res.data.inspectionResult?.indexStatusResult;
+      urlStatus.push({
+        url,
+        verdict: r?.verdict || null,
+        coverageState: r?.coverageState || null,
+        indexingState: r?.indexingState || null,
+        robotsTxtState: r?.robotsTxtState || null,
+        pageFetchState: r?.pageFetchState || null,
+        lastCrawlTime: r?.lastCrawlTime || null,
+        googleCanonical: r?.googleCanonical || null,
+        userCanonical: r?.userCanonical || null,
+      });
+    } catch (e: any) {
+      urlStatus.push({ url, error: e.message });
+    }
+  }
+
+  return { sampleSize: sampleUrls.length, sitemaps, sitemapsError, urlStatus };
+}
+
+function toMarkdown(gsc: any, ga4: any, indexStatus: any): string {
   const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
   let s = `# growthescalators.com — SEO state\n_Pulled ${now} UTC (on-demand). Window ${gsc.range.startDate} → ${gsc.range.endDate}._\n\n`;
   s += `## Google Search Console\n- Clicks **${Math.round(gsc.totals.clicks)}** · Impressions **${Math.round(gsc.totals.impressions)}** · CTR ${(gsc.totals.ctr * 100).toFixed(1)}% · Avg pos ${gsc.totals.position.toFixed(1)}\n\n`;
@@ -134,10 +221,41 @@ function toMarkdown(gsc: any, ga4: any): string {
   s += `**Top pages**\n${gsc.topPages.map((r: any) => `- ${r.keys[0]} — ${Math.round(r.clicks)} clk / pos ${r.position.toFixed(1)}`).join('\n') || '- (none)'}\n\n`;
   if (ga4) {
     s += `## GA4\n**Channels**\n${ga4.channels.map((r: any) => `- ${r.dimensionValues[0].value}: ${r.metricValues[0].value} sessions`).join('\n') || '- (none)'}\n\n`;
-    s += `**AI referrers**\n${ga4.aiReferrers.map((r: any) => `- ${r.dimensionValues[0].value}: ${r.metricValues[0].value} sessions`).join('\n') || '- (none detected)'}\n`;
+    s += `**AI referrers**\n${ga4.aiReferrers.map((r: any) => `- ${r.dimensionValues[0].value}: ${r.metricValues[0].value} sessions`).join('\n') || '- (none detected)'}\n\n`;
   } else {
-    s += `## GA4\n_(set GA4_PROPERTY_ID to enable)_\n`;
+    s += `## GA4\n_(set GA4_PROPERTY_ID to enable)_\n\n`;
   }
+
+  s += `## Indexing & coverage (snapshot, not a trend)\n`;
+  s += `_Single-pull snapshot — this script overwrites state each run, so there is no history yet to`
+    + ` compute a real "4+ weeks trending worse" signal per the SEO standard. Do not treat a single`
+    + ` "Crawled - currently not indexed" reading below as that trend; it isn't one yet._\n\n`;
+
+  if (indexStatus.sitemapsError) {
+    s += `**Sitemaps**\n_Error: ${indexStatus.sitemapsError}_\n\n`;
+  } else {
+    s += `**Sitemaps** _(submitted counts only — Google's per-sitemap "indexed" field is deprecated/empty, not surfaced)_\n`;
+    s += `${
+      indexStatus.sitemaps
+        .map((sm: any) => {
+          const contents = sm.contents.map((c: any) => `${c.submitted} ${c.type || 'urls'}`).join(', ') || 'no content rows';
+          return `- ${sm.path} — submitted: ${contents} · errors ${sm.errors} · warnings ${sm.warnings}${sm.isPending ? ' · PENDING' : ''} · last downloaded ${sm.lastDownloaded || 'never'}`;
+        })
+        .join('\n') || '- (no sitemaps registered)'
+    }\n\n`;
+  }
+
+  s += `**Sampled page indexing status** (homepage + top ${indexStatus.sampleSize} pages from the performance pull above; URL Inspection API quota is 2,000/day · 600/min per property, so this is a fixed sample, not full-site coverage)\n`;
+  s += `${
+    indexStatus.urlStatus
+      .map((u: any) =>
+        u.error
+          ? `- ${u.url} — error: ${u.error}`
+          : `- ${u.url} — ${u.coverageState || 'unknown'} (verdict: ${u.verdict || 'n/a'}${u.robotsTxtState && u.robotsTxtState !== 'ALLOWED' ? `, robots: ${u.robotsTxtState}` : ''}${u.lastCrawlTime ? `, last crawled ${u.lastCrawlTime.slice(0, 10)}` : ''})`
+      )
+      .join('\n') || '- (no URLs sampled)'
+  }\n`;
+
   return s;
 }
 
@@ -150,9 +268,17 @@ async function main() {
     console.error('GA4 error:', e.message);
     return null;
   });
+  console.log(`Indexing/coverage pull → sitemaps.list + urlInspection sample (${INDEX_SAMPLE_SIZE} URLs)`);
+  const indexStatus = await pullIndexStatus(auth, gsc).catch((e) => {
+    console.error('Indexing/coverage pull error:', e.message);
+    return { sampleSize: 0, sitemaps: [], sitemapsError: e.message, urlStatus: [] };
+  });
   fs.mkdirSync(OUT_DIR, { recursive: true });
-  fs.writeFileSync(path.join(OUT_DIR, 'growthescalators.json'), JSON.stringify({ pulledAt: new Date().toISOString(), gsc, ga4 }, null, 2));
-  fs.writeFileSync(path.join(OUT_DIR, 'growthescalators.md'), toMarkdown(gsc, ga4));
+  fs.writeFileSync(
+    path.join(OUT_DIR, 'growthescalators.json'),
+    JSON.stringify({ pulledAt: new Date().toISOString(), gsc, ga4, indexStatus }, null, 2)
+  );
+  fs.writeFileSync(path.join(OUT_DIR, 'growthescalators.md'), toMarkdown(gsc, ga4, indexStatus));
   console.log('✅ Wrote docs/seo/state/growthescalators.{md,json}');
 }
 
