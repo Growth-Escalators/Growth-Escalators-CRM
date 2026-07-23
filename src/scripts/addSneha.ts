@@ -12,12 +12,18 @@ import { hash } from '@node-rs/argon2';
  *   railway run --service web npx tsx src/scripts/addSneha.ts
  */
 
+function requireEnv(name: string, label: string): string {
+  const v = process.env[name];
+  if (!v) throw new Error(`${label} missing — set ${name} in the environment before running addSneha`);
+  return v;
+}
+
 const SNEHA = {
   name: 'Sneha Joshi',
   email: 'sneha.joshi@growthescalators.com',
   role: 'staff',
   // Initial password — Sneha can change this any time via "Forgot password" on the login page.
-  password: '***REDACTED-ROTATED-2026-07-23***',
+  password: requireEnv('SEED_SNEHA_PASSWORD', 'Sneha seed password'),
 };
 
 async function addSneha() {
