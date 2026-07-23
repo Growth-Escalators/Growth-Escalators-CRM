@@ -1266,6 +1266,19 @@ cron.schedule('30 11 * * 5', () => safeCron('SEO Weekly Digest', async () => {
 }), { timezone: 'UTC' });
 console.log('[cron] SEO weekly digest scheduled — Fridays 5:00 PM IST (backend-native)');
 
+// GSC "Request Indexing" reminder — Fridays 12:30 PM IST (7:00 UTC).
+// There is no supported API for requesting indexing on ordinary pages, so this
+// never calls Google — it syncs the queue from the live sitemap (diffed against
+// GSC top-pages, a proxy for "already indexed"), then DMs Jatin a small batch to
+// click through by hand in the real GSC UI. See seoIndexingQueueService.ts.
+cron.schedule('0 7 * * 5', () => safeCron('SEO Indexing Reminder', async () => {
+  if (isPaused('seo')) return;
+  const { sendIndexingReminderDigest } = await import('./services/seoIndexingQueueService');
+  const result = await sendIndexingReminderDigest();
+  console.log(`[CRON] SEO Indexing Reminder: ${result.sent ? `sent (${result.count} URLs, ${result.pendingTotal} pending total)` : 'skipped (nothing due)'}`);
+}), { timezone: 'UTC' });
+console.log('[cron] SEO indexing reminder scheduled — Fridays 12:30 PM IST (backend-native)');
+
 // Competitor Content Analysis — 1st and 15th of each month at 9:00 AM IST (3:30 UTC)
 cron.schedule('30 3 1,15 * *', () => safeCron('Competitor Content Analysis', async () => {
   if (isPaused('seo')) return;

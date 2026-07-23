@@ -36,6 +36,16 @@ export const CRITICAL_THRESHOLD_DAYS = Number(process.env.CRITICAL_THRESHOLD_DAY
 // -- Tenant Slug (for single-tenant queries) ---------------------------------
 export const DEFAULT_TENANT_SLUG = process.env.DEFAULT_TENANT_SLUG ?? 'growth-escalators';
 
+// -- SEO: GSC "Request Indexing" queue ----------------------------------------
+// There is no supported API for requesting indexing on ordinary pages (Google's
+// Indexing API is restricted to Job Posting / Livestream structured data) — so
+// this is a human-in-the-loop queue: we track candidate URLs and remind Jatin
+// to click "Request Indexing" himself in the GSC UI. See seoIndexingQueueService.ts.
+export const SEO_INDEXING_SITEMAP_URL = process.env.SEO_INDEXING_SITEMAP_URL ?? 'https://growthescalators.com/sitemap.xml';
+// Keep well under GSC's per-day URL Inspection quota (~10-12/day) since this is
+// a *weekly* batch — don't hand Jatin a wall of 50 links at once.
+export const SEO_INDEXING_WEEKLY_LIMIT = Number(process.env.SEO_INDEXING_WEEKLY_LIMIT ?? '10');
+
 // -- Wizmatch Staffing Module ------------------------------------------------
 export const WIZMATCH_TENANT_ID = process.env.WIZMATCH_TENANT_ID ?? '';
 export const WIZMATCH_LEADS_CHANNEL = process.env.WIZMATCH_LEADS_CHANNEL ?? '';

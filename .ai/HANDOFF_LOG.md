@@ -6,6 +6,66 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-23 — GSC "Request Indexing" queue + weekly reminder — Claude — BRANCH ONLY, PR OPEN, NOT MERGED
+
+**Why:** Jatin decided (earlier session, never built) that "Request Indexing" on growthescalators.com
+should stay human-in-the-loop — Google's real Indexing API only covers Job Posting/Livestream
+structured data, so there's no API to call for ordinary pages. The only path is GSC's URL Inspection
+UI, one click per URL, ~10-12/day quota. Design: track candidate URLs, remind Jatin weekly, he clicks.
+
+**What this PR adds** (branch `feat/seo-indexing-queue`, no merge/deploy):
+- `src/services/seoIndexingQueueService.ts` — new `seo_indexing_queue` ensure-hook table (url,
+  reason, status pending/requested/done, date_added, last_reminded_at, requested_at, done_at;
+  `UNIQUE(tenant_id, url)`). `syncIndexingQueueFromSitemap()` fetches the live sitemap, cross-
+  references URLs against `docs/seo/state/growthescalators.json`'s `gsc.topPages` (proxy for
+  "already indexed and getting impressions"), queues anything not in that set, and auto-flips
+  existing queued rows to `done` once they start showing up in top-pages on a later sync — no
+  hardcoded URL list, works as new pages get added.
+- `sendIndexingReminderDigest()` — syncs, then DMs Jatin (via the existing `sendSlackDM`/`SLACK_JATIN`
+  path other crons already use) up to `SEO_INDEXING_WEEKLY_LIMIT` (default 10) due URLs with
+  instructions + the mark-done command. Skips sending when nothing is due (no "all clear" noise).
+- New weekly cron **"SEO Indexing Reminder"** in `src/worker.ts`, Fridays 12:30 PM IST, `safeCron`-
+  wrapped, gated on `isPaused('seo')` — same pattern as the existing "SEO Weekly Digest"/"Weekly
+  Outreach Summary" crons.
+- `scripts/seo-indexing-queue.ts` (`npm run seo:indexing-queue -- <cmd>`) — manual ops CLI:
+  `sync`, `remind`, `list [status]`, `requested <url>`, `done <url>`, `pending <url>`. This is the
+  "mark it done when you're done clicking" side — never touches GSC itself.
+- Ensure-hook wired into `src/index.ts` boot; new constants `SEO_INDEXING_SITEMAP_URL` /
+  `SEO_INDEXING_WEEKLY_LIMIT` in `src/config/constants.ts`.
+
+**Verified locally:**
+- `npm run build` (tsc) clean; `npx vitest --run` — 781/781 tests passing incl. 18 new
+  (`src/__tests__/seoIndexingQueue.test.ts`: normalize/fetch/sync/due/mark/reminder, all pool +
+  Slack + axios mocked). 2 pre-existing failing suites (`adminFrontendHelpers`,
+  `wizmatchRouteRegistry`) are unrelated — missing `admin/node_modules` (`lucide-react`), confirmed
+  present before this change.
+- Live sitemap fetch confirmed against the real `growthescalators.com/sitemap.xml` (58 URLs, flat
+  `<urlset>`, no XML dep needed) diffed against the real `docs/seo/state/growthescalators.json` —
+  19 URLs already in GSC top-pages, 39 real candidates queued (e.g. `/staffing`,
+  `/white-label-software-development`, the new Jaipur industry landing pages) — sane, not guessed.
+- Full ensure-table → sync → mark-requested/done → re-sync (idempotency) flow run end-to-end against
+  a real, fully isolated scratch Postgres DB (not the shared dev DB) — insert/idempotency/status-
+  transition behavior all correct.
+- **Not verified (needs a live cron tick or Jatin's real Slack):** the actual weekly cron firing in
+  Railway, and the real DM landing in Jatin's Slack (`SLACK_BOT_TOKEN` not present in this sandbox,
+  so `sendSlackDM` no-ops safely rather than sending).
+
+**Note for Jatin — found during verification, not caused by this PR's committed code:** the shared
+local dev DB (`growth_escalators_dev`) already contained a `seo_indexing_queue` table with ~39 rows
+timestamped ~09:20 IST today, before this session ran anything against it — strong evidence another
+agent/session built and locally exercised a very similar feature against the same shared dev
+Postgres moments earlier (no matching source file was found on any branch/worktree, so it was
+likely a temp script, since deleted). My own verification pass briefly (and accidentally, via an
+operator-precedence bug in a cleanup query I did not commit) reset all 39 of those rows back to
+`pending` before I caught it and moved further verification to an isolated scratch DB. Dev-only,
+no prod impact, but worth knowing before assuming this PR is the only work in flight on this task.
+
+**Guardrails:** no `schema.ts`/migration change (ensure-hook table per `ge-add-ensure-table`), no
+auth/rbac/cashfree/sodEod change, no env var required to function (both new constants have safe
+defaults), no production data touched, no merge/push/deploy performed.
+
+---
+
 ## 2026-07-16 — Free POC discovery ENABLED in production (env flag) — Claude — LIVE PRODUCTION ENV CHANGE
 
 - Set `WIZMATCH_POC_DISCOVERY_ENABLED=true` on the production `web` service (project `GE-Backend-Server`

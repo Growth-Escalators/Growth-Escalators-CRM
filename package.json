@@ -27,7 +27,8 @@
     "wizmatch:env-check": "npx tsx scripts/wizmatch-env-check.ts",
     "wizmatch:staffing-backfill-preview": "tsx scripts/wizmatch-staffing-backfill-preview.ts",
     "ai:brief": "tsx scripts/generate-ai-brief.ts",
-    "ge:seo": "npx tsx scripts/ge-seo-pull.ts"
+    "ge:seo": "npx tsx scripts/ge-seo-pull.ts",
+    "seo:indexing-queue": "npx tsx scripts/seo-indexing-queue.ts"
   },
   "keywords": [],
   "author": "",

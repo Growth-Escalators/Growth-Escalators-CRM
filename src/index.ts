@@ -565,6 +565,9 @@ async function startServer() {
   import('./services/seoWorkflowHealthService').then(m => m.ensureSeoTables())
     .then(() => import('./services/seoKnowledgeBase').then(m => m.seedClientKnowledgeBase()))
     .catch(e => console.error('[startup] SEO tables/seed failed:', e));
+  // Bootstrap seo_indexing_queue table (GSC "Request Indexing" human-in-the-loop queue)
+  import('./services/seoIndexingQueueService').then(m => m.ensureSeoIndexingQueueTable())
+    .catch(e => console.error('[startup] seo_indexing_queue table bootstrap failed:', e));
   // Bootstrap deal activity columns + table
   pool.query(`
     ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS stage_config JSONB DEFAULT '{}'::jsonb;
