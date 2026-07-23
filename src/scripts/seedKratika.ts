@@ -14,10 +14,16 @@ import { hash } from '@node-rs/argon2';
 import { db, tenants, users } from '../db/index';
 import { eq } from 'drizzle-orm';
 
+function requireEnv(name: string, label: string): string {
+  const v = process.env[name];
+  if (!v) throw new Error(`${label} missing — set ${name} in the environment before running seedKratika`);
+  return v;
+}
+
 const EMAIL = 'kratika.gangwal@growthescalators.com';
 const NAME  = 'Kratika Gangwal';
 const ROLE  = 'creative_assistant';
-const PASSWORD = 'Kg!8mQ7pX2zL'; // CHANGE-AT-FIRST-LOGIN — share securely
+const PASSWORD = requireEnv('SEED_KRATIKA_PASSWORD', 'Kratika seed password'); // CHANGE-AT-FIRST-LOGIN — share securely
 
 async function main() {
   // 1. Find the Growth Escalators tenant (single-tenant install but matches

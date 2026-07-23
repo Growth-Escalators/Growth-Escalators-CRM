@@ -28,8 +28,8 @@ Click on the **n8n** service tile → Click **Variables** tab → Add these one 
 ```
 N8N_BASIC_AUTH_ACTIVE=true
 N8N_BASIC_AUTH_USER=admin
-N8N_BASIC_AUTH_PASSWORD=GEn8n2026secure
-N8N_ENCRYPTION_KEY=ge_n8n_encryption_key_2026_secure
+N8N_BASIC_AUTH_PASSWORD=***REDACTED 2026-07-23 — plaintext value found committed here, removed from working tree; still in git history — treat as compromised until rotated***
+N8N_ENCRYPTION_KEY=***REDACTED 2026-07-23 — plaintext value found committed here, removed from working tree; still in git history — treat as compromised until rotated (note: rotating this key breaks decryption of existing stored n8n credentials — coordinate before rotating)***
 N8N_HOST=0.0.0.0
 N8N_PORT=5678
 N8N_PROTOCOL=https
@@ -38,7 +38,7 @@ DB_POSTGRESDB_DATABASE=railway
 DB_POSTGRESDB_HOST=postgres.railway.internal
 DB_POSTGRESDB_PORT=5432
 DB_POSTGRESDB_USER=postgres
-DB_POSTGRESDB_PASSWORD=QQfAJEuFQBMoZxYpAerRJtTjcHDGtNHE
+DB_POSTGRESDB_PASSWORD=***REDACTED 2026-07-23 — plaintext value found committed here, removed from working tree; still in git history — treat as compromised until rotated***
 DB_POSTGRESDB_SCHEMA=n8n
 ```
 
@@ -103,7 +103,7 @@ Open each imported workflow → Toggle **Active** switch (top right) to ON.
 | DB port (external) | `46852` |
 | DB name | `railway` |
 | DB user | `postgres` |
-| DB password | `QQfAJEuFQBMoZxYpAerRJtTjcHDGtNHE` |
+| DB password | `***REDACTED 2026-07-23 — plaintext value found committed here, removed from working tree; still in git history — treat as compromised until rotated***` |
 | Express backend | `https://web-production-311da.up.railway.app` |
 
 ---
