@@ -6,6 +6,77 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-26 — WizMatch Outbound OS: PRD-005 + ADR-006 + ADR-007 (PR 1/10) — Claude — DRAFT PR, NOT MERGED
+
+**Why:** WizMatch is capability-first — 30 admin pages expose every technical step, but the operator
+has no single place to make a business decision, and the system has no concept of whether a company
+may be contacted at all. Jatin approved a 10-PR stacked programme to make it decision-first. This is
+PR 1: documentation only, establishing the contract before any schema exists.
+
+**What changed (3 new files, docs only):**
+- `docs/prd/005-wizmatch-outbound-operating-system.md` — 26 sections. Extends PRD-004, does not
+  supersede it: PRD-004 owns the *delivery* chain from confirmed requirement onward; PRD-005 owns the
+  *acquisition* chain that terminates at that node.
+- `docs/decisions/ADR-006-company-outreach-policy.md` — 12 decisions + 6 rejected alternatives.
+- `docs/decisions/ADR-007-outreach-provider-boundary.md` — 9 decisions + 5 rejected alternatives.
+
+**Audit that produced this (read-only, against `origin/main`):**
+- **P0 — suppression is fail-open.** `sendSignalDraftEmail()` (`src/services/wizmatchOutreachService.ts:183-189`)
+  checks only `wizmatch_suppression_list.email`; it never reads `contacts.do_not_contact`, which the
+  generic `PATCH /api/contacts/:id` (`src/routes/contacts.ts:405,421`) sets with no mirrored write.
+  Verified: zero `doNotContact` references in `wizmatchOutreachService.ts` or `multiDomainMailer.ts`.
+- **P0 — the follow-up loop is dead.** `sequenceWorker` (`src/workers/sequenceWorker.ts:59-74`) inserts
+  `jobType='sequence_step'` into `jobs`; the only in-process consumers are CRUD and a stuck-job failer.
+  The intended n8n consumer has not been deployed since 2026-05-03 (`n8n-workflows/README.md:3-12`).
+- **P1 — `POST /api/wizmatch/classify-reply`** (`src/routes/wizmatch.ts:3690-3762`) is fully built but
+  has no caller in the repo; `imapService` only matches Growth `outreach_leads`.
+- **P1 — hard bounces are detected then discarded** (`wizmatchBounceParser.ts:57-77`, default-off flag).
+- **P2 — `.claude/skills/ge-add-ensure-table/SKILL.md:15-17` is factually wrong:** it claims all
+  WizMatch tables use ensure-hooks and cites `wizmatchOutreachTemplates.ts`, which does not exist.
+  Ground truth: all 32 `wizmatch_*` tables are migration-tracked, zero ensure-hooks. Left uncorrected
+  it would misdirect the next agent building the policy table. Separate PR queued.
+- **Eligibility is computed 5 independent ways that disagree**, none persisted as a decision
+  (`wizmatch_company_intelligence.status`; in-memory `hardBlocks[]`; four separate `hot|warm|watch|blocked`
+  enums). Adding a sixth was the main design risk; PR 5 consolidates all five onto one resolver.
+
+**Key design decisions recorded:**
+- Policy scope identity is a canonical `scope_key`, unique per active row — two business units coexist,
+  a duplicate business unit is rejected by the DB. An earlier draft keyed on `scope_ref_id` alone and
+  could not express this.
+- **Per-dimension inheritance** with `entire_company` as the root: a `location:bengaluru` row that sets
+  only `outreach_eligibility='paused'` leaves an inherited `existing_client` relationship and the
+  company-wide hiring policy intact. Two CHECK constraints enforce root-completeness and no-op rejection.
+- Hard blocks beat specificity. "Most specific wins" is an inheritance rule only, never an override.
+- `block_class` (`standard`/`compliance`/`legal`) + `is_non_overridable`. A company removal request is
+  **compliance, not legal**. Enforcement keys on the boolean; the class classifies and explains.
+- **Privacy/GDPR erasure is explicitly not an outreach policy** — suppressing outreach is not erasure.
+  Needs its own workflow; highest-priority FUTURE item.
+- Bounce vs unsubscribe are split: a hard bounce suppresses the channel only and must **not** mark the
+  person do-not-contact; an unsubscribe marks the contact but must **not** block their employer.
+- Outreach adapter copies the `src/modules/esign/providers/` seam exactly. Idempotency prefers provider
+  IDs; a content hash is the last resort and `key_source` is stored so import quality is observable.
+- Reply inboxes move from six hardcoded Purelymail addresses (`imapService.ts:30-37`) to a registry
+  with non-secret `provider_config` + an opaque scheme-prefixed `secret_ref`. **No credential value is
+  ever stored in the database.**
+
+**How to verify:** documentation only — no build or test surface changes. `git status` shows exactly
+three new files under `docs/`. Validated: no guarded path touched (`schema.ts`, `migrations/`,
+`auth.ts`, `rbac.ts`, `cashfree.ts`, `sodEodService.ts`); no SEO or script files; no stale references
+to the superseded `is_legal_hold`, `credential_env_var`, or `scope_ref_id`-only uniqueness; medium-
+confidence contacts never auto-enter Ready; `campaign_family` never grants permission.
+
+**What's next:** Jatin ratifies the reason-code taxonomy (PRD §9 — ~55 codes across 10 families, each
+with scope, decision, preparation-allowed, evidence-required, permanence, override and
+learning-label suitability). **PR 2 must not start until then** — the values are stable identifiers and
+renaming after rows exist breaks the learning signal. Sanitised Smartlead CSV fixtures are also
+outstanding but block PR 9 only.
+
+**Not done, deliberately:** no schema, no migration `0037`, no backend, no frontend, no Railway or env
+change, no production data touched, no sending, no paid-provider call, nothing merged. The dirty audit
+worktree at `~/repo-comparison/v2` was left untouched per the `AGENTS.md` dirty-worktree rule.
+
+---
+
 ## 2026-07-23 — GSC "Request Indexing" queue + weekly reminder — Claude — BRANCH ONLY, PR OPEN, NOT MERGED
 
 **Why:** Jatin decided (earlier session, never built) that "Request Indexing" on growthescalators.com

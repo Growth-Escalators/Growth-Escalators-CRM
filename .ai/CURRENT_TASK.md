@@ -2,6 +2,46 @@
 
 ## Active task
 
+**IN REVIEW 2026-07-26 — WizMatch Outbound Operating System, PR 1 of 10 (docs only, DRAFT PR, NOT
+MERGED).** Branch `ge/outbound-01-prd-adrs`, worktree `~/repo-comparison/v2-outbound-os`, cut clean
+from `origin/main` = `1e74812`. Adds `docs/prd/005-wizmatch-outbound-operating-system.md`,
+`docs/decisions/ADR-006-company-outreach-policy.md` and `ADR-007-outreach-provider-boundary.md`.
+**Documentation only** — no `schema.ts`, no migration, no backend, no frontend, no Railway change, no
+env change, no production data, no sending, no paid provider.
+
+**What it specifies.** A decision-first outbound layer extending (not replacing) PRD-004: a scoped
+company **outreach policy** authoritative over signal score and contact approval; a four-queue Today
+decision workbench (Ready to Contact / Needs Review / Replies Needing Action / Paused or Blocked); a
+zero-cost automatic preparation pipeline; and a provider-neutral outreach adapter whose first
+implementation is Smartlead **CSV export + result CSV import** — no API, keys or recurring cost.
+
+**Load-bearing design calls** (full rationale in ADR-006): policy scope identity is a canonical
+`scope_key` (`entire_company`, `region:india`, `business_unit:cloud`, `signal:<uuid>`, …) so two
+business units can both hold active policies while a duplicate is rejected by the database;
+**per-dimension inheritance** with `entire_company` as the root, so a location-only pause never resets
+an `existing_client` relationship or a company-wide hiring policy; hard blocks beat specificity;
+`block_class` (`standard`/`compliance`/`legal`) + `is_non_overridable` replace a single overloaded
+legal-hold flag, and a company removal request is **compliance, not legal**; privacy/GDPR erasure is
+explicitly **not** an outreach policy and needs its own workflow (PRD §18.4, FUTURE list).
+
+**Audit findings this stack fixes.** P0 — suppression is **fail-open**: `sendSignalDraftEmail()`
+(`src/services/wizmatchOutreachService.ts:183-189`) checks only `wizmatch_suppression_list` and never
+`contacts.do_not_contact`, which `PATCH /api/contacts/:id` sets freely. P1 — hard bounces are detected
+then discarded (`wizmatchBounceParser.ts:57-77`, default-off flag). P1 — `POST /api/wizmatch/classify-reply`
+is fully implemented but has **no caller in the repo**. Carried, not fixed: the `sequence_step` job
+loop is dead (n8n undeployed since 2026-05-03), so WizMatch gets its own enrolment table instead.
+
+**Exact next action:** Jatin ratifies the reason-code taxonomy (PRD §9, ~55 codes across 10 families).
+PR 2 (`schema.ts` + migration `0037`) must not start until then — values are stable identifiers and
+renaming after rows exist breaks the learning signal. Also outstanding: sanitised Smartlead CSV
+fixtures, required before PR 9 only.
+
+**Rollout is gated.** Enforcement ships in `shadow` mode (logs what it would block, blocks nothing);
+promotion to `enforce` needs a readiness report plus five hard preconditions and is an explicit owner
+decision. `WIZMATCH_SENDING_ENABLED` and `AUTOMATED_EMAILS_ENABLED` are not modified by any milestone.
+
+## Prior task — cost-safe POC/client search
+
 **SHIPPED 2026-07-16 (`origin/main` = `695a139`, Railway deploy `35c38b14` SUCCESS): cost-safe
 POC/client search — read-only preview + role targeting + credit banner.** Surfaces the existing
 free-first, capped machinery so you can search for POCs (Talent Acquisition / HR-People /
