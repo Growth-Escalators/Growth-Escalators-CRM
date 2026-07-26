@@ -191,6 +191,33 @@ CREATE TABLE "wizmatch_suppression_events" (
 ALTER TABLE "wizmatch_companies" ADD COLUMN IF NOT EXISTS "account_owner_user_id" uuid;--> statement-breakpoint
 ALTER TABLE "wizmatch_suppression_list" ADD COLUMN IF NOT EXISTS "contact_channel_id" uuid;--> statement-breakpoint
 ALTER TABLE "wizmatch_suppression_list" ADD COLUMN IF NOT EXISTS "channel_invalid" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+-- >>> BEGIN MANUAL REORDER (0037) — statement ORDER only, no statement rewritten
+-- Reason: every composite FK below references a parent on ("tenant_id","id").
+-- PostgreSQL resolves the referenced unique index at ADD CONSTRAINT time, not
+-- at COMMIT (tablecmds.c transformFkeyCheckAttrs); a missing one raises
+-- SQLSTATE 42830 "there is no unique constraint matching given keys for
+-- referenced table" and aborts the migration. drizzle-kit emits every
+-- CREATE INDEX after every ADD CONSTRAINT, which cannot satisfy that
+-- ordering, so these nine CREATE UNIQUE INDEX statements are MOVED here from
+-- their generated positions further down. No statement text is altered and
+-- no statement is added or removed — running db:generate again reproduces the
+-- same set, only in the unusable order (PRD-005 §10.11.2 guard-block process).
+CREATE UNIQUE INDEX "wizmatch_company_policies_tenant_id_id_uniq" ON "wizmatch_company_policies" USING btree ("tenant_id","id");--> statement-breakpoint
+CREATE UNIQUE INDEX "wizmatch_outreach_batches_tenant_id_id_uniq" ON "wizmatch_outreach_batches" USING btree ("tenant_id","id");--> statement-breakpoint
+CREATE UNIQUE INDEX "wizmatch_outreach_enrolments_tenant_id_id_uniq" ON "wizmatch_outreach_enrolments" USING btree ("tenant_id","id");--> statement-breakpoint
+-- Six additive, non-partial (tenant_id, id) unique indexes (PRD-005 §10.10.1).
+-- IF NOT EXISTS on every one — three are on core CRM tables shared with the
+-- Growth tenant (users, contacts, contact_channels) and none can fail or
+-- reject a write, since `id` is already the primary key on every one of
+-- these tables. Owner sign-off on the shared-table three is U-7, gating G1
+-- (applying this migration to production), not PR 2.
+CREATE UNIQUE INDEX IF NOT EXISTS "contact_channels_tenant_id_id_uniq" ON "contact_channels" USING btree ("tenant_id","id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "contacts_tenant_id_id_uniq" ON "contacts" USING btree ("tenant_id","id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "users_tenant_id_id_uniq" ON "users" USING btree ("tenant_id","id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "wizmatch_companies_tenant_id_id_uniq" ON "wizmatch_companies" USING btree ("tenant_id","id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "wizmatch_job_signals_tenant_id_id_uniq" ON "wizmatch_job_signals" USING btree ("tenant_id","id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "wizmatch_requirements_tenant_id_id_uniq" ON "wizmatch_requirements" USING btree ("tenant_id","id");--> statement-breakpoint
+-- <<< END MANUAL REORDER (0037)
 ALTER TABLE "wizmatch_company_duplicates" ADD CONSTRAINT "wizmatch_company_duplicates_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "wizmatch_company_duplicates" ADD CONSTRAINT "wizmatch_company_duplicates_company_a_fk" FOREIGN KEY ("tenant_id","company_a_id") REFERENCES "public"."wizmatch_companies"("tenant_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "wizmatch_company_duplicates" ADD CONSTRAINT "wizmatch_company_duplicates_company_b_fk" FOREIGN KEY ("tenant_id","company_b_id") REFERENCES "public"."wizmatch_companies"("tenant_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -228,16 +255,13 @@ ALTER TABLE "wizmatch_suppression_events" ADD CONSTRAINT "wizmatch_suppression_e
 ALTER TABLE "wizmatch_suppression_events" ADD CONSTRAINT "wizmatch_suppression_events_actor_fk" FOREIGN KEY ("tenant_id","actor_user_id") REFERENCES "public"."users"("tenant_id","id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "wizmatch_company_duplicates_tenant_resolution_idx" ON "wizmatch_company_duplicates" USING btree ("tenant_id","resolution");--> statement-breakpoint
 CREATE UNIQUE INDEX "wizmatch_company_duplicates_pair_uniq" ON "wizmatch_company_duplicates" USING btree ("tenant_id","company_a_id","company_b_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "wizmatch_company_policies_tenant_id_id_uniq" ON "wizmatch_company_policies" USING btree ("tenant_id","id");--> statement-breakpoint
 CREATE UNIQUE INDEX "wizmatch_company_policies_active_scope_uniq" ON "wizmatch_company_policies" USING btree ("tenant_id","company_id","scope_key") WHERE "wizmatch_company_policies"."superseded_at" IS NULL;--> statement-breakpoint
 CREATE INDEX "wizmatch_company_policies_tenant_eligibility_idx" ON "wizmatch_company_policies" USING btree ("tenant_id","outreach_eligibility") WHERE "wizmatch_company_policies"."superseded_at" IS NULL;--> statement-breakpoint
 CREATE INDEX "wizmatch_company_policies_tenant_company_idx" ON "wizmatch_company_policies" USING btree ("tenant_id","company_id") WHERE "wizmatch_company_policies"."superseded_at" IS NULL;--> statement-breakpoint
 CREATE INDEX "wizmatch_company_policies_review_date_idx" ON "wizmatch_company_policies" USING btree ("tenant_id","review_date") WHERE "wizmatch_company_policies"."review_date" IS NOT NULL AND "wizmatch_company_policies"."superseded_at" IS NULL;--> statement-breakpoint
 CREATE INDEX "wizmatch_company_policy_events_tenant_company_idx" ON "wizmatch_company_policy_events" USING btree ("tenant_id","company_id");--> statement-breakpoint
 CREATE INDEX "wizmatch_company_policy_events_tenant_policy_idx" ON "wizmatch_company_policy_events" USING btree ("tenant_id","policy_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "wizmatch_outreach_batches_tenant_id_id_uniq" ON "wizmatch_outreach_batches" USING btree ("tenant_id","id");--> statement-breakpoint
 CREATE INDEX "wizmatch_outreach_batches_tenant_status_idx" ON "wizmatch_outreach_batches" USING btree ("tenant_id","status");--> statement-breakpoint
-CREATE UNIQUE INDEX "wizmatch_outreach_enrolments_tenant_id_id_uniq" ON "wizmatch_outreach_enrolments" USING btree ("tenant_id","id");--> statement-breakpoint
 CREATE INDEX "wizmatch_outreach_enrolments_tenant_company_idx" ON "wizmatch_outreach_enrolments" USING btree ("tenant_id","company_id");--> statement-breakpoint
 CREATE INDEX "wizmatch_outreach_enrolments_tenant_state_idx" ON "wizmatch_outreach_enrolments" USING btree ("tenant_id","state");--> statement-breakpoint
 CREATE UNIQUE INDEX "wizmatch_outreach_enrolments_batch_contact_uniq" ON "wizmatch_outreach_enrolments" USING btree ("tenant_id","batch_id","contact_id");--> statement-breakpoint
@@ -267,18 +291,10 @@ EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;
 --> statement-breakpoint
--- Six additive, non-partial (tenant_id, id) unique indexes (PRD-005 §10.10.1).
--- IF NOT EXISTS on every one — three are on core CRM tables shared with the
--- Growth tenant (users, contacts, contact_channels) and none can fail or
--- reject a write, since `id` is already the primary key on every one of
--- these tables. Owner sign-off on the shared-table three is U-7, gating G1
--- (applying this migration to production), not PR 2.
-CREATE UNIQUE INDEX IF NOT EXISTS "contact_channels_tenant_id_id_uniq" ON "contact_channels" USING btree ("tenant_id","id");--> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "contacts_tenant_id_id_uniq" ON "contacts" USING btree ("tenant_id","id");--> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "users_tenant_id_id_uniq" ON "users" USING btree ("tenant_id","id");--> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "wizmatch_companies_tenant_id_id_uniq" ON "wizmatch_companies" USING btree ("tenant_id","id");--> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "wizmatch_job_signals_tenant_id_id_uniq" ON "wizmatch_job_signals" USING btree ("tenant_id","id");--> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "wizmatch_requirements_tenant_id_id_uniq" ON "wizmatch_requirements" USING btree ("tenant_id","id");
+-- The six additive (tenant_id, id) unique indexes of PRD-005 §10.10.1, and the
+-- three (tenant_id, id) unique indexes on this migration's own new tables, are
+-- created ABOVE the FK block — see MANUAL REORDER (0037). They are FK targets,
+-- so they cannot be emitted here in drizzle-kit's generated position.
 --> statement-breakpoint
 -- >>> BEGIN MANUAL GUARD BLOCK (0037) — NOT GENERATED BY drizzle-kit
 -- Reason: drizzle-kit 0.31.10 has no trigger primitive (PRD-005 §10.11.1) —
