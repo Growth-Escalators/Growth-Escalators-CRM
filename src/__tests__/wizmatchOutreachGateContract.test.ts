@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({
   suppressionRows: [] as any[],
   enrolmentRows: [] as any[],
   companyRows: [] as any[],
+  duplicateRows: [] as any[],
   capturedWhere: new Map<unknown, unknown>(),
 }));
 
@@ -31,6 +32,7 @@ vi.mock('../db', async () => {
             if (table === actualSchema.wizmatchSuppressionList) return Promise.resolve(state.suppressionRows);
             if (table === actualSchema.wizmatchOutreachEnrolments) return Promise.resolve(state.enrolmentRows);
             if (table === actualSchema.wizmatchCompanies) return Promise.resolve(state.companyRows);
+            if (table === actualSchema.wizmatchCompanyDuplicates) return Promise.resolve(state.duplicateRows);
             return Promise.resolve([]);
           },
         }),
@@ -40,7 +42,7 @@ vi.mock('../db', async () => {
 });
 
 import { evaluateWizmatchOutreachGate } from '../modules/outreach/outreachGate';
-import { wizmatchSuppressionList } from '../db/schema';
+import { wizmatchCompanyDuplicates, wizmatchSuppressionList } from '../db/schema';
 import type { PolicyDecision, PolicyDecisionFields } from '../modules/outreach/policyTypes';
 
 /** Collects every literal SQL fragment out of a drizzle condition tree. */
@@ -89,7 +91,51 @@ beforeEach(() => {
   state.suppressionRows = [];
   state.enrolmentRows = [];
   state.companyRows = [];
+  state.duplicateRows = [];
   state.capturedWhere = new Map();
+});
+
+describe('L5 — duplicate suspects cannot enter active outreach (§8.8)', () => {
+  it('denies while a duplicate is pending, but still permits preparation', async () => {
+    state.duplicateRows = [{ detectionRule: 'domain' }];
+
+    const decision = await evaluateWizmatchOutreachGate({ ...ctx, action: 'queue' });
+
+    expect(decision.decision).toBe('deny');
+    expect(decision.effectiveLevel).toBe(5);
+    expect(decision.reasonCodes).toEqual(['duplicate_suspected_domain']);
+    // §8.8: free preparation still runs while the pair is under review.
+    expect(decision.preparationAllowed).toBe(true);
+  });
+
+  it('blocks export as well as queue', async () => {
+    state.duplicateRows = [{ detectionRule: 'normalised_name' }];
+
+    const decision = await evaluateWizmatchOutreachGate({ ...ctx, action: 'export' });
+
+    expect(decision.decision).toBe('deny');
+    expect(decision.reasonCodes).toEqual(['duplicate_suspected_name']);
+  });
+
+  it('checks both sides of the pair, not only company_a_id', async () => {
+    // Pairs are stored ordered (company_a_id < company_b_id), so a company that
+    // is only ever the "b" side would never be blocked by a one-sided lookup.
+    await evaluateWizmatchOutreachGate(ctx);
+
+    const condition = state.capturedWhere.get(wizmatchCompanyDuplicates);
+    expect(condition).toBeDefined();
+    expect(sqlFragments(condition).join('')).toContain(' or ');
+  });
+
+  it('does not block when the duplicate is already resolved', async () => {
+    // The resolution filter is part of the query, so an empty result set is
+    // what a resolved pair looks like to the gate.
+    state.duplicateRows = [];
+
+    const decision = await evaluateWizmatchOutreachGate(ctx);
+
+    expect(decision.decision).toBe('allow');
+  });
 });
 
 describe('§8.6 — "restricted is not uniformly denied"', () => {

@@ -15,15 +15,22 @@
 //     confidence grading lives in wizmatchContactIntelligenceRepo and is not
 //     wired to this module until a caller passes it in. L7 here covers only
 //     the suppression union (§8.10, A-1 fix) and channel/contact validity.
-//   - Duplicate-suspect containment (L5, §8.8) is not yet queried against
-//     wizmatch_company_duplicates from this module — that wiring is PR 3/4
-//     scope per the stacked-PR plan (§22).
+//   - The duplicate REVIEW UI (merge / confirm-separate, and the
+//     policy-divergence warning) is PR 4. L5 containment itself is enforced
+//     here, since §22.2 #14 requires the resolver to implement L0-L8.
 //   - Shadow-vs-enforce blocking behaviour is a no-op either way in PR 2:
 //     nothing calls this module, so WIZMATCH_POLICY_ENFORCEMENT_MODE only
 //     annotates the returned decision, per §16.
 
-import { and, eq, inArray, sql } from 'drizzle-orm';
-import { db, contacts, wizmatchCompanies, wizmatchSuppressionList, wizmatchOutreachEnrolments } from '../../db';
+import { and, eq, inArray, or, sql } from 'drizzle-orm';
+import {
+  db,
+  contacts,
+  wizmatchCompanies,
+  wizmatchCompanyDuplicates,
+  wizmatchSuppressionList,
+  wizmatchOutreachEnrolments,
+} from '../../db';
 import { WIZMATCH_LIVE_ENROLMENT_STATES } from '../../config/wizmatchOutreachStates';
 import { isPreparationAllowed } from '../../config/wizmatchReasonCodes';
 import { resolveEffectivePolicy } from './policyResolver';
@@ -129,6 +136,31 @@ async function findSuppression(
     if (rows.some((r) => r.doNotContact)) return 'email_unsubscribed';
   }
   return null;
+}
+
+/**
+ * §8.8 / §8.2 L5 — a company with an unresolved duplicate suspect cannot enter
+ * active outreach. Checked in BOTH directions: the pair is stored ordered
+ * (company_a_id < company_b_id), so a company that is only ever the "b" side
+ * would never be blocked by a company_a_id-only lookup. Free preparation still
+ * runs — the caller reads `preparationAllowed`.
+ */
+async function findPendingDuplicate(tenantId: string, companyId: string): Promise<string | null> {
+  const rows = await db
+    .select({ detectionRule: wizmatchCompanyDuplicates.detectionRule })
+    .from(wizmatchCompanyDuplicates)
+    .where(
+      and(
+        eq(wizmatchCompanyDuplicates.tenantId, tenantId),
+        eq(wizmatchCompanyDuplicates.resolution, 'pending'),
+        or(
+          eq(wizmatchCompanyDuplicates.companyAId, companyId),
+          eq(wizmatchCompanyDuplicates.companyBId, companyId),
+        ),
+      ),
+    );
+  if (rows.length === 0) return null;
+  return rows[0]?.detectionRule === 'domain' ? 'duplicate_suspected_domain' : 'duplicate_suspected_name';
 }
 
 /** §8.7: `existing_client` routes to the company's account owner, or "unassigned" when null. */
@@ -310,9 +342,15 @@ export async function evaluateWizmatchOutreachGate(ctx: OutreachGateContext): Pr
       return denyDecision('signal_role_irrelevant', 4, effectiveSnapshot);
     }
 
-    // L5 — pause / needs-review.
+    // L5 — pause / needs-review / duplicate-suspected.
     if (eligibility?.value === 'paused') {
       return denyDecision('policy_paused_by_owner', 5, effectiveSnapshot);
+    }
+    const duplicateReasonCode = await findPendingDuplicate(ctx.tenantId, ctx.companyId);
+    if (duplicateReasonCode) {
+      // Every GateAction is an outreach action; preparation is not one of them,
+      // and stays permitted via preparationAllowed (§8.8).
+      return denyDecision(duplicateReasonCode, 5, effectiveSnapshot);
     }
     const needsReview = eligibility?.value === 'needs_review' || compat.decision === 'review';
 
