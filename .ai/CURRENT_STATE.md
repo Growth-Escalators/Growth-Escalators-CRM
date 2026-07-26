@@ -2,7 +2,31 @@
 
 _Update this when the working state of the repo meaningfully changes. Keep it short and true._
 
-## 2026-07-16 India-only sourcing (current)
+## 2026-07-26 WizMatch Outbound OS — PR 2 schema + resolver (current, uncommitted-to-main)
+
+- Branch `ge/outbound-02-policy-schema-service`, worktree `~/repo-comparison/v2-outbound-os`. **Local
+  only — not pushed, not merged, migration `0037` not applied to any database.**
+- `src/db/schema.ts`: 8 new WizMatch outbound-policy tables, 2 additive ALTERs, 6 additive
+  `(tenant_id, id)` unique indexes, 22 composite tenant-safe FKs, full CHECK set per PRD-005 §10.
+  `npm run db:generate` confirms schema.ts and the migration snapshot are in sync ("No schema changes").
+- `src/db/migrations/0037_unknown_siren.sql`: generated + hand-hardened (defensive `IF NOT EXISTS` /
+  `DO $$ EXCEPTION WHEN duplicate_object` guards on the two ALTERs touching long-lived tables; a marked
+  guard block for the one hand-authored construct, the policy-immutability trigger). Zero destructive
+  statements (grep-verified). Journal ordering correct.
+- `src/modules/outreach/`: the L0-L8 policy resolver and gate (`evaluateWizmatchOutreachGate`,
+  `assertWizmatchOutreachAllowed`, `resolveCompanyStatus`), branded `PolicyDecision`, `buildScopeKey()`,
+  campaign-compatibility routing matrix. **No caller in `src/routes` or other `src/services` calls this
+  module yet** — that migration is PR 3 (§8.10.1's 31-row checklist).
+- `npm run build` exits 0. Full suite green after `npm run admin:install`: 97 files / 840 tests passing
+  (37 new for this PR). `git diff --check` clean. `package-lock.json` (root) untouched.
+- **Not run in this session**: the ten §10.11.4 fresh-database verification requirements (replay,
+  incremental apply, re-apply no-op, production-drift diff, lock measurement, trigger-fire test) —
+  direct `psql`/Postgres access was denied by the session's tool-permission layer even though a local
+  Postgres was reachable. Must run with real output before G1.
+- Guardrails held: nothing pushed, nothing merged, migration not applied, no backfill, no flag
+  enabled, no Railway/production access, no PR 3 caller wiring, no Growth/SEO/n8n files touched.
+
+## 2026-07-16 India-only sourcing
 
 - `origin/main` = `ade021a` (fast-forward; Railway deploy `b508ecc1` SUCCESS).
 - `WIZMATCH_INDIA_ONLY` flag (default on, no infra change). ATS poller drops confident-US postings

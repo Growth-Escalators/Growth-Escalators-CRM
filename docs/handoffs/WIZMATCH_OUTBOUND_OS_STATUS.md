@@ -13,9 +13,40 @@ Chat-independent status for the `ge/outbound-0X-*` stacked-PR sequence. Read thi
 > the residual limitation stated. Two owner items remain open and **neither blocks PR 2**: U-6
 > (Smartlead fixtures, blocks PR 9) and U-7 (sign-off on three shared-table indexes, blocks G1).
 >
-> **Only PR 1 exists** — PRs 2, 3 and 4 have still not been implemented. `0037` does not exist.
+> **Updated 2026-07-26 (this session): PR 2 implemented.** `ge/outbound-02-policy-schema-service` now
+> has schema.ts additions, migration `0037`, and the L0-L8 resolver/gate module, against PRD-005 §22.2.
+> **Not pushed, not merged, `0037` not applied to any database.** No caller migrates onto the gate —
+> that is PR 3, still not started. PRs 3 and 4 branches still do not exist.
 
 ## Completed PRs
+
+### PR 2 — `ge/outbound-02-policy-schema-service` — **implemented 2026-07-26, local only, not merged**
+
+Built against PRD-005 §22.2 (twenty acceptance criteria). Summary (full detail in
+`.ai/HANDOFF_LOG.md`'s 2026-07-26 PR-2 entry):
+
+- **Schema** (`src/db/schema.ts`): 8 new tables, 2 additive ALTERs, 6 additive `(tenant_id, id)` unique
+  indexes, 22 composite tenant-safe FKs, full CHECK set. First use of drizzle's `foreignKey()`/`check()`
+  in this repo. `admin_override` / `suppression_scope` do not exist. Existing suppression unique index
+  untouched.
+- **Migration** (`src/db/migrations/0037_unknown_siren.sql`): generated via `db:generate`, hand-hardened
+  with `IF NOT EXISTS` / `DO $$ EXCEPTION` guards on statements touching long-lived tables, plus one
+  marked guard block for the policy-immutability trigger (the sole non-generatable construct). Zero
+  destructive statements (grep-verified). Journal ordering correct. **Not applied — that is G1.**
+- **Service** (`src/modules/outreach/`): `evaluateWizmatchOutreachGate` / `assertWizmatchOutreachAllowed`
+  / `resolveCompanyStatus`, branded `PolicyDecision`, `buildScopeKey()`, L0-L8 gate ladder, fail-closed,
+  no legacy-status fallback. **No caller migrated onto it — PR 3 scope.**
+- **Tests**: 37 new (scope key, taxonomy invariants, campaign-compatibility matrix, gate L0/L1/L1b/L3/
+  L4/L5/L6/L6b/L7 scenarios). Full suite 97 files / 840 tests green after `npm run admin:install`.
+  `npm run build` exits 0. `git diff --check` clean.
+- **Could not run in this session**: the ten §10.11.4 fresh-database verification requirements needed
+  real Postgres access; direct `psql` was denied by this session's tool-permission layer despite a
+  local Postgres being reachable. Must run with real output before G1.
+- **Honestly-scoped gaps**: cold-start confidence gating (§7) and duplicate-suspect containment (L5,
+  §8.8) are not wired into the gate in this PR — no caller supplies that data yet; both are named
+  in-code as PR-3/4 scope. §22.2 criterion 1 says "seven new tables" but its own §10.9.1 reference
+  requires an eighth (`wizmatch_suppression_events`) — built all eight, flagging the PRD's own count as
+  likely off-by-one rather than resolving it unilaterally.
 
 ### PR 1 — `ge/outbound-01-prd-adrs` (docs only) — **complete, not merged**
 
@@ -44,18 +75,14 @@ Chat-independent status for the `ge/outbound-0X-*` stacked-PR sequence. Read thi
   this file and of `.ai/CURRENT_TASK.md` claimed "Not pushed", which was wrong; treat the remote branch
   as existing and do not rewrite its history. **Not merged.**
 
-### PR 2 — `ge/outbound-02-policy-schema-service` — **not started**
-
-Branch was created from PR 1 but has **zero commits** — it points at `bbe881c`, identical to
-`ge/outbound-01-prd-adrs`. No `schema.ts` change, no migration `0037`, no resolver, no tests.
-
 ### PR 3 — `ge/outbound-03-policy-enforcement` — **not started** (branch does not exist)
 ### PR 4 — `ge/outbound-04-policy-ui-backfill` — **not started** (branch does not exist)
 
 ## Current branch
 
-`ge/outbound-01-prd-adrs`, worktree `/Users/jatinagrawal/repo-comparison/v2-outbound-os`, cut clean
-from `origin/main` = `1e74812`.
+`ge/outbound-02-policy-schema-service`, worktree `/Users/jatinagrawal/repo-comparison/v2-outbound-os`.
+Working tree has uncommitted PR-2 changes (see "Files changed" below) as of this handoff; commit before
+starting PR 3.
 
 ## Commit SHAs
 
@@ -78,25 +105,49 @@ Documentation and context layer only. No `src/`, no `admin/`, no `client/`, no m
 
 ## Migration generated
 
-None. PR 1 is documentation only. `0037` is reserved (next free migration number per the journal) but
-not generated until PR 2.
+**`0037_unknown_siren.sql` — generated this session (2026-07-26), NOT applied to any database.**
+`npm run db:generate` (idx 37, journal `when=1785039545644` > `0036`'s `1784464092263`), then
+hand-hardened per §10.11.2/H-11: `IF NOT EXISTS` on both `ADD COLUMN`s and on all six additive parent
+unique indexes; the two `ADD CONSTRAINT`s touching long-lived tables (`wizmatch_companies`,
+`wizmatch_suppression_list`) wrapped in `DO $$ ... EXCEPTION WHEN duplicate_object THEN NULL; END $$`;
+one marked manual guard block containing the policy-immutability trigger (the only construct
+drizzle-kit cannot emit). `grep -niE 'DROP TABLE|DROP COLUMN|DROP CONSTRAINT|DROP INDEX|ALTER COLUMN.*TYPE|SET NOT NULL|TRUNCATE|DELETE FROM'`
+against the file returns zero matches. Re-running `npm run db:generate` reports "No schema changes,
+nothing to migrate" — `schema.ts` and the migration are in sync.
 
 ## Tests run and results
 
-No code changed in PR 1. Baseline measured during the 2026-07-26 review:
+PR 2 adds code. Measured this session (2026-07-26), real output:
 
 ```
-npm test       →  Test Files  2 failed | 91 passed (93)
-                       Tests  781 passed (781)
-npm run build  →  tsc, exit 0
+npm run build           →  tsc, exit 0
+npm run admin:install    →  added 162 packages (closes the lucide-react load gap)
+npm test                →  Test Files  97 passed (97)
+                              Tests  840 passed (840)
+git diff --check        →  clean
 ```
+
+37 of the 840 tests are new for PR 2: `wizmatchOutreachGate.test.ts`, `wizmatchScopeKey.test.ts`,
+`wizmatchReasonCodes.test.ts`, `wizmatchCampaignCompatibility.test.ts`.
 
 ## Failed tests
 
-`src/__tests__/adminFrontendHelpers.test.js` and `src/__tests__/wizmatchRouteRegistry.test.js` — both
-fail to **load** with `Cannot find package 'lucide-react'`. Zero assertion failures. Cause is
-environmental: `admin/node_modules` does not exist in this worktree. Run `npm run admin:install` before
-using a green suite as a PR 2 gate.
+None. The two suites that previously failed to **load** (`adminFrontendHelpers.test.js`,
+`wizmatchRouteRegistry.test.js`, both on missing `lucide-react`) now pass — `npm run admin:install` was
+run this session, closing that environmental gap. Root `package-lock.json` confirmed untouched by the
+admin install (`git status --short` / `git diff --stat package-lock.json` both empty).
+
+## §10.11.4 fresh-database verification — NOT RUN, blocking before G1
+
+The ten requirements (fresh `0000→0037` replay, incremental apply against a `0036`-state restore,
+re-apply no-op, production `information_schema` drift diff, index-lock measurement on a
+production-sized restore, and the trigger-fire test, among others) require a live Postgres connection.
+A local Postgres was reachable in this environment (`pg_isready` succeeded against `/tmp:5432`), but
+direct `psql`/database-connection commands were **denied by this session's tool-permission layer**.
+Journal ordering and the destructive-statement scan were confirmed by direct file inspection instead
+(see above), which covers 2 of the 10 requirements. The remaining 8 must be run with real output before
+`0037` is proposed for production (G1) — this is a session tooling limitation, not a structural blocker
+in the migration itself.
 
 ### Spec-repair pass — 2026-07-26 (docs only)
 
@@ -123,10 +174,11 @@ concrete way an "additive" migration could damage Growth. §10.11.3 makes catchi
 
 ## Blockers
 
-**PR 2 is unblocked.** Build against PRD-005 §22.2 (twenty acceptance criteria). PR 3 builds against
-§22.3, whose acceptance evidence is the §8.10.1 caller checklist.
+**PR 2 is implemented, pending G1 verification.** PR 3 builds against §22.3 (the §8.10.1 caller
+checklist) and can start independently of the §10.11.4 real-Postgres checks below, since PR 3 does not
+apply `0037` either.
 
-Still open, neither blocking PR 2:
+Still open, neither blocking PR 2 or PR 3:
 
 - **U-6** — sanitised Smartlead CSV fixtures. Blocks **PR 9** only.
 - **U-7** — owner sign-off on the additive `(tenant_id, id)` unique indexes on `users`, `contacts` and
@@ -143,51 +195,65 @@ Under D-4 it is **additive** — no index is dropped and no production dedup dry
 would **revert CI hotfix `492a6a8`** (it deletes the `@emnapi` entries that hotfix added) and re-break
 `npm ci`. Leave it unstaged.
 
-## Deviations from PRD-005
+## Deviations from PRD-005 (PR 2 session)
 
-None. The three ratification changes applied are exactly what was specified in this session's task
-brief and are recorded verbatim in PRD §25.1 A-21.
+1. §22.2 criterion 1 literally reads "Seven new tables per §10.1–§10.7 and §10.9.1" — but §10.1-§10.7
+   is seven sections (seven tables) and §10.9.1 (`wizmatch_suppression_events`) is an eighth, required
+   by D-4/D-15's three-grain suppression model and referenced by name throughout §8.5/§10.9/§20.1's test
+   list. Built all eight tables. This reads as a PRD count/reference mismatch against its own §10.9.1
+   requirement, not a scope reduction — flagging for owner awareness rather than resolving unilaterally.
+2. The §10.11.4 fresh-database verification requirements were not run against a real Postgres instance
+   (see above) — a session tool-permission limitation, not a design deviation. Journal ordering and the
+   destructive-statement scan were confirmed by direct inspection instead.
+3. The gate module's L7 does not yet implement the cold-start contact-confidence gate (§7) or query
+   `wizmatch_company_duplicates` for L5 pending-duplicate containment (§8.8) — both require data/wiring
+   that has no caller yet in PR 2's no-callers-migrate scope. Stated in the module's header comment.
+4. Test coverage is a representative core subset of §20.1's ~40-item list, not exhaustive — concurrency
+   races, backfill idempotency, and CSV round-trip scenarios depend on code (backfill script, CSV
+   adapter) that doesn't exist until later PRs in the stack.
 
-## Subagent findings used
+No deviation weakens a stated invariant: fail-closed holds on every path exercised by the 37 new tests,
+the immutability trigger is present, the suppression model is three-grain per D-4/D-15, and no legacy
+fallback exists in `resolveCompanyStatus`.
 
-**Spec-repair pass, 2026-07-26** — three read-only Explore subagents run in parallel, each restricted
-from editing, committing, branch changes, production, Railway and migration application. The main
-session owned every edit.
+## Subagent findings used (this session, PR 2)
 
-1. **Schema + tenant references** — produced the 22-row tenant-reference matrix; confirmed 0 composite
-   FKs, 0 `check()` and 0 triggers in the repo today; established that composite FKs, partial unique
-   indexes and CHECKs **are** emittable at `drizzle-kit@0.31.10` / `drizzle-orm@0.45.2` and only
-   triggers are not; identified the `wizmatch_job_signals` vs Growth `signals` naming trap and the
-   `0017` CHECK-drift risk.
-2. **Chokepoint callers** — audited every send-capable function, route, worker and suppression
-   read/write site in `src/`, producing the 31-row caller-migration checklist and the four real
-   `contacts` → `wizmatch_companies` link mechanisms. Found four defects the review had not: the
-   un-normalised `classify-reply` suppression write, the broken unsubscribe HMAC for mixed-case
-   addresses, warm-up ignoring domain health, and four send paths honouring neither kill-switch.
-3. **States, locks, suppression, evidence** — enumerated every doc line carrying an enrolment-state
-   list or lock predicate (four copies, all amended), classified every suppression statement against
-   D-4, and produced the exhaustive evidence-invariant and preparation-flag contradiction lists.
+Three read-only Explore subagents run in parallel before any edit, each restricted from editing,
+committing, branch changes, migration application, production and Railway access.
+
+1. **Migration/schema conventions** — confirmed 0037 is the next free journal index; the `0017` hand-SQL
+   precedent (`DO $$ ... EXCEPTION WHEN duplicate_object`); zero triggers/functions in any migration;
+   zero `foreignKey()`/`check()` usage in `schema.ts`; dumped exact current column/index definitions for
+   every table PR 2 needed to reference or alter; confirmed `drizzle-orm` is actually `^0.45.1` (docs
+   said 0.45.2 — a one-patch discrepancy, not load-bearing); confirmed clean working tree and missing
+   `admin/node_modules`.
+2. **Tenant reference matrix** — verified all 22 planned composite-FK targets against the live
+   `schema.ts`; confirmed `signals` (Growth, no `tenant_id`) and `wizmatch_job_signals` (WizMatch,
+   tenant-scoped) are genuinely distinct tables; confirmed none of `users`/`contacts`/`contact_channels`
+   already had a `(tenant_id, id)` unique index; confirmed both `wizmatch_requirements.company_id` and
+   `wizmatch_job_signals.company_id` are nullable (the same-tenant-not-same-company limitation is real).
+3. **Resolver/test patterns** — read the e-sign provider module in full as the ADR-007 precedent;
+   identified `wizmatchCostGuard.ts`'s pure-evaluator-with-typed-input-struct shape as the closer match
+   for a policy gate than a provider-swap interface; confirmed no branded-type precedent exists in the
+   repo (introduced fresh); surveyed `db` client re-export conventions and existing vitest DB-mocking
+   patterns (`outboundTenantIsolation.test.ts`'s `vi.mock` idiom, adapted here via `vi.hoisted`).
 
 ## Security observations
 
-None new. No credential, schema, auth/RBAC, Cashfree or production-data path was touched in PR 1.
+None new. No credential, guardrailed auth/RBAC path, Cashfree route, or production-data path was
+touched. `wizmatch_reply_mailboxes.provider_config` write-time secret-key rejection and `secret_ref`
+scheme validation are specified in the schema comments but the validator itself is service-layer code
+not yet written (no route calls this table in PR 2) — flagged so it isn't assumed to already exist.
 
 ## Exact next step
 
-**Start PR 2**, on a branch cut from `ge/outbound-01-prd-adrs`.
+**Start PR 3** (`ge/outbound-03-policy-enforcement`, cut from this branch after it is committed) — the
+§8.10.1 31-row caller-migration checklist, the A-1/A-4 fixes, and the mailer fallback reversal (ADR-006
+D-11). Before G1 (applying `0037` to production), independently of PR 3:
 
-1. Read PRD-005 §0.3 in order, then §22.2 — the twenty acceptance criteria are the contract. Then
-   §10.1–§10.11, ADR-006 D-1 … D-18, ADR-007.
-2. Confirm `.ai/OUTBOUND_PR2_SPEC_READY` exists and its `commit=` matches this branch tip. If it does
-   not, the spec has moved and §22.2 must be re-read before writing code.
-3. Run `npm run admin:install` first — two suites fail to **load** on `lucide-react` in a fresh
-   worktree, and a red baseline cannot gate anything.
-4. Write `schema.ts` + generate `0037` + build the resolver and the gate module. **No callers migrate
-   in PR 2.**
-5. Run all ten §10.11.4 verification requirements and put the **real output** in the PR — fresh
-   `0000→0037` replay, incremental apply, re-apply no-op, journal `when` > `1784464092263`, production
-   `information_schema` drift diff, destructive-statement scan, guard-block audit, `check()`/`foreignKey()`
-   round-trip proof, index lock measurement, trigger test.
-6. Do **not** apply `0037` to production (that is G1, and it also needs U-7), run the backfill with
-   `--apply`, promote enforcement to `enforce`, touch Railway, or push without explicit confirmation.
-7. Do not stage `package-lock.json`.
+1. Run the ten §10.11.4 verification requirements against a real Postgres instance with real output
+   recorded in the PR — this session could not, due to a tool-permission restriction on direct database
+   access, not a structural issue with the migration.
+2. Obtain owner sign-off on U-7 (the three shared-table `(tenant_id, id)` indexes).
+3. Do **not** apply `0037` to production, run the backfill with `--apply`, promote enforcement to
+   `enforce`, touch Railway, or push without explicit confirmation. Do not stage `package-lock.json`.
