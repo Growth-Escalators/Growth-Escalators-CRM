@@ -664,3 +664,71 @@ U-14/U-10/U-12/L-7…L-13 from the PR 3 review remain open from PR 4, untouched 
 **Exact next action:** get an independent readiness review of PR 5 (three-subagent method, per the
 PR 2/PR 3 precedent), then PR 6 (decision workbench — queues API + Today re-bucket + bulk bar) per the
 standing 10-PR programme. Stop after PR 6.
+
+---
+
+## PR 4 + PR 5 — independent Opus checkpoint review, 2026-07-26: **NOT READY**
+
+Full report: [`docs/reviews/wizmatch-outbound-pr5-opus-checkpoint.md`](../reviews/wizmatch-outbound-pr5-opus-checkpoint.md).
+Range `ge/outbound-03-policy-enforcement..ge/outbound-05-lifecycle-consolidation`, implementation
+HEAD `7777c455`. Three parallel read-only Explore subagents; every load-bearing finding re-verified
+by hand before inclusion. **`.ai/OUTBOUND_PR5_CODE_READY` was deliberately NOT created.**
+
+**Two Criticals.**
+
+- **C-1 — PR 5 blocks in `shadow` mode. NOT FIXED; owner decision required.** The PR 5 compatibility
+  adapter resolves the canonical decision and acts on it without ever consulting `shouldBlock` /
+  `WIZMATCH_POLICY_ENFORCEMENT_MODE`. Two call sites are real write blocks (HTTP 409), not display:
+  `send-to-contact-intelligence` and the new `requirement-priority/:id/review-plan`. PRD-005 §16 rule
+  2 says shadow "blocks nothing" and gate G3 requires "zero behavioural change confirmed
+  post-deploy". With 0037 unapplied every company resolves `deny/policy_resolver_error`; once applied
+  but un-backfilled, `deny/policy_missing_root`. The client-discovery and requirement-priority
+  surfaces go dark on merge, and `WIZMATCH_COMPANY_POLICY_ENABLED` being off means the unblock API is
+  404'd. Two defensible readings (adapter respects `shouldBlock` → shadow is a true no-op, vs.
+  display-layer folding is intentionally immediate); both agree the two 409s are wrong.
+  **Recommendation: make the adapter mode-aware.**
+- **C-2 — no policy could ever be changed. FIXED in this pass.** `writeCompanyPolicy` inserted the new
+  active row *before* superseding its predecessor, violating the non-deferrable partial unique index
+  `wizmatch_company_policies_active_scope_uniq`. Every supersession — including every admin override,
+  the only escape from a non-overridable block — would have raised `23505` and 500'd against a real
+  database. CI was green only because the test mock enforced no constraints (same class as the PR 2
+  FK-ordering Critical).
+
+**Fixed in this review pass** (all inside PR 4's boundary, spec-mandated, no owner decision, each
+with a reproduced control run): C-2 supersede-before-insert; H-1 `POST /companies/bulk/policy` was
+shadowed by `POST /companies/:id/policy` so the admin-only bulk endpoint never ran and the
+`team_lead` gate fired instead (confirmed empirically against the repo's Express 5.2.1); H-12 the
+supersession test never asserted supersession happened. New `src/__tests__/wizmatchPolicyRoutes.test.ts`
+mounts the real router on a real Express app and pins path precedence, the role gate that actually
+fires, and flag-off 404s.
+
+**Fourteen Highs, twelve open.** H-2 requirement-priority fails **open** on a null `companyId` where
+the resolver denies · H-3 the canonical REVIEW branch for contact intelligence is dead code
+(`ready_for_discovery` is never produced) · H-4 `priority` is folded but `nextAction`/`score` are not,
+so the workbench shows a denied company with `allowed: true` and a live POST button · H-5 deleting the
+status-freeze reverts a human `reject_company` with no canonical replacement · H-6 the fifth caller's
+scope-out reason is falsified by this same PR, which adds the `companyId` it claims is absent ·
+H-7 the adapter test's mock discards `.where()`, regressing PR 3's M-5/L-6 against its own cited
+source · H-8 unknown `outreachEligibility` fails **open** through the whole ladder · H-9
+`evidence_url` is not SSRF-scrubbed though §10.1/§18.2 name the control as shipping here · H-10 the
+signal/requirement↔company agreement invariant §10.1 designates service-enforced is absent ·
+**H-11 the PR 4 marker's flag-gating claim is false** — the Duplicate Companies page has no flag
+import and its nav entry and route are unconditional · H-13 the requirement-priority REVIEW test is
+vacuous (fixture already scores `watch`) · H-14 duplicate resolution discards `reasonCode`/`evidence`
+and writes no audit row.
+
+**Gates, re-run by the reviewer on the post-fix tree:** `git diff --check` clean · `npm run build`
+exit 0 · `npm test` **110 files / 970 tests** (was 109/966) · `npm run admin:build` clean ·
+Playwright `wizmatch-local` 97 passed / 15 skipped / 0 failed. The self-reported PR 4/PR 5 gate
+figures were independently reproduced and are accurate.
+
+**Boundary checks — all PASS.** No guardrail file touched; no `package-lock.json`; no Growth/SEO/n8n
+or legacy-outreach contamination; `package.json` is script-only with no dependency added; no send or
+paid-provider capability enabled and no flag default flipped; no production action — 0037 unapplied,
+backfill `--apply` not run, nothing pushed/merged/deployed, no Railway access, Smartlead not
+connected.
+
+**Exact next action:** owner decision on C-1, then fix C-1 and the twelve open Highs, then re-review.
+Do not merge, deploy, apply 0037, run backfill `--apply`, or promote `enforce` on the strength of
+this review. Still carried forward: U-13, U-14, U-10, U-12, L-7…L-13 from the PR 3 review, and B-1
+(0037 must be applied before this stack reaches `main` — the repo auto-deploys on push).

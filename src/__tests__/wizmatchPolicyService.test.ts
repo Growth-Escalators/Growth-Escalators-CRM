@@ -99,6 +99,27 @@ vi.mock('../db', async () => {
           const row = { id: `policy-${state.nextId++}`, supersededAt: null, supersededByPolicyId: null, ...vals };
           const inserted = makeThenable(() => [row]);
           inserted.returning = () => makeThenable(() => {
+            // Enforce the real §10.1 partial unique index
+            // `wizmatch_company_policies_active_scope_uniq` ON
+            // (tenant_id, company_id, scope_key) WHERE superseded_at IS NULL.
+            // A unique INDEX is non-deferrable, so Postgres rejects the second
+            // active row at INSERT time, not at COMMIT. Without this the mock
+            // accepts an insert-before-supersede ordering that cannot work
+            // against a real database.
+            const conflict = state.policyRows.find(
+              (r) =>
+                r.supersededAt == null &&
+                r.tenantId === row.tenantId &&
+                r.companyId === row.companyId &&
+                r.scopeKey === row.scopeKey,
+            );
+            if (conflict) {
+              const violation: any = new Error(
+                'duplicate key value violates unique constraint "wizmatch_company_policies_active_scope_uniq"',
+              );
+              violation.code = '23505';
+              throw violation;
+            }
             state.policyRows.push(row);
             return [row];
           });
@@ -273,6 +294,14 @@ describe('writeCompanyPolicy — supersession', () => {
     expect(second.id).not.toBe(first.id);
     expect(state.policyEventInserts).toHaveLength(2);
     expect(state.policyEventInserts[1].previousPolicyId).toBe(first.id);
+
+    // The predecessor must actually be superseded and linked forward. Without
+    // these three assertions the test passed even with the supersession UPDATE
+    // deleted entirely, leaving two rows active at one scope_key.
+    const predecessor = state.policyRows.find((r) => r.id === first.id);
+    expect(predecessor.supersededAt).toBeInstanceOf(Date);
+    expect(predecessor.supersededByPolicyId).toBe(second.id);
+    expect(state.policyRows.filter((r) => r.supersededAt == null)).toHaveLength(1);
   });
 
   it('refuses to supersede a predecessor with isNonOverridable = true, even via the override path', async () => {

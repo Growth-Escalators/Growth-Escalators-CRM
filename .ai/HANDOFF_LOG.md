@@ -6,6 +6,55 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-26 — WizMatch Outbound OS: PR 4 + PR 5 independent Opus checkpoint review — **NOT READY** — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT MERGED
+
+**Why:** PR 4 and PR 5 were both self-reported as implemented and neither had been through the
+independent three-subagent review PR 2 and PR 3 got. This is that review, run as a single checkpoint
+over `ge/outbound-03-policy-enforcement..ge/outbound-05-lifecycle-consolidation` at implementation
+HEAD `7777c455`.
+
+**Verdict: NOT READY.** `.ai/OUTBOUND_PR5_CODE_READY` deliberately not created.
+
+**What changed in the repo (review pass fixes — all inside PR 4's boundary, spec-mandated, no owner
+decision required, each with a reproduced control run):**
+
+- `src/modules/outreach/policyService.ts` — supersede the predecessor **before** inserting the
+  successor. `wizmatch_company_policies_active_scope_uniq` is a non-deferrable partial unique index,
+  so inserting first raised `23505` and rolled back every policy write, including every admin
+  override. Pre-generates the new id so one UPDATE can link forward.
+- `src/routes/wizmatchPolicy.ts` — `POST /companies/bulk/policy` moved above
+  `POST /companies/:id/policy`. Express matched the parameterised route with `id='bulk'`, so the
+  PRD-mandated admin-only bulk endpoint never ran and the `team_lead` gate fired instead.
+- `src/__tests__/wizmatchPolicyService.test.ts` — the mock now enforces the real partial unique index,
+  and the supersession test now asserts `supersededAt` / `supersededByPolicyId` / one-active-row. It
+  previously asserted none of them and stayed green with the supersession UPDATE deleted entirely.
+- `src/__tests__/wizmatchPolicyRoutes.test.ts` (new) — route-level contract against a real Express
+  app: path precedence, which role gate actually fires, flag-off 404s.
+
+**The blocker (not fixed — owner decision):** **C-1, PR 5 blocks in `shadow` mode.** The compatibility
+adapter acts on the canonical decision without consulting `shouldBlock` /
+`WIZMATCH_POLICY_ENFORCEMENT_MODE`, and two call sites are real 409 write blocks. PRD-005 §16 rule 2
+says shadow "blocks nothing"; G3 requires zero behavioural change post-deploy. Recommendation: make
+the adapter mode-aware. Twelve Highs also open — see the report.
+
+**How to verify:** read `docs/reviews/wizmatch-outbound-pr5-opus-checkpoint.md`. Reproduce the control
+runs by reverting either fix and re-running `npx vitest --run src/__tests__/wizmatchPolicyService.test.ts`
+(expect the `23505` unique-constraint failure) or `src/__tests__/wizmatchPolicyRoutes.test.ts` (expect
+the bulk-handler and role-gate assertions to fail).
+
+**Gates on the post-fix tree:** `git diff --check` clean · `npm run build` exit 0 · `npm test`
+**110 files / 970 tests** (was 109/966) · `npm run admin:build` clean · Playwright `wizmatch-local`
+97 passed / 15 skipped / 0 failed.
+
+**Not done:** nothing pushed, merged or deployed; migration 0037 not applied; backfill `--apply` not
+run; enforcement mode untouched (`shadow`); sending / paid discovery / Smartlead untouched; no
+Railway or production access; no database mutation; no guardrail file touched.
+
+**Next:** owner decision on C-1, implement it, close the twelve open Highs, re-review. Do not start
+PR 6 until then.
+
+---
+
 ## 2026-07-26 — WizMatch Outbound OS: PR 5 implemented — lifecycle consolidation — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT MERGED
 
 **Why:** PRD-005 §5.2 C-2 found eligibility re-derived in five independent places that disagreed with

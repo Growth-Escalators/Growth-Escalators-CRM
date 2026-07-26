@@ -2,6 +2,58 @@
 
 ## Active task
 
+**PR 4 + PR 5 REVIEWED 2026-07-26 — verdict NOT READY (fix-then-re-review).** Independent Opus
+checkpoint review of `ge/outbound-03-policy-enforcement..ge/outbound-05-lifecycle-consolidation` at
+implementation HEAD `7777c455`, three parallel read-only Explore subagents, every load-bearing
+finding re-verified by hand. Report:
+`docs/reviews/wizmatch-outbound-pr5-opus-checkpoint.md`. **`.ai/OUTBOUND_PR5_CODE_READY` was
+deliberately NOT created.**
+
+> **Two Criticals. One is the blocker and needs an owner call.**
+>
+> **C-1 — PR 5 blocks in `shadow` mode. NOT FIXED.** The PR 5 adapter resolves the canonical decision
+> and acts on it without ever consulting `shouldBlock` / `WIZMATCH_POLICY_ENFORCEMENT_MODE`. Two call
+> sites are real write blocks (409), not display: `send-to-contact-intelligence` and the new
+> `requirement-priority/:id/review-plan`. PRD-005 §16 rule 2 says shadow "blocks nothing"; gate G3
+> requires "zero behavioural change post-deploy". With 0037 unapplied every company resolves
+> `deny/policy_resolver_error`; applied-but-un-backfilled, `deny/policy_missing_root` — the
+> client-discovery and requirement-priority surfaces go dark on merge, while
+> `WIZMATCH_COMPANY_POLICY_ENABLED` being off 404s the API that would unblock them. Two defensible
+> readings; both agree the two 409s are wrong. **Recommendation: make the adapter mode-aware.**
+>
+> **C-2 — no policy could ever be changed. FIXED.** `writeCompanyPolicy` inserted the new active row
+> before superseding its predecessor, violating the non-deferrable partial unique index
+> `wizmatch_company_policies_active_scope_uniq`. Every supersession, including every admin override,
+> would have raised `23505` and 500'd against a real database. CI was green only because the mock
+> enforced no constraints — the same class as the PR 2 FK-ordering Critical.
+>
+> **Also fixed, with control runs:** H-1 `POST /companies/bulk/policy` was shadowed by
+> `POST /companies/:id/policy`, so the admin-only bulk endpoint never ran and the `team_lead` gate
+> fired instead (confirmed against the repo's Express 5.2.1); H-12 the supersession test never
+> asserted supersession happened. New `src/__tests__/wizmatchPolicyRoutes.test.ts` pins path
+> precedence, the role gate that actually fires, and flag-off 404s against a real Express app.
+>
+> **Twelve Highs open**, including: requirement-priority fails **open** on a null `companyId`; the
+> canonical REVIEW branch for contact intelligence is dead code; `priority` is folded but `nextAction`
+> is not, so the workbench offers a live POST on a denied company; the fifth caller's scope-out reason
+> is falsified by this same PR; the adapter test's mock discards `.where()`; unknown
+> `outreachEligibility` fails **open**; `evidence_url` is not SSRF-scrubbed though §10.1/§18.2 name
+> the control as shipping here; and **the PR 4 marker's flag-gating claim is false** — the Duplicate
+> Companies page has no flag import and its nav entry and route are unconditional.
+>
+> **Gates on the post-fix tree:** `git diff --check` clean · build exit 0 · **110 files / 970 tests** ·
+> `admin:build` clean · Playwright 97 passed / 15 skipped / 0 failed. Boundary checks all pass — no
+> guardrail file, no `package-lock.json`, no Growth/SEO/n8n or legacy-outreach contamination, no send
+> or paid-provider capability enabled, no production action.
+
+**Exact next action:** get the owner decision on C-1, implement it, close the twelve open Highs, then
+re-review. **Do not** merge, deploy, apply 0037, run backfill `--apply`, promote `enforce`, or start
+PR 6 until that is done.
+
+---
+
+## Prior task — PR 5 implementation (self-reported)
+
 **PR 5 IMPLEMENTED (self-reported, not independently reviewed) 2026-07-26 —
 WizMatch Outbound Operating System, PR 5 of 10 (lifecycle consolidation).** Branch
 `ge/outbound-05-lifecycle-consolidation` (cut from `ge/outbound-04-policy-ui-backfill`), local only,

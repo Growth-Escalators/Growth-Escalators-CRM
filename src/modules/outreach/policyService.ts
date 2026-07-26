@@ -12,6 +12,7 @@
 // composite-tenancy validation, and admin bulk actions with partial-failure
 // reporting.
 
+import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
   db,
@@ -247,9 +248,26 @@ export async function writeCompanyPolicy(
       );
     }
 
+    // Order matters and is load-bearing. `wizmatch_company_policies_active_scope_uniq`
+    // is a PARTIAL UNIQUE INDEX on (tenant_id, company_id, scope_key)
+    // WHERE superseded_at IS NULL (§10.1, migration 0037). A unique *index* is
+    // non-deferrable — Postgres enforces it per statement, not at COMMIT — so the
+    // predecessor must leave the index BEFORE the successor enters it. Inserting
+    // first raises 23505 and rolls the whole write back, which made every
+    // supersession (and therefore every override) fail. The new id is generated
+    // here so the predecessor can point at it in a single UPDATE.
+    const newPolicyId = randomUUID();
+    if (previousRow) {
+      await tx
+        .update(wizmatchCompanyPolicies)
+        .set({ supersededAt: new Date(), supersededByPolicyId: newPolicyId })
+        .where(and(eq(wizmatchCompanyPolicies.tenantId, actor.tenantId), eq(wizmatchCompanyPolicies.id, previousRow.id)));
+    }
+
     const [inserted] = await tx
       .insert(wizmatchCompanyPolicies)
       .values({
+        id: newPolicyId,
         tenantId: actor.tenantId,
         companyId,
         scopeType: input.scopeType,
@@ -276,13 +294,6 @@ export async function writeCompanyPolicy(
         reviewDate: input.reviewDate,
       })
       .returning();
-
-    if (previousRow) {
-      await tx
-        .update(wizmatchCompanyPolicies)
-        .set({ supersededAt: new Date(), supersededByPolicyId: inserted.id })
-        .where(and(eq(wizmatchCompanyPolicies.tenantId, actor.tenantId), eq(wizmatchCompanyPolicies.id, previousRow.id)));
-    }
 
     await tx.insert(wizmatchCompanyPolicyEvents).values({
       tenantId: actor.tenantId,
