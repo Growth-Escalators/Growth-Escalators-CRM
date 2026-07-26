@@ -182,22 +182,49 @@ export default function TodayDecisionWorkbench() {
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
   const [error, setError] = useState(null);
+  const [disabledOnServer, setDisabledOnServer] = useState(false);
   const [queues, setQueues] = useState(EMPTY_QUEUES);
   const [users, setUsers] = useState([]);
   const [selected, setSelected] = useState({ readyToContact: new Set(), needsReview: new Set(), pausedOrBlocked: new Set() });
   const [dialog, setDialog] = useState(null); // { action, targets: [{type,id}], targetLabel, defaultReasonCode }
   const [submitting, setSubmitting] = useState(false);
+  // Failed per-target results from the last action, kept on screen. A toast
+  // auto-dismisses in 5s and was truncated to two messages, so after a bulk
+  // action there was no way to learn WHICH targets failed — the opposite of
+  // the "per-target result, never a silent partial success" contract.
+  const [lastResults, setLastResults] = useState([]);
   const { showSuccess, showError } = useToast();
+
+  // `apiFetch` returns `await res.json().catch(() => null)`, so a 200 with an
+  // empty or non-JSON body (proxy, CDN, gateway) yields `null`. Rendering that
+  // would throw on the first property read and drop the whole page into the App
+  // error boundary; accepting a wrong-shaped 200 would be worse still, because
+  // it renders as a confident "nothing needs a decision".
+  const isQueuePayload = (d) => !!d
+    && Array.isArray(d.readyToContact)
+    && Array.isArray(d.needsReview)
+    && Array.isArray(d.pausedOrBlocked)
+    && Array.isArray(d.repliesNeedingAction);
 
   const load = useCallback(async (isRetry = false) => {
     if (isRetry) setRetrying(true); else setLoading(true);
     setError(null);
+    setDisabledOnServer(false);
     try {
       const data = await apiFetch('/api/wizmatch/today/queues?limit=200');
+      if (!isQueuePayload(data)) {
+        throw new Error('The decision-queue response was not in the expected format.');
+      }
       setQueues(data);
       setSelected({ readyToContact: new Set(), needsReview: new Set(), pausedOrBlocked: new Set() });
     } catch (e) {
-      setError(e.message || 'Failed to load the decision workbench.');
+      // A 404 here means WIZMATCH_DECISION_WORKBENCH_ENABLED is off on this
+      // backend while the UI build has it on — which is the DEFAULT locally,
+      // since import.meta.env.DEV forces the UI flag true. That is a switched-off
+      // feature, not a failure: retrying re-issues the same 404 forever, so show
+      // an explicit state instead of a permanent error screen.
+      if (e.status === 404) setDisabledOnServer(true);
+      else setError(e.message || 'Failed to load the decision workbench.');
     } finally {
       setLoading(false);
       setRetrying(false);
@@ -243,30 +270,52 @@ export default function TodayDecisionWorkbench() {
   const submitAction = async (extra) => {
     if (!dialog) return;
     setSubmitting(true);
+    setLastResults([]);
     try {
       const outcome = await apiFetch('/api/wizmatch/today/actions', {
         method: 'POST',
         body: JSON.stringify({ action: dialog.action, targets: dialog.targets, ...extra }),
       });
-      const failed = outcome.results.filter((r) => !r.ok);
-      if (failed.length === 0) {
+      // A 2xx means the writes already ran server-side. Never let a malformed
+      // body throw here: the old code did, and the throw was caught below as
+      // "Action failed" while `setDialog(null)` and `load()` were skipped —
+      // so committed writes were reported as a failure, the dialog stayed open
+      // inviting a re-submit, and the queues were never refreshed.
+      const results = Array.isArray(outcome?.results) ? outcome.results : [];
+      const failed = results.filter((r) => !r.ok);
+      if (results.length === 0) {
+        showError('The action was submitted but the server returned an unreadable result. Refreshing — check the queues before retrying.');
+      } else if (failed.length === 0) {
         showSuccess(`${outcome.succeeded} of ${outcome.requested} succeeded.`);
       } else if (outcome.succeeded > 0) {
         showError(`${outcome.succeeded} succeeded, ${failed.length} failed: ${failed.map((f) => f.error).slice(0, 2).join('; ')}`);
       } else {
         showError(`All ${failed.length} failed: ${failed.map((f) => f.error).slice(0, 2).join('; ')}`);
       }
-      setDialog(null);
-      await load();
+      setLastResults(failed);
     } catch (e) {
       showError(e.message || 'Action failed.');
     } finally {
+      // Always close and refetch. The server may have committed some or all of
+      // the writes whatever the response looked like, so the operator must see
+      // current state rather than a stale list behind an open dialog.
+      setDialog(null);
       setSubmitting(false);
+      await load();
     }
   };
 
   if (loading) {
-    return <div className="card p-8 text-center text-neutral-500">Loading the decision workbench…</div>;
+    return <div className="card p-8 text-center text-neutral-500" role="status" aria-busy="true">Loading the decision workbench…</div>;
+  }
+  if (disabledOnServer) {
+    return (
+      <EmptyState
+        icon={AlertTriangle}
+        title="The decision workbench is not enabled on this environment"
+        description="This build has the workbench UI switched on, but the API for it is switched off (WIZMATCH_DECISION_WORKBENCH_ENABLED). Nothing is broken — the feature simply is not turned on here. Ask an admin to enable it, or use the other WizMatch pages in the meantime."
+      />
+    );
   }
   if (error) {
     return <ErrorRetry message={error} onRetry={() => load(true)} retrying={retrying} />;
@@ -285,12 +334,52 @@ export default function TodayDecisionWorkbench() {
         </button>
       </div>
 
+      {queues.partial?.truncated && (
+        <div role="alert" className="card p-3 border-warning-500/30 bg-warning-500/10 flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 text-warning-700 mt-0.5 shrink-0" aria-hidden="true" />
+          <p className="text-[12.5px] text-warning-800">
+            More companies need a decision than fit on this page. The counts below are for the companies
+            shown, not for the whole tenant — work through these, then refresh.
+          </p>
+        </div>
+      )}
+
+      {queues.partial?.repliesUnavailable && (
+        <div role="alert" className="card p-3 border-danger-500/30 bg-danger-500/10 flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 text-danger-700 mt-0.5 shrink-0" aria-hidden="true" />
+          <p className="text-[12.5px] text-danger-800">
+            Replies Needing Action could not be loaded. It is showing empty because of an error, not
+            because there is nothing waiting — do not treat it as clear. Try Refresh.
+          </p>
+        </div>
+      )}
+
       {skipped > 0 && (
         <div role="alert" className="card p-3 border-warning-500/30 bg-warning-500/10 flex items-start gap-2">
           <AlertTriangle className="w-4 h-4 text-warning-700 mt-0.5 shrink-0" aria-hidden="true" />
           <p className="text-[12.5px] text-warning-800">
             {skipped} item(s) could not be evaluated and were left out of the queues below (malformed data). Try Refresh, and contact an admin if this persists.
           </p>
+        </div>
+      )}
+
+      {lastResults.length > 0 && (
+        <div role="alert" className="card p-3 border-danger-500/30 bg-danger-500/10">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-[12.5px] font-semibold text-danger-800">
+              {lastResults.length} target(s) in the last action failed and were not changed:
+            </p>
+            <button type="button" onClick={() => setLastResults([])} className="btn-standard btn-compact" aria-label="Dismiss the failed-target list">
+              Dismiss
+            </button>
+          </div>
+          <ul className="mt-1.5 space-y-0.5">
+            {lastResults.map((r) => (
+              <li key={`${r.type}-${r.id}`} className="text-[12px] text-danger-800">
+                <span className="font-mono">{r.id}</span> — {r.error || r.code || 'failed'}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

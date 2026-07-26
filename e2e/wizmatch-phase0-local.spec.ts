@@ -208,6 +208,38 @@ test('Today shows empty-state guidance and requirement priority shows the correc
   await expect(page.getByRole('link', { name: /Add a requirement/ })).toHaveAttribute('href', '/wizmatch/requirements');
 });
 
+// PR 6 review — a switched-off feature must not present as a permanent error
+// screen. The UI flag is forced on by `import.meta.env.DEV` while the backend
+// flag defaults off, so a 404 from /today/queues is the DEFAULT local state and
+// a likely production ordering (the frontend rebuilds on push; the Railway var
+// is set by hand afterwards). Before the fix this showed ErrorRetry with the
+// raw string `not_found` and a Retry that re-issued the same 404 forever.
+test('Today explains a switched-off decision workbench instead of a permanent error screen', async ({ page }) => {
+  await installWizmatchSession(page);
+  await installGenericApiFallback(page);
+  await page.route('**/api/wizmatch/today/queues*', (route) => fulfillJson(route, { error: 'not_found' }, 404));
+
+  await page.goto('/wizmatch/today');
+  await expect(page.getByText('The decision workbench is not enabled on this environment')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Retry/i })).toHaveCount(0);
+});
+
+// PR 6 review — `apiFetch` returns `await res.json().catch(() => null)`, so a
+// 200 with an empty or non-JSON body yields null. Rendering it threw on the
+// first property read and dropped the page into the App error boundary;
+// accepting a wrong-shaped 200 rendered a confident "nothing needs a decision".
+test('Today survives a malformed 200 from the queues endpoint without crashing or faking an empty queue', async ({ page }) => {
+  await installWizmatchSession(page);
+  await installGenericApiFallback(page);
+  await page.route('**/api/wizmatch/today/queues*', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ message: 'ok' }) }));
+
+  await page.goto('/wizmatch/today');
+  await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible();
+  await expect(page.getByText(/not in the expected format/i)).toBeVisible();
+  await expect(page.getByText('Nothing needs a decision right now')).toHaveCount(0);
+});
+
 test('D-12 demo result states that no discovery was queued or run', async ({ page }) => {
   await page.goto('/wizmatch/review-workbench-demo');
   const action = page.getByRole('button', { name: 'Send to Contact Intelligence' }).first();
