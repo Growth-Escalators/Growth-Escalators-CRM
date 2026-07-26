@@ -362,6 +362,7 @@ describe('seedProspectCompany', () => {
     expect(policyCall?.[1]).toEqual([
       'tenant-1', 'co-new', 'entire_company', 'entire_company',
       'needs_review', 'unknown', 'new_prospect', 'standard', false, 'deterministic_rule',
+      'policy_unknown_cold_start',
     ]);
   });
 

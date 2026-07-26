@@ -1,6 +1,6 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
-import { insertWizmatchCompanyRootPolicy } from '../modules/outreach/companyBootstrap';
+import { wizmatchRootPolicyBootstrapCte } from '../modules/outreach/companyBootstrap';
 import { normalizeProviderId, signalIdentityFingerprint } from './wizmatchSignalIdentity';
 import { createDefaultWizmatchContactDiscoveryProviders } from './wizmatchContactDiscoveryProviders';
 import { dedupeDiscoveryCandidates, getWizmatchContactDiscoveryConfig } from './wizmatchContactDiscovery';
@@ -153,21 +153,35 @@ export async function ingestWizmatchSignals(
     try {
       let companyId: string | null = null;
       if (sig.company_name || sig.company_domain) {
+        // The company upsert and its cold-start root policy are ONE statement, so
+        // they commit or roll back together even though this path runs on the
+        // shared pool and cannot hold a multi-statement transaction (§22.2 #16).
+        // `(xmax = 0)` distinguishes the INSERT branch of the upsert from the
+        // ON CONFLICT DO UPDATE branch, so an existing company's policy is never
+        // touched. Two statements here would leave a committed company with no
+        // root policy if the second failed — a permanent L0 `policy_missing_root`
+        // deny that re-ingestion could never repair, because the next upsert
+        // takes the DO UPDATE branch.
+        const bootstrap = wizmatchRootPolicyBootstrapCte('upserted', '$1', 4);
         const company = await dbPool.query(
-          `INSERT INTO wizmatch_companies (tenant_id,name,domain,created_at,updated_at)
-           VALUES ($1,$2,$3,NOW(),NOW())
-           ON CONFLICT (tenant_id,name) DO UPDATE
-           SET domain=COALESCE(wizmatch_companies.domain,EXCLUDED.domain),updated_at=NOW()
-           RETURNING id, (xmax = 0) AS inserted`,
-          [tenantId, sig.company_name || sig.company_domain || 'Unknown', sig.company_domain || null],
+          `WITH upserted AS (
+             INSERT INTO wizmatch_companies (tenant_id,name,domain,created_at,updated_at)
+             VALUES ($1,$2,$3,NOW(),NOW())
+             ON CONFLICT (tenant_id,name) DO UPDATE
+             SET domain=COALESCE(wizmatch_companies.domain,EXCLUDED.domain),updated_at=NOW()
+             RETURNING id, (xmax = 0) AS inserted
+           ), bootstrap AS (
+             ${bootstrap.sql}
+           )
+           SELECT id, inserted FROM upserted`,
+          [
+            tenantId,
+            sig.company_name || sig.company_domain || 'Unknown',
+            sig.company_domain || null,
+            ...bootstrap.params,
+          ],
         );
         companyId = company.rows[0]?.id || null;
-        // Cold-start root policy: only on genuine creation (xmax=0 distinguishes
-        // the INSERT branch of this upsert from the ON CONFLICT DO UPDATE branch),
-        // so an existing company's policy is never touched here (§22.2 #16).
-        if (companyId && company.rows[0]?.inserted) {
-          await insertWizmatchCompanyRootPolicy(dbPool, tenantId, companyId);
-        }
       }
       const providerId = normalizeProviderId(sig.provider_id);
       const fingerprint = signalIdentityFingerprint({

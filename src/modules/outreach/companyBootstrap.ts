@@ -16,22 +16,58 @@
 //     insert path.
 //   - No Growth/legacy prospects or signals table is touched.
 
+import { buildScopeKey } from './scopeKey';
+
 export type WizmatchQueryable = {
   query: (text: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number | null }>;
 };
 
 /** PRD-005 §22.2 — the exact default root row. Not exported piecemeal so no
- * caller can construct a partial/incorrect root row by hand. */
+ * caller can construct a partial/incorrect root row by hand. `scopeKey` comes
+ * from `buildScopeKey`, the only permitted producer of a scope key (§22.2 #17),
+ * rather than a duplicated literal. */
 export const WIZMATCH_ROOT_POLICY_DEFAULTS = Object.freeze({
   scopeType: 'entire_company',
-  scopeKey: 'entire_company',
+  scopeKey: buildScopeKey('entire_company'),
   outreachEligibility: 'needs_review',
   externalHiringPolicy: 'unknown',
   relationshipType: 'new_prospect',
   blockClass: 'standard',
   isNonOverridable: false,
   source: 'deterministic_rule',
+  // PRD-005 §8.1 and ADR-006 ("Backfill proposal") both name the reason code
+  // that must be persisted on the cold-start row, so a raw read of the table
+  // (or the PR 4 backfill's own reconciliation) sees the same fact the resolver
+  // derives. Permitted with no evidence because the row is neither permanent
+  // nor non-overridable, so `..._evidence_required_chk` is satisfied.
+  reasonCode: 'policy_unknown_cold_start',
 } as const);
+
+/** Column list for the root-policy INSERT. Shared by the standalone helper and
+ * the single-statement (CTE) form below so the two can never drift apart. */
+const ROOT_POLICY_COLUMNS =
+  '(tenant_id, company_id, scope_type, scope_key, outreach_eligibility,' +
+  ' external_hiring_policy, relationship_type, block_class, is_non_overridable, source, reason_code)';
+
+/** Arbiter is the partial unique index `wizmatch_company_policies_active_scope_uniq`. */
+const ROOT_POLICY_ON_CONFLICT =
+  'ON CONFLICT (tenant_id, company_id, scope_key) WHERE superseded_at IS NULL DO NOTHING';
+
+/** The default values in `ROOT_POLICY_COLUMNS` order, after tenant_id and company_id. */
+function rootPolicyValueParams(): unknown[] {
+  const d = WIZMATCH_ROOT_POLICY_DEFAULTS;
+  return [
+    d.scopeType,
+    d.scopeKey,
+    d.outreachEligibility,
+    d.externalHiringPolicy,
+    d.relationshipType,
+    d.blockClass,
+    d.isNonOverridable,
+    d.source,
+    d.reasonCode,
+  ];
+}
 
 /**
  * Idempotent and concurrency-safe: relies on the partial unique index
@@ -47,26 +83,47 @@ export async function insertWizmatchCompanyRootPolicy(
   tenantId: string,
   companyId: string,
 ): Promise<void> {
-  const d = WIZMATCH_ROOT_POLICY_DEFAULTS;
   await client.query(
     `INSERT INTO wizmatch_company_policies
-       (tenant_id, company_id, scope_type, scope_key, outreach_eligibility,
-        external_hiring_policy, relationship_type, block_class, is_non_overridable, source)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-     ON CONFLICT (tenant_id, company_id, scope_key) WHERE superseded_at IS NULL DO NOTHING`,
-    [
-      tenantId,
-      companyId,
-      d.scopeType,
-      d.scopeKey,
-      d.outreachEligibility,
-      d.externalHiringPolicy,
-      d.relationshipType,
-      d.blockClass,
-      d.isNonOverridable,
-      d.source,
-    ],
+       ${ROOT_POLICY_COLUMNS}
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     ${ROOT_POLICY_ON_CONFLICT}`,
+    [tenantId, companyId, ...rootPolicyValueParams()],
   );
+}
+
+/**
+ * The bootstrap as a data-modifying CTE, for a caller that creates the company
+ * with a single upsert on the shared pool and so cannot hold a multi-statement
+ * transaction (§22.2 #16 requires the root policy to be written in the *same
+ * transaction* as the company row). A single SQL statement is atomic in
+ * PostgreSQL, so folding both writes into one statement gives that guarantee
+ * without needing a dedicated `pool.connect()` client.
+ *
+ * `companyCte` must name a preceding CTE that returns `id` and a boolean
+ * `inserted`; the policy row is written only when `inserted` is true, so an
+ * upsert that merely updated an existing company never touches its policy.
+ *
+ * Verified against PostgreSQL 16: the composite FK
+ * `(tenant_id, company_id) -> wizmatch_companies(tenant_id, id)` resolves
+ * within the same statement, because FK checks fire as end-of-statement
+ * AFTER-ROW triggers.
+ */
+export function wizmatchRootPolicyBootstrapCte(
+  companyCte: string,
+  tenantParam: string,
+  firstParam: number,
+): { sql: string; params: unknown[] } {
+  const p = (offset: number) => `$${firstParam + offset}`;
+  return {
+    sql: `INSERT INTO wizmatch_company_policies
+       ${ROOT_POLICY_COLUMNS}
+     SELECT ${tenantParam}, ${companyCte}.id,
+            ${p(0)}, ${p(1)}, ${p(2)}, ${p(3)}, ${p(4)}, ${p(5)}, ${p(6)}, ${p(7)}, ${p(8)}
+     FROM ${companyCte} WHERE ${companyCte}.inserted
+     ${ROOT_POLICY_ON_CONFLICT}`,
+    params: rootPolicyValueParams(),
+  };
 }
 
 /**
