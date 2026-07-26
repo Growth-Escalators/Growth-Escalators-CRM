@@ -13,6 +13,8 @@ export interface WizmatchAutomationStatus {
   staffingGateCEnabled: boolean;
   staffingRemindersEnabled: boolean;
   sendingEnabled: boolean;
+  /** PRD-005 §16 `WIZMATCH_AUTO_PREP_ENABLED` — gates `prepareCompaniesJob`'s cron (PR 7). */
+  autoPrepEnabled: boolean;
   schedule: string;
   nextExpectedRunAt: string | null;
   sourcing: ReturnType<typeof getWizmatchSourcingConfig>;
@@ -43,6 +45,7 @@ export function getWizmatchAutomationStatus(
     staffingGateCEnabled,
     staffingRemindersEnabled,
     sendingEnabled: enabled(env.WIZMATCH_SENDING_ENABLED),
+    autoPrepEnabled: masterEnabled && enabled(env.WIZMATCH_AUTO_PREP_ENABLED),
     schedule: WIZMATCH_STAFFING_REMINDER_SCHEDULE,
     nextExpectedRunAt: staffingRemindersEnabled ? nextStaffingReminderAt(now) : null,
     sourcing: getWizmatchSourcingConfig(env),

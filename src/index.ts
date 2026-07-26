@@ -63,6 +63,7 @@ import wizmatchRouter from './routes/wizmatch';
 import wizmatchStaffingRouter from './routes/wizmatchStaffing';
 import wizmatchPolicyRouter from './routes/wizmatchPolicy';
 import wizmatchTodayRouter from './routes/wizmatchToday';
+import wizmatchPrepareRouter from './routes/wizmatchPrepare';
 // Workers and cron jobs now run via src/worker.ts (see railway.json)
 import analyticsRouter from './routes/analytics';
 import whatsappTemplatesRouter from './routes/whatsappTemplates';
@@ -349,6 +350,10 @@ app.use('/api/wizmatch', (req, res, next) => requireAuth(req, res, () => wizmatc
 // either flag was off — which is the default. See wizmatchIndexMountOrder.test.ts.
 app.use('/api/wizmatch', requireAuth, wizmatchRequireStaffing, wizmatchPolicyRouter);
 app.use('/api/wizmatch', requireAuth, wizmatchRequireStaffing, wizmatchTodayRouter);
+// PRD-005 PR 7 — free preparation (WIZMATCH_AUTO_PREP_ENABLED, same
+// next('router') convention and same M-1 mount-order reasoning as the two
+// routers above).
+app.use('/api/wizmatch', requireAuth, wizmatchRequireStaffing, wizmatchPrepareRouter);
 // `viewer` (the read-only Command Deck sync account) is included for GET access to
 // Wizmatch data. Safe because requireAuth (below) blocks the viewer role on any
 // non-GET method, so viewer can read the Wizmatch surfaces but never trigger a write.

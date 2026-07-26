@@ -404,27 +404,46 @@ async function googleSearchEmail(domain: string): Promise<string | null> {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+const MAX_FETCH_REDIRECTS = 3;
+
 async function fetchPage(url: string): Promise<string | null> {
   // SSRF guard at the point of fetch — validate the resolved host every time,
-  // not just at input, so no caller can reach internal/private hosts.
-  if (!isSafeFetchUrl(url)) {
-    logger.warn({ url }, '[emailExtractor] refusing to fetch non-public host (SSRF guard)');
-    return null;
+  // not just at input, so no caller can reach internal/private hosts. Redirect
+  // is handled manually below (`redirect: 'manual'`) so every hop is
+  // re-validated too — a compromised or malicious "company website" could
+  // otherwise 30x-redirect the scrape to a private/metadata host that would
+  // never have passed the initial check (PRD-005 §18.2, WizMatch outbound PR 7).
+  let currentUrl = url;
+  for (let hop = 0; hop <= MAX_FETCH_REDIRECTS; hop++) {
+    if (!isSafeFetchUrl(currentUrl)) {
+      logger.warn({ url: currentUrl }, '[emailExtractor] refusing to fetch non-public host (SSRF guard)');
+      return null;
+    }
+    try {
+      const res = await fetch(currentUrl, {
+        signal: AbortSignal.timeout(5000),
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          Accept: 'text/html,application/xhtml+xml',
+        },
+        redirect: 'manual',
+      });
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get('location');
+        if (!location) return null;
+        currentUrl = new URL(location, currentUrl).toString();
+        continue; // re-validated at the top of the next iteration
+      }
+      if (!res.ok) return null;
+      const ct = res.headers.get('content-type') ?? '';
+      if (!ct.includes('text/html') && !ct.includes('text/plain')) return null;
+      return (await res.text()).slice(0, 200_000);
+    } catch {
+      return null;
+    }
   }
-  try {
-    const res = await fetch(url, {
-      signal: AbortSignal.timeout(5000),
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        Accept: 'text/html,application/xhtml+xml',
-      },
-      redirect: 'follow',
-    });
-    if (!res.ok) return null;
-    const ct = res.headers.get('content-type') ?? '';
-    if (!ct.includes('text/html') && !ct.includes('text/plain')) return null;
-    return (await res.text()).slice(0, 200_000);
-  } catch { return null; }
+  logger.warn({ url }, '[emailExtractor] too many redirects, refusing to follow further');
+  return null;
 }
 
 function normalizeUrl(url: string): string | null {

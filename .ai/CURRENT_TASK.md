@@ -2,8 +2,59 @@
 
 ## Active task
 
-**PR 6 CODE READY (independently reviewed) 2026-07-26 — WizMatch Outbound Operating System, PR 6 of
-10 (Decision Workbench).** Branch `ge/outbound-06-decision-workbench` (cut from
+**PR 7 IMPLEMENTED (self-reported, not independently reviewed) 2026-07-27 — WizMatch Outbound
+Operating System, PR 7 of 10 (zero-cost company preparation).** Branch `ge/outbound-07-free-prep`
+(cut from code-ready `ge/outbound-06-decision-workbench`), local only, NOT pushed, NOT merged. Marker:
+`.ai/OUTBOUND_PR7_IMPLEMENTED`. Full detail:
+[`docs/reviews/wizmatch-outbound-pr7-implementation.md`](../docs/reviews/wizmatch-outbound-pr7-implementation.md),
+`docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md`'s PR 7 section, `.ai/HANDOFF_LOG.md`.
+
+**Scope delivered:** `prepareCompaniesJob` (PRD-005 §14) — new
+`src/modules/outreach/prepareCompanies.ts`, new `src/routes/wizmatchPrepare.ts`
+(`POST/GET /api/wizmatch/companies/:id/prepare[/status]`), a new `WIZMATCH_AUTO_PREP_ENABLED` cron in
+`worker.ts` (default off, mirrors the TheirStack/ATS cron pattern), and a targeted SSRF fix
+(redirect-hop revalidation, bounded to 3 hops) in `src/services/emailExtractorService.ts`'s shared
+`fetchPage` helper, which PR 7's website-discovery step depends on. **No migration** — reuses the
+existing `wizmatch_company_intelligence.metadata` jsonb column (`metadata.prep`). **Zero-spend by
+construction**: calls only the free `websitePatternSearch` rung, never `discoverFreePocsForSignal` as a
+whole (its SearchAPI fallback can spend), never Apollo/Snov/Serper — enforced by a static test that
+fails if a paid identifier appears in the module's own imports. Tenant-scoped, advisory-locked
+(`withWizmatchSourceLock`, same helper the sourcing crons use), idempotent (report is a jsonb
+overwrite, new-contact insert is dedup-checked by email). Reuses `evaluateWizmatchOutreachGate`
+(hard stop on `!preparationAllowed`), `deriveConfidenceTier` (cold-start gate: medium/low never
+auto-surfaced), and `computeCampaignCompatibility` (advisory campaign routing) verbatim — no new
+policy/scoring/routing logic. Draft personalisation is a deterministic template merge, no LLM call,
+`hypotheses` always empty (never fabricates a fact).
+
+**Gates:** `git diff --check` clean · `npm run build` exit 0 · `npm test` **119 files / 1097 tests**
+(was 117/1081 at the PR 6 review baseline, +16 new tests: `prepareCompanies.test.ts`,
+`wizmatchPrepareRoutes.test.ts`) · `npm run admin:build` clean (no admin files touched — PR 7 is
+backend-only per PRD-005 §14) · `npx playwright test --config=playwright.wizmatch-local.config.ts`
+**99 passed / 15 skipped / 0 failed** — identical to the PR 6 baseline, confirming zero UI regression.
+
+**Disclosed, not silently dropped:** no per-domain rate limiter beyond the per-run fetch cap
+(`DEFAULT_PREP_MAX_WEBSITE_FETCHES = 25`) and sequential (concurrency-1) processing — no such utility
+exists anywhere in the repo yet, a pre-existing gap PR 7 does not generalise-fix. No CLI (PRD-005 §12
+names only the two HTTP routes). The §7 cold-start confidence gate remains unwired inside
+`evaluateWizmatchOutreachGate` itself — PR 7 applies an equivalent gate at its own job level, which is
+sufficient for its own output but does not retroactively protect any other caller of the gate. The PR 6
+§13 approval-capture gap (`approve_queue` has no `approved_by`/`approved_at`) is **not** touched.
+
+**Not done, by instruction:** migration 0037 still not applied; no backfill `--apply`; enforcement mode
+untouched (`shadow`); both sending kill-switches untouched; no paid provider enabled; Smartlead not
+connected; no guardrail file touched; no Growth/SEO/n8n/`package-lock.json` change; nothing pushed,
+merged, or deployed; no Railway or production access; no database mutation; no scheduler or production
+invocation enabled.
+
+**Exact next action:** get an independent readiness review of PR 7 (three-subagent method, per the
+PR 2/3/5/6 precedent). Then PR 8 (`ge/outbound-08-outreach-adapter` — interface + mock + factory, no
+Smartlead) per the standing 10-PR programme. **Do not** start PR 8 before that review.
+
+---
+
+## Prior task — PR 6 CODE READY (independently reviewed) 2026-07-26
+
+**WizMatch Outbound Operating System, PR 6 of 10 (Decision Workbench).** Branch `ge/outbound-06-decision-workbench` (cut from
 `ge/outbound-05-lifecycle-consolidation`), local only, NOT pushed, NOT merged. Markers:
 `.ai/OUTBOUND_PR6_IMPLEMENTED` (self-reported) + `.ai/OUTBOUND_PR6_CODE_READY` (independent review).
 Full detail: [`docs/reviews/wizmatch-outbound-pr6-opus-review.md`](../docs/reviews/wizmatch-outbound-pr6-opus-review.md),
