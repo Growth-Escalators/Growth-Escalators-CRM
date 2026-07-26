@@ -44,6 +44,7 @@ vi.mock('../db', async () => {
 import { evaluateWizmatchOutreachGate } from '../modules/outreach/outreachGate';
 import { wizmatchCompanyDuplicates, wizmatchSuppressionList } from '../db/schema';
 import type { PolicyDecision, PolicyDecisionFields } from '../modules/outreach/policyTypes';
+import { WIZMATCH_ROOT_POLICY_DEFAULTS } from '../modules/outreach/companyBootstrap';
 
 /** Collects every literal SQL fragment out of a drizzle condition tree. */
 function sqlFragments(node: unknown, seen = new WeakSet<object>()): string[] {
@@ -306,6 +307,35 @@ describe('§8.10 — suppression union normalisation', () => {
     const decision = await evaluateWizmatchOutreachGate({ ...ctx, email: 'a@b.com' });
 
     expect(decision.reasonCodes).toEqual(['email_hard_bounce']);
+  });
+});
+
+describe('§22.2 #16 / #20 — a freshly bootstrapped company never resolves to allow', () => {
+  it('the exact WIZMATCH_ROOT_POLICY_DEFAULTS row resolves to review, with a reason naming the cold start', async () => {
+    // Uses the literal defaults the bootstrap helper writes (companyBootstrap.ts),
+    // not a hand-copied fixture, so this test breaks if the two ever diverge.
+    state.policyRows = [
+      rootPolicy({
+        outreachEligibility: WIZMATCH_ROOT_POLICY_DEFAULTS.outreachEligibility,
+        externalHiringPolicy: WIZMATCH_ROOT_POLICY_DEFAULTS.externalHiringPolicy,
+        relationshipType: WIZMATCH_ROOT_POLICY_DEFAULTS.relationshipType,
+        blockClass: WIZMATCH_ROOT_POLICY_DEFAULTS.blockClass,
+        isNonOverridable: WIZMATCH_ROOT_POLICY_DEFAULTS.isNonOverridable,
+        source: WIZMATCH_ROOT_POLICY_DEFAULTS.source,
+        reasonCode: null,
+        evidenceKind: null,
+        evidenceText: null,
+      }),
+    ];
+
+    const decision = await evaluateWizmatchOutreachGate(ctx);
+
+    expect(decision.decision).not.toBe('allow');
+    expect(['deny', 'review']).toContain(decision.decision);
+    expect(decision.decision).toBe('review');
+    expect(decision.requiresExplicitApproval).toBe(true);
+    // needs_review + unknown hiring policy: the cold-start reason, not a silent allow.
+    expect(decision.reasonCodes).toEqual(['policy_unknown_cold_start']);
   });
 });
 

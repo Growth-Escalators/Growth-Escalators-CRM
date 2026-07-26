@@ -1,5 +1,6 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
+import { insertWizmatchCompanyRootPolicy } from '../modules/outreach/companyBootstrap';
 import { normalizeProviderId, signalIdentityFingerprint } from './wizmatchSignalIdentity';
 import { createDefaultWizmatchContactDiscoveryProviders } from './wizmatchContactDiscoveryProviders';
 import { dedupeDiscoveryCandidates, getWizmatchContactDiscoveryConfig } from './wizmatchContactDiscovery';
@@ -157,10 +158,16 @@ export async function ingestWizmatchSignals(
            VALUES ($1,$2,$3,NOW(),NOW())
            ON CONFLICT (tenant_id,name) DO UPDATE
            SET domain=COALESCE(wizmatch_companies.domain,EXCLUDED.domain),updated_at=NOW()
-           RETURNING id`,
+           RETURNING id, (xmax = 0) AS inserted`,
           [tenantId, sig.company_name || sig.company_domain || 'Unknown', sig.company_domain || null],
         );
         companyId = company.rows[0]?.id || null;
+        // Cold-start root policy: only on genuine creation (xmax=0 distinguishes
+        // the INSERT branch of this upsert from the ON CONFLICT DO UPDATE branch),
+        // so an existing company's policy is never touched here (§22.2 #16).
+        if (companyId && company.rows[0]?.inserted) {
+          await insertWizmatchCompanyRootPolicy(dbPool, tenantId, companyId);
+        }
       }
       const providerId = normalizeProviderId(sig.provider_id);
       const fingerprint = signalIdentityFingerprint({

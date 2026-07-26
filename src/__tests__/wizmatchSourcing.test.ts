@@ -58,7 +58,7 @@ describe('shared signal ingestion', () => {
     const db = {
       async query(sql: string) {
         calls.push(sql);
-        if (sql.includes('INSERT INTO wizmatch_companies')) return { rows: [{ id: 'company-1' }] };
+        if (sql.includes('INSERT INTO wizmatch_companies')) return { rows: [{ id: 'company-1', inserted: false }] };
         if (sql.includes('UPDATE wizmatch_job_signals')) return { rows: [{ id: 'signal-1' }] };
         return { rows: [] };
       },
@@ -69,6 +69,46 @@ describe('shared signal ingestion', () => {
     ], db);
     expect(result).toEqual({ inserted: 0, updated: 1, duplicates: 1, rejected: 1, errors: 0 });
     expect(calls.some((sql) => sql.includes('INSERT INTO wizmatch_job_signals'))).toBe(false);
+  });
+
+  it('writes the cold-start root policy only when the company upsert genuinely inserts (§22.2 #16)', async () => {
+    const calls: { sql: string; params?: unknown[] }[] = [];
+    const db = {
+      async query(sql: string, params?: unknown[]) {
+        calls.push({ sql, params });
+        if (sql.includes('INSERT INTO wizmatch_companies')) return { rows: [{ id: 'company-new', inserted: true }] };
+        if (sql.includes('INSERT INTO wizmatch_job_signals')) return { rows: [{ id: 'signal-new' }] };
+        if (sql.includes('UPDATE wizmatch_job_signals')) return { rows: [] };
+        return { rows: [] };
+      },
+    };
+    await ingestWizmatchSignals('tenant', [
+      { job_title: 'Backend Engineer', source: 'theirstack', provider_id: 'job-2', company_name: 'Brand New Co' },
+    ], db);
+
+    const policyCall = calls.find((c) => c.sql.includes('INSERT INTO wizmatch_company_policies'));
+    expect(policyCall).toBeTruthy();
+    expect(policyCall?.params).toEqual([
+      'tenant', 'company-new', 'entire_company', 'entire_company',
+      'needs_review', 'unknown', 'new_prospect', 'standard', false, 'deterministic_rule',
+    ]);
+  });
+
+  it('does not write a root policy when the company upsert only updates an existing row', async () => {
+    const calls: string[] = [];
+    const db = {
+      async query(sql: string) {
+        calls.push(sql);
+        if (sql.includes('INSERT INTO wizmatch_companies')) return { rows: [{ id: 'company-existing', inserted: false }] };
+        if (sql.includes('INSERT INTO wizmatch_job_signals')) return { rows: [{ id: 'signal-x' }] };
+        if (sql.includes('UPDATE wizmatch_job_signals')) return { rows: [] };
+        return { rows: [] };
+      },
+    };
+    await ingestWizmatchSignals('tenant', [
+      { job_title: 'Backend Engineer', source: 'theirstack', provider_id: 'job-3', company_name: 'Existing Co' },
+    ], db);
+    expect(calls.some((sql) => sql.includes('INSERT INTO wizmatch_company_policies'))).toBe(false);
   });
 });
 
