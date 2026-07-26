@@ -2,6 +2,48 @@
 
 ## Active task
 
+**PR 4 IMPLEMENTED (self-reported, not independently reviewed) 2026-07-26 at `9561c10` —
+WizMatch Outbound Operating System, PR 4 of 10.** Branch `ge/outbound-04-policy-ui-backfill`
+(cut from `ge/outbound-03-policy-enforcement`), local only, NOT pushed, NOT merged. This session
+resumed an interrupted PR 4 build: most of the implementation already existed uncommitted in the
+worktree; this session verified it against AGENTS.md/CLAUDE.md, PRD-005, ADR-006, ADR-007 and the
+handoff log, fixed three defects found while verifying (a stray compiled `.js` duplicate of the
+backfill script; `WizmatchDuplicateReviewPage` had a nav entry but no route wired into `App.jsx`;
+`CompanyPolicySection` crashed the whole company drawer on a malformed policy-API response — caught
+by two failing Playwright specs), ran the full gate suite, and committed. Marker:
+`.ai/OUTBOUND_PR4_IMPLEMENTED` (full detail, including the exact gate output and everything
+explicitly not done, is there — read it before resuming).
+
+**Scope delivered:** policy read/write API + RBAC + admin bulk actions
+(`src/routes/wizmatchPolicy.ts`, `src/modules/outreach/policyService.ts`); duplicate-company
+review/resolve (`src/modules/outreach/duplicateService.ts`); dry-run-first backfill CLI
+(`scripts/onboarding/wizmatch-policy-backfill.ts`, `src/modules/outreach/policyBackfill.ts`);
+the §21.1 readiness report/CLI (`src/modules/outreach/policyReadiness.ts`,
+`scripts/wizmatch-policy-readiness.ts`); company-drawer Policy section + a new Duplicate Companies
+admin page. Everything is behind `WIZMATCH_COMPANY_POLICY_ENABLED` (default false — API 404s,
+UI renders nothing when off).
+
+**Verified this session:** `git diff --check` clean; `npm run build` exit 0; `npm test` 107 files /
+948 tests green; `npm run admin:build` clean; full `playwright.wizmatch-local.config.ts` suite —
+97 passed / 15 skipped (real-backend specs, no server started) / 0 failed.
+
+**Not done, deliberately:** migration 0037 still unapplied; backfill `--apply` not run; enforcement
+mode untouched (`shadow`); sending/paid-discovery/Smartlead untouched; **U-13** (`resolveWizmatchLinkage`
+returns an arbitrary company on multi-linkage, fail-open), **U-14** (bulk-email/export per-row gating
+performance), U-10, U-12, L-7…L-13 from the PR 3 review are **not folded into this PR** — no code in
+this commit touches `wizmatchLinkage.ts` or the bulk-gating call sites. They were not part of the
+already-started work found in the worktree this session, and this session was instructed to finish
+only that, not start new scope. Recorded as open, not silently dropped.
+
+**Exact next action:** get an independent readiness review of PR 4 (three-subagent method, per the
+PR 2/PR 3 precedent — this marker is self-reported and has not had that yet), then an owner decision
+on whether U-13/U-14/U-10/U-12/L-7…L-13 land as a PR 4 follow-up commit or are explicitly deferred to
+PR 5. Then PR 5 (lifecycle consolidation) per the standing 10-PR programme. Stop after PR 5.
+
+---
+
+## Prior task — PR 3, policy enforcement (shadow) + readiness review
+
 **PR 3 REVIEWED AND CODE READY 2026-07-26 at `21b3bc3` — WizMatch Outbound Operating System, Wave A.**
 Branch `ge/outbound-03-policy-enforcement` (cut from `ge/outbound-02-policy-schema-service`), local
 only, NOT pushed, NOT merged. Implements PRD-005 §22.3: every §8.10.1 caller-migration-checklist row
