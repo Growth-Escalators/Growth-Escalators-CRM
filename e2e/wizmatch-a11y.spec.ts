@@ -84,6 +84,19 @@ test.describe('Wizmatch accessibility scan (complete build)', () => {
       readyToContact: [{
         companyId: 'ready-1', companyName: 'Ready Co', companyDomain: 'ready.example',
         canonicalDecision: 'allow', canonicalReasonCode: null, canonicalBlockerCode: null,
+        effectiveDecision: 'allow',
+        enforcementMode: 'shadow', requiresExplicitApproval: false, outreachEligibility: 'eligible',
+        contactConfidenceTier: 'high', duplicatePending: false, duplicateId: null, isNonOverridable: false,
+        policyScopeKey: 'entire_company', disabledReason: null,
+      }, {
+        // D-31: canonical resolver would DENY (L6b company cold-email lock) but
+        // enforcement is `shadow`, so the API's behavioural `effectiveDecision`
+        // follows the stored policy row. The row must keep every affordance and
+        // disclose the divergence — shadow may never block through the UI.
+        companyId: 'shadow-diverged-1', companyName: 'Shadow Diverged Co', companyDomain: null,
+        canonicalDecision: 'deny', canonicalReasonCode: 'company_cold_email_lock',
+        canonicalBlockerCode: 'policy_company_cold_email_lock',
+        effectiveDecision: 'allow',
         enforcementMode: 'shadow', requiresExplicitApproval: false, outreachEligibility: 'eligible',
         contactConfidenceTier: 'high', duplicatePending: false, duplicateId: null, isNonOverridable: false,
         policyScopeKey: 'entire_company', disabledReason: null,
@@ -91,6 +104,7 @@ test.describe('Wizmatch accessibility scan (complete build)', () => {
       needsReview: [{
         companyId: 'review-1', companyName: 'Review Co', companyDomain: null,
         canonicalDecision: 'review', canonicalReasonCode: 'policy_unknown_cold_start', canonicalBlockerCode: null,
+        effectiveDecision: 'review',
         enforcementMode: 'shadow', requiresExplicitApproval: true, outreachEligibility: 'needs_review',
         contactConfidenceTier: 'medium', duplicatePending: false, duplicateId: null, isNonOverridable: false,
         policyScopeKey: 'entire_company', disabledReason: 'No high- or medium-confidence contact is available yet.',
@@ -98,12 +112,13 @@ test.describe('Wizmatch accessibility scan (complete build)', () => {
       pausedOrBlocked: [{
         companyId: 'blocked-1', companyName: 'Blocked Co', companyDomain: null,
         canonicalDecision: 'deny', canonicalReasonCode: 'company_removal_request', canonicalBlockerCode: 'policy_company_removal_request',
+        effectiveDecision: 'deny',
         enforcementMode: 'shadow', requiresExplicitApproval: false, outreachEligibility: 'blocked',
         contactConfidenceTier: null, duplicatePending: false, duplicateId: null, isNonOverridable: true, blockClass: 'compliance',
         policyScopeKey: 'entire_company', disabledReason: 'This company has a non-overridable block. No override or reclassify action is available at any scope.',
       }],
       repliesNeedingAction: [{ enrolmentId: 'enrol-1', companyId: 'ready-1', companyName: 'Ready Co', contactId: null, state: 'awaiting_action', stateAt: new Date().toISOString() }],
-      counts: { readyToContact: 1, needsReview: 1, repliesNeedingAction: 1, pausedOrBlocked: 1 },
+      counts: { readyToContact: 2, needsReview: 1, repliesNeedingAction: 1, pausedOrBlocked: 1 },
       partial: { skippedCompanyIds: [], skippedEnrolmentIds: [] },
     }));
     await page.goto('/wizmatch/today');
@@ -121,6 +136,16 @@ test.describe('Wizmatch accessibility scan (complete build)', () => {
     await expect(dialog).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
+
+    // D-31 / §16 rule 2 — the shadow-diverged row (canonical DENY, enforcement
+    // `shadow`) must keep every affordance a policy-eligible row has, and must
+    // disclose the divergence rather than silently acting on it. If the UI ever
+    // keys its actions off `canonicalDecision` again, "Approve & Queue"
+    // disappears here and this fails.
+    const divergedRow = page.getByRole('row').filter({ hasText: 'Shadow Diverged Co' });
+    await expect(divergedRow.getByRole('button', { name: 'Approve & Queue' })).toBeVisible();
+    await expect(divergedRow.getByRole('button', { name: 'Reclassify' })).toHaveCount(0);
+    await expect(divergedRow.getByText('shadow: would deny')).toBeVisible();
   });
 
   test('Companies — list, detail drawer, discover-contacts panel', async ({ page }) => {

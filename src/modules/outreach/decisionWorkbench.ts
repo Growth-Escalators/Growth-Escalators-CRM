@@ -11,14 +11,27 @@
 // companies to ask the resolver about and how to sub-bucket a `review`/`deny`
 // decision for display; it never computes `allow`/`review`/`deny` itself.
 //
-// D-31 preserved: `canonicalDecision`/`canonicalReasonCode` are attached from
-// the same batch call the rest of the stack uses, so shadow mode continues to
-// change nothing behavioural — a company denied in shadow still appears with
-// its legacy-equivalent bucket assignment based on the *stored policy row*,
-// with the canonical fields attached for display only. Under `enforce`, the
-// canonical decision is authoritative for bucket placement (this endpoint has
-// no legacy predecessor to preserve, so there is no "shadow no-op" concern
-// for a route that did not exist before this PR).
+// D-31, enforced rather than merely asserted: `canonicalDecision`/
+// `canonicalReasonCode`/`canonicalBlockerCode` are ALWAYS attached from the
+// same batch call the rest of the stack uses, so an operator can always see
+// what the canonical resolver thinks. But the *behavioural* output —
+// `effectiveDecision`, which drives queue placement, `requiresExplicitApproval`
+// and `disabledReason` — only follows the canonical decision when
+// `canonical.actsOnDecision` is true (the exact string `enforce` plus a
+// non-allow decision). In shadow it follows the STORED policy row, exactly as
+// PRD-005 §13's queue table defines the queues ("policy `eligible`", "policy
+// `needs_review`", "policy `paused` or `blocked`").
+//
+// This distinction is load-bearing, not pedantry. The gate ladder denies well
+// past the policy row — L5 duplicate suspicion, L6b company cold-email lock,
+// L7 suppression. Keying buckets on the raw canonical decision meant a company
+// with `outreach_eligibility = 'eligible'` and an open conversation (L6b) was
+// filed under "Paused or Blocked" with an action-disabling reason and a
+// "Reclassify" primary action, in SHADOW — a new hidden work item and a new
+// disabled action caused solely by a canonical deny, which §16 rule 2 and gate
+// G3 forbid. It also rendered a self-contradictory card ("Eligibility:
+// eligible" inside the blocked queue) and invited an operator to write
+// `needs_review` over a company that was merely mid-conversation.
 //
 // Malformed-item safety: every per-company fold is wrapped so one bad row
 // cannot fail the whole response — it is dropped into `partial.skippedCompanyIds`
@@ -53,9 +66,16 @@ export interface DecisionWorkbenchCompanyItem {
   companyName: string;
   companyDomain: string | null;
   accountOwnerUserId: string | null;
+  /** Raw canonical resolver decision. ALWAYS attached, display-only in shadow (D-31). */
   canonicalDecision: CanonicalCompanyEligibility['decision'];
   canonicalReasonCode: string | null;
   canonicalBlockerCode: string | null;
+  /**
+   * The decision this item is actually BUCKETED and gated on. Equals
+   * `canonicalDecision` under `enforce`; in shadow it is derived from the
+   * stored policy row so shadow blocks nothing (D-31, §16 rule 2).
+   */
+  effectiveDecision: CanonicalCompanyEligibility['decision'];
   enforcementMode: CanonicalCompanyEligibility['enforcementMode'];
   requiresExplicitApproval: boolean;
   outreachEligibility: string | null;
@@ -212,16 +232,29 @@ async function fetchBestContactConfidenceByCompany(
   return best;
 }
 
+/**
+ * The stored-policy-row equivalent of a canonical decision — what the queue
+ * assignment falls back to in shadow, per PRD-005 §13's queue table. A row
+ * whose `outreach_eligibility` is null or unrecognised resolves to `review`:
+ * it surfaces for a human rather than being silently treated as contactable,
+ * and `review` (unlike `deny`) hides nothing and disables nothing.
+ */
+function policyRowDecision(outreachEligibility: string | null): CanonicalCompanyEligibility['decision'] {
+  if (outreachEligibility === 'blocked' || outreachEligibility === 'paused') return 'deny';
+  if (outreachEligibility === 'eligible') return 'allow';
+  return 'review';
+}
+
 function disabledReasonFor(item: {
-  canonicalDecision: string;
+  effectiveDecision: string;
   isNonOverridable: boolean;
   duplicatePending: boolean;
   contactConfidenceTier: 'high' | 'medium' | 'low' | null;
 }): string | null {
-  if (item.canonicalDecision === 'deny' && item.isNonOverridable) {
+  if (item.effectiveDecision === 'deny' && item.isNonOverridable) {
     return 'This company has a non-overridable block. No override or reclassify action is available at any scope.';
   }
-  if (item.canonicalDecision === 'deny') {
+  if (item.effectiveDecision === 'deny') {
     return 'This company is blocked by policy. Reclassify requires an admin.';
   }
   if (item.duplicatePending) {
@@ -259,6 +292,12 @@ export async function buildTodayQueues(tenantId: string, limit = 200): Promise<T
       const duplicateId = duplicateIdByCompany.get(row.companyId) ?? null;
       const duplicatePending = duplicateId !== null;
       const contactConfidenceTier = confidenceByCompanyId.get(row.companyId) ?? null;
+      // D-31: the canonical decision only becomes behavioural under `enforce`.
+      // `actsOnDecision` is the resolver's own `decision !== 'allow' &&
+      // enforcementMode === 'enforce'` predicate — never re-derived here.
+      const effectiveDecision = canonical.actsOnDecision
+        ? canonical.decision
+        : policyRowDecision(row.outreachEligibility);
       const item: DecisionWorkbenchCompanyItem = {
         companyId: row.companyId,
         companyName: row.companyName,
@@ -267,8 +306,9 @@ export async function buildTodayQueues(tenantId: string, limit = 200): Promise<T
         canonicalDecision: canonical.decision,
         canonicalReasonCode: canonical.reasonCode,
         canonicalBlockerCode: canonical.blockerCode,
+        effectiveDecision,
         enforcementMode: canonical.enforcementMode,
-        requiresExplicitApproval: canonical.decision === 'review',
+        requiresExplicitApproval: effectiveDecision === 'review',
         outreachEligibility: row.outreachEligibility,
         externalHiringPolicy: row.externalHiringPolicy,
         relationshipType: row.relationshipType,
@@ -289,9 +329,9 @@ export async function buildTodayQueues(tenantId: string, limit = 200): Promise<T
       // both "blocked" and "paused" outreachEligibility (both resolve to a
       // deny at the gate, §8.2 L5); the raw `outreachEligibility` field lets
       // the UI group Paused separately from Blocked without a second engine.
-      if (canonical.decision === 'deny') {
+      if (effectiveDecision === 'deny') {
         pausedOrBlocked.push(item);
-      } else if (duplicatePending || canonical.decision === 'review') {
+      } else if (duplicatePending || effectiveDecision === 'review') {
         needsReview.push(item);
       } else if (contactConfidenceTier === 'high') {
         readyToContact.push(item);

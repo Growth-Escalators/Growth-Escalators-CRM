@@ -33,8 +33,17 @@ const BULK_ACTIONS_BY_QUEUE = {
   pausedOrBlocked: ['resume', 'block', 'assign_owner', 'set_review_date'],
 };
 
+// D-31: `effectiveDecision` is the decision the API actually bucketed and
+// gated this row on — it equals `canonicalDecision` under `enforce` and
+// follows the stored policy row in shadow, so shadow mode never removes an
+// affordance. `canonicalDecision` is shown as metadata but must never drive
+// which actions exist, or shadow would silently block through the UI.
+function effectiveDecisionOf(item) {
+  return item.effectiveDecision || item.canonicalDecision;
+}
+
 function primaryActionFor(item) {
-  if (item.canonicalDecision === 'deny') {
+  if (effectiveDecisionOf(item) === 'deny') {
     return item.isNonOverridable ? null : { action: 'resume', label: 'Reclassify' };
   }
   if (item.duplicatePending) return { action: 'merge', label: 'Merge' };
@@ -48,8 +57,14 @@ function CompanyCard({ item, onAction }) {
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-semibold text-neutral-900">{item.companyName}</span>
         {item.companyDomain && <span className="text-[11px] text-neutral-500">{item.companyDomain}</span>}
-        <StatusBadge status={item.canonicalDecision} label={item.canonicalDecision} />
+        <StatusBadge status={effectiveDecisionOf(item)} label={effectiveDecisionOf(item)} />
         {item.duplicatePending && <StatusBadge status="pending" label="possible duplicate" />}
+        {/* D-31 disclosure: in shadow the canonical resolver may disagree with the
+            stored policy row. Show that difference explicitly rather than either
+            hiding it or letting it silently change the row's actions. */}
+        {item.canonicalDecision && item.canonicalDecision !== effectiveDecisionOf(item) && (
+          <StatusBadge status="pending" label={`shadow: would ${item.canonicalDecision}`} />
+        )}
       </div>
       <p className="text-[12px] text-neutral-500">
         {item.outreachEligibility ? `Eligibility: ${item.outreachEligibility.replaceAll('_', ' ')}` : ''}
@@ -88,7 +103,7 @@ function CompanyCard({ item, onAction }) {
         <button type="button" onClick={() => onAction('set_review_date', item)} className="btn-standard btn-compact">
           Set Review Date
         </button>
-        {item.canonicalDecision !== 'deny' && (
+        {effectiveDecisionOf(item) !== 'deny' && (
           <>
             <button type="button" onClick={() => onAction('pause', item)} className="btn-standard btn-compact">Pause</button>
             <button type="button" onClick={() => onAction('block', item)} className="btn-standard btn-compact">Block</button>

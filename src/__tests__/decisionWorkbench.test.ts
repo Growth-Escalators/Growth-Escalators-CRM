@@ -139,6 +139,82 @@ describe('buildTodayQueues — bucket assignment', () => {
     expect(queues.pausedOrBlocked[0].disabledReason).toMatch(/non-overridable/i);
   });
 
+  // PRD-005 §16 rule 2 + gate G3 + ADR-006 D-31. The gate ladder denies well
+  // past the stored policy row (L5 duplicate, L6b company cold-email lock, L7
+  // suppression), so a company can be `outreach_eligibility = 'eligible'` and
+  // canonically DENIED at the same time. In shadow that must change nothing:
+  // no hidden work item, no disabled action. Only `enforce` may act.
+  const eligibleRow = { companyId: 'shadow-1', outreachEligibility: 'eligible' };
+  const highConfidenceContact = { companyId: 'shadow-1', confidenceScore: 9, metadata: {} };
+  const canonicalDeny = (actsOnDecision: boolean, enforcementMode: string) => ({
+    decision: 'deny', reasonCode: 'company_cold_email_lock', blockerCode: 'policy_company_cold_email_lock',
+    enforcementMode, actsOnDecision,
+  });
+
+  it('SHADOW: a canonically-denied but policy-eligible company stays in Ready to Contact, undisabled', async () => {
+    fixtures.companyRows = [companyRow(eligibleRow)];
+    fixtures.contactRows = [highConfidenceContact];
+    eligibilityByCompany.set('shadow-1', canonicalDeny(false, 'shadow'));
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.pausedOrBlocked).toHaveLength(0);
+    expect(queues.readyToContact).toHaveLength(1);
+    const item = queues.readyToContact[0];
+    // Behavioural output follows the stored policy row...
+    expect(item.effectiveDecision).toBe('allow');
+    expect(item.disabledReason).toBeNull();
+    expect(item.requiresExplicitApproval).toBe(false);
+    // ...while the canonical decision is still disclosed for display (D-31).
+    expect(item.canonicalDecision).toBe('deny');
+    expect(item.canonicalBlockerCode).toBe('policy_company_cold_email_lock');
+  });
+
+  it('SHADOW: a canonical review never adds an approval requirement to a policy-eligible company', async () => {
+    fixtures.companyRows = [companyRow(eligibleRow)];
+    fixtures.contactRows = [highConfidenceContact];
+    eligibilityByCompany.set('shadow-1', {
+      decision: 'review', reasonCode: 'policy_unknown_cold_start', blockerCode: null,
+      enforcementMode: 'shadow', actsOnDecision: false,
+    });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.readyToContact).toHaveLength(1);
+    expect(queues.readyToContact[0].requiresExplicitApproval).toBe(false);
+    expect(queues.readyToContact[0].canonicalDecision).toBe('review');
+  });
+
+  it('ENFORCE: the same canonical deny DOES move the company to Paused or Blocked and disables it', async () => {
+    fixtures.companyRows = [companyRow(eligibleRow)];
+    fixtures.contactRows = [highConfidenceContact];
+    eligibilityByCompany.set('shadow-1', canonicalDeny(true, 'enforce'));
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.readyToContact).toHaveLength(0);
+    expect(queues.pausedOrBlocked).toHaveLength(1);
+    expect(queues.pausedOrBlocked[0].effectiveDecision).toBe('deny');
+    expect(queues.pausedOrBlocked[0].disabledReason).toMatch(/blocked by policy/i);
+  });
+
+  it('SHADOW: a policy-blocked company is still bucketed as blocked even when the resolver allows it', async () => {
+    fixtures.companyRows = [companyRow({ companyId: 'shadow-1', outreachEligibility: 'blocked' })];
+    eligibilityByCompany.set('shadow-1', { decision: 'allow', reasonCode: null, blockerCode: null, enforcementMode: 'shadow', actsOnDecision: false });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.pausedOrBlocked).toHaveLength(1);
+    expect(queues.pausedOrBlocked[0].effectiveDecision).toBe('deny');
+  });
+
+  it('SHADOW: a null/unknown outreachEligibility fails to Needs Review, never to Ready to Contact', async () => {
+    fixtures.companyRows = [companyRow({ companyId: 'shadow-1', outreachEligibility: null })];
+    fixtures.contactRows = [highConfidenceContact];
+    eligibilityByCompany.set('shadow-1', { decision: 'allow', reasonCode: null, blockerCode: null, enforcementMode: 'shadow', actsOnDecision: false });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.readyToContact).toHaveLength(0);
+    expect(queues.needsReview).toHaveLength(1);
+    expect(queues.needsReview[0].effectiveDecision).toBe('review');
+  });
+
   it('an allow decision with a pending duplicate goes to Needs Review, never Ready to Contact, and carries the duplicateId', async () => {
     fixtures.companyRows = [companyRow({ companyId: 'dup-a' })];
     fixtures.contactRows = [{ companyId: 'dup-a', confidenceScore: 9, metadata: {} }];
