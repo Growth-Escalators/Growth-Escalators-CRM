@@ -1,0 +1,87 @@
+READY
+branch=ge/outbound-03-policy-enforcement
+reviewed_commit=21b3bc3c691abe5c4546a174cb0e0b31d4c71a31
+reviewed_at=2026-07-26T12:49:07Z
+
+# WizMatch Outbound OS — PR 3 code-readiness marker
+#
+# Meaning: PRD-005 §22.3 is satisfied at the reviewed commit, verified independently rather than
+# self-reported. Supersedes .ai/OUTBOUND_PR3_IMPLEMENTED (which reported the pre-review state).
+# Report: docs/reviews/wizmatch-outbound-pr3-opus-review.md
+# Status:  docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md (PR 3 review section)
+#
+# Method: three read-only Explore subagents (caller checklist/bypass; suppression/unsubscribe/bounce/
+# tenant; shadow semantics/mailbox health/test quality). Every Critical/High finding re-read by hand
+# before any fix. Every fix carries a control run that reintroduces the defect and confirms the new
+# test goes red.
+#
+# Gates at the reviewed commit:
+#   git diff --check     clean
+#   npm run build        exit 0
+#   npm test             103 files / 916 tests passed (896 as submitted, +20)
+#
+# §22.3 disposition:
+#   1  PASS   30/30 §8.10.1 rows closed — 29 migrated, row 9 classified (verified sound, not accepted)
+#   2  PASS   inline suppression query genuinely deleted; no policy-grain read outside the gate module.
+#             12 suppression-grain reads remain outside it — all advisory/display or the CRUD viewer,
+#             none an enforcement path. §22.3 #2's literal grep wording is broader than its intent (U-12)
+#   3  PASS   bulk-email gates or rejects per recipient and reports `rejected` + `rejectedDetail`
+#   4  PASS   warm-up checks wizmatch_domain_health, fails safe on a missing health row, no company policy
+#   5  PASS   after fix D-5 — was PARTIAL: /send-test gated on the address alone, so the union read one grain
+#   6  PASS   after fix — flag deleted; a swallowed write failure now logs at ERROR, not WARN
+#   7  PASS   fails closed; override defaults false, read per call, only exactly 'true'; logs + Slack-alerts
+#   8  PASS   HMAC mint/verify byte-identical (same secret/alg/message/encoding, timingSafeEqual retained,
+#             length-guarded). Write uses the resolved sending tenant — residual ambiguity U-8
+#   9  PARTIAL §16 rules 1-4 hold (full ladder, blocks nothing, strict !== 'enforce', per-request read).
+#             Rule 5's Slack-alert-on-mode-flip is unimplemented AND was undisclosed (O-1)
+#  10  PASS   after strengthening — the harness as submitted compared the gate to itself, so a live
+#             divergence in the same diff (D-1) left it green
+#  11  PASS   both kill-switches unmodified in behaviour and default
+#
+# Six defects found and fixed in the reviewed commit (detail in the report §8):
+#   D-1  row 4 hand-rolled `decision === 'deny'` → a `review` decision queued drafts under enforce
+#   D-2  row 12 committed `status='approved'` on autocommit, THEN returned 403 — the block was cosmetic
+#   D-3  POST /suppression flipped contacts.do_not_contact for hard_bounce (§8.4 grain collapse)
+#   D-4  suppress() wrote its append-only audit row in a second autocommitted statement
+#   D-5  /send-test discarded the resolved contactId → A-1 union degraded to the email grain
+#   D-6  contact-grain writes missed mixed-case channel rows; /classify-reply omitted them entirely
+#
+# ---------------------------------------------------------------------------
+# HARD DEPLOY-ORDER PREREQUISITE (B-1) — new, introduced by this PR:
+#   APPLY MIGRATION 0037 BEFORE THIS BRANCH REACHES `main`.
+#   suppress() writes wizmatch_suppression_events, created only by 0037 (unapplied, G1/U-7). Before
+#   0037: the PUBLIC GET /api/wizmatch/unsubscribe route THROWS (it worked before this PR),
+#   POST /suppression and /classify-reply 500, and hard bounces are dropped — re-creating A-4.
+#   This repo auto-deploys on push to `main`, so the ordering must be explicit, not implicit.
+# ---------------------------------------------------------------------------
+#
+# Owner decisions required before G4:
+#   U-8   unsubscribe tenant lookup is "most recent sender wins" across all tenants, and the HMAC
+#         carries no tenant to disambiguate — a Growth send can capture a WizMatch unsubscribe
+#   U-9   rows 15-17 gate at preparation level though §8.10.1 labels them `enrol`/`follow-up`, and
+#         §8.8 denies queueing while a duplicate is pending — interpretive, answered deliberately
+#   O-1   §16 rule 5's Slack-alert-on-mode-flip: implement, or disclose as deferred
+#   U-11  confirm PR 4 is the agreed home for §8.10 rule 6's persisted `gate_denied` row
+#
+# Open, not blocking this marker:
+#   B-2   M-5/L-6 (the PR 2 review's own stated PR-3 prerequisites) still open and undisclosed — the
+#         gate mocks discard `.where()`, so deleting isNull(supersededAt), the cold-email-lock
+#         outreachMode filter, or resolveWizmatchLinkage's tenant predicates leaves the suite green.
+#         Close before G4.
+#   U-13  resolveWizmatchLinkage returns an ARBITRARY company on multi-linkage (.limit(1), no ORDER BY),
+#         so an eligible company can mask a blocked one — fail-open. Not fixed: most-restrictive-wins
+#         means changing the linkage contract and eight call sites. PR 4.
+#   U-14  per-row linkage + full ladder runs sequentially for EVERY tenant on bulk-email/export
+#   U-10, U-12, L-7 … L-13 — see the report §8
+#
+# Still true, unchanged by this marker:
+#   - migration 0037 has NOT been applied to production or any shared database (G1, pending U-7)
+#   - WIZMATCH_POLICY_ENFORCEMENT_MODE stays 'shadow' — enforce is NOT promoted
+#   - WIZMATCH_SENDING_ENABLED and AUTOMATED_EMAILS_ENABLED remain off and unmodified
+#   - no paid provider is enabled; Smartlead is not connected
+#   - nothing was pushed, merged or deployed; no Railway or production access
+#   - no guardrail file touched (schema.ts, migrations/, auth.ts, rbac.ts, cashfree.ts, sodEodService.ts)
+#   - no admin/, client/, scripts/ or package-lock.json change
+#   - no Growth/SEO/n8n/legacy outreach code touched; the §8.10.1 out-of-tenant list re-verified unchanged
+#
+# Next: owner decisions on U-8, U-9, O-1 — then ge/outbound-04-policy-ui-backfill (PRD-005 PR 4 scope).
