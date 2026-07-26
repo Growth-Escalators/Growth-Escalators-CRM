@@ -52,6 +52,7 @@ export interface CommandCenterCandidateInput {
 export interface CommandCenterRequirementInput {
   id: string;
   title: string;
+  companyId?: string | null;
   companyName?: string | null;
   requiredSkills?: string[] | null;
   location?: string | null;
@@ -107,6 +108,7 @@ export interface ScoredCandidateIntelligence {
 
 export interface ScoredRequirement {
   id: string;
+  companyId: string | null;
   title: string;
   companyName: string | null;
   region: WizmatchRegion;
@@ -116,6 +118,8 @@ export interface ScoredRequirement {
   positions: number;
   status: string | null;
   reasons: string[];
+  /** PRD-005 §5.2 C-2 fold-in target (M-2 fix) — empty until the canonical adapter attaches a blocker code. */
+  blockers: string[];
 }
 
 export interface CommandQueueItem {
@@ -430,6 +434,7 @@ export function scoreRequirement(requirement: CommandCenterRequirementInput): Sc
   const finalScore = clamp(score);
   return {
     id: requirement.id,
+    companyId: requirement.companyId ?? null,
     title: requirement.title,
     companyName: requirement.companyName ?? null,
     region,
@@ -439,6 +444,7 @@ export function scoreRequirement(requirement: CommandCenterRequirementInput): Sc
     positions: requirement.positions ?? 1,
     status: requirement.status ?? null,
     reasons,
+    blockers: [],
   };
 }
 
@@ -577,16 +583,27 @@ export async function buildWizmatchCommandCenter(input: {
 }): Promise<WizmatchCommandCenterResult> {
   // PRD-005 §11.3 / ADR-006 D-13 — this is one of the five legacy eligibility
   // computations named in PRD-005 §5.2 C-2. `scoreClientDiscoveryOpportunity`
-  // above stays a pure, synchronous, DB-free function; the canonical-policy
-  // fold-in happens here via src/modules/outreach/legacyEligibilityAdapter.ts,
-  // the same adapter wizmatchClientDiscovery.ts and
-  // wizmatchContactIntelligenceRepo.ts use, so all three copies agree with the
-  // canonical resolver by construction rather than by convention.
+  // and `scoreRequirement` above stay pure, synchronous, DB-free functions;
+  // the canonical-policy fold-in happens here via
+  // src/modules/outreach/legacyEligibilityAdapter.ts, the same adapter
+  // wizmatchClientDiscovery.ts and wizmatchContactIntelligenceRepo.ts use.
+  //
+  // `clientDiscovery` and `requirements` both carry a `companyId` and are
+  // folded (PR 6 closes the M-2 gap — `requirements` was previously
+  // unfolded and its fetcher didn't even select `company_id`).
+  // `candidateIntelligence` is deliberately NOT folded here: a
+  // `CommandCenterCandidateInput` is a talent-pool candidate, not scoped to
+  // one company (the same candidate can match requirements at many
+  // companies), so `evaluateWizmatchOutreachGate` has no single company to
+  // resolve a decision against — identical, disclosed reasoning to why
+  // wizmatchCandidateIntelligence.ts's candidate-level scorer is excluded
+  // from the adapter (see legacyEligibilityAdapter.ts's module header).
   const scoredClientDiscovery = input.signals.map(scoreClientDiscoveryOpportunity);
-  const canonicalByCompanyId = await resolveCanonicalCompanyEligibilityBatch(
-    input.tenantId,
-    scoredClientDiscovery.map((r) => r.companyId),
-  );
+  const scoredRequirements = input.requirements.map(scoreRequirement);
+  const canonicalByCompanyId = await resolveCanonicalCompanyEligibilityBatch(input.tenantId, [
+    ...scoredClientDiscovery.map((r) => r.companyId),
+    ...scoredRequirements.map((r) => r.companyId),
+  ]);
   const clientDiscovery = applyCanonicalEligibilityToPriorityResults(scoredClientDiscovery, canonicalByCompanyId)
     .sort((a, b) => b.score - a.score)
     .slice(0, 12);
@@ -602,8 +619,7 @@ export async function buildWizmatchCommandCenter(input: {
     .sort((a, b) => b.score - a.score)
     .slice(0, 12);
 
-  const requirements = input.requirements
-    .map(scoreRequirement)
+  const requirements = applyCanonicalEligibilityToPriorityResults(scoredRequirements, canonicalByCompanyId)
     .sort((a, b) => b.score - a.score)
     .slice(0, 10);
 

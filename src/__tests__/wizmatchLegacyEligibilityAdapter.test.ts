@@ -464,3 +464,85 @@ describe('D-31 shadow mode preserves legacy behavioural output (C-1 regression)'
     expect(status.actsOnDecision).toBe(false);
   });
 });
+
+// PRD-005 PR 6, M-2 fix — `wizmatchCommandCenter.ts`'s `requirements` array
+// was one of two arrays this file's own guard test (wizmatchLegacyEligibilityGuard.test.ts)
+// allowlisted as "not migrated yet" — its fetcher didn't even select
+// `company_id`, so there was nothing to fold against. This proves the fold
+// now genuinely runs end to end: `buildWizmatchCommandCenter` -> the same
+// `applyCanonicalEligibilityToPriorityResults` every other migrated caller
+// uses -> the real (DB-mocked, not re-implemented) `resolveCompanyStatus`.
+describe('M-2 fix — wizmatchCommandCenter.ts requirements are folded through the canonical resolver', () => {
+  it('a non-overridable company-removal block forces a requirement to blocked, even though local scoring would score it hot', async () => {
+    state.policyRows = [rootPolicy({
+      outreachEligibility: 'blocked',
+      isNonOverridable: true,
+      blockClass: 'compliance',
+      reasonCode: 'company_removal_request',
+    })];
+    const { buildWizmatchCommandCenter, scoreRequirement } = await import('../services/wizmatchCommandCenter');
+    const commandCenterRequirement = {
+      id: requirementPriorityInput.id,
+      companyId: COMPANY_ID,
+      title: requirementPriorityInput.title,
+      region: requirementPriorityInput.region,
+      priority: requirementPriorityInput.priority,
+      positions: 3,
+      requiredSkills: requirementPriorityInput.requiredSkills,
+      status: requirementPriorityInput.status,
+      budgetMax: requirementPriorityInput.budgetMax,
+    };
+    // Guards against a vacuous fixture (same discipline as H-13 above) —
+    // proves the fold below is actually exercising the DENY branch, not
+    // finding the requirement already 'blocked' by local scoring alone.
+    const local = scoreRequirement(commandCenterRequirement);
+    expect(local.priority).toBe('hot');
+
+    const result = await buildWizmatchCommandCenter({
+      tenantId: TENANT_ID,
+      metrics: {
+        activeSignals: 0, prioritySignals: 0, availableCandidates: 0, openRequirements: 1,
+        reviewReadyCompanies: 0, blockedCompanies: 0, activePlacements: 0, pausedDomains: 0, suppressedContacts: 0,
+      },
+      contactIntelligence: [],
+      signals: [],
+      candidates: [],
+      requirements: [commandCenterRequirement],
+    });
+
+    const folded = result.requirements.find((r) => r.id === requirementPriorityInput.id);
+    expect(folded).toBeDefined();
+    expect(folded!.priority).toBe('blocked');
+    expect(folded!.blockers).toContain('policy_company_removal_request');
+    expect((folded as unknown as { canonicalDecision: string }).canonicalDecision).toBe('deny');
+  });
+
+  it('a requirement with no companyId is left untouched by the fold (nothing to resolve against) rather than crashing', async () => {
+    state.policyRows = [rootPolicy({ outreachEligibility: 'blocked', isNonOverridable: true, blockClass: 'compliance', reasonCode: 'company_removal_request' })];
+    const { buildWizmatchCommandCenter } = await import('../services/wizmatchCommandCenter');
+    const result = await buildWizmatchCommandCenter({
+      tenantId: TENANT_ID,
+      metrics: {
+        activeSignals: 0, prioritySignals: 0, availableCandidates: 0, openRequirements: 1,
+        reviewReadyCompanies: 0, blockedCompanies: 0, activePlacements: 0, pausedDomains: 0, suppressedContacts: 0,
+      },
+      contactIntelligence: [],
+      signals: [],
+      candidates: [],
+      requirements: [{
+        id: 'masked-req-1',
+        companyId: null,
+        title: 'Masked client role',
+        region: 'india',
+        priority: 'urgent',
+        positions: 2,
+        requiredSkills: ['java'],
+        status: 'sheet_ready',
+        budgetMax: 100000,
+      }],
+    });
+    const folded = result.requirements.find((r) => r.id === 'masked-req-1');
+    expect(folded).toBeDefined();
+    expect((folded as unknown as { canonicalDecision?: string }).canonicalDecision).toBeUndefined();
+  });
+});

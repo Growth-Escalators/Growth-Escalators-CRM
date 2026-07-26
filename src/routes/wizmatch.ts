@@ -351,6 +351,7 @@ async function fetchCommandCenterRequirements(tenantId: string, limit: number): 
   const result = await pool.query(
     `SELECT r.id,
             r.title,
+            r.company_id,
             comp.name AS company_name,
             r.required_skills,
             r.location,
@@ -376,6 +377,7 @@ async function fetchCommandCenterRequirements(tenantId: string, limit: number): 
   return result.rows.map((row) => ({
     id: row.id,
     title: row.title,
+    companyId: row.company_id,
     companyName: row.company_name,
     requiredSkills: row.required_skills ?? [],
     location: row.location,

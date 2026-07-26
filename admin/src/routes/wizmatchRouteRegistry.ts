@@ -45,7 +45,8 @@ export type WizmatchPermissionFlag =
   | 'staffingPhaseA'
   | 'staffingPhaseB'
   | 'staffingPhaseC'
-  | 'wizmatchCompanyPolicyEnabled';
+  | 'wizmatchCompanyPolicyEnabled'
+  | 'wizmatchDecisionWorkbenchEnabled';
 
 export interface WizmatchRouteDefinition {
   /** Stable id — used by nav, breadcrumbs, tests. Never reuse/rename once shipped. */

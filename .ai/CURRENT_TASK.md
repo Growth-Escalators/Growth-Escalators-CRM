@@ -2,7 +2,91 @@
 
 ## Active task
 
-**PR 4 + PR 5 REVIEWED AND CODE READY 2026-07-26 at `a5e48602` (+ this review's fixes).**
+**PR 6 IMPLEMENTED (self-reported, not independently reviewed) 2026-07-26 — WizMatch Outbound
+Operating System, PR 6 of 10 (Decision Workbench).** Branch `ge/outbound-06-decision-workbench` (cut
+from `ge/outbound-05-lifecycle-consolidation`), local only, NOT pushed, NOT merged. Marker:
+`.ai/OUTBOUND_PR6_IMPLEMENTED`. Full detail: `docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md`'s PR 6
+section and `.ai/HANDOFF_LOG.md`'s 2026-07-26 PR 6 entry.
+
+**Scope delivered:**
+- **New backend**: `src/modules/outreach/decisionWorkbench.ts` (`buildTodayQueues` — re-buckets
+  companies into Ready to Contact / Needs Review / Replies Needing Action / Paused or Blocked, deriving
+  every decision from `resolveCanonicalCompanyEligibilityBatch`, never re-deriving eligibility itself)
+  and `decisionWorkbenchActions.ts` (`runTodayActions` — approve_queue/skip/pause/resume/block/reject/
+  assign_owner/set_review_date/merge/confirm_separate, all routed through the existing PR 4
+  `policyService`/`duplicateService` write paths). New routes `src/routes/wizmatchToday.ts`:
+  `GET /api/wizmatch/today/queues` (staff+), `POST /api/wizmatch/today/actions` (team_lead+ single
+  target, admin-only for any multi-target/"bulk" request, per PRD-005 §4). Gated behind
+  `WIZMATCH_DECISION_WORKBENCH_ENABLED` (default false).
+- **M-1 fixed** (PR 5 review): `wizmatchPolicyRouter` and the new `wizmatchTodayRouter` are now mounted
+  in `src/index.ts` BEFORE the `wizmatchRequireAdmin`-gated `wizmatchRouter`, so a staff-tier request no
+  longer 403s on an unrelated stricter gate before reaching a router that would have allowed it. Guarded
+  by a source-level ordering test (`wizmatchIndexMountOrder.test.ts`) since `src/index.ts` cannot be
+  safely imported in a unit test.
+- **M-2 fixed** (PR 5 review): `wizmatchCommandCenter.ts`'s `requirements` array is now folded through
+  the canonical adapter exactly like `clientDiscovery` — `fetchCommandCenterRequirements` now selects
+  `r.company_id`, `ScoredRequirement` carries `companyId`/`blockers`, and `buildWizmatchCommandCenter`
+  calls `applyCanonicalEligibilityToPriorityResults` on it. `candidateIntelligence` is explicitly NOT
+  folded — disclosed in the module header, identical reasoning to why `wizmatchCandidateIntelligence.ts`
+  itself is excluded (a talent-pool candidate isn't scoped to one company).
+- **Frontend**: `WizmatchTodayPage.jsx` extended in place (no new route/nav) — when
+  `VITE_WIZMATCH_DECISION_WORKBENCH_ENABLED` is on (or `import.meta.env.DEV`), it renders the new
+  `TodayDecisionWorkbench.jsx` instead of the legacy My Work buckets; `/wizmatch/today` itself stays
+  `permission: 'always'` either way. New components: `TodayDecisionWorkbench.jsx` (four queues, reuses
+  `DataTable`'s previously-unused `selectedIds`/`onToggleRow`/`onToggleAll` props, per PRD §5.3 A-9),
+  `TodayActionDialog.jsx` (reason-code/evidence/review-date/owner capture, focus-trapped via the
+  existing `useDialogA11y`), `TodayBulkActionBar.jsx` (first WizMatch-side bulk bar — cannot reuse the
+  Growth `BulkActionBar.jsx`, which is hardcoded to Growth endpoints, per PRD §5.3 A-9's own
+  disposition). Bulk actions are queue-scoped and exclude any combination that isn't safe (no bulk
+  merge/confirm-separate, since that requires every selected row to share one pending-duplicate id).
+  `DataTable`'s selection checkboxes gained `aria-label`s (additive, no behaviour change).
+- **A-8 closed**: deleted the two dead, unrouted pages `WizmatchCommandCenterPage.jsx` and
+  `WizmatchReviewQueuePage.jsx` (PRD-005 §5.3 disposition: "Deleted — PR 6"), confirmed zero importers
+  first.
+- **D-31 preserved**: canonical decision metadata is always attached for display; the new queues/actions
+  endpoints are net-new surfaces (no legacy behavioural predecessor to preserve), and every mutation
+  still calls the existing PR 4 write services, which perform their own server-side re-validation
+  (supersede-before-insert, non-overridable refusal, `WHERE resolution='pending'` staleness rejection)
+  — no route in this PR implements a partial check of its own.
+- **Bulk-action contract**: `POST /today/actions` rejects a mixed/empty/malformed selection for the
+  WHOLE request up front (400), then processes every target independently and returns a per-target
+  `results[]` — one target's failure (stale duplicate, non-overridable predecessor, missing root policy)
+  never aborts or hides another's success or failure.
+
+**Verified this session:** `git diff --check` clean; `npm run build` exit 0; `npm test` **117 files /
+1064 tests green** (was 113/1030 at the PR5 re-review baseline — +4 test files, +34 tests); `npm run
+admin:build` clean; `npx playwright test --config=playwright.wizmatch-local.config.ts` full suite —
+**97 passed / 15 skipped (real-backend specs, no server started — pre-existing) / 0 failed**. One
+pre-existing spec (`wizmatch-phase0-local.spec.ts`'s Today empty-state test) was updated to mock the new
+`/today/queues` endpoint and assert the new empty-state copy, since the legacy My Work checklist it
+tested no longer renders once the workbench flag is on (which the dev server always has, via
+`import.meta.env.DEV`) — not a regression, a necessary update for the UI this PR replaces. One real a11y
+defect was found and fixed by the a11y spec itself: a `StatusBadge` `blocked` tone (`badge-danger`,
+shared repo-wide CSS) failed color-contrast on this page; removed the redundant badge rather than
+editing the shared class (out of scope, used by dozens of other pages).
+
+**What's next / open:** this marker is self-reported, not independently reviewed — PR 2/3/5 all got a
+three-subagent readiness review before being called code-ready; PR 6 has not had that yet. Known,
+disclosed scope limits: the free-preparation pipeline (§14) is still not built, so "Ready to Contact"
+approximates §13's "policy eligible, prepared, ≥1 high-confidence contact" using policy + contact
+confidence only (no `preparationAllowed`/prep-report signal exists yet to check); "Reclassify" on a
+blocked-but-overridable company maps to the same `resume` action as resuming from pause (sets
+`needs_review`), not a full re-classification UI across all 8 hiring-policy values — building that is
+new UI scope beyond a contextual action wrapper around existing services; "route a reply" in the
+Replies Needing Action queue is a navigation link to the company drawer, not a new write action — the
+enrolment-transition endpoint (`POST /outreach/enrolments/:id/transition`) is PR 9 (outreach adapter)
+scope, not built yet. Carried forward unchanged from the PR5 re-review: M-3…M-9, L-1…L-6, U-7, U-9, O-1,
+and **B-1 (apply migration 0037 before this stack reaches `main` — the repo auto-deploys on push)**.
+
+**Exact next action:** get an independent readiness review of PR 6 (three-subagent method, per the
+PR 2/PR 3/PR 5 precedent). Then PR 7 per the standing 10-PR programme. **Do not** merge, deploy, apply
+0037, run backfill `--apply`, promote `enforce`, enable sending, enable paid discovery, or connect
+Smartlead on the strength of this session.
+
+---
+
+## Prior task — PR 4 + PR 5 REVIEWED AND CODE READY 2026-07-26 at `a5e48602` (+ this review's fixes)
+
 Final independent code-readiness re-review of
 `ge/outbound-03-policy-enforcement..ge/outbound-05-lifecycle-consolidation`, three parallel read-only
 Explore subagents, every load-bearing finding re-verified by hand, every fix with a control run.

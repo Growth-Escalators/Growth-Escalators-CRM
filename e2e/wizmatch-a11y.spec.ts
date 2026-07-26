@@ -74,9 +74,53 @@ test.describe('Wizmatch accessibility scan (complete build)', () => {
       requirements: [{ id: 'r1', title: 'A11y Requirement', company_name: 'A11y Co', stage: 'sourcing', next_action: 'Review candidates', next_action_due_at: new Date(Date.now() - 86400000).toISOString() }],
       tasks: [],
     }));
+    // PR 6 — the admin dev server always runs with `import.meta.env.DEV`
+    // true, which forces `decisionWorkbenchUiEnabled` on (same idiom as
+    // `companyPolicyUiEnabled`), so WizmatchTodayPage.jsx renders the new
+    // decision workbench here, not the legacy My Work buckets. Mock its
+    // real endpoint too so this scan covers populated queue cards, not an
+    // empty-state fallback.
+    await page.route('**/api/wizmatch/today/queues*', (route) => json(route, {
+      readyToContact: [{
+        companyId: 'ready-1', companyName: 'Ready Co', companyDomain: 'ready.example',
+        canonicalDecision: 'allow', canonicalReasonCode: null, canonicalBlockerCode: null,
+        enforcementMode: 'shadow', requiresExplicitApproval: false, outreachEligibility: 'eligible',
+        contactConfidenceTier: 'high', duplicatePending: false, duplicateId: null, isNonOverridable: false,
+        policyScopeKey: 'entire_company', disabledReason: null,
+      }],
+      needsReview: [{
+        companyId: 'review-1', companyName: 'Review Co', companyDomain: null,
+        canonicalDecision: 'review', canonicalReasonCode: 'policy_unknown_cold_start', canonicalBlockerCode: null,
+        enforcementMode: 'shadow', requiresExplicitApproval: true, outreachEligibility: 'needs_review',
+        contactConfidenceTier: 'medium', duplicatePending: false, duplicateId: null, isNonOverridable: false,
+        policyScopeKey: 'entire_company', disabledReason: 'No high- or medium-confidence contact is available yet.',
+      }],
+      pausedOrBlocked: [{
+        companyId: 'blocked-1', companyName: 'Blocked Co', companyDomain: null,
+        canonicalDecision: 'deny', canonicalReasonCode: 'company_removal_request', canonicalBlockerCode: 'policy_company_removal_request',
+        enforcementMode: 'shadow', requiresExplicitApproval: false, outreachEligibility: 'blocked',
+        contactConfidenceTier: null, duplicatePending: false, duplicateId: null, isNonOverridable: true, blockClass: 'compliance',
+        policyScopeKey: 'entire_company', disabledReason: 'This company has a non-overridable block. No override or reclassify action is available at any scope.',
+      }],
+      repliesNeedingAction: [{ enrolmentId: 'enrol-1', companyId: 'ready-1', companyName: 'Ready Co', contactId: null, state: 'awaiting_action', stateAt: new Date().toISOString() }],
+      counts: { readyToContact: 1, needsReview: 1, repliesNeedingAction: 1, pausedOrBlocked: 1 },
+      partial: { skippedCompanyIds: [], skippedEnrolmentIds: [] },
+    }));
     await page.goto('/wizmatch/today');
     await page.waitForLoadState('networkidle');
     await assertNoSeriousViolations(page, 'Today');
+
+    // Keyboard/focus coverage (PR 6 §9): Approve & Queue on the ready-to-
+    // contact row opens the action dialog, focus moves inside it, and
+    // Escape closes it without leaving focus stranded.
+    const approveButton = page.getByRole('button', { name: 'Approve & Queue' }).first();
+    await approveButton.focus();
+    await expect(approveButton).toBeFocused();
+    await page.keyboard.press('Enter');
+    const dialog = page.getByRole('dialog', { name: /Approve & Queue/ });
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
   });
 
   test('Companies — list, detail drawer, discover-contacts panel', async ({ page }) => {

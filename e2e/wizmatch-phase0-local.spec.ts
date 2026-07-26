@@ -183,16 +183,17 @@ test('Hiring Contacts discovery queue failure stays honest and never shows demo 
 });
 
 test('Today shows empty-state guidance and requirement priority shows the corrected operating guidance', async ({ page }) => {
-  // /wizmatch/dashboard now redirects to /wizmatch/today (Phase 1A rename),
-  // which reads staffing my-work + dashboard readiness instead of the old
-  // work-order checklist.
+  // /wizmatch/dashboard now redirects to /wizmatch/today (Phase 1A rename).
+  // PR 6 — Today now renders the decision workbench (GET /today/queues),
+  // not the legacy staffing my-work + dashboard readiness checklist; the dev
+  // server always has `decisionWorkbenchUiEnabled` on (import.meta.env.DEV),
+  // so this genuinely exercises the new UI, not a flag-off fallback.
   await installWizmatchSession(page);
   await installGenericApiFallback(page);
-  await page.route('**/api/wizmatch/staffing/my-work', (route) => fulfillJson(route, { requirements: [], tasks: [] }));
-  await page.route('**/api/wizmatch/dashboard', (route) => fulfillJson(route, {
-    requirementsSummary: { total: 3 },
-    readiness: { score: 72, primaryIssue: null },
-    recentPlacements: [],
+  await page.route('**/api/wizmatch/today/queues*', (route) => fulfillJson(route, {
+    readyToContact: [], needsReview: [], repliesNeedingAction: [], pausedOrBlocked: [],
+    counts: { readyToContact: 0, needsReview: 0, repliesNeedingAction: 0, pausedOrBlocked: 0 },
+    partial: { skippedCompanyIds: [], skippedEnrolmentIds: [] },
   }));
   await page.route('**/api/wizmatch/review-workbench?**', (route) => fulfillJson(route, { error: 'forbidden' }, 403));
   await page.route('**/api/wizmatch/requirement-priority/queue?**', (route) => fulfillJson(route, { items: [] }));
@@ -200,8 +201,7 @@ test('Today shows empty-state guidance and requirement priority shows the correc
   await page.goto('/wizmatch/dashboard');
   await expect(page).toHaveURL(/\/wizmatch\/today$/);
   await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible();
-  await expect(page.getByText('Nothing assigned to you right now')).toBeVisible();
-  await expect(page.getByText('72')).toBeVisible();
+  await expect(page.getByText('Nothing needs a decision right now')).toBeVisible();
 
   await page.goto('/wizmatch/requirement-priority-new');
   await expect(page.getByRole('heading', { name: 'No confirmed requirements to prioritize' })).toBeVisible();
