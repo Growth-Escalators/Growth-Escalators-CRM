@@ -2,7 +2,7 @@ import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import logger from '../utils/logger';
 import { pool } from '../db/index';
-import { parseBounce, recordHardBounce, bounceSuppressionEnabled } from './wizmatchBounceParser';
+import { parseBounce, recordHardBounce } from './wizmatchBounceParser';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -141,7 +141,8 @@ async function fetchFromInbox(inbox: InboxConfig): Promise<RawEmail[]> {
         // so "verify by sending" can confirm which guessed emails are undeliverable.
         const bounce = parseBounce({ from: fromAddr, subject, body });
         if (bounce.isBounce) {
-          if (bounce.hard && bounce.bouncedRecipient && bounceSuppressionEnabled()) {
+          // A-4: hard bounces are always persisted now, not discarded behind a flag.
+          if (bounce.hard && bounce.bouncedRecipient) {
             await recordHardBounce(bounce.bouncedRecipient, { inbox: inbox.user });
           }
           await client.messageFlagsAdd([uid], ['\\Seen'], { uid: true });

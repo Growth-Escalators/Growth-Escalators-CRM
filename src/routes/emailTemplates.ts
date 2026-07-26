@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { eq, and, sql } from 'drizzle-orm';
 import { db, emailTemplates, messages } from '../db/index';
 import { syncTemplateToBrevo } from '../services/brevoTemplateService';
+import { resolveWizmatchLinkageByEmail } from '../modules/outreach/wizmatchLinkage';
+import { evaluateWizmatchOutreachGate, shouldBlock } from '../modules/outreach/outreachGate';
 
 const router = Router();
 
@@ -206,6 +208,27 @@ router.post('/:id/send-test', async (req, res) => {
   if (!toEmail) {
     res.status(400).json({ error: 'toEmail is required' });
     return;
+  }
+
+  // §8.10.1 row 21 — this route honoured neither kill-switch; gate on toEmail.
+  // `contactId` is passed through from the linkage so the gate evaluates BOTH
+  // grains of the §22.3 #5 suppression union: without it a contact whose
+  // `contacts.do_not_contact` is set — but who has no row yet in
+  // wizmatch_suppression_list for this address — would be allowed through.
+  const linkage = await resolveWizmatchLinkageByEmail(tenantId, toEmail);
+  if (linkage) {
+    const gateCtx = {
+      tenantId,
+      action: 'send' as const,
+      companyId: linkage.companyId,
+      contactId: linkage.contactId,
+      email: toEmail,
+    };
+    const decision = await evaluateWizmatchOutreachGate(gateCtx);
+    if (shouldBlock(gateCtx, decision)) {
+      res.status(403).json({ error: 'outreach_blocked', reasonCodes: decision.reasonCodes });
+      return;
+    }
   }
 
   const rows = await db

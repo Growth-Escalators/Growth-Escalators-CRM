@@ -1,6 +1,8 @@
 import { eq, and, lte } from 'drizzle-orm';
 import { db, sequenceEnrolments, sequences } from '../db/index';
 import { insertJob } from '../services/jobQueue';
+import { resolveWizmatchLinkage } from '../modules/outreach/wizmatchLinkage';
+import { evaluateWizmatchOutreachGate, shouldBlock } from '../modules/outreach/outreachGate';
 
 interface SequenceStep {
   stepIndex: number;
@@ -54,6 +56,29 @@ async function processSequenceSteps(): Promise<void> {
       console.log(`[sequenceWorker] Completed enrolment ${enrolment.id} (no more steps)`);
       processed++;
       continue;
+    }
+
+    // §8.10.1 row 18 — this loop serves every tenant's sequences, WizMatch
+    // included; a WizMatch-linked enrolment must gate per dispatch and
+    // cancel on DENY rather than dispatching unconditionally.
+    const linkage = await resolveWizmatchLinkage(enrolment.tenantId, enrolment.contactId);
+    if (linkage) {
+      const decision = await evaluateWizmatchOutreachGate({
+        tenantId: enrolment.tenantId,
+        action: 'follow_up',
+        companyId: linkage.companyId,
+        contactId: enrolment.contactId,
+        outreachMode: 'cold_email',
+      });
+      if (shouldBlock({ tenantId: enrolment.tenantId, action: 'follow_up', companyId: linkage.companyId, contactId: enrolment.contactId }, decision)) {
+        await db
+          .update(sequenceEnrolments)
+          .set({ status: 'cancelled', completedAt: new Date() })
+          .where(eq(sequenceEnrolments.id, enrolment.id));
+        console.log(`[sequenceWorker] Cancelled WizMatch-linked enrolment ${enrolment.id} — outreach policy denied (${decision.reasonCodes.join(', ')})`);
+        processed++;
+        continue;
+      }
     }
 
     // Insert a sequence_step job (idempotent)

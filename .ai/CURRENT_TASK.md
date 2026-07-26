@@ -2,7 +2,56 @@
 
 ## Active task
 
-**IN PROGRESS 2026-07-26 — WizMatch Outbound Operating System, PR 2 of 10
+**PR 3 REVIEWED AND CODE READY 2026-07-26 at `21b3bc3` — WizMatch Outbound Operating System, Wave A.**
+Branch `ge/outbound-03-policy-enforcement` (cut from `ge/outbound-02-policy-schema-service`), local
+only, NOT pushed, NOT merged. Implements PRD-005 §22.3: every §8.10.1 caller-migration-checklist row
+closed (migrated onto the gate, gate-or-reject, or routed through `suppress()`), A-1/A-4/mailer/HMAC
+fixes, shadow-mode-default enforcement with a shadow-vs-enforce equivalence harness.
+Marker: `.ai/OUTBOUND_PR3_CODE_READY`. **Does not promote `enforce`, does not enable sending** — both
+kill-switches and the enforcement-mode default are untouched/off.
+
+> **Independent readiness review 2026-07-26 — verdict fix-then-ship.**
+> `docs/reviews/wizmatch-outbound-pr3-opus-review.md`. Three read-only Explore subagents; **six defects
+> found and fixed in `21b3bc3`**, each with a control run proving the new test fails on it. Two of the six
+> made the gate *report* a block while permitting the state it existed to prevent: row 4 hand-rolled
+> `decision === 'deny'` so a `review` decision queued drafts every other site blocks, and row 12
+> committed `status='approved'` on autocommit and *then* returned 403. Also: `POST /suppression` flipped
+> `contacts.do_not_contact` for `hard_bounce` (the §8.4 grain collapse); `suppress()` wrote its audit row
+> in a second autocommitted statement; `/send-test` discarded the resolved `contactId` so the A-1
+> suppression union degraded to one grain; all three contact-grain writes missed mixed-case channel rows.
+> The equivalence harness was strengthened — as submitted it compared the gate to itself, so **a live
+> divergence in the same diff left it green**. Suite 103 files / **916** tests (was 896), build 0, tree clean.
+
+**READ THIS BEFORE MERGING — hard deploy-order prerequisite (B-1), new and previously unrecorded.**
+`suppress()` writes `wizmatch_suppression_events`, created **only by migration 0037**, which is
+deliberately unapplied (G1, pending U-7). Before 0037 is applied, the **public
+`GET /api/wizmatch/unsubscribe` route throws** (it worked before this PR), `POST /suppression` and
+`/classify-reply` 500, and hard bounces are dropped — re-creating the A-4 defect §22.3 #6 closes.
+This repo **auto-deploys on push to `main`**, so: **apply 0037 before PR 3 reaches `main`.**
+
+**Four owner decisions before G4** (detail in the review §11): **U-8** unsubscribe tenant lookup is
+"most recent sender wins" across tenants and the HMAC carries no tenant to disambiguate; **U-9** rows
+15-17 gate at preparation level though §8.10.1 labels them `enrol`/`follow-up`; **O-1** §16 rule 5's
+Slack-alert-on-mode-flip has no implementation and was undisclosed; **U-11** confirm PR 4 owns the
+persisted `gate_denied` row. **B-2:** M-5/L-6 (the PR 2 review's own stated PR-3 prerequisites) are
+still open and were undisclosed — the gate mocks still discard `.where()`, so deleting
+`isNull(supersededAt)` or the linkage tenant predicates leaves the suite green. Close before G4.
+
+**Exact next action:** get owner decisions on U-8, U-9 and O-1, then create
+`ge/outbound-04-policy-ui-backfill` from `ge/outbound-03-policy-enforcement` and implement PRD-005's
+PR 4 scope — policy read/write API + RBAC, company-drawer Policy section, effective-policy provenance
+UI, duplicate comparison/Merge/Confirm-Separate, admin bulk actions, dry-run-first backfill (never run
+`--apply`), readiness endpoint/CLI, pending-duplicate and shadow-block reporting. Fold in U-13
+(most-restrictive-wins across multiple company linkages — today `.limit(1)` with no `ORDER BY` lets an
+eligible company mask a blocked one), U-14 (batch or tenant-short-circuit the per-row gating on
+`bulk-email`/`export`), U-10, U-12 and L-7…L-13. Flags default false. Then PR 5 (lifecycle
+consolidation). Stop after PR 5.
+
+---
+
+## Prior task — PR 2, schema + migration + resolver/gate module
+
+**DONE 2026-07-26 — WizMatch Outbound Operating System, PR 2 of 10
 (`ge/outbound-02-policy-schema-service`, schema + migration `0037` + resolver/gate module — NOT
 committed as a PR, local branch only, NOT pushed, NOT merged).** Implemented against PRD-005 §22.2
 (twenty acceptance criteria). Full detail: `docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md`. Summary:

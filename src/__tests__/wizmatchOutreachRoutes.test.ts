@@ -110,11 +110,11 @@ describe('POST /signals/:id/send — result-variant → HTTP status mapping', ()
     expect(res.statusCode).toBe(400);
   });
 
-  it('maps suppressed to 400', async () => {
-    sendSignalDraftEmail.mockResolvedValueOnce({ kind: 'suppressed' });
+  it('maps blocked to 403', async () => {
+    sendSignalDraftEmail.mockResolvedValueOnce({ kind: 'blocked', reasonCodes: ['email_unsubscribed'] });
     const res = mockRes();
     await routeHandler('/signals/:id/send', 'post')(req(), res);
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(403);
   });
 
   it('maps hmac_secret_unset to 500', async () => {

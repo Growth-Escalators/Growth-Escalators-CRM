@@ -1,5 +1,7 @@
 import { eq, and } from 'drizzle-orm';
 import { db, sequences, sequenceEnrolments, contacts } from '../db/index';
+import { resolveWizmatchLinkage } from '../modules/outreach/wizmatchLinkage';
+import { evaluateWizmatchOutreachGate, shouldBlock } from '../modules/outreach/outreachGate';
 
 type Enrolment = typeof sequenceEnrolments.$inferSelect;
 
@@ -40,6 +42,15 @@ export async function enrolContact(
 
   if (contactRows.length > 0 && contactRows[0].doNotContact) {
     throw new Error('Contact is marked do not contact');
+  }
+
+  // §8.10.1 row 24 — add the gate alongside the existing do_not_contact check.
+  const linkage = await resolveWizmatchLinkage(tenantId, contactId);
+  if (linkage) {
+    const decision = await evaluateWizmatchOutreachGate({ tenantId, action: 'enrol', companyId: linkage.companyId, contactId });
+    if (shouldBlock({ tenantId, action: 'enrol', companyId: linkage.companyId, contactId }, decision)) {
+      throw new Error(`Blocked by outreach policy: ${decision.reasonCodes.join(', ') || decision.decision}`);
+    }
   }
 
   // Check for existing active enrolment in this sequence (no duplicates)

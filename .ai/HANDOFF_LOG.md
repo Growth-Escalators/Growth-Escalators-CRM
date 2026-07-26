@@ -6,6 +6,111 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-26 — WizMatch Outbound OS: PR 3 independent code-readiness review + 6 fixes — Claude (Opus) — LOCAL BRANCH ONLY, NOT PUSHED, NOT MERGED
+
+**Why:** independent §22.3 readiness review of `ge/outbound-03-policy-enforcement` before it is opened
+as a stacked draft. Reviewed `726a01b` (implementation as submitted) against PRD-005 §8.10/§8.10.1/
+§8.10.2/§16/§18.3/§22.3, ADR-006 (D-5, D-11, D-4/D-15), ADR-007 and the final PR 2 Opus review.
+Three read-only Explore subagents in parallel (caller checklist/bypass; suppression/unsubscribe/bounce/
+tenant; shadow semantics/mailbox health/test quality); every Critical/High finding re-read by hand
+before any fix.
+
+**Verdict: fix-then-ship. PR 3 is code-ready at `21b3bc3`.** All 30 §8.10.1 rows closed, 16 call sites
+gate on one shared helper, shadow provably blocks nothing at every one. Full report:
+`docs/reviews/wizmatch-outbound-pr3-opus-review.md`.
+
+**What changed — one corrective commit `21b3bc3`, six defects:**
+- **Row 4** (`generateSignalDraftEmails`) hand-rolled `decision === 'deny'` instead of `shouldBlock`'s
+  `!== 'allow'` (§8.10 rule 2). Under `enforce`, a `review` decision queued three AI-written drafts that
+  every other send/queue site blocks, and the site logged no §16 rule-2 shadow observation at all.
+- **Row 12** (`/contact-intelligence/contacts/:id/review`) committed `status='approved'` on the shared
+  pool — autocommit, no transaction — and *then* ran the gate and returned 403. The candidate was
+  genuinely approved on a company the gate had refused. The marker called this "not a data-integrity
+  issue"; it was. Gate now runs before the write.
+- **`POST /suppression`** flipped `contacts.do_not_contact` for **every** reason including `hard_bounce`
+  and `complaint` — the §8.4 grain collapse, three lines below the new `suppress()` call. New
+  `isStatedContactPreference()` confines it to `unsubscribe`/`do_not_contact`/`manual`.
+- **`suppress()`** wrote the effective row and the append-only audit row as two autocommitted
+  statements, so §8.10 rule 4's "guaranteed rather than remembered" was only "usual". Now `db.transaction`.
+- **`/send-test`** (row 21): `resolveWizmatchLinkageByEmail` resolved a `contactId` and discarded it, so
+  the gate saw an address only and `findSuppression`'s `do_not_contact` branch never ran — the A-1 union
+  degraded to one grain and a DNC contact was emailed. `contactId` now carried through.
+- **All three contact-grain writes** matched `contact_channels.channel_value` exactly against an
+  already-lowercased address (the H-3 class, one layer out from where PR 2 fixed it), and
+  `/classify-reply`'s auto-suppress omitted the contact grain entirely. Now `LOWER()`ed, tenant-scoped,
+  bumping `lastActivityAt`.
+
+Plus: hard-bounce suppression failure logs at ERROR not WARN (a swallowed failure *is* A-4 returning, and
+the message is already `\Seen` so there is no retry); the gate module's stale PR-2 header comment
+replaced; the bounce-parser's stale `WIZMATCH_BOUNCE_SUPPRESSION_ENABLED` claim removed.
+
+**Equivalence harness strengthened (§22.3 #10).** As submitted it asserted only that shadow and enforce
+return equal decisions — structurally guaranteed, since the evaluator never branches on the mode, so
+**D-1 (a live divergence in the same diff) left it green**. Now pins each fixture's decision and
+`effectiveLevel`, spans seven ladder rungs (added L1b, L5, L6b and the `do_not_contact` grain), guards
+against fixture-set shrinkage, and pins eight §16 rule-3 near-miss values (`'ENFORCE'`, `'enforce '`,
+`''`, …) that nothing previously pinned.
+
+**How to verify:** `git diff --check` clean · `npm run build` exit 0 · `npm test` **103 files / 916 tests
+green** (896 as submitted, +20). Three control runs performed, each reintroducing a defect and confirming
+the new test goes red, then restoring: row-4 predicate → 1 red; `suppress()` de-transactioned → 2 red;
+`readEnforcementMode` given `.trim().toLowerCase()` → 4 red. Guardrail files verified untouched
+(`schema.ts`, `migrations/`, `auth.ts`, `rbac.ts`, `cashfree.ts`, `sodEodService.ts`), as are `admin/`,
+`client/`, `scripts/`, `package-lock.json` and the §8.10.1 out-of-tenant list.
+
+**What's next / open:** **B-1, a hard deploy-order prerequisite this PR introduces and nothing recorded:**
+`suppress()` writes `wizmatch_suppression_events`, created only by migration **0037**, which is
+deliberately unapplied. Before 0037 is applied the public `GET /api/wizmatch/unsubscribe` route **throws**
+(it worked before this PR), `POST /suppression` and `/classify-reply` 500, and hard bounces are dropped.
+This repo auto-deploys on push to `main` — **apply 0037 before PR 3 reaches `main`.**
+Four owner decisions before G4: **U-8** (unsubscribe tenant is "most recent sender wins" across tenants;
+HMAC carries no tenant), **U-9** (rows 15-17 gate at preparation level though §8.10.1 calls them
+`enrol`/`follow-up`), **O-1** (§16 rule 5's Slack-alert-on-mode-flip unimplemented *and* undisclosed),
+**U-11** (confirm PR 4 owns the persisted `gate_denied` row). **B-2:** M-5/L-6 — the PR 2 review's own
+stated PR-3 prerequisites — are still open and undisclosed; the gate mocks still discard `.where()`.
+For PR 4: **U-13** (`resolveWizmatchLinkage` returns an arbitrary company on multi-linkage, so an
+eligible company can mask a blocked one), **U-14** (per-row linkage+ladder runs sequentially for every
+tenant on `bulk-email`/`export`), U-10, U-12, L-7…L-13.
+Not done: no push, no merge, no deploy, no Railway, no production/shared-DB access, 0037 not applied, no
+backfill, no `enforce` promotion, no sending or paid discovery, no Smartlead, no PR 4 work.
+
+---
+
+## 2026-07-26 — WizMatch Outbound OS: PR 3 policy enforcement (shadow) — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT MERGED
+
+**Why:** implement PRD-005 §22.3 on `ge/outbound-03-policy-enforcement` (cut from
+`ge/outbound-02-policy-schema-service`) — wire the PR 2 gate module onto every §8.10.1 caller, fix
+A-1/A-4/mailer/HMAC, ship shadow-mode-default enforcement with a mechanically-checkable
+shadow-vs-enforce equivalence harness. Full detail:
+`docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md` (PR 3 section).
+
+**What changed:** new `suppress()` (sole suppression write path) and `shouldBlock()` (shadow-safe
+blocking decision) exports on `src/modules/outreach/outreachGate.ts`; new
+`src/modules/outreach/wizmatchLinkage.ts` (§8.10.2 "is this contact WizMatch-linked" resolver).
+Rows 1-18 of the §8.10.1 checklist migrated onto the gate (WizMatch send/enrol core — signals
+send/draft/enrich/discover-poc, classify-reply, contact-intelligence routes, the three
+`wizmatchStaffingDomain.ts` writers, `sequenceWorker.ts`'s dispatch loop); rows 19-24 gate-or-reject
+(`contacts.ts` bulk-email/export, `emailTemplates.ts` send-test, `email.ts`/`emailService.ts`,
+`sequenceService.ts`'s `enrolContact`); rows 25-29 routed through `suppress()`; row 30 (warm-up) now
+checks `wizmatch_domain_health` before sending, still policy-exempt. `multiDomainMailer.sendColdEmail`
+fails closed with no healthy domain unless `WIZMATCH_MAILER_EMERGENCY_OVERRIDE=true` (Slack-alerted
+every use). Unsubscribe HMAC mint/verify now normalise identically; the unsubscribe route resolves
+the actual sending tenant instead of a hardcoded env var.
+
+**How to verify:** `npm run build` (exit 0); `npm test` (103 files / 896 tests, 18 new); `git diff
+--check` clean. Key new test:
+`src/__tests__/wizmatchOutreachShadowEquivalence.test.ts` — proves shadow and enforce produce
+identical decisions except for the `enforcementMode` field, and only `enforce` actually blocks.
+
+**What's next:** PR 4 (`ge/outbound-04-policy-ui-backfill`) — policy read/write API + RBAC, company
+Policy UI section, backfill CLI, readiness report/CLI. Known PR-3 scope limits (stated in the status
+doc): follow-up re-enrolment still uses the generic `sequence_enrolments` table, not
+`wizmatch_outreach_enrolments`; the shadow "gate_denied observation" is a structured log, not a
+persisted row yet (readiness report is PR 4). Nothing pushed, merged, deployed, or promoted to
+`enforce`; both sending kill-switches untouched.
+
+---
+
 ## 2026-07-26 — WizMatch Outbound OS: PR 2 Opus review + 4 corrective commits — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT APPLIED
 
 **Why:** senior review of the PR 2 implementation below, against PRD-005 §8/§9/§10/§22.2/§25,
