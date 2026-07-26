@@ -2,6 +2,36 @@
 
 ## Active task
 
+**PR 4 + PR 5 CHECKPOINT FIX PASS COMPLETE 2026-07-26.** Every Critical/High finding in the
+2026-07-26 independent Opus checkpoint review (`docs/reviews/wizmatch-outbound-pr5-opus-checkpoint.md`)
+is closed on `ge/outbound-05-lifecycle-consolidation`. Owner decisions D-31 through D-39 were ratified
+up front (C-1: option A, adapter respects `shouldBlock`) and are all implemented — D-31 (mode-aware
+adapter, closes C-1), D-32 (multi-company most-restrictive-wins, closes U-13), D-33 (verified already
+satisfied), D-34 (persisted, idempotent shadow observations in `audit_events`), D-35 (mode-flip
+alert/audit once per transition), D-36 (tenant-bound versioned unsubscribe token, retires U-8), D-37
+(fail-closed on every unknown policy value, folded into H-8's fix), D-38 (Duplicate Companies
+nav/route/page all gated), D-39 (PRD-005 §22.4/§22.5 added). H-2 through H-14 are each fixed with a
+dedicated regression test. Full detail: the checkpoint report's new "Fix pass" addendum,
+`.ai/OUTBOUND_PR5_IMPLEMENTED`'s fix-pass section, and `.ai/HANDOFF_LOG.md`'s 2026-07-26 entry.
+
+> **Gates on the fix-pass tree:** `git diff --check` clean · `npm run build` exit 0 ·
+> **113 files / 1003 tests** (was 110/970 at checkpoint HEAD) · `npm run admin:build` clean ·
+> Playwright `wizmatch-local` 97 passed / 15 skipped / 0 failed.
+>
+> **`.ai/OUTBOUND_PR5_CODE_READY` was deliberately NOT created by this fix pass** — that marker is
+> reserved for an independent reviewer, per standing instruction, not for the session that made the
+> fixes. Do not merge, deploy, apply 0037, run backfill `--apply`, or promote `enforce` on the strength
+> of this fix pass. U-7, U-9, O-1 (PR 3 review) and B-1 (0037 must be applied before this stack reaches
+> `main`) remain open, carried forward unchanged.
+
+**Exact next action:** get an independent readiness re-review of PR 4 + PR 5 against the fix pass
+(three-subagent method, per the PR 2/PR 3/PR 5-checkpoint precedent). If it passes, the reviewer
+creates `.ai/OUTBOUND_PR5_CODE_READY`. **Do not** start PR 6 until that happens.
+
+---
+
+## Prior task — PR 4 + PR 5 independent Opus checkpoint review: NOT READY (superseded by the fix pass above)
+
 **PR 4 + PR 5 REVIEWED 2026-07-26 — verdict NOT READY (fix-then-re-review).** Independent Opus
 checkpoint review of `ge/outbound-03-policy-enforcement..ge/outbound-05-lifecycle-consolidation` at
 implementation HEAD `7777c455`, three parallel read-only Explore subagents, every load-bearing

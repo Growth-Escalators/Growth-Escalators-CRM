@@ -9,16 +9,21 @@
 // and is therefore not exercised by the automated test suite (consistent with
 // the repo's existing convention — see wizmatchReadiness.test.ts).
 //
+// D-34 (owner-ratified 2026-07-26): resolved. `outreachGate.ts`'s `shouldBlock`
+// now persists every distinct shadow would-block fact to `audit_events`
+// (action='wizmatch_gate_denied_shadow', migration 0010, already applied —
+// no 0037 dependency), idempotently per (tenant, company, reason code).
+// `shadowObservedCompanyCount` below is that CUMULATIVE, persisted count —
+// distinct companies actually observed would-blocking across the whole
+// shadow period, consumed from the persisted rows, not console logs alone.
+// `shadowWouldHaveBlockedCount` (the live snapshot this file previously
+// shipped alone) is kept alongside it: the snapshot answers "if enforcement
+// flipped on right now, how many companies would go dark", while the
+// cumulative count answers "how much of this HAS the gate actually seen
+// during the shadow period" — both are useful and neither subsumes the
+// other, so both are reported rather than one replacing the other.
+//
 // Honest limitations, disclosed rather than silently approximated:
-//   - "Shadow would-have-blocked count" (§21.1) is measured here as a LIVE
-//     SNAPSHOT — how many companies' current effective policy resolves to
-//     something other than `allow` right now — not a cumulative event count.
-//     A true cumulative count would need a persisted `gate_denied` row, but
-//     `wizmatch_outreach_events.enrolment_id`/`.batch_id` are NOT NULL (§10.7),
-//     so a bare gate decision with no enrolment cannot be written there without
-//     a schema change, which is outside PR 4's guardrails (no schema.ts /
-//     migrations edits). The snapshot proxy is the honest alternative; the
-//     gap is recorded here and in the PR 4 handoff, not hidden.
 //   - "Export omissions" and "policy resolver errors" are cumulative,
 //     event-sourced metrics that need the outreach-batch adapter (PR 8/9,
 //     not yet built) and a persisted resolver-error log (same schema gap as
@@ -28,7 +33,7 @@
 //     3) needs an `wizmatch_outreach_batches` "active pilot batch" concept
 //     that does not exist yet (PR 8). Reported as `unavailable: true`.
 
-import { and, count, eq, isNull, sql } from 'drizzle-orm';
+import { and, count, countDistinct, eq, isNull, sql } from 'drizzle-orm';
 import {
   db,
   wizmatchCompanies,
@@ -36,6 +41,7 @@ import {
   wizmatchCompanyDuplicates,
   wizmatchContactCandidates,
   wizmatchOutreachEnrolments,
+  auditEvents,
 } from '../../db';
 import { WIZMATCH_LIVE_ENROLMENT_STATES } from '../../config/wizmatchOutreachStates';
 import { evaluateWizmatchOutreachGate } from './outreachGate';
@@ -60,6 +66,8 @@ export interface PolicyReadinessMetrics {
     pendingInActivePilotBatch: { count: number; unavailable: true };
   };
   shadowWouldHaveBlockedCount: number;
+  /** D-34: cumulative, persisted, distinct-company count from audit_events. */
+  shadowObservedCompanyCount: number;
   reasonCodeDistribution: Record<string, number>;
   exportOmissions: { count: number; unavailable: true };
   policyResolverErrors: { count: number; unavailable: true };
@@ -90,6 +98,7 @@ export function evaluateWizmatchPolicyReadiness(input: {
   duplicatesConfirmedSeparate: number;
   duplicatesPendingWithLiveEnrolment: number;
   shadowWouldHaveBlockedCount: number;
+  shadowObservedCompanyCount: number;
   reasonCodeDistribution: Record<string, number>;
   tenantId: string;
 }): PolicyReadinessResult {
@@ -119,6 +128,7 @@ export function evaluateWizmatchPolicyReadiness(input: {
         pendingInActivePilotBatch: { count: 0, unavailable: true },
       },
       shadowWouldHaveBlockedCount: input.shadowWouldHaveBlockedCount,
+      shadowObservedCompanyCount: input.shadowObservedCompanyCount,
       reasonCodeDistribution: input.reasonCodeDistribution,
       exportOmissions: { count: 0, unavailable: true },
       policyResolverErrors: { count: 0, unavailable: true },
@@ -225,14 +235,23 @@ export async function getWizmatchPolicyReadiness(tenantId: string): Promise<Poli
     duplicatesPendingWithLiveEnrolment = new Set(liveRows.map((r) => r.companyId)).size;
   }
 
-  // Shadow would-have-blocked count — a LIVE SNAPSHOT proxy, not a cumulative
-  // event count (see file header). Evaluates the same gate every real call
-  // site uses, for every company with a root policy, and counts non-'allow'.
+  // Shadow would-have-blocked count — a LIVE SNAPSHOT proxy. Evaluates the
+  // same gate every real call site uses, for every company with a root
+  // policy, and counts non-'allow'. Kept alongside the cumulative count
+  // below (D-34) — see file header for why both are reported.
   let shadowWouldHaveBlockedCount = 0;
   for (const row of rootRows) {
     const decision = await evaluateWizmatchOutreachGate({ tenantId, action: 'enrol', companyId: row.companyId });
     if (decision.decision !== 'allow') shadowWouldHaveBlockedCount += 1;
   }
+
+  // D-34: the cumulative, persisted count — distinct companies `shouldBlock`
+  // has actually observed would-blocking in shadow mode, across the whole
+  // shadow period, from `audit_events` (not a snapshot, not a console log).
+  const [{ value: shadowObservedCompanyCount }] = await db
+    .select({ value: countDistinct(auditEvents.resourceId) })
+    .from(auditEvents)
+    .where(and(eq(auditEvents.tenantId, tenantId), eq(auditEvents.action, 'wizmatch_gate_denied_shadow')));
 
   return evaluateWizmatchPolicyReadiness({
     tenantId,
@@ -248,6 +267,7 @@ export async function getWizmatchPolicyReadiness(tenantId: string): Promise<Poli
     duplicatesConfirmedSeparate,
     duplicatesPendingWithLiveEnrolment,
     shadowWouldHaveBlockedCount,
+    shadowObservedCompanyCount,
     reasonCodeDistribution,
   });
 }

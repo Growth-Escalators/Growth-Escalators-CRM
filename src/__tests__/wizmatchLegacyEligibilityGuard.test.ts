@@ -47,10 +47,15 @@ const ALLOWED_SITES: Record<string, string> = {
   'src/services/wizmatchCommandCenter.ts': 'migrated in PR 5 — must call the canonical adapter',
   'src/services/wizmatchRequirementPriority.ts': 'migrated in PR 5 — must call the canonical adapter',
   // Not company-scoped by construction (PRD-005 §11.3 scope note, see file
-  // header): a candidate is not 1:1 with one company, and
-  // evaluateWizmatchOutreachGate requires a companyId. Disclosed, not silent.
+  // header): the top-level CandidateIntelligenceInput a candidate is not 1:1
+  // with one company, and evaluateWizmatchOutreachGate requires a companyId
+  // that input structurally lacks. CandidateRequirementInput (a per-match
+  // input, not the top-level one) does carry a companyId, but
+  // CandidateRequirementMatch has no blockers[] field for the shared fold to
+  // write into — an open, disclosed gap (H-6), not a silent one; see the
+  // file header for the full, corrected scope note.
   'src/services/wizmatchCandidateIntelligence.ts':
-    'scores a candidate, not a company — evaluateWizmatchOutreachGate requires a companyId this file structurally does not have; see the file header for the full scope note',
+    'scores a candidate, not a company — the top-level input structurally lacks a companyId; see the file header for the corrected scope note (H-6)',
   // Pre-existing display-bucket re-derivation from already-migrated upstream
   // qualificationTier values (not an independent DB read of its own) — known
   // and disclosed here, not fixed in PR 5 per its "no unrelated work" scope.

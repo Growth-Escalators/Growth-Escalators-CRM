@@ -50,6 +50,10 @@ export interface ClientDiscoveryResult {
   reasons: string[];
   blockers: string[];
   nextAction: 'send_to_contact_intelligence' | 'manual_review' | 'watch' | 'blocked';
+  /** D-31 — set only by the *WithPolicy wrappers below; display-only canonical metadata. */
+  canonicalDecision?: 'allow' | 'review' | 'deny';
+  canonicalReasonCode?: string | null;
+  canonicalBlockerCode?: string | null;
 }
 
 export const CLIENT_DISCOVERY_GUARDRAILS = {

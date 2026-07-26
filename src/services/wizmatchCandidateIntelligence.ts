@@ -1,12 +1,28 @@
 // PRD-005 §11.3 / §5.2 C-2 scope note — read before adding a company-policy
 // check here. This file is one of the five legacy eligibility computations
 // named in PRD-005 §5.2 C-2, but it scores a CANDIDATE (a person), not a
-// company: `detectCandidateHardBlocks` below and `CandidateIntelligenceInput`
-// carry no `companyId` — a candidate is not 1:1 with one company (they can
-// match many requirements at many companies), and PRD-005 does not ask this
-// PR to redesign that input contract. `evaluateWizmatchOutreachGate`
-// (src/modules/outreach/outreachGate.ts) requires a `companyId` and denies
-// without one, so this file's blockers cannot migrate onto it as written.
+// company: `scoreCandidateIntelligence`, `detectCandidateHardBlocks` and
+// `CandidateIntelligenceInput` (the top-level input this file's exported
+// scorers take) carry no `companyId` — a candidate is not 1:1 with one
+// company (they can match many requirements at many companies), and
+// PRD-005 does not ask this PR to redesign that top-level input contract.
+// `evaluateWizmatchOutreachGate` (src/modules/outreach/outreachGate.ts)
+// requires a `companyId` and denies without one, so the top-level
+// candidate-level blockers cannot migrate onto it as written.
+//
+// CORRECTION (post-checkpoint-review H-6): `CandidateRequirementInput` below
+// *does* carry a `companyId` — added by this same PR, because a requirement
+// carries `wizmatch_requirements.company_id` and that field is what lets
+// `wizmatchRequirementPriority.ts`'s `scoreRequirementPriorityWithPolicy`
+// migrate. It is populated on `topRequirementMatches`
+// (`rankRequirementsForCandidate` below) but is used for display only
+// (`companyName`) — a per-match canonical-policy fold on
+// `CandidateRequirementMatch` is NOT implemented in this PR, because that
+// type carries no `blockers[]` field for the shared adapter fold to write
+// into, and adding one is a wider redesign of `CandidateRequirementMatch`
+// than this PR's scope. This is an open, disclosed gap, not a silent one —
+// tracked as a candidate for a follow-up PR.
+//
 // `do_not_contact_or_suppressed` below is a CONTACT-grain check (pre-fetched
 // `doNotContact`/`suppressed` booleans), not the company-grain question the
 // canonical resolver answers — the two are deliberately separate concerns

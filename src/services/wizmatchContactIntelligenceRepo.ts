@@ -749,12 +749,18 @@ export async function persistContactIntelligenceSnapshot(tenantId: string, userI
                    qualification_score = EXCLUDED.qualification_score,
                    target_region = EXCLUDED.target_region,
                    is_it_staffing_fit = EXCLUDED.is_it_staffing_fit,
-                   -- ADR-006 D-13: this used to freeze status at its last
-                   -- value once review_status was approved/rejected, letting
-                   -- a stale legacy status silently outlive a fresh policy
-                   -- deny. status is display-only historical context now, so
-                   -- every snapshot writes the freshly computed value.
-                   status = EXCLUDED.status,
+                   -- ADR-006 D-13 / H-5: freezing status for BOTH
+                   -- 'approved' and 'rejected' let a stale legacy status
+                   -- silently outlive a fresh policy deny, so 'approved' no
+                   -- longer freezes -- every snapshot writes the freshly
+                   -- computed, canonical-folded value there. 'rejected' is
+                   -- still frozen: it is a terminal human decision
+                   -- (reject_company) with no canonical policy row backing
+                   -- it yet (H-5 open item -- a full fix routes
+                   -- reject_company through the policy write API instead),
+                   -- so an automatic refresh must not silently re-qualify a
+                   -- company a human explicitly rejected.
+                   status = CASE WHEN review_status = 'rejected' THEN status ELSE EXCLUDED.status END,
                    last_qualified_at = NOW(),
                    next_refresh_at = EXCLUDED.next_refresh_at,
                    source_summary = EXCLUDED.source_summary,

@@ -96,3 +96,15 @@ implemented_at=2026-07-26T13:29:54Z
 # decisions on U-13/U-14/U-10/U-12/L-7…L-13 (fold into PR4 as a follow-up commit, or
 # explicitly defer to PR 5), then PR 5 (lifecycle consolidation) per the standing
 # 10-PR programme. Stop after PR 5.
+#
+# CORRECTION (2026-07-26, PR 4+5 checkpoint review, H-11/D-38) — this marker's line
+# 46-47 claim was FALSE, not just imprecise: "both behind WIZMATCH_COMPANY_POLICY_ENABLED
+# — API 404s, UI renders null" was true for CompanyPolicySection.jsx but NOT for the
+# Duplicate Companies page — WizmatchDuplicateReviewPage.jsx had no flag import at all,
+# and its nav entry (wizmatchRouteRegistry.ts) and route (App.jsx) were unconditional.
+# Fixed in the checkpoint-fix pass: the page now checks companyPolicyUiEnabled and
+# renders a disabled-state EmptyState when off; the nav entry's permission gained
+# `wizmatchCompanyPolicyEnabled` (a new computeFlags() flag mirroring the same
+# build-time env var) alongside its existing isAdminTier check. Left this original
+# claim above uncorrected in place, per instruction not to delete review findings —
+# this note is the correction, not a rewrite of the original text.

@@ -282,3 +282,41 @@ Control runs, both reproduced:
 
 **Do not merge, deploy, apply 0037, run backfill `--apply`, or promote `enforce` on the strength of
 this review.**
+
+---
+
+## Fix pass — 2026-07-26, addendum (does not alter any finding above)
+
+Owner decision on C-1 was ratified as **option A** ("Adapter respects `shouldBlock`") plus a full
+D-31…D-39 decision set. This session implemented all of it and closed every open Critical/High from
+this report. Nothing above is edited or deleted — this is a correction/closure record, per instruction.
+
+**C-1 — FIXED.** `legacyEligibilityAdapter.ts` and `outreachGate.ts`'s `resolveCompanyStatus` now carry
+an `actsOnDecision` field mirroring `shouldBlock`'s exact predicate
+(`decision !== 'allow' && enforcementMode === 'enforce'`). Every fold function
+(`applyCanonicalEligibilityToPriorityResult(s)`, `applyCanonicalEligibilityToContactIntelligence`)
+always attaches `canonicalDecision`/`canonicalReasonCode`/`canonicalBlockerCode` for display, but only
+overrides the legacy `priority`/`nextAction`/`companyStatus`/`hardBlocks` output when `actsOnDecision` is
+true. In shadow (or any non-`enforce` value, §16 rule 3), the legacy behavioural output is returned
+unchanged, so the two 409 sites (`send-to-contact-intelligence`, `requirement-priority/:id/review-plan`)
+naturally stop firing without any route-level edit — both derive their 409 purely from the folded
+`priority`/`selectCompaniesForContactIntelligenceWithPolicy` result. Regression tests:
+`wizmatchLegacyEligibilityAdapter.test.ts`'s new "D-31 shadow mode preserves legacy behavioural output"
+block.
+
+**All Highs (H-1…H-14) — closed.** H-1/H-12/C-2 were already fixed at this report's own HEAD and were
+re-verified intact, not re-fixed. H-2 through H-14 are each fixed with a dedicated regression test — see
+`.ai/OUTBOUND_PR5_IMPLEMENTED`'s fix-pass section for the file:line summary of each.
+
+**D-32 (U-13), D-34, D-35, D-36 (U-8), D-39 — implemented.** D-33 was verified already satisfied
+(rows 15-17 already pass their true `enrol`/`follow_up` action levels). D-37 is implemented as the same
+enum-validation change as H-8, since they are the same defect.
+
+**Gates, re-run on the fix-pass tree:** `git diff --check` clean · `npm run build` exit 0 · `npm test`
+**113 files / 1003 tests** (was 110/970) · `npm run admin:build` clean · Playwright `wizmatch-local`
+97 passed / 15 skipped / 0 failed.
+
+**Not done, unchanged:** no push/merge/deploy; migration 0037 unapplied; backfill `--apply` not run;
+`enforce` not promoted; sending/paid-discovery untouched; U-7, U-9, O-1, B-1 remain open, carried
+forward unchanged. `.ai/OUTBOUND_PR5_CODE_READY` was **not** created by this session — that marker is
+reserved for an independent reviewer.

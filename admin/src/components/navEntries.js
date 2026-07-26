@@ -5,6 +5,7 @@ import {
   Briefcase,
 } from 'lucide-react';
 import { WIZMATCH_ROUTES, evaluateWizmatchPermission } from '../routes/wizmatchRouteRegistry.ts';
+import { companyPolicyUiEnabled } from '../lib/companyPolicyFlag.js';
 
 // Permission flag bag — derived from user role + per-user permission overrides.
 // Matches the gating that lived inline in Sidebar.jsx pre-refactor.
@@ -72,6 +73,10 @@ export function computeFlags(role, perms = {}, tenantSlug = 'growth-escalators',
     canSEO:        ['admin', 'manager_ops', 'manager_ads'].includes(role),
     canWizmatch:   product === 'wizmatch' && isAdminTier,
     canStaffing:   product === 'wizmatch' && perms.staffingPilotAccess === true && ['admin', 'manager_ops', 'team_lead', 'sales', 'staff'].includes(role),
+    // H-11 / D-38: nav visibility for the Duplicate Companies entry (and any
+    // future company-policy-only nav item) — the same build-time flag that
+    // gates the company-drawer Policy section and the backend API.
+    wizmatchCompanyPolicyEnabled: companyPolicyUiEnabled === true,
     staffingPhaseA: staffingPhases.A === true,
     staffingPhaseB: staffingPhases.B === true,
     staffingPhaseC: staffingPhases.C === true,

@@ -20,9 +20,12 @@ import {
   wizmatchCompanyPolicyEvents,
   wizmatchCompanies,
   wizmatchStaffingEvents,
+  wizmatchJobSignals,
+  wizmatchRequirements,
   users,
 } from '../../db';
 import { auditLog } from '../../services/auditLogger';
+import { normalizeDomain } from '../../services/wizmatchContactIntelligenceRepo';
 import { buildScopeKey } from './scopeKey';
 import { resolveEffectivePolicy, type EffectivePolicy } from './policyResolver';
 import type {
@@ -33,6 +36,47 @@ import type {
   RelationshipType,
   ScopeType,
 } from './policyTypes';
+
+// H-8 / D-37: every dimension the resolver compares by literal equality must
+// be validated against its full enum at write time, or an out-of-vocabulary
+// value (wrong case, a typo, a stale client) reaches the gate's terminal
+// `allow` by simply matching none of the `===` branches — a fail-OPEN, not
+// fail-closed. `externalHiringPolicy`/`relationshipType` already fail closed
+// downstream (`computeCampaignCompatibility` throws on an unrecognised
+// pair); `outreachEligibility` did not, because every gate comparison against
+// it is a bare literal check with no `else -> deny`. Validating all five
+// dimensions here closes that asymmetry once and for all, at the one write
+// chokepoint, rather than patching each gate comparison individually.
+const OUTREACH_ELIGIBILITY_VALUES: OutreachEligibility[] = ['eligible', 'needs_review', 'paused', 'blocked'];
+const EXTERNAL_HIRING_POLICY_VALUES: ExternalHiringPolicy[] = [
+  'accepts_external_vendors',
+  'fte_vendors_only',
+  'contract_vendors_only',
+  'preferred_vendors_only',
+  'msp_vms_only',
+  'direct_hiring_only',
+  'no_external_agencies',
+  'unknown',
+];
+const RELATIONSHIP_TYPE_VALUES: RelationshipType[] = [
+  'new_prospect',
+  'existing_prospect',
+  'existing_client',
+  'vendor_partner',
+  'prime_partner',
+  'former_client',
+  'competitor',
+  'irrelevant',
+];
+const BLOCK_CLASS_VALUES: BlockClass[] = ['standard', 'compliance', 'legal'];
+const EVIDENCE_KIND_VALUES: EvidenceKind[] = [
+  'human_text',
+  'source_url',
+  'email_reply_ref',
+  'provider_event_ref',
+  'legal_document_ref',
+  'automated_detection',
+];
 
 export class PolicyValidationError extends Error {
   readonly code: string;
@@ -95,8 +139,24 @@ function validatePolicyWrite(input: PolicyWriteInput): void {
   if (!SCOPE_TYPES.includes(input.scopeType)) {
     throw new PolicyValidationError(`Unknown scopeType '${input.scopeType}'.`, 'unknown_scope_type');
   }
+  // H-8 / D-37 — fail closed on every unknown enum value; never fall through.
+  if (input.outreachEligibility !== undefined && !OUTREACH_ELIGIBILITY_VALUES.includes(input.outreachEligibility)) {
+    throw new PolicyValidationError(`Unknown outreachEligibility '${input.outreachEligibility}'.`, 'unknown_outreach_eligibility');
+  }
+  if (input.externalHiringPolicy !== undefined && !EXTERNAL_HIRING_POLICY_VALUES.includes(input.externalHiringPolicy)) {
+    throw new PolicyValidationError(`Unknown externalHiringPolicy '${input.externalHiringPolicy}'.`, 'unknown_external_hiring_policy');
+  }
+  if (input.relationshipType !== undefined && !RELATIONSHIP_TYPE_VALUES.includes(input.relationshipType)) {
+    throw new PolicyValidationError(`Unknown relationshipType '${input.relationshipType}'.`, 'unknown_relationship_type');
+  }
+  if (input.blockClass !== undefined && !BLOCK_CLASS_VALUES.includes(input.blockClass)) {
+    throw new PolicyValidationError(`Unknown blockClass '${input.blockClass}'.`, 'unknown_block_class');
+  }
+  if (input.evidenceKind !== undefined && !EVIDENCE_KIND_VALUES.includes(input.evidenceKind)) {
+    throw new PolicyValidationError(`Unknown evidenceKind '${input.evidenceKind}'.`, 'unknown_evidence_kind');
+  }
   const isBlocked = input.outreachEligibility === 'blocked';
-  const hasEvidence = Boolean(input.evidenceText || input.evidenceUrl || input.evidenceRef);
+  const hasEvidence = Boolean(input.evidenceText?.trim() || input.evidenceUrl?.trim() || input.evidenceRef?.trim());
 
   if ((input.isPermanent || input.isNonOverridable) && !(input.evidenceKind && hasEvidence)) {
     throw new PolicyValidationError(
@@ -145,6 +205,58 @@ function validatePolicyWrite(input: PolicyWriteInput): void {
   }
   if (['region', 'business_unit', 'location'].includes(input.scopeType) && !input.scopeRefLabel) {
     throw new PolicyValidationError('region/business_unit/location requires scopeRefLabel.', 'scope_ref_label_required');
+  }
+}
+
+/**
+ * H-9 — PRD-005 §10.1/§18.2 name `evidence_url` as SSRF-scrubbed via the
+ * existing `normalizeDomain()` utility; the write path never called it.
+ * `normalizeDomain` returns `null` for a host that fails `isSafeFetchHost`
+ * (private/loopback/link-local/cloud-metadata/obfuscated-IP/etc.) — a null
+ * here means the URL is unsafe, so the write is rejected rather than
+ * silently storing (and later possibly fetching) an SSRF target. The full
+ * URL string is what's persisted (a reviewer needs to click through it);
+ * this function only gates on safety, it doesn't rewrite the value.
+ */
+function assertSafeEvidenceUrl(evidenceUrl: string | undefined): void {
+  if (!evidenceUrl) return;
+  if (normalizeDomain(evidenceUrl) === null) {
+    throw new PolicyValidationError(`evidenceUrl '${evidenceUrl}' failed the SSRF safety check.`, 'unsafe_evidence_url');
+  }
+}
+
+/**
+ * H-10 — PRD-005 §10.1 designates the signal/requirement ↔ company
+ * agreement invariant as service-enforced (no FK can express it: a
+ * `specific_signal` scope's `signal_id` must belong to the SAME company the
+ * policy row is being written against). Without this check a scoped block
+ * written against the wrong company is accepted, displayed as "blocked" in
+ * the UI, and never actually applies to any real signal/requirement — a
+ * silent, fail-open gap with a green UI.
+ */
+async function assertScopeRefBelongsToCompany(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  tenantId: string,
+  companyId: string,
+  input: PolicyWriteInput,
+): Promise<void> {
+  if (input.scopeType === 'specific_signal' && input.signalId) {
+    const rows = await tx
+      .select({ companyId: wizmatchJobSignals.companyId })
+      .from(wizmatchJobSignals)
+      .where(and(eq(wizmatchJobSignals.tenantId, tenantId), eq(wizmatchJobSignals.id, input.signalId)));
+    if (rows.length === 0 || rows[0]?.companyId !== companyId) {
+      throw new PolicyValidationError('signalId does not belong to this company.', 'signal_company_mismatch');
+    }
+  }
+  if (input.scopeType === 'specific_requirement' && input.requirementId) {
+    const rows = await tx
+      .select({ companyId: wizmatchRequirements.companyId })
+      .from(wizmatchRequirements)
+      .where(and(eq(wizmatchRequirements.tenantId, tenantId), eq(wizmatchRequirements.id, input.requirementId)));
+    if (rows.length === 0 || rows[0]?.companyId !== companyId) {
+      throw new PolicyValidationError('requirementId does not belong to this company.', 'requirement_company_mismatch');
+    }
   }
 }
 
@@ -227,9 +339,11 @@ export async function writeCompanyPolicy(
   source: 'human' | 'import' | 'deterministic_rule' | 'provider' = 'human',
 ): Promise<typeof wizmatchCompanyPolicies.$inferSelect> {
   validatePolicyWrite(input);
+  assertSafeEvidenceUrl(input.evidenceUrl);
   const scopeKey = buildScopeKeyForInput(input);
 
   return db.transaction(async (tx) => {
+    await assertScopeRefBelongsToCompany(tx, actor.tenantId, companyId, input);
     const previousRows = await tx
       .select()
       .from(wizmatchCompanyPolicies)

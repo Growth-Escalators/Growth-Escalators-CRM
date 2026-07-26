@@ -78,6 +78,19 @@ describe('wizmatchRouteRegistry', () => {
     expect(route.searchVisible).toBe(true);
   });
 
+  // H-11 / D-38 regression: the Duplicate Companies nav/route/page must be
+  // unavailable while WIZMATCH_COMPANY_POLICY_ENABLED is off. The PR 4
+  // marker previously (falsely) claimed this was already true — it wasn't:
+  // the route had no flag in its permission list at all.
+  it('gates the Duplicate Companies nav entry on wizmatchCompanyPolicyEnabled', () => {
+    const route = WIZMATCH_ROUTES.find((r) => r.id === 'duplicate-review');
+    expect(route).toBeDefined();
+    const permissions = Array.isArray(route.permission) ? route.permission : [route.permission];
+    expect(permissions).toContain('wizmatchCompanyPolicyEnabled');
+    expect(evaluateWizmatchPermission({ isAdminTier: true, wizmatchCompanyPolicyEnabled: false }, route.permission)).toBe(false);
+    expect(evaluateWizmatchPermission({ isAdminTier: true, wizmatchCompanyPolicyEnabled: true }, route.permission)).toBe(true);
+  });
+
   describe('evaluateWizmatchPermission', () => {
     it('treats "always" as unconditionally true regardless of flags', () => {
       expect(evaluateWizmatchPermission({}, 'always')).toBe(true);

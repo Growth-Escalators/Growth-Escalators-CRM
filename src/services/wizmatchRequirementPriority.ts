@@ -44,6 +44,10 @@ export interface RequirementPriorityResult {
   nextAction: 'review_candidates' | 'approve_contact' | 'complete_requirement' | 'watch' | 'blocked';
   reasons: string[];
   blockers: string[];
+  /** D-31 — set only by the *WithPolicy wrappers below; display-only canonical metadata. */
+  canonicalDecision?: 'allow' | 'review' | 'deny';
+  canonicalReasonCode?: string | null;
+  canonicalBlockerCode?: string | null;
 }
 
 export const REQUIREMENT_PRIORITY_GUARDRAILS = {
@@ -243,12 +247,32 @@ export function rankRequirementPriorityQueue(inputs: RequirementPriorityInput[])
 // `fetchCandidateIntelligenceRequirements` in src/routes/wizmatch.ts). A
 // canonical DENY always forces `priority: 'blocked'` regardless of local
 // score; a canonical REVIEW caps `hot`/`warm` to `watch`.
+/**
+ * H-2 fix: `evaluateWizmatchOutreachGate` denies without a `companyId`
+ * (§8.10 rule 5, fail-closed). `wizmatch_requirements.company_id` is
+ * nullable (the masked-client case), and the prior code returned the local
+ * score unchanged in that case — a fail-**open**, since a company-scoped
+ * gate cannot even be asked and the requirement was allowed through anyway.
+ * Mirrors `wizmatchClientDiscovery.ts`'s `missing_company` hard block: no
+ * `companyId` is itself a blocker, forcing `blocked`/`nextAction: 'blocked'`
+ * regardless of local score.
+ */
+function withMissingCompanyBlocker(scored: RequirementPriorityResult): RequirementPriorityResult {
+  if (scored.blockers.includes('missing_company')) return scored;
+  return {
+    ...scored,
+    priority: 'blocked',
+    blockers: [...scored.blockers, 'missing_company'],
+    nextAction: 'blocked',
+  };
+}
+
 export async function scoreRequirementPriorityWithPolicy(
   tenantId: string,
   input: RequirementPriorityInput,
 ): Promise<RequirementPriorityResult> {
   const scored = scoreRequirementPriority(input);
-  if (!input.companyId) return scored;
+  if (!input.companyId) return withMissingCompanyBlocker(scored);
   const canonical = await resolveCanonicalCompanyEligibility(tenantId, input.companyId);
   return applyCanonicalEligibilityToPriorityResult(scored, canonical);
 }
@@ -265,7 +289,8 @@ export async function rankRequirementPriorityQueueWithPolicy(
   return scored
     .map((result, idx) => {
       const companyId = inputs[idx]?.companyId;
-      const canonical = companyId ? canonicalByCompanyId.get(companyId) : undefined;
+      if (!companyId) return withMissingCompanyBlocker(result);
+      const canonical = canonicalByCompanyId.get(companyId);
       return canonical ? applyCanonicalEligibilityToPriorityResult(result, canonical) : result;
     })
     .sort((a, b) => b.score - a.score || b.topCandidateMatches.length - a.topCandidateMatches.length);

@@ -3512,3 +3512,52 @@ still say "US & India" (`constants.ts:50`) + Newark DE address — positioning/c
 
 **Guardrails:** no schema/migration/auth/rbac/cashfree/sodEod change; only the optional
 `WIZMATCH_INDIA_ONLY` env var added. Tests: 428 Vitest, admin build, Playwright 97 passed/15 skipped.
+
+---
+
+## 2026-07-26 — WizMatch Outbound OS: PR 4 + PR 5 checkpoint fix pass
+
+Closed every finding in `docs/reviews/wizmatch-outbound-pr5-opus-checkpoint.md` (the independent
+Opus checkpoint review that returned **NOT READY**) on `ge/outbound-05-lifecycle-consolidation`. Owner
+ratified D-31 through D-39 up front (option A for C-1: adapter respects `shouldBlock`); this session
+implemented all of them plus every H-2…H-14 finding. Full per-finding detail lives in the checkpoint
+report's new "Fix pass" addendum and in `.ai/OUTBOUND_PR5_IMPLEMENTED`'s fix-pass section — not
+repeated here in full, only the shape:
+
+- **C-1 (blocker) fixed**: `legacyEligibilityAdapter.ts` / `outreachGate.ts` — the adapter is mode-aware
+  (D-31). Canonical decision metadata is always computed and displayable; legacy behavioural output is
+  only overridden under the exact string `enforce`. The two shadow-mode 409s are gone.
+- **H-2 through H-14 fixed**: null-companyId fail-open, dead REVIEW branch, unfolded `nextAction`,
+  reverted human rejections, a falsified scope-out disclosure, a discard-the-`.where()` test mock, two
+  fail-open enum gaps, a missing SSRF scrub, a missing company-agreement invariant, an unconditional
+  Duplicate Companies nav/route/page, a vacuous test fixture, and a duplicate-resolution audit gap.
+- **D-32 (U-13) fixed**: `wizmatchLinkage.ts` resolves every tenant-safe linked company and picks the
+  most restrictive by canonical decision, with provenance — no caller needed editing.
+- **D-33 verified already satisfied**; **D-34 implemented** (persisted, idempotent shadow observations
+  in `audit_events`, migration 0010, no 0037 dependency); **D-35 implemented** (mode-flip Slack
+  alert + audit, once per transition); **D-36 implemented** (tenant-bound, versioned unsubscribe
+  tokens, retiring U-8's "most recent sender wins"); **D-37 folded into H-8**; **D-39 implemented**
+  (PRD-005 §22.4/§22.5 added).
+- Corrected the PR 4 marker's false flag-gating claim in `.ai/OUTBOUND_PR4_IMPLEMENTED` — appended, not
+  deleted.
+
+**New files**: `src/modules/outreach/unsubscribeToken.ts`,
+`src/__tests__/wizmatchGateShadowObservation.test.ts`, `src/__tests__/wizmatchGateModeFlipAlert.test.ts`,
+`src/__tests__/wizmatchUnsubscribeToken.test.ts`. Existing test files rewritten for the new mode-aware
+behaviour and the fixed predicate-capture mock idiom: `wizmatchLegacyEligibilityAdapter.test.ts`,
+`wizmatchLinkage.test.ts`, `wizmatchDuplicateService.test.ts`, `wizmatchOutreachService.test.ts`,
+`wizmatchPolicyReadiness.test.ts`, `wizmatchRouteRegistry.test.ts`.
+
+**Gates:** `git diff --check` clean · `npm run build` exit 0 · `npm test` **113 files / 1003 tests**
+(was 110/970) · `npm run admin:build` clean · `playwright.wizmatch-local.config.ts` full suite —
+97 passed / 15 skipped / 0 failed.
+
+**Not done, deliberately:** `.ai/OUTBOUND_PR5_CODE_READY` was **not** created — that marker is reserved
+for an independent reviewer, not this fix pass. No push/merge/deploy; migration 0037 unapplied;
+backfill `--apply` not run; `enforce` not promoted; sending/paid-discovery/Smartlead untouched; no
+guardrail file touched; no Growth/SEO/n8n/legacy-outreach/`package-lock.json` change. U-7, U-9, O-1,
+B-1 remain open, carried forward unchanged from the PR 3 review.
+
+**Exact next action:** independent re-review of PR 4 + PR 5 against this fix pass (three-subagent
+method). If it passes, the reviewer creates `.ai/OUTBOUND_PR5_CODE_READY`. Do not start PR 6 until
+that happens.

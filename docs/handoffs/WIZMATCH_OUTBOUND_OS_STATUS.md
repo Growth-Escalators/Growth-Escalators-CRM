@@ -732,3 +732,48 @@ connected.
 Do not merge, deploy, apply 0037, run backfill `--apply`, or promote `enforce` on the strength of
 this review. Still carried forward: U-13, U-14, U-10, U-12, L-7…L-13 from the PR 3 review, and B-1
 (0037 must be applied before this stack reaches `main` — the repo auto-deploys on push).
+
+---
+
+## PR 4 + PR 5 — checkpoint fix pass, 2026-07-26: all Critical/High findings closed
+
+Owner ratified D-31 through D-39 (C-1: option A, adapter respects `shouldBlock`). This session
+implemented all of them plus H-2 through H-14. Full per-finding detail: the checkpoint report's new
+"Fix pass" addendum (`docs/reviews/wizmatch-outbound-pr5-opus-checkpoint.md`) and
+`.ai/OUTBOUND_PR5_IMPLEMENTED`'s fix-pass section.
+
+**Shape of the fix:**
+- **C-1**: `legacyEligibilityAdapter.ts`/`outreachGate.ts` — mode-aware adapter. Canonical decision
+  metadata always computed/displayable; legacy behavioural output only overridden under the exact
+  string `enforce`. The two shadow-mode 409s (send-to-contact-intelligence, review-plan) are gone.
+- **H-2…H-14**: null-companyId fail-open, dead REVIEW branch, unfolded `nextAction`, an unprotected
+  human rejection, a falsified scope-out disclosure, a discard-the-`.where()` mock, two fail-open
+  enums, a missing SSRF scrub, a missing company-agreement invariant, an unconditional Duplicate
+  Companies surface, a vacuous test fixture, and a duplicate-resolution audit gap — each fixed with a
+  dedicated regression test.
+- **D-32 (U-13)**: `wizmatchLinkage.ts` now resolves every tenant-safe linked company and picks the
+  most restrictive by canonical decision (deny > review > allow), with provenance. No call site needed
+  editing — all seven only read `linkage.companyId`.
+- **D-33**: verified already satisfied. **D-34**: persisted, idempotent shadow observations in
+  `audit_events` (migration 0010, no 0037 dependency); readiness report's `shadowObservedCompanyCount`
+  consumes it. **D-35**: mode-flip Slack alert + audit exactly once per transition. **D-36**:
+  tenant-bound versioned unsubscribe tokens (`src/modules/outreach/unsubscribeToken.ts`), retiring
+  U-8's "most recent sender wins" — legacy tokens still accepted only when exactly one tenant resolves
+  deterministically, ambiguous ones rejected and audited. **D-37**: folded into H-8's enum-validation
+  fix. **D-38**: Duplicate Companies nav/route/page all gated on `companyPolicyUiEnabled`/
+  `wizmatchCompanyPolicyEnabled`. **D-39**: PRD-005 gained §22.4/§22.5.
+- Corrected (not deleted) the PR 4 marker's false flag-gating claim in `.ai/OUTBOUND_PR4_IMPLEMENTED`.
+
+**Gates:** `git diff --check` clean · `npm run build` exit 0 · `npm test` **113 files / 1003 tests**
+(was 110/970) · `npm run admin:build` clean · Playwright `wizmatch-local` 97 passed / 15 skipped /
+0 failed.
+
+**Not done, deliberately:** `.ai/OUTBOUND_PR5_CODE_READY` was **not** created — reserved for an
+independent reviewer. No push/merge/deploy; migration 0037 unapplied; backfill `--apply` not run;
+`enforce` not promoted; sending/paid-discovery/Smartlead untouched; no guardrail file touched; no
+Growth/SEO/n8n/legacy-outreach/`package-lock.json` change. U-7, U-9, O-1, B-1 remain open, carried
+forward unchanged.
+
+**Exact next action:** independent re-review of PR 4 + PR 5 against this fix pass (three-subagent
+method). If it passes, the reviewer creates `.ai/OUTBOUND_PR5_CODE_READY`. Do not start PR 6 until
+that happens.
