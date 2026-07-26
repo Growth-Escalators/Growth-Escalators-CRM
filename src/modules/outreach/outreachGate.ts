@@ -28,6 +28,7 @@
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import {
   db,
+  pool,
   contacts,
   wizmatchCompanies,
   wizmatchCompanyDuplicates,
@@ -65,6 +66,77 @@ export type { PolicyDecision, OutreachGateContext } from './policyTypes';
 // remembered one.
 let lastKnownEffectiveMode: 'shadow' | 'enforce' | undefined;
 
+/** One-shot per process: the cross-restart baseline lookup below runs at most once. */
+let modeBaselineSeed: Promise<void> | undefined;
+
+/** Written by both the in-process transition alert and the cross-restart seed. */
+const MODE_CHANGED_ACTION = 'wizmatch_policy_enforcement_mode_changed';
+const MODE_OBSERVED_ACTION = 'wizmatch_policy_enforcement_mode_observed';
+
+/**
+ * D-35, restart gap (found by the 2026-07-26 independent re-review).
+ * `lastKnownEffectiveMode` is in-process memory, so seeding it silently on the
+ * first read after boot means the alert can only fire when
+ * `WIZMATCH_POLICY_ENFORCEMENT_MODE` is mutated *inside a live process*. That
+ * is not how this env var changes: setting it on Railway redeploys, so the flip
+ * to `enforce` — the single event D-35 exists to announce — arrives as a fresh
+ * process whose in-process baseline is `undefined`, and was swallowed.
+ *
+ * The baseline is therefore also persisted, and compared once per process
+ * against the last persisted value. `audit_events` cannot hold it (its
+ * `tenant_id` is NOT NULL with an FK to `tenants`, and a mode flip is
+ * system-wide, not tenant-scoped), so this uses `audit_logs` — the same table
+ * the transition alert already writes through `auditLog`, whose `tenant_id` is
+ * nullable. First boot ever (no persisted row) records the observation
+ * silently, exactly as D-35's "seeded silently on first read" requires.
+ *
+ * Best-effort and fire-and-forget: a database failure here must never affect a
+ * gate decision, so it degrades to the previous in-process-only behaviour.
+ *
+ * Known limitation, disclosed rather than hidden: `at most once per process`,
+ * not `exactly once per fleet`. With more than one process (a `web` + `worker`
+ * split), each booting process compares independently and may each alert on
+ * the same flip, and two processes booting concurrently can both observe the
+ * stale value before either persists. De-duplicating across processes needs a
+ * uniqueness key on the transition — a schema change, and a decision about
+ * whether a shadow->enforce->shadow->enforce sequence should re-alert. Neither
+ * is authorised here. Over-alerting on a deliberate, rare, owner-initiated
+ * action is the safe direction to fail.
+ */
+function seedModeBaselineFromHistory(observed: 'shadow' | 'enforce'): void {
+  if (modeBaselineSeed) return;
+  modeBaselineSeed = (async () => {
+    try {
+      const { rows } = await pool.query(
+        `SELECT new_values->>'mode' AS mode
+           FROM audit_logs
+          WHERE action IN ($1, $2)
+          ORDER BY created_at DESC
+          LIMIT 1`,
+        [MODE_CHANGED_ACTION, MODE_OBSERVED_ACTION],
+      );
+      const raw = rows[0]?.mode;
+      const persisted = raw === 'enforce' ? 'enforce' : raw === 'shadow' ? 'shadow' : undefined;
+
+      if (persisted === undefined) {
+        // First boot ever: record the baseline, announce nothing.
+        await auditLog({
+          action: MODE_OBSERVED_ACTION,
+          entityType: 'wizmatch_enforcement_mode',
+          newValues: { mode: observed },
+        });
+        return;
+      }
+      if (persisted !== observed) {
+        // A flip happened across a restart. This is the real-world case.
+        notifyEffectiveModeTransition(persisted, observed);
+      }
+    } catch {
+      // Best-effort — never let the baseline lookup affect the gate.
+    }
+  })();
+}
+
 function notifyEffectiveModeTransition(from: 'shadow' | 'enforce', to: 'shadow' | 'enforce'): void {
   void (async () => {
     try {
@@ -77,7 +149,7 @@ function notifyEffectiveModeTransition(from: 'shadow' | 'enforce', to: 'shadow' 
         );
       }
       await auditLog({
-        action: 'wizmatch_policy_enforcement_mode_changed',
+        action: MODE_CHANGED_ACTION,
         entityType: 'wizmatch_enforcement_mode',
         oldValues: { mode: from },
         newValues: { mode: to },
@@ -88,13 +160,30 @@ function notifyEffectiveModeTransition(from: 'shadow' | 'enforce', to: 'shadow' 
   })();
 }
 
+/**
+ * D-31, exported for the one class of call site that must respect enforcement
+ * mode but has no company to resolve a decision for (so `resolveCompanyStatus`
+ * — and with it `actsOnDecision` — cannot be asked). Today that is
+ * `wizmatchRequirementPriority.ts`'s null-`companyId` branch. Same predicate
+ * half as `shouldBlock`/`actsOnDecision`: the exact string `enforce` and
+ * nothing else. Callers must NOT use this to re-derive a decision they could
+ * have obtained from `resolveCompanyStatus` — §8.10 rule 3 still stands.
+ */
+export function isEnforcementActive(): boolean {
+  return readEnforcementMode() === 'enforce';
+}
+
 function readEnforcementMode(): 'shadow' | 'enforce' {
   // §16 rule 3: any value other than the exact string 'enforce' is 'shadow'.
   // Read per request (rule 4), never cached at boot — only the LAST OBSERVED
   // value (above) is cached, purely to detect a transition for D-35's alert.
   const mode = process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE === 'enforce' ? 'enforce' : 'shadow';
-  if (lastKnownEffectiveMode !== undefined && lastKnownEffectiveMode !== mode) {
-    notifyEffectiveModeTransition(lastKnownEffectiveMode, mode);
+  if (lastKnownEffectiveMode !== undefined) {
+    if (lastKnownEffectiveMode !== mode) notifyEffectiveModeTransition(lastKnownEffectiveMode, mode);
+  } else {
+    // First read in this process: compare against the persisted baseline too,
+    // so a flip applied by restarting with a new env value is not swallowed.
+    seedModeBaselineFromHistory(mode);
   }
   lastKnownEffectiveMode = mode;
   return mode;

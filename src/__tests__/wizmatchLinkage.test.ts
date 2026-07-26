@@ -12,6 +12,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // per the fixed idiom — see wizmatchPolicyService.test.ts / M-5/L-6).
 
 const state = vi.hoisted(() => ({
+  /** Hoisted so the `vi.mock` factory below can enforce the tenant predicate. */
+  tenant: 'tenant-1',
   companyContactRows: [] as any[],
   candidateRows: [] as any[],
   signalRows: [] as any[],
@@ -36,6 +38,18 @@ function paramValues(node: unknown, seen = new WeakSet<object>()): string[] {
   return out;
 }
 
+// The 2026-07-26 independent re-review found this mock still used the
+// discard-the-predicate idiom (PR 2 M-5 / PR 3 L-6 / PR 5 H-7, the third
+// recurrence): rows were returned per TABLE regardless of the `where()`
+// condition, and `.limit()` was `() => promise`. Both of D-32's own
+// regressions therefore stayed green — deleting the tenant predicate from
+// `collectLinkedCompanyIds`, and reverting to `.limit(1)`, changed nothing
+// the suite could see. Two behaviours are added here so the suite can
+// actually fail:
+//   1. the tenant predicate is honoured — rows are only returned when the
+//      queried tenant appears in the condition's bound parameters;
+//   2. `.limit(n)` genuinely slices, so a reintroduced `.limit(1)` truncates
+//      the multi-company fixtures and breaks most-restrictive-wins.
 vi.mock('../db', async () => {
   const actualSchema = await vi.importActual<typeof import('../db/schema')>('../db/schema');
   const dbLike: any = {
@@ -43,7 +57,12 @@ vi.mock('../db', async () => {
       from: (table: unknown) => ({
         where: (condition: unknown) => {
           const values = new Set(paramValues(condition));
+          // A query that does not bind the tenant is not tenant-scoped, and
+          // this mock refuses to answer it — the same way a real tenant
+          // predicate would return another tenant's zero rows.
+          const tenantScoped = values.has(state.tenant);
           const resolveRows = (): Promise<any[]> => {
+            if (!tenantScoped) return Promise.resolve([]);
             if (table === actualSchema.wizmatchCompanyContacts) return Promise.resolve(state.companyContactRows);
             if (table === actualSchema.wizmatchContactCandidates) return Promise.resolve(state.candidateRows);
             if (table === actualSchema.wizmatchJobSignals) return Promise.resolve(state.signalRows);
@@ -58,8 +77,12 @@ vi.mock('../db', async () => {
           };
           const promise = resolveRows();
           // resolveWizmatchLinkageByEmail's contactChannels lookup chains
-          // .limit(1) — support it without changing the resolved rows.
-          return Object.assign(promise, { limit: () => promise });
+          // .limit(1). Honour the bound genuinely, so that reintroducing a
+          // per-mechanism `.limit(1)` in wizmatchLinkage.ts truncates the
+          // U-13 fixtures and fails the most-restrictive-wins tests.
+          return Object.assign(promise, {
+            limit: (n: number) => promise.then((rows) => rows.slice(0, n)),
+          });
         },
       }),
     }),
@@ -69,7 +92,7 @@ vi.mock('../db', async () => {
 
 import { resolveWizmatchLinkage, resolveWizmatchLinkageByEmail } from '../modules/outreach/wizmatchLinkage';
 
-const TENANT = 'tenant-1';
+const TENANT = state.tenant;
 
 function rootPolicy(companyId: string, overrides: Record<string, unknown> = {}) {
   return {
@@ -134,6 +157,16 @@ describe('resolveWizmatchLinkage', () => {
 
   it('returns null for an empty contactId rather than querying', async () => {
     expect(await resolveWizmatchLinkage(TENANT, '')).toBeNull();
+  });
+
+  // The mock only answers a query whose bound parameters include the queried
+  // tenant, so this fails if any `eq(<table>.tenantId, tenantId)` is dropped
+  // from collectLinkedCompanyIds — the regression the previous mock could not
+  // see (M-5 / L-6 / H-7, third recurrence).
+  it('does not resolve a linkage for another tenant (tenant predicate is load-bearing)', async () => {
+    state.companyContactRows = [{ companyId: 'company-canonical', relationshipStage: 'active' }];
+    state.policyRowsByCompany['company-canonical'] = [rootPolicy('company-canonical')];
+    expect(await resolveWizmatchLinkage('tenant-other', 'contact-1')).toBeNull();
   });
 
   // D-32 / U-13 regression: two companies linked to the same contact, one

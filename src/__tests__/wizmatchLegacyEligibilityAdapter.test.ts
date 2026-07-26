@@ -210,6 +210,23 @@ describe('H-7: the mock captures the where() predicate, not discards it', () => 
     // so `condition` would be `undefined` and this assertion would fail.
     expect(sqlFragments(condition).length).toBeGreaterThan(0);
   });
+
+  // The assertion above only proves "not the no-argument idiom" — the
+  // 2026-07-26 re-review showed that deleting `isNull(supersededAt)` or either
+  // `eq()` from policyResolver.ts still leaves `sqlFragments(...).length > 0`
+  // true, so H-7's stated guarantee ("tenant scoping, company_id,
+  // isNull(supersededAt) are no longer untested") was not actually delivered.
+  // These name the three columns individually, so dropping any ONE of them
+  // fails here.
+  it('the captured predicate names tenant_id, company_id AND superseded_at individually (H-7, for real)', async () => {
+    await resolveCanonicalCompanyEligibility(TENANT_ID, COMPANY_ID);
+    const fragments = sqlFragments(state.capturedWhere.get(wizmatchCompanyPolicies));
+    const joined = fragments.join(' ');
+    expect(joined).toContain('tenant_id');
+    expect(joined).toContain('company_id');
+    expect(joined).toContain('superseded_at');
+    expect(joined).toContain('is null');
+  });
 });
 
 describe('canonical resolver agreement — missing root policy (L0 deny)', () => {
@@ -364,6 +381,10 @@ describe('canonical resolver agreement — allow never overrides a local hard bl
 
 describe('H-2 regression — a null companyId fails closed, not open', () => {
   it('requirement priority with no companyId is forced blocked, never silently allowed through', async () => {
+    // Stated rather than inherited from the file-level beforeEach: this
+    // assertion is only correct under `enforce`. Its shadow-mode counterpart
+    // (RESIDUAL-C1, below) asserts the opposite, and the pair is the point.
+    process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE = 'enforce';
     const result = await scoreRequirementPriorityWithPolicy(TENANT_ID, { ...requirementPriorityInput, companyId: null });
     expect(result.priority).toBe('blocked');
     expect(result.blockers).toContain('missing_company');
@@ -404,6 +425,35 @@ describe('D-31 shadow mode preserves legacy behavioural output (C-1 regression)'
     const result = await scoreRequirementPriorityWithPolicy(TENANT_ID, requirementPriorityInput);
     expect(result.priority).not.toBe('blocked');
     expect(result.canonicalDecision).toBe('deny');
+  });
+
+  // RESIDUAL-C1 (2026-07-26 independent re-review): H-2's first fix forced
+  // `blocked`/`nextAction: 'blocked'` on a null companyId UNCONDITIONALLY,
+  // never consulting the mode — so a masked-client requirement
+  // (`wizmatch_requirements.company_id IS NULL`) 409'd on
+  // `POST /requirement-priority/:id/review-plan` while the shipped default
+  // mode is `shadow`. That is C-1's defect class through the one path that
+  // never reaches `resolveCompanyStatus`/`actsOnDecision`.
+  it('a null companyId does NOT force blocked in shadow, but is still reported (RESIDUAL-C1)', async () => {
+    const result = await scoreRequirementPriorityWithPolicy(TENANT_ID, {
+      ...requirementPriorityInput,
+      companyId: null,
+    });
+    expect(result.priority).not.toBe('blocked');
+    expect(result.nextAction).not.toBe('blocked');
+    expect(result.blockers).not.toContain('missing_company');
+    // Visible without being behavioural — D-31.
+    expect(result.canonicalDecision).toBe('deny');
+    expect(result.canonicalReasonCode).toBe('missing_company');
+  });
+
+  it('the queue fold applies the same null-companyId rule in shadow (RESIDUAL-C1, plural path)', async () => {
+    const { rankRequirementPriorityQueueWithPolicy } = await import('../services/wizmatchRequirementPriority');
+    const [result] = await rankRequirementPriorityQueueWithPolicy(TENANT_ID, [
+      { ...requirementPriorityInput, companyId: null },
+    ]);
+    expect(result.priority).not.toBe('blocked');
+    expect(result.canonicalReasonCode).toBe('missing_company');
   });
 
   it('an every-other-value-is-shadow spelling variant behaves identically to shadow (§16 rule 3)', async () => {

@@ -13,6 +13,9 @@ const state = vi.hoisted(() => ({
   policyRows: [] as any[],
   companyRows: [] as any[],
   usersRows: [] as any[],
+  /** H-10 fixtures: the scope-ref rows the company-agreement invariant reads. */
+  signalRows: [] as any[],
+  requirementRows: [] as any[],
   policyEventInserts: [] as any[],
   staffingEventInserts: [] as any[],
   auditLogCalls: [] as any[],
@@ -88,6 +91,16 @@ vi.mock('../db', async () => {
           if (table === actualSchema.wizmatchCompanyPolicyEvents) {
             captureWhere('wizmatchCompanyPolicyEvents', condition);
             return makeThenable(() => state.policyEventInserts);
+          }
+          if (table === actualSchema.wizmatchJobSignals) {
+            captureWhere('wizmatchJobSignals', condition);
+            const values = new Set(paramValues(condition));
+            return makeThenable(() => state.signalRows.filter((r) => values.has(r.tenantId) && values.has(r.id)));
+          }
+          if (table === actualSchema.wizmatchRequirements) {
+            captureWhere('wizmatchRequirements', condition);
+            const values = new Set(paramValues(condition));
+            return makeThenable(() => state.requirementRows.filter((r) => values.has(r.tenantId) && values.has(r.id)));
           }
           return makeThenable(() => []);
         },
@@ -184,6 +197,8 @@ beforeEach(() => {
   state.policyRows = [];
   state.companyRows = [{ id: 'company-1', tenantId: 'tenant-1', accountOwnerUserId: null }];
   state.usersRows = [];
+  state.signalRows = [];
+  state.requirementRows = [];
   state.policyEventInserts = [];
   state.staffingEventInserts = [];
   state.auditLogCalls = [];
@@ -421,5 +436,183 @@ describe('bulkWriteCompanyPolicy — count-first, partial-failure reporting', ()
     expect(result.failed).toBe(1);
     expect(result.results.find((r) => r.companyId === 'company-1')?.ok).toBe(true);
     expect(result.results.find((r) => r.companyId === 'company-locked')?.ok).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// H-8 / D-37, H-9, H-10 — the 2026-07-26 independent re-review found that all
+// three had a code fix but ZERO regression tests, despite the fix pass
+// claiming "H-2 through H-14 are each fixed with a dedicated regression test".
+// Deleting any of the three guards left the suite green. These close that gap;
+// each one fails if its guard is removed from policyService.ts.
+// ---------------------------------------------------------------------------
+
+function validRootInput(overrides: Record<string, unknown> = {}) {
+  return {
+    scopeType: 'entire_company',
+    outreachEligibility: 'eligible',
+    externalHiringPolicy: 'accepts_external_vendors',
+    relationshipType: 'new_prospect',
+    reasonCode: 'policy_accepts_external_vendors',
+    evidenceKind: 'human_text',
+    evidenceText: 'confirmed on call',
+    ...overrides,
+  } as any;
+}
+
+describe('H-8 / D-37 — every policy enum dimension fails CLOSED on an unknown value', () => {
+  // Before this fix only hiring-policy/relationship threw; an out-of-vocabulary
+  // `outreachEligibility` such as 'Blocked' fell through every literal equality
+  // comparison in the gate and reached the terminal `allow` — a fail-OPEN block.
+  const cases: Array<[string, Record<string, unknown>, string]> = [
+    ['outreachEligibility', { outreachEligibility: 'Blocked' }, 'unknown_outreach_eligibility'],
+    ['externalHiringPolicy', { externalHiringPolicy: 'no_agencies_pls' }, 'unknown_external_hiring_policy'],
+    ['relationshipType', { relationshipType: 'friend_of_the_ceo' }, 'unknown_relationship_type'],
+    ['blockClass', { blockClass: 'urgent' }, 'unknown_block_class'],
+    ['evidenceKind', { evidenceKind: 'a_hunch' }, 'unknown_evidence_kind'],
+  ];
+
+  for (const [dimension, override, code] of cases) {
+    it(`rejects an out-of-vocabulary ${dimension} instead of accepting it`, async () => {
+      await expect(writeCompanyPolicy(actor, 'company-1', validRootInput(override))).rejects.toMatchObject({ code });
+      expect(state.policyRows).toHaveLength(0);
+    });
+  }
+
+  it('a casing variant of a real value is rejected, not silently coerced', async () => {
+    await expect(
+      writeCompanyPolicy(actor, 'company-1', validRootInput({ outreachEligibility: 'ELIGIBLE' })),
+    ).rejects.toMatchObject({ code: 'unknown_outreach_eligibility' });
+  });
+
+  it('still accepts every value in each real vocabulary', async () => {
+    for (const eligibility of ['eligible', 'needs_review', 'paused']) {
+      state.policyRows = [];
+      state.policyEventInserts = [];
+      const row = await writeCompanyPolicy(
+        actor,
+        'company-1',
+        validRootInput({
+          outreachEligibility: eligibility,
+          ...(eligibility === 'paused' ? { reviewDate: '2026-12-01' } : {}),
+        }),
+      );
+      expect(row.outreachEligibility).toBe(eligibility);
+    }
+  });
+});
+
+describe('H-9 — evidence_url is SSRF-scrubbed before it is persisted', () => {
+  const unsafe = [
+    'http://169.254.169.254/latest/meta-data/',
+    'http://127.0.0.1:8080/internal',
+    'http://localhost/admin',
+    'http://10.0.0.5/secret',
+    'http://192.168.1.1/router',
+  ];
+
+  for (const url of unsafe) {
+    it(`rejects ${url}`, async () => {
+      await expect(
+        writeCompanyPolicy(actor, 'company-1', validRootInput({ evidenceKind: 'source_url', evidenceUrl: url })),
+      ).rejects.toMatchObject({ code: 'unsafe_evidence_url' });
+      expect(state.policyRows).toHaveLength(0);
+    });
+  }
+
+  it('accepts an ordinary public evidence URL and persists it verbatim', async () => {
+    const row = await writeCompanyPolicy(
+      actor,
+      'company-1',
+      validRootInput({ evidenceKind: 'source_url', evidenceUrl: 'https://careers.example.com/vendor-policy' }),
+    );
+    expect(row.evidenceUrl).toBe('https://careers.example.com/vendor-policy');
+  });
+
+  it('the scrub also covers the admin-override path, not just the plain write', async () => {
+    state.policyRows = [
+      {
+        id: 'policy-existing',
+        tenantId: 'tenant-1',
+        companyId: 'company-1',
+        scopeType: 'entire_company',
+        scopeKey: 'entire_company',
+        outreachEligibility: 'blocked',
+        externalHiringPolicy: 'no_external_agencies',
+        relationshipType: 'irrelevant',
+        blockClass: 'standard',
+        isNonOverridable: false,
+        isPermanent: false,
+        supersededAt: null,
+      },
+    ];
+    await expect(
+      writeCompanyPolicyOverride(
+        { ...actor, role: 'admin' } as any,
+        'company-1',
+        validRootInput({
+          evidenceKind: 'source_url',
+          evidenceUrl: 'http://169.254.169.254/latest/meta-data/',
+          reasonCode: 'manual_admin_override',
+        }),
+      ),
+    ).rejects.toMatchObject({ code: 'unsafe_evidence_url' });
+  });
+});
+
+describe('H-10 — a scoped policy cannot be written against the wrong company', () => {
+  it('rejects a specific_signal scope whose signal belongs to another company', async () => {
+    state.signalRows = [{ id: '11111111-1111-4111-8111-111111111111', tenantId: 'tenant-1', companyId: 'company-other' }];
+    await expect(
+      writeCompanyPolicy(
+        actor,
+        'company-1',
+        validRootInput({ scopeType: 'specific_signal', signalId: '11111111-1111-4111-8111-111111111111', outreachEligibility: 'blocked' }),
+      ),
+    ).rejects.toMatchObject({ code: 'signal_company_mismatch' });
+    expect(state.policyRows).toHaveLength(0);
+  });
+
+  it('rejects a specific_requirement scope whose requirement belongs to another company', async () => {
+    state.requirementRows = [{ id: '33333333-3333-4333-8333-333333333333', tenantId: 'tenant-1', companyId: 'company-other' }];
+    await expect(
+      writeCompanyPolicy(
+        actor,
+        'company-1',
+        validRootInput({ scopeType: 'specific_requirement', requirementId: '33333333-3333-4333-8333-333333333333', outreachEligibility: 'blocked' }),
+      ),
+    ).rejects.toMatchObject({ code: 'requirement_company_mismatch' });
+  });
+
+  it('fails CLOSED when the referenced signal does not exist at all', async () => {
+    state.signalRows = [];
+    await expect(
+      writeCompanyPolicy(
+        actor,
+        'company-1',
+        validRootInput({ scopeType: 'specific_signal', signalId: '22222222-2222-4222-8222-222222222222', outreachEligibility: 'blocked' }),
+      ),
+    ).rejects.toMatchObject({ code: 'signal_company_mismatch' });
+  });
+
+  it("fails CLOSED when the signal exists under a DIFFERENT tenant (the lookup is tenant-scoped)", async () => {
+    state.signalRows = [{ id: '11111111-1111-4111-8111-111111111111', tenantId: 'tenant-other', companyId: 'company-1' }];
+    await expect(
+      writeCompanyPolicy(
+        actor,
+        'company-1',
+        validRootInput({ scopeType: 'specific_signal', signalId: '11111111-1111-4111-8111-111111111111', outreachEligibility: 'blocked' }),
+      ),
+    ).rejects.toMatchObject({ code: 'signal_company_mismatch' });
+  });
+
+  it('accepts a specific_signal scope whose signal genuinely belongs to the company', async () => {
+    state.signalRows = [{ id: '11111111-1111-4111-8111-111111111111', tenantId: 'tenant-1', companyId: 'company-1' }];
+    const row = await writeCompanyPolicy(
+      actor,
+      'company-1',
+      validRootInput({ scopeType: 'specific_signal', signalId: '11111111-1111-4111-8111-111111111111', outreachEligibility: 'blocked' }),
+    );
+    expect(row.scopeKey).toBe('specific_signal:11111111-1111-4111-8111-111111111111');
   });
 });

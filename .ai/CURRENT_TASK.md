@@ -2,6 +2,59 @@
 
 ## Active task
 
+**PR 4 + PR 5 REVIEWED AND CODE READY 2026-07-26 at `a5e48602` (+ this review's fixes).**
+Final independent code-readiness re-review of
+`ge/outbound-03-policy-enforcement..ge/outbound-05-lifecycle-consolidation`, three parallel read-only
+Explore subagents, every load-bearing finding re-verified by hand, every fix with a control run.
+Report: `docs/reviews/wizmatch-outbound-pr5-opus-checkpoint.md` (appended section "Final independent
+code-readiness re-review"). Marker: **`.ai/OUTBOUND_PR5_CODE_READY` created.**
+
+> **The fix pass genuinely closed C-1, C-2 and H-1…H-14 — with two exceptions found here.**
+>
+> **RC-1 (Critical, fixed) — the C-1 fix did not fully land.** H-2's null-`companyId` block in
+> `wizmatchRequirementPriority.ts` sat on the one path that never reaches `resolveCompanyStatus`, so
+> it never consulted the mode. `wizmatch_requirements.company_id` is nullable (masked clients) and
+> the fetcher `LEFT JOIN`s with no filter, so in the shipped default `shadow` those requirements went
+> `blocked` **and** `POST /requirement-priority/:id/review-plan` returned **409** — C-1's exact defect
+> class, falsifying the claim that neither 409 fires in shadow. New in this range; the
+> `wizmatchClientDiscovery.ts` block it claims to mirror predates the stack, so they are not
+> equivalent. Fixed with `isEnforcementActive()`; canonical metadata still always attached (D-31).
+>
+> **RH-1 (High, fixed) — H-8/H-9/H-10 shipped with no regression test at all**, against an explicit
+> claim that each had one. Deleting the enum validation, SSRF scrub or company-agreement invariant
+> left the suite green. 23 tests added; controls fail 2 / 6 / 4.
+>
+> **RH-2 (High, fixed) — `wizmatchLinkage.test.ts` could not detect either regression D-32 exists to
+> prevent** (dropped tenant predicate, reintroduced `.limit(1)`) — third recurrence of M-5/L-6/H-7, on
+> the file the fix pass had just rewritten. Controls now fail 5 / 2.
+>
+> **RH-3 (High, fixed) — D-35's mode-flip alert could not fire for the mechanism that changes the
+> mode.** The baseline was in-process only; the env var is applied by redeploying, so the real flip
+> always arrived as a fresh process and was seeded silently. Now also compared against a persisted
+> baseline in `audit_logs`, best-effort, once per process. Control fails 3.
+>
+> **Gates:** `git diff --check` clean · `npm run build` exit 0 · **113 files / 1030 tests** (was
+> 113/1003) · `npm run admin:build` clean · Playwright `wizmatch-local` 97 passed / 15 skipped / 0
+> failed. Boundary checks all pass — no guardrail file, no `package-lock.json`, no Growth/SEO/n8n or
+> legacy-outreach contamination, no send or paid-provider capability enabled, no production action.
+>
+> **Playwright command note:** `--project=wizmatch-local` does not exist; use
+> `npx playwright test --config=playwright.wizmatch-local.config.ts`.
+>
+> **Open, carried forward:** M-1 staff+ policy reads 403 at the `/api/wizmatch` mount (fails
+> **closed**); **M-2 Command Center requirements/candidateIntelligence unfolded and the fetcher does
+> not select `company_id` — inert in shadow, must close before G4/`enforce`**; M-3…M-9, L-1…L-6 (full
+> table in the review); U-7, U-9, O-1; **B-1 — apply 0037 before this stack reaches `main`.**
+
+**Exact next action:** owner decides whether M-2 lands as a PR 5 follow-up commit or is scheduled as a
+hard G4 precondition. Then PR 6 (decision workbench — queues API + Today re-bucket + bulk bar) per the
+standing 10-PR programme. **Do not** merge, deploy, apply 0037, run backfill `--apply`, or promote
+`enforce` on the strength of this review. Before `main`: B-1 and the §10.11.4 fresh-database checks (G1).
+
+---
+
+## Prior task — PR 4 + PR 5 checkpoint fix pass (superseded by the re-review above)
+
 **PR 4 + PR 5 CHECKPOINT FIX PASS COMPLETE 2026-07-26.** Every Critical/High finding in the
 2026-07-26 independent Opus checkpoint review (`docs/reviews/wizmatch-outbound-pr5-opus-checkpoint.md`)
 is closed on `ge/outbound-05-lifecycle-consolidation`. Owner decisions D-31 through D-39 were ratified

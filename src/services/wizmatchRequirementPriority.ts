@@ -256,11 +256,34 @@ export function rankRequirementPriorityQueue(inputs: RequirementPriorityInput[])
  * Mirrors `wizmatchClientDiscovery.ts`'s `missing_company` hard block: no
  * `companyId` is itself a blocker, forcing `blocked`/`nextAction: 'blocked'`
  * regardless of local score.
+ *
+ * RESIDUAL-C1 fix (2026-07-26 re-review): H-2's first fix applied that block
+ * **unconditionally**, ignoring enforcement mode — so a masked-client
+ * requirement (`company_id IS NULL`) became `priority: 'blocked'` and 409'd
+ * on `POST /requirement-priority/:id/review-plan` while the shipped default
+ * mode is `shadow`. That is the same defect class as C-1 (a canonical
+ * decision changing behaviour in shadow), reintroduced through the one path
+ * that never reaches `resolveCompanyStatus`/`actsOnDecision`. Unlike
+ * `wizmatchClientDiscovery.ts`, whose `missing_company` block predates this
+ * stack and is therefore legacy behaviour, this block is new in PR 5 and so
+ * must obey D-31: canonical metadata is always attached for display; the
+ * behavioural output (`priority`/`nextAction`/`blockers`) only changes under
+ * the exact string `enforce`.
  */
 function withMissingCompanyBlocker(scored: RequirementPriorityResult): RequirementPriorityResult {
-  if (scored.blockers.includes('missing_company')) return scored;
-  return {
+  // D-31: always visible, never behavioural in shadow. There is no canonical
+  // decision to quote here (the gate is company-scoped and cannot be asked
+  // without a company), so the fail-closed intent is reported directly.
+  const withMetadata: RequirementPriorityResult = {
     ...scored,
+    canonicalDecision: 'deny',
+    canonicalReasonCode: 'missing_company',
+    canonicalBlockerCode: 'policy_missing_company',
+  };
+  if (!isEnforcementActive()) return withMetadata;
+  if (scored.blockers.includes('missing_company')) return withMetadata;
+  return {
+    ...withMetadata,
     priority: 'blocked',
     blockers: [...scored.blockers, 'missing_company'],
     nextAction: 'blocked',
@@ -301,3 +324,4 @@ import {
   resolveCanonicalCompanyEligibilityBatch,
   applyCanonicalEligibilityToPriorityResult,
 } from '../modules/outreach/legacyEligibilityAdapter';
+import { isEnforcementActive } from '../modules/outreach/outreachGate';
