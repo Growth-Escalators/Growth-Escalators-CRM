@@ -42,7 +42,10 @@ function featureGate(_req: Request, _res: Response, next: (route?: string) => vo
 router.use(featureGate);
 
 function actorFrom(req: Request) {
-  return { tenantId: req.user!.tenantId, userId: req.user?.id };
+  // `role` is carried into the action layer because PRD-005 §4 gates "admin
+  // override of a `standard` block" on the PREDECESSOR policy state, which
+  // only that layer reads — the route sees the action name, not the target.
+  return { tenantId: req.user!.tenantId, userId: req.user?.id, role: req.user?.role };
 }
 
 function clampLimit(raw: unknown, fallback: number, max: number): number {

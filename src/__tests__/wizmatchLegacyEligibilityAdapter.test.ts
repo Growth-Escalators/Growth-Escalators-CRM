@@ -517,7 +517,17 @@ describe('M-2 fix — wizmatchCommandCenter.ts requirements are folded through t
     expect((folded as unknown as { canonicalDecision: string }).canonicalDecision).toBe('deny');
   });
 
-  it('a requirement with no companyId is left untouched by the fold (nothing to resolve against) rather than crashing', async () => {
+  // PR 6 review: this previously asserted the OPPOSITE — that a null-companyId
+  // requirement came back with no canonical fields at all. That locked in a
+  // fail-OPEN: the Command Center's fetcher LEFT JOINs companies, so a
+  // masked-client requirement (`company_id IS NULL`) reached the response as an
+  // unqualified `hot`, while the sibling caller
+  // (`wizmatchRequirementPriority.ts`'s `withMissingCompanyBlocker`) answered
+  // `deny`/`missing_company` for the identical row. Same row, two surfaces,
+  // contradictory answers. H-2 in the adapter's own module header requires the
+  // fail-closed reading, so the fold now applies it — display-only in shadow,
+  // behavioural under `enforce`, per D-31.
+  it('a requirement with no companyId fails CLOSED with missing_company metadata, not silently unqualified', async () => {
     state.policyRows = [rootPolicy({ outreachEligibility: 'blocked', isNonOverridable: true, blockClass: 'compliance', reasonCode: 'company_removal_request' })];
     const { buildWizmatchCommandCenter } = await import('../services/wizmatchCommandCenter');
     const result = await buildWizmatchCommandCenter({
@@ -541,8 +551,62 @@ describe('M-2 fix — wizmatchCommandCenter.ts requirements are folded through t
         budgetMax: 100000,
       }],
     });
-    const folded = result.requirements.find((r) => r.id === 'masked-req-1');
-    expect(folded).toBeDefined();
-    expect((folded as unknown as { canonicalDecision?: string }).canonicalDecision).toBeUndefined();
+    const folded = result.requirements.find((r) => r.id === 'masked-req-1') as unknown as {
+      canonicalDecision?: string;
+      canonicalReasonCode?: string;
+      canonicalBlockerCode?: string;
+      priority: string;
+      blockers: string[];
+    };
+    expect(folded.canonicalDecision).toBe('deny');
+    expect(folded.canonicalReasonCode).toBe('missing_company');
+    expect(folded.canonicalBlockerCode).toBe('policy_missing_company');
+    // This describe's beforeEach sets `enforce`, so the fold is behavioural here.
+    expect(folded.blockers).toContain('missing_company');
+    expect(folded.priority).toBe('blocked');
+  });
+
+  // D-31 / RESIDUAL-C1: the metadata is always attached, but in SHADOW the fold
+  // must not touch the legacy behavioural output — the same rule the singular
+  // requirement-priority path already holds.
+  it('in shadow, the null-companyId fold is visible but NOT behavioural', async () => {
+    const previousMode = process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE;
+    process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE = 'shadow';
+    try {
+      state.policyRows = [rootPolicy({ outreachEligibility: 'eligible' })];
+      const { buildWizmatchCommandCenter } = await import('../services/wizmatchCommandCenter');
+      const result = await buildWizmatchCommandCenter({
+        tenantId: TENANT_ID,
+        metrics: {
+          activeSignals: 0, prioritySignals: 0, availableCandidates: 0, openRequirements: 1,
+          reviewReadyCompanies: 0, blockedCompanies: 0, activePlacements: 0, pausedDomains: 0, suppressedContacts: 0,
+        },
+        contactIntelligence: [],
+        signals: [],
+        candidates: [],
+        requirements: [{
+          id: 'masked-req-2',
+          companyId: null,
+          title: 'Masked client role',
+          region: 'india',
+          priority: 'urgent',
+          positions: 2,
+          requiredSkills: ['java'],
+          status: 'sheet_ready',
+          budgetMax: 100000,
+        }],
+      });
+      const folded = result.requirements.find((r) => r.id === 'masked-req-2') as unknown as {
+        canonicalDecision?: string;
+        blockers: string[];
+      };
+      // Visible...
+      expect(folded.canonicalDecision).toBe('deny');
+      // ...but the legacy behavioural output is untouched.
+      expect(folded.blockers).not.toContain('missing_company');
+    } finally {
+      if (previousMode === undefined) delete process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE;
+      else process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE = previousMode;
+    }
   });
 });

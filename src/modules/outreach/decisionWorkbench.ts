@@ -115,6 +115,10 @@ export interface TodayQueues {
   partial: {
     skippedCompanyIds: string[];
     skippedEnrolmentIds: string[];
+    /** True when the replies query failed — an empty reply queue that must NOT be read as "no replies". */
+    repliesUnavailable?: boolean;
+    /** True when more companies matched than `limit` returned, so the queues are a page, not the whole tenant. */
+    truncated?: boolean;
   };
 }
 
@@ -222,10 +226,16 @@ async function fetchBestContactConfidenceByCompany(
   const tierRank: Record<'high' | 'medium' | 'low', number> = { high: 2, medium: 1, low: 0 };
   const best = new Map<string, 'high' | 'medium' | 'low'>();
   for (const row of rows) {
-    const tier = deriveConfidenceTier(
-      (row.metadata as Record<string, unknown> | null) ?? undefined,
-      row.confidenceScore ?? 0,
-    );
+    // `deriveConfidenceTier` reads `confidenceTier` off `metadata.raw`, NOT off
+    // `metadata` — that is where the discovery cascade writes it and what the
+    // canonical reader (`mapPersistedCandidate`) passes. Passing `metadata`
+    // itself meant the stored tier was never found and every row silently fell
+    // through to the numeric threshold, which diverges both ways: a
+    // cascade-graded `high` scoring 6 became `medium` (company dropped out of
+    // Ready to Contact), and a row written on a 0-100 scale scoring 60 became
+    // `high` (a low-confidence contact defeated §7's cold-start gate).
+    const metadata = row.metadata as { raw?: Record<string, unknown> } | null;
+    const tier = deriveConfidenceTier(metadata?.raw ?? undefined, row.confidenceScore ?? 0);
     const current = best.get(row.companyId);
     if (!current || tierRank[tier] > tierRank[current]) best.set(row.companyId, tier);
   }
@@ -269,7 +279,12 @@ function disabledReasonFor(item: {
 export async function buildTodayQueues(tenantId: string, limit = 200): Promise<TodayQueues> {
   const partial: TodayQueues['partial'] = { skippedCompanyIds: [], skippedEnrolmentIds: [] };
 
-  const rows = await fetchRootPolicyCompanies(tenantId, limit);
+  // Fetch one extra row purely to detect truncation: `counts` are otherwise
+  // page counts presented as queue counts, so past `limit` companies rows
+  // vanish from the operator's view with no signal at all.
+  const fetched = await fetchRootPolicyCompanies(tenantId, limit + 1);
+  const rows = fetched.slice(0, limit);
+  if (fetched.length > limit) partial.truncated = true;
   const companyIds = rows.map((r) => r.companyId);
 
   const [canonicalByCompanyId, duplicateIdByCompany, confidenceByCompanyId] = await Promise.all([
@@ -329,9 +344,22 @@ export async function buildTodayQueues(tenantId: string, limit = 200): Promise<T
       // both "blocked" and "paused" outreachEligibility (both resolve to a
       // deny at the gate, §8.2 L5); the raw `outreachEligibility` field lets
       // the UI group Paused separately from Blocked without a second engine.
-      if (effectiveDecision === 'deny') {
+      // A pending duplicate is itself a gate-L5 deny (`outreachGate.ts:551`),
+      // so under `enforce` a `duplicatePending` company ALWAYS carried
+      // `decision === 'deny'` and the duplicate branch below was unreachable —
+      // duplicates landed in Paused or Blocked with a block affordance instead
+      // of Needs Review with Merge / Confirm Separate. §13's precedence is
+      // blocked → pending duplicate → paused → needs_review → eligible, so a
+      // genuine block still outranks a duplicate, but a duplicate outranks a
+      // pause and every softer state.
+      const isBlockedRow = row.outreachEligibility === 'blocked';
+      if (effectiveDecision === 'deny' && isBlockedRow) {
         pausedOrBlocked.push(item);
-      } else if (duplicatePending || effectiveDecision === 'review') {
+      } else if (duplicatePending) {
+        needsReview.push(item);
+      } else if (effectiveDecision === 'deny') {
+        pausedOrBlocked.push(item);
+      } else if (effectiveDecision === 'review') {
         needsReview.push(item);
       } else if (contactConfidenceTier === 'high') {
         readyToContact.push(item);
@@ -384,9 +412,13 @@ export async function buildTodayQueues(tenantId: string, limit = 200): Promise<T
         partial.skippedEnrolmentIds.push(row.enrolmentId);
       }
     }
-  } catch {
+  } catch (error) {
     // A resolver/DB failure here must not take down the other three queues —
-    // report an empty reply queue rather than 500ing the whole response.
+    // but it must not read as "no replies waiting" either. This is the one
+    // queue holding company locks (§10.6.1), so an unreported empty is the
+    // most dangerous possible lie. Report it and log it.
+    partial.repliesUnavailable = true;
+    console.error('[wizmatch today/queues] replies-needing-action query failed; queue reported unavailable', error);
   }
 
   return {

@@ -228,6 +228,63 @@ describe('buildTodayQueues — bucket assignment', () => {
     expect(queues.needsReview[0].duplicateId).toBe('duplicate-row-1');
   });
 
+  // A pending duplicate is itself a gate-L5 deny, so under `enforce` the
+  // duplicate branch was unreachable — duplicates were filed under Paused or
+  // Blocked with a block affordance instead of Needs Review with Merge /
+  // Confirm Separate. §13's precedence is blocked → duplicate → paused.
+  it('ENFORCE: a duplicate-denied company goes to Needs Review, not Paused or Blocked', async () => {
+    fixtures.companyRows = [companyRow({ companyId: 'dup-enforced', outreachEligibility: 'eligible' })];
+    fixtures.duplicateRows = [{ id: 'duplicate-row-2', companyAId: 'dup-enforced', companyBId: 'dup-other' }];
+    eligibilityByCompany.set('dup-enforced', {
+      decision: 'deny', reasonCode: 'company_duplicate_suspected', blockerCode: 'policy_company_duplicate_suspected',
+      enforcementMode: 'enforce', actsOnDecision: true,
+    });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.pausedOrBlocked).toHaveLength(0);
+    expect(queues.needsReview).toHaveLength(1);
+    expect(queues.needsReview[0].duplicateId).toBe('duplicate-row-2');
+  });
+
+  it('ENFORCE: a genuinely BLOCKED company still outranks a pending duplicate', async () => {
+    fixtures.companyRows = [companyRow({ companyId: 'blocked-dup', outreachEligibility: 'blocked' })];
+    fixtures.duplicateRows = [{ id: 'duplicate-row-3', companyAId: 'blocked-dup', companyBId: 'other' }];
+    eligibilityByCompany.set('blocked-dup', {
+      decision: 'deny', reasonCode: 'company_removal_request', blockerCode: 'policy_company_removal_request',
+      enforcementMode: 'enforce', actsOnDecision: true,
+    });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.pausedOrBlocked).toHaveLength(1);
+    expect(queues.needsReview).toHaveLength(0);
+  });
+
+  // `deriveConfidenceTier` reads `confidenceTier` off `metadata.raw`. Passing
+  // `metadata` itself meant the cascade-computed tier was never found and every
+  // row fell through to the numeric threshold.
+  it('reads the stored confidence tier from metadata.raw, not from metadata', async () => {
+    fixtures.companyRows = [companyRow({ companyId: 'tiered-1', outreachEligibility: 'eligible' })];
+    // Score 6 alone derives `medium`; the stored tier says `high` and must win.
+    fixtures.contactRows = [{ companyId: 'tiered-1', confidenceScore: 6, metadata: { raw: { confidenceTier: 'high' } } }];
+    eligibilityByCompany.set('tiered-1', { decision: 'allow', reasonCode: null, blockerCode: null, enforcementMode: 'shadow', actsOnDecision: false });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.readyToContact).toHaveLength(1);
+    expect(queues.readyToContact[0].contactConfidenceTier).toBe('high');
+  });
+
+  it('does not treat a tier stored at the wrong level as authoritative', async () => {
+    fixtures.companyRows = [companyRow({ companyId: 'tiered-2', outreachEligibility: 'eligible' })];
+    // `confidenceTier` at the TOP level is not where the cascade writes it, so
+    // this must fall through to the numeric threshold (6 -> medium), not `high`.
+    fixtures.contactRows = [{ companyId: 'tiered-2', confidenceScore: 6, metadata: { confidenceTier: 'high' } }];
+    eligibilityByCompany.set('tiered-2', { decision: 'allow', reasonCode: null, blockerCode: null, enforcementMode: 'shadow', actsOnDecision: false });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.readyToContact).toHaveLength(0);
+    expect(queues.needsReview[0].contactConfidenceTier).toBe('medium');
+  });
+
   it('never lets a company with no canonical entry crash the response — it is skipped and reported', async () => {
     fixtures.companyRows = [companyRow({ companyId: 'orphan-1' }), companyRow({ companyId: 'fine-1', outreachEligibility: 'eligible' })];
     fixtures.contactRows = [{ companyId: 'fine-1', confidenceScore: 9, metadata: {} }];

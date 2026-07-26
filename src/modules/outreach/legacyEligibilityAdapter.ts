@@ -44,7 +44,7 @@
 // promote a company past `watch` / `needs_review` for company-blocking
 // purposes — humans, not a local score, clear a REVIEW.
 
-import { resolveCompanyStatus, type CompanyStatusResult } from './outreachGate';
+import { resolveCompanyStatus, isEnforcementActive, type CompanyStatusResult } from './outreachGate';
 import type { CompanyIntelligenceStatus } from '../../services/wizmatchContactIntelligence';
 
 export interface CanonicalCompanyEligibility {
@@ -85,16 +85,31 @@ export async function resolveCanonicalCompanyEligibility(
   };
 }
 
-/** Batch form, deduplicated by companyId, for a list of company-scoped results. */
+/**
+ * Batch form, deduplicated by companyId, for a list of company-scoped results.
+ *
+ * Concurrency is capped. Each `resolveCanonicalCompanyEligibility` costs two to
+ * three queries, and callers pass up to 500 ids (the decision workbench's
+ * `clampLimit` max), so an unbounded `Promise.all` issued ~1,500 concurrent
+ * queries against a pool of `max: 20` with a 2s `connectionTimeoutMillis` —
+ * enough for one operator's page load to time out unrelated API requests.
+ */
+const CANONICAL_BATCH_CONCURRENCY = 10;
+
 export async function resolveCanonicalCompanyEligibilityBatch(
   tenantId: string,
   companyIds: Array<string | null | undefined>,
 ): Promise<Map<string, CanonicalCompanyEligibility>> {
   const uniqueIds = [...new Set(companyIds.filter((id): id is string => !!id))];
-  const entries = await Promise.all(
-    uniqueIds.map(async (companyId) => [companyId, await resolveCanonicalCompanyEligibility(tenantId, companyId)] as const),
-  );
-  return new Map(entries);
+  const map = new Map<string, CanonicalCompanyEligibility>();
+  for (let i = 0; i < uniqueIds.length; i += CANONICAL_BATCH_CONCURRENCY) {
+    const chunk = uniqueIds.slice(i, i + CANONICAL_BATCH_CONCURRENCY);
+    const entries = await Promise.all(
+      chunk.map(async (companyId) => [companyId, await resolveCanonicalCompanyEligibility(tenantId, companyId)] as const),
+    );
+    for (const [id, eligibility] of entries) map.set(id, eligibility);
+  }
+  return map;
 }
 
 interface PriorityBucketResult {
@@ -166,17 +181,50 @@ export function applyCanonicalEligibilityToPriorityResult<T extends PriorityBuck
   return withMetadata;
 }
 
-/** Applies the canonical decision to every result carrying a `companyId`; results without one are left untouched (see module header) — they carry no canonical fields since there is nothing to display. */
+/**
+ * Applies the canonical decision to every result in a list.
+ *
+ * H-2: a null/missing `companyId` on a company-scoped caller is a hard blocker,
+ * NOT a pass. The gate is company-scoped and cannot be asked without a company,
+ * so there is no canonical decision to quote — the fail-closed intent is
+ * reported directly, exactly as `wizmatchRequirementPriority.ts`'s
+ * `withMissingCompanyBlocker` does for identical input. Returning such a result
+ * untouched left it with no canonical fields at all, so the same masked-client
+ * requirement (`wizmatch_requirements.company_id IS NULL`, reachable through the
+ * Command Center's LEFT JOIN) answered `deny`/`missing_company` on one surface
+ * and an unqualified `hot` on another.
+ *
+ * D-31 still holds: the metadata is always attached, and the behavioural
+ * `priority`/`nextAction`/`blockers` only change under `enforce`.
+ */
 export function applyCanonicalEligibilityToPriorityResults<T extends PriorityBucketResult & { companyId: string | null }>(
   results: T[],
   canonicalByCompanyId: Map<string, CanonicalCompanyEligibility>,
 ): T[] {
   return results.map((result) => {
-    if (!result.companyId) return result;
+    if (!result.companyId) return applyMissingCompanyBlocker(result);
     const canonical = canonicalByCompanyId.get(result.companyId);
-    if (!canonical) return result;
+    if (!canonical) return applyMissingCompanyBlocker(result);
     return applyCanonicalEligibilityToPriorityResult(result, canonical);
   });
+}
+
+/** The no-resolvable-company fold. Mirrors `wizmatchRequirementPriority.ts`'s `withMissingCompanyBlocker`. */
+function applyMissingCompanyBlocker<T extends PriorityBucketResult>(result: T): T & CanonicalDisplayFields {
+  const withMetadata: T & CanonicalDisplayFields = {
+    ...result,
+    canonicalDecision: 'deny',
+    canonicalReasonCode: 'missing_company',
+    canonicalBlockerCode: 'policy_missing_company',
+  };
+  if (!isEnforcementActive()) return withMetadata;
+  if (withMetadata.blockers.includes('missing_company')) return withMetadata;
+  return {
+    ...withMetadata,
+    priority: 'blocked',
+    blockers: [...withMetadata.blockers, 'missing_company'],
+    ...(withMetadata.nextAction !== undefined ? { nextAction: 'blocked' } : {}),
+  };
 }
 
 interface ContactIntelligenceEligibilityShape {

@@ -50,6 +50,16 @@ export type TodayActionType =
   | 'merge'
   | 'confirm_separate';
 
+/**
+ * The route's actor plus the caller's role. The role is required here, not only
+ * at the route, because PRD-005 §4 distinguishes "write a policy row"
+ * (team_lead) from "admin override of a `standard` block" (admin) by the
+ * PREDECESSOR state — which only this layer reads.
+ */
+export interface TodayActor extends PolicyActor {
+  role?: string;
+}
+
 export type TodayActionTargetType = 'company' | 'duplicate';
 
 export interface TodayActionTarget {
@@ -162,8 +172,11 @@ function validateRequestShape(request: TodayActionRequest): void {
   }
 }
 
+/** Actions that move a company OFF a `blocked` root row — i.e. an override of a standard block. */
+const UNBLOCKING_ACTIONS: TodayActionType[] = ['approve_queue', 'resume', 'skip', 'pause'];
+
 async function applyCompanyEligibilityAction(
-  actor: PolicyActor,
+  actor: TodayActor,
   companyId: string,
   request: TodayActionRequest,
 ): Promise<void> {
@@ -186,17 +199,41 @@ async function applyCompanyEligibilityAction(
     throw new TodayActionValidationError('This company has no root policy row yet (policy_missing_root).', 'policy_missing_root');
   }
 
+  // PRD-005 §4: "Write a policy row (approve/pause/block/reclassify)" is
+  // team_lead, but "Admin override of a `standard` block" is ADMIN. The two
+  // are distinguished by the PREDECESSOR state, which this layer must read —
+  // the route can only see the action name. Without this, a team_lead could
+  // one-click "Approve & Queue" a blocked company straight to `eligible` with
+  // no evidence, because `writeCompanyPolicy` only refuses non-overridable
+  // predecessors. The endpoint was even telling the operator otherwise:
+  // "This company is blocked by policy. Reclassify requires an admin."
+  if (root.outreachEligibility === 'blocked'
+    && UNBLOCKING_ACTIONS.includes(request.action)
+    && actor.role !== 'admin') {
+    throw new TodayActionValidationError(
+      'Overriding a block requires an admin.',
+      'requires_admin_override',
+    );
+  }
+
   const reasonCode = request.reasonCode || ACTION_DEFAULT_REASON_CODE[request.action] || 'manual_reclassified';
+  // Carry the predecessor's protective attributes forward. `writeCompanyPolicy`
+  // writes what it is given and defaults the rest (`isPermanent: false`,
+  // `blockClass: 'standard'`), so rebuilding the row from the request alone
+  // silently downgraded a permanent compliance block to a temporary standard
+  // one — and dropped its evidence — on something as innocuous as Set Review Date.
   const base: Omit<PolicyWriteInput, 'outreachEligibility'> = {
     scopeType: 'entire_company',
     externalHiringPolicy: root.externalHiringPolicy ?? 'unknown',
     relationshipType: root.relationshipType ?? 'new_prospect',
+    isPermanent: root.isPermanent ?? undefined,
+    blockClass: root.blockClass ?? undefined,
     reasonCode,
     reason: request.reason,
-    evidenceKind: request.evidenceKind,
-    evidenceText: request.evidenceText,
-    evidenceUrl: request.evidenceUrl,
-    evidenceRef: request.evidenceRef,
+    evidenceKind: request.evidenceKind ?? root.evidenceKind ?? undefined,
+    evidenceText: request.evidenceText ?? root.evidenceText ?? undefined,
+    evidenceUrl: request.evidenceUrl ?? root.evidenceUrl ?? undefined,
+    evidenceRef: request.evidenceRef ?? root.evidenceRef ?? undefined,
     reviewDate: request.reviewDate,
   };
 
@@ -225,7 +262,7 @@ async function applyCompanyEligibilityAction(
   }
 }
 
-async function applyDuplicateAction(actor: PolicyActor, duplicateId: string, request: TodayActionRequest): Promise<void> {
+async function applyDuplicateAction(actor: TodayActor, duplicateId: string, request: TodayActionRequest): Promise<void> {
   const resolution = request.action === 'merge' ? ('merged' as const) : ('confirmed_separate' as const);
   const reasonCode = request.reasonCode || ACTION_DEFAULT_REASON_CODE[request.action] || 'manual_reclassified';
   await resolveDuplicate(actor, duplicateId, { resolution, reasonCode, evidence: request.evidenceText || request.reason });
@@ -246,7 +283,7 @@ function messageAndCodeFor(error: unknown): { message: string; code?: string } {
  * then processes every target independently so one bad target cannot hide
  * or abort the rest.
  */
-export async function runTodayActions(actor: PolicyActor, request: TodayActionRequest): Promise<TodayActionsOutcome> {
+export async function runTodayActions(actor: TodayActor, request: TodayActionRequest): Promise<TodayActionsOutcome> {
   validateRequestShape(request);
 
   const results: TodayActionResult[] = [];
