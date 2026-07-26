@@ -952,3 +952,79 @@ M-3…M-9, L-1…L-6, U-7, U-9, O-1, B-1 from the PR 5 re-review remain open, un
 **Exact next action:** get an independent readiness review of PR 6 (three-subagent method, per the
 PR 2/PR 3/PR 5 precedent), then PR 7 per the standing 10-PR programme. Before this stack reaches
 `main`: apply migration 0037 (B-1) and run the §10.11.4 fresh-database checks (G1).
+
+---
+
+## PR 6 — independent readiness review (2026-07-26) — **CODE READY after two fixes**
+
+Full report: [`docs/reviews/wizmatch-outbound-pr6-opus-review.md`](../reviews/wizmatch-outbound-pr6-opus-review.md).
+Marker: `.ai/OUTBOUND_PR6_CODE_READY`. Reviewed commit `9b9c2c56`; fixes `e86704b3`, `c84681f5`.
+
+**As submitted, PR 6 was NOT READY.** Two defects, both invisible to the five gates the implementing
+session ran (all five of which reproduced exactly — the marker did not overstate itself):
+
+**C-1 (Critical, fixed `e86704b3`) — the flagged routers 404'd the whole `/api/wizmatch` prefix.**
+`wizmatchPolicy.ts` and `wizmatchToday.ts` both gate their surface with `router.use(featureGate)`,
+which matches every path under the mount, and that gate responded 404 inline. PR 6's M-1 fix moved
+both routers ahead of `wizmatchRouter`. Together: with either flag off — and both default to `false` —
+every `/api/wizmatch` request not handled by `wizmatchStaffingRouter` was 404'd before reaching
+`wizmatchRouter`'s **82 routes**. On a repo that auto-deploys from `main`, that is a WizMatch API
+outage on the next push. Reproduced on an Express 5.2.1 harness. Both gates now call `next('router')`,
+so an off flag hides only that router's own paths. Nothing caught it because the mount-order test was
+a source-text guard and each router's route test mounts it alone, where a terminal 404 is correct;
+`wizmatchIndexMountOrder.test.ts` now mounts the real routers in the real order and fails if the
+inline 404 returns.
+
+**H-1 (High, fixed `c84681f5`) — shadow mode blocked work through the workbench.** `buildTodayQueues`
+keyed bucket placement, `requiresExplicitApproval` and `disabledReason` on the raw
+`canonical.decision`, ignoring `canonical.actsOnDecision` — the exact-`enforce` predicate the PR 5
+adapter exposes for this purpose. Because the gate ladder denies well past the policy row (L5
+duplicate, L6b cold-email lock, L7 suppression), a company could be `outreach_eligibility='eligible'`
+**and** canonically denied; in shadow it was filed under Paused or Blocked, action-disabled, offered
+"Reclassify" (which would write `needs_review` over a live conversation), and rendered a
+self-contradictory card. §16 rule 2, G3 and D-31 forbid all four. The existing unit tests encoded the
+wrong behaviour — every fixture said `shadow`/`actsOnDecision: false` and still asserted a blocked
+bucket. Items now carry `effectiveDecision` (canonical under `enforce`, stored policy row in shadow,
+which is how §13 defines the queues anyway); canonical metadata is still always attached and a
+divergence is disclosed with a `shadow: would deny` badge. The UI keys affordances off
+`effectiveDecision`. Five shadow-vs-enforce tests plus an e2e assertion added.
+
+**Verdicts:** backend PASS after fix · tenancy PASS · RBAC PASS · shadow/enforce PASS after fix ·
+M-1 PASS · M-2 PASS · bulk actions PASS · frontend & a11y PASS · feature flags PASS after fix ·
+test quality PASS.
+
+**M-1 verified as a read-only grant:** every write route in `wizmatchPolicy.ts` carries its own
+`requireTeamLead`/`requireAdmin`; none relied on the outer `wizmatchRequireAdmin` the move bypassed.
+**M-2 verified end to end:** the fetcher selects `r.company_id`, requirements fold through the
+canonical adapter, and `nextAction` is folded in lockstep with `priority` so the two cannot disagree.
+
+**Gates (post-fix):** `git diff --check` clean · `npm run build` exit 0 · `npm test` **117 files /
+1072 tests** (was 117/1064) · `npm run admin:build` clean · Playwright `wizmatch-local` — **97 passed
+/ 15 skipped (documented no-credential real-backend specs) / 0 failed**.
+
+**New open findings, carried forward:** M-A queue precedence deviates from §13 (blocked and paused
+collapsed into one tier evaluated before duplicates; "paused past review_date" and the **routed**
+state not implemented) · M-B "Approve & Queue disabled with an inline reason" only renders the reason,
+button stays enabled, `allowedCampaignTypes` unused · M-C §13 labels Reclassify admin-only but §12
+makes policy writes team_lead+, so the PRD contradicts itself — needs an owner ruling · M-D flag
+parsing diverges (UI accepts `1|true|yes|on`, backend requires exact `'true'`) · M-E workbench DB
+mocks discard `where`/`limit`, tenancy rests on a source-level regex guard · M-F no idempotency on
+repeated company actions · M-G `set_review_date` can flip a null eligibility to `needs_review` ·
+M-H bulk bar not role-aware client-side · M-I dialogs never restore focus to their trigger
+(pre-existing, six dialogs) · M-J unbounded `IN`-list fan-out queries · L-A…L-E in the report.
+M-3…M-9, L-1…L-6, U-7, U-9, O-1 and B-1 from the PR 5 re-review remain open and untouched.
+
+**Before PR 7:** nothing. PR 7 may proceed.
+**Before G1/G4/production:** apply migration `0037` (B-1) · run the §10.11.4 fresh-database checks
+(G1) · close M-A and M-B before an operator uses the workbench for real decisions · settle M-D before
+the flag is set in any deployed environment · G4 remains an owner decision, and H-1's fix means
+promotion to `enforce` will now visibly move canonically-denied companies out of Ready to Contact —
+observable in advance via the `shadow: would deny` badge.
+
+**Method note:** three read-only Explore subagents were dispatched in parallel per the PR 2/3/5
+precedent but did not return within the session. Every finding was derived and verified first-hand by
+the lead session against the code, PRD and ADRs, and for C-1 against a running Express harness.
+
+**Safety:** nothing pushed, merged or deployed; no Railway or production access; no database mutation;
+`0037` not applied; backfill `--apply` not run; enforcement still `shadow`; sending and paid-discovery
+kill-switches untouched; Smartlead not connected; no shared env var changed; PR 7 not started.

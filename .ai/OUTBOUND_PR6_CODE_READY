@@ -1,0 +1,37 @@
+READY
+branch=ge/outbound-06-decision-workbench
+reviewed_commit=c84681f5
+reviewed_at=2026-07-26T21:12:03Z
+
+# WizMatch Outbound OS — PR 6 (Decision Workbench) independent readiness marker.
+#
+# Created by an independent review session, NOT by the implementing session.
+# Reviewed commit 9b9c2c56 (implementation) plus this review's two fixes:
+#   e86704b3  fix — flagged routers no longer 404 the whole /api/wizmatch prefix (C-1, Critical)
+#   c84681f5  fix — decision workbench stays non-blocking in shadow mode (H-1, High)
+# reviewed_commit above is the fix HEAD, before this marker's own docs commit.
+#
+# Verdict: NOT READY as submitted; READY after the two fixes above. Zero
+# Critical and zero High findings remain. Full report:
+#   docs/reviews/wizmatch-outbound-pr6-opus-review.md
+#
+# Gates, all re-run on the post-fix tree:
+#   git diff --check       clean (exit 0)
+#   npm run build          exit 0
+#   npm test               117 files / 1072 tests passed (was 117/1064)
+#   npm run admin:build    clean
+#   npx playwright test --config=playwright.wizmatch-local.config.ts
+#                          97 passed / 15 skipped / 0 failed
+#   (the 15 skips are the pre-existing real-backend specs that skip without
+#    WIZMATCH_E2E_TEST_PASSWORD — the documented no-server reason, no other skip)
+#
+# Open, carried forward: M-A..M-J and L-A..L-E from this review, plus M-3..M-9,
+# L-1..L-6, U-7, U-9, O-1 and B-1 from the PR 5 re-review. None blocks PR 7.
+#
+# Before this stack reaches `main`: apply migration 0037 (B-1 — the repo
+# auto-deploys on push) and run the §10.11.4 fresh-database checks (G1).
+#
+# Not done, per instruction: nothing pushed, merged or deployed; no Railway or
+# production access; no database mutation; 0037 not applied; backfill --apply
+# not run; WIZMATCH_POLICY_ENFORCEMENT_MODE untouched (shadow); sending, paid
+# discovery and Smartlead untouched; no shared env var changed; PR 7 not started.

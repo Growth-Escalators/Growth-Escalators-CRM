@@ -2,11 +2,39 @@
 
 ## Active task
 
-**PR 6 IMPLEMENTED (self-reported, not independently reviewed) 2026-07-26 — WizMatch Outbound
-Operating System, PR 6 of 10 (Decision Workbench).** Branch `ge/outbound-06-decision-workbench` (cut
-from `ge/outbound-05-lifecycle-consolidation`), local only, NOT pushed, NOT merged. Marker:
-`.ai/OUTBOUND_PR6_IMPLEMENTED`. Full detail: `docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md`'s PR 6
-section and `.ai/HANDOFF_LOG.md`'s 2026-07-26 PR 6 entry.
+**PR 6 CODE READY (independently reviewed) 2026-07-26 — WizMatch Outbound Operating System, PR 6 of
+10 (Decision Workbench).** Branch `ge/outbound-06-decision-workbench` (cut from
+`ge/outbound-05-lifecycle-consolidation`), local only, NOT pushed, NOT merged. Markers:
+`.ai/OUTBOUND_PR6_IMPLEMENTED` (self-reported) + `.ai/OUTBOUND_PR6_CODE_READY` (independent review).
+Full detail: [`docs/reviews/wizmatch-outbound-pr6-opus-review.md`](../docs/reviews/wizmatch-outbound-pr6-opus-review.md),
+`docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md`'s PR 6 sections, `.ai/HANDOFF_LOG.md`.
+
+**Review outcome:** NOT READY as submitted at `9b9c2c56`; **READY** after two fixes made during the
+review. Both were invisible to the five gates the implementing session ran — all five of which
+reproduced exactly, so the marker did not overstate itself.
+
+- **C-1 (Critical, fixed `e86704b3`)** — `wizmatchPolicy.ts` and `wizmatchToday.ts` gate their surface
+  with `router.use(featureGate)`, which matches every path under `/api/wizmatch`, and answered 404
+  inline. PR 6 moved both routers ahead of `wizmatchRouter` (the M-1 fix), so with either flag off —
+  both default `false` — all 82 `wizmatchRouter` routes 404'd. On a repo that auto-deploys from
+  `main`, a WizMatch API outage on the next push. Both gates now `next('router')`; a behavioural
+  mount-order suite fails if the inline 404 returns.
+- **H-1 (High, fixed `c84681f5`)** — `buildTodayQueues` keyed bucketing, `requiresExplicitApproval`
+  and `disabledReason` on the raw `canonical.decision` instead of `canonical.actsOnDecision`, so in
+  **shadow** a canonically-denied but policy-eligible company was hidden in Paused or Blocked,
+  action-disabled and offered "Reclassify". Violates §16 rule 2, G3 and D-31. Items now carry
+  `effectiveDecision`; canonical metadata stays attached and a divergence is shown as
+  `shadow: would deny`.
+
+**Verdicts:** backend PASS after fix · tenancy PASS · RBAC PASS · shadow/enforce PASS after fix ·
+M-1 PASS (verified read-only: every `wizmatchPolicy.ts` write route carries its own
+`requireTeamLead`/`requireAdmin`) · M-2 PASS (fetcher selects `company_id`, requirements fold through
+the adapter, `nextAction` folded in lockstep with `priority`) · bulk actions PASS · frontend & a11y
+PASS · feature flags PASS after fix · test quality PASS.
+
+**Gates (post-fix):** `git diff --check` clean · `npm run build` exit 0 · `npm test` 117 files /
+**1072 tests** · `npm run admin:build` clean · Playwright `wizmatch-local` 97 passed / 15 skipped
+(documented no-credential real-backend specs) / 0 failed.
 
 **Scope delivered:**
 - **New backend**: `src/modules/outreach/decisionWorkbench.ts` (`buildTodayQueues` — re-buckets
@@ -65,9 +93,9 @@ defect was found and fixed by the a11y spec itself: a `StatusBadge` `blocked` to
 shared repo-wide CSS) failed color-contrast on this page; removed the redundant badge rather than
 editing the shared class (out of scope, used by dozens of other pages).
 
-**What's next / open:** this marker is self-reported, not independently reviewed — PR 2/3/5 all got a
-three-subagent readiness review before being called code-ready; PR 6 has not had that yet. Known,
-disclosed scope limits: the free-preparation pipeline (§14) is still not built, so "Ready to Contact"
+**What's next / open:** ~~this marker is self-reported, not independently reviewed~~ — **superseded:
+the independent review is done (2026-07-26), see the top of this file and
+`docs/reviews/wizmatch-outbound-pr6-opus-review.md`.** Known, disclosed scope limits: the free-preparation pipeline (§14) is still not built, so "Ready to Contact"
 approximates §13's "policy eligible, prepared, ≥1 high-confidence contact" using policy + contact
 confidence only (no `preparationAllowed`/prep-report signal exists yet to check); "Reclassify" on a
 blocked-but-overridable company maps to the same `resume` action as resuming from pause (sets
@@ -78,10 +106,18 @@ enrolment-transition endpoint (`POST /outreach/enrolments/:id/transition`) is PR
 scope, not built yet. Carried forward unchanged from the PR5 re-review: M-3…M-9, L-1…L-6, U-7, U-9, O-1,
 and **B-1 (apply migration 0037 before this stack reaches `main` — the repo auto-deploys on push)**.
 
-**Exact next action:** get an independent readiness review of PR 6 (three-subagent method, per the
-PR 2/PR 3/PR 5 precedent). Then PR 7 per the standing 10-PR programme. **Do not** merge, deploy, apply
-0037, run backfill `--apply`, promote `enforce`, enable sending, enable paid discovery, or connect
-Smartlead on the strength of this session.
+**Exact next action (updated after the independent review):** ~~get an independent readiness review of
+PR 6~~ — **done.** PR 6 is code-ready at `c84681f5`; PR 7 (`ge/outbound-07-free-prep`,
+`prepareCompaniesJob`) may start, cut from `ge/outbound-06-decision-workbench`. Nothing blocks it.
+
+Before this stack reaches `main`: apply migration `0037` (B-1 — the repo auto-deploys on push) and run
+the §10.11.4 fresh-database checks (G1). Before an operator uses the workbench for real decisions:
+close M-A (queue precedence vs §13) and M-B (Approve & Queue not actually disabled). Before setting
+`WIZMATCH_DECISION_WORKBENCH_ENABLED` in any deployed environment: settle M-D (the UI accepts
+`1|true|yes|on`, the backend requires exact `'true'`).
+
+**Do not** merge, deploy, apply 0037, run backfill `--apply`, promote `enforce`, enable sending,
+enable paid discovery, or connect Smartlead on the strength of this session.
 
 ---
 
