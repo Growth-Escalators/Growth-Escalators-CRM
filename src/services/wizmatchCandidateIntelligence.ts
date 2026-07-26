@@ -1,9 +1,28 @@
+// PRD-005 §11.3 / §5.2 C-2 scope note — read before adding a company-policy
+// check here. This file is one of the five legacy eligibility computations
+// named in PRD-005 §5.2 C-2, but it scores a CANDIDATE (a person), not a
+// company: `detectCandidateHardBlocks` below and `CandidateIntelligenceInput`
+// carry no `companyId` — a candidate is not 1:1 with one company (they can
+// match many requirements at many companies), and PRD-005 does not ask this
+// PR to redesign that input contract. `evaluateWizmatchOutreachGate`
+// (src/modules/outreach/outreachGate.ts) requires a `companyId` and denies
+// without one, so this file's blockers cannot migrate onto it as written.
+// `do_not_contact_or_suppressed` below is a CONTACT-grain check (pre-fetched
+// `doNotContact`/`suppressed` booleans), not the company-grain question the
+// canonical resolver answers — the two are deliberately separate concerns
+// per ADR-006 D-7 (grain separation). The company-scoped half of this
+// surface — `wizmatchRequirementPriority.ts`'s `scoreRequirementPriorityWithPolicy`
+// — DOES migrate, because a requirement carries `wizmatch_requirements.company_id`.
+// Recorded here as an explicit, disclosed scope boundary, not a silent gap —
+// see the PR5 guard test (wizmatchLegacyEligibilityGuard.test.ts) which
+// allowlists this file by name for this exact reason.
 export type CandidateIntelligenceRegion = 'india' | 'us';
 export type CandidateIntelligencePriority = 'hot' | 'warm' | 'watch' | 'blocked';
 
 export interface CandidateRequirementInput {
   id: string;
   title: string;
+  companyId?: string | null;
   companyName?: string | null;
   requiredSkills?: string[] | null;
   location?: string | null;

@@ -231,3 +231,48 @@ export function rankRequirementPriorityQueue(inputs: RequirementPriorityInput[])
     .map(scoreRequirementPriority)
     .sort((a, b) => b.score - a.score || b.topCandidateMatches.length - a.topCandidateMatches.length);
 }
+
+// PRD-005 §11.3 / ADR-006 D-13 — this is one of the five legacy eligibility
+// computations named in PRD-005 §5.2 C-2. Its local `accountQuality`
+// component previously read only `companyTier`, an indirect
+// `wizmatch_company_intelligence`-derived legacy value with no canonical
+// backstop. These wrappers fold the canonical resolver's decision on top via
+// src/modules/outreach/legacyEligibilityAdapter.ts whenever a `companyId` is
+// present on the input (requirements are company-scoped via
+// `wizmatch_requirements.company_id`, so this is the normal case — see
+// `fetchCandidateIntelligenceRequirements` in src/routes/wizmatch.ts). A
+// canonical DENY always forces `priority: 'blocked'` regardless of local
+// score; a canonical REVIEW caps `hot`/`warm` to `watch`.
+export async function scoreRequirementPriorityWithPolicy(
+  tenantId: string,
+  input: RequirementPriorityInput,
+): Promise<RequirementPriorityResult> {
+  const scored = scoreRequirementPriority(input);
+  if (!input.companyId) return scored;
+  const canonical = await resolveCanonicalCompanyEligibility(tenantId, input.companyId);
+  return applyCanonicalEligibilityToPriorityResult(scored, canonical);
+}
+
+export async function rankRequirementPriorityQueueWithPolicy(
+  tenantId: string,
+  inputs: RequirementPriorityInput[],
+): Promise<RequirementPriorityResult[]> {
+  const scored = inputs.map(scoreRequirementPriority);
+  const canonicalByCompanyId = await resolveCanonicalCompanyEligibilityBatch(
+    tenantId,
+    inputs.map((i) => i.companyId),
+  );
+  return scored
+    .map((result, idx) => {
+      const companyId = inputs[idx]?.companyId;
+      const canonical = companyId ? canonicalByCompanyId.get(companyId) : undefined;
+      return canonical ? applyCanonicalEligibilityToPriorityResult(result, canonical) : result;
+    })
+    .sort((a, b) => b.score - a.score || b.topCandidateMatches.length - a.topCandidateMatches.length);
+}
+
+import {
+  resolveCanonicalCompanyEligibility,
+  resolveCanonicalCompanyEligibilityBatch,
+  applyCanonicalEligibilityToPriorityResult,
+} from '../modules/outreach/legacyEligibilityAdapter';

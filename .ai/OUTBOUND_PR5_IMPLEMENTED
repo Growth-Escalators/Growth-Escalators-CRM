@@ -1,0 +1,4 @@
+IMPLEMENTED
+branch=ge/outbound-05-lifecycle-consolidation
+parent=ge/outbound-04-policy-ui-backfill
+implemented_at=2026-07-26T13:51:23Z

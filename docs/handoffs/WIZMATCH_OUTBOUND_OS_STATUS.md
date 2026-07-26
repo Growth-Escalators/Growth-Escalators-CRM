@@ -571,3 +571,96 @@ access, migration 0037 **not applied**, no backfill, no promotion of `enforce`, 
 discovery enabled, no Smartlead, no PR 4 work, no guardrail file touched (`schema.ts`, `migrations/`,
 `auth.ts`, `rbac.ts`, `cashfree.ts`, `sodEodService.ts` all verified untouched), no `admin/`, `client/`,
 `scripts/` or `package-lock.json` change, no Growth/SEO/n8n/legacy outreach code touched.
+
+---
+
+## PR 5 — `ge/outbound-05-lifecycle-consolidation` — **implemented 2026-07-26, local only, NOT pushed, NOT merged, self-reported (no independent review yet)**
+
+Note: this doc was not updated when PR 4 (`ge/outbound-04-policy-ui-backfill`) was implemented and
+closed out — see `.ai/HANDOFF_LOG.md` and `.ai/OUTBOUND_PR4_IMPLEMENTED` for that PR's full detail.
+This entry covers PR 5 only, built on top of PR 4.
+
+Built against PRD-005 §5.2 C-2 / §11.3 / §23's "Lifecycle" impact row and ADR-006 D-13: migrate the
+five legacy eligibility computations onto the canonical resolver
+(`resolveCompanyStatus`/`evaluateWizmatchOutreachGate`, `src/modules/outreach/outreachGate.ts`,
+already built in PR 2) and stop treating `wizmatch_company_intelligence.status` as authoritative.
+
+**New module** — `src/modules/outreach/legacyEligibilityAdapter.ts`. The single place that translates a
+canonical decision into each legacy response shape: `resolveCanonicalCompanyEligibility` /
+`resolveCanonicalCompanyEligibilityBatch` wrap `resolveCompanyStatus`;
+`applyCanonicalEligibilityToPriorityResult(s)` folds a decision onto the 4-value
+`hot|warm|watch|blocked` shape (client discovery, command center, requirement priority);
+`applyCanonicalEligibilityToContactIntelligence` folds it onto the 9-value `companyStatus` +
+`hardBlocks[]` shape (contact intelligence). A canonical DENY always forces the most restrictive
+legacy bucket regardless of local score; a canonical REVIEW caps `hot`/`warm` down to `watch` /
+`needs_review`. Fail-closed is inherited from `resolveCompanyStatus` — the adapter adds no fallback.
+
+**Five findings, four migrated onto the adapter, one explicitly scoped out (disclosed, not silent):**
+
+1. `wizmatchClientDiscovery.ts` — new `rankClientDiscoveryQueueWithPolicy` /
+   `scoreClientDiscoveryOpportunityWithPolicy` / `selectCompaniesForContactIntelligenceWithPolicy`
+   async wrappers around the existing pure sync scorer. Wired into all four
+   `/client-discovery/*` routes plus the review-workbench aggregator in `src/routes/wizmatch.ts`.
+2. `wizmatchCommandCenter.ts` — its own independent re-implementation of client-discovery scoring now
+   folds the same canonical decision via the adapter; `buildWizmatchCommandCenter` is now async and
+   takes `tenantId`. Its embedded `candidateIntelligence`/`requirements` sub-scores are unchanged (see
+   #3 below for why).
+3. `wizmatchRequirementPriority.ts` — new `scoreRequirementPriorityWithPolicy` /
+   `rankRequirementPriorityQueueWithPolicy`. Required threading a real `companyId` through
+   `CandidateRequirementInput`/`RequirementPriorityInput` and the `fetchCandidateIntelligenceRequirements`
+   SQL (`r.company_id` was not previously selected) — this **replaces** the indirect, legacy
+   `companyTier` dependency the file's `accountQuality` component read before. Also closes a real gap:
+   `POST /requirement-priority/:requirementId/review-plan` previously gated the write **client-side
+   only** (admin button `disabled=`); it now 409s server-side on a canonical/local `blocked` priority,
+   matching the pattern `candidate-intelligence/.../review` already used.
+4. `wizmatchContactIntelligence.ts` / `wizmatchContactIntelligenceRepo.ts` — `buildContactIntelligenceResult`
+   now folds the canonical decision via the adapter before returning. **Fixed the concrete D-13
+   violation**: `withPersistedContactIntelligence` used to let the persisted legacy `status` column
+   override a freshly computed status (`persisted.company.status || item.companyStatus`); it now always
+   uses the freshly computed, canonical-folded value. `persistContactIntelligenceSnapshot`'s SQL had a
+   `CASE WHEN review_status IN ('approved','rejected') THEN status ELSE EXCLUDED.status END` freeze
+   clause that could keep a stale legacy status alive forever after one human review; it now always
+   writes `EXCLUDED.status`.
+5. `wizmatchCandidateIntelligence.ts` — **explicitly not migrated**, and why is disclosed in the file's
+   own header comment: it scores a *candidate* (a person), not a company. `CandidateIntelligenceInput`
+   carries no `companyId` (a candidate is not 1:1 with one company), and
+   `evaluateWizmatchOutreachGate` denies without one — there is structurally no company to resolve a
+   policy against here. Its `do_not_contact_or_suppressed` blocker is a contact-grain check (ADR-006
+   D-7), a different concern from the company-grain question the canonical resolver answers.
+
+**Guard test** (`src/__tests__/wizmatchLegacyEligibilityGuard.test.ts`) — a source-level scan (same
+pattern as the PR 2 §22.2 #16 `wizmatchCompanyBootstrapCoverage.test.ts`) for the literal
+`'hot' | 'warm' | 'watch' | 'blocked'` union PRD-005 §5.2 C-2 names as the shape of the disagreement.
+Fails if a new file declares it without being added to an explicit, reasoned allowlist; asserts the
+three company-scoped migrated files import the adapter; asserts the D-13 fix's specific override
+string cannot reappear in `wizmatchContactIntelligenceRepo.ts`. Also allowlists (disclosed, not
+silently exempted) a sixth pre-existing site the audit surfaced but this PR did not touch —
+`wizmatchReviewWorkbench.ts:114` re-derives a `hot|warm|watch` value from `qualificationTier` for
+display bucketing — recorded as a candidate for a future PR, not fixed here (no unrelated work).
+
+**Contract tests** (`src/__tests__/wizmatchLegacyEligibilityAdapter.test.ts`) — reuses the
+`wizmatchOutreachGateContract.test.ts` drizzle mock idiom. For the same canonical decision (missing
+root / non-overridable company-removal block / needs_review / allow), asserts client discovery,
+requirement priority and contact intelligence all encode the identical fact, and that a canonical
+allow never clears a local hard block (client discovery's `non_tech_signal` case).
+
+**Gates:** `git diff --check` clean · `npm run build` exit 0 · `npm test` **109 files / 966 tests
+green** (was 107/948; +2 test files, +18 tests). No admin/UI files touched, so `admin:build` and
+Playwright were not run (per task instructions, only required when admin UI changes).
+
+**Not done, deliberately:** no migration 0037 application, no backfill `--apply`, no re-bucketing of
+the Today page, no free-prep pipeline build, no provider integration, no Smartlead/API/keys, no
+sending or paid-discovery flag change, no guardrail file touched (`schema.ts`, `migrations/`,
+`auth.ts`, `rbac.ts`, `cashfree.ts`, `sodEodService.ts` verified untouched), no
+Growth/SEO/n8n/`package-lock.json` change, nothing pushed/merged/deployed, no Railway or production
+access, no database mutation, no Smartlead network calls.
+
+**Open, carried forward, not silently dropped:** `wizmatchCandidateIntelligence.ts`'s candidate-level
+suppression check is not unified with the canonical gate's suppression union (structurally out of
+reach without a wider redesign of the candidate/requirement input contracts — see finding 5 above);
+`wizmatchReviewWorkbench.ts:114`'s display-bucket re-derivation is allowlisted but not fixed; U-13/
+U-14/U-10/U-12/L-7…L-13 from the PR 3 review remain open from PR 4, untouched by this PR.
+
+**Exact next action:** get an independent readiness review of PR 5 (three-subagent method, per the
+PR 2/PR 3 precedent), then PR 6 (decision workbench — queues API + Today re-bucket + bulk bar) per the
+standing 10-PR programme. Stop after PR 6.

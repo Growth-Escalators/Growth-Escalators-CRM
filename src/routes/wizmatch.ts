@@ -57,9 +57,8 @@ import {
 } from '../services/wizmatchCommandCenter';
 import {
   CLIENT_DISCOVERY_GUARDRAILS,
-  rankClientDiscoveryQueue,
-  scoreClientDiscoveryOpportunity,
-  selectCompaniesForContactIntelligence,
+  rankClientDiscoveryQueueWithPolicy,
+  selectCompaniesForContactIntelligenceWithPolicy,
   type ClientDiscoveryInput,
 } from '../services/wizmatchClientDiscovery';
 import {
@@ -81,8 +80,8 @@ import {
 } from '../services/wizmatchRoiAnalytics';
 import {
   REQUIREMENT_PRIORITY_GUARDRAILS,
-  rankRequirementPriorityQueue,
-  scoreRequirementPriority,
+  rankRequirementPriorityQueueWithPolicy,
+  scoreRequirementPriorityWithPolicy,
   type RequirementPriorityInput,
 } from '../services/wizmatchRequirementPriority';
 import { buildWizmatchReviewWorkbench, paginateWizmatchReviewWorkbench } from '../services/wizmatchReviewWorkbench';
@@ -237,6 +236,7 @@ type CandidateIntelligenceRow = {
 type CandidateRequirementRow = {
   id: string;
   title: string;
+  company_id: string | null;
   company_name: string | null;
   required_skills: string[] | null;
   location: string | null;
@@ -484,6 +484,7 @@ function mapCandidateRequirement(row: CandidateRequirementRow): CandidateRequire
   return {
     id: row.id,
     title: row.title,
+    companyId: row.company_id,
     companyName: row.company_name,
     requiredSkills: row.required_skills ?? [],
     location: row.location,
@@ -552,6 +553,7 @@ async function fetchCandidateIntelligenceRequirements(tenantId: string, limit: n
   const result = await pool.query(
     `SELECT r.id,
             r.title,
+            r.company_id,
             comp.name AS company_name,
             r.required_skills,
             r.location,
@@ -978,8 +980,8 @@ router.get('/client-discovery/queue', async (req: Request, res: Response) => {
       [tenantId],
     ),
   ]);
-  const items = rankClientDiscoveryQueue(rows);
-  const selected = selectCompaniesForContactIntelligence(items);
+  const items = await rankClientDiscoveryQueueWithPolicy(tenantId, rows);
+  const selected = selectCompaniesForContactIntelligenceWithPolicy(items);
 
   res.json({
     items,
@@ -997,7 +999,7 @@ router.get('/client-discovery/companies/:companyId', async (req: Request, res: R
     res.status(404).json({ error: 'Client discovery company not found' });
     return;
   }
-  const signals = rankClientDiscoveryQueue(rows);
+  const signals = await rankClientDiscoveryQueueWithPolicy(tenantId, rows);
   res.json({
     companyId: String(req.params.companyId),
     companyName: signals[0]?.companyName,
@@ -1015,8 +1017,8 @@ router.post('/client-discovery/companies/:companyId/qualify', async (req: Reques
     res.status(404).json({ error: 'Client discovery company not found' });
     return;
   }
-  const results = rankClientDiscoveryQueue(rows);
-  const selected = selectCompaniesForContactIntelligence(results);
+  const results = await rankClientDiscoveryQueueWithPolicy(tenantId, rows);
+  const selected = selectCompaniesForContactIntelligenceWithPolicy(results);
   res.json({
     qualified: selected.length > 0,
     bestSignal: results[0],
@@ -1033,8 +1035,8 @@ router.post('/client-discovery/companies/:companyId/send-to-contact-intelligence
     res.status(404).json({ error: 'Client discovery company not found' });
     return;
   }
-  const results = rankClientDiscoveryQueue(rows);
-  const selected = selectCompaniesForContactIntelligence(results);
+  const results = await rankClientDiscoveryQueueWithPolicy(tenantId, rows);
+  const selected = selectCompaniesForContactIntelligenceWithPolicy(results);
   if (!selected.some((item) => item.companyId === companyId)) {
     res.status(409).json({
       error: 'Company is not eligible for Contact Intelligence handoff',
@@ -1389,7 +1391,7 @@ router.get('/requirement-priority/queue', async (req: Request, res: Response) =>
       [tenantId],
     ),
   ]);
-  const items = rankRequirementPriorityQueue(inputs);
+  const items = await rankRequirementPriorityQueueWithPolicy(tenantId, inputs);
   res.json({
     items,
     total: numeric(totalResult.rows[0]?.total),
@@ -1407,7 +1409,19 @@ router.post('/requirement-priority/:requirementId/review-plan', async (req: Requ
     res.status(404).json({ error: 'Requirement not found' });
     return;
   }
-  const item = scoreRequirementPriority(inputs[0]);
+  const item = await scoreRequirementPriorityWithPolicy(tenantId, inputs[0]);
+  // Previously enforced only client-side (admin/src/pages/WizmatchOperatingPages.jsx
+  // disabled the button) — no server-side backstop existed. A canonical-policy
+  // DENY now blocks this write server-side too, matching the pattern already
+  // used by the candidate-intelligence review route.
+  if (item.priority === 'blocked') {
+    res.status(409).json({
+      error: 'Blocked requirements cannot have a review plan created until blockers are resolved',
+      item,
+      guardrails: REQUIREMENT_PRIORITY_GUARDRAILS,
+    });
+    return;
+  }
   const plan = await wizmatchStaffingService.createReviewPlan(
     { tenantId, userId: req.user!.id },
     String(req.params.requirementId),
@@ -1471,10 +1485,10 @@ async function buildReviewWorkbenchPayload(tenantId: string) {
   );
 
   return buildWizmatchReviewWorkbench({
-    clientDiscovery: rankClientDiscoveryQueue(clientRows),
+    clientDiscovery: await rankClientDiscoveryQueueWithPolicy(tenantId, clientRows),
     contactIntelligence,
     candidates: rankCandidateIntelligenceQueue(candidateInputs),
-    requirements: rankRequirementPriorityQueue(requirementInputs),
+    requirements: await rankRequirementPriorityQueueWithPolicy(tenantId, requirementInputs),
     metrics: {
       pausedDomains: baseMetrics.pausedDomains,
       suppressedContacts: baseMetrics.suppressedContacts,
@@ -2423,7 +2437,8 @@ router.get('/command-center', async (req: Request, res: Response) => {
     blockedCompanies: contactIntelligence.filter((item) => item.hardBlocks.length > 0).length,
   };
 
-  res.json(buildWizmatchCommandCenter({
+  res.json(await buildWizmatchCommandCenter({
+    tenantId,
     metrics,
     contactIntelligence,
     signals,

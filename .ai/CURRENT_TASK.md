@@ -2,6 +2,40 @@
 
 ## Active task
 
+**PR 5 IMPLEMENTED (self-reported, not independently reviewed) 2026-07-26 —
+WizMatch Outbound Operating System, PR 5 of 10 (lifecycle consolidation).** Branch
+`ge/outbound-05-lifecycle-consolidation` (cut from `ge/outbound-04-policy-ui-backfill`), local only,
+NOT pushed, NOT merged. Marker: `.ai/OUTBOUND_PR5_IMPLEMENTED`. Full detail:
+`docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md`'s PR 5 section.
+
+**Scope delivered:** migrated the five legacy eligibility computations named in PRD-005 §5.2 C-2 onto
+the canonical resolver (`resolveCompanyStatus`/`evaluateWizmatchOutreachGate`, built in PR 2) via a
+new compatibility adapter, `src/modules/outreach/legacyEligibilityAdapter.ts`. Four migrated
+(`wizmatchClientDiscovery.ts`, `wizmatchCommandCenter.ts`, `wizmatchRequirementPriority.ts`,
+`wizmatchContactIntelligence.ts`/`Repo.ts`); one (`wizmatchCandidateIntelligence.ts`) explicitly
+scoped out with a disclosed reason (scores a candidate, not a company — the gate requires a
+`companyId` this file structurally lacks). Fixed the concrete ADR-006 D-13 violation in
+`wizmatchContactIntelligenceRepo.ts` (persisted legacy `status` no longer overrides a freshly computed
+status, in both the read path and the write-time freeze clause). Added a contract test file proving
+the migrated callers agree with the canonical resolver, and a source-level guard test preventing a
+sixth independent eligibility computation.
+
+**Verified this session:** `git diff --check` clean; `npm run build` exit 0; `npm test` 109 files /
+966 tests green (was 107/948). No admin/UI files touched, so `admin:build`/Playwright were not run.
+
+**Not done, deliberately:** migration 0037 still unapplied; backfill `--apply` not run; Today page not
+re-bucketed; free-prep pipeline not built; no provider integration; enforcement mode untouched
+(`shadow`); sending/paid-discovery/Smartlead untouched; U-13/U-14/U-10/U-12/L-7…L-13 from the PR 3
+review still open, untouched by this PR (carried from PR 4, not this PR's scope).
+
+**Exact next action:** get an independent readiness review of PR 5 (three-subagent method, per the
+PR 2/PR 3 precedent — this marker is self-reported and has not had that yet), then PR 6 (decision
+workbench — queues API + Today re-bucket + bulk bar) per the standing 10-PR programme. Stop after PR 6.
+
+---
+
+## Prior task — PR 4, policy UI/API/backfill/readiness
+
 **PR 4 IMPLEMENTED (self-reported, not independently reviewed) 2026-07-26 at `9561c10` —
 WizMatch Outbound Operating System, PR 4 of 10.** Branch `ge/outbound-04-policy-ui-backfill`
 (cut from `ge/outbound-03-policy-enforcement`), local only, NOT pushed, NOT merged. This session
