@@ -228,6 +228,14 @@ export const WIZMATCH_ROUTES: WizmatchRouteDefinition[] = [
     group: 'more.administration', moreSection: 'Administration', permission: 'canWizmatch',
     breadcrumb: { label: 'Primes' }, legacyAliases: [], searchVisible: true,
   },
+  {
+    // PRD-005 §8.8/§12 — duplicate-company review (Merge / Confirm Separate).
+    // team_lead+ resolves per the API's own RBAC; isAdminTier just controls
+    // nav/search visibility, matching the other Administration entries above.
+    id: 'duplicate-review', label: 'Duplicate Companies', path: '/wizmatch/duplicates', icon: Shield,
+    group: 'more.administration', moreSection: 'Administration', permission: 'isAdminTier',
+    breadcrumb: { label: 'Duplicate Companies' }, legacyAliases: [], searchVisible: true,
+  },
 
   // ── MORE → Finance ───────────────────────────────────────────────────
   {

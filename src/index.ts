@@ -61,6 +61,7 @@ import outboundRouter from './routes/outbound';
 import leadsRouter from './routes/leads';
 import wizmatchRouter from './routes/wizmatch';
 import wizmatchStaffingRouter from './routes/wizmatchStaffing';
+import wizmatchPolicyRouter from './routes/wizmatchPolicy';
 // Workers and cron jobs now run via src/worker.ts (see railway.json)
 import analyticsRouter from './routes/analytics';
 import whatsappTemplatesRouter from './routes/whatsappTemplates';
@@ -327,6 +328,15 @@ app.use('/api/wizmatch', (req, res, next) => requireAuth(req, res, () => wizmatc
 // non-GET method, so viewer can read the Wizmatch surfaces but never trigger a write.
 const wizmatchRequireAdmin = requireRole('admin', 'team_lead', 'viewer');
 app.use('/api/wizmatch', requireAuth, wizmatchRequireAdmin, wizmatchRouter);
+// PRD-005 PR 4 — policy read/write, duplicate review, account-owner
+// assignment, bulk policy actions and the readiness report. Reads are
+// staff+ (pilot member); writes are gated per-route inside the router
+// itself (team_lead+ for policy writes/owner/duplicate-resolve, admin for
+// override/bulk/readiness — PRD-005 §4). Mounted LAST so it only ever
+// receives paths neither wizmatchStaffingRouter nor wizmatchRouter defines.
+// The whole surface is additionally feature-flagged 404 behind
+// WIZMATCH_COMPANY_POLICY_ENABLED (default false) inside the router.
+app.use('/api/wizmatch', requireAuth, wizmatchRequireStaffing, wizmatchPolicyRouter);
 // Funnel-configs: /public/* needs no auth (checkout frontend hits it
 // unauthenticated from ecom.growthescalators.com); everything else is
 // behind requireAuth. The previous hoisted app.get wrapper was a no-op —

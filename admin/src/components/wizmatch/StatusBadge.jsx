@@ -20,6 +20,9 @@ const STATUS_TONE = {
   requested: 'warning', granted: 'success', revoked: 'danger', withdrawn: 'muted',
   // generic fallbacks
   blocked: 'danger', pending: 'warning', succeeded: 'success', failed: 'danger', partial: 'warning',
+  // WizMatch outreach policy (PRD-005 §8.2/§10.3) — outreach_eligibility and
+  // duplicate resolution values not already covered above.
+  eligible: 'success', paused: 'warning', merged: 'success', confirmed_separate: 'muted',
 };
 
 export default function StatusBadge({ status, label }) {

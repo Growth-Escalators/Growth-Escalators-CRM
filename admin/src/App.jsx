@@ -68,6 +68,7 @@ const WizmatchGuardrailsPage = lazy(() => import('./pages/WizmatchOperatingPages
 const WizmatchReadinessPage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchReadinessPage })));
 const WizmatchLocalDemoFlowPage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchLocalDemoFlowPage })));
 const WizmatchSystemPage = lazy(() => import('./pages/WizmatchSystemPage.jsx'));
+const WizmatchDuplicateReviewPage = lazy(() => import('./pages/WizmatchDuplicateReviewPage.jsx'));
 const AppLayout = lazy(() => import('./components/AppLayout.jsx'));
 
 class ErrorBoundary extends React.Component {
@@ -319,6 +320,7 @@ export default function App() {
             {import.meta.env.DEV && <Route path="/wizmatch/readiness-demo" element={<WizmatchReadinessPage demoMode />} />}
             <Route path="/wizmatch/readiness" element={<Navigate to="/wizmatch/system?tab=readiness" replace />} />
             <Route path="/wizmatch/system" element={<PrivateRoute><AppLayout><WizmatchSystemPage /></AppLayout></PrivateRoute>} />
+            <Route path="/wizmatch/duplicates" element={<PrivateRoute><AppLayout><WizmatchDuplicateReviewPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/placements" element={<PrivateRoute><AppLayout><WizmatchPlacementsPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/primes" element={<PrivateRoute><AppLayout><WizmatchPrimesPage /></AppLayout></PrivateRoute>} />
             {import.meta.env.DEV && <Route path="/wizmatch/analytics-demo" element={<Navigate to="/wizmatch/analytics-new-demo" replace />} />}

@@ -10,6 +10,7 @@ import DataTable from '../components/ui/DataTable.jsx';
 import FilterBar from '../components/wizmatch/filters/FilterBar.jsx';
 import { useTableControls } from '../components/wizmatch/filters/useTableControls.js';
 import { exportRowsToCsv } from '../components/wizmatch/filters/exportCsv.js';
+import CompanyPolicySection from '../components/wizmatch/CompanyPolicySection.jsx';
 
 const TIER_BADGE = { A: 'badge-success', B: 'badge-warning', C: 'badge-muted', Reject: 'badge-danger' };
 const REGION_BADGE = { india: 'badge-warning', us: 'badge-info' };
@@ -319,6 +320,8 @@ function CompanyDetailDrawer({ companyId, onClose, onDeleted, onChanged }) {
               </div>
             )}
           </section>
+
+          <CompanyPolicySection companyId={companyId} users={users} onChanged={refreshAfterChange} />
 
           <section>
             <h3 className="text-[13px] font-bold text-neutral-900 mb-2">Requirements</h3>
