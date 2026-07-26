@@ -291,6 +291,17 @@ EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;
 --> statement-breakpoint
+-- M-6 fix (PR 2 review): non-unique, case-insensitive lookup index. The gate's
+-- suppression read (outreachGate.ts) lowercases the stored column at query
+-- time to match rows written by any path that bypasses normalizeChannelValue,
+-- which defeats the existing UNIQUE (tenant_id, email) btree and forces a
+-- sequential scan. This index does NOT replace, drop or narrow the
+-- pre-existing UNIQUE (tenant_id, email) index (§22.2 #7), which is defined
+-- in an earlier migration and stays untouched. The suppression grain (D-4)
+-- and the hard-bounce/unsubscribe split are unaffected by this change. Not a
+-- unique index, so it cannot itself prevent more than one row per email —
+-- that invariant is already carried by the untouched unique index.
+CREATE INDEX IF NOT EXISTS "wizmatch_suppression_tenant_lower_email_idx" ON "wizmatch_suppression_list" USING btree ("tenant_id", lower("email"));--> statement-breakpoint
 -- The six additive (tenant_id, id) unique indexes of PRD-005 §10.10.1, and the
 -- three (tenant_id, id) unique indexes on this migration's own new tables, are
 -- created ABOVE the FK block — see MANUAL REORDER (0037). They are FK targets,

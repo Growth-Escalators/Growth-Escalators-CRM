@@ -112,6 +112,26 @@ describe('migration 0037 — additive-only (PRD-005 §10.11.3, §22.2 #10)', () 
     expect(sqlText).not.toMatch(/wizmatch_suppression_tenant_email_uniq_idx/);
   });
 
+  it('adds a non-unique case-insensitive lookup index (M-6) without touching the unique one', () => {
+    expect(sqlText).toMatch(
+      /CREATE INDEX IF NOT EXISTS "wizmatch_suppression_tenant_lower_email_idx" ON "wizmatch_suppression_list" USING btree \("tenant_id", lower\("email"\)\)/,
+    );
+    // Distinct name from the pre-existing unique index — never CREATE UNIQUE.
+    expect(sqlText).not.toMatch(
+      /CREATE UNIQUE INDEX[^;]*"wizmatch_suppression_tenant_lower_email_idx"/,
+    );
+  });
+
+  it('places the M-6 index after the columns/table it depends on exist', () => {
+    const lowerIdxOffset = sqlText.indexOf('"wizmatch_suppression_tenant_lower_email_idx"');
+    const columnAddOffset = sqlText.indexOf(
+      'ALTER TABLE "wizmatch_suppression_list" ADD COLUMN IF NOT EXISTS "channel_invalid"',
+    );
+    expect(lowerIdxOffset).toBeGreaterThan(-1);
+    expect(columnAddOffset).toBeGreaterThan(-1);
+    expect(lowerIdxOffset).toBeGreaterThan(columnAddOffset);
+  });
+
   it('has no admin_override, suppression_scope or scope_ref_id column (§22.2 #2, #6)', () => {
     expect(sqlText).not.toMatch(/\badmin_override\b/);
     expect(sqlText).not.toMatch(/\bsuppression_scope\b/);
