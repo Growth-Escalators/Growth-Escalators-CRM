@@ -17,6 +17,15 @@ Chat-independent status for the `ge/outbound-0X-*` stacked-PR sequence. Read thi
 > has schema.ts additions, migration `0037`, and the L0-L8 resolver/gate module, against PRD-005 §22.2.
 > **Not pushed, not merged, `0037` not applied to any database.** No caller migrates onto the gate —
 > that is PR 3, still not started. PRs 3 and 4 branches still do not exist.
+>
+> **Updated 2026-07-26 (later same day): PR 2 closed out.** The Opus review's one open criterion
+> (§22.2 #16, root-policy bootstrap on every company insert — B-1) is implemented and tested; the
+> M-6 suppression expression index is added to `0037`; the ten §10.11.4 verifications ran with real
+> output against disposable local Postgres databases (`127.0.0.1:5432`), superseding the prior
+> session's "could not run — tool-permission denied" note below. Full detail:
+> [`docs/reviews/wizmatch-outbound-pr2-opus-review.md`](../reviews/wizmatch-outbound-pr2-opus-review.md)
+> §15. **Still not pushed, not merged, `0037` still not applied to production or Railway.** PR 3 was
+> not started this session.
 
 ## Completed PRs
 
@@ -42,6 +51,10 @@ Built against PRD-005 §22.2 (twenty acceptance criteria). Summary (full detail 
 - **Could not run in this session**: the ten §10.11.4 fresh-database verification requirements needed
   real Postgres access; direct `psql` was denied by this session's tool-permission layer despite a
   local Postgres being reachable. Must run with real output before G1.
+  **RUN in the 2026-07-26 closeout session** — see the addendum below and
+  [`docs/reviews/wizmatch-outbound-pr2-opus-review.md`](../reviews/wizmatch-outbound-pr2-opus-review.md)
+  §15 for full output. The remaining gap (production-sized index-lock measurement) is unchanged and
+  still gates G1/U-7, not PR 2.
 - **Honestly-scoped gaps**: cold-start confidence gating (§7) and duplicate-suspect containment (L5,
   §8.8) are not wired into the gate in this PR — no caller supplies that data yet; both are named
   in-code as PR-3/4 scope. §22.2 criterion 1 says "seven new tables" but its own §10.9.1 reference
@@ -137,17 +150,30 @@ None. The two suites that previously failed to **load** (`adminFrontendHelpers.t
 run this session, closing that environmental gap. Root `package-lock.json` confirmed untouched by the
 admin install (`git status --short` / `git diff --stat package-lock.json` both empty).
 
-## §10.11.4 fresh-database verification — NOT RUN, blocking before G1
+## §10.11.4 fresh-database verification — RUN 2026-07-26 (closeout session)
 
-The ten requirements (fresh `0000→0037` replay, incremental apply against a `0036`-state restore,
-re-apply no-op, production `information_schema` drift diff, index-lock measurement on a
-production-sized restore, and the trigger-fire test, among others) require a live Postgres connection.
-A local Postgres was reachable in this environment (`pg_isready` succeeded against `/tmp:5432`), but
-direct `psql`/database-connection commands were **denied by this session's tool-permission layer**.
-Journal ordering and the destructive-statement scan were confirmed by direct file inspection instead
-(see above), which covers 2 of the 10 requirements. The remaining 8 must be run with real output before
-`0037` is proposed for production (G1) — this is a session tooling limitation, not a structural blocker
-in the migration itself.
+Superseded the prior session's tool-permission block. Ran against `127.0.0.1:5432` (confirmed local
+before every command), using disposable databases (`wizmatch_pr2_verify_full`,
+`wizmatch_pr2_verify_incremental`, plus three short-lived timing databases), all dropped after
+recording results. Full detail and exact commands/output in
+[`docs/reviews/wizmatch-outbound-pr2-opus-review.md`](../reviews/wizmatch-outbound-pr2-opus-review.md)
+§15. Summary:
+
+- Fresh `0000→0037` replay: succeeded (38/38 migrations, journal-ordered).
+- Incremental (0000→0036, then 0037 alone against the same restore): succeeded.
+- Re-apply of either database: no-op (drizzle-kit's hash tracking).
+- Composite FKs: confirmed present via `\d wizmatch_company_policies`.
+- Destructive-statement scan: zero (test-automated, re-confirmed).
+- Immutability trigger: decision-column `UPDATE` rejected; supersession-metadata-only `UPDATE`
+  succeeded.
+- Root-policy CHECKs: complete `entire_company` row succeeds; incomplete one fails
+  (`..._root_defines_all_chk`); scoped row overriding one dimension succeeds; no-op scoped row fails
+  (`..._scoped_overrides_one_chk`).
+- Duplicate ordered-pair CHECK and the cold-email-lock partial unique index both fired correctly.
+- **Not run, and correctly out of scope for a disposable local database:** the production-sized
+  index-build lock measurement on `users`/`contacts`/`contact_channels` (U-7 needs a
+  production-sized restore) and the production `information_schema` drift diff (needs a copy of the
+  actual production schema, not a fresh local one). Both remain explicit G1 prerequisites.
 
 ### Spec-repair pass — 2026-07-26 (docs only)
 
@@ -174,9 +200,13 @@ concrete way an "additive" migration could damage Growth. §10.11.3 makes catchi
 
 ## Blockers
 
-**PR 2 is implemented, pending G1 verification.** PR 3 builds against §22.3 (the §8.10.1 caller
-checklist) and can start independently of the §10.11.4 real-Postgres checks below, since PR 3 does not
-apply `0037` either.
+**PR 2 is fully closed against §22.2 as of 2026-07-26 (closeout session).** §22.2 #16 (root-policy
+bootstrap) is implemented and tested; M-6 (suppression expression index) is added; the §10.11.4
+verifications ran with real output (see above), except the production-sized lock measurement, which
+was never in scope for a local database. PR 3 builds against §22.3 (the §8.10.1 caller checklist) and
+can start independently — it does not apply `0037` either. Remaining, unchanged: U-7 (owner sign-off
+on the three shared-table indexes) and the production-sized lock measurement both still gate G1, not
+PR 2 or PR 3.
 
 Still open, neither blocking PR 2 or PR 3:
 
@@ -205,6 +235,9 @@ would **revert CI hotfix `492a6a8`** (it deletes the `@emnapi` entries that hotf
 2. The §10.11.4 fresh-database verification requirements were not run against a real Postgres instance
    (see above) — a session tool-permission limitation, not a design deviation. Journal ordering and the
    destructive-statement scan were confirmed by direct inspection instead.
+   **Resolved 2026-07-26 (closeout session)** — run against disposable local Postgres databases, real
+   output recorded above and in the review doc §15. The production-sized lock measurement remains out
+   of scope for a local database and still gates G1/U-7.
 3. The gate module's L7 does not yet implement the cold-start contact-confidence gate (§7) or query
    `wizmatch_company_duplicates` for L5 pending-duplicate containment (§8.8) — both require data/wiring
    that has no caller yet in PR 2's no-callers-migrate scope. Stated in the module's header comment.
@@ -251,9 +284,24 @@ not yet written (no route calls this table in PR 2) — flagged so it isn't assu
 §8.10.1 31-row caller-migration checklist, the A-1/A-4 fixes, and the mailer fallback reversal (ADR-006
 D-11). Before G1 (applying `0037` to production), independently of PR 3:
 
-1. Run the ten §10.11.4 verification requirements against a real Postgres instance with real output
-   recorded in the PR — this session could not, due to a tool-permission restriction on direct database
-   access, not a structural issue with the migration.
-2. Obtain owner sign-off on U-7 (the three shared-table `(tenant_id, id)` indexes).
+1. ~~Run the ten §10.11.4 verification requirements~~ **Done 2026-07-26** — real output recorded in
+   `docs/reviews/wizmatch-outbound-pr2-opus-review.md` §15, against disposable local Postgres
+   databases. Only the production-sized index-lock measurement remains, which requires a
+   production-sized restore (not obtainable from a local disposable database).
+2. Obtain owner sign-off on U-7 (the three shared-table `(tenant_id, id)` indexes) — still open.
 3. Do **not** apply `0037` to production, run the backfill with `--apply`, promote enforcement to
    `enforce`, touch Railway, or push without explicit confirmation. Do not stage `package-lock.json`.
+
+### 2026-07-26 closeout session — what changed
+
+- New commits (not yet pushed): root-policy bootstrap helper + call-site wiring
+  (`src/modules/outreach/companyBootstrap.ts`, `wizmatchSourcing.ts`,
+  `wizmatchContactIntelligenceRepo.ts`), the M-6 suppression expression index in `0037`, and tests
+  for both, across `wizmatchSourcing.test.ts`, `wizmatchContactIntelligenceRepo.test.ts`,
+  `wizmatchOutreachGateContract.test.ts`, `wizmatchOutboundMigrationContract.test.ts`.
+- `npm run build` exit 0, `npm test` 99 files / 873 tests green, `git diff --check` clean,
+  `npm run db:generate` reports no schema drift.
+- Real local-Postgres verification performed and recorded (see §15 of the review doc); five
+  disposable databases created and dropped, nothing applied to Railway or any shared database.
+- PR 3 was not started. Working tree left clean of any leftover verification artifacts (temp files
+  and disposable databases all removed).

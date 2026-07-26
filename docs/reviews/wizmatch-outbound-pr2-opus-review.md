@@ -407,3 +407,113 @@ supposedly asserting on; H-5 because nothing tested a table that nothing read. A
 fail is not evidence. §22.2 #10 exists for exactly this reason and should not be waived again.
 
 Do not apply 0037. Do not promote enforcement. Do not begin PR 3 until B-1 has an owner decision.
+
+---
+
+## 15. PR 2 closeout — 2026-07-26 (Sonnet, following Opus review)
+
+Closes B-1, B-2 and B-3, and M-6, using three read-only Explore subagents (company-insert
+paths; suppression-index placement; local Postgres setup) followed by main-session edits and a
+real local verification pass. No caller migrated, no flag changed, no route touched, nothing
+applied to Railway or any shared database.
+
+**B-1 closed — root policy bootstrap (§22.2 #16).** New module
+`src/modules/outreach/companyBootstrap.ts` exports `WIZMATCH_ROOT_POLICY_DEFAULTS` (the exact
+row: `entire_company`/`entire_company`, `needs_review`, `unknown`, `new_prospect`, `standard`,
+`is_non_overridable=false`, `source='deterministic_rule'`), `insertWizmatchCompanyRootPolicy`
+(idempotent `ON CONFLICT (tenant_id, company_id, scope_key) WHERE superseded_at IS NULL DO
+NOTHING`, so concurrent bootstrap attempts cannot create two active root rows), and
+`withWizmatchCompanyTransaction` (BEGIN/COMMIT on a dedicated `pool.connect()` client).
+
+Both confirmed production company-insert paths now call it:
+- `wizmatchSourcing.ts` `ingestWizmatchSignals` — the upsert's `RETURNING id, (xmax = 0) AS
+  inserted` distinguishes a genuine insert from the `ON CONFLICT DO UPDATE` branch, so the root
+  policy is written once, only on creation, never on every signal that touches an existing
+  company. Reachable from the signal-ingest route, the ATS poller, and the TheirStack importer.
+- `wizmatchContactIntelligenceRepo.ts` `seedProspectCompany` — the "not existing" branch now
+  runs inside `withWizmatchCompanyTransaction`, so the company row and its root policy commit or
+  roll back together (this file already had a `pool.connect()` precedent via
+  `withContactDiscoveryAdvisoryLock`, so a real transaction was used here rather than two
+  independent statements).
+
+No allow policy is ever created; no backfill was run; existing companies are untouched (verified
+by the "never writes a root policy on the existing-company (update) branch" /
+"does not write a root policy when the company upsert only updates an existing row" tests in both
+files). A new gate-contract test pins the literal `WIZMATCH_ROOT_POLICY_DEFAULTS` row through
+`evaluateWizmatchOutreachGate` and asserts the decision is `review` (never `allow`), with
+`reasonCodes: ['policy_unknown_cold_start']` — the exact cold-start behaviour PRD-005 §22.2 #16
+requires.
+
+**M-6 closed — suppression expression index.** `0037_unknown_siren.sql` now adds
+`CREATE INDEX IF NOT EXISTS "wizmatch_suppression_tenant_lower_email_idx" ON
+"wizmatch_suppression_list" USING btree ("tenant_id", lower("email"))`, placed after the
+suppression FK guard block (table/columns already exist by that point) and before the immutability
+trigger's guard block. The pre-existing `UNIQUE (tenant_id, email)` index is untouched — confirmed
+by both the existing "leaves ... untouched" test and a new test asserting the new index name is
+distinct and never `CREATE UNIQUE`. `schema.ts` is deliberately NOT changed (no `lower()`
+expression-index precedent exists anywhere in the file, and drizzle-kit cannot reliably round-trip
+one) — this is hand-authored migration-only SQL, matching the existing precedent for the
+immutability trigger. `npm run db:generate` still reports "No schema changes, nothing to migrate."
+
+**B-2 closed — real local Postgres verification, `127.0.0.1:5432`, disposable databases only.**
+Target confirmed local before every command (never Railway, never a public hostname). Two
+disposable databases (`wizmatch_pr2_verify_full`, `wizmatch_pr2_verify_incremental`) plus three
+short-lived timing databases, all dropped after recording results.
+
+- **Fresh `0000→0037` replay:** `npx drizzle-kit migrate` against a brand-new database —
+  succeeded (`migrations applied successfully!`). `drizzle.__drizzle_migrations` shows 38 rows,
+  `created_at` monotonically increasing, matching `meta/_journal.json`'s `when` values exactly
+  (`...464092263` for 0036, `...039545644` for 0037).
+- **Incremental apply:** 0037 was moved out of `src/db/migrations/` and its journal entry removed,
+  0000→0036 applied to a second disposable database, then 0037 (file + journal entry) restored and
+  applied alone — succeeded independently.
+- **Re-apply is a no-op** on both databases (drizzle-kit's applied-hash tracking skips already-run
+  migrations) — the idempotent-migration requirement holds.
+- **Composite FKs:** `\d wizmatch_company_policies` on the fresh database shows all 5 composite
+  `(tenant_id, x_id)` FKs plus the `tenants(id)` FK, matching `schema.ts`.
+- **Destructive-statement scan:** already automated in
+  `wizmatchOutboundMigrationContract.test.ts` (zero matches); re-confirmed by direct read of the
+  file during this session.
+- **Timing (disposable, empty dataset — NOT a production-lock measurement):** fresh full replay
+  ≈0.8s wall including Node/drizzle-kit startup; isolated 0037-only apply ≈0.47s wall. These
+  numbers are close to tool-startup noise floor and say nothing about the `users`/`contacts`/
+  `contact_channels` index-build lock duration on production-sized tables — that measurement
+  (§10.11.4 requirement, gating U-7/G1) still requires a production-sized restore, which this
+  session correctly did not attempt.
+
+**B-3 closed — immutability trigger fired against a live database.** On the fresh database: an
+`UPDATE ... SET outreach_eligibility='blocked'` against an existing root policy row raised
+`wizmatch_company_policies is immutable except superseded_at/superseded_by_policy_id` (trigger
+rejection, as designed); a second row's `UPDATE ... SET superseded_at = NOW(), superseded_by_policy_id
+= <id>` (supersession-metadata-only) succeeded.
+
+**Root-policy CHECK constraints fired against a live database:** a complete `entire_company` row
+(all three dimensions) succeeded; an incomplete one (`external_hiring_policy`/`relationship_type`
+omitted) raised `wizmatch_company_policies_root_defines_all_chk`; a scoped `location` row
+overriding one dimension (with a `review_date`, required by the `paused` state) succeeded; a scoped
+row with no dimension set raised `wizmatch_company_policies_scoped_overrides_one_chk`.
+
+**Other constraints fired against a live database:** `wizmatch_company_duplicates`'s ordered-pair
+CHECK rejected a self-pair (`company_a_id = company_b_id`); the cold-email lock partial unique
+index (`wizmatch_outreach_enrolments_company_cold_email_lock_uniq`) rejected a second live
+`cold_email` enrolment for the same company while the first stayed `queued`; the batch/contact
+uniqueness index similarly rejected a duplicate live enrolment for the same contact.
+
+**Remaining, unchanged from the original review:** U-7 (owner sign-off on the three shared-table
+indexes) and the production-sized lock-duration measurement still gate G1, not PR 2 — this session
+did not touch Railway, did not apply 0037 anywhere but a disposable local database, and did not run
+the existing-company backfill. B-4's remaining test gaps (full tenant-isolation-of-the-resolver
+coverage, ~59 of 64 routing-matrix cells, `business_unit` applicability) are unchanged and remain
+open for a later PR.
+
+**Tests:** `npm run build` exit 0; `npm test` → 99 files / 873 tests green (873 = prior 867 + 6 new:
+2 in `wizmatchSourcing.test.ts`, 2 in `wizmatchContactIntelligenceRepo.test.ts`, 1 in
+`wizmatchOutreachGateContract.test.ts`, 2 in `wizmatchOutboundMigrationContract.test.ts` minus one
+consolidated — see commit diff for the exact count); `git diff --check` clean; `npm run db:generate`
+reports no schema drift.
+
+**Updated verdict: PR 2 is now fully closed against §22.2.** The one previously-open criterion
+(#16) is implemented and tested; the ten §10.11.4 verifications have real output recorded above,
+with the explicit exception of the production-sized lock measurement, which was never in scope for
+a local disposable database and remains a G1 prerequisite. Nothing was pushed, merged, deployed, or
+applied outside a disposable local database.
