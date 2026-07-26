@@ -517,3 +517,235 @@ reports no schema drift.
 with the explicit exception of the production-sized lock measurement, which was never in scope for
 a local disposable database and remains a G1 prerequisite. Nothing was pushed, merged, deployed, or
 applied outside a disposable local database.
+
+---
+
+## 16. Final independent PR 2 readiness review — 2026-07-26 (Opus)
+
+**Reviewed** `a94d19b` (closeout HEAD) → corrective commit `102b657` · **Branch**
+`ge/outbound-02-policy-schema-service` · Three read-only Explore subagents (migration/DB;
+bootstrap/tenancy; resolver/suppression/tests) plus main-session verification against a
+**disposable local PostgreSQL 16** at `127.0.0.1` (created and dropped in-session).
+
+**Verdict: ship, after the three §22.2 #16 gaps found here and fixed in `102b657`.**
+The §15 closeout claimed criterion #16 closed. It was closed on two of **three** company-insert
+paths, and on neither of them in a way that met the criterion's literal "same transaction" wording
+for the highest-volume path. That is now genuinely closed and verified against a real database
+rather than by reasoning.
+
+### 16.1 Final PR 2 completeness against §22.2
+
+All twenty criteria satisfied, with one documented spec contradiction in #10 (see §16.8).
+
+| # | Criterion | Verdict |
+|---|---|---|
+| 1–8 | Schema: tables, 22/29 composite FKs, six additive indexes, users SET NULL, CHECKs, no `admin_override`/`suppression_scope`, suppression unique index untouched, 15-state CHECK from one constant | **PASS** |
+| 9–12 | Migration: generated + single marked guard block, §10.11.4 verifications, journal `when`, not applied to production | **PASS**, except #10's production drift diff (§16.8) |
+| 13–17 | Service: one module, branded `PolicyDecision`, L0–L8, no legacy fallback, **every** insert path bootstraps, `buildScopeKey` sole producer | **PASS** (13–15, 17 were already met; **16 fixed here**; **17 fixed here**) |
+| 18–20 | `npm run build` 0, `npm test` green, zero behavioural change, §20.1 tests pass | **PASS** |
+
+### 16.2 Migration verdict — **sound**
+
+Independently re-verified, not taken on the prior report's word. All nine `(tenant_id, id)` unique
+indexes are created at SQL lines 205–219, every composite FK at 221+, so C-1 is genuinely fixed;
+29 composite entity FKs, zero naked entity FKs; journal `when` 1785039545644 > 1784464092263;
+additive-only (the sole `DROP` is `DROP TRIGGER IF EXISTS` inside the guard block, the standard
+replace-trigger idiom); `schema.ts` agrees with the SQL except the two pre-authorised
+migration-only artefacts (the immutability trigger, and the `lower(email)` expression index).
+`npm run db:generate` reports "No schema changes, nothing to migrate."
+
+**Re-run for real this session** on a fresh disposable database: `npx drizzle-kit migrate`
+applied **38 migrations** (0000→0037) successfully. Confirmed on that database:
+`wizmatch_suppression_tenant_email_uniq_idx` still `CREATE UNIQUE INDEX ... (tenant_id, email)`;
+the new `wizmatch_suppression_tenant_lower_email_idx` is non-unique on `(tenant_id, lower(email))`;
+`wizmatch_company_policies_active_scope_uniq` is the partial unique index
+`(tenant_id, company_id, scope_key) WHERE superseded_at IS NULL`.
+
+### 16.3 Tenancy verdict — **clean**
+
+No cross-tenant lookup found: every new-table read and the bootstrap helper key on `tenant_id`,
+and every entity reference is a composite FK onto a `(tenant_id, id)` unique index, so a child row
+cannot point at another tenant's parent. No Growth or legacy company path changed behaviour — the
+only non-test edits outside `src/modules/outreach` are the three company-insert paths, and all
+three changes are additive bootstrap writes.
+
+### 16.4 Root-bootstrap verdict — **three gaps found, all fixed in `102b657`**
+
+Insert paths were enumerated independently rather than trusting the PR description. **Three** exist:
+
+| Path | Before this review | After |
+|---|---|---|
+| `wizmatchSourcing.ts` `ingestWizmatchSignals` (route + ATS poller + TheirStack importer) | bootstrapped, but as a **second statement on the shared pool** — not one transaction | one data-modifying-CTE statement, atomic |
+| `wizmatchContactIntelligenceRepo.ts` `seedProspectCompany` | correct — real `BEGIN`/`COMMIT` | unchanged |
+| `scripts/onboarding/wizmatch-seed-ats-boards.ts` | **no root policy at all — missed entirely** | bootstraps inside the `BEGIN`/`COMMIT` it already held |
+
+Both gaps had the same consequence and it is worse than it first looks: the affected company is
+permanently L0 `policy_missing_root` denied (fail-closed, so **no wrong send** — this was never a
+safety hole) and **unrepairable by re-running**. On the sourcing path the next upsert takes the
+`ON CONFLICT DO UPDATE` branch, so `(xmax = 0)` is false and the bootstrap never fires again; in
+the seed script the `WHERE NOT EXISTS` guard never re-inserts the row. Only the PR 4 backfill could
+have recovered them — which is precisely the §21.2 condition 4 failure D-1/A-30 exist to prevent.
+
+Two further spec deviations fixed in the same commit: the persisted row omitted
+`reason_code='policy_unknown_cold_start'`, which PRD §8.1 and ADR-006 both specify (permitted with
+no evidence — the row is neither permanent nor non-overridable, so `..._evidence_required_chk`
+holds); and `scope_key` was a duplicated literal rather than `buildScopeKey()` output (#17).
+
+Verified on the disposable database **through the real production code path**, not a mock: a new
+company wrote exactly `entire_company` / `entire_company` / `needs_review` / `unknown` /
+`new_prospect` / `standard` / `is_non_overridable=false` / `deterministic_rule` /
+`policy_unknown_cold_start`; re-ingesting the same company left the policy count at 1 and the
+company count at 1; "companies missing an active root policy" = 0; and a second active root row was
+rejected by `wizmatch_company_policies_active_scope_uniq`, so concurrency safety is **database**-
+enforced, not a check-then-insert race.
+
+### 16.5 Resolver verdict — **sound**
+
+L0–L8 including L0 and L1c, §8.1.1 applicability, and genuinely independent per-dimension
+inheritance (a location-scoped `paused` row supplies `outreachEligibility` while `relationshipType`
+still resolves from the root). Missing root → `deny` + `policy_missing_root` with no legacy
+fallback. `wizmatch_company_intelligence.status` is never read by the gate, so it cannot grant
+permission. Non-overridable root blocks short-circuit before any narrower row. Campaign types and
+modes survive a `deny` as explanatory compatibility data (§8.9's `[]` means "none permitted", not
+"denied"). Exactly one `try/catch`, wrapping the whole evaluation, with every DB call inside it and
+`deny` + `policy_resolver_error` as the only outcome — no error path can produce an `allow`.
+Duplicate suspects are read **and** enforced on both sides of the ordered pair. `PolicyDecision` is
+branded with a module-private `unique symbol`, so it is unforgeable outside the gate. No PR 3 caller
+wiring exists: nothing outside `src/modules/outreach` and `src/__tests__` imports the gate or
+resolver.
+
+### 16.6 Suppression verdict — **grain-correct, index genuinely used**
+
+Hard bounce suppresses only the exact lowercased email/channel, tenant-scoped — no domain or
+company widening in the gate. Personal unsubscribe resolves at contact grain
+(`contacts.do_not_contact` → `email_unsubscribed`, a stated preference, never reported as a bounce).
+Company removal is a non-overridable `compliance` block caught at L1/L1c. Nothing broadened: the
+only change to `wizmatchContactIntelligenceRepo.ts` across all of PR 2 is the transaction wrapper —
+no suppression query was touched.
+
+The `lower(email)` index is not merely present but **used**: on the disposable database,
+`EXPLAIN` for the gate's exact predicate returns
+`Index Scan using wizmatch_suppression_tenant_lower_email_idx`
+with `Index Cond: ((tenant_id = ...) AND (lower(email) = ...))`. This retires M-6 with evidence
+rather than with a textual match.
+
+### 16.7 Test verdict — **the contract suites are real; two residual blind spots**
+
+Gates run this session, on this branch, after `npm run admin:install` was already satisfied:
+`git diff --check` clean · `npm run build` **exit 0** · `npm test` **100 files / 876 tests passed**
+· `npm run db:generate` **"No schema changes, nothing to migrate."**
+
+Checked specifically:
+- **Migration-ordering test** — parses the real SQL, extracts every composite FK's statement index
+  and its parent index's statement index, and asserts index-before-FK, with a
+  `compositeFkRefs.length >= 25` anti-vacuity guard. Reverting `79bb384` makes it red.
+- **`PolicyDecision` branding** — fails against a forgeable string brand, but via **`tsc`**, not
+  vitest: it is an `@ts-expect-error` over a structurally-complete object, and a string brand would
+  make the directive unused and fail the build. Real, but only while `npm run build` stays a gate
+  (LOW note below).
+- **Suppression-index contract** — asserts non-unique explicitly, not merely that an index exists.
+- **Cold-start defaults** — imports `WIZMATCH_ROOT_POLICY_DEFAULTS` rather than re-typing literals,
+  so the two cannot drift.
+- **Duplicate containment** — captures the real drizzle condition tree and asserts it contains
+  `' or '`; deleting the two-sided lookup makes it red.
+- **Bootstrap coverage** — new `wizmatchCompanyBootstrapCoverage.test.ts` asserts at **source
+  level** that every file inserting a company also bootstraps, because a per-call-site behavioural
+  test can only ever cover the sites someone remembered — which is exactly how the ATS path was
+  missed. **Verified non-vacuous**: with the seed script's bootstrap removed, the suite goes red;
+  restored, green.
+- **Sourcing atomicity** — now asserts the *predicate* (`FROM upserted WHERE upserted.inserted`,
+  `(xmax = 0) AS inserted`, `WHERE superseded_at IS NULL DO NOTHING`) and that only **one**
+  statement is issued, rather than trusting a mock's `inserted` flag — the mock cannot tell us what
+  Postgres would do.
+
+### 16.8 Findings
+
+**Critical** — none.
+
+**High** — none outstanding. Two were found and fixed here:
+- **H-6 — `scripts/onboarding/wizmatch-seed-ats-boards.ts` created companies with no root policy.**
+  *(fixed, `102b657`)* Missed by the §15 closeout. Only creator of ATS-linked companies; permanent
+  unrepairable L0 deny. §22.2 #16.
+- **H-7 — `ingestWizmatchSignals` bootstrapped in a second statement, not one transaction.**
+  *(fixed, `102b657`)* Highest-volume creation path; a failure between the two statements committed
+  a company that re-ingestion could never repair. §8.1, §22.2 #16.
+
+**Medium**
+- **M-8 — the persisted root row omitted `reason_code`.** *(fixed, `102b657`)* §8.1/ADR-006 name
+  `policy_unknown_cold_start` on the row. Harmless at resolve time (the resolver derives it) but a
+  raw table read or the PR 4 backfill's reconciliation would not have matched the documented row.
+- **M-9 — `wizmatch_company_policies.reason_code` has no CHECK against the taxonomy.** *(open,
+  PR 3/4)* Not reachable today — the bootstrap is the only writer and it uses a frozen constant —
+  but `isPreparationAllowed()` returns `true` for an unrecognised code, so once a policy-write API
+  exists a typo'd code would silently **permit** preparation instead of failing closed. Close this
+  with the write API, not before.
+- **M-10 — §22.2 #10's production `information_schema` drift diff has not been run.** *(open, G1)*
+  Its literal text places it in PR 2, but it needs production read access that PR 2 is explicitly
+  forbidden to take, and §22.2 #12 puts all production interaction in G1. Both earlier review
+  passes dispositioned it as a G1 step (§12 step 4). Treated the same way here, and called out so
+  it is not mistaken for silently dropped. **Recommend the owner fold it into the U-7 sign-off and
+  correct §22.2 #10's wording in a later docs-only pass.**
+- **M-7 — resolver defaults missing dimensions via `??`.** *(open, unchanged)* Defence-in-depth
+  only; the DB CHECKs make it unreachable.
+- **M-5 — the original gate suite's mock discards `.where()`.** *(open, unchanged)* Mitigated by
+  the contract suite, not removed.
+
+**Low**
+- **L-5 — the branding guarantee is enforced by `tsc`, not vitest.** Both are mandatory gates
+  today; flagged only so nobody trims CI to `vitest` alone and silently loses it.
+- **L-6 — predicate capture was not extended to pre-existing filters.**
+  `isNull(wizmatchCompanyPolicies.supersededAt)` (`policyResolver.ts:65`),
+  `eq(wizmatchOutreachEnrolments.outreachMode, 'cold_email')` (`outreachGate.ts:176`) and
+  `readAccountOwnerUserId`'s tenant/company predicate are exercised for outcome but never
+  predicate-checked; delete any of them and the suite stays green. A superseded block row leaking
+  back in as active is the failure that would slip through. Cheap follow-up: read back the
+  `capturedWhere` entries the contract mock already collects.
+- **L-1, L-2, L-3, L-4** — unchanged from §9.
+
+### 16.9 Fixes made during this review
+
+| Commit | What |
+|---|---|
+| `102b657` | H-6 (ATS seed script bootstrap), H-7 (single-statement atomic bootstrap on the sourcing path), M-8 (`reason_code` on the persisted row), #17 (`buildScopeKey` as sole `scope_key` producer), shared column list/arbiter/defaults between the standalone and CTE forms, source-level bootstrap-coverage test, sourcing tests converted from mock-return assertions to predicate assertions. |
+
+No schema or migration file was edited. No caller was wired onto the gate. No flag was changed.
+No route was touched. Nothing was applied to production or any shared database.
+
+### 16.10 Remaining G1 prerequisites
+
+1. **U-7 owner sign-off** on the three additive `(tenant_id, id)` indexes on `users`, `contacts`,
+   `contact_channels` (shared with Growth).
+2. **Production-sized lock measurement** on those three tables, and the `CONCURRENTLY`-vs-window
+   decision from that number. Explicitly **not** measured: this session's timings are on empty
+   disposable databases and say nothing about production.
+3. **Production `information_schema` drift diff** (M-10) — confirm none of the nine target indexes
+   already exists under another name.
+4. Confirm `WIZMATCH_SENDING_ENABLED` and `AUTOMATED_EMAILS_ENABLED` are still off.
+
+### 16.11 Remaining PR 3 prerequisites
+
+1. Close **M-9** (taxonomy CHECK or validator) as part of the policy-write API.
+2. Close **M-7** — explicit `policy_resolver_error` on an unexpectedly-null root dimension.
+3. Close **L-6/M-5** — extend predicate capture to the `supersededAt` and `outreachMode` filters and
+   converge the two gate mocks.
+4. Then §22.3: the 30 rows of the §8.10.1 caller-migration checklist, deletion of the inline
+   suppression query at `wizmatchOutreachService.ts:183-189`, the A-1/A-4/mailer fixes, unsubscribe
+   HMAC normalisation, and the shadow-vs-enforce equivalence harness.
+5. B-4's remaining §20.1 gaps (resolver tenant isolation, `business_unit` applicability, ~59 of 64
+   routing cells) — unchanged.
+
+### 16.12 Final ship recommendation
+
+**Mark PR 2 ready for stacked draft review at `102b657`.** Every §22.2 criterion is satisfied, with
+M-10 the single documented exception whose literal text PR 2 is forbidden to satisfy and which the
+PRD's own #12 gates behind G1. The schema remains the strongest tenancy work in this repo, and the
+one criterion the closeout got wrong (#16) is now correct on all three paths and verified against a
+real PostgreSQL rather than argued for.
+
+The process lesson from §14 repeated itself and is worth recording twice: **the §15 closeout
+declared #16 closed with a green suite, and it was wrong on two of three paths.** The miss was
+structural — it tested the call sites it knew about. The fix is the source-level coverage test,
+which fails on a path nobody wrote a test for. Behavioural tests prove the paths you enumerated;
+only a contract over the whole tree proves the enumeration.
+
+Do not apply 0037. Do not promote enforcement. Do not begin PR 3 before U-7 and the G1 items above.

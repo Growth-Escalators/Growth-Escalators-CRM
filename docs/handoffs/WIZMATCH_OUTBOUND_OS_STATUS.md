@@ -26,6 +26,15 @@ Chat-independent status for the `ge/outbound-0X-*` stacked-PR sequence. Read thi
 > [`docs/reviews/wizmatch-outbound-pr2-opus-review.md`](../reviews/wizmatch-outbound-pr2-opus-review.md)
 > §15. **Still not pushed, not merged, `0037` still not applied to production or Railway.** PR 3 was
 > not started this session.
+>
+> **Updated 2026-07-26 (final independent readiness review): PR 2 is CODE READY at `102b657`.**
+> The closeout above declared §22.2 #16 closed; an independent re-check found it closed on **two of
+> three** company-insert paths, and on neither in the literal "same transaction" sense for the
+> highest-volume path. Both gaps are fixed in `102b657`, verified against a disposable local
+> PostgreSQL 16 through the real production code path. Marker: `.ai/OUTBOUND_PR2_CODE_READY`.
+> Full report: [`docs/reviews/wizmatch-outbound-pr2-opus-review.md`](../reviews/wizmatch-outbound-pr2-opus-review.md)
+> §16. **Still not pushed, not merged, `0037` still not applied to production or Railway. PR 3 not
+> started.**
 
 ## Completed PRs
 
@@ -94,8 +103,8 @@ Built against PRD-005 §22.2 (twenty acceptance criteria). Summary (full detail 
 ## Current branch
 
 `ge/outbound-02-policy-schema-service`, worktree `/Users/jatinagrawal/repo-comparison/v2-outbound-os`.
-Working tree has uncommitted PR-2 changes (see "Files changed" below) as of this handoff; commit before
-starting PR 3.
+**Working tree is clean** as of the final readiness review (2026-07-26); everything is committed.
+PR 2 is code-ready at `102b657` and may be opened as a stacked draft. Nothing is pushed.
 
 ## Commit SHAs
 
@@ -280,15 +289,25 @@ not yet written (no route calls this table in PR 2) — flagged so it isn't assu
 
 ## Exact next step
 
-**Start PR 3** (`ge/outbound-03-policy-enforcement`, cut from this branch after it is committed) — the
-§8.10.1 31-row caller-migration checklist, the A-1/A-4 fixes, and the mailer fallback reversal (ADR-006
-D-11). Before G1 (applying `0037` to production), independently of PR 3:
+**Open PR 2 as a stacked draft** off `ge/outbound-01-prd-adrs` at `102b657`. PR 2 is code-ready and
+the branch is clean; the readiness marker is `.ai/OUTBOUND_PR2_CODE_READY`.
 
-1. ~~Run the ten §10.11.4 verification requirements~~ **Done 2026-07-26** — real output recorded in
-   `docs/reviews/wizmatch-outbound-pr2-opus-review.md` §15, against disposable local Postgres
-   databases. Only the production-sized index-lock measurement remains, which requires a
-   production-sized restore (not obtainable from a local disposable database).
+**Then start PR 3** (`ge/outbound-03-policy-enforcement`, cut from this branch) — the §8.10.1 31-row
+caller-migration checklist, the A-1/A-4 fixes, and the mailer fallback reversal (ADR-006 D-11).
+PR 3 prerequisites are listed in review §16.11 (M-9 taxonomy CHECK with the write API, M-7, and the
+L-6 predicate-capture gaps).
+
+Before G1 (applying `0037` to production), independently of PR 3:
+
+1. ~~Run the ten §10.11.4 verification requirements~~ **Done 2026-07-26**, and the fresh
+   `0000→0037` replay was **re-run independently** in the final review (38 migrations applied on a
+   fresh disposable local database). Two of the ten remain G1-gated and cannot be done from a local
+   database: the production-sized index-lock measurement, and the production `information_schema`
+   drift diff (review §16.8 M-10).
 2. Obtain owner sign-off on U-7 (the three shared-table `(tenant_id, id)` indexes) — still open.
+   **Recommend folding the M-10 drift diff into the same sign-off**, and correcting §22.2 #10's
+   wording in a later docs-only pass, since its literal text asks PR 2 for production access that
+   §22.2 #12 forbids until G1.
 3. Do **not** apply `0037` to production, run the backfill with `--apply`, promote enforcement to
    `enforce`, touch Railway, or push without explicit confirmation. Do not stage `package-lock.json`.
 
@@ -305,3 +324,52 @@ D-11). Before G1 (applying `0037` to production), independently of PR 3:
   disposable databases created and dropped, nothing applied to Railway or any shared database.
 - PR 3 was not started. Working tree left clean of any leftover verification artifacts (temp files
   and disposable databases all removed).
+
+### 2026-07-26 final independent readiness review — what changed
+
+Three read-only Explore subagents (migration/DB; bootstrap/tenancy; resolver/suppression/tests) plus
+main-session verification against a **disposable local PostgreSQL 16** at `127.0.0.1`, created and
+dropped in-session. Full report: review doc §16.
+
+**One new commit, `102b657` — `fix(wizmatch): close the three §22.2 #16 bootstrap gaps`:**
+
+- **`scripts/onboarding/wizmatch-seed-ats-boards.ts` had no root-policy write at all** — a third
+  company-insert path the closeout session missed. It is the only creator of ATS-linked companies
+  (the daily 6 AM poller harvests them), so those companies were permanently L0
+  `policy_missing_root` denied and **unrepairable by re-running the script**, whose
+  `WHERE NOT EXISTS` guard never re-inserts the row. Now bootstraps inside the `BEGIN`/`COMMIT` it
+  already held.
+- **`wizmatchSourcing.ts` bootstrapped in a second statement**, not one transaction. A failure
+  between the two committed a company with no policy, and re-ingestion could never repair it — the
+  next upsert takes the `DO UPDATE` branch, so `(xmax = 0)` is false. Both writes are now **one**
+  data-modifying-CTE statement; a single statement is atomic in PostgreSQL, which gives §8.1's
+  guarantee without needing a dedicated connection and keeps the injectable `Queryable` contract.
+- **`reason_code='policy_unknown_cold_start'` was missing from the persisted row**, which PRD §8.1
+  and ADR-006 both specify.
+- **`scope_key` now comes from `buildScopeKey()`** (§22.2 #17) rather than a duplicated literal.
+- New `src/__tests__/wizmatchCompanyBootstrapCoverage.test.ts` asserts at **source level** that every
+  file inserting a company also bootstraps — verified to go red with the seed script's bootstrap
+  removed. The sourcing tests now assert the SQL **predicate** rather than a mock's return flag.
+
+Neither gap was ever a safety hole — both fail closed — but both broke §21.2 condition 4 ("zero
+companies missing an effective policy") for every company created after the fix, which is exactly
+what D-1/A-30 exist to prevent.
+
+**Gates:** `git diff --check` clean · `npm run build` exit 0 · `npm test` **100 files / 876 tests
+green** · `npm run db:generate` "No schema changes, nothing to migrate."
+
+**Verified on the disposable local database** (not by reasoning): fresh `0000→0037` replay applied 38
+migrations; the real ingest path wrote the exact spec row; re-ingest left policy count at 1;
+"companies missing a root policy" = 0; a duplicate active root row was rejected by
+`wizmatch_company_policies_active_scope_uniq`; `EXPLAIN` shows the planner using
+`wizmatch_suppression_tenant_lower_email_idx` for the gate's `tenant_id + lower(email)` predicate
+(retiring M-6 with evidence). Pre-existing `UNIQUE (tenant_id, email)` confirmed intact.
+
+**Not done, deliberately:** no push, no merge, no deploy, no Railway, no production or shared-database
+migration, no backfill, no sending, no paid provider, no Smartlead, no PR 3 work, no caller wired onto
+the gate, no schema or migration file edited, no Growth/SEO/n8n/legacy code touched. The disposable
+database was dropped and the working tree left clean.
+
+**Remaining owner items:** U-7 (three shared-table indexes) and the production-sized lock measurement
+gate G1, unchanged; the production `information_schema` drift diff (M-10) is recommended to join the
+same sign-off.
