@@ -100,12 +100,10 @@ export interface PolicyEvidence {
 }
 
 /**
- * Branded so a `PolicyDecision` can only be constructed by the gate module
- * (PRD-005 §8.10 rule 3). A sender must accept a `PolicyDecision`, never a
- * boolean, and cannot fabricate an allow.
+ * The §8.9 payload without the brand. Callers may read this shape; they may
+ * not produce a `PolicyDecision` from it — only the gate module can.
  */
-export interface PolicyDecision {
-  readonly __brand: 'WizmatchPolicyDecision';
+export interface PolicyDecisionFields {
   decision: 'allow' | 'review' | 'deny';
   recommendedRoute: RouteCode;
   allowedCampaignTypes: CampaignType[];
@@ -125,6 +123,26 @@ export interface PolicyDecision {
   evidence: PolicyEvidence | null;
   /** shadow | enforce — recorded on every decision so the observed value is never stale (§16). */
   enforcementMode: 'shadow' | 'enforce';
+}
+
+/**
+ * The brand key (PRD-005 §8.10 rule 3). `declare const ... unique symbol` is
+ * type-space only — it emits no runtime value and is NOT exported, so no module
+ * outside this one can name the key. That is what makes `PolicyDecision`
+ * genuinely unforgeable: an object literal written anywhere else structurally
+ * cannot carry this property, so a caller cannot fabricate an allow. A string
+ * field such as `__brand: 'WizmatchPolicyDecision'` would not achieve this,
+ * because TypeScript is structural and any caller can write that literal.
+ */
+declare const policyDecisionBrand: unique symbol;
+
+/**
+ * Branded so a `PolicyDecision` can only be constructed by the gate module
+ * (PRD-005 §8.10 rule 3). A sender must accept a `PolicyDecision`, never a
+ * boolean, and cannot fabricate an allow.
+ */
+export interface PolicyDecision extends PolicyDecisionFields {
+  readonly [policyDecisionBrand]: 'WizmatchPolicyDecision';
 }
 
 export class OutreachBlockedError extends Error {

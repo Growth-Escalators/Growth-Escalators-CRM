@@ -22,8 +22,8 @@
 //     nothing calls this module, so WIZMATCH_POLICY_ENFORCEMENT_MODE only
 //     annotates the returned decision, per §16.
 
-import { and, eq, inArray } from 'drizzle-orm';
-import { db, contacts, wizmatchSuppressionList, wizmatchOutreachEnrolments } from '../../db';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import { db, contacts, wizmatchCompanies, wizmatchSuppressionList, wizmatchOutreachEnrolments } from '../../db';
 import { WIZMATCH_LIVE_ENROLMENT_STATES } from '../../config/wizmatchOutreachStates';
 import { isPreparationAllowed } from '../../config/wizmatchReasonCodes';
 import { resolveEffectivePolicy } from './policyResolver';
@@ -32,6 +32,7 @@ import {
   OutreachBlockedError,
   type OutreachGateContext,
   type PolicyDecision,
+  type PolicyDecisionFields,
   type RouteCode,
 } from './policyTypes';
 
@@ -44,8 +45,14 @@ function readEnforcementMode(): 'shadow' | 'enforce' {
   return process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE === 'enforce' ? 'enforce' : 'shadow';
 }
 
-function makeDecision(partial: Omit<PolicyDecision, '__brand' | 'enforcementMode'>): PolicyDecision {
-  return { ...partial, __brand: 'WizmatchPolicyDecision', enforcementMode: readEnforcementMode() };
+/**
+ * The ONLY construction site of a branded `PolicyDecision` in the codebase
+ * (§8.10 rule 3). The brand key is a module-private `unique symbol` declared in
+ * policyTypes.ts, so this single deliberate cast is the only way one comes into
+ * existence — no caller can produce the key structurally.
+ */
+function makeDecision(partial: Omit<PolicyDecisionFields, 'enforcementMode'>): PolicyDecision {
+  return { ...partial, enforcementMode: readEnforcementMode() } as unknown as PolicyDecision;
 }
 
 function denyDecision(
@@ -70,24 +77,69 @@ function denyDecision(
   });
 }
 
-async function isSuppressed(tenantId: string, email?: string, contactId?: string): Promise<boolean> {
+/**
+ * §10.9 suppression `reason` -> §9.5 reason code. The gate must report why the
+ * address was suppressed, not a blanket "hard bounce" — a stated unsubscribe
+ * and a dead mailbox are different facts and drive different operator action.
+ */
+const SUPPRESSION_REASON_TO_CODE: Record<string, string> = {
+  hard_bounce: 'email_hard_bounce',
+  invalid_email: 'email_invalid_syntax',
+  spam_complaint: 'email_spam_complaint',
+  complaint: 'email_spam_complaint',
+  unsubscribe: 'email_unsubscribed',
+  do_not_contact: 'email_unsubscribed',
+  manual: 'email_unsubscribed',
+};
+
+/**
+ * The §8.10 suppression union: the exact email/channel row AND
+ * `contacts.do_not_contact`. Both sides are lowercased at read — the stored
+ * column too, not only the query input, because rows written by any path that
+ * bypasses `normalizeChannelValue` can carry mixed case (§8.10.1 rows 26/29).
+ * Returns the matching grain's reason code so L7 reports the real cause.
+ */
+async function findSuppression(
+  tenantId: string,
+  email?: string,
+  contactId?: string,
+): Promise<string | null> {
   if (email) {
     const normalisedEmail = email.trim().toLowerCase();
     const rows = await db
-      .select({ id: wizmatchSuppressionList.id })
+      .select({ reason: wizmatchSuppressionList.reason })
       .from(wizmatchSuppressionList)
-      .where(and(eq(wizmatchSuppressionList.tenantId, tenantId), eq(wizmatchSuppressionList.email, normalisedEmail)));
-    if (rows.length > 0) return true;
+      .where(
+        and(
+          eq(wizmatchSuppressionList.tenantId, tenantId),
+          eq(sql`lower(${wizmatchSuppressionList.email})`, normalisedEmail),
+        ),
+      );
+    if (rows.length > 0) {
+      return SUPPRESSION_REASON_TO_CODE[rows[0]?.reason ?? ''] ?? 'email_unsubscribed';
+    }
   }
   if (contactId) {
     const rows = await db
       .select({ doNotContact: contacts.doNotContact })
       .from(contacts)
       .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, contactId)));
-    if (rows.some((r) => r.doNotContact)) return true;
+    // A `do_not_contact` contact is a stated personal preference (§8.5), never
+    // a channel-quality fact — reporting it as a bounce would be wrong.
+    if (rows.some((r) => r.doNotContact)) return 'email_unsubscribed';
   }
-  return false;
+  return null;
 }
+
+/** §8.7: `existing_client` routes to the company's account owner, or "unassigned" when null. */
+async function readAccountOwnerUserId(tenantId: string, companyId: string): Promise<string | null> {
+  const rows = await db
+    .select({ accountOwnerUserId: wizmatchCompanies.accountOwnerUserId })
+    .from(wizmatchCompanies)
+    .where(and(eq(wizmatchCompanies.tenantId, tenantId), eq(wizmatchCompanies.id, companyId)));
+  return rows[0]?.accountOwnerUserId ?? null;
+}
+
 
 async function hasLiveColdEmailEnrolment(tenantId: string, companyId: string): Promise<boolean> {
   const rows = await db
@@ -203,7 +255,11 @@ export async function evaluateWizmatchOutreachGate(ctx: OutreachGateContext): Pr
         },
         blockClass: narrowerNonOverridable.blockClass,
         isNonOverridable: true,
-        preparationAllowed: true,
+        // Derived from the taxonomy (§8.9, H-1), never hardcoded — a narrower
+        // compliance block must stop preparation exactly as a company-wide one does.
+        preparationAllowed: isPreparationAllowed(
+          narrowerNonOverridable.reasonCode ?? 'manual_block_by_operator',
+        ),
         requiresExplicitApproval: false,
         accountOwnerUserId: null,
         evidence: {
@@ -274,18 +330,29 @@ export async function evaluateWizmatchOutreachGate(ctx: OutreachGateContext): Pr
     }
 
     // L7 — contact/email restriction: suppression union (fixes A-1).
-    if (await isSuppressed(ctx.tenantId, ctx.email, ctx.contactId)) {
-      return denyDecision('email_hard_bounce', 7, effectiveSnapshot);
+    const suppressionReasonCode = await findSuppression(ctx.tenantId, ctx.email, ctx.contactId);
+    if (suppressionReasonCode) {
+      return denyDecision(suppressionReasonCode, 7, effectiveSnapshot);
     }
 
     // L8 — score/contact approval never blocks; advisory only.
 
+    const terminalDecision = compat.decision === 'deny' ? 'deny' : needsReview ? 'review' : 'allow';
+
     return makeDecision({
-      decision: compat.decision === 'deny' ? 'deny' : needsReview ? 'review' : 'allow',
+      decision: terminalDecision,
       recommendedRoute: compat.route as RouteCode,
-      allowedCampaignTypes: compat.decision === 'deny' ? [] : compat.allowedCampaignTypes,
-      allowedOutreachModes: compat.decision === 'deny' ? [] : compat.allowedOutreachModes,
-      reasonCodes: needsReview ? ['policy_unknown_cold_start'] : [],
+      // §8.6: "restricted is not uniformly denied". A `deny` decision still
+      // reports the routes that ARE permitted — msp_vms_only keeps `msp_vms` /
+      // research_only, and every §8.7 account-managed override keeps
+      // account_managed — so the batch API can route the work that policy does
+      // allow. Zeroing these on deny would make §8.6/§8.7's own tables
+      // unreachable. §8.9: `[]` means "none permitted", not "denied".
+      allowedCampaignTypes: compat.allowedCampaignTypes,
+      allowedOutreachModes: compat.allowedOutreachModes,
+      // The real cause, not a fixed literal — a `preferred_vendors_only` review
+      // and a `former_client` review are different operator decisions.
+      reasonCodes: terminalDecision === 'allow' || !compat.reasonCode ? [] : [compat.reasonCode],
       effectiveLevel: 8,
       effective: {
         outreachEligibility: effective.outreachEligibility,
@@ -294,9 +361,13 @@ export async function evaluateWizmatchOutreachGate(ctx: OutreachGateContext): Pr
       },
       blockClass: null,
       isNonOverridable: false,
+      // Taxonomy-derived inside computeCampaignCompatibility (§8.9, H-1), and
+      // the AND of both grains — no_external_agencies still stops preparation
+      // even when the relationship code alone would permit it.
       preparationAllowed: compat.preparationAllowed,
       requiresExplicitApproval: needsReview,
-      accountOwnerUserId: null,
+      accountOwnerUserId:
+        compat.route === 'account_owner' ? await readAccountOwnerUserId(ctx.tenantId, ctx.companyId) : null,
       evidence: null,
     });
   } catch {
