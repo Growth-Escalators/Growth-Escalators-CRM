@@ -6,6 +6,62 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-26 — WizMatch Outbound OS: PR 2 blocking specification defects resolved (PR 1/10 cont'd) — Claude — DOCS ONLY, NOT PUSHED
+
+**Why:** the overnight Opus review found six CRITICAL and twelve HIGH defects **in the specification**
+— no code exists, so every one of them was cheap to fix in prose and expensive to fix after `0037`.
+The owner supplied eight decisions (D-1 … D-8); this session applied them across the PRD, both ADRs
+and the context layer.
+
+**Method:** three read-only Explore subagents in parallel — schema/tenant references, chokepoint
+callers, states/suppression/taxonomy — each restricted from editing, committing, branch changes,
+production, Railway and migration application. The main session owned every edit.
+
+**What changed (docs + `.ai/` only; no `src/`, no schema, no migration, no flag):**
+
+- **PRD-005** — new §8.1.1 (scope applicability + fail-closed on unresolvable scope), §8.10 (the
+  mandatory chokepoint + a 31-row caller-migration checklist with `file:line` + the four real
+  `contacts`→`wizmatch_companies` link mechanisms), §10.9 (revised three-grain suppression model +
+  `wizmatch_suppression_events`), §10.10 (22-row tenant-reference matrix + the six additive parent
+  indexes), §10.11 (what drizzle-kit can and cannot emit, the raw-SQL guard-block process, the
+  destructive-statement scan, ten fresh-DB verification requirements), §22.2/§22.3 (PR 2 and PR 3
+  acceptance criteria), §25.1 A-22…A-30. Gate ladder gains **L0** (missing root) and **L1c**
+  (non-overridable at a narrower scope). §10.6 becomes a 15-state machine where a reply holds the
+  lock. `scope_ref_id`, `suppression_scope` and `admin_override` are deleted from the design. §5.3
+  gains A-10…A-17 for defects the audit surfaced.
+- **ADR-006** — D-2 rewritten; D-4, D-7, D-9, D-10 amended; **new D-13…D-18**; tenant rules rewritten;
+  approval questions 4 and 5 added.
+- **ADR-007** — provider-event vocabulary explicitly separated from the enrolment state machine with a
+  mapping table; gate invocation required on export and import; the CSV suppression-lag limitation
+  stated with three required mitigations; D-8's "does not use `sequence_enrolments`" corrected — WizMatch
+  already writes to it at `wizmatchOutreachService.ts:243`, bypassing the only enforcing
+  `do_not_contact` read in the repo.
+- **Review report** — new §19 with a per-finding disposition. **Findings §§3–18 preserved verbatim**;
+  §18 carries a superseded-by note rather than an edit.
+- **Context layer** — status doc, `.ai/CURRENT_TASK.md`, this log, and a new
+  `.ai/OUTBOUND_PR2_SPEC_READY` marker.
+
+**Two facts the audit corrected that would have broken PR 2:** the signals table is
+`wizmatch_job_signals` — the table named `signals` is Growth's and has **no `tenant_id` at all**, so a
+`signal_id` FK to it could never have been tenant-safe; and adopting drizzle's `check()` for the first
+time may make drizzle-kit propose **dropping** the three pre-existing CHECK constraints on Growth's
+`prospects` / `signals` tables (`0017:32-63`), which is the concrete mechanism by which an "additive"
+WizMatch migration could damage Growth.
+
+**Status change worth flagging:** C-5's fix was recorded as **non-additive**. Under D-4 it is
+**additive** — `suppression_scope` is gone, the existing `UNIQUE (tenant_id, email)` is retained, and
+no production dedup dry-run is needed.
+
+**Verified:** `git diff --check` clean; `npm run build` exits 0. `npm test` unchanged and not re-run
+as a gate — no code was touched, and the baseline has two known `lucide-react` **load** failures
+(zero assertion failures) because `admin/node_modules` does not exist in this worktree.
+
+**What's next:** PR 2 on `ge/outbound-02-policy-schema-service`, built against PRD-005 §22.2. Run
+`npm run admin:install` first. Do not apply `0037` (G1, and it needs U-7), do not push without
+explicit confirmation, do not stage `package-lock.json`.
+
+---
+
 ## 2026-07-26 — WizMatch Outbound OS: reason-code taxonomy ratified (PR 1/10 cont'd) — Claude — DRAFT PR, NOT MERGED, NOT PUSHED
 
 **Why:** The owner (Jatin) ratified the final reason-code taxonomy (PRD-005 §9), unblocking PR 2.

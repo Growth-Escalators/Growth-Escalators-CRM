@@ -7,6 +7,14 @@
 - **Contract:** `docs/prd/005-wizmatch-outbound-operating-system.md`, `ADR-006`, `ADR-007`
 - **Nothing was applied, pushed, merged, deployed or enabled by this review.**
 
+> **Disposition added 2026-07-26 — see §19.** A specification-repair pass has since been applied to
+> PRD-005, ADR-006 and ADR-007 under eight owner decisions (D-1 … D-8, recorded as PRD-005 §25.1
+> A-22 … A-30). **All six CRITICAL findings are resolved by specification change.** Twelve of the
+> twelve HIGH findings are resolved; one (H-9) is resolved as far as a CSV model permits, with the
+> residual limitation stated rather than hidden. §19 gives the per-finding disposition. **The original
+> findings below are preserved verbatim** — nothing has been deleted or softened, because a review
+> whose findings vanish once they are inconvenient is not a review.
+
 ---
 
 ## 0. Headline
@@ -554,6 +562,11 @@ Everything else in this report is a specification defect with a correct answer, 
 
 ## 18. Final recommendation
 
+> **Superseded 2026-07-26 by §19.** The four actions below were carried out in the spec-repair pass;
+> all six CRITICAL and all twelve HIGH findings are now dispositioned. **PR 2 may proceed against
+> PRD-005 §22.2.** The standing prohibitions still hold: do not push, apply `0037`, backfill, or
+> enable anything. The original recommendation is preserved below.
+
 **Do not proceed to PR 2 as currently specified. Do not push, apply, backfill, or enable anything.**
 
 Concretely:
@@ -580,6 +593,92 @@ is precisely where a second reader is worth having.
 The single most important finding is **C-2**: as written, the compatibility shim would have quietly
 made the whole fail-closed design fail open, through the five callers it was specifically designed to
 consolidate.
+
+---
+
+## 19. Disposition — specification-repair pass, 2026-07-26
+
+Applied on `ge/outbound-01-prd-adrs`, documentation only. No code, no migration, no push, no
+production action. Owner decisions D-1 … D-8 are recorded in PRD-005 §25.1 A-22 … A-30.
+
+Every finding is marked **resolved by specification change** or **genuinely unresolved with an exact
+owner decision required**. Nothing is marked resolved because it became awkward.
+
+### 19.1 CRITICAL — all six resolved by specification change
+
+| # | Finding | Disposition | Where |
+|---|---|---|---|
+| **C-1** | The reviewed scope does not exist | **Resolved.** The handoff, `.ai/CURRENT_TASK.md` and PRD §22 all state PRs 2–4 are not started. PR 2 now has explicit acceptance criteria to build against, and G1 is gated on ten verification requirements that a non-existent migration cannot satisfy | PRD §22.2, §10.11.4; `docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md` |
+| **C-2** | `resolveCompanyStatus()` specified fail-**open** | **Resolved (D-1).** The legacy fallback is **deleted, not softened**. Missing root → `deny` / `policy_missing_root`, unconditionally. New gate level **L0** evaluated before everything else. Legacy intelligence status is display-only. A regression test pins the exact scenario the review described | PRD §8.1, §8.2 L0, §11.3, §20.1; ADR-006 D-13 |
+| **C-3** | Tenant-safe FKs for 1 of ~12 references | **Resolved (D-2).** All **22** entity references are composite FKs, with a full matrix, six additive non-partial `(tenant_id, id)` parent indexes, and `ON DELETE SET NULL` on every `users` reference so offboarding is not blocked. `scope_ref_id` is **deleted** and replaced by typed `signal_id` / `requirement_id`. The signals table is named explicitly as `wizmatch_job_signals` — the audit found `signals` is Growth's table with **no `tenant_id` at all**, so a reference to it could never have been tenant-safe | PRD §10.10, §10.10.1, §10.10.2; ADR-006 D-14 |
+| **C-4** | Immutability trigger unbuildable under the stated rule | **Resolved (D-3).** Verified against the pinned drizzle-kit: composite FKs, partial unique indexes and CHECKs **are** emittable; only the trigger is not. Hand-authored SQL is approved for that one construct, inside a marked guard block, under a mandatory six-step process. The "never a hand-written SQL file" rule is restated as a standard with one documented exception rather than as a description of a repo where 22 of 37 migrations are hand-authored (this also closes **M-9**) | PRD §10.11.1, §10.11.2; ADR-006 D-10 |
+| **C-5** | Suppression unique index collides with the two-grain model | **Resolved (D-4), and the migration is additive again.** `suppression_scope` is **deleted**; `wizmatch_suppression_list` is unconditionally exact email/channel grain; the existing `UNIQUE (tenant_id, email)` is **retained, not dropped**, so no non-additive change and no production dedup dry-run. Contact grain stays `contacts.do_not_contact`; company grain is a compliance policy row; history is the new append-only `wizmatch_suppression_events`. A second event for one address is an idempotent upsert, so neither the bounce fact nor the unsubscribe is lost | PRD §8.5, §10.9, §10.9.1; ADR-006 D-15 |
+| **C-6** | No resolver chokepoint named anywhere | **Resolved (D-5).** `evaluateWizmatchOutreachGate` / `assertWizmatchOutreachAllowed` are named, `PolicyDecision` is a branded type constructible only inside the gate module, and a **31-row caller-migration checklist** — built from a full audit of `src/`, with `file:line` for every path — is PR 3's acceptance evidence. All five send paths the review named are on it. `POST /contacts/bulk-email` must gate or reject WizMatch-linked contacts, with the real join mechanism specified rather than guessed. Warm-up is company-policy-exempt but mailbox-health-bound. The audit also surfaced paths the review had not seen: `POST /email-templates/:id/send-test` (arbitrary recipient, neither kill-switch), `POST /email/manual`, `POST /email/send` with a caller-supplied `tenantId`, and `startSequenceWorker` | PRD §8.10, §8.10.1, §8.10.2, §22.3 |
+
+### 19.2 HIGH — twelve of twelve resolved
+
+| # | Disposition |
+|---|---|
+| **H-1** | **Resolved.** `preparationAllowed` is **derived** from the §9 `Prep` cells, not enumerated. The `Prep ⬜` set is exactly six codes. A removal-requested company is no longer prepared |
+| **H-2** | **Resolved (D-7).** `signal_closed`, `signal_expired`, `signal_filled_internally` move `Evid ⬜ → auto`, with the persisted artefact named (source URL + ATS/board state). Invariant 4 now holds |
+| **H-3** | **Resolved.** The three `operational` codes move `Prep ⬜ → ✅`. They are fail-closed for every **outbound** action; preparation is free, sends nothing, and is asserted zero-spend. Invariant 3, §8.9 and the tables now agree |
+| **H-4** | **Resolved.** §8.1.1 names the source for each scope label and makes an **unresolvable scope DENY with `scope_unresolvable`** rather than silently inapplicable. `business_unit` is retained but has no automatic derivation, and that is stated on the policy card rather than discovered at send time. A pause that silently does nothing is no longer possible |
+| **H-5** | **Resolved.** New CHECKs tie `scope_key` to the FK column and to `scope_ref_label`, so an uppercase-UUID key cannot coexist with the app's lowercase one. The `"Cloud Ops"` / `"cloud-ops"` collision is now a rejected duplicate rather than a silent shadow |
+| **H-6** | **Resolved (D-6).** A reply does **not** release the lock. Eight live states hold it, seven terminal states release it, `manually_released` requires actor + reason + event. All **four** copies of the predicate — three indexes plus G4 condition 2 — are amended together and derive from one exported constant |
+| **H-7** | **Resolved (D-7).** The `entire_company` conjunct is dropped from the non-overridability CHECK, new gate level **L1c** denies at narrower scopes, and `CHECK (block_class = 'standard' OR is_non_overridable = true)` makes §8.3's "override: none" enforced rather than merely stated. A BU-scoped contractual restriction is now expressible |
+| **H-8** | **Resolved.** `admin_override` is **deleted** before it acquires data. It was a mutable boolean on an immutable row with no reachable write path, no gate consulting it and no CHECK constraining it. An override is a superseding row with `manual_admin_override`, an actor and evidence |
+| **H-9** | **Resolved as far as a CSV model permits, limitation stated.** ADR-007 D-2 now records that V1 has **no suppression push and no provider stop-list**, that this is structurally inherent to a one-way CSV handoff, and that it is why §8.10 requires a **send-time** check and not only an enrolment-time one. Three mitigations are required before G6. A provider API closes it properly and is the recorded FUTURE path. **Not hidden, not overclaimed** |
+| **H-10** | **Resolved.** A row with `is_non_overridable = true` shows neither Reclassify nor override, at any scope. The UI no longer advertises an action the resolver must refuse |
+| **H-11** | **Resolved.** Every §10.8 ALTER uses `IF NOT EXISTS`, and §10.11.4 requires the generated SQL to be diffed against production `information_schema` rather than `0036_snapshot.json` — naming `0035` as the precedent |
+| **H-12** | **Resolved.** New constraint 2b: `UNIQUE (tenant_id, enrolment_email_key)` over the live states, keyed on the normalised email, so two contact rows for one human cannot both hold a live enrolment |
+
+### 19.3 MEDIUM — disposition
+
+| # | Disposition |
+|---|---|
+| **M-1** | Resolved in the reviewed commit; the handoff records `687b8a0` as pushed and only `bbe881c` as local |
+| **M-2** | Carried as a standing instruction. §22.1 and the handoff both say do not stage `package-lock.json` |
+| **M-3** | **Resolved as a stated guarded-path change.** §10.10.1 records that three of the six indexes are on core tables shared with Growth, that none can fail or reject a write, and that the lock must be **measured on a production-sized restore**. Owner sign-off is now the explicit open item **U-7**, blocking G1 |
+| **M-4** | **Resolved.** §16 specifies shadow semantics in prose: full ladder always evaluated, anything not `enforce` is `shadow`, per-request read, mode change alerted |
+| **M-5** | **Resolved.** A root policy row is written in the same transaction as every company insert, so the condition is maintainable rather than momentary |
+| **M-6** | **Resolved.** Count-deviation abort and re-run no-op, both asserted by test |
+| **M-7** | **Resolved.** With the adapter flag on and `OUTREACH_PROVIDER` unset or unrecognised, the factory **throws at startup** rather than defaulting |
+| **M-8** | **Resolved.** §10.11.4 requirement 8 makes the `check()` / `foreignKey()` round-trip proof a blocking gate, with the generated SQL attached. §10.11.3 additionally names the concrete drift risk the review did not: adopting `check()` may make drizzle-kit propose dropping the three pre-existing CHECKs on Growth's `prospects` and `signals` tables |
+| **M-9** | **Resolved** — folded into C-4 |
+| **M-10** | **Resolved.** §13 gains an explicit top-down state precedence and an approval-capture step for `needs_review` |
+| **M-11** | **Resolved and expanded** — now §5.3 A-10, A-11, A-12. The audit found a fourth, worse instance the review had not: the unsubscribe HMAC is minted over the un-lowercased address and verified over the lowercased one, so **every mixed-case recipient has a permanently 403-ing unsubscribe link** (A-13) |
+| **M-12** | Carried. §22.2 criterion 18 requires `npm run admin:install` before a green suite is used as a PR 2 gate |
+
+### 19.4 LOW — disposition
+
+**L-1** resolved (both citations now read "§1 verdict row 7 / §4"). **L-2** resolved (both passages
+state the code is unchanged and the reversal ships in PR 3). **L-3** resolved (G2 requires the dry-run
+and readiness counts to agree). **L-4** resolved (§16: anything not `enforce` is `shadow`).
+**L-5** carried — `UNIQUE (tenant_id, batch_id, contact_id)` still does not constrain
+`contact_id IS NULL` rows, so a `research_only` batch may hold duplicate company rows; mitigated by
+constraint 3 for live states, and low-impact because `research_only` never sends.
+
+### 19.5 Genuinely unresolved — exact owner decisions still required
+
+Of the six items in §17, five are now decided. What remains:
+
+| # | Decision required | Blocks | Why it is a real decision |
+|---|---|---|---|
+| **U-6** | Supply sanitised Smartlead fixtures — lead-import sample, campaign-results sample, bounce / unsubscribe / reply examples | **PR 9 only** | An input, not a judgement. Without it the header map and the idempotency tier are guesses |
+| **U-7** | Sign off the additive `(tenant_id, id)` unique indexes on `users`, `contacts` and `contact_channels` | **G1 only** | These are core CRM tables shared with the Growth tenant. The indexes cannot fail or reject a write — `id` is already the PK — but the build takes a brief write lock on another product's tables. Accepting that is an operational call, not an engineering one. PR 2 writes the schema and **measures** the lock; applying it is G1 |
+
+**Neither blocks PR 2.** §17's other four items — does `replied` hold the lock (H-6), how a narrower
+compliance block expresses non-overridability (H-7), whether the `operational` codes stop preparation
+(H-3), and whether `admin_override` is real (H-8) — are decided by D-6, D-7, D-7 and D-18
+respectively.
+
+### 19.6 What this pass did **not** change
+
+- No code, no schema, no migration. `0037` still does not exist.
+- No flag flipped, no provider enabled, no send path activated. Both kill-switches remain off and
+  unmodified.
+- No finding above was deleted, reworded or downgraded. §§3–18 are the original text.
+- `package-lock.json` remains unstaged.
 
 ---
 

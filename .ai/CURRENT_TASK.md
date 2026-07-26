@@ -3,19 +3,46 @@
 ## Active task
 
 **IN PROGRESS 2026-07-26 — WizMatch Outbound Operating System, PR 1 of 10 (docs only, DRAFT PR, NOT
-MERGED, NOT PUSHED).** Branch `ge/outbound-01-prd-adrs`, worktree `~/repo-comparison/v2-outbound-os`,
-cut clean from `origin/main` = `1e74812`. Adds `docs/prd/005-wizmatch-outbound-operating-system.md`,
+MERGED).** Branch `ge/outbound-01-prd-adrs`, worktree `~/repo-comparison/v2-outbound-os`, cut clean
+from `origin/main` = `1e74812`. Adds `docs/prd/005-wizmatch-outbound-operating-system.md`,
 `docs/decisions/ADR-006-company-outreach-policy.md` and `ADR-007-outreach-provider-boundary.md`.
 **Documentation only** — no `schema.ts`, no migration, no backend, no frontend, no Railway change, no
 env change, no production data, no sending, no paid provider. Full status:
 `docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md`.
 
-**Reason-code taxonomy is now RATIFIED (2026-07-26).** Three final changes applied on top of the
-initial commit: `policy_accepts_external_vendors` requires evidence; `contact_role_mismatch` replaced
-by `contact_role_uncertain` (review) and `contact_role_confirmed_mismatch` (deny contact, evidence
-required, permanent only for that employment relationship); the 2026-07-09 cost-leakage audit's
-"alert + keep sending" mailer decision is annotated superseded by ADR-006 D-11 (fail closed). PR 2 is
-unblocked.
+**Push state:** `687b8a0` **is** on `origin/ge/outbound-01-prd-adrs`. Later commits are local only.
+Do not rewrite that branch's history.
+
+**SPEC-REPAIR PASS COMPLETE (2026-07-26).** The overnight Opus review
+(`docs/reviews/wizmatch-outbound-overnight-opus-review.md`) found six CRITICAL and twelve HIGH defects
+**in the specification**, not in code — no code exists. All are now dispositioned in that report's new
+§19. Eight owner decisions D-1 … D-8 are recorded as PRD-005 §25.1 A-22 … A-30:
+
+- **D-1** missing root policy fails closed (`policy_missing_root`); the legacy-status fallback is
+  deleted, and `wizmatch_company_intelligence.status` is display-only from here on.
+- **D-2** all 22 cross-table entity references become composite `(tenant_id, ref_id)` FKs;
+  `scope_ref_id` is deleted in favour of typed `signal_id` / `requirement_id`.
+- **D-3** raw SQL approved for the immutability trigger only, inside a marked guard block;
+  `admin_override` deleted.
+- **D-4** suppression keeps three grains in three homes; `suppression_scope` deleted and the existing
+  `UNIQUE (tenant_id, email)` retained, so `0037` is **additive** (it was previously believed not to be).
+- **D-5** one mandatory chokepoint — `evaluateWizmatchOutreachGate` / `assertWizmatchOutreachAllowed`
+  — plus a 31-row caller-migration checklist that is PR 3's acceptance evidence.
+- **D-6** a reply does **not** release the company cold-email lock; 15 enrolment states, 8 live, 7
+  terminal.
+- **D-7** every permanent or non-overridable block requires evidence, CHECK-enforced.
+- **D-8** the taxonomy freezes when PR 2 lands values, not before.
+
+**PR 2 is unblocked.** Build against PRD-005 **§22.2** (twenty acceptance criteria); PR 3 against
+§22.3. Marker: `.ai/OUTBOUND_PR2_SPEC_READY`. Two owner items remain open and neither blocks PR 2 —
+**U-6** Smartlead fixtures (blocks PR 9) and **U-7** sign-off on three shared-table indexes (blocks G1).
+
+**Reason-code taxonomy RATIFIED (2026-07-26), then corrected in the repair pass.**
+`policy_accepts_external_vendors` requires evidence; `contact_role_mismatch` replaced by
+`contact_role_uncertain` and `contact_role_confirmed_mismatch`; the 2026-07-09 cost-leakage audit's
+"alert + keep sending" mailer decision is annotated superseded by ADR-006 D-11 (fail closed). The
+repair pass additionally fixed five evidence violations, three preparation-flag contradictions, and
+added `manual_admin_override` and `manual_lock_release`.
 
 **What it specifies.** A decision-first outbound layer extending (not replacing) PRD-004: a scoped
 company **outreach policy** authoritative over signal score and contact approval; a four-queue Today
@@ -39,10 +66,12 @@ then discarded (`wizmatchBounceParser.ts:57-77`, default-off flag). P1 — `POST
 is fully implemented but has **no caller in the repo**. Carried, not fixed: the `sequence_step` job
 loop is dead (n8n undeployed since 2026-05-03), so WizMatch gets its own enrolment table instead.
 
-**Exact next action:** commit this PR 1 documentation change (docs only, no push/merge), then create
-`ge/outbound-02-policy-schema-service` from the completed PR 1 branch and begin PR 2
-(`schema.ts` + migration `0037` + policy resolver/service) per PRD-005 §10–§11. Still outstanding,
-blocks PR 9 only: sanitised Smartlead CSV fixtures (`U-6`).
+**Exact next action:** create `ge/outbound-02-policy-schema-service` from the completed PR 1 branch and
+begin PR 2 — `schema.ts` + migration `0037` + the policy resolver **and the gate module** — against
+PRD-005 §22.2, §10.1–§10.11 and ADR-006 D-1…D-18. Run `npm run admin:install` first; two suites
+currently fail to *load* on `lucide-react` in a fresh worktree, so the baseline is not green until you
+do. No callers migrate in PR 2. Do not apply `0037` (that is G1, and it also needs U-7), do not push
+without explicit confirmation, do not stage `package-lock.json`.
 
 **Rollout is gated.** Enforcement ships in `shadow` mode (logs what it would block, blocks nothing);
 promotion to `enforce` needs a readiness report plus five hard preconditions and is an explicit owner

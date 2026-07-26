@@ -1,6 +1,9 @@
 # ADR-007: Outreach Provider Boundary
 
-- **Status:** Accepted in principle — no code written; CSV adapter gated on provider fixtures
+- **Status:** Accepted in principle — no code written; CSV adapter gated on provider fixtures.
+  **Amended 2026-07-26** (spec-repair pass): provider-event vs enrolment-state separation made
+  explicit, gate invocation required on export and import, the CSV suppression-lag limitation stated,
+  and D-8's "does not use `sequence_enrolments`" corrected to "supersedes an existing write".
 - **Date:** 2026-07-26
 - **Product contract:** `docs/prd/005-wizmatch-outbound-operating-system.md` §15
 - **Companion:** `ADR-006-company-outreach-policy.md`
@@ -54,6 +57,8 @@ export interface OutreachContactRow {
   companyName: string; companyDomain?: string; title?: string;
   customFields?: Record<string, string>;
 }
+// PROVIDER event vocabulary ONLY. This is NOT the enrolment state machine.
+// Enrolment states are the 15 values in PRD-005 §10.6.1; these five are what a provider reports.
 export type OutreachEventType = 'sent' | 'bounced' | 'replied' | 'unsubscribed' | 'completed';
 export interface OutreachResultEvent {
   email: string; eventType: OutreachEventType; eventAt: Date;
@@ -76,16 +81,49 @@ export interface OutreachProvider {
 The CSV adapter reports `capabilities: { sends: false, polls: false }`. Callers branch on capabilities,
 never on `name`.
 
+**The provider event vocabulary and the enrolment state machine are deliberately separate**, and were
+near-identical in shape in the earlier draft, which invited exactly the wrong inference. The mapping is
+explicit and one-directional:
+
+| Provider event | Enrolment transition | Lock effect |
+|---|---|---|
+| `sent` | → `sent` | **holds** |
+| `replied` | → `replied` | **holds** — a reply never releases the lock (ADR-006 D-16) |
+| `bounced` | → `contact_invalid` | releases |
+| `unsubscribed` | → `unsubscribed` | releases |
+| `completed` | → `completed` | releases |
+
+An import may move an enrolment between **live** states freely. The three lock-releasing rows above are
+mechanical consequences of a channel fact or a stated preference, and are permitted. **No import may
+write `closed`, `disqualified`, `company_blocked` or `manually_released`** — those are human decisions
+about whether a company may be approached again, and a CSV row is not a human decision.
+
 ### D-2 — V1 is CSV export plus CSV result import, and nothing else
 
 1. Smartlead-compatible CSV export of approved and queued contacts.
 2. Result CSV import for `sent`, `bounced`, `replied`, `unsubscribed`, `completed`.
 3. Idempotent re-import.
 4. Campaign batch and external provider reference tracking.
-5. Suppression updates for bounces and unsubscribes.
+5. Suppression updates for bounces and unsubscribes, written **only** through the canonical gate's
+   `suppress()` (PRD-005 §8.10), per the corrected two-write rule in §8.5 / §10.9.
 6. **Existing IMAP remains the authoritative source for full reply bodies.**
 7. **No Smartlead API keys, API calls, credentials or recurring cost.**
 8. All Smartlead-specific column mapping isolated inside the adapter.
+9. **Export and import both call the canonical gate.** Export re-evaluates per row and omits any DENY;
+   import may not write a lock-releasing terminal state beyond the three mechanical ones (D-1 table).
+
+**Known limitation of the CSV model, stated rather than discovered.** V1 has **no suppression push and
+no provider stop-list**. A contact exported on Monday who unsubscribes on Tuesday gets a suppression
+row and an enrolment transition locally, but the provider keeps sending the remaining steps. This is
+structurally inherent to a one-way CSV handoff, and it is the reason PRD-005 §8.10 requires a
+**send-time** gate check and not only an enrolment-time one — the local half of the exposure is
+closed even though the remote half cannot be, without an API.
+
+Three mitigations are required before G6, not after: batches are kept small enough that the exposure
+window is short; the operator runbook includes uploading the suppression list to the provider manually
+after any import that writes suppressions; and any import writing more than a configurable number of
+suppressions raises a Slack alert (PRD-005 §17). A real provider API with `capabilities.sends = true`
+would close it properly, and is the recorded FUTURE path.
 
 ### D-3 — Idempotency prefers provider IDs; a hash is the last resort
 
@@ -162,6 +200,17 @@ Outreach enrolment state lives in `wizmatch_outreach_enrolments`, a WizMatch-own
 Repairing that loop means reviving or replacing n8n, which is a separate project. It is recorded as a
 known-dead path so a future reader does not mistake it for working follow-up.
 
+**Correction, 2026-07-26: WizMatch already writes to `sequence_enrolments` today.**
+`wizmatchOutreachService.ts:243` inserts a follow-up enrolment with a raw `db.insert(sequenceEnrolments)`
+after every send, bypassing `enrolContact` and therefore bypassing the repo's only enforcing read of
+`contacts.do_not_contact` (`sequenceService.ts:41`). The rows land in the dead `sequence_step` loop and
+sit `pending` forever.
+
+"Does not use" was therefore aspirational, not descriptive. The accurate statement: the new table
+**supersedes** that write. PR 3 must either delete the `sequence_enrolments` insert or route it through
+the canonical gate (PRD-005 §8.10.1 row 3) — leaving it in place would keep an ungated, invisible
+enrolment path alongside the gated one, which is the C-6 failure mode in miniature.
+
 ### D-9 — No automatic sending
 
 The adapter cannot send. `capabilities.sends = false` for every V1 provider, and no milestone in
@@ -172,8 +221,11 @@ separate go-live decision under `.claude/skills/wizmatch-go-live-sending`.
 
 - `wizmatch_outreach_batches`, `wizmatch_outreach_enrolments`, `wizmatch_outreach_events` and
   `wizmatch_reply_mailboxes` all carry `tenant_id uuid NOT NULL REFERENCES tenants(id)`; indexes lead
-  with `tenant_id`.
-- Import writes suppression rows and enrolment transitions inside one transaction per event batch.
+  with `tenant_id`. Every cross-table entity reference among them is a **composite FK**
+  `(tenant_id, ref_id)` per ADR-006 D-14 and PRD-005 §10.10.
+- Import writes suppression rows and enrolment transitions inside one transaction per event batch,
+  through the canonical gate, and **never writes a lock-releasing terminal state** beyond the three
+  mechanical ones (D-1).
 - Export re-evaluates policy **per row at export time** and omits any DENY, recording each omission
   with its reason code. The export is never a stale snapshot of an earlier decision.
 - Export files contain contact PII: generated on demand, streamed, never persisted to disk or object
@@ -197,7 +249,12 @@ Rollback is a flag flip. The tables are additive and are left in place.
 - Re-importing the same result CSV produces zero new events and zero duplicate suppressions.
 - Each idempotency tier is selected correctly and `key_source` is recorded.
 - A bounce suppresses the channel and does **not** set `contacts.do_not_contact`; an unsubscribe sets it
-  and does **not** block the company.
+  **and** writes the exact-email suppression row when the email is known, and does **not** block the
+  company. A bounce then an unsubscribe for the same address produce **one** suppression row and **two**
+  suppression events.
+- A provider `replied` event does **not** release the company cold-email lock; an import cannot write
+  `closed`, `disqualified`, `company_blocked` or `manually_released`.
+- Export and import both call the canonical gate; a caller cannot fabricate a `PolicyDecision`.
 - A `review`-decision batch without `approved_by` is refused at create and at export.
 - `provider_config` containing a secret-like key is rejected; a `secret_ref` without a scheme is
   rejected; no fixture contains a real credential.

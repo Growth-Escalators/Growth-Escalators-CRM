@@ -3,12 +3,17 @@
 Chat-independent status for the `ge/outbound-0X-*` stacked-PR sequence. Read this before
 `docs/prd/005-wizmatch-outbound-operating-system.md` if you only need "where are we, what's next."
 
-> **Reviewed 2026-07-26 (Opus review lead).** Full report:
-> [`docs/reviews/wizmatch-outbound-overnight-opus-review.md`](../reviews/wizmatch-outbound-overnight-opus-review.md).
-> **Verdict: do not proceed to PR 2 as currently specified.** Six CRITICAL and twelve HIGH findings
-> against the PRD/ADR specification, including one (C-2) where the `resolveCompanyStatus()`
-> compatibility fallback would make the whole fail-closed design fail **open**. PR 1 itself is sound
-> and should be kept. **Only PR 1 exists** — PRs 2, 3 and 4 were not implemented.
+> **Reviewed 2026-07-26 (Opus review lead), then repaired 2026-07-26 (spec-repair pass).** Full report:
+> [`docs/reviews/wizmatch-outbound-overnight-opus-review.md`](../reviews/wizmatch-outbound-overnight-opus-review.md)
+> — findings in §§3–6, dispositions in **§19**.
+>
+> **Current verdict: PR 2 may proceed**, against the acceptance criteria in PRD-005 §22.2.
+> All six CRITICAL and all twelve HIGH findings are dispositioned: six CRITICAL resolved by
+> specification change, eleven HIGH resolved, one (H-9) resolved as far as a CSV model permits with
+> the residual limitation stated. Two owner items remain open and **neither blocks PR 2**: U-6
+> (Smartlead fixtures, blocks PR 9) and U-7 (sign-off on three shared-table indexes, blocks G1).
+>
+> **Only PR 1 exists** — PRs 2, 3 and 4 have still not been implemented. `0037` does not exist.
 
 ## Completed PRs
 
@@ -58,14 +63,18 @@ from `origin/main` = `1e74812`.
 - `bbe881c` — taxonomy ratification + this status doc. Local only.
 - Review commit — this session's review report + handoff correction. Local only.
 
-## Files changed (this session)
+## Files changed (spec-repair session, 2026-07-26)
 
 - `docs/prd/005-wizmatch-outbound-operating-system.md`
 - `docs/decisions/ADR-006-company-outreach-policy.md`
-- `docs/reviews/wizmatch-cost-leakage-audit-2026-07-09.md`
-- `docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md` (new, this file)
+- `docs/decisions/ADR-007-outreach-provider-boundary.md`
+- `docs/reviews/wizmatch-outbound-overnight-opus-review.md` (new §19, findings preserved verbatim)
+- `docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md` (this file)
 - `.ai/CURRENT_TASK.md`
 - `.ai/HANDOFF_LOG.md`
+- `.ai/OUTBOUND_PR2_SPEC_READY` (new marker)
+
+Documentation and context layer only. No `src/`, no `admin/`, no `client/`, no migration, no config.
 
 ## Migration generated
 
@@ -89,23 +98,44 @@ fail to **load** with `Cannot find package 'lucide-react'`. Zero assertion failu
 environmental: `admin/node_modules` does not exist in this worktree. Run `npm run admin:install` before
 using a green suite as a PR 2 gate.
 
+### Spec-repair pass — 2026-07-26 (docs only)
+
+Applied on `ge/outbound-01-prd-adrs`. Eight owner decisions D-1 … D-8, recorded as PRD-005 §25.1
+A-22 … A-30. Three read-only Explore subagents produced the evidence (schema/tenancy, chokepoint
+callers, states/suppression/taxonomy); the main session owned every edit.
+
+| Decision | Effect | Resolves |
+|---|---|---|
+| D-1 | Missing root policy → `deny` / `policy_missing_root`. Legacy-status fallback **deleted**. New gate **L0**. Legacy intelligence status is display-only | C-2 |
+| D-2 | All **22** entity references become composite `(tenant_id, ref_id)` FKs. `scope_ref_id` **deleted**, replaced by typed `signal_id` / `requirement_id`. Signals table named as `wizmatch_job_signals` | C-3, H-5 |
+| D-3 | Raw SQL approved for the immutability trigger only, in a marked guard block, six-step process. `admin_override` **deleted** | C-4, H-8, M-9 |
+| D-4 | `suppression_scope` **deleted**; `UNIQUE (tenant_id, email)` **retained** → `0037` is additive again. Three grains, three homes, append-only `wizmatch_suppression_events` | C-5 |
+| D-5 | `evaluateWizmatchOutreachGate` / `assertWizmatchOutreachAllowed` named; branded `PolicyDecision`; **31-row caller-migration checklist** with `file:line` | C-6, H-9 |
+| D-6 | A reply does **not** release the cold-email lock. 15 enrolment states: 8 live, 7 terminal. All four lock predicates amended together | H-6 |
+| D-7 | Evidence required for every permanent **or** non-overridable block, CHECK-enforced. New gate **L1c**. Taxonomy corrected; §9.11 gains invariant 5 | H-2, H-7 |
+| D-8 | Taxonomy correctable until PR 2; after PR 2 a rename needs a migration plus compatibility mapping | — |
+
+**Two schema facts the audit corrected that PR 2 must not get wrong:** the signals table is
+`wizmatch_job_signals` — the table named `signals` is Growth's and has **no `tenant_id` at all**; and
+adopting drizzle's `check()` for the first time may make drizzle-kit propose **dropping** the three
+pre-existing CHECK constraints on Growth's `prospects` / `signals` tables (`0017:32-63`), which is the
+concrete way an "additive" migration could damage Growth. §10.11.3 makes catching that a blocking gate.
+
 ## Blockers
 
-**PR 2 is blocked on specification fixes**, not on ratification. The 2026-07-26 review found six
-CRITICAL findings that must be resolved in PRD-005/ADR-006 before any schema work starts:
+**PR 2 is unblocked.** Build against PRD-005 §22.2 (twenty acceptance criteria). PR 3 builds against
+§22.3, whose acceptance evidence is the §8.10.1 caller checklist.
 
-- **C-2** — `resolveCompanyStatus()` legacy fallback (§11.3) is fail-**open** and contradicts §8.1/§8.2.
-- **C-3** — tenant-safe composite FKs specified for 1 of ~12 cross-table FKs; `scope_ref_id` has no FK.
-- **C-4** — the immutability trigger (ADR-006 D-10) cannot be produced by `db:generate`, which §10 says
-  is the only permitted route. Repo has zero triggers.
-- **C-5** — the existing `UNIQUE (tenant_id, email)` on `wizmatch_suppression_list` collides with §8.5's
-  two-grain write model; the fix is **non-additive**.
-- **C-6** — no resolver chokepoint is named; no send path is required to call the resolver.
+Still open, neither blocking PR 2:
 
-See the review report for the full list, the twelve HIGH findings, and the six genuinely unresolved
-owner decisions (notably: does `replied` hold the cold-email lock?).
+- **U-6** — sanitised Smartlead CSV fixtures. Blocks **PR 9** only.
+- **U-7** — owner sign-off on the additive `(tenant_id, id)` unique indexes on `users`, `contacts` and
+  `contact_channels`, which are core CRM tables shared with the Growth tenant. The indexes cannot fail
+  or reject a write, but the build takes a brief write lock on another product's tables. Blocks **G1**
+  only; PR 2 writes the schema and measures the lock.
 
-PR 9 (`ge/outbound-09-smartlead-csv`) remains blocked on Smartlead CSV fixtures (`U-6`).
+Note the C-5 status change: the handoff previously recorded the suppression fix as **non-additive**.
+Under D-4 it is **additive** — no index is dropped and no production dedup dry-run is needed.
 
 ## Do not commit
 
@@ -120,10 +150,23 @@ brief and are recorded verbatim in PRD §25.1 A-21.
 
 ## Subagent findings used
 
-None yet — PR 1 required no read-only investigation beyond re-reading the already-approved PRD/ADR
-text in this session. Read-only Explore subagents are scoped for PR 2 (schema/migration constraints),
-PR 3 (policy/suppression call-site mapping) and PR 4 (UI/routes/test-surface) per the task brief, and
-will be dispatched immediately before each of those PRs starts.
+**Spec-repair pass, 2026-07-26** — three read-only Explore subagents run in parallel, each restricted
+from editing, committing, branch changes, production, Railway and migration application. The main
+session owned every edit.
+
+1. **Schema + tenant references** — produced the 22-row tenant-reference matrix; confirmed 0 composite
+   FKs, 0 `check()` and 0 triggers in the repo today; established that composite FKs, partial unique
+   indexes and CHECKs **are** emittable at `drizzle-kit@0.31.10` / `drizzle-orm@0.45.2` and only
+   triggers are not; identified the `wizmatch_job_signals` vs Growth `signals` naming trap and the
+   `0017` CHECK-drift risk.
+2. **Chokepoint callers** — audited every send-capable function, route, worker and suppression
+   read/write site in `src/`, producing the 31-row caller-migration checklist and the four real
+   `contacts` → `wizmatch_companies` link mechanisms. Found four defects the review had not: the
+   un-normalised `classify-reply` suppression write, the broken unsubscribe HMAC for mixed-case
+   addresses, warm-up ignoring domain health, and four send paths honouring neither kill-switch.
+3. **States, locks, suppression, evidence** — enumerated every doc line carrying an enrolment-state
+   list or lock predicate (four copies, all amended), classified every suppression statement against
+   D-4, and produced the exhaustive evidence-invariant and preparation-flag contradiction lists.
 
 ## Security observations
 
@@ -131,21 +174,20 @@ None new. No credential, schema, auth/RBAC, Cashfree or production-data path was
 
 ## Exact next step
 
-**Do not start PR 2 implementation.** The next unit of work is a specification pass, not code.
+**Start PR 2**, on a branch cut from `ge/outbound-01-prd-adrs`.
 
-1. Read `docs/reviews/wizmatch-outbound-overnight-opus-review.md` §13 ("required fixes before
-   pushing") and §17 ("genuinely unresolved owner decisions").
-2. Get owner rulings on the six decisions in §17 — chiefly: does `replied` hold the company cold-email
-   lock; how does a compliance block narrower than `entire_company` express non-overridability; do the
-   three `operational` codes stop free preparation; is `admin_override` real or dead weight.
-3. Apply the spec fixes to `docs/prd/005-…md` and `ADR-006` on `ge/outbound-01-prd-adrs`: C-2, C-4,
-   H-1, H-2, H-3, H-7, H-8, plus L-1/L-2. The §9 taxonomy edits (H-2, H-3) must land **before** PR 2,
-   because the PRD freezes those values once rows exist.
-4. Decide the three architectural questions — FK tenancy pattern (C-3), immutability mechanism given
-   drizzle-kit cannot emit triggers (C-4), named resolver chokepoint (C-6) — and record each as an ADR
-   amendment.
-5. Re-plan PR 2 against the corrected spec. Note that C-5 (the `wizmatch_suppression_list` unique
-   index) makes `0037` **non-additive**, which changes its risk profile and its G1 gate.
-6. Only then implement PR 2. Do **not** apply `0037` to production, run the backfill with `--apply`,
-   promote enforcement to `enforce`, or connect to Railway. Run `npm run build` and `npm test` and
-   report real results (see the known `lucide-react` load failures above).
+1. Read PRD-005 §0.3 in order, then §22.2 — the twenty acceptance criteria are the contract. Then
+   §10.1–§10.11, ADR-006 D-1 … D-18, ADR-007.
+2. Confirm `.ai/OUTBOUND_PR2_SPEC_READY` exists and its `commit=` matches this branch tip. If it does
+   not, the spec has moved and §22.2 must be re-read before writing code.
+3. Run `npm run admin:install` first — two suites fail to **load** on `lucide-react` in a fresh
+   worktree, and a red baseline cannot gate anything.
+4. Write `schema.ts` + generate `0037` + build the resolver and the gate module. **No callers migrate
+   in PR 2.**
+5. Run all ten §10.11.4 verification requirements and put the **real output** in the PR — fresh
+   `0000→0037` replay, incremental apply, re-apply no-op, journal `when` > `1784464092263`, production
+   `information_schema` drift diff, destructive-statement scan, guard-block audit, `check()`/`foreignKey()`
+   round-trip proof, index lock measurement, trigger test.
+6. Do **not** apply `0037` to production (that is G1, and it also needs U-7), run the backfill with
+   `--apply`, promote enforcement to `enforce`, touch Railway, or push without explicit confirmation.
+7. Do not stage `package-lock.json`.
