@@ -12,8 +12,14 @@ import {
   real,
   index,
   uniqueIndex,
+  foreignKey,
+  check,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import {
+  WIZMATCH_LIVE_STATES_SQL_LIST,
+  WIZMATCH_ALL_STATES_SQL_LIST,
+} from '../config/wizmatchOutreachStates';
 
 // ---------------------------------------------------------------------------
 // TABLE 1 — tenants
@@ -59,6 +65,10 @@ export const contacts = pgTable(
   (t) => ({
     tenantIdIdx: index('contacts_tenant_id_idx').on(t.tenantId),
     statusIdx: index('contacts_status_idx').on(t.status),
+    // Additive, non-partial — required as a composite-FK parent target for
+    // WizMatch outbound-policy tables (PRD-005 §10.10.1). Cannot fail or
+    // reject a write: `id` is already the primary key.
+    tenantIdIdUniq: uniqueIndex('contacts_tenant_id_id_uniq').on(t.tenantId, t.id),
   }),
 );
 
@@ -86,6 +96,9 @@ export const contactChannels = pgTable(
       t.channelType,
       t.channelValue,
     ),
+    // Additive, non-partial — composite-FK parent target for
+    // wizmatch_suppression_list.contact_channel_id (PRD-005 §10.10.1).
+    tenantIdIdUniq: uniqueIndex('contact_channels_tenant_id_id_uniq').on(t.tenantId, t.id),
   }),
 );
 
@@ -457,6 +470,12 @@ export const users = pgTable(
   },
   (t) => ({
     tenantEmailIdx: uniqueIndex('users_tenant_email_unique').on(t.tenantId, t.email),
+    // Additive, non-partial — composite-FK parent target for every WizMatch
+    // reference into `users` (PRD-005 §10.10.1, ADR-006 D-14). Cannot fail or
+    // reject a write: `id` is already the primary key. Guarded-path change on
+    // a table shared with the Growth tenant — owner sign-off required at G1,
+    // not at PR 2 (this PR only writes and measures it).
+    tenantIdIdUniq: uniqueIndex('users_tenant_id_id_uniq').on(t.tenantId, t.id),
   }),
 );
 
@@ -1327,6 +1346,11 @@ export const wizmatchCompanies = pgTable(
     primeMsaSignedAt: timestamp('prime_msa_signed_at'),
     primeContactId: uuid('prime_contact_id').references(() => contacts.id),
     notes: text('notes'),
+    // PRD-005 §10.8 / ADR-006 D-14 — the account owner for `existing_client` /
+    // `vendor_partner` / `prime_partner` relationship routing (§8.7). Nullable
+    // and ON DELETE SET NULL so teammate offboarding is never blocked by a
+    // WizMatch-local foreign key.
+    accountOwnerUserId: uuid('account_owner_user_id'),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
   },
@@ -1335,6 +1359,14 @@ export const wizmatchCompanies = pgTable(
     domainIdx: index('wizmatch_companies_domain_idx').on(t.domain),
     primeIdx: index('wizmatch_companies_prime_idx').on(t.isPrime),
     tenantNameUniq: uniqueIndex('wizmatch_companies_tenant_name_idx').on(t.tenantId, t.name),
+    // Additive, non-partial — composite-FK parent target for every WizMatch
+    // outbound-policy table referencing a company (PRD-005 §10.10.1).
+    tenantIdIdUniq: uniqueIndex('wizmatch_companies_tenant_id_id_uniq').on(t.tenantId, t.id),
+    accountOwnerFk: foreignKey({
+      columns: [t.tenantId, t.accountOwnerUserId],
+      foreignColumns: [users.tenantId, users.id],
+      name: 'wizmatch_companies_account_owner_fk',
+    }).onDelete('set null'),
   }),
 );
 
@@ -1382,6 +1414,9 @@ export const wizmatchJobSignals = pgTable(
     tenantFingerprintUniq: uniqueIndex('wizmatch_job_signals_tenant_fingerprint_idx')
       .on(t.tenantId, t.identityFingerprint)
       .where(sql`${t.identityFingerprint} IS NOT NULL`),
+    // Additive, non-partial — composite-FK parent target for
+    // wizmatch_company_policies.signal_id (PRD-005 §10.10.1).
+    tenantIdIdUniq: uniqueIndex('wizmatch_job_signals_tenant_id_id_uniq').on(t.tenantId, t.id),
   }),
 );
 
@@ -1514,11 +1549,23 @@ export const wizmatchSuppressionList = pgTable(
     sourceChannel: text('source_channel'), // email | linkedin | sms | phone
     suppressedAt: timestamp('suppressed_at').defaultNow(),
     notes: text('notes'),
+    // PRD-005 §10.8 / ADR-006 D-4 — marks a channel invalid inside the
+    // WizMatch-owned suppression table rather than adding columns to the
+    // shared core `contact_channels`. `suppression_scope` is deliberately
+    // NOT added (D-4/D-15) — this table stays exact email/channel grain and
+    // the existing UNIQUE(tenant_id, email) index below is untouched.
+    contactChannelId: uuid('contact_channel_id'),
+    channelInvalid: boolean('channel_invalid').notNull().default(false),
   },
   (t) => ({
     tenantEmailIdx: index('wizmatch_suppression_tenant_email_idx').on(t.tenantId, t.email),
     contactIdx: index('wizmatch_suppression_contact_idx').on(t.contactId),
     tenantEmailUniq: uniqueIndex('wizmatch_suppression_tenant_email_uniq_idx').on(t.tenantId, t.email),
+    contactChannelFk: foreignKey({
+      columns: [t.tenantId, t.contactChannelId],
+      foreignColumns: [contactChannels.tenantId, contactChannels.id],
+      name: 'wizmatch_suppression_list_contact_channel_fk',
+    }).onDelete('set null'),
   }),
 );
 
@@ -1581,6 +1628,9 @@ export const wizmatchRequirements = pgTable(
     regionIdx: index('wizmatch_requirements_region_idx').on(t.region),
     stageIdx: index('wizmatch_requirements_stage_idx').on(t.tenantId, t.stage),
     nextActionIdx: index('wizmatch_requirements_next_action_idx').on(t.tenantId, t.nextActionDueAt),
+    // Additive, non-partial — composite-FK parent target for
+    // wizmatch_company_policies.requirement_id (PRD-005 §10.10.1).
+    tenantIdIdUniq: uniqueIndex('wizmatch_requirements_tenant_id_id_uniq').on(t.tenantId, t.id),
   }),
 );
 
@@ -2374,5 +2424,602 @@ export const seoContentCalendar = pgTable(
     uniqueIdx: uniqueIndex('seo_content_calendar_unique_idx').on(t.clientDomain, t.keyword, t.contentType),
     statusIdx: index('seo_calendar_status_idx').on(t.status),
     clientIdx: index('seo_calendar_client_idx').on(t.clientDomain),
+  }),
+);
+
+// ===========================================================================
+// WIZMATCH OUTBOUND POLICY MODULE — PRD-005 §10, ADR-006, ADR-007
+// Migration 0037. Schema + resolver only — no caller migrates in this PR
+// (PRD-005 §22.2). All tables tenant-scoped; every cross-table entity
+// reference is a composite FK (tenant_id, ref_id) -> parent (tenant_id, id)
+// per ADR-006 D-14 / PRD-005 §10.10. `WIZMATCH_LIVE_STATES_SQL_LIST` /
+// `WIZMATCH_ALL_STATES_SQL_LIST` are the one exported constant every
+// enrolment-state CHECK and partial-index predicate below derives from
+// (PRD-005 §20.1, resolves review H-6's "four copies of the predicate").
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// TABLE — wizmatch_company_policies (PRD-005 §10.1, ADR-006 D-1..D-7, D-17, D-18)
+// ---------------------------------------------------------------------------
+export const wizmatchCompanyPolicies = pgTable(
+  'wizmatch_company_policies',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    companyId: uuid('company_id').notNull(),
+    // entire_company | region | business_unit | location | specific_signal | specific_requirement
+    scopeType: text('scope_type').notNull(),
+    // Canonical, normalised — built only by buildScopeKey(). Sole carrier of scope identity.
+    scopeKey: text('scope_key').notNull(),
+    signalId: uuid('signal_id'),
+    requirementId: uuid('requirement_id'),
+    scopeRefLabel: text('scope_ref_label'),
+    // eligible | needs_review | paused | blocked. NULL on a scoped row = inherit.
+    outreachEligibility: text('outreach_eligibility'),
+    // accepts_external_vendors | fte_vendors_only | contract_vendors_only | preferred_vendors_only |
+    // msp_vms_only | direct_hiring_only | no_external_agencies | unknown. NULL = inherit.
+    externalHiringPolicy: text('external_hiring_policy'),
+    // new_prospect | existing_prospect | existing_client | vendor_partner | prime_partner |
+    // former_client | competitor | irrelevant. NULL = inherit.
+    relationshipType: text('relationship_type'),
+    reasonCode: text('reason_code'),
+    reason: text('reason'),
+    // human_text | source_url | email_reply_ref | provider_event_ref | legal_document_ref | automated_detection
+    evidenceKind: text('evidence_kind'),
+    evidenceText: text('evidence_text'),
+    evidenceUrl: text('evidence_url'),
+    evidenceRef: text('evidence_ref'),
+    // human | import | deterministic_rule | provider
+    source: text('source').notNull(),
+    actorUserId: uuid('actor_user_id'),
+    isPermanent: boolean('is_permanent').notNull().default(false),
+    // standard | compliance | legal
+    blockClass: text('block_class').notNull().default('standard'),
+    isNonOverridable: boolean('is_non_overridable').notNull().default(false),
+    reviewDate: date('review_date'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    // Supersession metadata only — the ONLY two columns a service update path
+    // may ever touch (ADR-006 D-10). Enforced by the immutability trigger
+    // appended as raw SQL in the 0037 guard block (§10.11.2).
+    supersededAt: timestamp('superseded_at', { withTimezone: true }),
+    supersededByPolicyId: uuid('superseded_by_policy_id'),
+  },
+  (t) => ({
+    // Non-partial — required as the composite-FK target for the self-reference
+    // and for wizmatch_company_policy_events (§10.10).
+    tenantIdIdUniq: uniqueIndex('wizmatch_company_policies_tenant_id_id_uniq').on(t.tenantId, t.id),
+    activeScopeUniq: uniqueIndex('wizmatch_company_policies_active_scope_uniq')
+      .on(t.tenantId, t.companyId, t.scopeKey)
+      .where(sql`${t.supersededAt} IS NULL`),
+    tenantEligibilityIdx: index('wizmatch_company_policies_tenant_eligibility_idx')
+      .on(t.tenantId, t.outreachEligibility)
+      .where(sql`${t.supersededAt} IS NULL`),
+    tenantCompanyIdx: index('wizmatch_company_policies_tenant_company_idx')
+      .on(t.tenantId, t.companyId)
+      .where(sql`${t.supersededAt} IS NULL`),
+    reviewDateIdx: index('wizmatch_company_policies_review_date_idx')
+      .on(t.tenantId, t.reviewDate)
+      .where(sql`${t.reviewDate} IS NOT NULL AND ${t.supersededAt} IS NULL`),
+
+    companyFk: foreignKey({
+      columns: [t.tenantId, t.companyId],
+      foreignColumns: [wizmatchCompanies.tenantId, wizmatchCompanies.id],
+      name: 'wizmatch_company_policies_company_fk',
+    }).onDelete('cascade'),
+    signalFk: foreignKey({
+      columns: [t.tenantId, t.signalId],
+      foreignColumns: [wizmatchJobSignals.tenantId, wizmatchJobSignals.id],
+      name: 'wizmatch_company_policies_signal_fk',
+    }).onDelete('cascade'),
+    requirementFk: foreignKey({
+      columns: [t.tenantId, t.requirementId],
+      foreignColumns: [wizmatchRequirements.tenantId, wizmatchRequirements.id],
+      name: 'wizmatch_company_policies_requirement_fk',
+    }).onDelete('cascade'),
+    actorFk: foreignKey({
+      columns: [t.tenantId, t.actorUserId],
+      foreignColumns: [users.tenantId, users.id],
+      name: 'wizmatch_company_policies_actor_fk',
+    }).onDelete('set null'),
+    // Self composite FK — supersession pointer only.
+    supersededByFk: foreignKey({
+      columns: [t.tenantId, t.supersededByPolicyId],
+      foreignColumns: [t.tenantId, t.id],
+      name: 'wizmatch_company_policies_superseded_by_fk',
+    }).onDelete('set null'),
+
+    // -- scope identity (ADR-006 D-2, resolves review H-5) --
+    scopeKeyRootChk: check(
+      'wizmatch_company_policies_scope_key_root_chk',
+      sql`(scope_type = 'entire_company') = (scope_key = 'entire_company')`,
+    ),
+    signalRefChk: check(
+      'wizmatch_company_policies_signal_ref_chk',
+      sql`(scope_type = 'specific_signal') = (signal_id IS NOT NULL)`,
+    ),
+    requirementRefChk: check(
+      'wizmatch_company_policies_requirement_ref_chk',
+      sql`(scope_type = 'specific_requirement') = (requirement_id IS NOT NULL)`,
+    ),
+    labelRefChk: check(
+      'wizmatch_company_policies_label_ref_chk',
+      sql`(scope_type IN ('region','business_unit','location')) = (scope_ref_label IS NOT NULL)`,
+    ),
+    scopeKeyPrefixChk: check(
+      'wizmatch_company_policies_scope_key_prefix_chk',
+      sql`scope_type = 'entire_company' OR scope_key LIKE scope_type || ':%'`,
+    ),
+    scopeKeySignalAgreementChk: check(
+      'wizmatch_company_policies_scope_key_signal_agreement_chk',
+      sql`scope_type <> 'specific_signal' OR scope_key = 'specific_signal:' || signal_id::text`,
+    ),
+    scopeKeyRequirementAgreementChk: check(
+      'wizmatch_company_policies_scope_key_requirement_agreement_chk',
+      sql`scope_type <> 'specific_requirement' OR scope_key = 'specific_requirement:' || requirement_id::text`,
+    ),
+    scopeKeyLabelAgreementChk: check(
+      'wizmatch_company_policies_scope_key_label_agreement_chk',
+      sql`scope_type NOT IN ('region','business_unit','location') OR scope_key = scope_type || ':' || scope_ref_label`,
+    ),
+    pausedReviewDateChk: check(
+      'wizmatch_company_policies_paused_review_date_chk',
+      sql`outreach_eligibility <> 'paused' OR review_date IS NOT NULL`,
+    ),
+    regionLabelChk: check(
+      'wizmatch_company_policies_region_label_chk',
+      sql`scope_type <> 'region' OR scope_ref_label IN ('india','us')`,
+    ),
+    // -- inheritance (ADR-006 D-3) --
+    rootDefinesAllChk: check(
+      'wizmatch_company_policies_root_defines_all_chk',
+      sql`scope_type <> 'entire_company' OR (outreach_eligibility IS NOT NULL AND external_hiring_policy IS NOT NULL AND relationship_type IS NOT NULL)`,
+    ),
+    scopedOverridesOneChk: check(
+      'wizmatch_company_policies_scoped_overrides_one_chk',
+      sql`scope_type = 'entire_company' OR (outreach_eligibility IS NOT NULL OR external_hiring_policy IS NOT NULL OR relationship_type IS NOT NULL)`,
+    ),
+    // -- block metadata (ADR-006 D-5, D-17, resolves review H-7/H-8) --
+    nonOverridableOnBlockedChk: check(
+      'wizmatch_company_policies_non_overridable_on_blocked_chk',
+      sql`is_non_overridable = false OR outreach_eligibility = 'blocked'`,
+    ),
+    blockClassOnBlockedChk: check(
+      'wizmatch_company_policies_block_class_on_blocked_chk',
+      sql`block_class = 'standard' OR outreach_eligibility = 'blocked'`,
+    ),
+    blockClassOverrideChk: check(
+      'wizmatch_company_policies_block_class_override_chk',
+      sql`block_class = 'standard' OR is_non_overridable = true`,
+    ),
+    // -- evidence (ADR-006 D-7, resolves review H-2/invariant 5) --
+    evidenceRequiredChk: check(
+      'wizmatch_company_policies_evidence_required_chk',
+      sql`(is_permanent = false AND is_non_overridable = false) OR (evidence_kind IS NOT NULL AND (evidence_text IS NOT NULL OR evidence_url IS NOT NULL OR evidence_ref IS NOT NULL))`,
+    ),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE — wizmatch_company_policy_events (PRD-005 §10.2) — append-only, no UPDATE/DELETE path
+// ---------------------------------------------------------------------------
+export const wizmatchCompanyPolicyEvents = pgTable(
+  'wizmatch_company_policy_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    companyId: uuid('company_id').notNull(),
+    policyId: uuid('policy_id').notNull(),
+    previousPolicyId: uuid('previous_policy_id'),
+    fromState: jsonb('from_state'),
+    toState: jsonb('to_state'),
+    reasonCode: text('reason_code').notNull(),
+    reason: text('reason'),
+    evidenceKind: text('evidence_kind'),
+    evidenceText: text('evidence_text'),
+    evidenceUrl: text('evidence_url'),
+    evidenceRef: text('evidence_ref'),
+    actorUserId: uuid('actor_user_id'),
+    source: text('source').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantCompanyIdx: index('wizmatch_company_policy_events_tenant_company_idx').on(t.tenantId, t.companyId),
+    tenantPolicyIdx: index('wizmatch_company_policy_events_tenant_policy_idx').on(t.tenantId, t.policyId),
+    companyFk: foreignKey({
+      columns: [t.tenantId, t.companyId],
+      foreignColumns: [wizmatchCompanies.tenantId, wizmatchCompanies.id],
+      name: 'wizmatch_company_policy_events_company_fk',
+    }).onDelete('cascade'),
+    policyFk: foreignKey({
+      columns: [t.tenantId, t.policyId],
+      foreignColumns: [wizmatchCompanyPolicies.tenantId, wizmatchCompanyPolicies.id],
+      name: 'wizmatch_company_policy_events_policy_fk',
+    }).onDelete('restrict'),
+    previousPolicyFk: foreignKey({
+      columns: [t.tenantId, t.previousPolicyId],
+      foreignColumns: [wizmatchCompanyPolicies.tenantId, wizmatchCompanyPolicies.id],
+      name: 'wizmatch_company_policy_events_previous_policy_fk',
+    }).onDelete('set null'),
+    actorFk: foreignKey({
+      columns: [t.tenantId, t.actorUserId],
+      foreignColumns: [users.tenantId, users.id],
+      name: 'wizmatch_company_policy_events_actor_fk',
+    }).onDelete('set null'),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE — wizmatch_company_duplicates (PRD-005 §10.3)
+// ---------------------------------------------------------------------------
+export const wizmatchCompanyDuplicates = pgTable(
+  'wizmatch_company_duplicates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    companyAId: uuid('company_a_id').notNull(),
+    companyBId: uuid('company_b_id').notNull(),
+    similarity: numeric('similarity', { precision: 5, scale: 4 }),
+    // domain | normalised_name
+    detectionRule: text('detection_rule').notNull(),
+    // pending | merged | confirmed_separate
+    resolution: text('resolution').notNull().default('pending'),
+    resolvedBy: uuid('resolved_by'),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantResolutionIdx: index('wizmatch_company_duplicates_tenant_resolution_idx').on(t.tenantId, t.resolution),
+    pairUniq: uniqueIndex('wizmatch_company_duplicates_pair_uniq').on(t.tenantId, t.companyAId, t.companyBId),
+    companyAFk: foreignKey({
+      columns: [t.tenantId, t.companyAId],
+      foreignColumns: [wizmatchCompanies.tenantId, wizmatchCompanies.id],
+      name: 'wizmatch_company_duplicates_company_a_fk',
+    }).onDelete('cascade'),
+    companyBFk: foreignKey({
+      columns: [t.tenantId, t.companyBId],
+      foreignColumns: [wizmatchCompanies.tenantId, wizmatchCompanies.id],
+      name: 'wizmatch_company_duplicates_company_b_fk',
+    }).onDelete('cascade'),
+    resolvedByFk: foreignKey({
+      columns: [t.tenantId, t.resolvedBy],
+      foreignColumns: [users.tenantId, users.id],
+      name: 'wizmatch_company_duplicates_resolved_by_fk',
+    }).onDelete('set null'),
+    orderedPairChk: check('wizmatch_company_duplicates_ordered_pair_chk', sql`company_a_id < company_b_id`),
+    detectionRuleChk: check(
+      'wizmatch_company_duplicates_detection_rule_chk',
+      sql`detection_rule IN ('domain','normalised_name')`,
+    ),
+    resolutionChk: check(
+      'wizmatch_company_duplicates_resolution_chk',
+      sql`resolution IN ('pending','merged','confirmed_separate')`,
+    ),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE — wizmatch_reply_mailboxes (PRD-005 §10.4, ADR-007 D-7)
+// ---------------------------------------------------------------------------
+export const wizmatchReplyMailboxes = pgTable(
+  'wizmatch_reply_mailboxes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // imap | ms365 | google
+    provider: text('provider').notNull(),
+    address: text('address').notNull(),
+    domain: text('domain'),
+    // Non-secret settings only. A write-time validator (service layer) rejects
+    // keys matching /pass|secret|token|key|credential/i.
+    providerConfig: jsonb('provider_config').notNull().default({}),
+    // Opaque, scheme-prefixed pointer resolved at runtime — never a credential value.
+    secretRef: text('secret_ref').notNull(),
+    active: boolean('active').notNull().default(true),
+    lastPolledAt: timestamp('last_polled_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantAddressUniq: uniqueIndex('wizmatch_reply_mailboxes_tenant_address_uniq').on(t.tenantId, t.address),
+    providerChk: check('wizmatch_reply_mailboxes_provider_chk', sql`provider IN ('imap','ms365','google')`),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE — wizmatch_outreach_batches (PRD-005 §10.5)
+// ---------------------------------------------------------------------------
+export const wizmatchOutreachBatches = pgTable(
+  'wizmatch_outreach_batches',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    name: text('name').notNull(),
+    provider: text('provider').notNull().default('smartlead_csv'),
+    // fte_permanent | contract_c2h | vendor_empanelment | msp_vms | reengagement
+    campaignFamily: text('campaign_family').notNull(),
+    // fte_permanent | contract | c2h | vendor_empanelment | msp_vms | reengagement
+    campaignType: text('campaign_type').notNull(),
+    // cold_email | account_managed | research_only
+    outreachMode: text('outreach_mode').notNull(),
+    externalCampaignRef: text('external_campaign_ref'),
+    // draft | exported | importing | closed
+    status: text('status').notNull().default('draft'),
+    approvedBy: uuid('approved_by'),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    exportedAt: timestamp('exported_at', { withTimezone: true }),
+    exportedRowCount: integer('exported_row_count'),
+    omittedRowCount: integer('omitted_row_count'),
+    createdBy: uuid('created_by'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    // Non-partial — composite-FK target for enrolments.batch_id and events.batch_id.
+    tenantIdIdUniq: uniqueIndex('wizmatch_outreach_batches_tenant_id_id_uniq').on(t.tenantId, t.id),
+    tenantStatusIdx: index('wizmatch_outreach_batches_tenant_status_idx').on(t.tenantId, t.status),
+    approvedByFk: foreignKey({
+      columns: [t.tenantId, t.approvedBy],
+      foreignColumns: [users.tenantId, users.id],
+      name: 'wizmatch_outreach_batches_approved_by_fk',
+    }).onDelete('set null'),
+    createdByFk: foreignKey({
+      columns: [t.tenantId, t.createdBy],
+      foreignColumns: [users.tenantId, users.id],
+      name: 'wizmatch_outreach_batches_created_by_fk',
+    }).onDelete('set null'),
+    campaignFamilyChk: check(
+      'wizmatch_outreach_batches_campaign_family_chk',
+      sql`campaign_family IN ('fte_permanent','contract_c2h','vendor_empanelment','msp_vms','reengagement')`,
+    ),
+    campaignTypeChk: check(
+      'wizmatch_outreach_batches_campaign_type_chk',
+      sql`campaign_type IN ('fte_permanent','contract','c2h','vendor_empanelment','msp_vms','reengagement')`,
+    ),
+    outreachModeChk: check(
+      'wizmatch_outreach_batches_outreach_mode_chk',
+      sql`outreach_mode IN ('cold_email','account_managed','research_only')`,
+    ),
+    statusChk: check(
+      'wizmatch_outreach_batches_status_chk',
+      sql`status IN ('draft','exported','importing','closed')`,
+    ),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE — wizmatch_outreach_enrolments (PRD-005 §10.6, ADR-006 D-6, D-9)
+// ---------------------------------------------------------------------------
+export const wizmatchOutreachEnrolments = pgTable(
+  'wizmatch_outreach_enrolments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    companyId: uuid('company_id').notNull(),
+    // Nullable — research_only work is company-level and may have no contact yet.
+    contactId: uuid('contact_id'),
+    // Lowercased, trimmed email captured at enrolment time; NULL when no contact.
+    enrolmentEmailKey: text('enrolment_email_key'),
+    batchId: uuid('batch_id').notNull(),
+    campaignFamily: text('campaign_family').notNull(),
+    campaignType: text('campaign_type').notNull(),
+    outreachMode: text('outreach_mode').notNull(),
+    externalLeadRef: text('external_lead_ref'),
+    // 15 states — 8 live, 7 terminal. See src/config/wizmatchOutreachStates.ts.
+    state: text('state').notNull(),
+    stateAt: timestamp('state_at', { withTimezone: true }).notNull().defaultNow(),
+    releasedByUserId: uuid('released_by_user_id'),
+    releaseReason: text('release_reason'),
+    // Policy decision at export time — never retroactively rewritten by a later policy change.
+    policySnapshot: jsonb('policy_snapshot'),
+    createdBy: uuid('created_by'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    // Non-partial — composite-FK target for wizmatch_outreach_events.enrolment_id.
+    tenantIdIdUniq: uniqueIndex('wizmatch_outreach_enrolments_tenant_id_id_uniq').on(t.tenantId, t.id),
+    tenantCompanyIdx: index('wizmatch_outreach_enrolments_tenant_company_idx').on(t.tenantId, t.companyId),
+    tenantStateIdx: index('wizmatch_outreach_enrolments_tenant_state_idx').on(t.tenantId, t.state),
+
+    companyFk: foreignKey({
+      columns: [t.tenantId, t.companyId],
+      foreignColumns: [wizmatchCompanies.tenantId, wizmatchCompanies.id],
+      name: 'wizmatch_outreach_enrolments_company_fk',
+    }).onDelete('cascade'),
+    contactFk: foreignKey({
+      columns: [t.tenantId, t.contactId],
+      foreignColumns: [contacts.tenantId, contacts.id],
+      name: 'wizmatch_outreach_enrolments_contact_fk',
+    }).onDelete('set null'),
+    batchFk: foreignKey({
+      columns: [t.tenantId, t.batchId],
+      foreignColumns: [wizmatchOutreachBatches.tenantId, wizmatchOutreachBatches.id],
+      name: 'wizmatch_outreach_enrolments_batch_fk',
+    }).onDelete('restrict'),
+    createdByFk: foreignKey({
+      columns: [t.tenantId, t.createdBy],
+      foreignColumns: [users.tenantId, users.id],
+      name: 'wizmatch_outreach_enrolments_created_by_fk',
+    }).onDelete('set null'),
+    releasedByFk: foreignKey({
+      columns: [t.tenantId, t.releasedByUserId],
+      foreignColumns: [users.tenantId, users.id],
+      name: 'wizmatch_outreach_enrolments_released_by_fk',
+    }).onDelete('set null'),
+
+    stateChk: check(
+      'wizmatch_outreach_enrolments_state_chk',
+      sql.raw(`state IN (${WIZMATCH_ALL_STATES_SQL_LIST})`),
+    ),
+    manuallyReleasedChk: check(
+      'wizmatch_outreach_enrolments_manually_released_chk',
+      sql`state <> 'manually_released' OR (released_by_user_id IS NOT NULL AND release_reason IS NOT NULL)`,
+    ),
+
+    // §10.6.2 overlap constraints — all four LIVE-state predicates derive
+    // from the same exported WIZMATCH_LIVE_STATES_SQL_LIST constant.
+    batchContactUniq: uniqueIndex('wizmatch_outreach_enrolments_batch_contact_uniq').on(
+      t.tenantId,
+      t.batchId,
+      t.contactId,
+    ),
+    // 1. ONE live cold-email enrolment per company, across ALL families.
+    companyColdEmailLockUniq: uniqueIndex('wizmatch_outreach_enrolments_company_cold_email_lock_uniq')
+      .on(t.tenantId, t.companyId)
+      .where(sql.raw(`outreach_mode = 'cold_email' AND state IN (${WIZMATCH_LIVE_STATES_SQL_LIST})`)),
+    // 2. ONE live enrolment per contact row, any mode.
+    contactLiveUniq: uniqueIndex('wizmatch_outreach_enrolments_contact_live_uniq')
+      .on(t.tenantId, t.contactId)
+      .where(sql.raw(`contact_id IS NOT NULL AND state IN (${WIZMATCH_LIVE_STATES_SQL_LIST})`)),
+    // 2b. ONE live enrolment per human, keyed on the normalised email (resolves review H-12).
+    enrolmentEmailKeyLiveUniq: uniqueIndex('wizmatch_outreach_enrolments_email_key_live_uniq')
+      .on(t.tenantId, t.enrolmentEmailKey)
+      .where(sql.raw(`enrolment_email_key IS NOT NULL AND state IN (${WIZMATCH_LIVE_STATES_SQL_LIST})`)),
+    // 3. No duplicate live non-cold work for the same company + family + mode.
+    companyFamilyModeLiveUniq: uniqueIndex('wizmatch_outreach_enrolments_company_family_mode_live_uniq')
+      .on(t.tenantId, t.companyId, t.campaignFamily, t.outreachMode)
+      .where(sql.raw(`state IN (${WIZMATCH_LIVE_STATES_SQL_LIST})`)),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE — wizmatch_outreach_events (PRD-005 §10.7, ADR-007 D-3)
+// ---------------------------------------------------------------------------
+export const wizmatchOutreachEvents = pgTable(
+  'wizmatch_outreach_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    enrolmentId: uuid('enrolment_id').notNull(),
+    batchId: uuid('batch_id').notNull(),
+    provider: text('provider').notNull(),
+    eventType: text('event_type').notNull(),
+    eventAt: timestamp('event_at', { withTimezone: true }).notNull(),
+    actorUserId: uuid('actor_user_id'),
+    externalEventId: text('external_event_id'),
+    externalMessageId: text('external_message_id'),
+    externalLeadRef: text('external_lead_ref'),
+    idempotencyKey: text('idempotency_key').notNull(),
+    // provider_event_id | provider_message_id | lead_ref_composite | fallback_hash | internal_transition
+    keySource: text('key_source').notNull(),
+    raw: jsonb('raw'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    idempotencyUniq: uniqueIndex('wizmatch_outreach_events_idempotency_uniq').on(
+      t.tenantId,
+      t.provider,
+      t.idempotencyKey,
+    ),
+    tenantEnrolmentIdx: index('wizmatch_outreach_events_tenant_enrolment_idx').on(t.tenantId, t.enrolmentId),
+
+    enrolmentFk: foreignKey({
+      columns: [t.tenantId, t.enrolmentId],
+      foreignColumns: [wizmatchOutreachEnrolments.tenantId, wizmatchOutreachEnrolments.id],
+      name: 'wizmatch_outreach_events_enrolment_fk',
+    }).onDelete('cascade'),
+    batchFk: foreignKey({
+      columns: [t.tenantId, t.batchId],
+      foreignColumns: [wizmatchOutreachBatches.tenantId, wizmatchOutreachBatches.id],
+      name: 'wizmatch_outreach_events_batch_fk',
+    }).onDelete('restrict'),
+    actorFk: foreignKey({
+      columns: [t.tenantId, t.actorUserId],
+      foreignColumns: [users.tenantId, users.id],
+      name: 'wizmatch_outreach_events_actor_fk',
+    }).onDelete('set null'),
+
+    eventTypeChk: check(
+      'wizmatch_outreach_events_event_type_chk',
+      sql`event_type IN (
+        'sent','bounced','replied','unsubscribed','completed',
+        'awaiting_action','positive_reply','referral_received','conversation_open',
+        'closed','disqualified','company_blocked','contact_invalid','manually_released',
+        'gate_denied'
+      )`,
+    ),
+    manuallyReleasedActorChk: check(
+      'wizmatch_outreach_events_manually_released_actor_chk',
+      sql`event_type <> 'manually_released' OR actor_user_id IS NOT NULL`,
+    ),
+    keySourceChk: check(
+      'wizmatch_outreach_events_key_source_chk',
+      sql`key_source IN ('provider_event_id','provider_message_id','lead_ref_composite','fallback_hash','internal_transition')`,
+    ),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE — wizmatch_suppression_events (PRD-005 §10.9.1, ADR-006 D-4/D-15) — append-only
+// This table is HISTORY ONLY and is never consulted as effective suppression
+// state — a resolver that read it would reintroduce the multi-row-per-email
+// ambiguity D-4 exists to prevent. Effective state lives in
+// wizmatch_suppression_list (email/channel grain), contacts.do_not_contact
+// (person grain) and wizmatch_company_policies (company grain).
+// ---------------------------------------------------------------------------
+export const wizmatchSuppressionEvents = pgTable(
+  'wizmatch_suppression_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // email | contact | company
+    grain: text('grain').notNull(),
+    email: text('email'),
+    contactId: uuid('contact_id'),
+    contactChannelId: uuid('contact_channel_id'),
+    companyId: uuid('company_id'),
+    enrolmentId: uuid('enrolment_id'),
+    reasonCode: text('reason_code').notNull(),
+    evidenceKind: text('evidence_kind'),
+    evidenceText: text('evidence_text'),
+    evidenceUrl: text('evidence_url'),
+    evidenceRef: text('evidence_ref'),
+    source: text('source').notNull(),
+    actorUserId: uuid('actor_user_id'),
+    externalEventRef: text('external_event_ref'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantGrainIdx: index('wizmatch_suppression_events_tenant_grain_idx').on(t.tenantId, t.grain),
+    tenantEmailIdx: index('wizmatch_suppression_events_tenant_email_idx').on(t.tenantId, t.email),
+    tenantCompanyIdx: index('wizmatch_suppression_events_tenant_company_idx').on(t.tenantId, t.companyId),
+
+    contactFk: foreignKey({
+      columns: [t.tenantId, t.contactId],
+      foreignColumns: [contacts.tenantId, contacts.id],
+      name: 'wizmatch_suppression_events_contact_fk',
+    }).onDelete('set null'),
+    contactChannelFk: foreignKey({
+      columns: [t.tenantId, t.contactChannelId],
+      foreignColumns: [contactChannels.tenantId, contactChannels.id],
+      name: 'wizmatch_suppression_events_contact_channel_fk',
+    }).onDelete('set null'),
+    companyFk: foreignKey({
+      columns: [t.tenantId, t.companyId],
+      foreignColumns: [wizmatchCompanies.tenantId, wizmatchCompanies.id],
+      name: 'wizmatch_suppression_events_company_fk',
+    }).onDelete('set null'),
+    enrolmentFk: foreignKey({
+      columns: [t.tenantId, t.enrolmentId],
+      foreignColumns: [wizmatchOutreachEnrolments.tenantId, wizmatchOutreachEnrolments.id],
+      name: 'wizmatch_suppression_events_enrolment_fk',
+    }).onDelete('set null'),
+    actorFk: foreignKey({
+      columns: [t.tenantId, t.actorUserId],
+      foreignColumns: [users.tenantId, users.id],
+      name: 'wizmatch_suppression_events_actor_fk',
+    }).onDelete('set null'),
+
+    grainChk: check('wizmatch_suppression_events_grain_chk', sql`grain IN ('email','contact','company')`),
+    grainEmailChk: check(
+      'wizmatch_suppression_events_grain_email_chk',
+      sql`grain <> 'email' OR email IS NOT NULL`,
+    ),
+    grainContactChk: check(
+      'wizmatch_suppression_events_grain_contact_chk',
+      sql`grain <> 'contact' OR contact_id IS NOT NULL`,
+    ),
+    grainCompanyChk: check(
+      'wizmatch_suppression_events_grain_company_chk',
+      sql`grain <> 'company' OR company_id IS NOT NULL`,
+    ),
   }),
 );
