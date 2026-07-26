@@ -55,7 +55,6 @@ export const WIZMATCH_PHYSICAL_ADDRESS = process.env.WIZMATCH_PHYSICAL_ADDRESS ?
 export const WIZMATCH_UNSUBSCRIBE_HMAC_SECRET = process.env.WIZMATCH_UNSUBSCRIBE_HMAC_SECRET ?? '';
 export const WIZMATCH_MEETING_URL = process.env.WIZMATCH_MEETING_URL ?? 'https://cal.com/wizmatch/intro';
 
-
 // Branding for generated documents (RTR, requirement sheets). Override per-env.
 export const WIZMATCH_BRAND_NAME = process.env.WIZMATCH_BRAND_NAME ?? 'Wizmatch';
 export const WIZMATCH_BRAND_TAGLINE = process.env.WIZMATCH_BRAND_TAGLINE ?? 'IT Staffing & Consulting — US & India';

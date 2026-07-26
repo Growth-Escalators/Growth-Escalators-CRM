@@ -20,6 +20,13 @@ export interface WizmatchLinkage {
   companyId: string;
   /** do_not_contact is a valid wizmatch_company_contacts.relationship_stage value (§10) — surfaced so callers can still reject even when the gate would otherwise allow. */
   relationshipStage?: string;
+  /**
+   * The CRM contact this linkage resolved to. Callers that started from a raw
+   * address MUST pass this into the gate as `contactId`: without it,
+   * `findSuppression`'s `contacts.do_not_contact` branch never runs and the
+   * §22.3 #5 suppression union degrades to the email grain alone.
+   */
+  contactId?: string;
 }
 
 export async function resolveWizmatchLinkage(
@@ -73,5 +80,8 @@ export async function resolveWizmatchLinkageByEmail(tenantId: string, email: str
     .limit(1);
   const contactId = channelRows[0]?.contactId;
   if (!contactId) return null;
-  return resolveWizmatchLinkage(tenantId, contactId);
+  const linkage = await resolveWizmatchLinkage(tenantId, contactId);
+  // Carry the resolved contactId back to the caller — it is what lets the gate
+  // evaluate the contact grain of the suppression union, not just the address.
+  return linkage ? { ...linkage, contactId } : null;
 }

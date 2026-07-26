@@ -66,11 +66,29 @@ function rootPolicyRow(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
-const FIXTURES: Array<{ name: string; ctx: OutreachGateContext; setup: () => void }> = [
+/**
+ * Every fixture pins the decision it is supposed to produce (`expect`), not only
+ * that the two modes agree. Parity alone is vacuous: a regression that made the
+ * ladder return the same WRONG answer in both modes — e.g. an early
+ * `return allowDecision` inserted above L0 — would satisfy a parity-only
+ * assertion in every fixture while destroying the gate.
+ *
+ * Coverage spans the whole ladder rather than only its ends, because §16 rule 1
+ * is specifically "shadow evaluates the FULL L0-L8 ladder and never
+ * short-circuits": a mode-conditional skip planted at L1b, L1c, L3, L5 or L6b is
+ * only detectable by a fixture that actually reaches that rung.
+ */
+const FIXTURES: Array<{
+  name: string;
+  ctx: OutreachGateContext;
+  setup: () => void;
+  expect: { decision: 'allow' | 'review' | 'deny'; effectiveLevel: number; reasonCode?: string };
+}> = [
   {
     name: 'L0 missing root',
     ctx: { tenantId: TENANT, action: 'enrol', companyId: COMPANY },
     setup: () => { state.policyRows = []; },
+    expect: { decision: 'deny', effectiveLevel: 0, reasonCode: 'policy_missing_root' },
   },
   {
     name: 'L1 non-overridable block',
@@ -78,6 +96,13 @@ const FIXTURES: Array<{ name: string; ctx: OutreachGateContext; setup: () => voi
     setup: () => {
       state.policyRows = [rootPolicyRow({ outreachEligibility: 'blocked', isNonOverridable: true, blockClass: 'compliance', isPermanent: true, reasonCode: 'company_removal_request' })];
     },
+    expect: { decision: 'deny', effectiveLevel: 1, reasonCode: 'company_removal_request' },
+  },
+  {
+    name: 'L1b relationship hard exclusion (competitor)',
+    ctx: { tenantId: TENANT, action: 'send', companyId: COMPANY, outreachMode: 'cold_email' },
+    setup: () => { state.policyRows = [rootPolicyRow({ relationshipType: 'competitor' })]; },
+    expect: { decision: 'deny', effectiveLevel: 1, reasonCode: 'relationship_competitor' },
   },
   {
     name: 'L2 overridable block',
@@ -85,6 +110,22 @@ const FIXTURES: Array<{ name: string; ctx: OutreachGateContext; setup: () => voi
     setup: () => {
       state.policyRows = [rootPolicyRow({ outreachEligibility: 'blocked', reasonCode: 'manual_block_by_operator' })];
     },
+    expect: { decision: 'deny', effectiveLevel: 2, reasonCode: 'manual_block_by_operator' },
+  },
+  {
+    name: 'L5 paused by owner',
+    ctx: { tenantId: TENANT, action: 'send', companyId: COMPANY, outreachMode: 'cold_email' },
+    setup: () => { state.policyRows = [rootPolicyRow({ outreachEligibility: 'paused' })]; },
+    expect: { decision: 'deny', effectiveLevel: 5, reasonCode: 'policy_paused_by_owner' },
+  },
+  {
+    name: 'L6b company cold-email lock',
+    ctx: { tenantId: TENANT, action: 'send', companyId: COMPANY, outreachMode: 'cold_email' },
+    setup: () => {
+      state.policyRows = [rootPolicyRow()];
+      state.enrolmentRows = [{ id: 'enrol-1' }];
+    },
+    expect: { decision: 'deny', effectiveLevel: 6, reasonCode: 'company_cold_email_lock' },
   },
   {
     name: 'L7 suppression union deny',
@@ -93,11 +134,22 @@ const FIXTURES: Array<{ name: string; ctx: OutreachGateContext; setup: () => voi
       state.policyRows = [rootPolicyRow()];
       state.suppressionRows = [{ reason: 'hard_bounce' }];
     },
+    expect: { decision: 'deny', effectiveLevel: 7, reasonCode: 'email_hard_bounce' },
+  },
+  {
+    name: 'L7 suppression union deny via contacts.do_not_contact grain',
+    ctx: { tenantId: TENANT, action: 'send', companyId: COMPANY, contactId: 'contact-1', outreachMode: 'cold_email' },
+    setup: () => {
+      state.policyRows = [rootPolicyRow()];
+      state.contactRows = [{ doNotContact: true }];
+    },
+    expect: { decision: 'deny', effectiveLevel: 7, reasonCode: 'email_unsubscribed' },
   },
   {
     name: 'allow',
     ctx: { tenantId: TENANT, action: 'enrol', companyId: COMPANY },
     setup: () => { state.policyRows = [rootPolicyRow()]; },
+    expect: { decision: 'allow', effectiveLevel: 8 },
   },
 ];
 
@@ -125,6 +177,44 @@ describe('shadow-vs-enforce equivalence harness (§22.3 #10)', () => {
       expect(shadowRest).toEqual(enforceRest);
       expect(shadowDecision.enforcementMode).toBe('shadow');
       expect(enforceDecision.enforcementMode).toBe('enforce');
+
+      // Anti-vacuity: parity is worthless unless each fixture genuinely reached
+      // the rung it names. Without these, a change that collapsed every fixture
+      // to the same decision would keep the whole suite green.
+      expect(shadowDecision.decision).toBe(fixture.expect.decision);
+      expect(shadowDecision.effectiveLevel).toBe(fixture.expect.effectiveLevel);
+      if (fixture.expect.reasonCode) {
+        expect(shadowDecision.reasonCodes).toContain(fixture.expect.reasonCode);
+      }
+    });
+  }
+
+  it('the fixture set genuinely spans distinct ladder rungs (anti-vacuity guard on the harness itself)', () => {
+    const levels = new Set(FIXTURES.map((f) => f.expect.effectiveLevel));
+    // L0, L1, L2, L5, L6, L7, L8 — if a future edit narrows the fixture set,
+    // this fails rather than silently shrinking the ladder under test.
+    expect(levels.size).toBeGreaterThanOrEqual(7);
+    expect(FIXTURES.some((f) => f.expect.decision === 'allow')).toBe(true);
+    expect(FIXTURES.filter((f) => f.expect.decision === 'deny').length).toBeGreaterThanOrEqual(7);
+  });
+
+  // §16 rule 3: "Any value other than the exact string `enforce` is treated as
+  // `shadow` — unset, misspelled, empty, mixed-case. Fail safe, not fail open."
+  // Pinned explicitly, because adding a `.trim()` or `.toLowerCase()` to
+  // readEnforcementMode() would silently promote these to enforce and no other
+  // test in the repo would notice.
+  for (const nearMiss of ['ENFORCE', 'Enforce', 'enforce ', ' enforce', 'enforced', 'true', '1', '']) {
+    it(`§16 rule 3 — WIZMATCH_POLICY_ENFORCEMENT_MODE=${JSON.stringify(nearMiss)} is treated as shadow and blocks nothing`, async () => {
+      state.policyRows = [];
+      process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE = nearMiss;
+      const decision = await evaluateWizmatchOutreachGate({ tenantId: TENANT, action: 'send', companyId: COMPANY });
+      expect(decision.enforcementMode).toBe('shadow');
+      expect(decision.decision).toBe('deny');
+      // The would-block must NOT block: assert resolves rather than throwing.
+      await expect(
+        assertWizmatchOutreachAllowed({ tenantId: TENANT, action: 'send', companyId: COMPANY }),
+      ).resolves.toMatchObject({ decision: 'deny' });
+      delete process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE;
     });
   }
 

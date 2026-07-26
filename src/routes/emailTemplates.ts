@@ -211,10 +211,21 @@ router.post('/:id/send-test', async (req, res) => {
   }
 
   // §8.10.1 row 21 — this route honoured neither kill-switch; gate on toEmail.
+  // `contactId` is passed through from the linkage so the gate evaluates BOTH
+  // grains of the §22.3 #5 suppression union: without it a contact whose
+  // `contacts.do_not_contact` is set — but who has no row yet in
+  // wizmatch_suppression_list for this address — would be allowed through.
   const linkage = await resolveWizmatchLinkageByEmail(tenantId, toEmail);
   if (linkage) {
-    const decision = await evaluateWizmatchOutreachGate({ tenantId, action: 'send', companyId: linkage.companyId, email: toEmail });
-    if (shouldBlock({ tenantId, action: 'send', companyId: linkage.companyId }, decision)) {
+    const gateCtx = {
+      tenantId,
+      action: 'send' as const,
+      companyId: linkage.companyId,
+      contactId: linkage.contactId,
+      email: toEmail,
+    };
+    const decision = await evaluateWizmatchOutreachGate(gateCtx);
+    if (shouldBlock(gateCtx, decision)) {
       res.status(403).json({ error: 'outreach_blocked', reasonCodes: decision.reasonCodes });
       return;
     }

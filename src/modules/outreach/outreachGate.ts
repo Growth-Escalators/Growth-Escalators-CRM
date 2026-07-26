@@ -5,12 +5,12 @@
 // `PolicyDecision` is a branded type: the brand field is only ever set inside
 // this module, so a caller cannot fabricate an allow.
 //
-// PR 2 scope (PRD-005 §22.2): this module and its resolver are built and
-// tested here. NO caller migrates onto it in this PR — that is PR 3's
-// acceptance evidence (§8.10.1's 31-row checklist). Nothing in src/routes or
-// src/services calls this module yet.
+// PR 3 scope (PRD-005 §22.3): every §8.10.1 checklist row is now wired onto
+// this module. Call sites gate their side effect on `shouldBlock` (below), so
+// `WIZMATCH_POLICY_ENFORCEMENT_MODE=shadow` — the shipped default — evaluates
+// the full ladder and blocks nothing, while `enforce` blocks.
 //
-// Known PR-2 scope limits, stated rather than hidden:
+// Known scope limits, stated rather than hidden:
 //   - The cold-start contact-confidence gate (§7) is not evaluated here —
 //     confidence grading lives in wizmatchContactIntelligenceRepo and is not
 //     wired to this module until a caller passes it in. L7 here covers only
@@ -18,9 +18,12 @@
 //   - The duplicate REVIEW UI (merge / confirm-separate, and the
 //     policy-divergence warning) is PR 4. L5 containment itself is enforced
 //     here, since §22.2 #14 requires the resolver to implement L0-L8.
-//   - Shadow-vs-enforce blocking behaviour is a no-op either way in PR 2:
-//     nothing calls this module, so WIZMATCH_POLICY_ENFORCEMENT_MODE only
-//     annotates the returned decision, per §16.
+//   - §8.10 rule 6's `gate_denied` row in `wizmatch_outreach_events` is a
+//     structured log today (see `shouldBlock`), not a persisted queryable row —
+//     the readiness report that consumes it is PR 4 scope.
+//   - `suppress()` writes to `wizmatch_suppression_events`, which migration
+//     0037 creates. This module therefore has a HARD dependency on 0037 having
+//     been applied (rollout gate G1) before any suppression write path runs.
 
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import {
@@ -162,26 +165,46 @@ export interface SuppressParams {
  */
 export async function suppress(params: SuppressParams): Promise<void> {
   const normalisedEmail = params.email.trim().toLowerCase();
-  await db
-    .insert(wizmatchSuppressionList)
-    .values({
+  // ONE transaction, not two independent inserts. §8.10 rule 4 says routing
+  // every caller through here makes the append-only event "guaranteed rather
+  // than remembered" — two autocommitted statements only make it *usual*: if
+  // the event insert fails (FK on a deleted actor, a dropped connection, or a
+  // deploy where 0037 has not been applied yet so the events table does not
+  // exist), the effective-state row would be left live with no audit history,
+  // which is precisely what an append-only stream exists to prevent.
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(wizmatchSuppressionList)
+      .values({
+        tenantId: params.tenantId,
+        email: normalisedEmail,
+        reason: params.reason,
+        sourceChannel: params.sourceChannel ?? 'email',
+        notes: params.notes,
+      })
+      .onConflictDoNothing();
+    await tx.insert(wizmatchSuppressionEvents).values({
       tenantId: params.tenantId,
+      grain: 'email',
       email: normalisedEmail,
-      reason: params.reason,
-      sourceChannel: params.sourceChannel ?? 'email',
-      notes: params.notes,
-    })
-    .onConflictDoNothing();
-  await db.insert(wizmatchSuppressionEvents).values({
-    tenantId: params.tenantId,
-    grain: 'email',
-    email: normalisedEmail,
-    reasonCode: SUPPRESSION_REASON_TO_CODE[params.reason] ?? 'email_unsubscribed',
-    evidenceKind: params.reason === 'manual' ? 'human_text' : 'automated_detection',
-    source: params.source,
-    actorUserId: params.actorUserId,
-    externalEventRef: params.externalEventRef,
+      reasonCode: SUPPRESSION_REASON_TO_CODE[params.reason] ?? 'email_unsubscribed',
+      evidenceKind: params.reason === 'manual' ? 'human_text' : 'automated_detection',
+      source: params.source,
+      actorUserId: params.actorUserId,
+      externalEventRef: params.externalEventRef,
+    });
   });
+}
+
+/**
+ * §8.5 / §8.4 — which suppression reasons are a *stated personal preference*
+ * (contact grain, so `contacts.do_not_contact` is also set) versus a
+ * *channel-quality fact* (email grain only). A hard bounce or a spam complaint
+ * says the mailbox is bad, NOT that the person asked not to be contacted, so it
+ * must never flip `do_not_contact` — that is the grain collapse §8.4 forbids.
+ */
+export function isStatedContactPreference(reason: SuppressParams['reason']): boolean {
+  return reason === 'unsubscribe' || reason === 'do_not_contact' || reason === 'manual';
 }
 
 /**

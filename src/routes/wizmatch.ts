@@ -138,7 +138,7 @@ import {
   type PersistedContactIntelligence,
 } from '../services/wizmatchContactIntelligenceRepo';
 import { generateSignalDraftEmails, sendSignalDraftEmail } from '../services/wizmatchOutreachService';
-import { evaluateWizmatchOutreachGate, shouldBlock, suppress } from '../modules/outreach/outreachGate';
+import { evaluateWizmatchOutreachGate, shouldBlock, suppress, isStatedContactPreference } from '../modules/outreach/outreachGate';
 
 const router = Router();
 
@@ -2217,6 +2217,27 @@ router.post('/contact-intelligence/contacts/:candidateId/review', async (req: Re
     return;
   }
 
+  // §8.10.1 row 12 — the gate must run BEFORE the approval is written, not
+  // after. This route is plain autocommit (no BEGIN/COMMIT), so checking
+  // afterwards left the candidate genuinely `approved` in the database while
+  // the caller was told 403: the block was cosmetic and the very state it
+  // existed to prevent was already committed.
+  const existing = await pool.query(
+    `SELECT company_id FROM wizmatch_contact_candidates WHERE tenant_id = $1 AND id = $2`,
+    [tenantId, candidateId],
+  );
+  if (existing.rows.length === 0) {
+    res.status(404).json({ error: 'Contact candidate not found' });
+    return;
+  }
+  if (transition.nextContactStatus === 'approved') {
+    const prep = await isPreparationBlocked(tenantId, existing.rows[0].company_id);
+    if (prep.blocked) {
+      res.status(403).json({ error: 'outreach_blocked', reasonCodes: prep.reasonCodes });
+      return;
+    }
+  }
+
   const result = await pool.query(
     `UPDATE wizmatch_contact_candidates
      SET status = $1,
@@ -2235,13 +2256,6 @@ router.post('/contact-intelligence/contacts/:candidateId/review', async (req: Re
     return;
   }
   const companyId = result.rows[0].company_id;
-  if (transition.nextContactStatus === 'approved') {
-    const prep = await isPreparationBlocked(tenantId, companyId);
-    if (prep.blocked) {
-      res.status(403).json({ error: 'outreach_blocked', reasonCodes: prep.reasonCodes });
-      return;
-    }
-  }
 
   const refreshed = await fetchPersistedContactIntelligence(tenantId, companyId);
   res.json({ transition, contactCandidates: refreshed.contactCandidates });
@@ -3623,14 +3637,25 @@ router.post('/suppression', async (req: Request, res: Response) => {
     });
     const entry = { suppressed: true, email: email.toLowerCase().trim(), reason, notes: notes ?? null };
 
-    // Also set contact_channels email_opt_out if contact exists
-    await pool.query(
-      `UPDATE contacts SET do_not_contact = true, opted_in_email = false
-       WHERE tenant_id = $1 AND id IN (
-         SELECT contact_id FROM contact_channels WHERE channel_type = 'email' AND channel_value = $2
-       )`,
-      [tenantId, email.toLowerCase().trim()],
-    ).catch(() => {});
+    // §8.4 / §8.5 — three grains, three homes. Only a STATED preference
+    // (unsubscribe / do_not_contact / manual) is contact-grain and may flip
+    // `contacts.do_not_contact`. A `hard_bounce` or `complaint` is a
+    // channel-quality fact about one mailbox: flipping do_not_contact for it
+    // would block every other channel and every other reason to reach that
+    // person, which is exactly the grain collapse §8.4 forbids.
+    // LOWER() on the stored column too, not just the input — a channel row
+    // written by any path that bypassed normalizeChannelValue carries mixed
+    // case and would silently never match (the H-3 class of bug).
+    if (isStatedContactPreference(reason as typeof VALID_SUPPRESSION_REASONS[number])) {
+      await pool.query(
+        `UPDATE contacts SET do_not_contact = true, opted_in_email = false, last_activity_at = NOW()
+         WHERE tenant_id = $1 AND id IN (
+           SELECT contact_id FROM contact_channels
+           WHERE tenant_id = $1 AND channel_type = 'email' AND LOWER(channel_value) = $2
+         )`,
+        [tenantId, email.toLowerCase().trim()],
+      ).catch(() => {});
+    }
 
     res.json(entry || { suppressed: true, already_existed: true });
   } catch (e) {
@@ -3738,11 +3763,15 @@ router.get('/unsubscribe', async (req: Request, res: Response) => {
 
   await suppress({ tenantId, email, reason: 'unsubscribe', sourceChannel: 'email', source: 'unsubscribe_link' });
 
-  // Also set do_not_contact on any matching contact
+  // §8.5 — a personal unsubscribe IS contact-grain, so this write is correct
+  // here. LOWER() on the stored column: `email` is already lowercased above, so
+  // an exact match silently missed every contact whose channel row carries
+  // mixed case, leaving the stated preference recorded at email grain only.
   await pool.query(
-    `UPDATE contacts SET do_not_contact = true, opted_in_email = false
+    `UPDATE contacts SET do_not_contact = true, opted_in_email = false, last_activity_at = NOW()
      WHERE tenant_id = $1 AND id IN (
-       SELECT contact_id FROM contact_channels WHERE channel_type = 'email' AND channel_value = $2
+       SELECT contact_id FROM contact_channels
+       WHERE tenant_id = $1 AND channel_type = 'email' AND LOWER(channel_value) = $2
      )`,
     [tenantId, email],
   ).catch(() => {});
@@ -3828,6 +3857,19 @@ router.post('/classify-reply', requireInternalToken, async (req: Request, res: R
         sourceChannel: 'email',
         source: 'classify_reply',
       });
+      // §8.5 — both UNSUBSCRIBE and NOT_INTERESTED are STATED preferences, so
+      // they are contact-grain as well as email-grain. The other two suppression
+      // write paths (/unsubscribe and POST /suppression) already do this; this
+      // one wrote the email grain only, leaving the person's stated request
+      // unhonoured on any other channel of the same contact.
+      await pool.query(
+        `UPDATE contacts SET do_not_contact = true, opted_in_email = false, last_activity_at = NOW()
+         WHERE tenant_id = $1 AND id IN (
+           SELECT contact_id FROM contact_channels
+           WHERE tenant_id = $1 AND channel_type = 'email' AND LOWER(channel_value) = $2
+         )`,
+        [tenantId, String(contact_email).trim().toLowerCase()],
+      ).catch(() => {});
     } else if (result.category === 'NOT_NOW') {
       // §8.10.1 row 10 — a NOT_NOW reset back to 'sent' is a retry decision; gate it.
       const companyId = await getSignalCompanyId(tenantId, signal_id);

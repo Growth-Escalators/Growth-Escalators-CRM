@@ -4,8 +4,11 @@
  * Most target companies are on Google Workspace / Microsoft 365 where we cannot
  * pre-verify a guessed email — the only reliable confirmation is a send that does
  * not bounce. This parses inbound Non-Delivery Reports so a hard bounce can add the
- * address to the suppression list ("verify by sending"). Detection is always free;
- * suppression writes are gated behind WIZMATCH_BOUNCE_SUPPRESSION_ENABLED (default off).
+ * address to the suppression list ("verify by sending"). Detection is always free.
+ *
+ * PRD-005 §22.3 #6 (A-4): hard bounces are now ALWAYS persisted. The former
+ * WIZMATCH_BOUNCE_SUPPRESSION_ENABLED flag (default off, which meant every
+ * detected bounce was discarded) no longer gates anything.
  */
 import logger from '../utils/logger';
 import { suppress } from '../modules/outreach/outreachGate';
@@ -78,6 +81,11 @@ export async function recordHardBounce(recipient: string, meta: { inbox?: string
     });
     logger.info({ recipient, inbox: meta.inbox }, '[wizmatch-bounce] hard bounce suppressed');
   } catch (err) {
-    logger.warn({ err, recipient }, '[wizmatch-bounce] failed to record hard bounce');
+    // Deliberately caught so one bad bounce cannot abort the IMAP poll loop —
+    // but logged at ERROR, not WARN: a swallowed failure here means the bounce
+    // was detected and then discarded, which is the exact A-4 defect §22.3 #6
+    // exists to close. The message is marked \Seen by the caller regardless, so
+    // there is no retry; this log is the only signal that it happened.
+    logger.error({ err, recipient }, '[wizmatch-bounce] A-4: hard bounce DISCARDED — suppression write failed');
   }
 }

@@ -60,15 +60,20 @@ export async function generateSignalDraftEmails(tenantId: string, signalId: stri
   }
 
   // §8.10.1 row 4 — the chokepoint applies to queueing (drafting), not only sending.
+  // Gated on `shouldBlock`, never on a hand-written predicate: §8.10 rule 2
+  // forbids a caller deriving its own partial check, and an inline
+  // `decision === 'deny'` would silently let a `review` decision through here
+  // while every other send/queue site blocks it.
   if (signal.company_id) {
-    const decision = await evaluateWizmatchOutreachGate({
+    const gateCtx = {
       tenantId,
-      action: 'queue',
+      action: 'queue' as const,
       companyId: signal.company_id,
       contactId: signal.contact_id,
-      outreachMode: 'cold_email',
-    });
-    if (decision.decision === 'deny' && decision.enforcementMode === 'enforce') {
+      outreachMode: 'cold_email' as const,
+    };
+    const decision = await evaluateWizmatchOutreachGate(gateCtx);
+    if (shouldBlock(gateCtx, decision)) {
       return { kind: 'blocked', reasonCodes: decision.reasonCodes };
     }
   }

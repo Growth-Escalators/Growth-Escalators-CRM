@@ -188,6 +188,68 @@ describe('generateSignalDraftEmails', () => {
     const result = await generateSignalDraftEmails('tenant-1', 'sig-1');
     expect(result).toEqual({ kind: 'failed', detail: 'claude timeout' });
   });
+
+  // §8.10 rule 2 — this call site must gate on the canonical `shouldBlock`, whose
+  // predicate is `decision !== 'allow'`. A hand-written `decision === 'deny'`
+  // check here would let a `review` decision queue three AI-written drafts for a
+  // company that policy says needs explicit approval first, while every other
+  // send/queue site in the checklist blocks it. Regression test for that divergence.
+  it('blocks queueing on a REVIEW decision in enforce mode, not only on deny', async () => {
+    process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE = 'enforce';
+    state.policyRows = [rootPolicyRow({ outreachEligibility: 'needs_review' })];
+    poolQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM wizmatch_job_signals s')) {
+        return {
+          rows: [{
+            id: 'sig-1',
+            contact_id: 'contact-1',
+            company_id: 'company-1',
+            company_name: 'Acme Tech',
+            job_title: 'Senior Java Developer',
+            matched_candidate_ids: [],
+          }],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const result = await generateSignalDraftEmails('tenant-1', 'sig-1');
+
+    expect(result.kind).toBe('blocked');
+    // And nothing was queued: no Claude call, no draft rows persisted.
+    expect(callClaude).not.toHaveBeenCalled();
+    expect(insertedRows).toHaveLength(0);
+  });
+
+  it('does NOT block queueing on a REVIEW decision in shadow mode (§16 zero behavioural change)', async () => {
+    delete process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE;
+    state.policyRows = [rootPolicyRow({ outreachEligibility: 'needs_review' })];
+    poolQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM wizmatch_job_signals s')) {
+        return {
+          rows: [{
+            id: 'sig-1',
+            contact_id: 'contact-1',
+            company_id: 'company-1',
+            company_name: 'Acme Tech',
+            job_title: 'Senior Java Developer',
+            matched_candidate_ids: [],
+          }],
+        };
+      }
+      return { rows: [] };
+    });
+    callClaude.mockResolvedValueOnce({ text: '{}' });
+    parseClaudeJSON.mockReturnValueOnce({
+      variant_a: { subject: 'A', body: 'A' },
+      variant_b: { subject: 'B', body: 'B' },
+      variant_c: { subject: 'C', body: 'C' },
+    });
+
+    const result = await generateSignalDraftEmails('tenant-1', 'sig-1');
+    expect(result.kind).toBe('succeeded');
+    expect(insertedRows).toHaveLength(3);
+  });
 });
 
 describe('sendSignalDraftEmail', () => {
