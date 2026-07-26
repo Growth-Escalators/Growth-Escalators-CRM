@@ -9,32 +9,41 @@
 Full detail: [`docs/reviews/wizmatch-outbound-pr6-opus-review.md`](../docs/reviews/wizmatch-outbound-pr6-opus-review.md),
 `docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md`'s PR 6 sections, `.ai/HANDOFF_LOG.md`.
 
-**Review outcome:** NOT READY as submitted at `9b9c2c56`; **READY** after two fixes made during the
-review. Both were invisible to the five gates the implementing session ran — all five of which
-reproduced exactly, so the marker did not overstate itself.
+**Review outcome:** NOT READY as submitted at `9b9c2c56`; **READY** after **eleven** fixes made
+during the review (`e86704b3`, `c84681f5`, `69e68c19`, `c03bf442`) — one Critical, ten High. None was
+visible to the five gates the implementing session ran; all five reproduced exactly, so the marker did
+not overstate itself.
 
-- **C-1 (Critical, fixed `e86704b3`)** — `wizmatchPolicy.ts` and `wizmatchToday.ts` gate their surface
-  with `router.use(featureGate)`, which matches every path under `/api/wizmatch`, and answered 404
-  inline. PR 6 moved both routers ahead of `wizmatchRouter` (the M-1 fix), so with either flag off —
-  both default `false` — all 82 `wizmatchRouter` routes 404'd. On a repo that auto-deploys from
-  `main`, a WizMatch API outage on the next push. Both gates now `next('router')`; a behavioural
-  mount-order suite fails if the inline 404 returns.
-- **H-1 (High, fixed `c84681f5`)** — `buildTodayQueues` keyed bucketing, `requiresExplicitApproval`
-  and `disabledReason` on the raw `canonical.decision` instead of `canonical.actsOnDecision`, so in
-  **shadow** a canonically-denied but policy-eligible company was hidden in Paused or Blocked,
-  action-disabled and offered "Reclassify". Violates §16 rule 2, G3 and D-31. Items now carry
-  `effectiveDecision`; canonical metadata stays attached and a divergence is shown as
-  `shadow: would deny`.
+**Method note:** the lead's first pass found two defects and concluded READY. The three subagents'
+reports arrived after that and surfaced nine more, four High. The first conclusion was wrong and is
+corrected in the report. One first-pass finding (M-C) was wrong on the merits and is **retracted** —
+§4 is explicit that admin override of a `standard` block is admin, so the endpoint was under-gated.
 
-**Verdicts:** backend PASS after fix · tenancy PASS · RBAC PASS · shadow/enforce PASS after fix ·
-M-1 PASS (verified read-only: every `wizmatchPolicy.ts` write route carries its own
-`requireTeamLead`/`requireAdmin`) · M-2 PASS (fetcher selects `company_id`, requirements fold through
-the adapter, `nextAction` folded in lockstep with `priority`) · bulk actions PASS · frontend & a11y
-PASS · feature flags PASS after fix · test quality PASS.
+- **C-1 (Critical)** — `router.use(featureGate)` responded 404 inline in both flagged routers; mounted
+  ahead of `wizmatchRouter`, either flag off (both default `false`) 404'd all 82 `wizmatchRouter`
+  routes. A production API outage on the next push. Fixed with `next('router')`.
+- **H-1** — a team_lead could override a `standard` block unevidenced, against §4, while the endpoint
+  told the operator it required an admin.
+- **H-2** — shadow mode blocked work (bucketing keyed on raw `canonical.decision`, not `actsOnDecision`).
+- **H-3** — every action rebuilt the root policy row, so Set Review Date stripped
+  `isPermanent`/`blockClass`/evidence off a permanent compliance block.
+- **H-4** — contact confidence read `metadata` not `metadata.raw`, letting a low-confidence contact into
+  Ready to Contact and defeating §7's cold-start gate.
+- **H-5** — a null `companyId` failed OPEN in the plural fold; the test pinning it was a regression
+  guard pointing the wrong way.
+- **H-6** — pending duplicates never reached Needs Review.
+- **H-7/H-8/H-9** — a switched-off feature showed a permanent error screen; committed writes were
+  reported as failures with no refetch; a malformed 200 crashed the page or faked "nothing to do".
+- **H-10/H-11** — unbounded resolver fan-out; a failed replies query presenting as "no replies waiting".
+
+**Biggest open gap (Medium, not fixed):** §13 approval capture is **NOT implemented** — `approve_queue`
+launders `review → eligible` into a permanent policy row with no `approved_by`/`approved_at`. Close
+before the workbench is used for real decisions. Also open: M-2…M-16, L-1…L-8, and two test gaps —
+nothing exercises `fetchCommandCenterRequirements`, and five of six policy write routes have no role
+test.
 
 **Gates (post-fix):** `git diff --check` clean · `npm run build` exit 0 · `npm test` 117 files /
-**1072 tests** · `npm run admin:build` clean · Playwright `wizmatch-local` 97 passed / 15 skipped
-(documented no-credential real-backend specs) / 0 failed.
+**1081 tests** · `npm run admin:build` clean · Playwright **99 passed / 15 skipped / 0 failed**.
 
 **Scope delivered:**
 - **New backend**: `src/modules/outreach/decisionWorkbench.ts` (`buildTodayQueues` — re-buckets
