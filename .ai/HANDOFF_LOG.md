@@ -6,6 +6,145 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-26 — WizMatch Outbound OS: PR 2 Opus review + 4 corrective commits — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT APPLIED
+
+**Why:** senior review of the PR 2 implementation below, against PRD-005 §8/§9/§10/§22.2/§25,
+ADR-006 and ADR-007. Full report: `docs/reviews/wizmatch-outbound-pr2-opus-review.md`.
+
+**Method:** three read-only Explore subagents in parallel (migration + Drizzle parity; tenancy,
+composite FKs, unique indexes and locks; resolver, precedence, evidence and tests), each barred from
+edits, commits, branch changes, migration application, production and Railway. Every Critical/High
+finding was re-verified by hand against the source before any fix; two subagent findings were
+downgraded on that re-check.
+
+**Verdict: fix-then-ship.** Phase-0 inheritance, the §10.10 tenancy discipline and the §9 taxonomy
+were correct as submitted. Two Critical and five High defects were not.
+
+**Critical, both fixed:**
+- `79bb384` — **migration 0037 could not apply to any database.** All 29 composite FKs were added
+  before their `(tenant_id, id)` target indexes existed; Postgres resolves the referenced unique index
+  at `ADD CONSTRAINT` time, so the first one raises SQLSTATE 42830 and aborts. The `duplicate_object`
+  handlers do not catch 42830. Fix is statement **order** only — nine `CREATE UNIQUE INDEX` moved above
+  the FK block, no statement rewritten. Measured 29 violations before, 0 after.
+- `3057221` — **`PolicyDecision` was forgeable.** A plain `__brand` string field is structurally
+  satisfiable by any caller, so §8.10 rule 3 ("a caller cannot fabricate an allow") did not hold. Now a
+  module-private `unique symbol`.
+
+**High, all fixed:** allowed campaign types/modes were zeroed on a deny, making §8.6/§8.7's own tables
+unreachable (`3057221`); L1c hardcoded `preparationAllowed: true`, so a narrower compliance block kept
+enriching a company that asked to be removed (`3057221`); the suppression read lowercased only the
+query input, not the stored column (`3057221`); reason codes named the wrong cause — every suppression
+hit reported `email_hard_bounce`, every review `policy_unknown_cold_start`, and terminal denies carried
+none (`3057221`); L5 duplicate containment was never implemented, so `wizmatch_company_duplicates` was
+written but never read (`810d144`).
+
+**Tests:** `e690ac1` + `810d144` add 2 suites / 23 tests, each verified to fail on the defect it
+covers — including a control run proving the brand test discriminates between the two designs. Suite
+went 37 → 60 tests on the outbound modules; full suite **99 files, 867 tests green**, `npm run build`
+exits 0, `git diff --check` clean.
+
+**Process lesson worth keeping:** C-1, H-3 and H-5 each survived a fully green suite — the §22.2 #10
+replay was skipped, the gate mock discards the `.where()` predicate it claims to assert on, and nothing
+tested a table nothing read. A green suite that cannot fail is not evidence.
+
+**Still open — the one §22.2 criterion not met:** #16, the cold-start root-policy row on every company
+insert path, is not implemented. Left unfixed deliberately: it means editing company-insert call sites
+outside `src/modules/outreach`, which needs an owner call on PR 2 vs PR 3. It must land before G2/G4.
+
+**Not done, by instruction:** 0037 not applied; no caller wired; no flag changed; no push, merge or
+deploy; no Railway or production access. PR 3 not started.
+
+**Next:** owner decision on §22.2 #16; then the G1 checklist in §12 of the review — U-7 sign-off, the
+fresh `0000→0037` replay on a scratch DB, and the shared-table lock measurement.
+
+---
+
+## 2026-07-26 — WizMatch Outbound OS: PR 2 schema + migration 0037 + resolver/gate module — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT APPLIED
+
+**Why:** PRD-005 §22.2 (twenty acceptance criteria) authorised PR 2 — the outbound-policy schema,
+migration `0037`, and the L0-L8 resolver/gate — after the spec-repair pass closed all CRITICAL/HIGH
+findings. No caller migrates onto the gate in this PR; that is PR 3.
+
+**Method:** three read-only Explore subagents in parallel (migration/schema conventions; tenant
+reference matrix against the live `schema.ts`; resolver/test patterns and the e-sign provider
+precedent), each restricted from editing, committing, branch changes, migration application,
+production and Railway. The main session owned every edit, generated and hardened the migration, wrote
+the resolver, and wrote/ran the tests.
+
+**What changed:**
+- `src/db/schema.ts` — 8 new tables (`wizmatch_company_policies`, `wizmatch_company_policy_events`,
+  `wizmatch_company_duplicates`, `wizmatch_reply_mailboxes`, `wizmatch_outreach_batches`,
+  `wizmatch_outreach_enrolments`, `wizmatch_outreach_events`, `wizmatch_suppression_events`); additive
+  `account_owner_user_id` on `wizmatch_companies` and `contact_channel_id`/`channel_invalid` on
+  `wizmatch_suppression_list`; 6 additive non-partial `(tenant_id, id)` unique indexes on `users`,
+  `contacts`, `contact_channels`, `wizmatch_companies`, `wizmatch_job_signals`, `wizmatch_requirements`;
+  22 composite tenant-safe FKs (first use of drizzle's `foreignKey()` and `check()` in this repo); all
+  §10.1/§10.3/§10.4/§10.5/§10.6.1/§10.6.2/§10.7/§10.9.1 CHECK constraints. `admin_override` and
+  `suppression_scope` do not exist, per D-3/D-4. Existing `wizmatch_suppression_tenant_email_uniq_idx`
+  untouched.
+- `src/db/migrations/0037_unknown_siren.sql` — generated by `npm run db:generate`, then hand-hardened:
+  `IF NOT EXISTS` on both `ADD COLUMN`s and on all six parent unique indexes; the two `ADD CONSTRAINT`s
+  on long-lived tables (`wizmatch_companies`, `wizmatch_suppression_list`) wrapped in
+  `DO $$ ... EXCEPTION WHEN duplicate_object THEN NULL; END $$` matching the existing `0017` precedent;
+  a marked `-- >>> BEGIN MANUAL GUARD BLOCK` containing the one non-generatable construct — the
+  policy-immutability trigger (ADR-006 D-10) — with the §10.11.2 six-step process documented inline.
+  Journal `when=1785039545644` (idx 37) exceeds `0036`'s `1784464092263`. Re-running `db:generate`
+  reports "No schema changes" — schema.ts and the migration are in sync.
+- `src/config/wizmatchOutreachStates.ts` — the single exported constant (`WIZMATCH_LIVE_ENROLMENT_STATES`
+  / `WIZMATCH_TERMINAL_ENROLMENT_STATES`) every one of the four §10.6.2 partial-index predicates and
+  the enrolment-state CHECK derive from, so a future state addition cannot silently miss one (D-6).
+  `src/config/wizmatchReasonCodes.ts` — the §9 taxonomy as typed data plus
+  `checkWizmatchTaxonomyInvariants()`, a mechanical check of invariants 1-5.
+- `src/modules/outreach/` — `policyTypes.ts` (branded `PolicyDecision`, constructible only inside
+  `outreachGate.ts`), `scopeKey.ts` (`buildScopeKey()` — the sole producer of `scope_key`, per criterion
+  17), `scopeApplicability.ts` (§8.1.1 region/BU/location resolution, fails closed per H-4),
+  `policyResolver.ts` (Phase-0 per-dimension inheritance walking the scope ladder), `campaignCompatibility.ts`
+  (§8.6/§8.7 routing matrix + the "more restrictive decision wins, §8.7 route takes precedence" rule),
+  `outreachGate.ts` (`evaluateWizmatchOutreachGate` / `assertWizmatchOutreachAllowed` /
+  `resolveCompanyStatus`, implementing L0 through L8, fail-closed on every error path, no legacy-status
+  fallback per D-13).
+- Tests: `wizmatchOutreachGate.test.ts` (L0 missing-root/C-2 regression, L1 non-overridable block,
+  L1b competitor/irrelevant, scoped inheritance + H-4 scope_unresolvable, L6 campaign compatibility,
+  L6b cold-email lock, L7 suppression union/A-1 regression, fail-closed on error, `assertWizmatchOutreachAllowed`
+  throw/resolve), `wizmatchScopeKey.test.ts` (normalisation, H-5's "Cloud Ops"/"cloud-ops" same-key
+  resolution, UUID rejection), `wizmatchReasonCodes.test.ts` (taxonomy invariants, the H-1/H-3
+  preparation-flag corrections), `wizmatchCampaignCompatibility.test.ts` (msp_vms_only/preferred_vendors_only
+  routing, the existing_client override, full 8×8 matrix well-formedness). 37 new tests, all green.
+
+**How to verify:** `npm run build` (exits 0); `npm run admin:install` then `npm test` (97 files / 840
+tests, all green — the two previously-failing suites were an environmental `lucide-react` gap, not a
+regression); `npm run db:generate` again reports "No schema changes"; `git diff --check` clean; grep
+`src/db/migrations/0037_unknown_siren.sql` for `DROP |ALTER COLUMN.*TYPE|SET NOT NULL|TRUNCATE|DELETE FROM`
+— zero hits.
+
+**Deviations / honestly-stated gaps:**
+- The ten §10.11.4 fresh-database verification requirements (fresh `0000→0037` replay, incremental
+  apply, re-apply no-op, journal ordering — confirmed via the journal JSON directly — production-drift
+  diff, destructive-statement scan — done via grep — guard-block audit, `check()`/`foreignKey()`
+  round-trip proof, lock measurement, trigger-fire test) could **not** be run against a real Postgres
+  instance in this session: direct `psql`/database-connection commands were denied by the session's
+  tool-permission layer, even though a local Postgres was reachable (`pg_isready` succeeded). These
+  must be run with real output recorded before G1, per the PRD's own gate.
+- The gate's L7 covers the suppression union (email + `contacts.do_not_contact`) but not yet the
+  cold-start contact-confidence gate (§7) — no caller supplies confidence data to this module yet; L5
+  does not yet query `wizmatch_company_duplicates` for pending-duplicate containment. Both are
+  explicitly named as PR-3/4-scope in the module's header comment, not silently dropped.
+- §22.2 criterion 1 says "seven new tables" but names §10.1-§10.7 (seven sections) *and* §10.9.1
+  (`wizmatch_suppression_events`, an eighth table required by D-4/D-15's three-grain suppression model).
+  Built all eight — the "seven" count appears to be a PRD off-by-one against its own §10.9.1
+  requirement, not a scope call this session made unilaterally. Flagging for owner awareness.
+- Test coverage here is a representative core subset of PRD-005 §20.1's ~40-item list (precedence,
+  inheritance, evidence, scope-key, suppression-split and tenancy categories), not an exhaustive
+  implementation of every named scenario (e.g. concurrency races, backfill idempotency, CSV round-trip,
+  Playwright a11y — several of which depend on tables/services not yet wired to a caller in this PR).
+
+**What's next:** PR 3 (`ge/outbound-03-policy-enforcement`) — migrate the 31-row §8.10.1 caller
+checklist onto `assertWizmatchOutreachAllowed`, fix A-1/A-4, reverse the mailer fallback (ADR-006 D-11).
+Before G1: run the §10.11.4 checks against a real Postgres instance with real output, and get owner
+sign-off on U-7 (the three shared-table indexes).
+
+---
+
 ## 2026-07-26 — WizMatch Outbound OS: PR 2 blocking specification defects resolved (PR 1/10 cont'd) — Claude — DOCS ONLY, NOT PUSHED
 
 **Why:** the overnight Opus review found six CRITICAL and twelve HIGH defects **in the specification**

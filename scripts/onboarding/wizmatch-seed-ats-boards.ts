@@ -10,6 +10,7 @@
  */
 import dotenv from 'dotenv'; dotenv.config();
 import { Pool } from 'pg';
+import { insertWizmatchCompanyRootPolicy } from '../../src/modules/outreach/companyBootstrap';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -69,7 +70,15 @@ async function main() {
            SELECT 1 FROM wizmatch_companies WHERE tenant_id=$1 AND ats_type=$4 AND ats_slug=$5
          ) RETURNING id`,
         [tenantId, name, domain, atsType, atsSlug]);
-      if (r.rowCount) inserted += 1;
+      if (r.rowCount) {
+        inserted += 1;
+        // PRD-005 §8.1 / §22.2 #16 — every company-insert path writes the
+        // cold-start root policy in the same transaction. Without this, boards
+        // seeded here would be permanently L0 `policy_missing_root` denied, and
+        // re-running this script could never repair them: the WHERE NOT EXISTS
+        // guard means the row is never re-inserted.
+        await insertWizmatchCompanyRootPolicy(client, tenantId, r.rows[0].id);
+      }
     }
     await client.query('COMMIT');
 

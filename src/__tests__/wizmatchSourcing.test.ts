@@ -58,7 +58,7 @@ describe('shared signal ingestion', () => {
     const db = {
       async query(sql: string) {
         calls.push(sql);
-        if (sql.includes('INSERT INTO wizmatch_companies')) return { rows: [{ id: 'company-1' }] };
+        if (sql.includes('INSERT INTO wizmatch_companies')) return { rows: [{ id: 'company-1', inserted: false }] };
         if (sql.includes('UPDATE wizmatch_job_signals')) return { rows: [{ id: 'signal-1' }] };
         return { rows: [] };
       },
@@ -69,6 +69,65 @@ describe('shared signal ingestion', () => {
     ], db);
     expect(result).toEqual({ inserted: 0, updated: 1, duplicates: 1, rejected: 1, errors: 0 });
     expect(calls.some((sql) => sql.includes('INSERT INTO wizmatch_job_signals'))).toBe(false);
+  });
+
+  it('creates the company and its cold-start root policy in ONE atomic statement (§22.2 #16)', async () => {
+    const calls: { sql: string; params?: unknown[] }[] = [];
+    const db = {
+      async query(sql: string, params?: unknown[]) {
+        calls.push({ sql, params });
+        if (sql.includes('INSERT INTO wizmatch_companies')) return { rows: [{ id: 'company-new', inserted: true }] };
+        if (sql.includes('INSERT INTO wizmatch_job_signals')) return { rows: [{ id: 'signal-new' }] };
+        if (sql.includes('UPDATE wizmatch_job_signals')) return { rows: [] };
+        return { rows: [] };
+      },
+    };
+    await ingestWizmatchSignals('tenant', [
+      { job_title: 'Backend Engineer', source: 'theirstack', provider_id: 'job-2', company_name: 'Brand New Co' },
+    ], db);
+
+    // Both writes must live in the SAME statement. Two statements on the shared
+    // pool could commit the company and then fail the policy, leaving a company
+    // that is permanently L0-denied and unrepairable by re-ingestion.
+    const companyCalls = calls.filter((c) => c.sql.includes('INSERT INTO wizmatch_companies'));
+    expect(companyCalls).toHaveLength(1);
+    const stmt = companyCalls[0]!;
+    expect(stmt.sql).toContain('INSERT INTO wizmatch_company_policies');
+    // No separate policy statement was issued.
+    expect(calls.filter((c) => c.sql.includes('INSERT INTO wizmatch_company_policies'))).toHaveLength(1);
+
+    expect(stmt.params).toEqual([
+      'tenant', 'Brand New Co', null,
+      'entire_company', 'entire_company', 'needs_review', 'unknown', 'new_prospect',
+      'standard', false, 'deterministic_rule', 'policy_unknown_cold_start',
+    ]);
+  });
+
+  it('guards the root-policy write behind the upsert INSERT branch, in SQL (§22.2 #16)', async () => {
+    // The create-only condition now lives in the statement itself rather than a
+    // JS branch, so this asserts the predicate rather than a mock's return value:
+    // a mocked pool cannot tell us whether Postgres would write the policy row.
+    const calls: string[] = [];
+    const db = {
+      async query(sql: string) {
+        calls.push(sql);
+        if (sql.includes('INSERT INTO wizmatch_companies')) return { rows: [{ id: 'company-existing', inserted: false }] };
+        if (sql.includes('INSERT INTO wizmatch_job_signals')) return { rows: [{ id: 'signal-x' }] };
+        if (sql.includes('UPDATE wizmatch_job_signals')) return { rows: [] };
+        return { rows: [] };
+      },
+    };
+    await ingestWizmatchSignals('tenant', [
+      { job_title: 'Backend Engineer', source: 'theirstack', provider_id: 'job-3', company_name: 'Existing Co' },
+    ], db);
+
+    const stmt = calls.find((sql) => sql.includes('INSERT INTO wizmatch_companies'))!;
+    // Only rows the upsert actually inserted get a policy...
+    expect(stmt).toMatch(/FROM upserted WHERE upserted\.inserted/);
+    // ...`(xmax = 0)` is what makes `inserted` true only on the INSERT branch...
+    expect(stmt).toContain('(xmax = 0) AS inserted');
+    // ...and a concurrent bootstrap can never create a second active root row.
+    expect(stmt).toContain('WHERE superseded_at IS NULL DO NOTHING');
   });
 });
 

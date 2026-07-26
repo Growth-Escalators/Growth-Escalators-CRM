@@ -16,6 +16,10 @@
 
 import { pool } from '../db/index';
 import logger from '../utils/logger';
+import {
+  insertWizmatchCompanyRootPolicy,
+  withWizmatchCompanyTransaction,
+} from '../modules/outreach/companyBootstrap';
 import { normalizeChannelValue } from './contactService';
 import { isSafeFetchHost } from '../utils/ssrfGuard';
 import { scoreSignal } from './wizmatchScoring';
@@ -1157,23 +1161,31 @@ export async function seedProspectCompany(input: SeedProspectInput): Promise<See
       ],
     );
   } else {
-    const inserted = await pool.query(
-      `INSERT INTO wizmatch_companies
-         (tenant_id, name, domain, industry, employee_count, country, linkedin_url, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id`,
-      [
-        input.tenantId,
-        input.companyName,
-        input.domain,
-        input.industry,
-        input.employeeCount,
-        country || 'US',
-        input.linkedinUrl,
-        input.notes,
-      ],
-    );
-    companyId = inserted.rows[0].id;
+    // Company creation and its cold-start root policy must be atomic
+    // (§22.2 #16) — this path already has a pool.connect() precedent in this
+    // file (withContactDiscoveryAdvisoryLock), so a dedicated transaction is
+    // used rather than two independent pool.query() calls.
+    companyId = await withWizmatchCompanyTransaction(pool, async (client) => {
+      const inserted = await client.query(
+        `INSERT INTO wizmatch_companies
+           (tenant_id, name, domain, industry, employee_count, country, linkedin_url, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING id`,
+        [
+          input.tenantId,
+          input.companyName,
+          input.domain,
+          input.industry,
+          input.employeeCount,
+          country || 'US',
+          input.linkedinUrl,
+          input.notes,
+        ],
+      );
+      const newCompanyId: string = inserted.rows[0].id;
+      await insertWizmatchCompanyRootPolicy(client, input.tenantId, newCompanyId);
+      return newCompanyId;
+    });
   }
 
   const manualScore = scoreSignal({
