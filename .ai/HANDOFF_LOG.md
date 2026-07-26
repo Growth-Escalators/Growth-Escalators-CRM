@@ -6,6 +6,77 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-26 — WizMatch Outbound OS: PR 4 finalized — policy UI/API/backfill/readiness — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT MERGED
+
+**Why:** finish an interrupted PR 4 session on `ge/outbound-04-policy-ui-backfill`. Most of the
+implementation (routes, services, CLI scripts, tests, admin components) already existed uncommitted
+in the worktree from a prior session; this session's job was to verify and close it out, not design
+new scope.
+
+**Method:** read AGENTS.md, CLAUDE.md, PRD-005, ADR-006, ADR-007 and the PR 3 handoff/marker first.
+Read every new/changed file by hand (routes, service, backfill, readiness, duplicate service, admin
+components) against PRD-005 §8.8/§9/§10.1/§11/§12/§13/§21.1 and ADR-006 D-7/D-17/D-18. Ran the full
+verification gate the task specified, including `admin:build` and a focused-then-full Playwright pass
+since this PR touches admin UI.
+
+**What changed — one commit `9561c10`:**
+- **Policy read/write API + RBAC** (`src/routes/wizmatchPolicy.ts`,
+  `src/modules/outreach/policyService.ts`): `GET/POST /api/wizmatch/companies/:id/policy`,
+  `POST .../policy/override` (admin), `POST .../owner`, `GET /api/wizmatch/policy/companies`,
+  `POST /api/wizmatch/companies/bulk/policy` (admin). Supersession-based writes — one active row per
+  `scope_key`, previous row superseded plus an events row, one transaction (mirrors `suppress()`'s
+  PR 3 guarantee). Refuses to supersede a non-overridable predecessor; only the admin override path
+  can, and that path requires evidence unconditionally (ADR-006 D-18).
+- **Duplicate-company review** (`src/modules/outreach/duplicateService.ts`): list + resolve
+  (Merge / Confirm Separate), team_lead+. Detection is out of scope (nothing writes a duplicate row
+  yet); "Merge" resolves the record only, no cross-entity data migration (disclosed limit).
+- **Dry-run-first backfill** (`scripts/onboarding/wizmatch-policy-backfill.ts`,
+  `src/modules/outreach/policyBackfill.ts`): safe by default, tolerance-deviation abort guard,
+  idempotent `--apply` via `ON CONFLICT ... DO NOTHING`. `--apply` was **not** run this session.
+- **§21.1 readiness report/CLI** (`src/modules/outreach/policyReadiness.ts`,
+  `scripts/wizmatch-policy-readiness.ts`, `GET /api/wizmatch/policy/readiness`, admin): "shadow
+  would-have-blocked" is an honestly-disclosed live-snapshot proxy, not a cumulative count (would need
+  a schema change outside this PR's guardrails); export-omissions/resolver-errors/pending-in-active-
+  batch are `unavailable: true`, not fabricated.
+- **Admin UI**: `CompanyPolicySection.jsx` in the company drawer; new Duplicate Companies page. Both
+  behind `WIZMATCH_COMPANY_POLICY_ENABLED` (default false — API 404s, UI renders nothing off).
+
+**Three defects found and fixed while finishing (not a dedicated adversarial review pass — found by
+running the gates the task required):**
+1. `scripts/onboarding/wizmatch-policy-backfill.js` — a stray compiled CommonJS duplicate of the
+   `.ts` source, untracked in the worktree (confirmed via `git ls-files` that this repo only tracks
+   `.ts` under `scripts/`). Deleted.
+2. `WizmatchDuplicateReviewPage.jsx` existed and `wizmatchRouteRegistry.ts` linked to
+   `/wizmatch/duplicates`, but `App.jsx` never lazy-imported the component or declared the `<Route>`
+   — the nav entry would 404. Wired in (lazy import + route, same pattern as every other Wizmatch page).
+3. `CompanyPolicySection.jsx` dereferenced `effective.rootRow` and destructured `scoped`/`history`
+   with no guard against a malformed/incomplete API response — crashed the **entire company drawer**,
+   not just the Policy section, whenever the fetch returned an unexpected shape. Caught by two
+   Playwright specs failing (`wizmatch-gate-a-local`, `wizmatch-phase0-local`) once the section started
+   firing unconditionally in dev mode against their generic `{}` route mock. Fixed: a malformed
+   response now sets a contained error state; `scoped`/`history` default to `[]`.
+
+**How to verify:** `git diff --check` clean; `npm run build` exit 0; `npm test` **107 files / 948
+tests green**; `npm run admin:build` clean; `npx playwright test --config=playwright.wizmatch-local.config.ts`
+full suite — **97 passed / 15 skipped** (real-backend specs needing a live server on :3000, not
+started this session — pre-existing skip condition) **/ 0 failed**.
+
+**What's next / open:** this marker (`.ai/OUTBOUND_PR4_IMPLEMENTED`) is **self-reported, not
+independently reviewed** — PR 2 and PR 3 both got a three-subagent readiness review before being
+called code-ready; PR 4 has not had that yet. **U-13** (`resolveWizmatchLinkage` returns an arbitrary
+company on multi-linkage, fail-open), **U-14** (bulk-email/export per-row gating performance), U-10,
+U-12, L-7…L-13 from the PR 3 review were **not folded into this PR** — no code in this commit touches
+`wizmatchLinkage.ts` or the bulk-gating call sites; they weren't part of the already-started work
+found in the worktree, and this session was told to finish that, not start new scope. Recorded as
+open, not silently dropped.
+Not done, by instruction: migration 0037 not applied; backfill `--apply` not run; enforcement mode
+untouched (`shadow`); both sending kill-switches untouched; no paid provider enabled; Smartlead not
+connected; no guardrail file touched (`schema.ts`, `migrations/`, `auth.ts`, `rbac.ts`, `cashfree.ts`,
+`sodEodService.ts`); no Growth/SEO/n8n/legacy-outreach/`package-lock.json` change; nothing pushed,
+merged, or deployed; no Railway or production access.
+
+---
+
 ## 2026-07-26 — WizMatch Outbound OS: PR 3 independent code-readiness review + 6 fixes — Claude (Opus) — LOCAL BRANCH ONLY, NOT PUSHED, NOT MERGED
 
 **Why:** independent §22.3 readiness review of `ge/outbound-03-policy-enforcement` before it is opened
