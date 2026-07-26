@@ -16,11 +16,15 @@
 
 import { Router, type Request, type Response } from 'express';
 import { prepareSingleCompany, getPrepStatus } from '../modules/outreach/prepareCompanies';
+import { isWizmatchFlagEnabled } from '../services/wizmatchAutomation';
 
 const router = Router();
 
+// Read per request, not once at module load, and through the SAME parser the
+// worker cron uses — otherwise `WIZMATCH_AUTO_PREP_ENABLED=1` runs the cron
+// while these routes 404 (PR 6 review, M-D). Unset/absent remains off.
 function featureGate(_req: Request, _res: Response, next: (route?: string) => void): void {
-  if (process.env.WIZMATCH_AUTO_PREP_ENABLED !== 'true') {
+  if (!isWizmatchFlagEnabled(process.env.WIZMATCH_AUTO_PREP_ENABLED)) {
     next('router');
     return;
   }
@@ -30,12 +34,18 @@ router.use(featureGate);
 
 router.post('/companies/:id/prepare', async (req: Request, res: Response) => {
   try {
-    const result = await prepareSingleCompany(req.user!.tenantId, String(req.params.id));
-    if (!result) {
-      res.status(409).json({ error: 'lock_held_or_not_found', message: 'Another prep run is in progress, or the company does not exist for this tenant.' });
+    const outcome = await prepareSingleCompany(req.user!.tenantId, String(req.params.id));
+    if (!outcome.ok) {
+      // 404 and 409 are not interchangeable here: a client retrying a 409 is
+      // correct, a client retrying a nonexistent company loops forever.
+      if (outcome.reason === 'not_found') {
+        res.status(404).json({ error: 'not_found', message: 'No such company for this tenant.' });
+        return;
+      }
+      res.status(409).json({ error: 'lock_held', message: 'Another prep run is in progress for this tenant. Retry shortly.' });
       return;
     }
-    res.json(result);
+    res.json(outcome.result);
   } catch (error) {
     console.error('[wizmatch companies/:id/prepare] failed', error);
     res.status(500).json({ error: 'internal_error' });

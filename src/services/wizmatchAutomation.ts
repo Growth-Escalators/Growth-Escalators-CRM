@@ -5,6 +5,21 @@ function enabled(value: string | undefined) {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
 }
 
+/**
+ * The single reading of a WizMatch on/off env flag, exported so an HTTP route
+ * gate and the cron that shares its flag cannot disagree.
+ *
+ * PR 6's review recorded M-D: the workbench UI accepted `1|true|yes|on` while
+ * its backend required the exact string `'true'`. PR 7's flag had the same split
+ * — `WIZMATCH_AUTO_PREP_ENABLED=1` started the CRON (which scrapes websites)
+ * while both HTTP routes stayed 404, i.e. the automated side ran and the manual
+ * side the operator would use to inspect it did not. Unset is still off; the
+ * asymmetry is what is removed, not the default.
+ */
+export function isWizmatchFlagEnabled(value: string | undefined): boolean {
+  return enabled(value);
+}
+
 export interface WizmatchAutomationStatus {
   execution: 'web-in-process' | 'disabled';
   masterEnabled: boolean;

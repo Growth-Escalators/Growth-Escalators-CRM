@@ -16,14 +16,14 @@ const calls = vi.hoisted(() => ({
 }));
 
 const state = vi.hoisted(() => ({
-  prepareResult: { companyId: 'company-1', status: 'prepared' } as Record<string, unknown> | null,
+  prepareOutcome: { ok: true, result: { companyId: 'company-1', status: 'prepared' } } as Record<string, unknown>,
   prepStatus: { lastPreparedAt: '2026-07-27T00:00:00.000Z' } as Record<string, unknown> | null,
 }));
 
 vi.mock('../modules/outreach/prepareCompanies', () => ({
   prepareSingleCompany: async (...args: unknown[]) => {
     calls.prepareSingleCompany.push(args);
-    return state.prepareResult;
+    return state.prepareOutcome;
   },
   getPrepStatus: async (...args: unknown[]) => {
     calls.getPrepStatus.push(args);
@@ -56,7 +56,7 @@ beforeEach(() => {
   vi.resetModules();
   calls.prepareSingleCompany.length = 0;
   calls.getPrepStatus.length = 0;
-  state.prepareResult = { companyId: 'company-1', status: 'prepared' };
+  state.prepareOutcome = { ok: true, result: { companyId: 'company-1', status: 'prepared' } };
   state.prepStatus = { lastPreparedAt: '2026-07-27T00:00:00.000Z' };
   process.env.WIZMATCH_AUTO_PREP_ENABLED = 'true';
 });
@@ -77,8 +77,8 @@ describe('wizmatchPrepare router — feature flag (default off)', () => {
     expect(calls.prepareSingleCompany).toHaveLength(0);
   });
 
-  it('requires the exact string "true" — "TRUE" does not enable it', async () => {
-    process.env.WIZMATCH_AUTO_PREP_ENABLED = 'TRUE';
+  it('stays off for a value that is not an enable ("off", "0", "maybe")', async () => {
+    process.env.WIZMATCH_AUTO_PREP_ENABLED = 'off';
     await startServer();
 
     const res = await fetch(`${baseUrl}/api/wizmatch/companies/company-1/prepare/status`);
@@ -87,7 +87,21 @@ describe('wizmatchPrepare router — feature flag (default off)', () => {
     expect(calls.getPrepStatus).toHaveLength(0);
   });
 
-  it('serves the real routes once the flag is exactly "true"', async () => {
+  // The route MUST agree with the worker cron's `enabled()` parser. When it
+  // required the exact string 'true', `WIZMATCH_AUTO_PREP_ENABLED=1` started the
+  // cron (which scrapes websites) while both routes 404'd — the automated side
+  // ran and the operator's own inspection surface did not (PR 6 review, M-D).
+  it.each(['1', 'TRUE', 'yes', 'on'])('accepts %s, the same values the cron accepts', async (value) => {
+    process.env.WIZMATCH_AUTO_PREP_ENABLED = value;
+    await startServer();
+
+    const res = await fetch(`${baseUrl}/api/wizmatch/companies/company-1/prepare/status`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ prep: state.prepStatus });
+    expect(calls.getPrepStatus).toHaveLength(1);
+  });
+
+  it('serves the real routes once the flag is "true"', async () => {
     await startServer();
 
     const postRes = await fetch(`${baseUrl}/api/wizmatch/companies/company-1/prepare`, { method: 'POST' });
@@ -102,12 +116,24 @@ describe('wizmatchPrepare router — feature flag (default off)', () => {
 });
 
 describe('wizmatchPrepare router — error shapes', () => {
-  it('returns 409 (not a silent success) when the lock is held or the company is unknown', async () => {
-    state.prepareResult = null;
+  it('returns 409 (retryable) when the advisory lock is held', async () => {
+    state.prepareOutcome = { ok: false, reason: 'lock_held' };
     await startServer();
 
     const res = await fetch(`${baseUrl}/api/wizmatch/companies/company-1/prepare`, { method: 'POST' });
     expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: 'lock_held' });
+  });
+
+  // Distinct from 409 on purpose: a client retrying a 409 is behaving
+  // correctly, a client retrying a nonexistent company loops forever.
+  it('returns 404 (permanent) for a company that does not exist in this tenant', async () => {
+    state.prepareOutcome = { ok: false, reason: 'not_found' };
+    await startServer();
+
+    const res = await fetch(`${baseUrl}/api/wizmatch/companies/company-1/prepare`, { method: 'POST' });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toMatchObject({ error: 'not_found' });
   });
 
   it('returns 404 for a company with no prep status recorded', async () => {

@@ -49,6 +49,10 @@ vi.mock('../modules/outreach/duplicateService', () => ({
   resolveDuplicate: async () => ({}),
 }));
 vi.mock('../modules/outreach/policyReadiness', () => ({ getWizmatchPolicyReadiness: async () => ({}) }));
+vi.mock('../modules/outreach/prepareCompanies', () => ({
+  prepareSingleCompany: async () => ({ ok: true, result: { companyId: 'c1', status: 'prepared' } }),
+  getPrepStatus: async () => ({ lastPreparedAt: '2026-07-27T00:00:00.000Z' }),
+}));
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'index.ts'), 'utf8');
 
@@ -71,9 +75,20 @@ describe('src/index.ts — /api/wizmatch mount order (M-1)', () => {
     expect(todayMount).toBeLessThan(adminGatedMount);
   });
 
-  it('gates both new-order mounts on requireAuth + wizmatchRequireStaffing (staff+), not wizmatchRequireAdmin', () => {
+  // PR 7: the prep router is the third router in this block and carries the
+  // same M-1 exposure. `wizmatchPrepareRoutes.test.ts` proves its own
+  // `next('router')` fallthrough on a bare app, which cannot see a future edit
+  // that moves this mount below the admin-gated one in the real index.ts.
+  it('mounts wizmatchPrepareRouter BEFORE the wizmatchRequireAdmin-gated wizmatchRouter', () => {
+    const prepareMount = firstIndexOf("wizmatchRequireStaffing, wizmatchPrepareRouter)");
+    const adminGatedMount = firstIndexOf("requireAuth, wizmatchRequireAdmin, wizmatchRouter)");
+    expect(prepareMount).toBeLessThan(adminGatedMount);
+  });
+
+  it('gates all three new-order mounts on requireAuth + wizmatchRequireStaffing (staff+), not wizmatchRequireAdmin', () => {
     expect(source).toMatch(/app\.use\('\/api\/wizmatch', requireAuth, wizmatchRequireStaffing, wizmatchPolicyRouter\)/);
     expect(source).toMatch(/app\.use\('\/api\/wizmatch', requireAuth, wizmatchRequireStaffing, wizmatchTodayRouter\)/);
+    expect(source).toMatch(/app\.use\('\/api\/wizmatch', requireAuth, wizmatchRequireStaffing, wizmatchPrepareRouter\)/);
   });
 });
 
@@ -91,6 +106,7 @@ describe('/api/wizmatch feature gates — off must hide the router, not the pref
   afterEach(async () => {
     delete process.env.WIZMATCH_COMPANY_POLICY_ENABLED;
     delete process.env.WIZMATCH_DECISION_WORKBENCH_ENABLED;
+    delete process.env.WIZMATCH_AUTO_PREP_ENABLED;
     if (server) {
       const s = server;
       server = null;
@@ -102,6 +118,7 @@ describe('/api/wizmatch feature gates — off must hide the router, not the pref
     vi.resetModules();
     const { default: wizmatchPolicyRouter } = await import('../routes/wizmatchPolicy');
     const { default: wizmatchTodayRouter } = await import('../routes/wizmatchToday');
+    const { default: wizmatchPrepareRouter } = await import('../routes/wizmatchPrepare');
 
     const app = express();
     app.use(express.json());
@@ -114,6 +131,7 @@ describe('/api/wizmatch feature gates — off must hide the router, not the pref
     // boots a Postgres pool).
     app.use('/api/wizmatch', wizmatchPolicyRouter);
     app.use('/api/wizmatch', wizmatchTodayRouter);
+    app.use('/api/wizmatch', wizmatchPrepareRouter);
     const downstream = express.Router();
     downstream.get('/dashboard', (_req, res) => { res.json({ servedBy: 'wizmatchRouter' }); });
     app.use('/api/wizmatch', downstream);
@@ -134,6 +152,21 @@ describe('/api/wizmatch feature gates — off must hide the router, not the pref
     const baseUrl = await startRealMountOrder();
     expect((await fetch(`${baseUrl}/api/wizmatch/today/queues`)).status).toBe(404);
     expect((await fetch(`${baseUrl}/api/wizmatch/companies/c1/policy`)).status).toBe(404);
+    expect((await fetch(`${baseUrl}/api/wizmatch/companies/c1/prepare/status`)).status).toBe(404);
+  });
+
+  it('the prep router with its flag OFF does not swallow the downstream router (C-1 class)', async () => {
+    const baseUrl = await startRealMountOrder();
+    const res = await fetch(`${baseUrl}/api/wizmatch/dashboard`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ servedBy: 'wizmatchRouter' });
+  });
+
+  it('turning the prep flag on serves prep without hiding the downstream router', async () => {
+    process.env.WIZMATCH_AUTO_PREP_ENABLED = 'true';
+    const baseUrl = await startRealMountOrder();
+    expect((await fetch(`${baseUrl}/api/wizmatch/companies/c1/prepare/status`)).status).toBe(200);
+    expect((await fetch(`${baseUrl}/api/wizmatch/dashboard`)).status).toBe(200);
   });
 
   it('turning one flag on serves that surface without hiding the downstream router', async () => {
