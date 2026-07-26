@@ -7,8 +7,8 @@
  * address to the suppression list ("verify by sending"). Detection is always free;
  * suppression writes are gated behind WIZMATCH_BOUNCE_SUPPRESSION_ENABLED (default off).
  */
-import { pool } from '../db/index';
 import logger from '../utils/logger';
+import { suppress } from '../modules/outreach/outreachGate';
 
 export interface ParsedBounce {
   isBounce: boolean;
@@ -54,22 +54,28 @@ export function parseBounce(email: { from: string; subject: string; body: string
   return { isBounce: Boolean(recipient), bouncedRecipient: recipient, hard };
 }
 
-/** Suppression writes are opt-in — merging this code changes nothing until the flag is set. */
+/**
+ * PRD-005 §22.3 A-4 — hard bounces are now ALWAYS persisted; the prior
+ * WIZMATCH_BOUNCE_SUPPRESSION_ENABLED flag (default off, meaning bounces were
+ * detected then discarded) is deleted. Kept only as a no-op compatibility
+ * export in case any other code still references the name.
+ */
 export function bounceSuppressionEnabled(): boolean {
-  return ['1', 'true', 'yes', 'on'].includes((process.env.WIZMATCH_BOUNCE_SUPPRESSION_ENABLED || '').toLowerCase());
+  return true;
 }
 
-/** Adds a hard-bounced address to the Wizmatch suppression list (idempotent). */
+/** Adds a hard-bounced address to the Wizmatch suppression list (idempotent), via the gate's sole suppression write path. */
 export async function recordHardBounce(recipient: string, meta: { inbox?: string } = {}): Promise<void> {
   const tenantId = process.env.WIZMATCH_TENANT_ID;
   if (!tenantId) return;
   try {
-    await pool.query(
-      `INSERT INTO wizmatch_suppression_list (tenant_id, email, reason, source_channel, notes)
-       VALUES ($1, LOWER($2), 'hard_bounce', 'email', $3)
-       ON CONFLICT (tenant_id, email) DO NOTHING`,
-      [tenantId, recipient, `Auto-suppressed on hard bounce${meta.inbox ? ` (via ${meta.inbox})` : ''}`],
-    );
+    await suppress({
+      tenantId,
+      email: recipient,
+      reason: 'hard_bounce',
+      sourceChannel: 'email',
+      source: `bounce_parser${meta.inbox ? `:${meta.inbox}` : ''}`,
+    });
     logger.info({ recipient, inbox: meta.inbox }, '[wizmatch-bounce] hard bounce suppressed');
   } catch (err) {
     logger.warn({ err, recipient }, '[wizmatch-bounce] failed to record hard bounce');

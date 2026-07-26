@@ -1,0 +1,54 @@
+IMPLEMENTED
+branch=ge/outbound-03-policy-enforcement
+parent=ge/outbound-02-policy-schema-service
+
+# WizMatch Outbound OS — PR 3 implementation marker
+#
+# Meaning: PRD-005 §22.3 acceptance criteria are implemented at the commit that carries this file.
+# Evidence: docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md (PR 3 section), .ai/HANDOFF_LOG.md.
+#
+# Gates:
+#   git diff --check     clean
+#   npm run build        exit 0
+#   npm test             103 files / 896 tests passed (18 new)
+#
+# §22.3 criteria disposition:
+#   1  every §8.10.1 row closed — migrated onto the gate (1-18), gate-or-reject (19-24),
+#      routed through suppress() (25-29), mailbox-health-only (30), out-of-tenant list re-verified
+#   2  zero duplicate policy checks — wizmatchOutreachService.ts:183-189 inline query deleted
+#   3  POST /contacts/bulk-email gates-or-rejects every WizMatch-linked recipient, reports rejections
+#   4  warm-up honours mailbox health + global sending safety, does NOT call company policy
+#   5  A-1 fixed — suppression union reads both grains, both sides lowercased (findSuppression,
+#      unchanged from PR 2, is now actually reachable)
+#   6  A-4 fixed — hard bounces always persisted via suppress(); WIZMATCH_BOUNCE_SUPPRESSION_ENABLED
+#      no longer gates anything
+#   7  mailer fails closed with no healthy inbox behind WIZMATCH_MAILER_EMERGENCY_OVERRIDE
+#      (default false, read per-call), logs + Slack-alerts WIZMATCH_SYSTEM_CHANNEL every use
+#   8  unsubscribe HMAC minted and verified over the same normalised address; unsubscribe write uses
+#      the resolved sending tenant, not process.env.WIZMATCH_TENANT_ID
+#   9  WIZMATCH_POLICY_ENFORCEMENT_MODE=shadow is the shipped default; §16 shadow semantics hold
+#  10  shadow-vs-enforce equivalence harness exists and passes
+#      (src/__tests__/wizmatchOutreachShadowEquivalence.test.ts)
+#  11  both kill-switches (WIZMATCH_SENDING_ENABLED, AUTOMATED_EMAILS_ENABLED) remain off, unmodified
+#
+# Known scope limits, stated not hidden (see status doc PR 3 section for detail):
+#   - follow-up re-enrolment still writes to the generic sequence_enrolments table, gated but not
+#     migrated onto wizmatch_outreach_enrolments
+#   - the §16 rule-2 "gate_denied observation" is a structured console log today, not a persisted
+#     queryable row — the readiness report consuming it is PR 4 scope
+#   - a few preparation-gate checks run after the row they gate has already been written (existing
+#     RETURNING-based code), not fully transactional; the outreach action itself is still gated
+#     downstream
+#   - row 9 (POST /signals/ingest) is classified out of per-call gate scope — bulk raw-signal insert
+#     with no single company target per call; new companies already get a root policy via PR 2's #16
+#     bootstrap fix, and the actual send is gated downstream at rows 1-2
+#
+# Still true, unchanged by this marker:
+#   - migration 0037 has NOT been applied to production or any shared database (PR 2 scope, G1)
+#   - WIZMATCH_POLICY_ENFORCEMENT_MODE stays 'shadow' — enforce is NOT promoted by this PR
+#   - WIZMATCH_SENDING_ENABLED and AUTOMATED_EMAILS_ENABLED remain off and unmodified
+#   - no paid provider is enabled; Smartlead is not connected
+#   - nothing was pushed, merged or deployed
+#   - no Growth/SEO/n8n/legacy outreach code touched
+#
+# Next: ge/outbound-04-policy-ui-backfill (PRD-005 PR 4 scope).

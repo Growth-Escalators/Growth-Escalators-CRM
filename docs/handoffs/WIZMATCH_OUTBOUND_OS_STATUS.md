@@ -373,3 +373,125 @@ database was dropped and the working tree left clean.
 **Remaining owner items:** U-7 (three shared-table indexes) and the production-sized lock measurement
 gate G1, unchanged; the production `information_schema` drift diff (M-10) is recommended to join the
 same sign-off.
+
+---
+
+## PR 3 — `ge/outbound-03-policy-enforcement` (2026-07-26, local only, NOT pushed/merged)
+
+Cut from `ge/outbound-02-policy-schema-service` at `4b68769`. Implements PRD-005 §22.3 — shadow
+enforcement wired onto the §8.10.1 caller checklist, plus the A-1/A-4/mailer/HMAC fixes. **Does not
+promote `enforce` and does not enable sending** — `WIZMATCH_POLICY_ENFORCEMENT_MODE` ships defaulting
+to `shadow`, `WIZMATCH_SENDING_ENABLED` and `AUTOMATED_EMAILS_ENABLED` are untouched.
+
+**Chokepoint semantics fixed for real use (this PR, not PR 2):** `evaluateWizmatchOutreachGate`
+already existed but nothing called it. Two gaps had to close before wiring any caller:
+- `assertWizmatchOutreachAllowed` unconditionally threw on any non-allow — that's correct for
+  `enforce` but would have made every wired call site block in `shadow` too, which the review's own
+  P R2 note flagged as "shadow-vs-enforce is a no-op either way in PR 2: nothing calls this module."
+  Fixed with a new exported `shouldBlock(ctx, decision)` helper: computes `decision !== 'allow' &&
+  enforcementMode === 'enforce'`, and logs a structured `shadow would-block` observation on every
+  would-block in shadow mode (§16 rule 2's "gate_denied observation" — logged today; a persisted,
+  queryable observation table is PR 4/readiness-report scope, stated not hidden).
+- Added `suppress()` as the sole write path for the email/channel suppression grain (§8.10.1 rows
+  25-29): lowercases the address, writes `wizmatch_suppression_list` AND the append-only
+  `wizmatch_suppression_events` audit row in one call. Every bounce/unsubscribe/manual-suppress
+  caller now routes through it instead of a bespoke `db.insert`.
+- Added `resolveWizmatchLinkage(tenantId, contactId)` / `resolveWizmatchLinkageByEmail` (§8.10.2):
+  canonical `wizmatch_company_contacts`, then `wizmatch_contact_candidates.crm_contact_id`, then
+  `wizmatch_job_signals.contact_id`, in that order — the sole way any shared-CRM path decides "is
+  this contact WizMatch's."
+
+**§8.10.1 checklist disposition:**
+- **Rows 1-18 (WizMatch send/enrol core) — migrated onto the gate.** `sendColdEmail` (via
+  `sendSignalDraftEmail`), the follow-up re-enrolment raw insert, `generateSignalDraftEmails`,
+  `/signals/:id/send|draft|enrich|discover-poc`, `/classify-reply`'s NOT_NOW retry and
+  NOT_INTERESTED/UNSUBSCRIBE auto-suppress, the four contact-intelligence routes, the three
+  `wizmatchStaffingDomain.ts` writers (`createCompanyContact`, `addRequirementContact`,
+  `setNextAction`), and `sequenceWorker.ts`'s dispatch loop (cancels a WizMatch-linked enrolment on
+  DENY instead of dispatching). **Row 9 (`/signals/ingest`) is classified out of per-call gate
+  scope, recorded not hidden**: it's a bulk raw-signal insert with no single company target per
+  call — new companies it creates already get a root policy via PR 2's #16 bootstrap fix, and the
+  actual outreach send is gated downstream at rows 1-2. Preparation-only routes (enrich,
+  discover-poc, contact-intelligence discover/manual/link/review, the two staffing writers, the
+  next-action writer) block only when `!decision.preparationAllowed` (§8.8) — an ordinary review or
+  cold-email lock does not stop preparation, only a permanent/non-overridable block does.
+- **Rows 19-24 (shared CRM paths) — gate or reject.** `POST /contacts/bulk-email` resolves the
+  WizMatch link per recipient and reports rejections in the response (`rejected` count +
+  `rejectedDetail`) rather than silently dropping them from `sent`, per §22.3 #3. `POST
+  /contacts/export` excludes denied WizMatch-linked rows and stamps the response with
+  `X-Wizmatch-Policy-Excluded-Count`. `emailTemplates.ts` send-test, `email.ts` manual/send, and
+  `emailService.ts`'s `sendSequenceEmail`/`sendManualEmail` call sites all gate on the resolved
+  linkage; `/api/email/send`'s caller-supplied `tenantId` is explicitly checked against
+  `WIZMATCH_TENANT_ID` before trusting it. `sequenceService.ts`'s `enrolContact` gates alongside its
+  existing `do_not_contact` throw — the single choke point for `/api/sequences/enrol` too.
+- **Rows 25-29 (suppression writes) — routed through `suppress()`.** Bounce parser, the
+  `/classify-reply` auto-suppress, the unsubscribe route, and `POST /suppression` all call it now;
+  `GET /suppression`'s email filter is lowercased (row 28).
+- **Row 30 (warm-up) — mailbox-health-only, no company policy.** `sendWarmupEmails` now queries
+  `wizmatch_domain_health` and skips any inbox whose domain isn't `healthy`, before ever calling
+  company policy (it never did, and still doesn't — company policy is for actual outreach, not
+  mailbox warmup).
+- **Out-of-tenant list — unchanged, re-verified.** No edit touched `routes/outbound.ts`,
+  `outreachEnrichmentService.ts`, `saleshandyStatsService.ts`, or the Growth-tenant half of
+  `imapService.ts`'s reply matching.
+
+**A-1/A-4/mailer/HMAC fixes:**
+- **A-1 (suppression union)** — the inline, non-lowercased `wizmatch_suppression_list` query at
+  `wizmatchOutreachService.ts:183-189` is deleted; the gate's `findSuppression` (already lowercasing
+  both sides, from PR 2) is now actually reachable, closing the gap for real.
+- **A-4 (hard bounces discarded)** — `WIZMATCH_BOUNCE_SUPPRESSION_ENABLED` no longer gates anything;
+  `bounceSuppressionEnabled()` is kept as a compatibility no-op returning `true`. Hard bounces are
+  now always persisted via `suppress()`.
+- **Mailer fail-closed (§18.3)** — `sendColdEmail`'s "no healthy domain → use all inboxes" fallback
+  is reversed: it now throws unless `WIZMATCH_MAILER_EMERGENCY_OVERRIDE=true` (default false, read
+  per-call — not cached at import time, the same mistake the shadow-mode flag deliberately avoids),
+  which logs at error level and Slack-alerts `WIZMATCH_SYSTEM_CHANNEL` on every use
+  (`allowDuringPause: true` — a mailer emergency must not be silently swallowed by the routine-Slack
+  pause flag). Does not enable or activate sending; both kill-switches are unmodified.
+- **Unsubscribe HMAC normalisation** — the mint side (`wizmatchOutreachService.ts`) now signs over
+  `toEmail.trim().toLowerCase()`, matching the verify side (`routes/wizmatch.ts`'s `/unsubscribe`,
+  which already lowercased its query param). Every mixed-case recipient's unsubscribe link now
+  verifies.
+- **Unsubscribe sending-tenant fix** — `/unsubscribe` no longer hardcodes `process.env
+  .WIZMATCH_TENANT_ID`; it looks up the most recent outbound email to the address via
+  `contact_channels` + `messages` and uses that tenant, falling back to `WIZMATCH_TENANT_ID` only
+  when no send history exists.
+
+**Shadow-vs-enforce equivalence harness (§22.3 #10):**
+`src/__tests__/wizmatchOutreachShadowEquivalence.test.ts` runs a fixed fixture set (L0 missing root,
+L1 non-overridable block, L2 overridable block, L7 suppression deny, allow) through
+`evaluateWizmatchOutreachGate` in both modes and asserts the decisions are identical except for the
+`enforcementMode` field, plus a direct test that only `enforce` makes
+`assertWizmatchOutreachAllowed` throw. This makes G3's "zero behavioural change" claim mechanically
+checkable rather than argued.
+
+**Two existing PR-2-era test assumptions were corrected, not just accommodated:**
+`wizmatchOutreachGate.test.ts`'s `assertWizmatchOutreachAllowed` tests assumed it always throws on
+deny — true only for `enforce`; the tests now cover both modes explicitly. This is a deliberate
+semantic change from PR 2 (where nothing called the gate, so the distinction didn't matter yet), not
+a regression.
+
+**Verified:** `npm run build` exit 0. `npm test` — **103 files / 896 tests, all green** (18 new tests
+across four new/rewritten files: `wizmatchOutreachShadowEquivalence.test.ts`,
+`wizmatchLinkage.test.ts`, `wizmatchOutreachSuppress.test.ts`, plus warm-up-health cases added to
+`multiDomainMailer.test.ts`). `git diff --check` clean. No admin/UI files touched, so no admin build
+or Playwright run for this PR.
+
+**Known scope limits, stated not hidden (mirrors PR 2's convention):**
+- The follow-up re-enrolment at `wizmatchOutreachService.ts` still writes to the generic CRM
+  `sequence_enrolments` table, not `wizmatch_outreach_enrolments` — it is now gated, but a full
+  migration onto the dedicated enrolment table (with its state machine and cold-email-lock
+  uniqueness constraints) is out of scope for this PR.
+- The §16 rule-2 "gate_denied observation" is a structured console log today, not a persisted,
+  queryable row — the readiness report that consumes it is PR 4 scope.
+- A handful of preparation-gate checks in `wizmatchStaffingDomain.ts`/`routes/wizmatch.ts` run
+  after the row that establishes the relationship/status change has already been written (e.g. the
+  contact-review approval), rather than before, in existing code that returns the row via
+  `RETURNING`. Not a data-integrity issue — the outreach action itself is still gated downstream —
+  but not fully transactional either; worth tightening in a follow-up pass rather than this PR.
+- Duplicate-review UI, effective-policy provenance UI, and the readiness report/CLI are PR 4 scope
+  per the original plan, unchanged.
+
+**Not done, deliberately:** no push, no merge, no deploy, no Railway, no production or shared
+database access, no migration applied, no backfill, no promotion of `enforce`, no sending or paid
+provider enabled, no Smartlead work, no Growth/SEO/n8n/legacy outreach code touched.

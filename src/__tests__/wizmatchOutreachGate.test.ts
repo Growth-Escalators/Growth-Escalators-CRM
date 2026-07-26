@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Controllable in-memory fixtures for the mocked `db` query chain. Declared
 // via vi.hoisted so the vi.mock factory below (hoisted above imports by
@@ -266,11 +266,26 @@ describe('evaluateWizmatchOutreachGate — L7 suppression union (A-1 regression)
 });
 
 describe('assertWizmatchOutreachAllowed', () => {
-  it('throws OutreachBlockedError carrying the PolicyDecision on deny', async () => {
+  const prevMode = process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE;
+  afterEach(() => {
+    if (prevMode === undefined) delete process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE;
+    else process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE = prevMode;
+  });
+
+  it('throws OutreachBlockedError carrying the PolicyDecision on deny when enforcementMode=enforce', async () => {
+    process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE = 'enforce';
     state.policyRows = [];
     await expect(
       assertWizmatchOutreachAllowed({ tenantId: TENANT, action: 'enrol', companyId: COMPANY }),
     ).rejects.toBeInstanceOf(OutreachBlockedError);
+  });
+
+  it('does NOT throw on deny in shadow mode (§16 rule 1-2) — resolves with the deny decision instead', async () => {
+    delete process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE;
+    state.policyRows = [];
+    const decision = await assertWizmatchOutreachAllowed({ tenantId: TENANT, action: 'enrol', companyId: COMPANY });
+    expect(decision.decision).toBe('deny');
+    expect(decision.enforcementMode).toBe('shadow');
   });
 
   it('resolves with the decision on allow', async () => {

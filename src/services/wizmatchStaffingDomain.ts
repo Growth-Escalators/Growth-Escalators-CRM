@@ -1,5 +1,6 @@
 import type { Pool, PoolClient, QueryResult } from 'pg';
 import { pool } from '../db';
+import { evaluateWizmatchOutreachGate, shouldBlock } from '../modules/outreach/outreachGate';
 
 export const COMPANY_CONTACT_ROLES = [
   'talent_acquisition', 'hiring_manager', 'coordinator', 'approver', 'interviewer',
@@ -404,6 +405,12 @@ export function createWizmatchStaffingService(dbPool: TransactionPool = pool) {
         if (ownerUserId) await requireTenantRow(client, 'users', ownerUserId, actor.tenantId, 'Owner');
         const roles = Array.isArray(input.roles) ? [...new Set(input.roles.map(String))] : [];
         roles.forEach((role) => requireAllowed(role, COMPANY_CONTACT_ROLES, 'role'));
+        // §8.10.1 row 15 — establishing a company-contact relationship is
+        // preparation, not a send; block only on a permanent/non-overridable policy.
+        const decision = await evaluateWizmatchOutreachGate({ tenantId: actor.tenantId, action: 'enrol', companyId, contactId });
+        if (!decision.preparationAllowed && shouldBlock({ tenantId: actor.tenantId, action: 'enrol', companyId, contactId }, decision)) {
+          throw new StaffingDomainError(403, 'outreach_blocked', `Blocked by outreach policy: ${decision.reasonCodes.join(', ') || decision.decision}`);
+        }
         try {
           const relationshipStage = requireAllowed(input.relationshipStage ?? 'active', RELATIONSHIP_STAGES, 'relationshipStage');
           const result = await client.query(
@@ -588,6 +595,16 @@ export function createWizmatchStaffingService(dbPool: TransactionPool = pool) {
           throw new StaffingDomainError(400, 'company_mismatch', 'The contact relationship must belong to the requirement company');
         }
         const isPrimarySource = input.isPrimarySource === true;
+        // §8.10.1 row 16 — preparation-only gate, same posture as row 15.
+        const decision = await evaluateWizmatchOutreachGate({
+          tenantId: actor.tenantId,
+          action: 'enrol',
+          companyId: requirement.rows[0].company_id,
+          contactId: relationship.rows[0].contact_id,
+        });
+        if (!decision.preparationAllowed && shouldBlock({ tenantId: actor.tenantId, action: 'enrol', companyId: requirement.rows[0].company_id }, decision)) {
+          throw new StaffingDomainError(403, 'outreach_blocked', `Blocked by outreach policy: ${decision.reasonCodes.join(', ') || decision.decision}`);
+        }
         try {
           const result = await client.query(
             `INSERT INTO wizmatch_requirement_contacts
@@ -733,6 +750,12 @@ export function createWizmatchStaffingService(dbPool: TransactionPool = pool) {
         await requireTenantRow(client, 'users', assigneeUserId, actor.tenantId, 'Assignee');
         const requirement = await client.query(`UPDATE wizmatch_requirements SET next_action=$3,next_action_due_at=$4,sla_due_at=COALESCE($5,sla_due_at),last_activity_at=now(),updated_at=now() WHERE id=$1 AND tenant_id=$2 RETURNING *`, [requirementId, actor.tenantId, nextAction, nextActionDueAt, optionalDate(input.slaDueAt, 'slaDueAt')]);
         if (!requirement.rowCount) throw new StaffingDomainError(404, 'not_found', 'Requirement was not found');
+        // §8.10.1 row 17 — a next-action is an internal reminder, not a send;
+        // still gated as preparation so a permanent/non-overridable block stops it.
+        const decision = await evaluateWizmatchOutreachGate({ tenantId: actor.tenantId, action: 'follow_up', companyId: requirement.rows[0].company_id });
+        if (!decision.preparationAllowed && shouldBlock({ tenantId: actor.tenantId, action: 'follow_up', companyId: requirement.rows[0].company_id }, decision)) {
+          throw new StaffingDomainError(403, 'outreach_blocked', `Blocked by outreach policy: ${decision.reasonCodes.join(', ') || decision.decision}`);
+        }
         const task = await client.query(`INSERT INTO tasks (tenant_id,title,description,assigned_to,due_at,status) VALUES ($1,$2,$3,$4,$5,'open') RETURNING *`, [actor.tenantId, nextAction, `Wizmatch requirement: ${requirement.rows[0].title}`, assigneeUserId, nextActionDueAt]);
         await client.query(`INSERT INTO wizmatch_task_links (tenant_id,task_id,company_id,requirement_id) VALUES ($1,$2,$3,$4)`, [actor.tenantId, task.rows[0].id, requirement.rows[0].company_id, requirementId]);
         await appendEvent(client, actor, 'requirement.next_action_set', { companyId: requirement.rows[0].company_id, requirementId }, { nextAction, nextActionDueAt, assigneeUserId, taskId: task.rows[0].id });

@@ -29,6 +29,7 @@ import {
   wizmatchCompanies,
   wizmatchCompanyDuplicates,
   wizmatchSuppressionList,
+  wizmatchSuppressionEvents,
   wizmatchOutreachEnrolments,
 } from '../../db';
 import { WIZMATCH_LIVE_ENROLMENT_STATES } from '../../config/wizmatchOutreachStates';
@@ -136,6 +137,51 @@ async function findSuppression(
     if (rows.some((r) => r.doNotContact)) return 'email_unsubscribed';
   }
   return null;
+}
+
+export interface SuppressParams {
+  tenantId: string;
+  email: string;
+  reason: 'unsubscribe' | 'hard_bounce' | 'complaint' | 'do_not_contact' | 'manual';
+  sourceChannel?: string;
+  notes?: string;
+  source: string;
+  actorUserId?: string;
+  externalEventRef?: string;
+}
+
+/**
+ * PRD-005 §8.10.1 rows 25-29 — the sole write path for the email/channel
+ * suppression grain. Every bounce, unsubscribe and manual-suppress caller
+ * routes through here so there is exactly one place that (a) lowercases the
+ * email before it is stored, closing the case-mismatch hole rows 26/29
+ * describe, and (b) writes the append-only `wizmatch_suppression_events`
+ * audit trail alongside the effective-state row. Idempotent: a repeat
+ * suppression of the same (tenant, email) is a no-op on the list table but
+ * still records its own event.
+ */
+export async function suppress(params: SuppressParams): Promise<void> {
+  const normalisedEmail = params.email.trim().toLowerCase();
+  await db
+    .insert(wizmatchSuppressionList)
+    .values({
+      tenantId: params.tenantId,
+      email: normalisedEmail,
+      reason: params.reason,
+      sourceChannel: params.sourceChannel ?? 'email',
+      notes: params.notes,
+    })
+    .onConflictDoNothing();
+  await db.insert(wizmatchSuppressionEvents).values({
+    tenantId: params.tenantId,
+    grain: 'email',
+    email: normalisedEmail,
+    reasonCode: SUPPRESSION_REASON_TO_CODE[params.reason] ?? 'email_unsubscribed',
+    evidenceKind: params.reason === 'manual' ? 'human_text' : 'automated_detection',
+    source: params.source,
+    actorUserId: params.actorUserId,
+    externalEventRef: params.externalEventRef,
+  });
 }
 
 /**
@@ -414,9 +460,40 @@ export async function evaluateWizmatchOutreachGate(ctx: OutreachGateContext): Pr
   }
 }
 
+/**
+ * §16 shadow-mode semantics: shadow always evaluates the full ladder and never
+ * blocks — it only logs a `gate_denied`-style observation for a would-block so
+ * the readiness report (PR 4) can measure "zero behavioural change" before
+ * promotion. `enforce` actually blocks. Every caller in the §8.10.1 checklist
+ * should gate its side effect on this helper rather than re-deriving the same
+ * `decision !== 'allow' && enforcementMode === 'enforce'` check inline.
+ */
+export function shouldBlock(ctx: OutreachGateContext, decision: PolicyDecision): boolean {
+  const wouldBlock = decision.decision !== 'allow';
+  if (wouldBlock && decision.enforcementMode === 'shadow') {
+    // eslint-disable-next-line no-console
+    console.warn('[wizmatch-outreach-gate] shadow would-block', {
+      tenantId: ctx.tenantId,
+      action: ctx.action,
+      companyId: ctx.companyId,
+      contactId: ctx.contactId,
+      decision: decision.decision,
+      reasonCodes: decision.reasonCodes,
+    });
+  }
+  return wouldBlock && decision.enforcementMode === 'enforce';
+}
+
+/**
+ * §16 rule 1-2: shadow mode still evaluates every decision — it simply does not
+ * throw on a would-block, so a `shadow` call site behaves exactly as it did
+ * before this PR while `enforce` behaves as specified. This is what makes the
+ * shadow-vs-enforce equivalence harness meaningful: the only difference
+ * between the two modes is whether this function throws.
+ */
 export async function assertWizmatchOutreachAllowed(ctx: OutreachGateContext): Promise<PolicyDecision> {
   const decision = await evaluateWizmatchOutreachGate(ctx);
-  if (decision.decision !== 'allow') {
+  if (shouldBlock(ctx, decision)) {
     throw new OutreachBlockedError(decision);
   }
   return decision;

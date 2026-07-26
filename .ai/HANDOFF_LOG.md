@@ -6,6 +6,41 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-26 — WizMatch Outbound OS: PR 3 policy enforcement (shadow) — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT MERGED
+
+**Why:** implement PRD-005 §22.3 on `ge/outbound-03-policy-enforcement` (cut from
+`ge/outbound-02-policy-schema-service`) — wire the PR 2 gate module onto every §8.10.1 caller, fix
+A-1/A-4/mailer/HMAC, ship shadow-mode-default enforcement with a mechanically-checkable
+shadow-vs-enforce equivalence harness. Full detail:
+`docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md` (PR 3 section).
+
+**What changed:** new `suppress()` (sole suppression write path) and `shouldBlock()` (shadow-safe
+blocking decision) exports on `src/modules/outreach/outreachGate.ts`; new
+`src/modules/outreach/wizmatchLinkage.ts` (§8.10.2 "is this contact WizMatch-linked" resolver).
+Rows 1-18 of the §8.10.1 checklist migrated onto the gate (WizMatch send/enrol core — signals
+send/draft/enrich/discover-poc, classify-reply, contact-intelligence routes, the three
+`wizmatchStaffingDomain.ts` writers, `sequenceWorker.ts`'s dispatch loop); rows 19-24 gate-or-reject
+(`contacts.ts` bulk-email/export, `emailTemplates.ts` send-test, `email.ts`/`emailService.ts`,
+`sequenceService.ts`'s `enrolContact`); rows 25-29 routed through `suppress()`; row 30 (warm-up) now
+checks `wizmatch_domain_health` before sending, still policy-exempt. `multiDomainMailer.sendColdEmail`
+fails closed with no healthy domain unless `WIZMATCH_MAILER_EMERGENCY_OVERRIDE=true` (Slack-alerted
+every use). Unsubscribe HMAC mint/verify now normalise identically; the unsubscribe route resolves
+the actual sending tenant instead of a hardcoded env var.
+
+**How to verify:** `npm run build` (exit 0); `npm test` (103 files / 896 tests, 18 new); `git diff
+--check` clean. Key new test:
+`src/__tests__/wizmatchOutreachShadowEquivalence.test.ts` — proves shadow and enforce produce
+identical decisions except for the `enforcementMode` field, and only `enforce` actually blocks.
+
+**What's next:** PR 4 (`ge/outbound-04-policy-ui-backfill`) — policy read/write API + RBAC, company
+Policy UI section, backfill CLI, readiness report/CLI. Known PR-3 scope limits (stated in the status
+doc): follow-up re-enrolment still uses the generic `sequence_enrolments` table, not
+`wizmatch_outreach_enrolments`; the shadow "gate_denied observation" is a structured log, not a
+persisted row yet (readiness report is PR 4). Nothing pushed, merged, deployed, or promoted to
+`enforce`; both sending kill-switches untouched.
+
+---
+
 ## 2026-07-26 — WizMatch Outbound OS: PR 2 Opus review + 4 corrective commits — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT APPLIED
 
 **Why:** senior review of the PR 2 implementation below, against PRD-005 §8/§9/§10/§22.2/§25,

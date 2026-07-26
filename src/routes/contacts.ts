@@ -3,6 +3,8 @@ import { Router } from 'express';
 import { eq, and, desc, gte, sql } from 'drizzle-orm';
 import { db, contacts, contactChannels, sequences, sequenceEnrolments, contactNotes, wizmatchCandidates, wizmatchContactCandidates, wizmatchCompanies, wizmatchCompanyIntelligence } from '../db/index';
 import { buildContactSearchCondition } from '../services/contactSearch';
+import { resolveWizmatchLinkage } from '../modules/outreach/wizmatchLinkage';
+import { evaluateWizmatchOutreachGate, shouldBlock } from '../modules/outreach/outreachGate';
 
 const router = Router();
 
@@ -641,8 +643,26 @@ router.post('/bulk-email', async (req, res) => {
     let sent = 0;
     let failed = 0;
     const errors: string[] = [];
+    const rejected: Array<{ contactId: string; email: string; reasonCodes: string[] }> = [];
 
     for (const row of emailRows) {
+      // PRD-005 §22.3 #3 — every WizMatch-linked recipient must gate or reject,
+      // and the rejection must be reported, not silently dropped from `sent`.
+      const linkage = await resolveWizmatchLinkage(tenantId, row.contactId);
+      if (linkage) {
+        const decision = await evaluateWizmatchOutreachGate({
+          tenantId,
+          action: 'send',
+          companyId: linkage.companyId,
+          contactId: row.contactId,
+          email: row.email,
+        });
+        if (shouldBlock({ tenantId, action: 'send', companyId: linkage.companyId, contactId: row.contactId }, decision)) {
+          rejected.push({ contactId: row.contactId, email: row.email, reasonCodes: decision.reasonCodes });
+          continue;
+        }
+      }
+
       const firstName = nameMap[row.contactId] ?? 'there';
       const subject = (template.subject ?? '').replace(/\{\{firstName\}\}/g, firstName);
       const htmlContent = (template.bodyHtml || (template.bodyText ?? '').replace(/\n/g, '<br>')).replace(/\{\{firstName\}\}/g, firstName);
@@ -670,7 +690,14 @@ router.post('/bulk-email', async (req, res) => {
     // Update template sent count
     await db.execute(sql`UPDATE email_templates SET sent_count = COALESCE(sent_count, 0) + ${sent} WHERE id = ${templateId}`);
 
-    res.json({ sent, failed, skipped: contactIds.length - emailRows.length, errors: errors.slice(0, 10) });
+    res.json({
+      sent,
+      failed,
+      skipped: contactIds.length - emailRows.length,
+      rejected: rejected.length,
+      rejectedDetail: rejected.slice(0, 50),
+      errors: errors.slice(0, 10),
+    });
   } catch (e: unknown) {
     logger.error('[contacts] POST /bulk-email error:', e);
     res.status(500).json({ error: 'Something went wrong. Please try again.' });
@@ -716,13 +743,36 @@ router.post('/export', async (req, res) => {
     }
   }
 
+  // §8.10.1 row 20 — exclude WizMatch-linked contacts the gate denies rather
+  // than exporting the address unfiltered; the export is stamped below with
+  // how many rows were excluded so the operator sees it happened.
+  let excludedCount = 0;
+  const exportableRows: typeof rows = [];
+  for (const r of rows) {
+    const linkage = await resolveWizmatchLinkage(tenantId, r.id);
+    if (linkage) {
+      const decision = await evaluateWizmatchOutreachGate({
+        tenantId,
+        action: 'export',
+        companyId: linkage.companyId,
+        contactId: r.id,
+        email: emailMap[r.id],
+      });
+      if (shouldBlock({ tenantId, action: 'export', companyId: linkage.companyId, contactId: r.id }, decision)) {
+        excludedCount++;
+        continue;
+      }
+    }
+    exportableRows.push(r);
+  }
+
   const escape = (v: unknown) => {
     const s = v == null ? '' : String(v);
     return `"${s.replace(/"/g, '""')}"`;
   };
 
   const headers = ['Name', 'Phone', 'Email', 'Company', 'Source', 'Score', 'Tags', 'Assigned To', 'Last Activity', 'Created At'];
-  const csvRows = rows.map((r) => [
+  const csvRows = exportableRows.map((r) => [
     escape(`${r.firstName} ${r.lastName ?? ''}`.trim()),
     escape(phoneMap[r.id] ?? ''),
     escape(emailMap[r.id] ?? ''),
@@ -739,6 +789,7 @@ router.post('/export', async (req, res) => {
 
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', 'attachment; filename="contacts.csv"');
+  res.setHeader('X-Wizmatch-Policy-Excluded-Count', String(excludedCount));
   res.send(csv);
   } catch (e: unknown) {
     logger.error('[contacts] POST /export error:', e);

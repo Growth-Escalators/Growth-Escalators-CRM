@@ -138,8 +138,32 @@ import {
   type PersistedContactIntelligence,
 } from '../services/wizmatchContactIntelligenceRepo';
 import { generateSignalDraftEmails, sendSignalDraftEmail } from '../services/wizmatchOutreachService';
+import { evaluateWizmatchOutreachGate, shouldBlock, suppress } from '../modules/outreach/outreachGate';
 
 const router = Router();
+
+/** §8.10.1 — every signal-scoped route needs the signal's company_id to call the gate. */
+async function getSignalCompanyId(tenantId: string, signalId: string): Promise<string | null> {
+  const result = await pool.query(
+    `SELECT company_id FROM wizmatch_job_signals WHERE id = $1 AND tenant_id = $2`,
+    [signalId, tenantId],
+  );
+  return result.rows[0]?.company_id ?? null;
+}
+
+/**
+ * A preparation-only gate check (used by discovery/enrichment/contact-intake
+ * routes, which are not themselves an outreach send). Per §8.8, free
+ * preparation continues unless the decision's own `preparationAllowed` is
+ * false — a permanent or non-overridable block stops it; an ordinary review
+ * or a cold-email lock does not.
+ */
+async function isPreparationBlocked(tenantId: string, companyId: string | null): Promise<{ blocked: boolean; reasonCodes: string[] }> {
+  if (!companyId) return { blocked: false, reasonCodes: [] };
+  const decision = await evaluateWizmatchOutreachGate({ tenantId, action: 'enrol', companyId });
+  const blocked = !decision.preparationAllowed && shouldBlock({ tenantId, action: 'enrol', companyId }, decision);
+  return { blocked, reasonCodes: decision.reasonCodes };
+}
 
 
 // In-memory upload for requirement JD files (parsed by Claude, then discarded).
@@ -2067,6 +2091,11 @@ router.post('/contact-intelligence/companies/:companyId/discover', async (req: R
   const tenantId = req.user!.tenantId;
   const companyId = String(req.params.companyId);
   const confirmPreview = req.body?.confirmPreview === true;
+  const prep = await isPreparationBlocked(tenantId, companyId);
+  if (prep.blocked) {
+    res.status(403).json({ error: 'outreach_blocked', reasonCodes: prep.reasonCodes });
+    return;
+  }
   const result = await runManualPaidContactDiscovery(tenantId, req.user?.id, companyId, confirmPreview);
   switch (result.kind) {
     case 'not_found':
@@ -2108,6 +2137,12 @@ router.post('/contact-intelligence/companies/:companyId/contacts/manual', async 
   const name = firstString(req.body?.name);
   if (!name) {
     res.status(400).json({ error: 'name is required' });
+    return;
+  }
+
+  const prep = await isPreparationBlocked(tenantId, companyId);
+  if (prep.blocked) {
+    res.status(403).json({ error: 'outreach_blocked', reasonCodes: prep.reasonCodes });
     return;
   }
 
@@ -2199,8 +2234,16 @@ router.post('/contact-intelligence/contacts/:candidateId/review', async (req: Re
     res.status(404).json({ error: 'Contact candidate not found' });
     return;
   }
+  const companyId = result.rows[0].company_id;
+  if (transition.nextContactStatus === 'approved') {
+    const prep = await isPreparationBlocked(tenantId, companyId);
+    if (prep.blocked) {
+      res.status(403).json({ error: 'outreach_blocked', reasonCodes: prep.reasonCodes });
+      return;
+    }
+  }
 
-  const refreshed = await fetchPersistedContactIntelligence(tenantId, result.rows[0].company_id);
+  const refreshed = await fetchPersistedContactIntelligence(tenantId, companyId);
   res.json({ transition, contactCandidates: refreshed.contactCandidates });
 });
 
@@ -2270,6 +2313,12 @@ router.post('/contact-intelligence/contacts/:candidateId/link-crm-contact', asyn
   }
   if (!candidate.email && !candidate.phone && !candidate.linkedin_url) {
     res.status(400).json({ error: 'At least one email, phone, or LinkedIn channel is required to link a CRM contact' });
+    return;
+  }
+
+  const prep = await isPreparationBlocked(tenantId, candidate.company_id);
+  if (prep.blocked) {
+    res.status(403).json({ error: 'outreach_blocked', reasonCodes: prep.reasonCodes });
     return;
   }
 
@@ -2560,7 +2609,17 @@ router.post('/signals/:id/discover-poc/preview', async (req: Request, res: Respo
 });
 
 router.post('/signals/:id/discover-poc', async (req: Request, res: Response) => {
-  try { res.json(await discoverFreePocsForSignal(req.user!.tenantId, String(req.params.id), req.user!.id, req.body?.roles)); }
+  try {
+    const tenantId = req.user!.tenantId;
+    const signalId = String(req.params.id);
+    const companyId = await getSignalCompanyId(tenantId, signalId);
+    const prep = await isPreparationBlocked(tenantId, companyId);
+    if (prep.blocked) {
+      res.status(403).json({ error: 'outreach_blocked', reasonCodes: prep.reasonCodes });
+      return;
+    }
+    res.json(await discoverFreePocsForSignal(tenantId, signalId, req.user!.id, req.body?.roles));
+  }
   catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : 'POC discovery failed' }); }
 });
 
@@ -2807,9 +2866,16 @@ router.post('/signals/:id/score', requireInternalToken, async (req: Request, res
 // here so both the route and the worker cron share the same core logic.
 router.post('/signals/:id/enrich', requireInternalToken, async (req: Request, res: Response) => {
   const tenantId = process.env.WIZMATCH_TENANT_ID!;
+  const signalId = String(req.params.id);
 
   try {
-    const result = await enrichSignalById(tenantId, String(req.params.id));
+    const companyId = await getSignalCompanyId(tenantId, signalId);
+    const prep = await isPreparationBlocked(tenantId, companyId);
+    if (prep.blocked) {
+      res.status(403).json({ error: 'outreach_blocked', reasonCodes: prep.reasonCodes });
+      return;
+    }
+    const result = await enrichSignalById(tenantId, signalId);
     if (result.notFound) {
       res.status(404).json({ error: 'Signal not found' });
       return;
@@ -2847,6 +2913,9 @@ router.post('/signals/:id/draft', async (req: Request, res: Response) => {
       return;
     case 'no_contact':
       res.status(400).json({ error: 'Signal has no enriched contact — run /enrich first' });
+      return;
+    case 'blocked':
+      res.status(403).json({ error: 'outreach_blocked', reasonCodes: result.reasonCodes });
       return;
     case 'failed':
       res.status(500).json({ error: 'draft generation failed', detail: result.detail });
@@ -2887,8 +2956,8 @@ router.post('/signals/:id/send', async (req: Request, res: Response) => {
     case 'no_email_channel':
       res.status(400).json({ error: 'Contact has no email channel' });
       return;
-    case 'suppressed':
-      res.status(400).json({ error: 'Contact is on suppression list' });
+    case 'blocked':
+      res.status(403).json({ error: 'outreach_blocked', reasonCodes: result.reasonCodes });
       return;
     case 'hmac_secret_unset':
       res.status(500).json({ error: 'unsubscribe signing secret not configured' });
@@ -3512,7 +3581,7 @@ router.get('/suppression', async (req: Request, res: Response) => {
 
   if (req.query.email) {
     conditions.push(`email = $${paramIdx++}`);
-    params.push(req.query.email);
+    params.push(String(req.query.email).trim().toLowerCase());
   }
   if (req.query.reason) {
     conditions.push(`reason = $${paramIdx++}`);
@@ -3529,24 +3598,30 @@ router.get('/suppression', async (req: Request, res: Response) => {
   res.json({ items: result.rows });
 });
 
+const VALID_SUPPRESSION_REASONS = ['unsubscribe', 'hard_bounce', 'complaint', 'do_not_contact', 'manual'] as const;
+
 router.post('/suppression', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const { email, reason, source_channel, notes } = req.body as {
     email: string; reason: string; source_channel?: string; notes?: string;
   };
+  if (!(VALID_SUPPRESSION_REASONS as readonly string[]).includes(reason)) {
+    res.status(400).json({ error: `reason must be one of: ${VALID_SUPPRESSION_REASONS.join(', ')}` });
+    return;
+  }
 
   try {
-    const [entry] = await db
-      .insert(wizmatchSuppressionList)
-      .values({
-        tenantId,
-        email: email.toLowerCase().trim(),
-        reason,
-        sourceChannel: source_channel || 'email',
-        notes,
-      })
-      .onConflictDoNothing()
-      .returning();
+    // §8.10.1 rows 25-29 — the sole suppression write path.
+    await suppress({
+      tenantId,
+      email: email.toLowerCase().trim(),
+      reason: reason as typeof VALID_SUPPRESSION_REASONS[number],
+      sourceChannel: source_channel || 'email',
+      notes,
+      source: 'manual_operator',
+      actorUserId: req.user?.id,
+    });
+    const entry = { suppressed: true, email: email.toLowerCase().trim(), reason, notes: notes ?? null };
 
     // Also set contact_channels email_opt_out if contact exists
     await pool.query(
@@ -3640,22 +3715,28 @@ router.get('/unsubscribe', async (req: Request, res: Response) => {
     return;
   }
 
-  // Get tenant from any wizmatch_suppression matching — fall back to WIZMATCH_TENANT_ID
-  const tenantId = process.env.WIZMATCH_TENANT_ID;
+  // §8.10.1 row 26 — resolve the SENDING tenant, not a hardcoded env tenant:
+  // the most recent outbound email to this address tells us who actually sent
+  // it. Falls back to WIZMATCH_TENANT_ID only when no send history exists
+  // (e.g. a pre-emptive unsubscribe), since that is still the only tenant
+  // this route currently serves.
+  const sendingTenantResult = await pool.query(
+    `SELECT m.tenant_id
+     FROM contact_channels cc
+     JOIN messages m ON m.contact_id = cc.contact_id AND m.tenant_id = cc.tenant_id
+     WHERE cc.channel_type = 'email' AND LOWER(cc.channel_value) = $1
+       AND m.direction = 'outbound' AND m.channel = 'email'
+     ORDER BY m.sent_at DESC NULLS LAST
+     LIMIT 1`,
+    [email],
+  ).catch(() => ({ rows: [] as Array<{ tenant_id: string }> }));
+  const tenantId = sendingTenantResult.rows[0]?.tenant_id ?? process.env.WIZMATCH_TENANT_ID;
   if (!tenantId) {
     res.status(500).type('html').send('<h1>Server misconfigured</h1>');
     return;
   }
 
-  await db
-    .insert(wizmatchSuppressionList)
-    .values({
-      tenantId,
-      email,
-      reason: 'unsubscribe',
-      sourceChannel: 'email',
-    })
-    .onConflictDoNothing();
+  await suppress({ tenantId, email, reason: 'unsubscribe', sourceChannel: 'email', source: 'unsubscribe_link' });
 
   // Also set do_not_contact on any matching contact
   await pool.query(
@@ -3739,19 +3820,31 @@ router.post('/classify-reply', requireInternalToken, async (req: Request, res: R
         [signal_id, tenantId],
       );
 
-      // Auto-suppress
-      await db.insert(wizmatchSuppressionList).values({
+      // §8.10.1 rows 25-29 — route the auto-suppress through the gate's sole write path.
+      await suppress({
         tenantId,
         email: contact_email,
         reason: result.category === 'UNSUBSCRIBE' ? 'unsubscribe' : 'do_not_contact',
         sourceChannel: 'email',
-      }).onConflictDoNothing();
+        source: 'classify_reply',
+      });
     } else if (result.category === 'NOT_NOW') {
-      // Reschedule — set status back to sent for sequence to handle nurture
-      await pool.query(
-        `UPDATE wizmatch_job_signals SET status = 'sent' WHERE id = $1 AND tenant_id = $2`,
-        [signal_id, tenantId],
-      );
+      // §8.10.1 row 10 — a NOT_NOW reset back to 'sent' is a retry decision; gate it.
+      const companyId = await getSignalCompanyId(tenantId, signal_id);
+      const decision = await evaluateWizmatchOutreachGate({
+        tenantId,
+        action: 'retry',
+        companyId: companyId ?? undefined,
+        email: contact_email,
+        outreachMode: 'cold_email',
+      });
+      if (!shouldBlock({ tenantId, action: 'retry', companyId: companyId ?? undefined }, decision)) {
+        // Reschedule — set status back to sent for sequence to handle nurture
+        await pool.query(
+          `UPDATE wizmatch_job_signals SET status = 'sent' WHERE id = $1 AND tenant_id = $2`,
+          [signal_id, tenantId],
+        );
+      }
     }
 
     res.json({ signal_id, classification: result });

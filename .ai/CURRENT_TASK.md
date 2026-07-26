@@ -2,7 +2,27 @@
 
 ## Active task
 
-**IN PROGRESS 2026-07-26 — WizMatch Outbound Operating System, PR 2 of 10
+**IN PROGRESS 2026-07-26 — WizMatch Outbound Operating System, Wave A — PR 3 of 5 done, PR 4 next.**
+Branch `ge/outbound-03-policy-enforcement` (cut from `ge/outbound-02-policy-schema-service`), local
+only, NOT pushed, NOT merged. Implements PRD-005 §22.3: every §8.10.1 caller-migration-checklist row
+closed (migrated onto the gate, gate-or-reject, or routed through `suppress()`), A-1/A-4/mailer/HMAC
+fixes, shadow-mode-default enforcement with a shadow-vs-enforce equivalence harness. Full detail:
+`docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md` (PR 3 section) and `.ai/HANDOFF_LOG.md`.
+`npm run build` exit 0, `npm test` 103 files / 896 tests green, `git diff --check` clean. Marker:
+`.ai/OUTBOUND_PR3_IMPLEMENTED`. **Does not promote `enforce`, does not enable sending** — both
+kill-switches and the enforcement-mode default are untouched/off.
+
+**Exact next action:** create `ge/outbound-04-policy-ui-backfill` from `ge/outbound-03-policy-enforcement`
+and implement PRD-005's PR 4 scope — policy read/write API + RBAC, company-drawer Policy section,
+effective-policy provenance UI, duplicate comparison/Merge/Confirm-Separate, admin bulk actions,
+dry-run-first backfill (never run `--apply`), readiness endpoint/CLI, pending-duplicate and
+shadow-block reporting. Flags default false. Then PR 5 (lifecycle consolidation). Stop after PR 5.
+
+---
+
+## Prior task — PR 2, schema + migration + resolver/gate module
+
+**DONE 2026-07-26 — WizMatch Outbound Operating System, PR 2 of 10
 (`ge/outbound-02-policy-schema-service`, schema + migration `0037` + resolver/gate module — NOT
 committed as a PR, local branch only, NOT pushed, NOT merged).** Implemented against PRD-005 §22.2
 (twenty acceptance criteria). Full detail: `docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md`. Summary:

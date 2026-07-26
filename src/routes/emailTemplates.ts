@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { eq, and, sql } from 'drizzle-orm';
 import { db, emailTemplates, messages } from '../db/index';
 import { syncTemplateToBrevo } from '../services/brevoTemplateService';
+import { resolveWizmatchLinkageByEmail } from '../modules/outreach/wizmatchLinkage';
+import { evaluateWizmatchOutreachGate, shouldBlock } from '../modules/outreach/outreachGate';
 
 const router = Router();
 
@@ -206,6 +208,16 @@ router.post('/:id/send-test', async (req, res) => {
   if (!toEmail) {
     res.status(400).json({ error: 'toEmail is required' });
     return;
+  }
+
+  // §8.10.1 row 21 — this route honoured neither kill-switch; gate on toEmail.
+  const linkage = await resolveWizmatchLinkageByEmail(tenantId, toEmail);
+  if (linkage) {
+    const decision = await evaluateWizmatchOutreachGate({ tenantId, action: 'send', companyId: linkage.companyId, email: toEmail });
+    if (shouldBlock({ tenantId, action: 'send', companyId: linkage.companyId }, decision)) {
+      res.status(403).json({ error: 'outreach_blocked', reasonCodes: decision.reasonCodes });
+      return;
+    }
   }
 
   const rows = await db

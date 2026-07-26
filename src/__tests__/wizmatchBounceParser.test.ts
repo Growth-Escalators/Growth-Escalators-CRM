@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { parseBounce, bounceSuppressionEnabled } from '../services/wizmatchBounceParser';
 
 describe('parseBounce', () => {
@@ -75,16 +75,12 @@ describe('parseBounce', () => {
 });
 
 describe('bounceSuppressionEnabled', () => {
-  const original = process.env.WIZMATCH_BOUNCE_SUPPRESSION_ENABLED;
-  afterEach(() => { process.env.WIZMATCH_BOUNCE_SUPPRESSION_ENABLED = original; });
-
-  it('is OFF by default (unset)', () => {
+  // PRD-005 §22.3 A-4 — hard bounces are now ALWAYS persisted; the old
+  // default-off flag is deleted. This is kept as a no-op compatibility export.
+  it('is always true — the WIZMATCH_BOUNCE_SUPPRESSION_ENABLED flag no longer gates anything', () => {
     delete process.env.WIZMATCH_BOUNCE_SUPPRESSION_ENABLED;
-    expect(bounceSuppressionEnabled()).toBe(false);
-  });
-
-  it('is ON only when explicitly enabled', () => {
-    process.env.WIZMATCH_BOUNCE_SUPPRESSION_ENABLED = 'true';
+    expect(bounceSuppressionEnabled()).toBe(true);
+    process.env.WIZMATCH_BOUNCE_SUPPRESSION_ENABLED = 'false';
     expect(bounceSuppressionEnabled()).toBe(true);
   });
 });
