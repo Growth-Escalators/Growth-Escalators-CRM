@@ -7,6 +7,19 @@
 committed as a PR, local branch only, NOT pushed, NOT merged).** Implemented against PRD-005 §22.2
 (twenty acceptance criteria). Full detail: `docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md`. Summary:
 
+> **REVIEWED 2026-07-26 — verdict fix-then-ship.**
+> `docs/reviews/wizmatch-outbound-pr2-opus-review.md`. Two Critical and five High defects found and
+> fixed in four corrective commits (`79bb384`, `3057221`, `e690ac1`, `810d144`). The headline: **0037
+> could not apply to any database** — all 29 composite FKs preceded their `(tenant_id, id)` target
+> indexes (SQLSTATE 42830); fixed by statement reorder only. Also: `PolicyDecision` was forgeable;
+> allowed campaign types/modes were zeroed on a deny; L1c hardcoded `preparationAllowed: true`; the
+> suppression read did not lowercase the stored column; reason codes named the wrong cause; L5
+> duplicate containment was never implemented. **One §22.2 criterion remains open: #16**, the
+> cold-start root-policy row on every company insert path — needs an owner call on PR 2 vs PR 3, and
+> must land before G2/G4. Suite now 60 outbound tests / 867 total, build 0, tree clean.
+> The counts below are as-submitted and are superseded by the review where they differ (notably: 29
+> composite FKs, not 22; 60 outbound tests, not 37; 99 files / 867 tests, not 97 / 840).
+
 - `src/db/schema.ts` — 8 new tables (`wizmatch_company_policies`, `_policy_events`,
   `_duplicates`, `wizmatch_reply_mailboxes`, `wizmatch_outreach_batches`, `_enrolments`, `_events`,
   `wizmatch_suppression_events`), 2 additive ALTERs (`wizmatch_companies.account_owner_user_id`,
@@ -112,9 +125,16 @@ loop is dead (n8n undeployed since 2026-05-03), so WizMatch gets its own enrolme
 **Exact next action (superseded by the PR 2 update above — kept for history):** ~~create
 `ge/outbound-02-policy-schema-service`... begin PR 2~~ — **done**, see the Active task section at the
 top of this file. Remaining before G1: run the ten §10.11.4 fresh-database verification requirements
-with real output (blocked in this session only by tool-permission denial of direct `psql` access, not
-by anything structural), and obtain owner sign-off on U-7 (the three shared-table indexes). PR 3
-(caller migration onto the gate, per the §8.10.1 checklist) is the next unit of work after that.
+with real output (needs a scratch Postgres — **not optional**: skipping the fresh `0000→0037` replay is
+exactly what hid the Critical FK-ordering defect the review found), and obtain owner sign-off on U-7
+(the three shared-table indexes).
+
+**Before PR 3, in order:** (1) owner decision on §22.2 #16, the cold-start root-policy write on every
+company insert path — the one criterion still open; (2) add a `lower(email)` expression index, since
+the suppression-normalisation fix makes that read a sequential scan; (3) converge the two gate test
+mocks so the original suite can also detect a wrong query predicate. Then PR 3 proper (caller migration
+onto the gate, per the §8.10.1 checklist). Full list: §12 and §13 of
+`docs/reviews/wizmatch-outbound-pr2-opus-review.md`.
 
 **Rollout is gated.** Enforcement ships in `shadow` mode (logs what it would block, blocks nothing);
 promotion to `enforce` needs a readiness report plus five hard preconditions and is an explicit owner
