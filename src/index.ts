@@ -340,8 +340,13 @@ app.use('/api/wizmatch', (req, res, next) => requireAuth(req, res, () => wizmatc
 // staff+ requests they actually define are served here and never reach the
 // admin gate; anything neither this nor wizmatchStaffingRouter defines falls
 // through (`next()`) to wizmatchRouter's stricter gate, unchanged.
-// Each router 404s its whole surface when its own feature flag is off
-// (WIZMATCH_COMPANY_POLICY_ENABLED / WIZMATCH_DECISION_WORKBENCH_ENABLED).
+// Each router hides its OWN surface when its own feature flag is off
+// (WIZMATCH_COMPANY_POLICY_ENABLED / WIZMATCH_DECISION_WORKBENCH_ENABLED) by
+// calling `next('router')`, NOT by responding 404 inline. That distinction is
+// load-bearing now that these two mounts sit ahead of wizmatchRouter: a
+// `router.use` gate matches every path under the `/api/wizmatch` prefix, so an
+// inline 404 would have taken down all 82 wizmatchRouter routes whenever
+// either flag was off — which is the default. See wizmatchIndexMountOrder.test.ts.
 app.use('/api/wizmatch', requireAuth, wizmatchRequireStaffing, wizmatchPolicyRouter);
 app.use('/api/wizmatch', requireAuth, wizmatchRequireStaffing, wizmatchTodayRouter);
 // `viewer` (the read-only Command Deck sync account) is included for GET access to
