@@ -1,6 +1,6 @@
 # PRD 005: WizMatch Outbound Operating System
 
-- **Status:** Draft implementation brief — approved in principle; reason-code taxonomy (§9) awaits owner ratification
+- **Status:** Approved — reason-code taxonomy (§9) ratified 2026-07-26 (owner: Jatin). PR 2 may proceed.
 - **Owner:** Growth Escalators / Wizmatch
 - **Date:** 2026-07-26
 - **Last source review:** 2026-07-26
@@ -472,10 +472,12 @@ interface PolicyDecision {
 
 ---
 
-## 9. Reason-code taxonomy — **proposed, awaiting owner ratification**
+## 9. Reason-code taxonomy — **ratified 2026-07-26**
 
-**This section is documentation only.** No database enum and no rows are created by PR 1. Ratify
-before PR 2, because renaming a code after data exists is expensive and breaks the learning signal.
+**This section is documentation only.** No database enum and no rows are created by PR 1. Values below
+are final; PR 2 implements this taxonomy as written. Any further change after PR 2 lands is a new,
+additive code — never a rename or reuse of an existing value, because renaming after data exists
+breaks the learning signal.
 
 Column meanings — **Scope**: what the code can attach to. **Decision**: what it produces.
 **Prep**: whether free preparation may still run. **Evid**: evidence required. **Perm**: may be marked
@@ -485,7 +487,7 @@ permanent. **Ovr**: admin override permitted. **Learn**: suitable as a future le
 
 | Code | Label | Scope | Decision | Prep | Evid | Perm | Ovr | Learn |
 |---|---|---|---|---|---|---|---|---|
-| `policy_accepts_external_vendors` | Accepts external vendors | company, region, BU, location | allow | ✅ | ⬜ | ⬜ | n/a | ✅ |
+| `policy_accepts_external_vendors` | Accepts external vendors | company, region, BU, location | allow | ✅ | ✅ | ⬜ | n/a | ✅ |
 | `policy_fte_vendors_only` | FTE vendors only | company, region, BU, location | allow | ✅ | ✅ | ⬜ | ✅ | ✅ |
 | `policy_contract_vendors_only` | Contract vendors only | company, region, BU, location | allow | ✅ | ✅ | ⬜ | ✅ | ✅ |
 | `policy_preferred_vendors_only` | Preferred vendor list only | company, region, BU, location | review | ✅ | ✅ | ⬜ | ✅ | ✅ |
@@ -532,10 +534,20 @@ not a signal about fit.
 | `contact_confidence_low` | Low-confidence contact | contact | deny (contact) | ✅ | ⬜ | ⬜ | ⬜ | ✅ |
 | `contact_unverified` | Unverified contact | contact | deny (contact) | ✅ | ⬜ | ⬜ | ⬜ | ✅ |
 | `contact_confidence_medium` | Medium confidence — needs review | contact | review | ✅ | ⬜ | ⬜ | n/a | ✅ |
-| `contact_role_mismatch` | Not a hiring decision-maker | contact | review | ✅ | ⬜ | ⬜ | ✅ | ✅ |
+| `contact_role_uncertain` | Contact responsibility is uncertain | contact | review | ✅ | ⬜ | ⬜ | n/a | ✅ |
+| `contact_role_confirmed_mismatch`* | Not a relevant hiring decision-maker | contact | deny (contact) | ✅ | ✅ | ✅† | ✅ | ✅ |
 | `contact_stale` | Contact data is stale | contact | review | ✅ | ⬜ | ⬜ | ✅ | ✅ |
 | `contact_rejected_by_reviewer` | Rejected by reviewer | contact | deny (contact) | ✅ | ⬜ | ⬜ | ✅ | ✅ |
 | `contact_left_company` | No longer at the company | contact | deny (contact) | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+> **Ratification note.** `contact_role_mismatch` is replaced by two codes so "we're not sure this is
+> the right person" and "we checked, and it isn't" carry different weight as a learning label.
+> *`contact_role_uncertain` is the default outcome of automated role inference — unreviewed, no
+> evidence, review-only, never permanent.
+> †`contact_role_confirmed_mismatch` requires evidence and may be marked permanent **only** for the
+> specific employment relationship that was checked (this contact at this company, in this role) —
+> it does not imply the person is permanently unsuitable elsewhere, and a later CRM contact record for
+> the same person at a different company starts unblocked.
 
 ### 9.5 `email_quality`
 
@@ -1310,12 +1322,12 @@ Promote one only through a new PRD or ADR with evidence that the core workflow i
 | A-18 | Campaign families + types as §10.5, plus `outreach_mode` as the company-overlap key |
 | A-19 | Duplicate rule: exact domain **or** normalised name; no fuzzy scoring, no `pg_trgm` |
 | A-20 | Non-cold overlap constraint (§10.6 constraint 3) approved |
+| A-21 | Reason-code taxonomy (§9) ratified 2026-07-26, including: `policy_accepts_external_vendors` requires evidence; `contact_role_mismatch` split into `contact_role_uncertain` (review, no evidence) and `contact_role_confirmed_mismatch` (deny contact, evidence required, permanent only for the applicable employment relationship) |
 
 ### 25.2 Still open
 
 | # | Question | Blocks |
 |---|---|---|
-| **U-3** | **Reason-code taxonomy (§9) — awaiting ratification.** Values are stable identifiers; renaming after rows exist breaks the learning signal. | PR 2 |
 | **U-6** | **Smartlead fixtures — an input, not a decision.** Required before PR 9: a sanitised lead-import sample, a sanitised campaign-results sample, and bounce / unsubscribe / reply examples. Without them the header-alias map and the idempotency tier are guesses. | PR 9 |
 
 ---

@@ -6,6 +6,43 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-26 — WizMatch Outbound OS: reason-code taxonomy ratified (PR 1/10 cont'd) — Claude — DRAFT PR, NOT MERGED, NOT PUSHED
+
+**Why:** The owner (Jatin) ratified the final reason-code taxonomy (PRD-005 §9), unblocking PR 2.
+Renaming a code after rows exist breaks the learning signal, so this had to land before any schema PR.
+
+**What changed (docs only, no schema/code):**
+- `docs/prd/005-wizmatch-outbound-operating-system.md`: §9.1 `policy_accepts_external_vendors` now
+  requires evidence; §9.4 `contact_role_mismatch` replaced by `contact_role_uncertain` (review, no
+  evidence, never permanent) and `contact_role_confirmed_mismatch` (deny contact, evidence required,
+  permanent only for the applicable employment relationship, learning label) with a ratification
+  footnote explaining the split; status header, §9 heading and §25 updated from "awaiting ratification"
+  to "ratified 2026-07-26" (new `A-21`, `U-3` removed from open questions since it's resolved).
+- `docs/decisions/ADR-006-company-outreach-policy.md`: status header + approval question 1 updated to
+  Approved, cross-referencing the audit-doc annotation below.
+- `docs/reviews/wizmatch-cost-leakage-audit-2026-07-09.md`: TL;DR item 3, verdict-table row 7, and the
+  "All-domains-unhealthy Slack alert" backlog item are annotated **superseded 2026-07-26** — the
+  "keep sending" half of that 2026-07-09 decision is reversed by ADR-006 D-11 (fail closed on no
+  healthy inbox). The alert-on-degradation half is unaffected. This makes the reversal traceable
+  instead of looking like an undocumented regression when PR 3 lands the code change.
+- `docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md` — new. Chat-independent status doc for the whole
+  `ge/outbound-0X-*` stack; update this after every PR, not just `.ai/CURRENT_TASK.md`.
+
+**Verified:** full re-read of PRD-005 (all 26 sections), ADR-006 and ADR-007 end-to-end; grepped for
+every remaining reference to `contact_role_mismatch` and to "awaiting ratification" / "awaits owner
+ratification" across `docs/` — none found outside the sections just fixed. Confirmed
+`.claude/skills/ge-add-ensure-table/SKILL.md` is still factually wrong (A-7/A-11) but is explicitly
+out of scope for this branch (its fix lives on the independent `ge/fix-ensure-table-skill` branch, not
+this stack) — left untouched.
+
+**What's next:** create `ge/outbound-02-policy-schema-service` from this completed PR 1 branch and
+start PR 2 (`schema.ts` + migration `0037` + policy resolver/service) per PRD-005 §10–§11, ADR-006,
+ADR-007. Dispatch a read-only Explore subagent first to inspect the migration journal, schema
+conventions, tenant-safe FK patterns, partial-index and trigger conventions — do not hand-write SQL,
+do not apply `0037` to production, do not touch Railway.
+
+---
+
 ## 2026-07-26 — WizMatch Outbound OS: PRD-005 + ADR-006 + ADR-007 (PR 1/10) — Claude — DRAFT PR, NOT MERGED
 
 **Why:** WizMatch is capability-first — 30 admin pages expose every technical step, but the operator

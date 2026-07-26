@@ -1,6 +1,6 @@
 # ADR-006: Company Outreach Policy
 
-- **Status:** Accepted in principle — reason-code taxonomy awaits ratification; no schema applied
+- **Status:** Accepted — reason-code taxonomy ratified 2026-07-26; no schema applied yet
 - **Date:** 2026-07-26
 - **Product contract:** `docs/prd/005-wizmatch-outbound-operating-system.md`
 - **Supersedes:** nothing. **Extends:** ADR-004 (staffing domain spine)
@@ -269,8 +269,13 @@ cases; cross-tenant owner rejection; secret-like key rejection in `provider_conf
 ## Approval questions
 
 1. **Ratify the reason-code taxonomy** (PRD-005 §9) before any row exists. Values are stable
-   identifiers; renaming after data is written breaks the learning signal. **Open.**
+   identifiers; renaming after data is written breaks the learning signal. **Approved 2026-07-26**,
+   including the final taxonomy ratification changes: `policy_accepts_external_vendors` now requires
+   evidence; `contact_role_mismatch` is replaced by `contact_role_uncertain` and
+   `contact_role_confirmed_mismatch` (PRD-005 §9.4).
 2. Confirm the mailer fallback reversal (D-11) supersedes the 2026-07-09 audit decision. **Approved.**
+   See `docs/reviews/wizmatch-cost-leakage-audit-2026-07-09.md` §4 "All-domains-unhealthy Slack alert",
+   annotated superseded 2026-07-26.
 3. Confirm PRD-005 may invert PRD-004's source precedence (D-12). **Approved.**
 
 ## Consequences

@@ -2,12 +2,20 @@
 
 ## Active task
 
-**IN REVIEW 2026-07-26 — WizMatch Outbound Operating System, PR 1 of 10 (docs only, DRAFT PR, NOT
-MERGED).** Branch `ge/outbound-01-prd-adrs`, worktree `~/repo-comparison/v2-outbound-os`, cut clean
-from `origin/main` = `1e74812`. Adds `docs/prd/005-wizmatch-outbound-operating-system.md`,
+**IN PROGRESS 2026-07-26 — WizMatch Outbound Operating System, PR 1 of 10 (docs only, DRAFT PR, NOT
+MERGED, NOT PUSHED).** Branch `ge/outbound-01-prd-adrs`, worktree `~/repo-comparison/v2-outbound-os`,
+cut clean from `origin/main` = `1e74812`. Adds `docs/prd/005-wizmatch-outbound-operating-system.md`,
 `docs/decisions/ADR-006-company-outreach-policy.md` and `ADR-007-outreach-provider-boundary.md`.
 **Documentation only** — no `schema.ts`, no migration, no backend, no frontend, no Railway change, no
-env change, no production data, no sending, no paid provider.
+env change, no production data, no sending, no paid provider. Full status:
+`docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md`.
+
+**Reason-code taxonomy is now RATIFIED (2026-07-26).** Three final changes applied on top of the
+initial commit: `policy_accepts_external_vendors` requires evidence; `contact_role_mismatch` replaced
+by `contact_role_uncertain` (review) and `contact_role_confirmed_mismatch` (deny contact, evidence
+required, permanent only for that employment relationship); the 2026-07-09 cost-leakage audit's
+"alert + keep sending" mailer decision is annotated superseded by ADR-006 D-11 (fail closed). PR 2 is
+unblocked.
 
 **What it specifies.** A decision-first outbound layer extending (not replacing) PRD-004: a scoped
 company **outreach policy** authoritative over signal score and contact approval; a four-queue Today
@@ -31,10 +39,10 @@ then discarded (`wizmatchBounceParser.ts:57-77`, default-off flag). P1 — `POST
 is fully implemented but has **no caller in the repo**. Carried, not fixed: the `sequence_step` job
 loop is dead (n8n undeployed since 2026-05-03), so WizMatch gets its own enrolment table instead.
 
-**Exact next action:** Jatin ratifies the reason-code taxonomy (PRD §9, ~55 codes across 10 families).
-PR 2 (`schema.ts` + migration `0037`) must not start until then — values are stable identifiers and
-renaming after rows exist breaks the learning signal. Also outstanding: sanitised Smartlead CSV
-fixtures, required before PR 9 only.
+**Exact next action:** commit this PR 1 documentation change (docs only, no push/merge), then create
+`ge/outbound-02-policy-schema-service` from the completed PR 1 branch and begin PR 2
+(`schema.ts` + migration `0037` + policy resolver/service) per PRD-005 §10–§11. Still outstanding,
+blocks PR 9 only: sanitised Smartlead CSV fixtures (`U-6`).
 
 **Rollout is gated.** Enforcement ships in `shadow` mode (logs what it would block, blocks nothing);
 promotion to `enforce` needs a readiness report plus five hard preconditions and is an explicit owner

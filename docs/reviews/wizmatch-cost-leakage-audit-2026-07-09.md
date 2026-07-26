@@ -27,7 +27,8 @@
    quietly drain the quota the paid path assumes it owns.
 3. **Deliverability has a silent blind spot.** When every sending domain degrades, there is **no
    alert** and the mailer **keeps sending anyway** (falls back to all inboxes). Decision recorded:
-   **alert + keep sending.**
+   **alert + keep sending.** *Superseded 2026-07-26 — see the annotation on item 7 in the verdict
+   table and §4 below: ADR-006 D-11 now fails closed instead of keeping sending.*
 4. **Several brief claims are overstated or already handled** — matching is bounded (not O(n×m)),
    requirement "priming" spends nothing, the env-check runs before any spend, and drafts are not
    regenerated on page load. Detail below so the mental model is corrected, not just patched.
@@ -44,7 +45,7 @@
 | 4 | Draft regeneration (Sonnet) | **LOW** | Not called on page load — explicit button — `WizmatchReviewQueuePage.jsx:79`, `WizmatchSignalsPage.jsx:282`. But re-click makes 3 fresh Sonnet calls with no reuse of existing drafts — `wizmatch.ts:3107`. |
 | 5 | Match cron O(n×m) | **REFUTED** | One query/signal, SQL skill prefilter + `LIMIT 40`, score ≤40 in JS, top-3; 30 signals/run — `wizmatchMatching.ts:61-77,134`. Skill arrays are GIN-indexed (migration `0020_wizmatch_gin_indexes`). |
 | 6 | Suppression race on send | **LOW** | Suppression checked immediately before send in the same synchronous request — `wizmatch.ts:3269`. TOCTOU window is theoretical; suppression is manual/rare. |
-| 7 | All-domains-unhealthy | **CONFIRMED (worse than stated)** | Health cron only ever sets `warn`/`healthy` (never `unhealthy`), computes SPF/DMARC but doesn't use them, and has **no alert** — `worker.ts:1475-1523`. Mailer falls back to **all** inboxes when none healthy, so it keeps sending from degraded domains — `multiDomainMailer.ts:65-70`. |
+| 7 | All-domains-unhealthy | **CONFIRMED (worse than stated)** — **"keep sending" superseded 2026-07-26 by ADR-006 D-11 (fail closed)** | Health cron only ever sets `warn`/`healthy` (never `unhealthy`), computes SPF/DMARC but doesn't use them, and has **no alert** — `worker.ts:1475-1523`. Mailer falls back to **all** inboxes when none healthy, so it keeps sending from degraded domains — `multiDomainMailer.ts:65-70`. |
 | 8 | Dice/Naukri CI dead weight | **LOW** | `workflow_dispatch` only, no `schedule:` — zero ongoing CI burn. Real issue is stale selectors (already a tracked known issue), not cost. |
 | 9 | Priming bypasses Client-Discovery gate | **MODEL CORRECTION** | `POST /requirements` is a raw insert that spends nothing and creates no job signal — `wizmatch.ts:4414`. There is no single "Client-Discovery spend gate": enrich is gated by *signal score*, paid discovery by *cost guard + manual confirm*, and Client-Discovery scoring is *advisory* (computed on read). |
 
@@ -148,6 +149,15 @@ X-Ray daily, GitHub daily, LCA weekly, digest daily).
   `src/services/wizmatchCostGuard.ts`. **Severity: high. Effort: M.**
 
 ### P0 — All-domains-unhealthy Slack alert (decision: **alert + keep sending**)
+
+> **Superseded 2026-07-26.** The "keep sending" half of this decision is reversed by
+> [ADR-006](../decisions/ADR-006-company-outreach-policy.md) D-11: with no healthy inbox the mailer now
+> **fails closed** unless `WIZMATCH_MAILER_EMERGENCY_OVERRIDE=true`, which still logs and Slack-alerts
+> on every use. See `docs/prd/005-wizmatch-outbound-operating-system.md` §5.3 A-6 and §18.3. This
+> reversal ships in PR 3 (`ge/outbound-03-policy-enforcement`) behind shadow mode; both sending
+> kill-switches remain off, so it changes no live behaviour on its own. The alert-on-degradation half
+> of this backlog item is unaffected and still applies.
+
 - **Problem:** no alert when domains degrade; mailer keeps sending from `warn`/unmatched domains.
 - **Fix sketch:** in the domain-health cron (`worker.ts:~1475`), after recomputing statuses, if
   0 domains are `healthy` (or a domain flips `healthy→warn`), post to `WIZMATCH_SYSTEM_CHANNEL`.
