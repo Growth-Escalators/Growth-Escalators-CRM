@@ -16,7 +16,6 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import crypto from 'crypto';
 import { db, pool } from '../db/index';
 import { sql } from 'drizzle-orm';
 import {
@@ -37,12 +36,13 @@ import {
   WIZMATCH_LEADS_CHANNEL,
   WIZMATCH_SYSTEM_CHANNEL,
   WIZMATCH_DAILY_CHANNEL,
-  WIZMATCH_UNSUBSCRIBE_HMAC_SECRET,
   WIZMATCH_MEETING_URL,
   WIZMATCH_INDIA_ONLY,
   INDIA_LOCATION_MARKERS,
   US_LOCATION_MARKERS,
 } from '../config/constants';
+import { verifyUnsubscribeTokenV2, verifyLegacyUnsubscribeSignature } from '../modules/outreach/unsubscribeToken';
+import { auditLog } from '../services/auditLogger';
 import multer from 'multer';
 import { parseRequirement, generateRequirementSheet } from '../services/wizmatchRequirementSheet';
 import {
@@ -57,9 +57,8 @@ import {
 } from '../services/wizmatchCommandCenter';
 import {
   CLIENT_DISCOVERY_GUARDRAILS,
-  rankClientDiscoveryQueue,
-  scoreClientDiscoveryOpportunity,
-  selectCompaniesForContactIntelligence,
+  rankClientDiscoveryQueueWithPolicy,
+  selectCompaniesForContactIntelligenceWithPolicy,
   type ClientDiscoveryInput,
 } from '../services/wizmatchClientDiscovery';
 import {
@@ -81,8 +80,8 @@ import {
 } from '../services/wizmatchRoiAnalytics';
 import {
   REQUIREMENT_PRIORITY_GUARDRAILS,
-  rankRequirementPriorityQueue,
-  scoreRequirementPriority,
+  rankRequirementPriorityQueueWithPolicy,
+  scoreRequirementPriorityWithPolicy,
   type RequirementPriorityInput,
 } from '../services/wizmatchRequirementPriority';
 import { buildWizmatchReviewWorkbench, paginateWizmatchReviewWorkbench } from '../services/wizmatchReviewWorkbench';
@@ -237,6 +236,7 @@ type CandidateIntelligenceRow = {
 type CandidateRequirementRow = {
   id: string;
   title: string;
+  company_id: string | null;
   company_name: string | null;
   required_skills: string[] | null;
   location: string | null;
@@ -484,6 +484,7 @@ function mapCandidateRequirement(row: CandidateRequirementRow): CandidateRequire
   return {
     id: row.id,
     title: row.title,
+    companyId: row.company_id,
     companyName: row.company_name,
     requiredSkills: row.required_skills ?? [],
     location: row.location,
@@ -552,6 +553,7 @@ async function fetchCandidateIntelligenceRequirements(tenantId: string, limit: n
   const result = await pool.query(
     `SELECT r.id,
             r.title,
+            r.company_id,
             comp.name AS company_name,
             r.required_skills,
             r.location,
@@ -978,8 +980,8 @@ router.get('/client-discovery/queue', async (req: Request, res: Response) => {
       [tenantId],
     ),
   ]);
-  const items = rankClientDiscoveryQueue(rows);
-  const selected = selectCompaniesForContactIntelligence(items);
+  const items = await rankClientDiscoveryQueueWithPolicy(tenantId, rows);
+  const selected = selectCompaniesForContactIntelligenceWithPolicy(items);
 
   res.json({
     items,
@@ -997,7 +999,7 @@ router.get('/client-discovery/companies/:companyId', async (req: Request, res: R
     res.status(404).json({ error: 'Client discovery company not found' });
     return;
   }
-  const signals = rankClientDiscoveryQueue(rows);
+  const signals = await rankClientDiscoveryQueueWithPolicy(tenantId, rows);
   res.json({
     companyId: String(req.params.companyId),
     companyName: signals[0]?.companyName,
@@ -1015,8 +1017,8 @@ router.post('/client-discovery/companies/:companyId/qualify', async (req: Reques
     res.status(404).json({ error: 'Client discovery company not found' });
     return;
   }
-  const results = rankClientDiscoveryQueue(rows);
-  const selected = selectCompaniesForContactIntelligence(results);
+  const results = await rankClientDiscoveryQueueWithPolicy(tenantId, rows);
+  const selected = selectCompaniesForContactIntelligenceWithPolicy(results);
   res.json({
     qualified: selected.length > 0,
     bestSignal: results[0],
@@ -1033,8 +1035,8 @@ router.post('/client-discovery/companies/:companyId/send-to-contact-intelligence
     res.status(404).json({ error: 'Client discovery company not found' });
     return;
   }
-  const results = rankClientDiscoveryQueue(rows);
-  const selected = selectCompaniesForContactIntelligence(results);
+  const results = await rankClientDiscoveryQueueWithPolicy(tenantId, rows);
+  const selected = selectCompaniesForContactIntelligenceWithPolicy(results);
   if (!selected.some((item) => item.companyId === companyId)) {
     res.status(409).json({
       error: 'Company is not eligible for Contact Intelligence handoff',
@@ -1389,7 +1391,7 @@ router.get('/requirement-priority/queue', async (req: Request, res: Response) =>
       [tenantId],
     ),
   ]);
-  const items = rankRequirementPriorityQueue(inputs);
+  const items = await rankRequirementPriorityQueueWithPolicy(tenantId, inputs);
   res.json({
     items,
     total: numeric(totalResult.rows[0]?.total),
@@ -1407,7 +1409,19 @@ router.post('/requirement-priority/:requirementId/review-plan', async (req: Requ
     res.status(404).json({ error: 'Requirement not found' });
     return;
   }
-  const item = scoreRequirementPriority(inputs[0]);
+  const item = await scoreRequirementPriorityWithPolicy(tenantId, inputs[0]);
+  // Previously enforced only client-side (admin/src/pages/WizmatchOperatingPages.jsx
+  // disabled the button) — no server-side backstop existed. A canonical-policy
+  // DENY now blocks this write server-side too, matching the pattern already
+  // used by the candidate-intelligence review route.
+  if (item.priority === 'blocked') {
+    res.status(409).json({
+      error: 'Blocked requirements cannot have a review plan created until blockers are resolved',
+      item,
+      guardrails: REQUIREMENT_PRIORITY_GUARDRAILS,
+    });
+    return;
+  }
   const plan = await wizmatchStaffingService.createReviewPlan(
     { tenantId, userId: req.user!.id },
     String(req.params.requirementId),
@@ -1471,10 +1485,10 @@ async function buildReviewWorkbenchPayload(tenantId: string) {
   );
 
   return buildWizmatchReviewWorkbench({
-    clientDiscovery: rankClientDiscoveryQueue(clientRows),
+    clientDiscovery: await rankClientDiscoveryQueueWithPolicy(tenantId, clientRows),
     contactIntelligence,
     candidates: rankCandidateIntelligenceQueue(candidateInputs),
-    requirements: rankRequirementPriorityQueue(requirementInputs),
+    requirements: await rankRequirementPriorityQueueWithPolicy(tenantId, requirementInputs),
     metrics: {
       pausedDomains: baseMetrics.pausedDomains,
       suppressedContacts: baseMetrics.suppressedContacts,
@@ -2423,7 +2437,8 @@ router.get('/command-center', async (req: Request, res: Response) => {
     blockedCompanies: contactIntelligence.filter((item) => item.hardBlocks.length > 0).length,
   };
 
-  res.json(buildWizmatchCommandCenter({
+  res.json(await buildWizmatchCommandCenter({
+    tenantId,
     metrics,
     contactIntelligence,
     signals,
@@ -3708,57 +3723,88 @@ router.get('/env-check', async (req: Request, res: Response) => {
 });
 
 // GET /api/wizmatch/unsubscribe — public, HMAC-verified
+//
+// D-36 (owner-ratified 2026-07-26): new links carry `v=2` plus a token that
+// signs tenant_id + normalised email + expiry — the tenant is READ from the
+// verified token, never looked up. A legacy (no `v`) link is only email+sig;
+// it is still accepted, but ONLY when exactly one tenant's send history
+// resolves for that address — an ambiguous multi-tenant legacy token is
+// rejected, not guessed (U-8's "most recent sender wins" is retired). Every
+// legacy verification, accepted or rejected, is audited.
 router.get('/unsubscribe', async (req: Request, res: Response) => {
-  const email = (req.query.email as string)?.toLowerCase().trim();
-  const sig = req.query.sig as string;
+  const rawEmail = (req.query.email as string)?.trim();
+  const sig = req.query.sig as string | undefined;
 
-  if (!email || !sig) {
+  if (!rawEmail || !sig) {
     res.status(400).type('html').send('<h1>Invalid unsubscribe link</h1>');
     return;
   }
 
-  // Verify HMAC. Fail closed when no secret is configured (never fall back to the
-  // public 'default-secret'), and compare in constant time — never `!==`, which
-  // short-circuits and leaks length/prefix via timing. Mirrors src/middleware/internalAuth.ts.
-  const unsubSecret = WIZMATCH_UNSUBSCRIBE_HMAC_SECRET;
-  if (!unsubSecret) {
-    logger.error('[wizmatch] WIZMATCH_UNSUBSCRIBE_HMAC_SECRET not set — rejecting unsubscribe as invalid');
-    res.status(403).type('html').send('<h1>Invalid signature</h1>');
-    return;
-  }
+  let tenantId: string;
+  let email: string;
 
-  const expectedSig = crypto
-    .createHmac('sha256', unsubSecret)
-    .update(email)
-    .digest('base64url');
+  if (req.query.v === '2') {
+    const verified = verifyUnsubscribeTokenV2({
+      tenantId: req.query.tenantId as string | undefined,
+      email: rawEmail,
+      exp: req.query.exp as string | undefined,
+      sig,
+    });
+    if (!verified.ok) {
+      res.status(403).type('html').send('<h1>Invalid signature</h1>');
+      return;
+    }
+    tenantId = verified.tenantId;
+    email = verified.email;
+  } else {
+    // Legacy (v1) path.
+    email = rawEmail.toLowerCase();
+    if (!verifyLegacyUnsubscribeSignature(email, sig)) {
+      res.status(403).type('html').send('<h1>Invalid signature</h1>');
+      return;
+    }
 
-  const providedBuf = Buffer.from(sig);
-  const expectedBuf = Buffer.from(expectedSig);
-  // Length-guard first because timingSafeEqual throws on unequal-length buffers.
-  if (providedBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(providedBuf, expectedBuf)) {
-    res.status(403).type('html').send('<h1>Invalid signature</h1>');
-    return;
-  }
+    const sendingTenantsResult = await pool.query(
+      `SELECT DISTINCT m.tenant_id
+       FROM contact_channels cc
+       JOIN messages m ON m.contact_id = cc.contact_id AND m.tenant_id = cc.tenant_id
+       WHERE cc.channel_type = 'email' AND LOWER(cc.channel_value) = $1
+         AND m.direction = 'outbound' AND m.channel = 'email'`,
+      [email],
+    ).catch(() => ({ rows: [] as Array<{ tenant_id: string }> }));
+    const distinctTenantIds = sendingTenantsResult.rows.map((r) => r.tenant_id);
 
-  // §8.10.1 row 26 — resolve the SENDING tenant, not a hardcoded env tenant:
-  // the most recent outbound email to this address tells us who actually sent
-  // it. Falls back to WIZMATCH_TENANT_ID only when no send history exists
-  // (e.g. a pre-emptive unsubscribe), since that is still the only tenant
-  // this route currently serves.
-  const sendingTenantResult = await pool.query(
-    `SELECT m.tenant_id
-     FROM contact_channels cc
-     JOIN messages m ON m.contact_id = cc.contact_id AND m.tenant_id = cc.tenant_id
-     WHERE cc.channel_type = 'email' AND LOWER(cc.channel_value) = $1
-       AND m.direction = 'outbound' AND m.channel = 'email'
-     ORDER BY m.sent_at DESC NULLS LAST
-     LIMIT 1`,
-    [email],
-  ).catch(() => ({ rows: [] as Array<{ tenant_id: string }> }));
-  const tenantId = sendingTenantResult.rows[0]?.tenant_id ?? process.env.WIZMATCH_TENANT_ID;
-  if (!tenantId) {
-    res.status(500).type('html').send('<h1>Server misconfigured</h1>');
-    return;
+    if (distinctTenantIds.length === 0) {
+      // No send history at all (e.g. a pre-emptive unsubscribe) — the only
+      // tenant this route has ever served without WizMatch multi-tenancy.
+      tenantId = process.env.WIZMATCH_TENANT_ID ?? '';
+    } else if (distinctTenantIds.length === 1) {
+      tenantId = distinctTenantIds[0];
+    } else {
+      // D-36: ambiguous — more than one tenant has mailed this address.
+      // Reject rather than guess "most recent sender", which could silently
+      // suppress the wrong tenant's contact.
+      await auditLog({
+        action: 'wizmatch_legacy_unsubscribe_rejected_ambiguous',
+        entityType: 'wizmatch_unsubscribe_token',
+        entityId: email,
+        newValues: { tenantIdsConsidered: distinctTenantIds },
+      }).catch(() => {});
+      res.status(409).type('html').send('<h1>This unsubscribe link is ambiguous and could not be processed automatically. Please contact support.</h1>');
+      return;
+    }
+
+    if (!tenantId) {
+      res.status(500).type('html').send('<h1>Server misconfigured</h1>');
+      return;
+    }
+
+    await auditLog({
+      tenantId,
+      action: 'wizmatch_legacy_unsubscribe_accepted',
+      entityType: 'wizmatch_unsubscribe_token',
+      entityId: email,
+    }).catch(() => {});
   }
 
   await suppress({ tenantId, email, reason: 'unsubscribe', sourceChannel: 'email', source: 'unsubscribe_link' });

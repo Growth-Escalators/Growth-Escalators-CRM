@@ -82,6 +82,26 @@ router.get('/companies/:id/policy', async (req: Request, res: Response) => {
   }
 });
 
+// MUST stay above `POST /companies/:id/policy`. Express matches layers in
+// registration order and `:id` matches any single segment, so the literal
+// `bulk` path is otherwise swallowed by the parameterised route with
+// `id === 'bulk'` — which silently downgrades this admin-only endpoint
+// (PRD-005 §4, §12) to the team_lead gate and then 500s on a non-uuid
+// company id. Keep literal segments ahead of parameterised ones here.
+router.post('/companies/bulk/policy', requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { companyIds, ...input } = req.body as { companyIds: string[] } & PolicyWriteInput;
+    if (!Array.isArray(companyIds) || companyIds.length === 0) {
+      res.status(400).json({ error: 'validation_error', message: 'companyIds must be a non-empty array.' });
+      return;
+    }
+    const result = await bulkWriteCompanyPolicy(actorFrom(req), { companyIds, input });
+    res.json(result);
+  } catch (error) {
+    handleServiceError(error, res);
+  }
+});
+
 router.post('/companies/:id/policy', requireTeamLead, async (req: Request, res: Response) => {
   try {
     const input = req.body as PolicyWriteInput;
@@ -125,20 +145,6 @@ router.get('/policy/companies', async (req: Request, res: Response) => {
       reviewDue: req.query.reviewDue === 'true',
     });
     res.json({ companies: rows });
-  } catch (error) {
-    handleServiceError(error, res);
-  }
-});
-
-router.post('/companies/bulk/policy', requireAdmin, async (req: Request, res: Response) => {
-  try {
-    const { companyIds, ...input } = req.body as { companyIds: string[] } & PolicyWriteInput;
-    if (!Array.isArray(companyIds) || companyIds.length === 0) {
-      res.status(400).json({ error: 'validation_error', message: 'companyIds must be a non-empty array.' });
-      return;
-    }
-    const result = await bulkWriteCompanyPolicy(actorFrom(req), { companyIds, input });
-    res.json(result);
   } catch (error) {
     handleServiceError(error, res);
   }

@@ -2,6 +2,10 @@ import {
   CONTACT_INTELLIGENCE_PHASE1_CAPS,
   type ContactIntelligenceResult,
 } from './wizmatchContactIntelligence';
+import {
+  resolveCanonicalCompanyEligibilityBatch,
+  applyCanonicalEligibilityToPriorityResults,
+} from '../modules/outreach/legacyEligibilityAdapter';
 
 export type WizmatchRegion = 'india' | 'us';
 export type CommandPriority = 'hot' | 'warm' | 'watch' | 'blocked';
@@ -562,16 +566,28 @@ function commandQueueFor(
     .slice(0, 12);
 }
 
-export function buildWizmatchCommandCenter(input: {
+export async function buildWizmatchCommandCenter(input: {
+  tenantId: string;
   metrics: CommandCenterMetricsInput;
   contactIntelligence: ContactIntelligenceResult[];
   signals: CommandCenterSignalInput[];
   candidates: CommandCenterCandidateInput[];
   requirements: CommandCenterRequirementInput[];
   generatedAt?: string;
-}): WizmatchCommandCenterResult {
-  const clientDiscovery = input.signals
-    .map(scoreClientDiscoveryOpportunity)
+}): Promise<WizmatchCommandCenterResult> {
+  // PRD-005 §11.3 / ADR-006 D-13 — this is one of the five legacy eligibility
+  // computations named in PRD-005 §5.2 C-2. `scoreClientDiscoveryOpportunity`
+  // above stays a pure, synchronous, DB-free function; the canonical-policy
+  // fold-in happens here via src/modules/outreach/legacyEligibilityAdapter.ts,
+  // the same adapter wizmatchClientDiscovery.ts and
+  // wizmatchContactIntelligenceRepo.ts use, so all three copies agree with the
+  // canonical resolver by construction rather than by convention.
+  const scoredClientDiscovery = input.signals.map(scoreClientDiscoveryOpportunity);
+  const canonicalByCompanyId = await resolveCanonicalCompanyEligibilityBatch(
+    input.tenantId,
+    scoredClientDiscovery.map((r) => r.companyId),
+  );
+  const clientDiscovery = applyCanonicalEligibilityToPriorityResults(scoredClientDiscovery, canonicalByCompanyId)
     .sort((a, b) => b.score - a.score)
     .slice(0, 12);
 

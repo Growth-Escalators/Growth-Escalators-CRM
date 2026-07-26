@@ -44,6 +44,10 @@ export interface RequirementPriorityResult {
   nextAction: 'review_candidates' | 'approve_contact' | 'complete_requirement' | 'watch' | 'blocked';
   reasons: string[];
   blockers: string[];
+  /** D-31 — set only by the *WithPolicy wrappers below; display-only canonical metadata. */
+  canonicalDecision?: 'allow' | 'review' | 'deny';
+  canonicalReasonCode?: string | null;
+  canonicalBlockerCode?: string | null;
 }
 
 export const REQUIREMENT_PRIORITY_GUARDRAILS = {
@@ -231,3 +235,93 @@ export function rankRequirementPriorityQueue(inputs: RequirementPriorityInput[])
     .map(scoreRequirementPriority)
     .sort((a, b) => b.score - a.score || b.topCandidateMatches.length - a.topCandidateMatches.length);
 }
+
+// PRD-005 §11.3 / ADR-006 D-13 — this is one of the five legacy eligibility
+// computations named in PRD-005 §5.2 C-2. Its local `accountQuality`
+// component previously read only `companyTier`, an indirect
+// `wizmatch_company_intelligence`-derived legacy value with no canonical
+// backstop. These wrappers fold the canonical resolver's decision on top via
+// src/modules/outreach/legacyEligibilityAdapter.ts whenever a `companyId` is
+// present on the input (requirements are company-scoped via
+// `wizmatch_requirements.company_id`, so this is the normal case — see
+// `fetchCandidateIntelligenceRequirements` in src/routes/wizmatch.ts). A
+// canonical DENY always forces `priority: 'blocked'` regardless of local
+// score; a canonical REVIEW caps `hot`/`warm` to `watch`.
+/**
+ * H-2 fix: `evaluateWizmatchOutreachGate` denies without a `companyId`
+ * (§8.10 rule 5, fail-closed). `wizmatch_requirements.company_id` is
+ * nullable (the masked-client case), and the prior code returned the local
+ * score unchanged in that case — a fail-**open**, since a company-scoped
+ * gate cannot even be asked and the requirement was allowed through anyway.
+ * Mirrors `wizmatchClientDiscovery.ts`'s `missing_company` hard block: no
+ * `companyId` is itself a blocker, forcing `blocked`/`nextAction: 'blocked'`
+ * regardless of local score.
+ *
+ * RESIDUAL-C1 fix (2026-07-26 re-review): H-2's first fix applied that block
+ * **unconditionally**, ignoring enforcement mode — so a masked-client
+ * requirement (`company_id IS NULL`) became `priority: 'blocked'` and 409'd
+ * on `POST /requirement-priority/:id/review-plan` while the shipped default
+ * mode is `shadow`. That is the same defect class as C-1 (a canonical
+ * decision changing behaviour in shadow), reintroduced through the one path
+ * that never reaches `resolveCompanyStatus`/`actsOnDecision`. Unlike
+ * `wizmatchClientDiscovery.ts`, whose `missing_company` block predates this
+ * stack and is therefore legacy behaviour, this block is new in PR 5 and so
+ * must obey D-31: canonical metadata is always attached for display; the
+ * behavioural output (`priority`/`nextAction`/`blockers`) only changes under
+ * the exact string `enforce`.
+ */
+function withMissingCompanyBlocker(scored: RequirementPriorityResult): RequirementPriorityResult {
+  // D-31: always visible, never behavioural in shadow. There is no canonical
+  // decision to quote here (the gate is company-scoped and cannot be asked
+  // without a company), so the fail-closed intent is reported directly.
+  const withMetadata: RequirementPriorityResult = {
+    ...scored,
+    canonicalDecision: 'deny',
+    canonicalReasonCode: 'missing_company',
+    canonicalBlockerCode: 'policy_missing_company',
+  };
+  if (!isEnforcementActive()) return withMetadata;
+  if (scored.blockers.includes('missing_company')) return withMetadata;
+  return {
+    ...withMetadata,
+    priority: 'blocked',
+    blockers: [...scored.blockers, 'missing_company'],
+    nextAction: 'blocked',
+  };
+}
+
+export async function scoreRequirementPriorityWithPolicy(
+  tenantId: string,
+  input: RequirementPriorityInput,
+): Promise<RequirementPriorityResult> {
+  const scored = scoreRequirementPriority(input);
+  if (!input.companyId) return withMissingCompanyBlocker(scored);
+  const canonical = await resolveCanonicalCompanyEligibility(tenantId, input.companyId);
+  return applyCanonicalEligibilityToPriorityResult(scored, canonical);
+}
+
+export async function rankRequirementPriorityQueueWithPolicy(
+  tenantId: string,
+  inputs: RequirementPriorityInput[],
+): Promise<RequirementPriorityResult[]> {
+  const scored = inputs.map(scoreRequirementPriority);
+  const canonicalByCompanyId = await resolveCanonicalCompanyEligibilityBatch(
+    tenantId,
+    inputs.map((i) => i.companyId),
+  );
+  return scored
+    .map((result, idx) => {
+      const companyId = inputs[idx]?.companyId;
+      if (!companyId) return withMissingCompanyBlocker(result);
+      const canonical = canonicalByCompanyId.get(companyId);
+      return canonical ? applyCanonicalEligibilityToPriorityResult(result, canonical) : result;
+    })
+    .sort((a, b) => b.score - a.score || b.topCandidateMatches.length - a.topCandidateMatches.length);
+}
+
+import {
+  resolveCanonicalCompanyEligibility,
+  resolveCanonicalCompanyEligibilityBatch,
+  applyCanonicalEligibilityToPriorityResult,
+} from '../modules/outreach/legacyEligibilityAdapter';
+import { isEnforcementActive } from '../modules/outreach/outreachGate';

@@ -2,6 +2,175 @@
 
 ## Active task
 
+**PR 4 + PR 5 REVIEWED AND CODE READY 2026-07-26 at `a5e48602` (+ this review's fixes).**
+Final independent code-readiness re-review of
+`ge/outbound-03-policy-enforcement..ge/outbound-05-lifecycle-consolidation`, three parallel read-only
+Explore subagents, every load-bearing finding re-verified by hand, every fix with a control run.
+Report: `docs/reviews/wizmatch-outbound-pr5-opus-checkpoint.md` (appended section "Final independent
+code-readiness re-review"). Marker: **`.ai/OUTBOUND_PR5_CODE_READY` created.**
+
+> **The fix pass genuinely closed C-1, C-2 and H-1…H-14 — with two exceptions found here.**
+>
+> **RC-1 (Critical, fixed) — the C-1 fix did not fully land.** H-2's null-`companyId` block in
+> `wizmatchRequirementPriority.ts` sat on the one path that never reaches `resolveCompanyStatus`, so
+> it never consulted the mode. `wizmatch_requirements.company_id` is nullable (masked clients) and
+> the fetcher `LEFT JOIN`s with no filter, so in the shipped default `shadow` those requirements went
+> `blocked` **and** `POST /requirement-priority/:id/review-plan` returned **409** — C-1's exact defect
+> class, falsifying the claim that neither 409 fires in shadow. New in this range; the
+> `wizmatchClientDiscovery.ts` block it claims to mirror predates the stack, so they are not
+> equivalent. Fixed with `isEnforcementActive()`; canonical metadata still always attached (D-31).
+>
+> **RH-1 (High, fixed) — H-8/H-9/H-10 shipped with no regression test at all**, against an explicit
+> claim that each had one. Deleting the enum validation, SSRF scrub or company-agreement invariant
+> left the suite green. 23 tests added; controls fail 2 / 6 / 4.
+>
+> **RH-2 (High, fixed) — `wizmatchLinkage.test.ts` could not detect either regression D-32 exists to
+> prevent** (dropped tenant predicate, reintroduced `.limit(1)`) — third recurrence of M-5/L-6/H-7, on
+> the file the fix pass had just rewritten. Controls now fail 5 / 2.
+>
+> **RH-3 (High, fixed) — D-35's mode-flip alert could not fire for the mechanism that changes the
+> mode.** The baseline was in-process only; the env var is applied by redeploying, so the real flip
+> always arrived as a fresh process and was seeded silently. Now also compared against a persisted
+> baseline in `audit_logs`, best-effort, once per process. Control fails 3.
+>
+> **Gates:** `git diff --check` clean · `npm run build` exit 0 · **113 files / 1030 tests** (was
+> 113/1003) · `npm run admin:build` clean · Playwright `wizmatch-local` 97 passed / 15 skipped / 0
+> failed. Boundary checks all pass — no guardrail file, no `package-lock.json`, no Growth/SEO/n8n or
+> legacy-outreach contamination, no send or paid-provider capability enabled, no production action.
+>
+> **Playwright command note:** `--project=wizmatch-local` does not exist; use
+> `npx playwright test --config=playwright.wizmatch-local.config.ts`.
+>
+> **Open, carried forward:** M-1 staff+ policy reads 403 at the `/api/wizmatch` mount (fails
+> **closed**); **M-2 Command Center requirements/candidateIntelligence unfolded and the fetcher does
+> not select `company_id` — inert in shadow, must close before G4/`enforce`**; M-3…M-9, L-1…L-6 (full
+> table in the review); U-7, U-9, O-1; **B-1 — apply 0037 before this stack reaches `main`.**
+
+**Exact next action:** owner decides whether M-2 lands as a PR 5 follow-up commit or is scheduled as a
+hard G4 precondition. Then PR 6 (decision workbench — queues API + Today re-bucket + bulk bar) per the
+standing 10-PR programme. **Do not** merge, deploy, apply 0037, run backfill `--apply`, or promote
+`enforce` on the strength of this review. Before `main`: B-1 and the §10.11.4 fresh-database checks (G1).
+
+---
+
+## Prior task — PR 4 + PR 5 checkpoint fix pass (superseded by the re-review above)
+
+**PR 4 + PR 5 CHECKPOINT FIX PASS COMPLETE 2026-07-26.** Every Critical/High finding in the
+2026-07-26 independent Opus checkpoint review (`docs/reviews/wizmatch-outbound-pr5-opus-checkpoint.md`)
+is closed on `ge/outbound-05-lifecycle-consolidation`. Owner decisions D-31 through D-39 were ratified
+up front (C-1: option A, adapter respects `shouldBlock`) and are all implemented — D-31 (mode-aware
+adapter, closes C-1), D-32 (multi-company most-restrictive-wins, closes U-13), D-33 (verified already
+satisfied), D-34 (persisted, idempotent shadow observations in `audit_events`), D-35 (mode-flip
+alert/audit once per transition), D-36 (tenant-bound versioned unsubscribe token, retires U-8), D-37
+(fail-closed on every unknown policy value, folded into H-8's fix), D-38 (Duplicate Companies
+nav/route/page all gated), D-39 (PRD-005 §22.4/§22.5 added). H-2 through H-14 are each fixed with a
+dedicated regression test. Full detail: the checkpoint report's new "Fix pass" addendum,
+`.ai/OUTBOUND_PR5_IMPLEMENTED`'s fix-pass section, and `.ai/HANDOFF_LOG.md`'s 2026-07-26 entry.
+
+> **Gates on the fix-pass tree:** `git diff --check` clean · `npm run build` exit 0 ·
+> **113 files / 1003 tests** (was 110/970 at checkpoint HEAD) · `npm run admin:build` clean ·
+> Playwright `wizmatch-local` 97 passed / 15 skipped / 0 failed.
+>
+> **`.ai/OUTBOUND_PR5_CODE_READY` was deliberately NOT created by this fix pass** — that marker is
+> reserved for an independent reviewer, per standing instruction, not for the session that made the
+> fixes. Do not merge, deploy, apply 0037, run backfill `--apply`, or promote `enforce` on the strength
+> of this fix pass. U-7, U-9, O-1 (PR 3 review) and B-1 (0037 must be applied before this stack reaches
+> `main`) remain open, carried forward unchanged.
+
+**Exact next action:** get an independent readiness re-review of PR 4 + PR 5 against the fix pass
+(three-subagent method, per the PR 2/PR 3/PR 5-checkpoint precedent). If it passes, the reviewer
+creates `.ai/OUTBOUND_PR5_CODE_READY`. **Do not** start PR 6 until that happens.
+
+---
+
+## Prior task — PR 4 + PR 5 independent Opus checkpoint review: NOT READY (superseded by the fix pass above)
+
+**PR 4 + PR 5 REVIEWED 2026-07-26 — verdict NOT READY (fix-then-re-review).** Independent Opus
+checkpoint review of `ge/outbound-03-policy-enforcement..ge/outbound-05-lifecycle-consolidation` at
+implementation HEAD `7777c455`, three parallel read-only Explore subagents, every load-bearing
+finding re-verified by hand. Report:
+`docs/reviews/wizmatch-outbound-pr5-opus-checkpoint.md`. **`.ai/OUTBOUND_PR5_CODE_READY` was
+deliberately NOT created.**
+
+> **Two Criticals. One is the blocker and needs an owner call.**
+>
+> **C-1 — PR 5 blocks in `shadow` mode. NOT FIXED.** The PR 5 adapter resolves the canonical decision
+> and acts on it without ever consulting `shouldBlock` / `WIZMATCH_POLICY_ENFORCEMENT_MODE`. Two call
+> sites are real write blocks (409), not display: `send-to-contact-intelligence` and the new
+> `requirement-priority/:id/review-plan`. PRD-005 §16 rule 2 says shadow "blocks nothing"; gate G3
+> requires "zero behavioural change post-deploy". With 0037 unapplied every company resolves
+> `deny/policy_resolver_error`; applied-but-un-backfilled, `deny/policy_missing_root` — the
+> client-discovery and requirement-priority surfaces go dark on merge, while
+> `WIZMATCH_COMPANY_POLICY_ENABLED` being off 404s the API that would unblock them. Two defensible
+> readings; both agree the two 409s are wrong. **Recommendation: make the adapter mode-aware.**
+>
+> **C-2 — no policy could ever be changed. FIXED.** `writeCompanyPolicy` inserted the new active row
+> before superseding its predecessor, violating the non-deferrable partial unique index
+> `wizmatch_company_policies_active_scope_uniq`. Every supersession, including every admin override,
+> would have raised `23505` and 500'd against a real database. CI was green only because the mock
+> enforced no constraints — the same class as the PR 2 FK-ordering Critical.
+>
+> **Also fixed, with control runs:** H-1 `POST /companies/bulk/policy` was shadowed by
+> `POST /companies/:id/policy`, so the admin-only bulk endpoint never ran and the `team_lead` gate
+> fired instead (confirmed against the repo's Express 5.2.1); H-12 the supersession test never
+> asserted supersession happened. New `src/__tests__/wizmatchPolicyRoutes.test.ts` pins path
+> precedence, the role gate that actually fires, and flag-off 404s against a real Express app.
+>
+> **Twelve Highs open**, including: requirement-priority fails **open** on a null `companyId`; the
+> canonical REVIEW branch for contact intelligence is dead code; `priority` is folded but `nextAction`
+> is not, so the workbench offers a live POST on a denied company; the fifth caller's scope-out reason
+> is falsified by this same PR; the adapter test's mock discards `.where()`; unknown
+> `outreachEligibility` fails **open**; `evidence_url` is not SSRF-scrubbed though §10.1/§18.2 name
+> the control as shipping here; and **the PR 4 marker's flag-gating claim is false** — the Duplicate
+> Companies page has no flag import and its nav entry and route are unconditional.
+>
+> **Gates on the post-fix tree:** `git diff --check` clean · build exit 0 · **110 files / 970 tests** ·
+> `admin:build` clean · Playwright 97 passed / 15 skipped / 0 failed. Boundary checks all pass — no
+> guardrail file, no `package-lock.json`, no Growth/SEO/n8n or legacy-outreach contamination, no send
+> or paid-provider capability enabled, no production action.
+
+**Exact next action:** get the owner decision on C-1, implement it, close the twelve open Highs, then
+re-review. **Do not** merge, deploy, apply 0037, run backfill `--apply`, promote `enforce`, or start
+PR 6 until that is done.
+
+---
+
+## Prior task — PR 5 implementation (self-reported)
+
+**PR 5 IMPLEMENTED (self-reported, not independently reviewed) 2026-07-26 —
+WizMatch Outbound Operating System, PR 5 of 10 (lifecycle consolidation).** Branch
+`ge/outbound-05-lifecycle-consolidation` (cut from `ge/outbound-04-policy-ui-backfill`), local only,
+NOT pushed, NOT merged. Marker: `.ai/OUTBOUND_PR5_IMPLEMENTED`. Full detail:
+`docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md`'s PR 5 section.
+
+**Scope delivered:** migrated the five legacy eligibility computations named in PRD-005 §5.2 C-2 onto
+the canonical resolver (`resolveCompanyStatus`/`evaluateWizmatchOutreachGate`, built in PR 2) via a
+new compatibility adapter, `src/modules/outreach/legacyEligibilityAdapter.ts`. Four migrated
+(`wizmatchClientDiscovery.ts`, `wizmatchCommandCenter.ts`, `wizmatchRequirementPriority.ts`,
+`wizmatchContactIntelligence.ts`/`Repo.ts`); one (`wizmatchCandidateIntelligence.ts`) explicitly
+scoped out with a disclosed reason (scores a candidate, not a company — the gate requires a
+`companyId` this file structurally lacks). Fixed the concrete ADR-006 D-13 violation in
+`wizmatchContactIntelligenceRepo.ts` (persisted legacy `status` no longer overrides a freshly computed
+status, in both the read path and the write-time freeze clause). Added a contract test file proving
+the migrated callers agree with the canonical resolver, and a source-level guard test preventing a
+sixth independent eligibility computation.
+
+**Verified this session:** `git diff --check` clean; `npm run build` exit 0; `npm test` 109 files /
+966 tests green (was 107/948). No admin/UI files touched, so `admin:build`/Playwright were not run.
+
+**Not done, deliberately:** migration 0037 still unapplied; backfill `--apply` not run; Today page not
+re-bucketed; free-prep pipeline not built; no provider integration; enforcement mode untouched
+(`shadow`); sending/paid-discovery/Smartlead untouched; U-13/U-14/U-10/U-12/L-7…L-13 from the PR 3
+review still open, untouched by this PR (carried from PR 4, not this PR's scope).
+
+**Exact next action:** get an independent readiness review of PR 5 (three-subagent method, per the
+PR 2/PR 3 precedent — this marker is self-reported and has not had that yet), then PR 6 (decision
+workbench — queues API + Today re-bucket + bulk bar) per the standing 10-PR programme. Stop after PR 6.
+
+---
+
+## Prior task — PR 4, policy UI/API/backfill/readiness
+
 **PR 4 IMPLEMENTED (self-reported, not independently reviewed) 2026-07-26 at `9561c10` —
 WizMatch Outbound Operating System, PR 4 of 10.** Branch `ge/outbound-04-policy-ui-backfill`
 (cut from `ge/outbound-03-policy-enforcement`), local only, NOT pushed, NOT merged. This session

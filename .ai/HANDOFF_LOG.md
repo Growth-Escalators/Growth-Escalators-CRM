@@ -6,6 +6,128 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-26 — WizMatch Outbound OS: PR 4 + PR 5 independent Opus checkpoint review — **NOT READY** — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT MERGED
+
+**Why:** PR 4 and PR 5 were both self-reported as implemented and neither had been through the
+independent three-subagent review PR 2 and PR 3 got. This is that review, run as a single checkpoint
+over `ge/outbound-03-policy-enforcement..ge/outbound-05-lifecycle-consolidation` at implementation
+HEAD `7777c455`.
+
+**Verdict: NOT READY.** `.ai/OUTBOUND_PR5_CODE_READY` deliberately not created.
+
+**What changed in the repo (review pass fixes — all inside PR 4's boundary, spec-mandated, no owner
+decision required, each with a reproduced control run):**
+
+- `src/modules/outreach/policyService.ts` — supersede the predecessor **before** inserting the
+  successor. `wizmatch_company_policies_active_scope_uniq` is a non-deferrable partial unique index,
+  so inserting first raised `23505` and rolled back every policy write, including every admin
+  override. Pre-generates the new id so one UPDATE can link forward.
+- `src/routes/wizmatchPolicy.ts` — `POST /companies/bulk/policy` moved above
+  `POST /companies/:id/policy`. Express matched the parameterised route with `id='bulk'`, so the
+  PRD-mandated admin-only bulk endpoint never ran and the `team_lead` gate fired instead.
+- `src/__tests__/wizmatchPolicyService.test.ts` — the mock now enforces the real partial unique index,
+  and the supersession test now asserts `supersededAt` / `supersededByPolicyId` / one-active-row. It
+  previously asserted none of them and stayed green with the supersession UPDATE deleted entirely.
+- `src/__tests__/wizmatchPolicyRoutes.test.ts` (new) — route-level contract against a real Express
+  app: path precedence, which role gate actually fires, flag-off 404s.
+
+**The blocker (not fixed — owner decision):** **C-1, PR 5 blocks in `shadow` mode.** The compatibility
+adapter acts on the canonical decision without consulting `shouldBlock` /
+`WIZMATCH_POLICY_ENFORCEMENT_MODE`, and two call sites are real 409 write blocks. PRD-005 §16 rule 2
+says shadow "blocks nothing"; G3 requires zero behavioural change post-deploy. Recommendation: make
+the adapter mode-aware. Twelve Highs also open — see the report.
+
+**How to verify:** read `docs/reviews/wizmatch-outbound-pr5-opus-checkpoint.md`. Reproduce the control
+runs by reverting either fix and re-running `npx vitest --run src/__tests__/wizmatchPolicyService.test.ts`
+(expect the `23505` unique-constraint failure) or `src/__tests__/wizmatchPolicyRoutes.test.ts` (expect
+the bulk-handler and role-gate assertions to fail).
+
+**Gates on the post-fix tree:** `git diff --check` clean · `npm run build` exit 0 · `npm test`
+**110 files / 970 tests** (was 109/966) · `npm run admin:build` clean · Playwright `wizmatch-local`
+97 passed / 15 skipped / 0 failed.
+
+**Not done:** nothing pushed, merged or deployed; migration 0037 not applied; backfill `--apply` not
+run; enforcement mode untouched (`shadow`); sending / paid discovery / Smartlead untouched; no
+Railway or production access; no database mutation; no guardrail file touched.
+
+**Next:** owner decision on C-1, implement it, close the twelve open Highs, re-review. Do not start
+PR 6 until then.
+
+---
+
+## 2026-07-26 — WizMatch Outbound OS: PR 5 implemented — lifecycle consolidation — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT MERGED
+
+**Why:** PRD-005 §5.2 C-2 found eligibility re-derived in five independent places that disagreed with
+each other and none persisted a decision with evidence. PR 2 built the canonical resolver
+(`resolveCompanyStatus`/`evaluateWizmatchOutreachGate`); PR 5 migrates the five legacy computations
+onto it, per PRD-005 §11.3/§23 and ADR-006 D-13.
+
+**Method:** read AGENTS.md, CLAUDE.md, PRD-005, ADR-006, ADR-007, the PR 4 handoff/marker and
+`.ai/CURRENT_STATE.md` first. Ran three read-only Explore subagents in parallel (architecture/call-site
+mapper, test/mock-pattern mapper, UI/response-shape mapper) to ground-truth the five files' exact
+functions, line ranges, callers and whether each blocker gates a real write vs. only display, before
+writing any code.
+
+**What changed:**
+- **New module** `src/modules/outreach/legacyEligibilityAdapter.ts` — the single place that folds a
+  canonical `PolicyDecision`/`CompanyStatusResult` onto each legacy response shape:
+  `resolveCanonicalCompanyEligibility(Batch)` wraps `resolveCompanyStatus`;
+  `applyCanonicalEligibilityToPriorityResult(s)` for the 4-value `hot|warm|watch|blocked` shape;
+  `applyCanonicalEligibilityToContactIntelligence` for the 9-value `companyStatus`+`hardBlocks[]` shape.
+  A canonical DENY always forces the most restrictive bucket; REVIEW caps `hot`/`warm` to `watch`.
+- **`wizmatchClientDiscovery.ts`** — `rankClientDiscoveryQueueWithPolicy` /
+  `scoreClientDiscoveryOpportunityWithPolicy` / `selectCompaniesForContactIntelligenceWithPolicy`
+  wrappers; wired into all four `/client-discovery/*` routes + the review-workbench aggregator.
+- **`wizmatchCommandCenter.ts`** — `buildWizmatchCommandCenter` is now async, takes `tenantId`, folds
+  the canonical decision onto its own independent client-discovery re-implementation.
+- **`wizmatchRequirementPriority.ts`** — `scoreRequirementPriorityWithPolicy` /
+  `rankRequirementPriorityQueueWithPolicy`; required adding `companyId` to `CandidateRequirementInput`
+  and the `fetchCandidateIntelligenceRequirements` SQL (`r.company_id` was not previously selected),
+  replacing the file's prior indirect `companyTier` legacy dependency with a real canonical check. Also
+  closed a real gap: `POST /requirement-priority/:id/review-plan` was gated client-side only; it now
+  409s server-side on `blocked`, matching the candidate-intelligence review route's pattern.
+- **`wizmatchContactIntelligence.ts`/`Repo.ts`** — `buildContactIntelligenceResult` folds the canonical
+  decision in. **Fixed the concrete ADR-006 D-13 violation**: `withPersistedContactIntelligence` no
+  longer lets the persisted legacy `status` column override a freshly computed status; the
+  `persistContactIntelligenceSnapshot` SQL's `CASE WHEN review_status IN (...) THEN status ELSE
+  EXCLUDED.status END` freeze clause (which could keep a stale legacy status alive forever after one
+  human review) is deleted — every snapshot now writes the freshly computed value.
+- **`wizmatchCandidateIntelligence.ts`** — explicitly NOT migrated, documented in the file's own header
+  comment: it scores a candidate (a person), not a company; `evaluateWizmatchOutreachGate` requires a
+  `companyId` this file's input shape structurally does not carry (a candidate is not 1:1 with one
+  company). Its suppression check is a contact-grain concern (ADR-006 D-7), distinct from the
+  company-grain question the canonical resolver answers. Disclosed, not silently dropped.
+- **Tests**: `src/__tests__/wizmatchLegacyEligibilityAdapter.test.ts` (contract tests — for the same
+  canonical decision, client discovery/requirement priority/contact intelligence all agree, reusing the
+  `wizmatchOutreachGateContract.test.ts` drizzle mock idiom) and
+  `src/__tests__/wizmatchLegacyEligibilityGuard.test.ts` (source-level scan preventing a sixth
+  independent `hot|warm|watch|blocked` computation, modeled on the PR 2 §22.2 #16
+  `wizmatchCompanyBootstrapCoverage.test.ts` pattern; allowlists the five known sites plus one
+  pre-existing, disclosed-not-fixed display re-derivation in `wizmatchReviewWorkbench.ts:114`).
+  `wizmatchCommandCenter.test.ts` updated for the new async signature (mocks the adapter module rather
+  than the DB, keeping that suite scoped to scoring/aggregation logic).
+
+**How to verify:** `git diff --check` clean; `npm run build` exit 0; `npm test` **109 files / 966 tests
+green** (was 107/948 at PR 4 — +2 test files, +18 tests). No admin/UI files touched, so `admin:build`/
+Playwright were not run this session (per task instructions, only required when admin UI changes).
+
+**What's next / open:** this marker (`.ai/OUTBOUND_PR5_IMPLEMENTED`) is self-reported, not
+independently reviewed — PR 2 and PR 3 both got a three-subagent readiness review before being called
+code-ready; PR 4 and PR 5 have not had that yet.
+`wizmatchCandidateIntelligence.ts`'s candidate-level suppression check remains unmigrated (structurally
+out of reach without a wider candidate/requirement input-contract redesign — see above).
+`wizmatchReviewWorkbench.ts:114`'s `qualificationTier`-derived priority re-derivation is allowlisted by
+the guard test but not fixed. U-13/U-14/U-10/U-12/L-7…L-13 from the PR 3 review remain open, carried
+from PR 4, untouched by this PR.
+Not done, by instruction: migration 0037 not applied; backfill `--apply` not run; Today page not
+re-bucketed; free-prep pipeline not built; no provider integration; enforcement mode untouched
+(`shadow`); both sending kill-switches untouched; no paid provider enabled; Smartlead not touched; no
+guardrail file touched (`schema.ts`, `migrations/`, `auth.ts`, `rbac.ts`, `cashfree.ts`,
+`sodEodService.ts` all verified untouched); no Growth/SEO/n8n/`package-lock.json` change; nothing
+pushed, merged, or deployed; no Railway or production access; no database mutation.
+
+---
+
 ## 2026-07-26 — WizMatch Outbound OS: PR 4 finalized — policy UI/API/backfill/readiness — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT MERGED
 
 **Why:** finish an interrupted PR 4 session on `ge/outbound-04-policy-ui-backfill`. Most of the
@@ -3390,3 +3512,153 @@ still say "US & India" (`constants.ts:50`) + Newark DE address — positioning/c
 
 **Guardrails:** no schema/migration/auth/rbac/cashfree/sodEod change; only the optional
 `WIZMATCH_INDIA_ONLY` env var added. Tests: 428 Vitest, admin build, Playwright 97 passed/15 skipped.
+
+---
+
+## 2026-07-26 — WizMatch Outbound OS: PR 4 + PR 5 checkpoint fix pass
+
+Closed every finding in `docs/reviews/wizmatch-outbound-pr5-opus-checkpoint.md` (the independent
+Opus checkpoint review that returned **NOT READY**) on `ge/outbound-05-lifecycle-consolidation`. Owner
+ratified D-31 through D-39 up front (option A for C-1: adapter respects `shouldBlock`); this session
+implemented all of them plus every H-2…H-14 finding. Full per-finding detail lives in the checkpoint
+report's new "Fix pass" addendum and in `.ai/OUTBOUND_PR5_IMPLEMENTED`'s fix-pass section — not
+repeated here in full, only the shape:
+
+- **C-1 (blocker) fixed**: `legacyEligibilityAdapter.ts` / `outreachGate.ts` — the adapter is mode-aware
+  (D-31). Canonical decision metadata is always computed and displayable; legacy behavioural output is
+  only overridden under the exact string `enforce`. The two shadow-mode 409s are gone.
+- **H-2 through H-14 fixed**: null-companyId fail-open, dead REVIEW branch, unfolded `nextAction`,
+  reverted human rejections, a falsified scope-out disclosure, a discard-the-`.where()` test mock, two
+  fail-open enum gaps, a missing SSRF scrub, a missing company-agreement invariant, an unconditional
+  Duplicate Companies nav/route/page, a vacuous test fixture, and a duplicate-resolution audit gap.
+- **D-32 (U-13) fixed**: `wizmatchLinkage.ts` resolves every tenant-safe linked company and picks the
+  most restrictive by canonical decision, with provenance — no caller needed editing.
+- **D-33 verified already satisfied**; **D-34 implemented** (persisted, idempotent shadow observations
+  in `audit_events`, migration 0010, no 0037 dependency); **D-35 implemented** (mode-flip Slack
+  alert + audit, once per transition); **D-36 implemented** (tenant-bound, versioned unsubscribe
+  tokens, retiring U-8's "most recent sender wins"); **D-37 folded into H-8**; **D-39 implemented**
+  (PRD-005 §22.4/§22.5 added).
+- Corrected the PR 4 marker's false flag-gating claim in `.ai/OUTBOUND_PR4_IMPLEMENTED` — appended, not
+  deleted.
+
+**New files**: `src/modules/outreach/unsubscribeToken.ts`,
+`src/__tests__/wizmatchGateShadowObservation.test.ts`, `src/__tests__/wizmatchGateModeFlipAlert.test.ts`,
+`src/__tests__/wizmatchUnsubscribeToken.test.ts`. Existing test files rewritten for the new mode-aware
+behaviour and the fixed predicate-capture mock idiom: `wizmatchLegacyEligibilityAdapter.test.ts`,
+`wizmatchLinkage.test.ts`, `wizmatchDuplicateService.test.ts`, `wizmatchOutreachService.test.ts`,
+`wizmatchPolicyReadiness.test.ts`, `wizmatchRouteRegistry.test.ts`.
+
+**Gates:** `git diff --check` clean · `npm run build` exit 0 · `npm test` **113 files / 1003 tests**
+(was 110/970) · `npm run admin:build` clean · `playwright.wizmatch-local.config.ts` full suite —
+97 passed / 15 skipped / 0 failed.
+
+**Not done, deliberately:** `.ai/OUTBOUND_PR5_CODE_READY` was **not** created — that marker is reserved
+for an independent reviewer, not this fix pass. No push/merge/deploy; migration 0037 unapplied;
+backfill `--apply` not run; `enforce` not promoted; sending/paid-discovery/Smartlead untouched; no
+guardrail file touched; no Growth/SEO/n8n/legacy-outreach/`package-lock.json` change. U-7, U-9, O-1,
+B-1 remain open, carried forward unchanged from the PR 3 review.
+
+**Exact next action:** independent re-review of PR 4 + PR 5 against this fix pass (three-subagent
+method). If it passes, the reviewer creates `.ai/OUTBOUND_PR5_CODE_READY`. Do not start PR 6 until
+that happens.
+
+---
+
+## 2026-07-26 — PR 4 + PR 5 final independent code-readiness re-review: **READY** (Claude, Opus)
+
+**Range:** `ge/outbound-03-policy-enforcement..ge/outbound-05-lifecycle-consolidation`.
+**Implementation/fix HEAD reviewed:** `a5e48602`.
+**Method:** three parallel read-only Explore subagents — (1) gate mode gating / linkage fold /
+unsubscribe tokens / PR 3 gate regression, (2) PR 4 policy service, routes, RBAC, UI flag gating,
+duplicates, backfill, readiness, PRD §22.4/§22.5, (3) lifecycle adapter, its five call sites, the two
+409 routes, and test quality across the whole range. Every load-bearing finding re-verified by hand by
+the lead reviewer; every fix made in this pass carries a control run proving the new test fails
+without it. Report appended to `docs/reviews/wizmatch-outbound-pr5-opus-checkpoint.md`.
+
+**Verdict: READY.** `.ai/OUTBOUND_PR5_CODE_READY` created. `a5e48602` genuinely closed C-1, C-2 and
+H-1…H-14 as claimed — with two exceptions found and fixed here.
+
+**RC-1 (Critical) — the C-1 fix did not fully land.** Found independently by two of the three
+reviewers. `withMissingCompanyBlocker` in `wizmatchRequirementPriority.ts` (H-2's fix) forced
+`priority`/`nextAction` to `blocked` **unconditionally**, on the one path that never reaches
+`resolveCompanyStatus` and therefore never sees `actsOnDecision`. `wizmatch_requirements.company_id`
+is nullable (the documented masked-client case) and `fetchCandidateIntelligenceRequirements`
+`LEFT JOIN`s the company with no `IS NOT NULL` filter, so with the shipped default
+`WIZMATCH_POLICY_ENFORCEMENT_MODE=shadow` those requirements rendered `blocked` in
+`GET /requirement-priority/queue` **and** `POST /requirement-priority/:requirementId/review-plan`
+returned **409** — a real write block in the mode specified to change nothing. That is C-1's exact
+defect class and it falsifies the fix pass's claim that "the two 409 write-blocks no longer fire in
+shadow". Confirmed new in this range: at `58e77706` the file had no `missing_company` concept;
+`wizmatchClientDiscovery.ts`'s block, which the fix's comment says it mirrors, *does* predate the
+stack and is therefore legacy behaviour — so the two are not equivalent and copying it created a new
+block. **Fixed:** `outreachGate.ts` now exports `isEnforcementActive()` (the same exact-string
+`enforce` predicate `shouldBlock`/`actsOnDecision` use); `withMissingCompanyBlocker` always attaches
+`canonicalDecision: 'deny'`/`canonicalReasonCode: 'missing_company'` for display and only changes
+behavioural output under `enforce`. This is D-31 as ratified — no new owner decision. Control run:
+reverting the mode check fails both new tests.
+
+**RH-1 (High) — H-8, H-9 and H-10 shipped with no regression test at all.** The fix pass stated each
+of H-2…H-14 had a dedicated one; for these three it was false. Deleting the five-dimension enum
+validation, the `assertSafeEvidenceUrl` call, or the `assertScopeRefBelongsToCompany` call left
+`npm test` fully green, and no test file mentioned `evidenceUrl` or any of their error codes. The
+implementations were sound — the evidence was simply absent, on three controls PRD-005 §10.1/§18.2
+names as shipping in this PR. **Fixed:** 23 tests added to `wizmatchPolicyService.test.ts`. Control
+runs fail 2 (enum), 6 (SSRF) and 4 (company agreement).
+
+**RH-2 (High) — `wizmatchLinkage.test.ts` could not detect either regression D-32 exists to prevent.**
+Its mock returned rows per table regardless of the `where()` condition, and `.limit()` was
+`() => promise`, so deleting the tenant predicate from `collectLinkedCompanyIds` or reverting to
+`.limit(1)` both left the suite green — on the file the fix pass had just rewritten, and the third
+recurrence of this pattern in the stack (PR 2 M-5, PR 3 L-6, PR 5 H-7). **Fixed:** the mock now
+honours the tenant predicate and `.limit(n)` genuinely slices; a cross-tenant test added. Control
+runs now fail 5 and 2 respectively.
+
+**RH-3 (High) — D-35's mode-flip alert could not fire for the mechanism that actually changes the
+mode.** `lastKnownEffectiveMode` was in-process memory seeded silently whenever undefined; the mode
+lives in an env var, and changing an env var here redeploys, so the real flip always arrives as a
+fresh process with an empty baseline and was swallowed. The existing test only exercised in-process
+mutation, which no deployment performs. **Fixed:** the baseline is also persisted and compared once
+per process against `audit_logs` — not `audit_events`, whose `tenant_id` is `NOT NULL` with an FK to
+`tenants` while a mode flip is system-wide. No history records the baseline silently (D-35's "seeded
+silently on first read"); a differing value alerts. Best-effort, fire-and-forget, cannot affect a gate
+decision. Four tests added, each re-importing the module to simulate a boot; control run fails 3.
+**Disclosed limitation:** at most once per *process*, not per fleet — a `web` + `worker` split may
+each alert on the same flip. Cross-process dedup needs a schema change plus a decision on whether a
+repeated flip should re-alert; neither is authorised here, and over-alerting on a rare, deliberate
+owner action is the safe direction to fail.
+
+**Files changed by this review:** `src/modules/outreach/outreachGate.ts` (exported
+`isEnforcementActive`, persisted mode baseline), `src/services/wizmatchRequirementPriority.ts`
+(mode-gated the null-company block), and four test files —
+`wizmatchLegacyEligibilityAdapter.test.ts`, `wizmatchLinkage.test.ts`,
+`wizmatchPolicyService.test.ts`, `wizmatchGateModeFlipAlert.test.ts`. No new source file, no
+guardrail file, no schema/migration, no dependency.
+
+**Gates (lead reviewer, post-fix tree):** `git diff --check` clean · `npm run build` exit 0 ·
+`npm test` **113 files / 1030 tests** (was 113/1003) · `npm run admin:build` clean ·
+`npx playwright test --config=playwright.wizmatch-local.config.ts` — 97 passed / 15 skipped / 0
+failed. Note: the `--project=wizmatch-local` form specified in the task does not exist — `wizmatch-local`
+is a config, not a project, and the literal command errors out.
+
+**Open, carried forward with severity** (full table in the review): M-1 `/api/wizmatch`'s
+`wizmatchRequireAdmin` prefix middleware 403s staff+ before the policy router, so §4's "read policy →
+staff+" is not delivered (fails **closed**); **M-2 Command Center's requirements and
+candidateIntelligence arrays are unfolded and the fetcher does not select `company_id` — inert in
+shadow, but must close before G4/`enforce`**; M-3 workbench `allowed: true` unconditional (backend
+re-checks, so UI truthfulness only); M-4 shadow-observation check-then-insert race; M-5 unsubscribe
+payload built by `:`-joining unescaped fields; M-6 override evidence not trimmed and `evidenceKind`
+enforced only by a compile-time cast; M-7 `listDuplicates` selects every company in the tenant; M-8
+the admin flag is a build-time `VITE_`-prefixed variable, so a backend flag flip alone will not reveal
+the UI; M-9 `duplicateService.ts`'s docstring misdescribes its own audit write; L-1…L-6 (including
+`wizmatchCommandCenter.test.ts` still stubbing the fold to identity, the guard test's substring
+assertion, and the plural fold having no direct unit test). Plus U-7, U-9, O-1, and **B-1 — migration
+0037 must be applied before this stack reaches `main`, because the repo auto-deploys on push.**
+
+**Could not verify:** no database access, so the §10.11.4 fresh-database checks (G1) remain
+outstanding and C-2's fix is proven from SQL text, statement order, Postgres semantics and a mock that
+models the partial unique index rather than an observed run; the live blast radius of RC-1; whether
+0037 is applied anywhere.
+
+**Not done, per instruction:** nothing pushed, merged or deployed; no Railway or production access;
+migration 0037 not applied; backfill `--apply` not run; `WIZMATCH_POLICY_ENFORCEMENT_MODE` untouched
+(still `shadow`); sending / paid discovery / Smartlead untouched; **no PR 6 work started.**

@@ -50,6 +50,10 @@ export interface ClientDiscoveryResult {
   reasons: string[];
   blockers: string[];
   nextAction: 'send_to_contact_intelligence' | 'manual_review' | 'watch' | 'blocked';
+  /** D-31 — set only by the *WithPolicy wrappers below; display-only canonical metadata. */
+  canonicalDecision?: 'allow' | 'review' | 'deny';
+  canonicalReasonCode?: string | null;
+  canonicalBlockerCode?: string | null;
 }
 
 export const CLIENT_DISCOVERY_GUARDRAILS = {
@@ -328,4 +332,55 @@ export function selectCompaniesForContactIntelligence(results: ClientDiscoveryRe
     return true;
   });
 }
+
+// PRD-005 §11.3 / ADR-006 D-13 — this is one of the five legacy eligibility
+// computations named in PRD-005 §5.2 C-2. `scoreClientDiscoveryOpportunity`
+// stays a pure, synchronous, DB-free function (many callers need that), so
+// the canonical-policy fold-in happens in this async wrapper instead: score
+// locally, then let `src/modules/outreach/legacyEligibilityAdapter.ts` apply
+// the canonical resolver's decision on top. A canonical DENY always forces
+// `priority: 'blocked'` here regardless of local score; a canonical REVIEW
+// caps `hot`/`warm` down to `watch`. Callers that need the eligibility gate
+// (not just display/sort) MUST use these wrappers, not the raw sync
+// functions above.
+export async function rankClientDiscoveryQueueWithPolicy(
+  tenantId: string,
+  inputs: ClientDiscoveryInput[],
+): Promise<ClientDiscoveryResult[]> {
+  const scored = rankClientDiscoveryQueue(inputs);
+  const canonicalByCompanyId = await resolveCanonicalCompanyEligibilityBatch(
+    tenantId,
+    scored.map((r) => r.companyId),
+  );
+  return applyCanonicalEligibilityToPriorityResults(scored, canonicalByCompanyId).sort(
+    (a, b) => b.score - a.score || b.matchedCandidateCount - a.matchedCandidateCount,
+  );
+}
+
+export async function scoreClientDiscoveryOpportunityWithPolicy(
+  tenantId: string,
+  input: ClientDiscoveryInput,
+): Promise<ClientDiscoveryResult> {
+  const scored = scoreClientDiscoveryOpportunity(input);
+  if (!scored.companyId) return scored;
+  const canonical = await resolveCanonicalCompanyEligibility(tenantId, scored.companyId);
+  return applyCanonicalEligibilityToPriorityResult(scored, canonical);
+}
+
+export function selectCompaniesForContactIntelligenceWithPolicy(results: ClientDiscoveryResult[]) {
+  // Reuses the sync filter — `results` here must already carry
+  // canonical-folded priorities/blockers (i.e. come from
+  // `rankClientDiscoveryQueueWithPolicy`/`scoreClientDiscoveryOpportunityWithPolicy`),
+  // so a canonical DENY has already turned `priority` into `blocked` and this
+  // filter's existing `blockers.length > 0` / `priority` checks exclude it
+  // exactly as they exclude every other blocker.
+  return selectCompaniesForContactIntelligence(results);
+}
+
 import { classifyWizmatchRoleRelevance } from './wizmatchRoleRelevance';
+import {
+  resolveCanonicalCompanyEligibility,
+  resolveCanonicalCompanyEligibilityBatch,
+  applyCanonicalEligibilityToPriorityResult,
+  applyCanonicalEligibilityToPriorityResults,
+} from '../modules/outreach/legacyEligibilityAdapter';

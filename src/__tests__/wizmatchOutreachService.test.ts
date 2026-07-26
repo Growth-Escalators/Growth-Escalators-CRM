@@ -349,11 +349,17 @@ describe('sendSignalDraftEmail', () => {
         expect(result.body).toEqual({ messageId: 'msg-1', sent: true, from: 'archit@wizmatch.com', domain: 'wizmatch.com' });
       }
 
-      const expectedSig = crypto.createHmac('sha256', TEST_SECRET).update('jane@acme.com').digest('base64url');
+      // D-36: the link now signs tenant_id + email + expiry, not email alone.
       expect(sendColdEmail).toHaveBeenCalledTimes(1);
       const sentBody = sendColdEmail.mock.calls[0][0].body as string;
-      expect(sentBody).toContain(`sig=${expectedSig}`);
+      expect(sentBody).toContain('v=2');
+      expect(sentBody).toContain('tenantId=tenant-1');
       expect(sentBody).toContain('email=jane%40acme.com');
+      const expMatch = sentBody.match(/exp=(\d+)/);
+      expect(expMatch).toBeTruthy();
+      const exp = expMatch![1];
+      const expectedSig = crypto.createHmac('sha256', TEST_SECRET).update(`2:tenant-1:jane@acme.com:${exp}`).digest('base64url');
+      expect(sentBody).toContain(`sig=${encodeURIComponent(expectedSig)}`);
 
       // Sequence enrollment fires when an active Wizmatch sequence exists.
       expect(insertedRows.some((r) => r.table === sequenceEnrolments)).toBe(true);

@@ -6,6 +6,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const state = vi.hoisted(() => ({
   duplicateRows: [] as any[],
   companyRows: [] as any[],
+  staffingEventInserts: [] as any[],
+  auditLogCalls: [] as any[],
 }));
 
 function makeThenable<T>(getValue: () => T) {
@@ -71,19 +73,44 @@ vi.mock('../db', async () => {
         where: (condition: unknown) => {
           const values = new Set(paramValues(condition));
           if (table === actualSchema.wizmatchCompanyDuplicates) {
+            const RESOLUTIONS = new Set(['pending', 'merged', 'confirmed_separate']);
+            const matches = state.duplicateRows.filter((r) => {
+              if (!values.has(r.tenantId) || !values.has(r.id)) return false;
+              // H-14 regression: the UPDATE itself now carries a
+              // `resolution = 'pending'` predicate — if the row has already
+              // moved off 'pending', this WHERE must not match it, closing
+              // the race the review flagged.
+              const resolutionLiteral = [...values].find((v) => RESOLUTIONS.has(v));
+              if (resolutionLiteral && r.resolution !== resolutionLiteral) return false;
+              return true;
+            });
             state.duplicateRows = state.duplicateRows.map((r) =>
-              values.has(r.tenantId) && values.has(r.id) ? { ...r, ...vals } : r,
+              matches.some((m) => m.id === r.id) ? { ...r, ...vals } : r,
             );
-            const updated = state.duplicateRows.find((r) => values.has(r.tenantId) && values.has(r.id));
+            const updated = state.duplicateRows.find((r) => matches.some((m) => m.id === r.id));
             return { returning: () => makeThenable(() => (updated ? [updated] : [])) };
           }
           return { returning: () => makeThenable(() => []) };
         },
       }),
     }),
+    insert: (table: unknown) => ({
+      values: (vals: any) => {
+        if (table === actualSchema.wizmatchStaffingEvents) state.staffingEventInserts.push(vals);
+        return makeThenable(() => undefined);
+      },
+    }),
+    transaction: async (fn: (tx: any) => Promise<any>) => fn(dbLike),
   };
   return { ...actualSchema, db: dbLike };
 });
+
+vi.mock('../services/auditLogger', () => ({
+  auditLog: (...args: any[]) => {
+    state.auditLogCalls.push(args);
+    return Promise.resolve();
+  },
+}));
 
 import { listDuplicates, resolveDuplicate, DuplicateValidationError } from '../modules/outreach/duplicateService';
 
@@ -108,6 +135,8 @@ beforeEach(() => {
     { id: 'company-a', tenantId: 'tenant-1', name: 'Acme Inc', domain: 'acme.com' },
     { id: 'company-b', tenantId: 'tenant-1', name: 'Acme Incorporated', domain: 'acme.com' },
   ];
+  state.staffingEventInserts = [];
+  state.auditLogCalls = [];
 });
 
 describe('listDuplicates', () => {
@@ -145,5 +174,39 @@ describe('resolveDuplicate', () => {
     await expect(
       resolveDuplicate({ tenantId: 'tenant-2', userId: 'user-9' }, 'dup-1', { resolution: 'merged', reasonCode: 'x' }),
     ).rejects.toMatchObject({ code: 'not_found' });
+  });
+
+  // H-14 regression: resolveDuplicate used to discard reasonCode/evidence and
+  // write no audit or event row at all.
+  it('persists reasonCode/evidence in a staffing event and an audit_events row', async () => {
+    await resolveDuplicate(actor, 'dup-1', {
+      resolution: 'merged',
+      reasonCode: 'same_entity',
+      evidence: 'Same registered address and GSTIN.',
+    });
+
+    expect(state.staffingEventInserts).toHaveLength(1);
+    expect(state.staffingEventInserts[0]).toMatchObject({
+      eventType: 'company_duplicate_resolved',
+      payload: expect.objectContaining({
+        duplicateId: 'dup-1',
+        resolution: 'merged',
+        reasonCode: 'same_entity',
+        evidence: 'Same registered address and GSTIN.',
+      }),
+    });
+
+    expect(state.auditLogCalls).toHaveLength(1);
+    expect(state.auditLogCalls[0][0]).toMatchObject({
+      action: 'wizmatch_company_duplicate_resolved',
+      entityId: 'dup-1',
+      newValues: expect.objectContaining({ resolution: 'merged', reasonCode: 'same_entity' }),
+    });
+  });
+
+  it('rejects a resolve with no reasonCode', async () => {
+    await expect(
+      resolveDuplicate(actor, 'dup-1', { resolution: 'merged', reasonCode: '' }),
+    ).rejects.toMatchObject({ code: 'reason_code_required' });
   });
 });

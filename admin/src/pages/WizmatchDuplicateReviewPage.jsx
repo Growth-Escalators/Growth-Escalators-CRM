@@ -6,6 +6,7 @@ import ErrorRetry from '../components/wizmatch/ErrorRetry.jsx';
 import StatusBadge from '../components/wizmatch/StatusBadge.jsx';
 import { useToast } from '../components/wizmatch/Toast.jsx';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
+import { companyPolicyUiEnabled } from '../lib/companyPolicyFlag.js';
 
 // PRD-005 §8.8, §12, §13 — duplicate-company review. A dedicated page rather
 // than a drawer extension, since the comparison is inherently a two-company
@@ -31,6 +32,27 @@ function CompanyCard({ company }) {
 }
 
 export default function WizmatchDuplicateReviewPage() {
+  // H-11 / D-38 fix: the API (`/api/wizmatch/companies/duplicates*`) already
+  // 404s when WIZMATCH_COMPANY_POLICY_ENABLED is off, but this page, its
+  // route and its nav entry had no flag check at all — the PR 4 marker's
+  // claim that "both surfaces are behind the flag" was false. Gated the same
+  // way CompanyPolicySection.jsx gates the company-drawer Policy section.
+  if (!companyPolicyUiEnabled) {
+    return (
+      <div className="p-6">
+        <EmptyState
+          icon={Shield}
+          title="Duplicate Companies is not enabled"
+          description="Set WIZMATCH_COMPANY_POLICY_ENABLED to turn on company-policy review, including duplicate resolution."
+          variant="true-empty"
+        />
+      </div>
+    );
+  }
+  return <WizmatchDuplicateReviewPageContent />;
+}
+
+function WizmatchDuplicateReviewPageContent() {
   const { showSuccess, showError } = useToast();
   const [resolution, setResolution] = useState('pending');
   const [items, setItems] = useState([]);
@@ -38,7 +60,6 @@ export default function WizmatchDuplicateReviewPage() {
   const [error, setError] = useState(null);
   const [resolvingId, setResolvingId] = useState(null);
   const [dialog, setDialog] = useState(null); // { duplicateId, target: 'merged' | 'confirmed_separate' }
-  const [reasonCode, setReasonCode] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -56,17 +77,22 @@ export default function WizmatchDuplicateReviewPage() {
   useEffect(() => { load(); }, [load]);
 
   const openDialog = (duplicateId, target) => {
-    setReasonCode('');
     setDialog({ duplicateId, target });
   };
 
+  // H-14 fix: the mandatory justification the reviewer types (`reason`) is
+  // the free-text evidence; `reasonCode` is the machine-readable taxonomy
+  // value the service now requires and previously never received (it was a
+  // dead, always-empty piece of local state that was silently discarded
+  // server-side too).
   const resolve = async (reason) => {
     if (!dialog) return;
+    const reasonCode = dialog.target === 'merged' ? 'duplicate_confirmed_same_company' : 'duplicate_confirmed_separate_companies';
     setResolvingId(dialog.duplicateId);
     try {
       await apiFetch(`/api/wizmatch/companies/duplicates/${dialog.duplicateId}/resolve`, {
         method: 'POST',
-        body: JSON.stringify({ resolution: dialog.target, reasonCode: reasonCode || undefined, evidence: reason }),
+        body: JSON.stringify({ resolution: dialog.target, reasonCode, evidence: reason }),
       });
       showSuccess(dialog.target === 'merged' ? 'Marked as merged' : 'Confirmed as separate companies');
       setDialog(null);

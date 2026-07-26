@@ -20,6 +20,7 @@ const baseInput = {
   duplicatesConfirmedSeparate: 0,
   duplicatesPendingWithLiveEnrolment: 0,
   shadowWouldHaveBlockedCount: 0,
+  shadowObservedCompanyCount: 0,
   reasonCodeDistribution: { policy_accepts_external_vendors: 6, policy_unknown_cold_start: 4 },
 };
 
@@ -60,6 +61,14 @@ describe('evaluateWizmatchPolicyReadiness', () => {
     expect(result.metrics.exportOmissions.unavailable).toBe(true);
     expect(result.metrics.policyResolverErrors.unavailable).toBe(true);
     expect(result.metrics.duplicates.pendingInActivePilotBatch.unavailable).toBe(true);
+  });
+
+  // D-34 regression: the readiness report must consume a persisted,
+  // cumulative observation count, not only the live snapshot.
+  it('passes through the cumulative persisted shadowObservedCompanyCount distinctly from the live snapshot', () => {
+    const result = evaluateWizmatchPolicyReadiness({ ...baseInput, shadowWouldHaveBlockedCount: 2, shadowObservedCompanyCount: 9 });
+    expect(result.metrics.shadowWouldHaveBlockedCount).toBe(2);
+    expect(result.metrics.shadowObservedCompanyCount).toBe(9);
   });
 
   it('never lets companiesMissingRootPolicy go negative even with an inconsistent input', () => {

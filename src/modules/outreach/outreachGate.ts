@@ -28,14 +28,19 @@
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import {
   db,
+  pool,
   contacts,
   wizmatchCompanies,
   wizmatchCompanyDuplicates,
   wizmatchSuppressionList,
   wizmatchSuppressionEvents,
   wizmatchOutreachEnrolments,
+  auditEvents,
 } from '../../db';
 import { WIZMATCH_LIVE_ENROLMENT_STATES } from '../../config/wizmatchOutreachStates';
+import { WIZMATCH_SYSTEM_CHANNEL } from '../../config/constants';
+import { sendSlackMessage } from '../../services/slackService';
+import { auditLog } from '../../services/auditLogger';
 import { isPreparationAllowed } from '../../config/wizmatchReasonCodes';
 import { resolveEffectivePolicy } from './policyResolver';
 import { computeCampaignCompatibility } from './campaignCompatibility';
@@ -50,10 +55,138 @@ import {
 export { OutreachBlockedError };
 export type { PolicyDecision, OutreachGateContext } from './policyTypes';
 
+// D-35 (owner-ratified 2026-07-26) / §16 rule 5 / O-1 — a mode flip is an env
+// change, so the per-mutation audit convention does not cover it on its own.
+// Tracked in-process: seeded silently on the first read after boot (so a
+// restart into the SAME mode never alerts), and only an actual observed
+// transition after that fires the Slack alert + audit row, exactly once per
+// transition — not once per request, which every one of the hundreds of
+// gate evaluations a shadow-mode deployment runs per minute would otherwise
+// trigger if this compared against a per-call baseline instead of a
+// remembered one.
+let lastKnownEffectiveMode: 'shadow' | 'enforce' | undefined;
+
+/** One-shot per process: the cross-restart baseline lookup below runs at most once. */
+let modeBaselineSeed: Promise<void> | undefined;
+
+/** Written by both the in-process transition alert and the cross-restart seed. */
+const MODE_CHANGED_ACTION = 'wizmatch_policy_enforcement_mode_changed';
+const MODE_OBSERVED_ACTION = 'wizmatch_policy_enforcement_mode_observed';
+
+/**
+ * D-35, restart gap (found by the 2026-07-26 independent re-review).
+ * `lastKnownEffectiveMode` is in-process memory, so seeding it silently on the
+ * first read after boot means the alert can only fire when
+ * `WIZMATCH_POLICY_ENFORCEMENT_MODE` is mutated *inside a live process*. That
+ * is not how this env var changes: setting it on Railway redeploys, so the flip
+ * to `enforce` — the single event D-35 exists to announce — arrives as a fresh
+ * process whose in-process baseline is `undefined`, and was swallowed.
+ *
+ * The baseline is therefore also persisted, and compared once per process
+ * against the last persisted value. `audit_events` cannot hold it (its
+ * `tenant_id` is NOT NULL with an FK to `tenants`, and a mode flip is
+ * system-wide, not tenant-scoped), so this uses `audit_logs` — the same table
+ * the transition alert already writes through `auditLog`, whose `tenant_id` is
+ * nullable. First boot ever (no persisted row) records the observation
+ * silently, exactly as D-35's "seeded silently on first read" requires.
+ *
+ * Best-effort and fire-and-forget: a database failure here must never affect a
+ * gate decision, so it degrades to the previous in-process-only behaviour.
+ *
+ * Known limitation, disclosed rather than hidden: `at most once per process`,
+ * not `exactly once per fleet`. With more than one process (a `web` + `worker`
+ * split), each booting process compares independently and may each alert on
+ * the same flip, and two processes booting concurrently can both observe the
+ * stale value before either persists. De-duplicating across processes needs a
+ * uniqueness key on the transition — a schema change, and a decision about
+ * whether a shadow->enforce->shadow->enforce sequence should re-alert. Neither
+ * is authorised here. Over-alerting on a deliberate, rare, owner-initiated
+ * action is the safe direction to fail.
+ */
+function seedModeBaselineFromHistory(observed: 'shadow' | 'enforce'): void {
+  if (modeBaselineSeed) return;
+  modeBaselineSeed = (async () => {
+    try {
+      const { rows } = await pool.query(
+        `SELECT new_values->>'mode' AS mode
+           FROM audit_logs
+          WHERE action IN ($1, $2)
+          ORDER BY created_at DESC
+          LIMIT 1`,
+        [MODE_CHANGED_ACTION, MODE_OBSERVED_ACTION],
+      );
+      const raw = rows[0]?.mode;
+      const persisted = raw === 'enforce' ? 'enforce' : raw === 'shadow' ? 'shadow' : undefined;
+
+      if (persisted === undefined) {
+        // First boot ever: record the baseline, announce nothing.
+        await auditLog({
+          action: MODE_OBSERVED_ACTION,
+          entityType: 'wizmatch_enforcement_mode',
+          newValues: { mode: observed },
+        });
+        return;
+      }
+      if (persisted !== observed) {
+        // A flip happened across a restart. This is the real-world case.
+        notifyEffectiveModeTransition(persisted, observed);
+      }
+    } catch {
+      // Best-effort — never let the baseline lookup affect the gate.
+    }
+  })();
+}
+
+function notifyEffectiveModeTransition(from: 'shadow' | 'enforce', to: 'shadow' | 'enforce'): void {
+  void (async () => {
+    try {
+      if (WIZMATCH_SYSTEM_CHANNEL) {
+        await sendSlackMessage(
+          WIZMATCH_SYSTEM_CHANNEL,
+          `:rotating_light: WizMatch policy enforcement mode changed: *${from}* -> *${to}*.`,
+          undefined,
+          { allowDuringPause: true },
+        );
+      }
+      await auditLog({
+        action: MODE_CHANGED_ACTION,
+        entityType: 'wizmatch_enforcement_mode',
+        oldValues: { mode: from },
+        newValues: { mode: to },
+      });
+    } catch {
+      // Best-effort — never let notification failures affect the gate.
+    }
+  })();
+}
+
+/**
+ * D-31, exported for the one class of call site that must respect enforcement
+ * mode but has no company to resolve a decision for (so `resolveCompanyStatus`
+ * — and with it `actsOnDecision` — cannot be asked). Today that is
+ * `wizmatchRequirementPriority.ts`'s null-`companyId` branch. Same predicate
+ * half as `shouldBlock`/`actsOnDecision`: the exact string `enforce` and
+ * nothing else. Callers must NOT use this to re-derive a decision they could
+ * have obtained from `resolveCompanyStatus` — §8.10 rule 3 still stands.
+ */
+export function isEnforcementActive(): boolean {
+  return readEnforcementMode() === 'enforce';
+}
+
 function readEnforcementMode(): 'shadow' | 'enforce' {
   // §16 rule 3: any value other than the exact string 'enforce' is 'shadow'.
-  // Read per request (rule 4), never cached at boot.
-  return process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE === 'enforce' ? 'enforce' : 'shadow';
+  // Read per request (rule 4), never cached at boot — only the LAST OBSERVED
+  // value (above) is cached, purely to detect a transition for D-35's alert.
+  const mode = process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE === 'enforce' ? 'enforce' : 'shadow';
+  if (lastKnownEffectiveMode !== undefined) {
+    if (lastKnownEffectiveMode !== mode) notifyEffectiveModeTransition(lastKnownEffectiveMode, mode);
+  } else {
+    // First read in this process: compare against the persisted baseline too,
+    // so a flip applied by restarting with a new env value is not swallowed.
+    seedModeBaselineFromHistory(mode);
+  }
+  lastKnownEffectiveMode = mode;
+  return mode;
 }
 
 /**
@@ -491,6 +624,56 @@ export async function evaluateWizmatchOutreachGate(ctx: OutreachGateContext): Pr
  * should gate its side effect on this helper rather than re-deriving the same
  * `decision !== 'allow' && enforcementMode === 'enforce'` check inline.
  */
+/**
+ * D-34 (owner-ratified 2026-07-26): PR 4's readiness report must consume a
+ * persisted, tenant-safe, idempotent, queryable observation — not only the
+ * console log. `wizmatch_outreach_events` cannot hold a bare gate decision
+ * (its `enrolment_id`/`batch_id` are NOT NULL, and this decision may have
+ * neither), and adding columns/a table is a migration this fix is not
+ * authorised to make. `audit_events` (migration 0010, already applied — no
+ * 0037 dependency) is the existing generic audit model PRD-005 names as the
+ * preferred home. Idempotent by construction: before inserting, checks for
+ * an existing row for this exact (tenant, company, reason code) fact rather
+ * than time-windowing it, so repeated identical shadow observations across
+ * the whole shadow period collapse to one row instead of one per request.
+ * Fire-and-forget (never awaited by `shouldBlock`, itself synchronous) and
+ * best-effort — a failure here must never affect the caller's control flow.
+ */
+async function recordShadowObservation(ctx: OutreachGateContext, decision: PolicyDecision): Promise<void> {
+  if (!ctx.companyId) return;
+  const reasonCode = decision.reasonCodes[0] ?? decision.decision;
+  try {
+    const existing = await db
+      .select({ id: auditEvents.id })
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.tenantId, ctx.tenantId),
+          eq(auditEvents.action, 'wizmatch_gate_denied_shadow'),
+          eq(auditEvents.resourceId, ctx.companyId),
+          eq(sql`(${auditEvents.metadata}->>'reasonCode')`, reasonCode),
+        ),
+      )
+      .limit(1);
+    if (existing.length > 0) return;
+    await db.insert(auditEvents).values({
+      tenantId: ctx.tenantId,
+      action: 'wizmatch_gate_denied_shadow',
+      resourceType: 'wizmatch_company',
+      resourceId: ctx.companyId,
+      metadata: {
+        gateAction: ctx.action,
+        contactId: ctx.contactId ?? null,
+        decision: decision.decision,
+        reasonCode,
+        reasonCodes: decision.reasonCodes,
+      },
+    });
+  } catch {
+    // Best-effort — never let observability writes affect the gate's caller.
+  }
+}
+
 export function shouldBlock(ctx: OutreachGateContext, decision: PolicyDecision): boolean {
   const wouldBlock = decision.decision !== 'allow';
   if (wouldBlock && decision.enforcementMode === 'shadow') {
@@ -503,6 +686,7 @@ export function shouldBlock(ctx: OutreachGateContext, decision: PolicyDecision):
       decision: decision.decision,
       reasonCodes: decision.reasonCodes,
     });
+    void recordShadowObservation(ctx, decision).catch(() => {});
   }
   return wouldBlock && decision.enforcementMode === 'enforce';
 }
@@ -525,15 +709,34 @@ export async function assertWizmatchOutreachAllowed(ctx: OutreachGateContext): P
 export interface CompanyStatusResult {
   decision: 'allow' | 'review' | 'deny';
   reasonCode: string | null;
+  /** §16: the mode this decision was evaluated under — read per call, never cached. */
+  enforcementMode: 'shadow' | 'enforce';
+  /**
+   * D-31: whether this non-allow decision should actually change legacy
+   * behavioural output. Mirrors `shouldBlock`'s own predicate
+   * (`decision !== 'allow' && enforcementMode === 'enforce'`) without
+   * requiring a full `OutreachGateContext` at every legacy display call
+   * site. `false` in shadow (or on an allow) — legacy behavioural outputs
+   * and write availability must be preserved unchanged; `true` only under
+   * the exact string `enforce`.
+   */
+  actsOnDecision: boolean;
 }
 
 /**
  * Compatibility adapter (§11.3, ADR-006 D-13). Returns the policy-derived
  * status ONLY — never falls back to `wizmatch_company_intelligence.status`
  * or any other legacy status. A company with no root row is `deny` /
- * `policy_missing_root`, unconditionally.
+ * `policy_missing_root`, unconditionally. Mode-aware per D-31: the raw
+ * canonical decision is always returned (so it may be displayed), but
+ * `actsOnDecision` tells callers whether they may let it change behaviour.
  */
 export async function resolveCompanyStatus(tenantId: string, companyId: string): Promise<CompanyStatusResult> {
   const decision = await evaluateWizmatchOutreachGate({ tenantId, action: 'enrol', companyId });
-  return { decision: decision.decision, reasonCode: decision.reasonCodes[0] ?? null };
+  return {
+    decision: decision.decision,
+    reasonCode: decision.reasonCodes[0] ?? null,
+    enforcementMode: decision.enforcementMode,
+    actsOnDecision: decision.decision !== 'allow' && decision.enforcementMode === 'enforce',
+  };
 }

@@ -12,16 +12,15 @@
  * inline in the `/signals/:id/send` route as a synchronous gate on the route itself.
  */
 
-import crypto from 'crypto';
 import { db, pool } from '../db/index';
 import { messages, sequenceEnrolments } from '../db/schema';
 import { callClaude, parseClaudeJSON, CLAUDE_MODELS } from './claudeService';
 import {
   WIZMATCH_PHYSICAL_ADDRESS,
-  WIZMATCH_UNSUBSCRIBE_HMAC_SECRET,
 } from '../config/constants';
 import logger from '../utils/logger';
 import { evaluateWizmatchOutreachGate, shouldBlock } from '../modules/outreach/outreachGate';
+import { mintUnsubscribeToken } from '../modules/outreach/unsubscribeToken';
 
 /** §8.10.1 rows 1/2/3 — every row needs the signal's company_id to call the gate. */
 async function getSignalCompanyId(tenantId: string, signalId: string): Promise<string | null> {
@@ -227,21 +226,19 @@ export async function sendSignalDraftEmail(tenantId: string, variantMessageId: s
     return { kind: 'blocked', reasonCodes: decision.reasonCodes };
   }
 
-  // Generate unsubscribe link with HMAC. Fail closed: with no configured secret
-  // we must NOT mint a link signed with a public default (that is forgeable), so
-  // refuse to send rather than embed a bogus-signed / unverifiable link. Mirrors
-  // the fail-closed posture of src/middleware/internalAuth.ts.
-  const unsubSecret = WIZMATCH_UNSUBSCRIBE_HMAC_SECRET;
-  if (!unsubSecret) {
+  // D-36: the unsubscribe link now signs tenant_id + normalised email +
+  // expiry (not email alone), so verification never needs to guess which
+  // tenant sent it. Fail closed: with no configured secret we must NOT mint
+  // a link signed with a public default (that is forgeable), so refuse to
+  // send rather than embed a bogus-signed / unverifiable link. Mirrors the
+  // fail-closed posture of src/middleware/internalAuth.ts.
+  const token = mintUnsubscribeToken(tenantId, toEmail);
+  if (!token) {
     logger.error('[wizmatch] WIZMATCH_UNSUBSCRIBE_HMAC_SECRET not set — refusing to embed a forgeable unsubscribe link');
     return { kind: 'hmac_secret_unset' };
   }
-  const unsubSig = crypto
-    .createHmac('sha256', unsubSecret)
-    .update(toEmail)
-    .digest('base64url');
 
-  const unsubLink = `https://api.growthescalators.com/api/wizmatch/unsubscribe?email=${encodeURIComponent(toEmail)}&sig=${unsubSig}`;
+  const unsubLink = `https://api.growthescalators.com/api/wizmatch/unsubscribe?v=2&tenantId=${encodeURIComponent(token.tenantId)}&email=${encodeURIComponent(token.email)}&exp=${token.exp}&sig=${encodeURIComponent(token.sig)}`;
 
   // Render email body
   const renderedBody = draft.content

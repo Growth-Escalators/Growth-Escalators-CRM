@@ -2195,6 +2195,87 @@ PR 3 is shadow enforcement plus the A-1 / A-4 / mailer fixes. It is done when:
 
 ---
 
+### 22.4 PR 4 acceptance criteria — **added 2026-07-26 (D-39, post-checkpoint-review)**
+
+PR 4 is the policy read/write API + RBAC, company-drawer Policy UI, duplicate-company review,
+dry-run-first backfill, and the §21.1 readiness report/CLI — all behind `WIZMATCH_COMPANY_POLICY_ENABLED`
+(default `false`). It is done when:
+
+1. `GET`/`POST /api/wizmatch/companies/:id/policy`, `POST .../policy/override` (admin), `POST .../owner`,
+   `GET /api/wizmatch/policy/companies`, and `POST /api/wizmatch/companies/bulk/policy` (admin) exist,
+   RBAC-gated per §4 (write `team_lead`+, override/bulk `admin` only), and all 404 while the flag is off.
+   The bulk route is registered so it is never shadowed by the parameterised single-company route (H-1).
+2. `writeCompanyPolicy` supersedes the predecessor **before** inserting the new row, in the order the
+   non-deferrable partial unique index `wizmatch_company_policies_active_scope_uniq` requires — a
+   supersession must not raise `23505` against a real database (C-2).
+3. Every write validates all five enum dimensions (`outreachEligibility`, `externalHiringPolicy`,
+   `relationshipType`, `blockClass`, `evidenceKind`) against their full vocabulary and rejects an unknown
+   value — no dimension may fail open by matching none of the gate's literal comparisons (H-8/D-37).
+4. `evidence_url` passes the existing SSRF-safety utility (`normalizeDomain`'s `isSafeFetchHost` check)
+   before a write is accepted (H-9).
+5. A `specific_signal`/`specific_requirement` scoped write is rejected when the referenced signal's or
+   requirement's `company_id` does not match the company the policy is being written against — a
+   service-layer invariant, since no FK can express it (H-10).
+6. Duplicate-company review (`GET /api/wizmatch/companies/duplicates`, `POST .../duplicates/:id/resolve`,
+   `team_lead`+) persists `reasonCode`/`evidence` to a `wizmatch_staffing_events` row and an `audit_events`
+   row rather than discarding them, and the resolving `UPDATE` itself carries a `resolution = 'pending'`
+   predicate so two concurrent resolutions cannot both succeed (H-14).
+7. Backfill (`scripts/onboarding/wizmatch-policy-backfill.ts`) is dry-run by default, idempotent under
+   `--apply` via `ON CONFLICT ... DO NOTHING` on the real partial index, and tenant-scoped throughout.
+8. The readiness report/CLI (`GET /api/wizmatch/policy/readiness`, `npm run wizmatch:policy-readiness`)
+   reports policy coverage, classification distributions, duplicate-suspect counts, reason-code
+   distribution, and the shadow-would-block count — both as a live snapshot AND as a cumulative,
+   persisted, tenant-scoped count sourced from `audit_events` (D-34) — honestly marking any metric it
+   cannot yet measure (`export omissions`, `policy resolver errors`) as `unavailable: true` rather than
+   fabricating a number.
+9. The company-drawer Policy section and the Duplicate Companies admin page (nav entry, route, and the
+   page itself) are ALL unavailable while `WIZMATCH_COMPANY_POLICY_ENABLED` is off — not only the API
+   (H-11/D-38). A flag-off render produces no functional UI and no API call.
+10. No guardrail file touched; no send or paid-provider capability enabled; migration `0037` and backfill
+    `--apply` remain unapplied/unrun by this PR.
+
+### 22.5 PR 5 acceptance criteria — **added 2026-07-26 (D-39, post-checkpoint-review)**
+
+PR 5 is lifecycle consolidation: migrating the five legacy `hot|warm|watch|blocked`/9-value eligibility
+computations named in §5.2 C-2 onto the canonical resolver via `src/modules/outreach/legacyEligibilityAdapter.ts`.
+It is done when:
+
+1. **D-31: the adapter is mode-aware.** The exact string `enforce` is the only
+   `WIZMATCH_POLICY_ENFORCEMENT_MODE` value that lets a canonical decision override a legacy
+   `priority`/`nextAction`/`companyStatus`/`hardBlocks` value. In `shadow` (or any other value, per §16
+   rule 3), the legacy behavioural output is returned byte-for-byte as the un-migrated scorer would have
+   produced it — canonical decision metadata (`canonicalDecision`/`canonicalReasonCode`/`canonicalBlockerCode`)
+   is still always computed and attached for display. No write path this PR touches (including
+   `send-to-contact-intelligence` and `requirement-priority/:id/review-plan`) may return `409` on the
+   strength of a canonical decision alone while shadow is active (C-1).
+2. A canonical DENY, once acting (per #1), always forces the legacy bucket to its most restrictive value
+   AND folds every field that gates a live action in lockstep — `priority` **and** `nextAction` move
+   together; a canonically-denied company must never render an enabled send/queue/approve action (H-4).
+3. The canonical REVIEW branch for contact intelligence is reachable: it keys on the value
+   `statusForTier` (`wizmatchContactIntelligence.ts`) actually produces for a non-rejected,
+   non-suppressed company (`'qualified'`), not a value that function never returns (H-3).
+4. A `null`/missing `companyId` on a company-scoped caller (client discovery, requirement priority) is
+   treated as a hard blocker forcing the most restrictive bucket — never silently scored as if no
+   company-level policy applied (H-2).
+5. Every scope-out disclosure (a legacy computation NOT migrated onto the adapter) states its true,
+   current reason — verified against the file's own input types, not asserted once and left stale as the
+   file evolves (H-6).
+6. The regression-test suite for this module captures real `where()` predicates rather than discarding
+   them, so deleting a tenant/company/`isNull(supersededAt)` filter fails a test (H-7, M-5/L-6).
+7. §5.2's own test-fixture requirement holds: a "caps a locally-hot result to watch" test must use a
+   fixture that genuinely scores `hot`/`warm` before any policy fold, not one that already scored
+   `watch` on its own (H-13).
+8. A write-time status freeze may only protect a genuine terminal human decision (a `reject_company`
+   review outcome) — it must not otherwise let a stale legacy status silently outlive a fresh
+   canonical-folded status forever (ADR-006 D-13, H-5).
+9. `PRIORITY_UNION_PATTERN`-style guard test(s) exist proving no sixth independent eligibility
+   computation exists undisclosed, and that every company-scoped migrated file actually imports the
+   adapter.
+10. No guardrail file touched; no migration/backfill/enforcement-promotion/sending/paid-provider change;
+    `.ai/OUTBOUND_PR5_CODE_READY` is created only by an independent reviewer, never self-reported.
+
+---
+
 ## 23. File-by-file impact estimate
 
 **PR 1 (this PR) — documentation only.** No code path changes.

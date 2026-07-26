@@ -1,0 +1,51 @@
+READY
+branch=ge/outbound-05-lifecycle-consolidation
+reviewed_commit=a5e48602c111c67533658964e04061d2eb31c2da
+reviewed_at=2026-07-26T16:04:32Z
+
+# WizMatch Outbound OS — PR 4 + PR 5 independent code-readiness marker.
+#
+# Created by the final independent re-review (three read-only Explore subagents,
+# every load-bearing finding hand-verified, every fix with a control run), NOT by
+# the session that implemented or fixed the code. Report:
+#   docs/reviews/wizmatch-outbound-pr5-opus-checkpoint.md
+#   -> appended section "Final independent code-readiness re-review — 2026-07-26"
+#
+# reviewed_commit is the implementation/fix HEAD reviewed. The review itself then
+# fixed one Critical and three Highs found at that HEAD; those fixes and this
+# marker land in the following commit.
+#
+# Found and fixed by this review:
+#   RC-1 (Critical) the C-1 fix did not fully land — H-2's null-companyId block
+#     was mode-blind, so a masked-client requirement (company_id IS NULL) went
+#     `blocked` and POST /requirement-priority/:id/review-plan 409'd in SHADOW.
+#   RH-1 (High) H-8/H-9/H-10 had code fixes but zero regression tests.
+#   RH-2 (High) wizmatchLinkage.test.ts could detect neither of D-32's regressions.
+#   RH-3 (High) D-35's mode-flip alert could not fire across a restart, which is
+#     the only way the env var that carries the mode ever changes.
+#
+# Gates on the reviewed tree:
+#   git diff --check       clean
+#   npm run build          exit 0
+#   npm test               113 files / 1030 tests passed (was 113/1003)
+#   npm run admin:build    clean
+#   npx playwright test --config=playwright.wizmatch-local.config.ts
+#                          97 passed / 15 skipped / 0 failed
+#   (NOTE: `--project=wizmatch-local` does not exist — wizmatch-local is a
+#    config, not a project. The literal command errors out.)
+#
+# READY means: the PR 4 + PR 5 code is fit to proceed. It does NOT authorise a
+# merge, a deploy, applying migration 0037, running backfill --apply, or
+# promoting `enforce`. Still open and blocking those:
+#   B-1  migration 0037 must be applied before this stack reaches `main`
+#        (the repo auto-deploys on push)
+#   G1   the §10.11.4 fresh-database checks have never been run
+#   M-2  Command Center's requirements/candidateIntelligence are unfolded and
+#        the fetcher does not select company_id — inert in shadow, but must
+#        close before G4/`enforce`
+#   U-7, U-9, O-1 and M-1/M-3..M-9, L-1..L-6 — see the review's open table.
+#
+# Nothing was pushed, merged or deployed. No Railway or production access.
+# 0037 not applied. Backfill --apply not run. WIZMATCH_POLICY_ENFORCEMENT_MODE
+# untouched (still defaults to `shadow`). Sending, paid discovery and Smartlead
+# untouched. No PR 6 work started.
