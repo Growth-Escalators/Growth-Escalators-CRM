@@ -183,16 +183,17 @@ test('Hiring Contacts discovery queue failure stays honest and never shows demo 
 });
 
 test('Today shows empty-state guidance and requirement priority shows the corrected operating guidance', async ({ page }) => {
-  // /wizmatch/dashboard now redirects to /wizmatch/today (Phase 1A rename),
-  // which reads staffing my-work + dashboard readiness instead of the old
-  // work-order checklist.
+  // /wizmatch/dashboard now redirects to /wizmatch/today (Phase 1A rename).
+  // PR 6 — Today now renders the decision workbench (GET /today/queues),
+  // not the legacy staffing my-work + dashboard readiness checklist; the dev
+  // server always has `decisionWorkbenchUiEnabled` on (import.meta.env.DEV),
+  // so this genuinely exercises the new UI, not a flag-off fallback.
   await installWizmatchSession(page);
   await installGenericApiFallback(page);
-  await page.route('**/api/wizmatch/staffing/my-work', (route) => fulfillJson(route, { requirements: [], tasks: [] }));
-  await page.route('**/api/wizmatch/dashboard', (route) => fulfillJson(route, {
-    requirementsSummary: { total: 3 },
-    readiness: { score: 72, primaryIssue: null },
-    recentPlacements: [],
+  await page.route('**/api/wizmatch/today/queues*', (route) => fulfillJson(route, {
+    readyToContact: [], needsReview: [], repliesNeedingAction: [], pausedOrBlocked: [],
+    counts: { readyToContact: 0, needsReview: 0, repliesNeedingAction: 0, pausedOrBlocked: 0 },
+    partial: { skippedCompanyIds: [], skippedEnrolmentIds: [] },
   }));
   await page.route('**/api/wizmatch/review-workbench?**', (route) => fulfillJson(route, { error: 'forbidden' }, 403));
   await page.route('**/api/wizmatch/requirement-priority/queue?**', (route) => fulfillJson(route, { items: [] }));
@@ -200,12 +201,43 @@ test('Today shows empty-state guidance and requirement priority shows the correc
   await page.goto('/wizmatch/dashboard');
   await expect(page).toHaveURL(/\/wizmatch\/today$/);
   await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible();
-  await expect(page.getByText('Nothing assigned to you right now')).toBeVisible();
-  await expect(page.getByText('72')).toBeVisible();
+  await expect(page.getByText('Nothing needs a decision right now')).toBeVisible();
 
   await page.goto('/wizmatch/requirement-priority-new');
   await expect(page.getByRole('heading', { name: 'No confirmed requirements to prioritize' })).toBeVisible();
   await expect(page.getByRole('link', { name: /Add a requirement/ })).toHaveAttribute('href', '/wizmatch/requirements');
+});
+
+// PR 6 review — a switched-off feature must not present as a permanent error
+// screen. The UI flag is forced on by `import.meta.env.DEV` while the backend
+// flag defaults off, so a 404 from /today/queues is the DEFAULT local state and
+// a likely production ordering (the frontend rebuilds on push; the Railway var
+// is set by hand afterwards). Before the fix this showed ErrorRetry with the
+// raw string `not_found` and a Retry that re-issued the same 404 forever.
+test('Today explains a switched-off decision workbench instead of a permanent error screen', async ({ page }) => {
+  await installWizmatchSession(page);
+  await installGenericApiFallback(page);
+  await page.route('**/api/wizmatch/today/queues*', (route) => fulfillJson(route, { error: 'not_found' }, 404));
+
+  await page.goto('/wizmatch/today');
+  await expect(page.getByText('The decision workbench is not enabled on this environment')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Retry/i })).toHaveCount(0);
+});
+
+// PR 6 review — `apiFetch` returns `await res.json().catch(() => null)`, so a
+// 200 with an empty or non-JSON body yields null. Rendering it threw on the
+// first property read and dropped the page into the App error boundary;
+// accepting a wrong-shaped 200 rendered a confident "nothing needs a decision".
+test('Today survives a malformed 200 from the queues endpoint without crashing or faking an empty queue', async ({ page }) => {
+  await installWizmatchSession(page);
+  await installGenericApiFallback(page);
+  await page.route('**/api/wizmatch/today/queues*', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ message: 'ok' }) }));
+
+  await page.goto('/wizmatch/today');
+  await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible();
+  await expect(page.getByText(/not in the expected format/i)).toBeVisible();
+  await expect(page.getByText('Nothing needs a decision right now')).toHaveCount(0);
 });
 
 test('D-12 demo result states that no discovery was queued or run', async ({ page }) => {

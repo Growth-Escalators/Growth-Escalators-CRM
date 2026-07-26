@@ -33,9 +33,17 @@ import { getWizmatchPolicyReadiness } from '../modules/outreach/policyReadiness'
 
 const router = Router();
 
-function featureGate(req: Request, res: Response, next: NextFunction): void {
+// When the flag is off this router must become INVISIBLE, not become a
+// terminal 404 for the whole `/api/wizmatch` prefix. `next('router')` exits
+// this router and hands the request back to the parent app, so it continues
+// on to the later `/api/wizmatch` mounts (`wizmatchRouter`, 82 routes) and
+// only the paths this router actually defines end at the app's own 404
+// handler. Responding 404 here directly would 404 EVERY `/api/wizmatch`
+// request, because since PR 6's M-1 ordering fix this router is mounted
+// ahead of `wizmatchRouter` and `router.use` matches every path.
+function featureGate(_req: Request, _res: Response, next: NextFunction): void {
   if (process.env.WIZMATCH_COMPANY_POLICY_ENABLED !== 'true') {
-    res.status(404).json({ error: 'not_found' });
+    next('router');
     return;
   }
   next();

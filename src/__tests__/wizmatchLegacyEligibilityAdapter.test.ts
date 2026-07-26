@@ -464,3 +464,149 @@ describe('D-31 shadow mode preserves legacy behavioural output (C-1 regression)'
     expect(status.actsOnDecision).toBe(false);
   });
 });
+
+// PRD-005 PR 6, M-2 fix — `wizmatchCommandCenter.ts`'s `requirements` array
+// was one of two arrays this file's own guard test (wizmatchLegacyEligibilityGuard.test.ts)
+// allowlisted as "not migrated yet" — its fetcher didn't even select
+// `company_id`, so there was nothing to fold against. This proves the fold
+// now genuinely runs end to end: `buildWizmatchCommandCenter` -> the same
+// `applyCanonicalEligibilityToPriorityResults` every other migrated caller
+// uses -> the real (DB-mocked, not re-implemented) `resolveCompanyStatus`.
+describe('M-2 fix — wizmatchCommandCenter.ts requirements are folded through the canonical resolver', () => {
+  it('a non-overridable company-removal block forces a requirement to blocked, even though local scoring would score it hot', async () => {
+    state.policyRows = [rootPolicy({
+      outreachEligibility: 'blocked',
+      isNonOverridable: true,
+      blockClass: 'compliance',
+      reasonCode: 'company_removal_request',
+    })];
+    const { buildWizmatchCommandCenter, scoreRequirement } = await import('../services/wizmatchCommandCenter');
+    const commandCenterRequirement = {
+      id: requirementPriorityInput.id,
+      companyId: COMPANY_ID,
+      title: requirementPriorityInput.title,
+      region: requirementPriorityInput.region,
+      priority: requirementPriorityInput.priority,
+      positions: 3,
+      requiredSkills: requirementPriorityInput.requiredSkills,
+      status: requirementPriorityInput.status,
+      budgetMax: requirementPriorityInput.budgetMax,
+    };
+    // Guards against a vacuous fixture (same discipline as H-13 above) —
+    // proves the fold below is actually exercising the DENY branch, not
+    // finding the requirement already 'blocked' by local scoring alone.
+    const local = scoreRequirement(commandCenterRequirement);
+    expect(local.priority).toBe('hot');
+
+    const result = await buildWizmatchCommandCenter({
+      tenantId: TENANT_ID,
+      metrics: {
+        activeSignals: 0, prioritySignals: 0, availableCandidates: 0, openRequirements: 1,
+        reviewReadyCompanies: 0, blockedCompanies: 0, activePlacements: 0, pausedDomains: 0, suppressedContacts: 0,
+      },
+      contactIntelligence: [],
+      signals: [],
+      candidates: [],
+      requirements: [commandCenterRequirement],
+    });
+
+    const folded = result.requirements.find((r) => r.id === requirementPriorityInput.id);
+    expect(folded).toBeDefined();
+    expect(folded!.priority).toBe('blocked');
+    expect(folded!.blockers).toContain('policy_company_removal_request');
+    expect((folded as unknown as { canonicalDecision: string }).canonicalDecision).toBe('deny');
+  });
+
+  // PR 6 review: this previously asserted the OPPOSITE — that a null-companyId
+  // requirement came back with no canonical fields at all. That locked in a
+  // fail-OPEN: the Command Center's fetcher LEFT JOINs companies, so a
+  // masked-client requirement (`company_id IS NULL`) reached the response as an
+  // unqualified `hot`, while the sibling caller
+  // (`wizmatchRequirementPriority.ts`'s `withMissingCompanyBlocker`) answered
+  // `deny`/`missing_company` for the identical row. Same row, two surfaces,
+  // contradictory answers. H-2 in the adapter's own module header requires the
+  // fail-closed reading, so the fold now applies it — display-only in shadow,
+  // behavioural under `enforce`, per D-31.
+  it('a requirement with no companyId fails CLOSED with missing_company metadata, not silently unqualified', async () => {
+    state.policyRows = [rootPolicy({ outreachEligibility: 'blocked', isNonOverridable: true, blockClass: 'compliance', reasonCode: 'company_removal_request' })];
+    const { buildWizmatchCommandCenter } = await import('../services/wizmatchCommandCenter');
+    const result = await buildWizmatchCommandCenter({
+      tenantId: TENANT_ID,
+      metrics: {
+        activeSignals: 0, prioritySignals: 0, availableCandidates: 0, openRequirements: 1,
+        reviewReadyCompanies: 0, blockedCompanies: 0, activePlacements: 0, pausedDomains: 0, suppressedContacts: 0,
+      },
+      contactIntelligence: [],
+      signals: [],
+      candidates: [],
+      requirements: [{
+        id: 'masked-req-1',
+        companyId: null,
+        title: 'Masked client role',
+        region: 'india',
+        priority: 'urgent',
+        positions: 2,
+        requiredSkills: ['java'],
+        status: 'sheet_ready',
+        budgetMax: 100000,
+      }],
+    });
+    const folded = result.requirements.find((r) => r.id === 'masked-req-1') as unknown as {
+      canonicalDecision?: string;
+      canonicalReasonCode?: string;
+      canonicalBlockerCode?: string;
+      priority: string;
+      blockers: string[];
+    };
+    expect(folded.canonicalDecision).toBe('deny');
+    expect(folded.canonicalReasonCode).toBe('missing_company');
+    expect(folded.canonicalBlockerCode).toBe('policy_missing_company');
+    // This describe's beforeEach sets `enforce`, so the fold is behavioural here.
+    expect(folded.blockers).toContain('missing_company');
+    expect(folded.priority).toBe('blocked');
+  });
+
+  // D-31 / RESIDUAL-C1: the metadata is always attached, but in SHADOW the fold
+  // must not touch the legacy behavioural output — the same rule the singular
+  // requirement-priority path already holds.
+  it('in shadow, the null-companyId fold is visible but NOT behavioural', async () => {
+    const previousMode = process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE;
+    process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE = 'shadow';
+    try {
+      state.policyRows = [rootPolicy({ outreachEligibility: 'eligible' })];
+      const { buildWizmatchCommandCenter } = await import('../services/wizmatchCommandCenter');
+      const result = await buildWizmatchCommandCenter({
+        tenantId: TENANT_ID,
+        metrics: {
+          activeSignals: 0, prioritySignals: 0, availableCandidates: 0, openRequirements: 1,
+          reviewReadyCompanies: 0, blockedCompanies: 0, activePlacements: 0, pausedDomains: 0, suppressedContacts: 0,
+        },
+        contactIntelligence: [],
+        signals: [],
+        candidates: [],
+        requirements: [{
+          id: 'masked-req-2',
+          companyId: null,
+          title: 'Masked client role',
+          region: 'india',
+          priority: 'urgent',
+          positions: 2,
+          requiredSkills: ['java'],
+          status: 'sheet_ready',
+          budgetMax: 100000,
+        }],
+      });
+      const folded = result.requirements.find((r) => r.id === 'masked-req-2') as unknown as {
+        canonicalDecision?: string;
+        blockers: string[];
+      };
+      // Visible...
+      expect(folded.canonicalDecision).toBe('deny');
+      // ...but the legacy behavioural output is untouched.
+      expect(folded.blockers).not.toContain('missing_company');
+    } finally {
+      if (previousMode === undefined) delete process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE;
+      else process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE = previousMode;
+    }
+  });
+});

@@ -1,0 +1,68 @@
+IMPLEMENTED
+branch=ge/outbound-06-decision-workbench
+parent=ge/outbound-05-lifecycle-consolidation
+implemented_at=2026-07-26T17:49:30Z
+
+# WizMatch Outbound OS — PR 6 (Decision Workbench) implementation marker.
+#
+# Self-reported by the implementing session, NOT independently reviewed.
+# PR 2, PR 3 and PR 5 all received a three-subagent readiness review before
+# being called code-ready; PR 6 has not had that yet. Do not create
+# .ai/OUTBOUND_PR6_CODE_READY from this session — that marker is reserved
+# for an independent reviewer.
+#
+# Full detail: docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md (PR 6 section),
+# .ai/HANDOFF_LOG.md (2026-07-26 PR 6 entry), .ai/CURRENT_TASK.md.
+#
+# Scope delivered:
+#   - GET /api/wizmatch/today/queues, POST /api/wizmatch/today/actions
+#     (src/routes/wizmatchToday.ts), gated behind
+#     WIZMATCH_DECISION_WORKBENCH_ENABLED (default false).
+#   - src/modules/outreach/decisionWorkbench.ts — buildTodayQueues, deriving
+#     every decision from resolveCanonicalCompanyEligibilityBatch (PR 5's
+#     adapter). No second eligibility engine.
+#   - src/modules/outreach/decisionWorkbenchActions.ts — runTodayActions,
+#     routing every contextual action through the existing PR 4
+#     policyService/duplicateService write paths. Whole-request validation
+#     rejects mixed/invalid selections; per-target results, never a silent
+#     partial success.
+#   - M-1 fixed: wizmatchPolicyRouter + wizmatchTodayRouter now mount before
+#     the wizmatchRequireAdmin-gated wizmatchRouter in src/index.ts.
+#   - M-2 fixed: wizmatchCommandCenter.ts's `requirements` array now folds
+#     through the canonical adapter (fetcher now selects company_id).
+#     `candidateIntelligence` stays unfolded, disclosed (no companyId,
+#     structurally out of reach — same reasoning as PR 5's
+#     wizmatchCandidateIntelligence.ts exclusion).
+#   - Frontend: WizmatchTodayPage.jsx re-bucketed in place (four queues,
+#     contextual actions, bulk-action bar), gated on
+#     decisionWorkbenchUiEnabled; the /wizmatch/today route itself stays
+#     permission: 'always'.
+#   - A-8 closed: deleted WizmatchCommandCenterPage.jsx and
+#     WizmatchReviewQueuePage.jsx (dead, unrouted, zero importers).
+#
+# Gates:
+#   git diff --check       clean
+#   npm run build          exit 0
+#   npm test               117 files / 1064 tests passed (was 113/1030)
+#   npm run admin:build    clean
+#   npx playwright test --config=playwright.wizmatch-local.config.ts
+#                          97 passed / 15 skipped / 0 failed
+#
+# Not done, deliberately: migration 0037 not applied; backfill --apply not
+# run; WIZMATCH_POLICY_ENFORCEMENT_MODE untouched (shadow); both sending
+# kill-switches untouched; no paid provider enabled; Smartlead not
+# connected; no guardrail file touched (schema.ts, migrations/, auth.ts,
+# rbac.ts, cashfree.ts, sodEodService.ts); no Growth/SEO/n8n/
+# package-lock.json change; nothing pushed, merged or deployed; no Railway
+# or production access; no database mutation; PR 7 not started.
+#
+# Open, carried forward from the PR 5 re-review: M-3..M-9, L-1..L-6, U-7,
+# U-9, O-1, and B-1 (apply migration 0037 before this stack reaches `main`
+# — the repo auto-deploys on push).
+#
+# Disclosed scope limits (not silently dropped): the free-preparation
+# pipeline (PRD-005 §14) is not built, so "Ready to Contact" approximates
+# §13's definition via policy decision + contact confidence only; the
+# "Reclassify" action reuses the `resume` write rather than a full
+# re-classification UI; "route a reply" is a navigation link, not a new
+# write action (the enrolment-transition endpoint is PR 9 scope).

@@ -2,7 +2,136 @@
 
 ## Active task
 
-**PR 4 + PR 5 REVIEWED AND CODE READY 2026-07-26 at `a5e48602` (+ this review's fixes).**
+**PR 6 CODE READY (independently reviewed) 2026-07-26 — WizMatch Outbound Operating System, PR 6 of
+10 (Decision Workbench).** Branch `ge/outbound-06-decision-workbench` (cut from
+`ge/outbound-05-lifecycle-consolidation`), local only, NOT pushed, NOT merged. Markers:
+`.ai/OUTBOUND_PR6_IMPLEMENTED` (self-reported) + `.ai/OUTBOUND_PR6_CODE_READY` (independent review).
+Full detail: [`docs/reviews/wizmatch-outbound-pr6-opus-review.md`](../docs/reviews/wizmatch-outbound-pr6-opus-review.md),
+`docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md`'s PR 6 sections, `.ai/HANDOFF_LOG.md`.
+
+**Review outcome:** NOT READY as submitted at `9b9c2c56`; **READY** after **eleven** fixes made
+during the review (`e86704b3`, `c84681f5`, `69e68c19`, `c03bf442`) — one Critical, ten High. None was
+visible to the five gates the implementing session ran; all five reproduced exactly, so the marker did
+not overstate itself.
+
+**Method note:** the lead's first pass found two defects and concluded READY. The three subagents'
+reports arrived after that and surfaced nine more, four High. The first conclusion was wrong and is
+corrected in the report. One first-pass finding (M-C) was wrong on the merits and is **retracted** —
+§4 is explicit that admin override of a `standard` block is admin, so the endpoint was under-gated.
+
+- **C-1 (Critical)** — `router.use(featureGate)` responded 404 inline in both flagged routers; mounted
+  ahead of `wizmatchRouter`, either flag off (both default `false`) 404'd all 82 `wizmatchRouter`
+  routes. A production API outage on the next push. Fixed with `next('router')`.
+- **H-1** — a team_lead could override a `standard` block unevidenced, against §4, while the endpoint
+  told the operator it required an admin.
+- **H-2** — shadow mode blocked work (bucketing keyed on raw `canonical.decision`, not `actsOnDecision`).
+- **H-3** — every action rebuilt the root policy row, so Set Review Date stripped
+  `isPermanent`/`blockClass`/evidence off a permanent compliance block.
+- **H-4** — contact confidence read `metadata` not `metadata.raw`, letting a low-confidence contact into
+  Ready to Contact and defeating §7's cold-start gate.
+- **H-5** — a null `companyId` failed OPEN in the plural fold; the test pinning it was a regression
+  guard pointing the wrong way.
+- **H-6** — pending duplicates never reached Needs Review.
+- **H-7/H-8/H-9** — a switched-off feature showed a permanent error screen; committed writes were
+  reported as failures with no refetch; a malformed 200 crashed the page or faked "nothing to do".
+- **H-10/H-11** — unbounded resolver fan-out; a failed replies query presenting as "no replies waiting".
+
+**Biggest open gap (Medium, not fixed):** §13 approval capture is **NOT implemented** — `approve_queue`
+launders `review → eligible` into a permanent policy row with no `approved_by`/`approved_at`. Close
+before the workbench is used for real decisions. Also open: M-2…M-16, L-1…L-8, and two test gaps —
+nothing exercises `fetchCommandCenterRequirements`, and five of six policy write routes have no role
+test.
+
+**Gates (post-fix):** `git diff --check` clean · `npm run build` exit 0 · `npm test` 117 files /
+**1081 tests** · `npm run admin:build` clean · Playwright **99 passed / 15 skipped / 0 failed**.
+
+**Scope delivered:**
+- **New backend**: `src/modules/outreach/decisionWorkbench.ts` (`buildTodayQueues` — re-buckets
+  companies into Ready to Contact / Needs Review / Replies Needing Action / Paused or Blocked, deriving
+  every decision from `resolveCanonicalCompanyEligibilityBatch`, never re-deriving eligibility itself)
+  and `decisionWorkbenchActions.ts` (`runTodayActions` — approve_queue/skip/pause/resume/block/reject/
+  assign_owner/set_review_date/merge/confirm_separate, all routed through the existing PR 4
+  `policyService`/`duplicateService` write paths). New routes `src/routes/wizmatchToday.ts`:
+  `GET /api/wizmatch/today/queues` (staff+), `POST /api/wizmatch/today/actions` (team_lead+ single
+  target, admin-only for any multi-target/"bulk" request, per PRD-005 §4). Gated behind
+  `WIZMATCH_DECISION_WORKBENCH_ENABLED` (default false).
+- **M-1 fixed** (PR 5 review): `wizmatchPolicyRouter` and the new `wizmatchTodayRouter` are now mounted
+  in `src/index.ts` BEFORE the `wizmatchRequireAdmin`-gated `wizmatchRouter`, so a staff-tier request no
+  longer 403s on an unrelated stricter gate before reaching a router that would have allowed it. Guarded
+  by a source-level ordering test (`wizmatchIndexMountOrder.test.ts`) since `src/index.ts` cannot be
+  safely imported in a unit test.
+- **M-2 fixed** (PR 5 review): `wizmatchCommandCenter.ts`'s `requirements` array is now folded through
+  the canonical adapter exactly like `clientDiscovery` — `fetchCommandCenterRequirements` now selects
+  `r.company_id`, `ScoredRequirement` carries `companyId`/`blockers`, and `buildWizmatchCommandCenter`
+  calls `applyCanonicalEligibilityToPriorityResults` on it. `candidateIntelligence` is explicitly NOT
+  folded — disclosed in the module header, identical reasoning to why `wizmatchCandidateIntelligence.ts`
+  itself is excluded (a talent-pool candidate isn't scoped to one company).
+- **Frontend**: `WizmatchTodayPage.jsx` extended in place (no new route/nav) — when
+  `VITE_WIZMATCH_DECISION_WORKBENCH_ENABLED` is on (or `import.meta.env.DEV`), it renders the new
+  `TodayDecisionWorkbench.jsx` instead of the legacy My Work buckets; `/wizmatch/today` itself stays
+  `permission: 'always'` either way. New components: `TodayDecisionWorkbench.jsx` (four queues, reuses
+  `DataTable`'s previously-unused `selectedIds`/`onToggleRow`/`onToggleAll` props, per PRD §5.3 A-9),
+  `TodayActionDialog.jsx` (reason-code/evidence/review-date/owner capture, focus-trapped via the
+  existing `useDialogA11y`), `TodayBulkActionBar.jsx` (first WizMatch-side bulk bar — cannot reuse the
+  Growth `BulkActionBar.jsx`, which is hardcoded to Growth endpoints, per PRD §5.3 A-9's own
+  disposition). Bulk actions are queue-scoped and exclude any combination that isn't safe (no bulk
+  merge/confirm-separate, since that requires every selected row to share one pending-duplicate id).
+  `DataTable`'s selection checkboxes gained `aria-label`s (additive, no behaviour change).
+- **A-8 closed**: deleted the two dead, unrouted pages `WizmatchCommandCenterPage.jsx` and
+  `WizmatchReviewQueuePage.jsx` (PRD-005 §5.3 disposition: "Deleted — PR 6"), confirmed zero importers
+  first.
+- **D-31 preserved**: canonical decision metadata is always attached for display; the new queues/actions
+  endpoints are net-new surfaces (no legacy behavioural predecessor to preserve), and every mutation
+  still calls the existing PR 4 write services, which perform their own server-side re-validation
+  (supersede-before-insert, non-overridable refusal, `WHERE resolution='pending'` staleness rejection)
+  — no route in this PR implements a partial check of its own.
+- **Bulk-action contract**: `POST /today/actions` rejects a mixed/empty/malformed selection for the
+  WHOLE request up front (400), then processes every target independently and returns a per-target
+  `results[]` — one target's failure (stale duplicate, non-overridable predecessor, missing root policy)
+  never aborts or hides another's success or failure.
+
+**Verified this session:** `git diff --check` clean; `npm run build` exit 0; `npm test` **117 files /
+1064 tests green** (was 113/1030 at the PR5 re-review baseline — +4 test files, +34 tests); `npm run
+admin:build` clean; `npx playwright test --config=playwright.wizmatch-local.config.ts` full suite —
+**97 passed / 15 skipped (real-backend specs, no server started — pre-existing) / 0 failed**. One
+pre-existing spec (`wizmatch-phase0-local.spec.ts`'s Today empty-state test) was updated to mock the new
+`/today/queues` endpoint and assert the new empty-state copy, since the legacy My Work checklist it
+tested no longer renders once the workbench flag is on (which the dev server always has, via
+`import.meta.env.DEV`) — not a regression, a necessary update for the UI this PR replaces. One real a11y
+defect was found and fixed by the a11y spec itself: a `StatusBadge` `blocked` tone (`badge-danger`,
+shared repo-wide CSS) failed color-contrast on this page; removed the redundant badge rather than
+editing the shared class (out of scope, used by dozens of other pages).
+
+**What's next / open:** ~~this marker is self-reported, not independently reviewed~~ — **superseded:
+the independent review is done (2026-07-26), see the top of this file and
+`docs/reviews/wizmatch-outbound-pr6-opus-review.md`.** Known, disclosed scope limits: the free-preparation pipeline (§14) is still not built, so "Ready to Contact"
+approximates §13's "policy eligible, prepared, ≥1 high-confidence contact" using policy + contact
+confidence only (no `preparationAllowed`/prep-report signal exists yet to check); "Reclassify" on a
+blocked-but-overridable company maps to the same `resume` action as resuming from pause (sets
+`needs_review`), not a full re-classification UI across all 8 hiring-policy values — building that is
+new UI scope beyond a contextual action wrapper around existing services; "route a reply" in the
+Replies Needing Action queue is a navigation link to the company drawer, not a new write action — the
+enrolment-transition endpoint (`POST /outreach/enrolments/:id/transition`) is PR 9 (outreach adapter)
+scope, not built yet. Carried forward unchanged from the PR5 re-review: M-3…M-9, L-1…L-6, U-7, U-9, O-1,
+and **B-1 (apply migration 0037 before this stack reaches `main` — the repo auto-deploys on push)**.
+
+**Exact next action (updated after the independent review):** ~~get an independent readiness review of
+PR 6~~ — **done.** PR 6 is code-ready at `c84681f5`; PR 7 (`ge/outbound-07-free-prep`,
+`prepareCompaniesJob`) may start, cut from `ge/outbound-06-decision-workbench`. Nothing blocks it.
+
+Before this stack reaches `main`: apply migration `0037` (B-1 — the repo auto-deploys on push) and run
+the §10.11.4 fresh-database checks (G1). Before an operator uses the workbench for real decisions:
+close M-A (queue precedence vs §13) and M-B (Approve & Queue not actually disabled). Before setting
+`WIZMATCH_DECISION_WORKBENCH_ENABLED` in any deployed environment: settle M-D (the UI accepts
+`1|true|yes|on`, the backend requires exact `'true'`).
+
+**Do not** merge, deploy, apply 0037, run backfill `--apply`, promote `enforce`, enable sending,
+enable paid discovery, or connect Smartlead on the strength of this session.
+
+---
+
+## Prior task — PR 4 + PR 5 REVIEWED AND CODE READY 2026-07-26 at `a5e48602` (+ this review's fixes)
+
 Final independent code-readiness re-review of
 `ge/outbound-03-policy-enforcement..ge/outbound-05-lifecycle-consolidation`, three parallel read-only
 Explore subagents, every load-bearing finding re-verified by hand, every fix with a control run.

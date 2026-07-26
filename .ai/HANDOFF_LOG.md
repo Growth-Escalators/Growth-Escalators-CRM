@@ -6,6 +6,123 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-26 — WizMatch Outbound OS: PR 6 implemented — decision workbench — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT MERGED
+
+**Why:** PRD-005 §13 calls for a decision-first Today page — four canonical queues (Ready to Contact /
+Needs Review / Replies Needing Action / Paused or Blocked) with contextual actions, all derived from the
+canonical policy resolver rather than a new eligibility computation. This also closed two open findings
+from the PR 5 re-review: M-1 (staff-tier 403 on policy/today reads because of admin-gated mount order)
+and M-2 (Command Center's `requirements` array unfolded, fetcher missing `company_id`).
+
+**Method:** read AGENTS.md, CLAUDE.md, PRD-005 (§4/§8/§12/§13/§14/§16), ADR-006, ADR-007, the PR5
+checkpoint review, the outbound status handoff, `.ai/CURRENT_TASK.md` and this log first. Ran three
+read-only Explore subagents in parallel (Command Center/Today API + M-2 mapping; policy-write/RBAC/gate
+mapping; admin UI/a11y/Playwright mapping) before writing any code, per the task's instructions.
+
+**What changed:**
+- **M-1 fix** — `src/index.ts`: `wizmatchPolicyRouter` and the new `wizmatchTodayRouter` now mount
+  BEFORE the `wizmatchRequireAdmin`-gated `wizmatchRouter` (previously that admin/team_lead/viewer-only
+  middleware ran for the whole `/api/wizmatch` prefix ahead of the policy router, 403ing staff before a
+  request could ever reach a router that would have allowed it). No role gate was widened — each router
+  keeps its own internal RBAC. Guarded by `src/__tests__/wizmatchIndexMountOrder.test.ts`, a source-level
+  ordering test (importing `src/index.ts` directly in a unit test is unsafe — it opens a real HTTP
+  listener and Postgres pool).
+- **M-2 fix** — `src/services/wizmatchCommandCenter.ts` + `src/routes/wizmatch.ts`:
+  `fetchCommandCenterRequirements` now selects `r.company_id`; `CommandCenterRequirementInput` and
+  `ScoredRequirement` gained `companyId`/`blockers`; `buildWizmatchCommandCenter` now folds
+  `requirements` through `applyCanonicalEligibilityToPriorityResults`, identically to how `clientDiscovery`
+  was already folded in PR 5. `candidateIntelligence` is explicitly NOT folded — a talent-pool candidate
+  isn't scoped to one company, the same disclosed reasoning PR 5 already used to exclude
+  `wizmatchCandidateIntelligence.ts` itself. Proven with two new tests in
+  `wizmatchLegacyEligibilityAdapter.test.ts` using the real (DB-mocked, not re-implemented) resolver.
+- **New backend module** `src/modules/outreach/decisionWorkbench.ts` — `buildTodayQueues(tenantId,
+  limit)`. Fetches companies with an active root policy row (+ pending-duplicate id, + best
+  contact-candidate confidence tier via the existing `deriveConfidenceTier`), calls
+  `resolveCanonicalCompanyEligibilityBatch` (the same PR 5 adapter, not a new eligibility engine) for the
+  actual decision, and buckets: `deny` → Paused or Blocked; `review` or a pending duplicate → Needs
+  Review; `allow` + high contact confidence → Ready to Contact; everything else (allow but low/no
+  contact confidence) → Needs Review, never silently dropped. Replies Needing Action queries
+  `wizmatch_outreach_enrolments` for the five live-conversation states named in §13 (`replied`,
+  `awaiting_action`, `positive_reply`, `referral_received`, `conversation_open` — explicitly excludes the
+  three pre-reply live states `queued`/`exported`/`sent`). Every per-company/per-enrolment fold is
+  try/catch-guarded; a malformed row is skipped and reported in `partial.skippedCompanyIds`/
+  `skippedEnrolmentIds`, never crashes the response.
+- **New backend module** `src/modules/outreach/decisionWorkbenchActions.ts` — `runTodayActions(actor,
+  request)` for `approve_queue`/`skip`/`pause`/`resume`/`block`/`reject`/`assign_owner`/
+  `set_review_date`/`merge`/`confirm_separate`. Every action calls into the EXISTING PR 4
+  `policyService`/`duplicateService` write functions — no new write path. Whole-request validation
+  (empty targets, action/target-type mismatch, missing evidence for block/reject, missing reviewDate for
+  pause/set_review_date, missing ownerUserId for assign_owner) rejects the WHOLE request up front (400);
+  each target is then processed independently in its own try/catch and the response is always a
+  per-target `results[]` — one target's failure (a company with no root policy row, a
+  `PolicyOverrideRefusedError` on a non-overridable predecessor, an already-resolved duplicate) never
+  aborts or hides another target's outcome.
+- **New routes** `src/routes/wizmatchToday.ts` — `GET /api/wizmatch/today/queues` (staff+),
+  `POST /api/wizmatch/today/actions` (team_lead+ for a single target; **admin-only for any request with
+  more than one target**, per PRD-005 §4's "bulk policy write, bulk queue action → admin" — enforced
+  inside the handler since the bulk/non-bulk distinction depends on the request body, not the route
+  path). Whole router 404s behind `WIZMATCH_DECISION_WORKBENCH_ENABLED` (default false), same convention
+  as `wizmatchPolicy.ts`.
+- **Frontend** — `admin/src/pages/WizmatchTodayPage.jsx` extended in place: when
+  `decisionWorkbenchUiEnabled` (new `admin/src/lib/decisionWorkbenchFlag.js`, same
+  `import.meta.env.DEV || VITE_...` idiom as the existing company-policy flag) is on, it renders the new
+  `TodayDecisionWorkbench.jsx` instead of the legacy My Work buckets — the `/wizmatch/today` route itself
+  stays `permission: 'always'` either way, so the page can never become unreachable from a flag flip.
+  New components: `TodayDecisionWorkbench.jsx` (four queues via `DataTable`, wiring its previously
+  unused `selectedIds`/`onToggleRow`/`onToggleAll` props per PRD §5.3 A-9; evidence-card rows with
+  policy badge/reason/scope/contact-confidence, disabled-reason `title` + `aria-label` on every
+  unavailable action, per-queue bulk-action bar), `TodayActionDialog.jsx` (captures reason
+  code/evidence/review date/owner before any mutation, focus-trapped via the existing
+  `useDialogA11y` hook, Escape-to-close), `TodayBulkActionBar.jsx` (the first WizMatch-side bulk bar —
+  the Growth `BulkActionBar.jsx` is hardcoded to Growth endpoints per its own PRD-noted limitation and
+  could not be reused; only its floating-bar visual pattern was copied). `admin/src/components/
+  ui/DataTable.jsx` gained `aria-label`s on its selection checkboxes (additive, no behavioural change).
+- **A-8 closed** — deleted `admin/src/pages/WizmatchCommandCenterPage.jsx` and
+  `WizmatchReviewQueuePage.jsx` (PRD-005 §5.3: two dead, unrouted pages, disposition "Deleted — PR 6").
+  Confirmed zero importers first.
+- **Tests**: `src/__tests__/decisionWorkbench.test.ts` (bucket-assignment logic, malformed-row safety,
+  reply-state filtering, a source-level tenant-predicate guard), `decisionWorkbenchActions.test.ts`
+  (whole-request validation, per-target partial success/failure, action→write mapping),
+  `wizmatchTodayRoutes.test.ts` (feature flag, RBAC incl. the single-vs-bulk admin distinction, error
+  shapes), `wizmatchIndexMountOrder.test.ts` (M-1 regression guard), plus the two new
+  `wizmatchLegacyEligibilityAdapter.test.ts` cases proving the M-2 fold. `e2e/wizmatch-a11y.spec.ts`'s
+  `Today` case now mocks `/today/queues` with populated queues (not an empty fallback) and adds a
+  keyboard-focus assertion (Tab to Approve & Queue, Enter opens the dialog, Escape closes it cleanly);
+  found and fixed one real a11y defect this way — a `blocked`-tone `StatusBadge` used the shared,
+  repo-wide `badge-danger` class, which fails color-contrast; removed the redundant badge (the
+  canonical-decision badge already conveys the same fact) rather than editing that shared class, which
+  is used on dozens of unrelated pages. `e2e/wizmatch-phase0-local.spec.ts`'s pre-existing Today
+  empty-state test was updated to mock `/today/queues` and assert the new empty-state copy, since the
+  legacy My Work checklist it tested no longer renders once the workbench flag is on (the dev server
+  always has it on via `import.meta.env.DEV`) — a necessary update for the UI this PR replaces, not a
+  regression.
+
+**How to verify:** `git diff --check` clean; `npm run build` exit 0; `npm test` **117 files / 1064 tests
+green** (was 113/1030); `npm run admin:build` clean; `npx playwright test
+--config=playwright.wizmatch-local.config.ts` — **97 passed / 15 skipped (real-backend specs, no server
+started — pre-existing) / 0 failed**.
+
+**What's next / open:** this marker (`.ai/OUTBOUND_PR6_IMPLEMENTED`) is self-reported, not independently
+reviewed — PR 2/3/5 all got a three-subagent readiness review before being called code-ready; PR 6 has
+not had that yet. Disclosed, not silently dropped: the free-preparation pipeline (§14) is not built in
+this PR, so "Ready to Contact" approximates §13's definition using policy decision + contact confidence
+only (no `preparationAllowed`/prep-report signal exists yet); "Reclassify" on an overridable blocked
+company reuses the `resume` action (sets `needs_review`) rather than a full re-classification UI across
+all 8 hiring-policy values; "route a reply" is a navigation link into the company drawer, not a new write
+action — the enrolment-transition endpoint is PR 9 (outreach adapter) scope. Carried forward unchanged
+from the PR 5 re-review: M-3…M-9, L-1…L-6, U-7, U-9, O-1, and **B-1 (apply migration 0037 before this
+stack reaches `main` — the repo auto-deploys on push)**.
+Not done, by instruction: migration 0037 not applied; backfill `--apply` not run; enforcement mode
+untouched (`shadow`); both sending kill-switches untouched; no paid provider enabled; Smartlead not
+connected; no guardrail file touched (`schema.ts`, `migrations/`, `auth.ts`, `rbac.ts`, `cashfree.ts`,
+`sodEodService.ts`); no Growth/SEO/n8n/`package-lock.json` change; nothing pushed, merged, or deployed;
+no Railway or production access; no database mutation.
+
+**Exact next action:** get an independent readiness review of PR 6 (three-subagent method, per the
+PR 2/PR 3/PR 5 precedent). Then PR 7 per the standing 10-PR programme.
+
+---
+
 ## 2026-07-26 — WizMatch Outbound OS: PR 4 + PR 5 independent Opus checkpoint review — **NOT READY** — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT MERGED
 
 **Why:** PR 4 and PR 5 were both self-reported as implemented and neither had been through the
@@ -3662,3 +3779,104 @@ models the partial unique index rather than an observed run; the live blast radi
 **Not done, per instruction:** nothing pushed, merged or deployed; no Railway or production access;
 migration 0037 not applied; backfill `--apply` not run; `WIZMATCH_POLICY_ENFORCEMENT_MODE` untouched
 (still `shadow`); sending / paid discovery / Smartlead untouched; **no PR 6 work started.**
+
+---
+
+## 2026-07-26 — PR 6 (Decision Workbench) independent readiness review — **CODE READY after eleven fixes**
+
+**Who:** independent Opus review session (lead) plus three read-only Explore subagents
+(backend/policy, frontend/accessibility, tests/finding-closure). Every subagent claim acted on was
+re-verified first-hand by the lead against the code, the PRD and — for C-1 — a running Express
+harness. **Reviewed:** `git diff ge/outbound-05-lifecycle-consolidation..9b9c2c56`.
+**Report:** `docs/reviews/wizmatch-outbound-pr6-opus-review.md`. **Marker:** `.ai/OUTBOUND_PR6_CODE_READY`.
+
+**Verdict: NOT READY as submitted; READY after eleven fixes** — one Critical, ten High. The
+implementing session's five self-reported gate results all reproduced exactly on the as-submitted
+tree, so the marker did not overstate itself; every defect was simply invisible to those gates.
+
+**Process note, recorded because it changed the outcome and should change how the next review is
+run.** The lead's first pass found two defects and concluded READY. The three subagents' reports
+arrived *after* that conclusion and surfaced nine more, four of them High — including an RBAC
+over-grant and a data-integrity bug that silently strips permanence and evidence from compliance
+blocks. **A single-pass review would have shipped all nine.** One first-pass finding (M-C, "the PRD
+contradicts itself on Reclassify") was wrong on the merits and is **retracted**: PRD-005 §4 is
+explicit that admin override of a `standard` block is admin, so the endpoint was under-gated, not the
+PRD inconsistent. The three-subagent method earned its cost here; do not skip it, and do not conclude
+before the reports land.
+
+**C-1 (Critical) — `e86704b3`.** `router.use(featureGate)` responded 404 inline in both flagged
+routers. A pathless `router.use` matches every path under the shared `/api/wizmatch` prefix, and PR 6's
+M-1 fix moved both routers ahead of `wizmatchRouter` — so with either flag off (both default `false`)
+every request bound for `wizmatchRouter`'s **82 routes** was 404'd. This repo auto-deploys on push to
+`main`. Reproduced on an Express 5.2.1 harness; fixed with `next('router')`. Nothing caught it because
+the mount-order test was source-text only and each router's route test mounts it alone, where a
+terminal 404 is correct.
+
+**High, all fixed (`c84681f5`, `69e68c19`, `c03bf442`):**
+- **H-1 RBAC** — §4 makes "write a policy row" team_lead but "admin override of a `standard` block"
+  ADMIN, distinguished by the PREDECESSOR state the route cannot see. A team_lead could one-click
+  "Approve & Queue" a blocked company to `eligible` unevidenced, while the endpoint's own payload said
+  "Reclassify requires an admin". Now gated in the action layer after the re-read.
+- **H-2 shadow** — bucketing/`disabledReason`/`requiresExplicitApproval` keyed on raw
+  `canonical.decision` instead of `actsOnDecision`, so shadow hid work items and disabled actions.
+  Items now carry `effectiveDecision`; divergence disclosed as a `shadow: would deny` badge.
+- **H-3 data integrity** — every action rebuilt the root row from the request, so `writeCompanyPolicy`'s
+  defaults silently downgraded a permanent compliance block to temporary/standard and dropped its
+  evidence, on something as innocuous as Set Review Date.
+- **H-4** — `deriveConfidenceTier` reads `metadata.raw`; the workbench passed `metadata`, so the
+  cascade tier was never found. Diverged both ways, including admitting a low-confidence contact into
+  Ready to Contact and defeating §7's cold-start gate.
+- **H-5** — a null `companyId` failed OPEN in the plural fold, so a masked-client requirement answered
+  `deny`/`missing_company` on one surface and unqualified `hot` on another. The test pinning it was a
+  regression guard pointing the wrong way; flipped, with shadow and enforce cases.
+- **H-6** — pending duplicates are an L5 deny, so under `enforce` the duplicate branch was unreachable
+  and duplicates landed in Paused or Blocked with a block affordance. Bucketing now follows §13's
+  precedence: blocked → duplicate → paused → needs_review → eligible.
+- **H-7/H-8/H-9 (frontend)** — a switched-off feature rendered a permanent error screen with an
+  infinite Retry (the default local state, since DEV forces the UI flag on); committed writes were
+  reported as failures with the dialog left open and no refetch; a malformed 200 either crashed the
+  page or rendered a confident "nothing needs a decision".
+- **H-10/H-11** — unbounded resolver fan-out (~1,500 concurrent queries against a pool of 20 with a 2s
+  timeout); a failed replies query swallowed by a bare `catch {}`, presenting as "no replies waiting"
+  on the one queue holding company locks.
+
+**Verified clean:** tenancy (every workbench query carries `eq(table.tenantId, tenantId)`, joins
+composite on `(tenantId, id)`, no cross-tenant read or mutation found by any pass); M-1 granted reads
+only; no PR 7 work; no guardrail file touched; `package-lock.json` untouched.
+
+**Files changed by this review:** `src/routes/wizmatchPolicy.ts`, `src/routes/wizmatchToday.ts`,
+`src/index.ts`, `src/modules/outreach/decisionWorkbench.ts`, `decisionWorkbenchActions.ts`,
+`legacyEligibilityAdapter.ts`, `admin/src/lib/api.js`,
+`admin/src/components/wizmatch/TodayDecisionWorkbench.jsx`, and five test files. No new source file,
+no guardrail file, no schema/migration, no dependency.
+
+**Gates (post-fix):** `git diff --check` clean · `npm run build` exit 0 · `npm test` **117 files /
+1081 tests** (was 117/1064) · `npm run admin:build` clean · Playwright **99 passed / 15 skipped / 0
+failed** (was 97/15/0). The 15 skips are the documented real-backend specs that skip without
+`WIZMATCH_E2E_TEST_PASSWORD`. As at the PR 5 review, `--project=wizmatch-local` does not exist —
+`wizmatch-local` is a config, not a project.
+
+**Open, carried forward — highest value first:** **M-1 §13 approval capture is NOT implemented**
+(`approve_queue` launders `review → eligible` into a permanent policy row with no `approved_by`/
+`approved_at`; not in the marker's disclosed limits) · M-2 Approve & Queue renders its disabled reason
+but stays enabled, `allowedCampaignTypes` never computed · M-3 "paused past `review_date` → Needs
+Review" unimplemented, so a lapsed pause never resurfaces · M-4 §13's `routed` row absent · M-5
+`StatusBadge` not extended, denied companies render neutral grey · M-6 pilot roster not enforced on
+`/today/*` · M-7…M-16, L-1…L-8 in the report. **Two test gaps:** nothing exercises
+`fetchCommandCenterRequirements` (deleting `r.company_id` reverts M-2 and ships green), and five of six
+policy write routes have no role test — which matters more now that the outer admin gate no longer
+backs them up. M-3…M-9, L-1…L-6, U-7, U-9, O-1 and B-1 from the PR 5 re-review remain open.
+
+**Could not verify:** no database and no Railway/production access — whether `0037` is applied, the
+§10.11.4 fresh-database checks (G1), and queue behaviour at real volume. C-1's blast radius comes from
+Express semantics and a reproduction harness, not an observed production request.
+
+**Blockers before PR 7:** none.
+**Before G1/G4/production:** apply `0037` (B-1) · run the G1 checks · close M-1 before the workbench is
+used for real decisions · close M-2…M-6 before an operator relies on the queues · close the two test
+gaps · G4 stays an owner decision, now observable in advance via the `shadow: would deny` badge.
+
+**Not done, per instruction:** nothing pushed, merged or deployed; no Railway or production access; no
+database mutation; `0037` not applied; backfill `--apply` not run; enforcement untouched (`shadow`);
+sending / paid discovery / Smartlead untouched; no shared environment variable changed; **PR 7 not
+started.**

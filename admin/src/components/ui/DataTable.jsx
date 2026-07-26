@@ -40,6 +40,7 @@ export default function DataTable({
                   type="checkbox"
                   checked={allSelected}
                   onChange={onToggleAll}
+                  aria-label={allSelected ? 'Deselect all rows' : 'Select all rows'}
                   className="rounded border-neutral-300 text-primary-500 focus:ring-primary-400"
                 />
               </th>
@@ -96,6 +97,7 @@ export default function DataTable({
                         type="checkbox"
                         checked={isSelected}
                         onChange={() => onToggleRow(id)}
+                        aria-label={row.rowAriaLabel || `Select row ${id}`}
                         className="rounded border-neutral-300 text-primary-500 focus:ring-primary-400"
                       />
                     </td>

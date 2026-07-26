@@ -62,6 +62,7 @@ import leadsRouter from './routes/leads';
 import wizmatchRouter from './routes/wizmatch';
 import wizmatchStaffingRouter from './routes/wizmatchStaffing';
 import wizmatchPolicyRouter from './routes/wizmatchPolicy';
+import wizmatchTodayRouter from './routes/wizmatchToday';
 // Workers and cron jobs now run via src/worker.ts (see railway.json)
 import analyticsRouter from './routes/analytics';
 import whatsappTemplatesRouter from './routes/whatsappTemplates';
@@ -323,20 +324,36 @@ app.use('/api/wizmatch', (req, res, next) => {
 // provider or other admin mutations. Viewer remains read-only through requireAuth.
 const wizmatchRequireStaffing = requireRole('admin', 'team_lead', 'manager_ops', 'sales', 'staff', 'viewer');
 app.use('/api/wizmatch', (req, res, next) => requireAuth(req, res, () => wizmatchRequireStaffing(req, res, next)), wizmatchStaffingRouter);
+// PRD-005 PR 4 + PR 6 — policy read/write, duplicate review, account-owner
+// assignment, bulk policy actions, the readiness report, and the PR 6
+// decision-workbench queues/actions. Reads are staff+ (pilot member); writes
+// are gated per-route inside each router (team_lead+ for policy writes/
+// owner/duplicate-resolve, admin for override/bulk/readiness — PRD-005 §4).
+//
+// MUST be mounted here, before the wizmatchRequireAdmin-gated wizmatchRouter
+// below — not after it as an earlier revision had it. `wizmatchRequireAdmin`
+// (admin/team_lead/viewer only) is `app.use` middleware that runs for EVERY
+// request under `/api/wizmatch`, regardless of whether wizmatchRouter itself
+// defines a matching route; a staff-tier user hit 403 there before a request
+// for e.g. `/companies/:id/policy` or `/today/queues` ever reached this
+// router (PR 5 review finding M-1). Mounting these routers first means
+// staff+ requests they actually define are served here and never reach the
+// admin gate; anything neither this nor wizmatchStaffingRouter defines falls
+// through (`next()`) to wizmatchRouter's stricter gate, unchanged.
+// Each router hides its OWN surface when its own feature flag is off
+// (WIZMATCH_COMPANY_POLICY_ENABLED / WIZMATCH_DECISION_WORKBENCH_ENABLED) by
+// calling `next('router')`, NOT by responding 404 inline. That distinction is
+// load-bearing now that these two mounts sit ahead of wizmatchRouter: a
+// `router.use` gate matches every path under the `/api/wizmatch` prefix, so an
+// inline 404 would have taken down all 82 wizmatchRouter routes whenever
+// either flag was off — which is the default. See wizmatchIndexMountOrder.test.ts.
+app.use('/api/wizmatch', requireAuth, wizmatchRequireStaffing, wizmatchPolicyRouter);
+app.use('/api/wizmatch', requireAuth, wizmatchRequireStaffing, wizmatchTodayRouter);
 // `viewer` (the read-only Command Deck sync account) is included for GET access to
 // Wizmatch data. Safe because requireAuth (below) blocks the viewer role on any
 // non-GET method, so viewer can read the Wizmatch surfaces but never trigger a write.
 const wizmatchRequireAdmin = requireRole('admin', 'team_lead', 'viewer');
 app.use('/api/wizmatch', requireAuth, wizmatchRequireAdmin, wizmatchRouter);
-// PRD-005 PR 4 — policy read/write, duplicate review, account-owner
-// assignment, bulk policy actions and the readiness report. Reads are
-// staff+ (pilot member); writes are gated per-route inside the router
-// itself (team_lead+ for policy writes/owner/duplicate-resolve, admin for
-// override/bulk/readiness — PRD-005 §4). Mounted LAST so it only ever
-// receives paths neither wizmatchStaffingRouter nor wizmatchRouter defines.
-// The whole surface is additionally feature-flagged 404 behind
-// WIZMATCH_COMPANY_POLICY_ENABLED (default false) inside the router.
-app.use('/api/wizmatch', requireAuth, wizmatchRequireStaffing, wizmatchPolicyRouter);
 // Funnel-configs: /public/* needs no auth (checkout frontend hits it
 // unauthenticated from ecom.growthescalators.com); everything else is
 // behind requireAuth. The previous hoisted app.get wrapper was a no-op —
