@@ -66,6 +66,22 @@ Chat-independent status for the `ge/outbound-0X-*` stacked-PR sequence. Read thi
 > Full report: [`docs/reviews/wizmatch-outbound-pr2-opus-review.md`](../reviews/wizmatch-outbound-pr2-opus-review.md)
 > §16. **Still not pushed, not merged, `0037` still not applied to production or Railway. PR 3 not
 > started.**
+>
+> **Updated 2026-07-27: PR 8B IMPLEMENTED (self-reported) — G3 pilot completion.**
+> `ge/outbound-08b-g3-pilot-completion` (built on the independently-reviewed PR 8A, CODE READY at
+> `f12c62ca`) resolves all three PR 8A owner-decision findings (S1-2 signal/scope conflation, S2-4
+> workbench role-honesty, S3-1 Smartlead alias detection) plus a fourth ratified decision (P8B-3,
+> generalising H-4's `NODE_ENV`-only pilot-roster fail-closed gap). Five parallel Stage A discovery
+> subagents, three isolated Stage B implementation-lane worktrees, cherry-picked with zero conflicts,
+> plus an orchestrator-owned integration pass (cross-lane parity test, scope-boundary regression
+> guard, one real Playwright a11y fix). Full detail:
+> [`docs/reviews/wizmatch-outbound-pr8b-implementation.md`](../reviews/wizmatch-outbound-pr8b-implementation.md)
+> and the PR 8B section at the bottom of this file. **Every G3 blocker PR 8A's review identified is
+> now closed.** Two pre-existing owner decisions (PR7 O-3 prepare-route role tier; PR6 M-1 residual
+> approval-column schema question) remain open, deliberately not resolved, and are **not** G3
+> blockers under this pilot's required configuration. **Not independently reviewed yet —
+> `.ai/OUTBOUND_PR8B_CODE_READY` is reserved for that review. Still not pushed, not merged, `0037`
+> still not applied. PR 9/10 not started.**
 
 ## Completed PRs
 
@@ -1455,3 +1471,65 @@ implementation doc's numbers exactly (1246 tests).
 **Do not** push, merge, deploy, apply `0037`, run backfill `--apply`, promote `enforce`, enable
 sending/preparation/the adapter/paid discovery, connect Smartlead, or start PR 9/10 on the strength
 of this review.
+
+---
+
+## PR 8B — `ge/outbound-08b-g3-pilot-completion` (2026-07-27, local only, NOT pushed/merged, self-reported)
+
+**IMPLEMENTED.** Closes the three PR 8A owner-decision findings (S1-2, S2-4, S3-1) plus a fourth,
+newly-ratified decision (P8B-3, generalising H-4). Full report:
+[`docs/reviews/wizmatch-outbound-pr8b-implementation.md`](../reviews/wizmatch-outbound-pr8b-implementation.md).
+
+**Method.** Five parallel read-only Stage A Explore subagents (policy/signal-scope; pilot-gate/RBAC;
+workbench frontend/capabilities; readiness/credential-safety; test/finding-matrix), reconciled by the
+lead before any code was written. Three isolated Stage B implementation lanes in separate git
+worktrees (`tmp/pr8b-policy-scope`, `tmp/pr8b-access-actions`, `tmp/pr8b-readiness-config`), run in
+parallel, each with its own mutation-control matrix, cherry-picked into this branch with zero
+conflicts. One orchestrator-owned integration pass added a cross-lane parity test and a scope-boundary
+regression guard, and fixed one real Playwright a11y regression the integrated capability rework
+correctly surfaced.
+
+**P8B-1 (signal vs. scope blocks)** — a PRD §8.2 L4 `specific_signal`/`specific_requirement`
+non-overridable block now denies only that signal/requirement; it no longer freezes company-level
+review/preparation/assignment/review-date actions and never silently becomes a permanent company-wide
+block. A company/region/business-unit/location-scoped block is unchanged — still freezes every
+company-level unblocking action for every role, including admin. Keyed on the real `scope_type` DB
+column via one shared, exported predicate (`policyResolver.ts`) — no second eligibility engine. Also
+closes the evidence leak the mission's Task 1 required: a blocked signal/requirement can no longer
+drive a prepared draft (`prepareCompanies.ts`) or a requirement-priority ranking
+(`wizmatchRequirementPriority.ts`).
+
+**P8B-2 (role-aware workbench actions)** — new `decisionWorkbenchCapabilities.ts`, one canonical
+backend-computed capability calculation attached to `GET /today/queues`, with the frontend rendering
+from it directly rather than showing every action as an enabled button to every role (the pre-8B
+state: `TodayDecisionWorkbench.jsx` had zero role logic at all). Fails closed on missing/malformed
+capability data, corrected before commit after an initial pass shipped it fail-open.
+
+**P8B-3 (pilot roster, generalises H-4)** — `resolveStaffingAccess`'s `NODE_ENV === 'production' ?
+strict : permissive` ternary is deleted outright; a missing/empty/malformed roster now fails closed in
+every runtime, with no environment-string condition anywhere and no dev-bypass flag.
+
+**P8B-4 (Smartlead credential aliases)** — the readiness CLI now detects ten required aliases
+(`SL_API_KEY` etc.) by exact-name Set membership alongside the pre-existing broad `/SMARTLEAD/i` name
+test, with no `SL_`-prefix false-positive risk, and never prints a value.
+
+**Gates:** `git diff --check` clean · `npm run build` exit 0 · `npm test` **126 files / 1418 tests** ·
+`npm run admin:build` exit 0 · Playwright **99 passed / 15 skipped / 0 failed** (exact match to the
+PR 8A baseline). Readiness CLI: all 17 required scenarios pass against the fully integrated tree.
+
+**Owner decisions still required, neither blocking G3:** PR 7 O-3 / PR8A S2-3 (the `prepare` route's
+role tier — PRD-005 §4 is silent, and this branch deliberately did not resolve it unilaterally); PR6
+M-1 residual (whether `wizmatch_company_policies` gets dedicated `approved_by`/`approved_at` columns —
+migration-gated). Both carried forward unchanged, neither new to this branch.
+
+**Before G1:** B-1 (apply `0037`) and U-7 (shared-index sign-off), unchanged, out of this branch's
+authority. **Before G3:** confirm `NODE_ENV=production` on Railway (a human step no code change can
+substitute for), explicit pilot roster, `npm run wizmatch:pilot-readiness -- --production`, enable
+`WIZMATCH_COMPANY_POLICY_ENABLED` + `WIZMATCH_DECISION_WORKBENCH_ENABLED` — **nothing else**, since
+every PR 8A owner-decision G3 blocker is now resolved. **Before G4:** unchanged (PR 3/5/6 plus PR 7's
+O-2). **PR 9/10 remain deferred and gated on U-6**, confirmed both manually and by a new mechanical
+scope-boundary test.
+
+**Do not** push, merge, deploy, apply `0037`, run backfill `--apply`, promote `enforce`, enable
+sending/preparation/the adapter/paid discovery, connect Smartlead, or start PR 9/10 on the strength
+of this session. An independent Opus review owns `.ai/OUTBOUND_PR8B_CODE_READY`, not created here.

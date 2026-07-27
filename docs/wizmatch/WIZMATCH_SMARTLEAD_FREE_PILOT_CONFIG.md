@@ -1,7 +1,8 @@
 # WizMatch Smartlead-free live-pilot configuration contract
 
-- **Status:** Required initial configuration for the internal Smartlead-free production pilot (PR 8A hardening)
-- **Scope:** `ge/outbound-08a-live-pilot-hardening`, built on the code-ready `ge/outbound-08-outreach-adapter` stack (PR 1–8)
+- **Status:** Required initial configuration for the internal Smartlead-free production pilot (PR 8A + 8B hardening)
+- **Scope:** `ge/outbound-08b-g3-pilot-completion`, built on the independently-reviewed
+  `ge/outbound-08a-live-pilot-hardening` stack (PR 1–8A, CODE READY at `f12c62ca`)
 - **Companion:** [`docs/prd/005-wizmatch-outbound-operating-system.md`](../prd/005-wizmatch-outbound-operating-system.md) §16 (feature flags), [`ADR-007`](../decisions/ADR-007-outreach-provider-boundary.md)
 - **Verification:** `npm run wizmatch:pilot-readiness` (read-only, see below) checks every value in this table mechanically
 

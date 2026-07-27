@@ -6,6 +6,94 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-27 — WizMatch Outbound OS: PR 8B implemented (self-reported) — G3 pilot completion — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT MERGED
+
+**Why:** PR 8A's independent review left three owner-decision findings unresolved (S1-2, S2-4, S3-1)
+and one code-hardening item (H-4) that needed generalising beyond a single fix. The owner ratified
+four decisions (P8B-1…4) up front; this session implemented all four to close every remaining G3
+blocker before the pilot's independent final review.
+
+**Method — parallel, isolated, two-stage.** Stage A: five read-only Explore subagents in parallel
+(policy/signal-scope; pilot-gate/RBAC; workbench frontend/capabilities; readiness/credential-safety;
+test/finding-matrix), all returned and reconciled by the lead before any implementation began. Stage
+B: three isolated git worktrees (`tmp/pr8b-policy-scope`, `tmp/pr8b-access-actions`,
+`tmp/pr8b-readiness-config`), one implementation agent per worktree, run simultaneously, each
+producing its own mutation-control matrix (red proof, green proof) before committing. Cherry-picked
+into `ge/outbound-08b-g3-pilot-completion` in the order policy → access → readiness — **zero
+conflicts**, confirmed patch-identical to the original worktree commits by diff (not merely by SHA,
+since cherry-pick produces new hashes). Worktrees and their commits' content-equivalence were verified
+before the three temporary branches (`tmp/pr8b-*`) and worktrees were cleaned up; the three branches
+were **not** force-deleted (git's `-d` doesn't recognise cherry-picked content as "merged" — the
+instruction was explicit not to override that with `-D`), so they remain as harmless local refs.
+
+**What changed (four commits: `e2a8598c`, `a229ab9b`, `dd7f977c`, `a7d53235`):**
+
+- **P8B-1 (signal vs. scope blocks)** — `policyResolver.ts` gained two exported predicates
+  (`isSignalOrRequirementScoped`, `isCompanyOrScopeFreezingBlock`) and a `fetchBlockedScopedIds`
+  helper, all keyed on the real `scope_type` DB column (already clean, no string-parsing needed).
+  `decisionWorkbenchActions.ts`'s non-overridable freeze scan, `decisionWorkbench.ts`'s bucketing
+  query (+ new `nonOverridableBlockKind` field for the frontend), and `outreachGate.ts`'s L1c/L4
+  branches all now correctly exclude `specific_signal`/`specific_requirement` rows from the
+  company-freezing check — a block on one signal or requirement no longer freezes
+  approve_queue/resume/skip/pause for the whole company, stays visible in provenance, and can never
+  itself grant contact permission. Also closes an evidence leak beyond the freeze bug itself: neither
+  `prepareCompanies.ts`'s signal selection nor `wizmatchRequirementPriority.ts`'s scoring previously
+  checked for a signal/requirement-level block at all — both now exclude/deny a blocked one
+  regardless of score, tenant-scoped.
+- **P8B-2 (role-aware workbench actions)** — new `decisionWorkbenchCapabilities.ts`, one canonical,
+  backend-computed capability calculation attached to every item in `GET /today/queues` plus a
+  top-level bulk capability. `TodayDecisionWorkbench.jsx`/`TodayBulkActionBar.jsx` render from it
+  directly (previously **zero** role logic existed in these components — every action showed as an
+  enabled button to every role, worse than PR 8A's review had characterised it). Fails closed on
+  missing/malformed capability data (corrected before commit — an initial pass shipped this fail-open,
+  caught during orchestrator review against Task 3's explicit "malformed inputs fail closed"
+  requirement). The real enforcement path (`decisionWorkbenchActions.ts`) is untouched and remains
+  authoritative.
+- **P8B-3 (pilot roster, generalises H-4)** — `resolveStaffingAccess`'s
+  `NODE_ENV === 'production' ? strict : permissive` ternary deleted outright:
+  `allowed = configured && pilotAllowed`, no environment condition anywhere, in every runtime. No
+  dev-bypass flag introduced. Large mechanical test blast-radius fixed across five test files that
+  previously rode the ambient permissive default with no explicit roster configured.
+- **P8B-4 (Smartlead credential aliases)** — local `PROVIDER_CREDENTIAL_ENV_VARS` map in the readiness
+  service, ten required alias names detected by exact-name Set membership alongside the pre-existing
+  broad `/SMARTLEAD/i` test (kept, not replaced). No `SL_`-prefix test anywhere — confirmed an
+  unrelated `SL_TIMEZONE`-style variable is never flagged. Also, as a required follow-up to P8B-3: the
+  readiness CLI's pilot-roster danger check is now unconditional (previously only dangerous under
+  `--production`), matching the new always-fail-closed runtime contract exactly, plus a new
+  `pilot-roster:format` check for non-UUID-shaped roster entries (count only, entries never printed).
+- **Orchestrator-owned integration work:** a cross-lane parity test
+  (`wizmatchCapabilityEnforcementParity.test.ts`) proving the access lane's capability prediction and
+  the policy lane's real enforcement agree on the four rules both independently encode (mutation
+  control: 2/8 red when the capability module's freeze predicate is broken); a scope-boundary
+  regression guard (`wizmatchScopeBoundaryPR8B.test.ts`) mechanically confirming PR 9/10 have not
+  started (mutation control: a planted `SmartleadProvider` identifier goes red); and a real Playwright
+  a11y regression found and fixed — `wizmatch-a11y.spec.ts`'s Today fixture predated capability-driven
+  rendering and supplied no `capabilities` field, so the new fail-closed fallback correctly disabled
+  the button the test's focus assertion targeted (a company already `outreachEligibility: 'eligible'`,
+  whose `approve_queue` the real backend has refused as `already_approved` since PR 8A — the fixture
+  was exercising a state the backend would never actually allow). Retargeted to a company where the
+  action is genuinely available; full Playwright suite re-confirmed at the exact 99/15/0 baseline.
+
+**How to verify:** `git diff --check` clean · `npm run build` exit 0 · `npm test` **126 files /
+1418 tests** (was 122/1270 at the PR 8A baseline) · `npm run admin:build` exit 0 · `npx playwright
+test --config=playwright.wizmatch-local.config.ts` **99 passed / 15 skipped / 0 failed** · `npm run
+wizmatch:pilot-readiness` — all 17 required scenarios re-run for real against the fully integrated
+tree, zero failures, no secret/canary value ever printed (grepped, not merely asserted).
+
+**Read next:** `docs/reviews/wizmatch-outbound-pr8b-implementation.md` (full report, findings matrix,
+blockers per gate), `docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md`'s PR 8B section,
+`docs/runbooks/WIZMATCH_INTERNAL_PILOT_OPERATOR_GUIDE.md` (new), `.ai/CURRENT_TASK.md`.
+
+**What's next:** an independent readiness review of PR 8B (three-subagent method, per standing
+precedent). `.ai/OUTBOUND_PR8B_CODE_READY` is reserved for that review, not created here. Two
+pre-existing owner decisions remain open and are **not** G3 blockers (PR7 O-3 prepare-route role tier;
+PR6 M-1 residual approval-column schema question) — carried forward unchanged, not new to this
+session. **Do not** push, merge, deploy, apply `0037`, run backfill `--apply`, promote `enforce`,
+enable sending/preparation/the adapter/paid discovery, connect Smartlead, or start PR 9/10 on the
+strength of this session.
+
+---
+
 ## 2026-07-27 — WizMatch Outbound OS: PR 8A independently reviewed — CODE READY at `f12c62ca` — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT MERGED
 
 **Why:** the PR 8A marker was self-reported. Standing practice on this stack (PR 2/3/5/6/7/8) is an

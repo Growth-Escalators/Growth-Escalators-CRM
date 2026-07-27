@@ -2,6 +2,62 @@
 
 ## Active task
 
+**PR 8B IMPLEMENTED (self-reported) 2026-07-27 — WizMatch Outbound Operating System, G3 pilot
+completion.** Branch `ge/outbound-08b-g3-pilot-completion`, local only, NOT pushed, NOT merged. Built
+on the independently-reviewed `ge/outbound-08a-live-pilot-hardening` (CODE READY at `f12c62ca`).
+Marker: `.ai/OUTBOUND_PR8B_IMPLEMENTED` (self-reported; independent review still required for
+CODE_READY). Report: [`docs/reviews/wizmatch-outbound-pr8b-implementation.md`](../docs/reviews/wizmatch-outbound-pr8b-implementation.md),
+`docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md`'s PR 8B section, `.ai/HANDOFF_LOG.md`.
+
+**What changed:** resolves all three PR 8A owner-decision findings — **S1-2** (a PRD §8.2 L4
+per-signal/requirement non-overridable block no longer freezes company-level actions, only the
+affected signal/requirement, keyed on the real `scope_type` DB column via one shared predicate; also
+closes a related evidence leak in `prepareCompanies.ts`/`wizmatchRequirementPriority.ts` so a blocked
+signal/requirement can no longer drive a draft or a priority ranking), **S2-4** (new
+`decisionWorkbenchCapabilities.ts`, one canonical backend-computed capability calculation the
+workbench renders from directly — previously the workbench had zero role logic at all and showed
+every action as enabled to every role), **S3-1** (the readiness CLI now detects ten Smartlead
+credential aliases by exact-name match, e.g. `SL_API_KEY`, alongside the existing broad name test,
+with no `SL_`-prefix false-positive risk) — plus a fourth, newly-ratified decision **P8B-3**
+generalising H-4: `resolveStaffingAccess`'s `NODE_ENV === 'production' ? strict : permissive` ternary
+is deleted outright, so a missing/empty/malformed pilot roster now fails closed in every runtime, not
+only when `NODE_ENV` happens to equal that one literal string.
+
+**Method:** five parallel read-only Stage A Explore subagents (policy/signal-scope, pilot-gate/RBAC,
+workbench frontend/capabilities, readiness/credential-safety, test/finding-matrix), reconciled by the
+lead before any code was written. Three isolated Stage B implementation lanes in separate git
+worktrees, run in parallel, each producing its own mutation-control matrix; cherry-picked into this
+branch (policy → access → readiness) with **zero conflicts**. One orchestrator-owned integration pass
+added a cross-lane parity test (proving the capability module and the real enforcement path cannot
+silently drift on the four rules they both encode) and a scope-boundary regression guard (mechanically
+confirming PR 9/10 have not started), and fixed one real Playwright a11y regression the integrated
+capability rework correctly surfaced (a fixture predating capability-driven rendering, retargeted to
+a company where the tested action is genuinely available rather than papered over).
+
+**Gates:** `git diff --check` clean · `npm run build` exit 0 · `npm test` **126 files / 1418 tests**
+(was 122/1270 at the PR 8A baseline, +4 files/+148 tests) · `npm run admin:build` exit 0 · Playwright
+**99 passed / 15 skipped / 0 failed** (exact match to the PR 8A baseline). Readiness CLI: all 17
+required scenarios (safe baseline, all danger conditions including the two new alias/malformed-roster
+checks, the SL-prefix false-positive negative case, and the safe-`.env`-copy case) pass against the
+fully integrated tree.
+
+**Owner decisions still required, neither blocking G3, both carried forward unchanged (not new to
+this branch):** PR7 O-3 / PR8A S2-3 (the `POST .../prepare` route's role tier — PRD-005 §4 has no row
+for preparation, and this branch deliberately did not resolve the question unilaterally in either
+direction, inert while `WIZMATCH_AUTO_PREP_ENABLED=false`); PR6 M-1 residual (whether
+`wizmatch_company_policies` gets dedicated `approved_by`/`approved_at` columns versus the current
+actor/source/event-chain provenance — migration-gated, doubly out of this branch's authority).
+
+**Exact next action:** get an independent readiness review of PR 8B (three-subagent method, per the
+PR 2–8A precedent). `.ai/OUTBOUND_PR8B_CODE_READY` is reserved for that review, not created here. Do
+not push, merge, deploy, apply `0037`, run backfill `--apply`, promote `enforce`, enable
+sending/preparation/the adapter/paid discovery, connect Smartlead, or start PR 9/10 on the strength
+of this session.
+
+---
+
+## Prior task — PR 8A CODE READY (independently reviewed) 2026-07-27
+
 **PR 8A CODE READY (independently reviewed) 2026-07-27 — WizMatch Outbound Operating System,
 Smartlead-free live-pilot hardening.** Branch `ge/outbound-08a-live-pilot-hardening`, local only,
 NOT pushed, NOT merged. Markers: `.ai/OUTBOUND_PR8A_IMPLEMENTED` (self-reported) +

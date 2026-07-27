@@ -1,10 +1,10 @@
 # WizMatch Smartlead-free live-pilot go-live runbook
 
 - **Status:** Runbook for the internal, Smartlead-free production pilot of the WizMatch Outbound
-  Operating System (PR 1–8A). Does not itself authorise any production action — every gate below
+  Operating System (PR 1–8B). Does not itself authorise any production action — every gate below
   ends in an explicit human-approval placeholder.
-- **Scope:** `ge/outbound-08a-live-pilot-hardening`, built on the code-ready `ge/outbound-08-outreach-adapter`
-  stack.
+- **Scope:** `ge/outbound-08b-g3-pilot-completion`, built on the independently-reviewed
+  `ge/outbound-08a-live-pilot-hardening` stack (CODE READY at `f12c62ca`).
 - **Companion docs:** [`docs/wizmatch/WIZMATCH_SMARTLEAD_FREE_PILOT_CONFIG.md`](../wizmatch/WIZMATCH_SMARTLEAD_FREE_PILOT_CONFIG.md)
   (required flag values), [`docs/prd/005-wizmatch-outbound-operating-system.md`](../prd/005-wizmatch-outbound-operating-system.md)
   §21 (readiness report, G1–G4 gates), [`docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md`](../handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md)
@@ -127,7 +127,13 @@ Checklist:
 - [ ] Queue and policy smoke tests — as a pilot member, confirm: `GET /api/wizmatch/today/queues`
   returns all five queues (Ready to Contact / Needs Review / Routed / Replies Needing Action /
   Paused or Blocked) without error; a single company policy write (e.g. `set_review_date`) round
-  trips correctly; a non-overridable company still shows no override affordance.
+  trips correctly; a company/region/business-unit/location-scoped non-overridable block still
+  shows no override affordance for any role, including admin (PR 8B, P8B-1); a company whose only
+  block is on one specific signal or requirement still shows its normal company-level actions,
+  with the affected signal/requirement named separately — new behaviour as of PR 8B (P8B-1).
+- [ ] Role-aware action smoke test — log in as a `staff` pilot account and confirm write actions
+  (Approve & Queue, Pause, Block, the bulk bar) render disabled with a visible, accessible reason
+  rather than an enabled button that would 403 on click — new behaviour as of PR 8B (P8B-2).
 - [ ] Observation review — after a defined observation window (owner to set the duration),
   review the shadow "would-block" signal and the readiness report's "companies missing an
   effective policy" metric before considering G4.
