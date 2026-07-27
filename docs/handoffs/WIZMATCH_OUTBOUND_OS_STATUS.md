@@ -34,6 +34,14 @@ Chat-independent status for the `ge/outbound-0X-*` stacked-PR sequence. Read thi
 > and the PR 7 section at the bottom of this file. **Not independently reviewed yet — do not start PR 8
 > before that review.**
 >
+> **Updated 2026-07-27 (final independent readiness review): PR 8 is CODE READY at `1b4b59fa`.**
+> NOT READY as submitted at `2e329c12` — six High and five Medium defects were fixed during the review,
+> zero Critical. The production code was clean; **four of ten control mutations survived the submitted
+> test suite**, all in the "no policy / no network / no DB in the provider layer" guards that are
+> ADR-007's only mechanical evidence. Marker: `.ai/OUTBOUND_PR8_CODE_READY`. Full report:
+> [`docs/reviews/wizmatch-outbound-pr8-opus-review.md`](../reviews/wizmatch-outbound-pr8-opus-review.md).
+> **Still not pushed, not merged, `0037` still not applied. PR 9 remains gated on U-6.**
+>
 > **Updated 2026-07-26 (final independent readiness review): PR 2 is CODE READY at `102b657`.**
 > The closeout above declared §22.2 #16 closed; an independent re-check found it closed on **two of
 > three** company-insert paths, and on neither in the literal "same transaction" sense for the
@@ -1176,7 +1184,8 @@ remains separately gated on the sanitised Smartlead fixtures (U-6) regardless.
 
 **Scope delivered:** the ADR-007 D-1 provider boundary — `src/modules/outreach/providers/outreach-provider.interface.ts`
 (vendor-neutral types, an 11-flag typed `OutreachProviderCapabilities`, `OutreachProviderIdentity`,
-`OutreachProviderConfigStatus`, the two-method `OutreachProvider` interface, the 7-code
+`OutreachProviderConfigStatus`, the `OutreachProvider` interface — three methods: two operations plus
+`getConfigStatus`; earlier records here said "two-method", corrected by the review as L-7 — the 7-code
 `OutreachProviderError`, and the `assertOutreachProviderCapability`/`assertOutreachProviderReady`
 enforcement helpers), `providers/mock.provider.ts` (`MockOutreachProvider` — deterministic, in-memory,
 per-tenant call capture/id sequencing, controllable success/unsupported/failure/duplicate scenarios,
@@ -1221,6 +1230,83 @@ PR 9/10 scope); no guardrail file touched; no Growth/SEO/n8n/`package-lock.json`
 pushed, merged, or deployed; no Railway or production access; no database mutation; no sending or paid
 discovery enabled.
 
-**Exact next action:** get an independent readiness review of PR 8 (three-subagent method). PR 9
-(`ge/outbound-09-smartlead-csv`) remains **GATED** on the sanitised Smartlead fixtures (U-6) regardless
-of that review's outcome. Stop after PR 8.
+**Exact next action:** ~~get an independent readiness review of PR 8~~ — **done, see the PR 8 CODE
+READY section below.**
+
+---
+
+## PR 8 — CODE READY (independently reviewed, 2026-07-27)
+
+**Verdict: NOT READY as submitted at `2e329c12`; READY at `1b4b59fa`** after six High and five Medium
+defects were fixed during the review. Marker: `.ai/OUTBOUND_PR8_CODE_READY`. Full report:
+[`docs/reviews/wizmatch-outbound-pr8-opus-review.md`](../reviews/wizmatch-outbound-pr8-opus-review.md).
+Three parallel read-only Explore subagents reconciled with an independent hand review and **ten control
+mutations**. **Zero Critical.**
+
+**The production code was good; the evidence layer was not.** The contract is clean (zero imports in
+the interface file, no policy reference anywhere, no execute/request escape hatch), the factory is
+fail-closed on every input including `__proto__`/`constructor` (and is materially safer than the
+e-sign precedent it copies, which silently falls through to the *live* provider on an unknown name),
+the mock is genuinely inert and deterministic, and the scope discipline is provable from the diff — 12
+files, all additions, zero guardrail touches, zero migrations, and **no importer anywhere in `src/`
+except its own test**.
+
+What failed review: **four of ten control mutations survived the submitted suite**, all four in the
+"did PR 8 leak policy logic, a network call, or a DB write into the provider boundary?" category — the
+exact property ADR-007's seam argument rests on.
+
+- **H-1** — the policy-gate guard filtered `/^\s*import\b/` lines, so a prettier **multi-line import**
+  (the dominant style in this very module) put the specifier on a continuation line the filter
+  discarded. A mock that genuinely imported `evaluateWizmatchOutreachGate` passed **35/35**. This is
+  PR 7's **P-5 defect verbatim** — reintroduced in the same PR whose doc claims it was deliberately
+  avoided. Fourth recurrence of this class (PR 2, PR 5, PR 7, PR 8).
+- **H-2** — the network guard matched only `node:https?`/`require()`, so a bare
+  `import https from 'https'` evaded it *and* the runtime `fetch` spy the doc presents as the stronger
+  proof. **35/35 green.**
+- **H-3** — the DB guard matched only `db.insert|update|delete(`; `db.execute(sql\`INSERT\`)`, a `tx`
+  handle, or prettier's own line break evaded it. Reads were never checked. **35/35 green.**
+- **H-4** — the PR 10 map routed a multi-tenant reply poller at `/classify-reply` under a "tenant-safe"
+  heading; that route pins its tenant from `WIZMATCH_TENANT_ID` and cross-writes `suppress()` and
+  `contacts.do_not_contact`.
+- **H-5** — nothing pinned the in-method capability checks: deleting both left the suite green, so
+  "unsupported operations cannot execute" was unproven.
+- **H-6** — the guarded file list was hardcoded, so PR 9's smartlead adapter (the exact leak these
+  guards exist to catch) would have been scanned by nothing; `outreachIdempotencyKey.ts` was covered by
+  no guard at all.
+- **M-1…M-5 (fixed)** — idempotency tiers 1–3 untrimmed, so `' evt_1'` and `'evt_1'` derive two keys
+  for one event and the UNIQUE constraint that makes a re-import a no-op admits a duplicate row;
+  `csvEscape` did not neutralise CSV formula injection in a file whose purpose is to be opened in
+  Excel by an operator, with `companyName` sourced from scraped data; `parseResultFeed` accepted
+  locale-parsed timestamps that differ between an IST laptop and a UTC CI box; a blank `tenantId`
+  collapsed every caller into one shared bucket; `capabilities`/`identity` were `readonly` in TS only,
+  on a process-wide singleton.
+- **M-6…M-14 (recorded, not fixed)** — see the report; the load-bearing ones are PR 9/10 blockers.
+
+**Gates (post-fix, `1b4b59fa`), all run for real:** `git diff --check` clean · `npm run build` exit 0 ·
+`npm test` **120 files / 1165 tests** (+11) · `npm run admin:build` clean · Playwright **99 passed /
+15 skipped / 0 failed**. Every submitted-tree number reproduced exactly, so the implementation marker
+did not overstate itself. The 15 skips are the documented no-password real-backend specs.
+
+**No PR 6/PR 7 open finding is falsely closed** — O-1…O-4, P-1…P-5 and the PR 6 §13 approval-capture
+gap all survive verbatim.
+
+**Blockers before PR 9** (in addition to **U-6**, which this review does not lift): M-7 decide where
+readiness is asserted; M-8 decide whether `getConfigStatus()` takes a `tenantId` (cheapest now, at zero
+callers); M-6 constrain `OutreachProviderConfigStatus.reason` before a credentialed provider populates
+it; M-12 actually enforce `WIZMATCH_OUTREACH_ADAPTER_ENABLED`, which today is read by **no code
+anywhere**; M-13 implement the real ADR-007 D-4 grep.
+
+**Blockers before PR 10:** H-4 (do not wire a multi-tenant poller into `/classify-reply` as-is),
+M-10 (no `tenantId` on `OutreachResultEvent`), M-11 (`enrolmentId NOT NULL` blocks an unenrolled
+reply).
+
+**Blockers before real use / G1 / G4 / production — unchanged, none closed by this PR:** **B-1** apply
+`0037` before this stack reaches `main` (**the repo auto-deploys on push**) then run the §10.11.4
+fresh-database checks (G1); O-1/O-3/O-4 before `WIZMATCH_AUTO_PREP_ENABLED` with real data; O-2 plus
+everything carried from PR 3/5/6 before G4/`enforce`; PR 6 §13 approval capture before the workbench
+makes real decisions.
+
+**Exact next action:** PR 9 (`ge/outbound-09-smartlead-csv`) remains **GATED** on the sanitised
+Smartlead fixtures (U-6) — do not start it without them. Nothing else blocks the stack's progress.
+**Do not** merge, push, deploy, apply 0037, run backfill `--apply`, promote `enforce`, enable sending,
+enable paid discovery, or connect Smartlead on the strength of this review.

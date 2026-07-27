@@ -6,6 +6,75 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-27 — WizMatch Outbound OS: PR 8 independently reviewed — CODE READY at `1b4b59fa` — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT MERGED
+
+**Why:** the PR 8 marker was self-reported. Standing practice on this stack (PR 2/3/5/6/7) is an
+independent readiness review by a session that did not write the code, using three parallel read-only
+Explore subagents, before `*_CODE_READY` is created.
+
+**Method:** read AGENTS.md, CLAUDE.md, PRD-005, ADR-006, ADR-007, the PR 7 review, the PR 8
+implementation report, both PR 9/PR 10 handoff docs, `.ai/OUTBOUND_PR7_CODE_READY`,
+`.ai/OUTBOUND_PR8_IMPLEMENTED`, `.ai/CURRENT_TASK.md`, this log, and the full
+`ge/outbound-07-free-prep..HEAD` diff. Three read-only Explore subagents ran in parallel (contract/
+capability/factory/tenancy; mock/isolation/idempotency/structured errors; scope boundary + PR 9
+checklist + PR 10 event map + test quality). No verdict was issued until all three returned and were
+reconciled with the lead's own hand review. **Ten control mutations** were run against the real suite,
+before and after the fix.
+
+**Verdict:** NOT READY as submitted at `2e329c12`; **READY at `1b4b59fa`**. Six High, five Medium,
+eleven Low. **Zero Critical.**
+
+**What changed:** the production code in PR 8 is genuinely good — contract purity (zero imports in the
+interface file, no policy reference anywhere, no execute/request escape hatch), a factory that fails
+closed on every input including `__proto__`/`constructor` and is materially **safer than the e-sign
+precedent it copies** (esign silently falls through an unknown `ESIGN_PROVIDER` to the *live*
+Documenso provider; PR 8 refuses to substitute anything), an inert deterministic mock, and scope
+discipline provable from the diff: 12 files, all additions, zero guardrail touches, zero migrations,
+and **no importer anywhere in `src/` except the module's own test**.
+
+What failed review was the **evidence layer**. Four of ten control mutations survived the submitted
+suite, all four in the "did PR 8 leak policy logic, a network call, or a DB write into the provider
+boundary?" guards — the exact property ADR-007's seam argument rests on:
+
+- **H-1** the policy-gate guard filtered `/^\s*import\b/` lines, so a prettier multi-line import (the
+  dominant style in this very module) hid the specifier on a continuation line. A mock that genuinely
+  imported `evaluateWizmatchOutreachGate` passed **35/35**. **PR 7's P-5 defect verbatim** —
+  reintroduced in the same PR whose doc claims it was deliberately avoided. Fourth recurrence of this
+  class (PR 2, PR 5, PR 7, PR 8).
+- **H-2** the network guard missed a bare `import https from 'https'`, which also evades the runtime
+  `fetch` spy the doc presents as the stronger proof. **35/35 green.**
+- **H-3** the DB guard missed `db.execute(sql\`INSERT\`)`, a `tx` handle, and reads entirely. **35/35
+  green.**
+- **H-4** the PR 10 map routed a multi-tenant reply poller at `/classify-reply`, which pins its tenant
+  from `WIZMATCH_TENANT_ID` and cross-writes `suppress()`/`contacts.do_not_contact`.
+- **H-5** nothing pinned the in-method capability checks — deleting both left the suite green.
+- **H-6** the guarded file list was hardcoded, so PR 9's smartlead adapter would be scanned by nothing.
+- **M-1…M-5 (fixed)** untrimmed idempotency tiers producing duplicate event rows; no CSV
+  formula-injection guard on an operator-facing export; locale-parsed timestamps; blank-`tenantId`
+  bucket collapse; unfrozen capabilities on a process-wide singleton.
+- **M-6…M-14 (recorded)** readiness enforced by convention not construction; no `tenantId` on
+  `getConfigStatus()`; free-text `reason` piped into logs; `WIZMATCH_OUTREACH_ADAPTER_ENABLED` read by
+  **no code anywhere**; ADR-007 still documenting method names that do not exist.
+
+**Retracted:** subagent 3 reported "tool-output tampering" on an `https` import not present in the
+committed file. That was the lead's own control mutation B, live in the worktree while the agent read.
+Not a security event; the guard weakness it would have exposed is H-2.
+
+**How to verify:** `git show 1b4b59fa`. Gates all run for real, twice — submitted tree: 120 files /
+1154 tests (matching the marker exactly). Post-fix: `git diff --check` clean, `npm run build` exit 0,
+`npm test` **120 files / 1165 tests**, `npm run admin:build` clean, `npx playwright test
+--config=playwright.wizmatch-local.config.ts` **99 passed / 15 skipped / 0 failed**. The 15 skips are
+the documented no-password real-backend specs. Re-run any control mutation in the report's ledger to
+confirm the new assertions fail on the defect.
+
+**What's next:** PR 9 (`ge/outbound-09-smartlead-csv`) stays **GATED on U-6** (sanitised Smartlead
+fixtures) — this review does not lift it. Settle M-6/M-7/M-8/M-12/M-13 before PR 9 writes a real
+provider; H-4/M-10/M-11 before PR 10. B-1 (apply `0037`) still blocks `main`. Nothing pushed, merged,
+or deployed; no Railway or production access; no migration applied; no sending or paid discovery
+enabled; Smartlead not connected.
+
+---
+
 ## 2026-07-26 — WizMatch Outbound OS: PR 7 independently reviewed — CODE READY at `70c310b5` — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT MERGED
 
 **Why:** the PR 7 marker was self-reported. Standing practice on this stack (PR 2/3/5/6) is an
