@@ -473,7 +473,30 @@ export async function evaluateWizmatchOutreachGate(ctx: OutreachGateContext): Pr
     // matching it here reported an L4 signal block as a company-scope freeze,
     // with `effectiveLevel: 1` and an L1c reason code. It is denied on its own
     // dedicated branch below, at its own level, with its own provenance.
-    const narrowerNonOverridable = effective.applicableRows.find(
+    //
+    // H-4 fix (code review, revoked-PR-8B remediation): this scan MUST run
+    // over `allActiveRows`, not `applicableRows`. `applicableRows` is filtered
+    // down to the rows that match THIS request's resolved scope-key
+    // candidates (buildCandidateScopeKeys) — so a non-overridable block at a
+    // scope the request does not happen to resolve to (e.g. an active
+    // `region:india` block when this request only resolves `region:us`) was
+    // silently invisible to this scan and the ladder fell through to L2/L3
+    // and beyond, an outright fail-open. `decisionWorkbenchActions.ts` never
+    // had this bug — it already scanned `effective.allActiveRows` with this
+    // exact predicate (see `isCompanyOrScopeFreezingBlock`'s doc comment in
+    // policyResolver.ts) — so this fix is `outreachGate.ts` catching up to
+    // the pattern the module's own comments say is shared, not a new rule.
+    //
+    // Behavioural widening, stated explicitly: L1c now denies ALL outreach
+    // for a company whenever ANY active non-overridable company-or-scope
+    // block exists, regardless of whether the request's own resolved context
+    // matches that block's scope. ADR-006 D-17 ("Non-overridability binds at
+    // any scope") and its "no admin override at any scope" reading — the same
+    // reading `decisionWorkbenchActions.ts`'s comment at line ~241 already
+    // relies on — confirm this is correct, not merely convenient: a
+    // non-overridable block is a fact about the company (or a piece of it)
+    // that no request-shaped filtering may narrow away.
+    const narrowerNonOverridable = effective.allActiveRows.find(
       (r) => r.scopeType !== 'entire_company' && isCompanyOrScopeFreezingBlock(r),
     );
     if (narrowerNonOverridable) {
