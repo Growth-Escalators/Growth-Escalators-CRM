@@ -17,6 +17,7 @@
 import { Router, type Request, type Response } from 'express';
 import { prepareSingleCompany, getPrepStatus } from '../modules/outreach/prepareCompanies';
 import { isWizmatchFlagEnabled } from '../services/wizmatchAutomation';
+import { wizmatchPilotGate } from '../middleware/wizmatchPilotGate';
 
 const router = Router();
 
@@ -31,6 +32,9 @@ function featureGate(_req: Request, _res: Response, next: (route?: string) => vo
   next();
 }
 router.use(featureGate);
+// PR 8A hardening — pilot roster enforcement (§4 preparation is a
+// preparation-trigger route; same pilot-member tier as reading policy/queues).
+router.use(wizmatchPilotGate);
 
 router.post('/companies/:id/prepare', async (req: Request, res: Response) => {
   try {

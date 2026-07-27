@@ -34,12 +34,12 @@ vi.mock('../modules/outreach/prepareCompanies', () => ({
 let server: Server;
 let baseUrl: string;
 
-async function startServer() {
+async function startServer(role = 'staff') {
   const { default: router } = await import('../routes/wizmatchPrepare');
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
-    (req as unknown as { user: unknown }).user = { tenantId: 'tenant-1', id: 'user-1', role: 'staff' };
+    (req as unknown as { user: unknown }).user = { tenantId: 'tenant-1', id: 'user-1', role };
     next();
   });
   app.use('/api/wizmatch', router);
@@ -142,5 +142,54 @@ describe('wizmatchPrepare router — error shapes', () => {
 
     const res = await fetch(`${baseUrl}/api/wizmatch/companies/company-1/prepare/status`);
     expect(res.status).toBe(404);
+  });
+});
+
+// PR 8A hardening (task 2/10) — pilot roster enforcement. Preparation is a
+// pilot-member surface per PRD-005 §4, same tier as reading policy/queues —
+// this proves the pilot gate actually applies here, not only that a role gate
+// does (there is no separate role gate on these two routes at all; the pilot
+// gate is the ONLY thing standing between an authenticated request and a
+// write that scrapes a website and creates contact candidates).
+describe('wizmatchPrepare router — pilot roster enforcement (PRD-005 §4)', () => {
+  it('rejects an unauthenticated request (no req.user) with 401', async () => {
+    const { default: router } = await import('../routes/wizmatchPrepare');
+    const app = express();
+    app.use(express.json());
+    app.use('/api/wizmatch', router);
+    await new Promise<void>((resolve) => {
+      server = app.listen(0, () => resolve());
+    });
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+    const res = await fetch(`${baseUrl}/api/wizmatch/companies/company-1/prepare`, { method: 'POST' });
+    expect(res.status).toBe(401);
+    expect(calls.prepareSingleCompany).toHaveLength(0);
+  });
+
+  it("rejects 'viewer' — not a pilot-eligible role — even though preparation carries no separate role gate of its own", async () => {
+    await startServer('viewer');
+    const res = await fetch(`${baseUrl}/api/wizmatch/companies/company-1/prepare`, { method: 'POST' });
+    expect(res.status).toBe(403);
+    expect(calls.prepareSingleCompany).toHaveLength(0);
+  });
+
+  it.each(['admin', 'team_lead', 'manager_ops', 'sales', 'staff'])('allows pilot-eligible role %s through to the prepare route', async (role) => {
+    await startServer(role);
+    const res = await fetch(`${baseUrl}/api/wizmatch/companies/company-1/prepare`, { method: 'POST' });
+    expect(res.status).toBe(200);
+  });
+
+  it('fails closed in production with no pilot roster configured, even for admin', async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      await startServer('admin');
+      const res = await fetch(`${baseUrl}/api/wizmatch/companies/company-1/prepare`, { method: 'POST' });
+      expect(res.status).toBe(403);
+      expect(calls.prepareSingleCompany).toHaveLength(0);
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
   });
 });

@@ -63,12 +63,12 @@ vi.mock('../modules/outreach/policyReadiness', () => ({
 let server: Server;
 let baseUrl: string;
 
-async function startServer() {
+async function startServer(role = 'admin') {
   const { default: router } = await import('../routes/wizmatchPolicy');
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
-    (req as unknown as { user: unknown }).user = { tenantId: 'tenant-1', id: 'user-1', role: 'admin' };
+    (req as unknown as { user: unknown }).user = { tenantId: 'tenant-1', id: 'user-1', role };
     next();
   });
   app.use('/api/wizmatch', router);
@@ -134,6 +134,75 @@ describe('wizmatchPolicy router — path precedence', () => {
     expect(calls.writeCompanyPolicy).toHaveLength(1);
     expect(calls.writeCompanyPolicy[0][1]).toBe('3f1a5c2e-0000-4000-8000-000000000001');
     expect(calls.bulkWriteCompanyPolicy).toHaveLength(0);
+  });
+});
+
+// PR 8A hardening (task 2/10) — pilot roster enforcement (PRD-005 §4: "Read
+// policy, read queues" is pilot member / staff+). GET routes in this router
+// carry NO role gate of their own (only the pilot gate stands between an
+// authenticated request and reading policy/duplicate data) — this proves
+// read permission does not silently imply pilot access, and that a
+// pilot-ineligible role cannot read even though nothing else here would stop it.
+describe('wizmatchPolicy router — pilot roster enforcement', () => {
+  it('rejects an unauthenticated request with 401 on a read route', async () => {
+    const { default: router } = await import('../routes/wizmatchPolicy');
+    const app = express();
+    app.use(express.json());
+    app.use('/api/wizmatch', router);
+    await new Promise<void>((resolve) => {
+      server = app.listen(0, () => resolve());
+    });
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+    const res = await fetch(`${baseUrl}/api/wizmatch/companies/c1/policy`);
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects 'viewer' on GET /companies/:id/policy — no separate role gate exists on this read route", async () => {
+    await startServer('viewer');
+    const res = await fetch(`${baseUrl}/api/wizmatch/companies/c1/policy`);
+    expect(res.status).toBe(403);
+  });
+
+  it.each(['admin', 'team_lead', 'manager_ops', 'sales', 'staff'])('allows pilot-eligible role %s to read policy', async (role) => {
+    await startServer(role);
+    const res = await fetch(`${baseUrl}/api/wizmatch/companies/c1/policy`);
+    expect(res.status).toBe(200);
+  });
+
+  it('fails closed in production with no pilot roster configured, even for admin', async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      await startServer('admin');
+      const res = await fetch(`${baseUrl}/api/wizmatch/companies/c1/policy`);
+      expect(res.status).toBe(403);
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+  });
+
+  // `requireRole` is mocked in this file to always call next() (see the top
+  // of the file) so path/pilot-gate behaviour can be tested in isolation from
+  // the real RBAC implementation (that's `wizmatchPilotGate.test.ts` and the
+  // repo's rbac unit tests). What this file CAN prove structurally: the write
+  // route demands a role check the read route does not, so read access never
+  // "upgrades" to write access merely by passing the pilot gate.
+  it('read requires no role gate; write requires team_lead+ — read never implies write', async () => {
+    await startServer('staff');
+    calls.roleGates.length = 0;
+
+    const readRes = await fetch(`${baseUrl}/api/wizmatch/companies/c1/policy`);
+    expect(readRes.status).toBe(200);
+    expect(calls.roleGates).toHaveLength(0);
+
+    const writeRes = await fetch(`${baseUrl}/api/wizmatch/companies/3f1a5c2e-0000-4000-8000-000000000001/policy`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scopeType: 'entire_company', reasonCode: 'manual_reclassified' }),
+    });
+    expect(writeRes.status).toBe(201);
+    expect(calls.roleGates).toContainEqual(['admin', 'team_lead']);
   });
 });
 

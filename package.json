@@ -28,6 +28,7 @@
     "wizmatch:staffing-backfill-preview": "tsx scripts/wizmatch-staffing-backfill-preview.ts",
     "wizmatch:policy-backfill": "tsx scripts/onboarding/wizmatch-policy-backfill.ts",
     "wizmatch:policy-readiness": "tsx scripts/wizmatch-policy-readiness.ts",
+    "wizmatch:pilot-readiness": "npx tsx scripts/wizmatch-pilot-readiness.ts",
     "ai:brief": "tsx scripts/generate-ai-brief.ts",
     "ge:seo": "npx tsx scripts/ge-seo-pull.ts",
     "seo:indexing-queue": "npx tsx scripts/seo-indexing-queue.ts"

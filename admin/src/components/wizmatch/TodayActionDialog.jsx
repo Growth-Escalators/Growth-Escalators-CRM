@@ -125,12 +125,22 @@ export default function TodayActionDialog({ open, action, targetLabel, defaultRe
               evidenceText: evidenceText.trim() || undefined,
               reviewDate: reviewDate || undefined,
             })}
-            title={!canSubmit ? 'All required fields must be filled in.' : undefined}
+            // PR 8A hardening — a `title` tooltip is not reliably announced by
+            // screen readers (it's hover-only and many AT skip it entirely).
+            // `aria-describedby` points at the same message rendered as
+            // visible, always-in-the-DOM text below, so the reason a disabled
+            // Confirm cannot be pressed is available without relying on hover.
+            aria-describedby={!canSubmit ? 'today-action-dialog-confirm-hint' : undefined}
             className="btn-primary btn-compact disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {submitting ? 'Submitting…' : 'Confirm'}
           </button>
         </div>
+        {!canSubmit && (
+          <p id="today-action-dialog-confirm-hint" className="mt-2 text-right text-[11px] text-neutral-500">
+            All required fields must be filled in before this can be confirmed.
+          </p>
+        )}
       </div>
     </div>
   );

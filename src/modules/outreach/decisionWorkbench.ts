@@ -78,17 +78,33 @@ export interface DecisionWorkbenchCompanyItem {
   effectiveDecision: CanonicalCompanyEligibility['decision'];
   enforcementMode: CanonicalCompanyEligibility['enforcementMode'];
   requiresExplicitApproval: boolean;
+  /** The root (`entire_company`) row's id — the stale-state precondition the workbench must round-trip back as `expectedPolicyId` (PR 8A hardening, task 5). */
+  policyId: string;
   outreachEligibility: string | null;
   externalHiringPolicy: string | null;
   relationshipType: string | null;
   blockClass: string | null;
+  /**
+   * PR 8A hardening (task 3) — true when EITHER the root row OR any narrower
+   * active scope (region/business_unit/location/specific_*) is a
+   * non-overridable block, not only the root. `nonOverridableScopeKey` names
+   * whichever scope actually supplies it, so the UI can say WHERE the block
+   * lives rather than just that one exists.
+   */
   isNonOverridable: boolean;
+  nonOverridableScopeKey: string | null;
   reviewDate: string | null;
+  /** PR 8A hardening (task 7) — true when `reviewDate` is a UTC calendar date at or before now. Only meaningful when `reviewDate` is set. */
+  reviewDateArrived: boolean;
   policyReasonCode: string | null;
   policyScopeKey: string | null;
   contactConfidenceTier: 'high' | 'medium' | 'low' | null;
   duplicatePending: boolean;
   duplicateId: string | null;
+  /** PR 8A hardening (task 8) — true when this item is in the `routed` queue rather than Ready/Needs Review. */
+  routed: boolean;
+  /** The resolver's recommended route (§8.6/§8.7) — e.g. `account_owner`, `msp_vms_research`. `'none'`/`'standard_outreach'` are not routing states. */
+  recommendedRoute: string;
   disabledReason: string | null;
 }
 
@@ -106,11 +122,24 @@ export interface TodayQueues {
   needsReview: DecisionWorkbenchCompanyItem[];
   repliesNeedingAction: DecisionWorkbenchReplyItem[];
   pausedOrBlocked: DecisionWorkbenchCompanyItem[];
+  /**
+   * PR 8A hardening (task 8) — companies the resolver routes to an account
+   * owner or a dedicated workflow (§8.6/§8.7: `existing_client`,
+   * `vendor_partner`, `prime_partner`, `former_client`, `msp_vms_only`,
+   * `preferred_vendors_only`) rather than ordinary cold-outreach review.
+   * Derived entirely from the EXISTING `recommendedRoute` (already computed
+   * by the resolver) and `wizmatch_companies.account_owner_user_id` (already
+   * a column) — no migration. Assignment/routing never grants write
+   * permission on its own; every action still goes through the same
+   * role/pilot/non-overridable checks as any other queue.
+   */
+  routed: DecisionWorkbenchCompanyItem[];
   counts: {
     readyToContact: number;
     needsReview: number;
     repliesNeedingAction: number;
     pausedOrBlocked: number;
+    routed: number;
   };
   partial: {
     skippedCompanyIds: string[];
@@ -203,6 +232,80 @@ async function fetchPendingDuplicateIdByCompany(tenantId: string, companyIds: st
   return map;
 }
 
+/**
+ * PR 8A hardening (task 3) — maps companyId -> the scope_key of a NARROWER
+ * (non-`entire_company`) active non-overridable block, if any. `resolveEffectivePolicy`'s
+ * `applicableRows` only considers scopes the request context can resolve a
+ * label for (§8.1.1) — a bare company-level display request supplies no
+ * signal/region/business-unit/location hint at all, so a real narrower block
+ * would otherwise never surface here even though `evaluateWizmatchOutreachGate`'s
+ * own L1c gate (outreachGate.ts) correctly denies it once a real send/enrol
+ * context IS supplied. This direct query is independent of context
+ * resolvability by design: the workbench must show "this company has a
+ * narrower non-overridable block" even when it cannot yet say against which
+ * specific signal or region a future action would be evaluated.
+ */
+async function fetchNarrowerNonOverridableBlockByCompany(
+  tenantId: string,
+  companyIds: string[],
+): Promise<Map<string, { scopeKey: string; blockClass: string }>> {
+  if (companyIds.length === 0) return new Map();
+  const rows = await db
+    .select({
+      companyId: wizmatchCompanyPolicies.companyId,
+      scopeKey: wizmatchCompanyPolicies.scopeKey,
+      blockClass: wizmatchCompanyPolicies.blockClass,
+    })
+    .from(wizmatchCompanyPolicies)
+    .where(
+      and(
+        eq(wizmatchCompanyPolicies.tenantId, tenantId),
+        inArray(wizmatchCompanyPolicies.companyId, companyIds),
+        isNull(wizmatchCompanyPolicies.supersededAt),
+        eq(wizmatchCompanyPolicies.outreachEligibility, 'blocked'),
+        eq(wizmatchCompanyPolicies.isNonOverridable, true),
+      ),
+    );
+  const map = new Map<string, { scopeKey: string; blockClass: string }>();
+  for (const row of rows) {
+    if (row.scopeKey === 'entire_company') continue; // the root row is already surfaced via RawCompanyRow
+    if (!map.has(row.companyId)) map.set(row.companyId, { scopeKey: row.scopeKey, blockClass: row.blockClass });
+  }
+  return map;
+}
+
+/**
+ * PR 8A hardening (task 7) — explicit, deterministic timezone handling.
+ * `review_date` is a DATE column (no time-of-day, no offset) — treated as a
+ * UTC calendar date, arrived when `now` is at or past UTC midnight of that
+ * date. No scheduler or cron is required: this is evaluated fresh on every
+ * queue read, so the resurfacing is a pure function of wall-clock time, not a
+ * state transition anything has to remember to perform. A malformed or
+ * unparseable date fails closed — it never auto-resurfaces.
+ */
+function isReviewDateArrived(reviewDate: string | null, now: Date): boolean {
+  if (!reviewDate) return false;
+  const arrivalUtcMs = Date.parse(`${reviewDate}T00:00:00.000Z`);
+  if (Number.isNaN(arrivalUtcMs)) return false;
+  return now.getTime() >= arrivalUtcMs;
+}
+
+/**
+ * PR 8A hardening (task 8) — routes that mean "send this to an account owner
+ * or a dedicated workflow", not ordinary cold-outreach review (§8.6/§8.7).
+ * `standard_outreach` (normal review), `none` (hard-denied, already bucketed
+ * earlier) and `prepare_then_review`/`monitor_only` (cold-start / direct-hire
+ * monitoring, not owner-routed) are deliberately excluded.
+ */
+const ROUTED_ROUTE_CODES = new Set([
+  'account_owner',
+  'partnership_workflow',
+  'account_management',
+  'msp_vms_research',
+  'vendor_empanelment',
+  'reengagement_review',
+]);
+
 /** Best (highest-confidence) contact-candidate tier per company, §7's cold-start confidence gate — reused, not re-derived. */
 async function fetchBestContactConfidenceByCompany(
   tenantId: string,
@@ -258,11 +361,19 @@ function policyRowDecision(outreachEligibility: string | null): CanonicalCompany
 function disabledReasonFor(item: {
   effectiveDecision: string;
   isNonOverridable: boolean;
+  nonOverridableScopeKey: string | null;
   duplicatePending: boolean;
   contactConfidenceTier: 'high' | 'medium' | 'low' | null;
 }): string | null {
+  // PR 8A hardening (task 3) — derived from the EFFECTIVE isNonOverridable,
+  // which is true when either the root row or any narrower active scope is
+  // non-overridable-blocked, not only the root. A narrower-scope block must
+  // never present as "Reclassify requires an admin" (implying an admin CAN
+  // do something here) when no override is actually possible at any scope.
   if (item.effectiveDecision === 'deny' && item.isNonOverridable) {
-    return 'This company has a non-overridable block. No override or reclassify action is available at any scope.';
+    return item.nonOverridableScopeKey && item.nonOverridableScopeKey !== 'entire_company'
+      ? `This company has a non-overridable block at scope '${item.nonOverridableScopeKey}'. No override or reclassify action is available at any scope.`
+      : 'This company has a non-overridable block. No override or reclassify action is available at any scope.';
   }
   if (item.effectiveDecision === 'deny') {
     return 'This company is blocked by policy. Reclassify requires an admin.';
@@ -287,15 +398,20 @@ export async function buildTodayQueues(tenantId: string, limit = 200): Promise<T
   if (fetched.length > limit) partial.truncated = true;
   const companyIds = rows.map((r) => r.companyId);
 
-  const [canonicalByCompanyId, duplicateIdByCompany, confidenceByCompanyId] = await Promise.all([
+  const [canonicalByCompanyId, duplicateIdByCompany, confidenceByCompanyId, narrowerNonOverridableByCompany] = await Promise.all([
     resolveCanonicalCompanyEligibilityBatch(tenantId, companyIds),
     fetchPendingDuplicateIdByCompany(tenantId, companyIds),
     fetchBestContactConfidenceByCompany(tenantId, companyIds),
+    fetchNarrowerNonOverridableBlockByCompany(tenantId, companyIds),
   ]);
+  // Evaluated once per request, not per row, so every item in this response
+  // agrees on "now" (task 7 — explicit, deterministic timezone handling).
+  const now = new Date();
 
   const readyToContact: DecisionWorkbenchCompanyItem[] = [];
   const needsReview: DecisionWorkbenchCompanyItem[] = [];
   const pausedOrBlocked: DecisionWorkbenchCompanyItem[] = [];
+  const routed: DecisionWorkbenchCompanyItem[] = [];
 
   for (const row of rows) {
     try {
@@ -313,52 +429,92 @@ export async function buildTodayQueues(tenantId: string, limit = 200): Promise<T
       const effectiveDecision = canonical.actsOnDecision
         ? canonical.decision
         : policyRowDecision(row.outreachEligibility);
+
+      // Task 3 — non-overridable at every scope. The root row supplies its
+      // own isNonOverridable/blockClass; a narrower active scope can ALSO be
+      // non-overridable-blocked independent of the root's own state (e.g. a
+      // root `standard` block plus a `region:india` compliance removal).
+      // Either one must disable every unblocking action.
+      const narrower = narrowerNonOverridableByCompany.get(row.companyId) ?? null;
+      const isNonOverridable = row.isNonOverridable || narrower !== null;
+      const nonOverridableScopeKey = row.isNonOverridable ? row.policyScopeKey : (narrower?.scopeKey ?? null);
+      const effectiveBlockClass = row.isNonOverridable ? row.blockClass : (narrower?.blockClass ?? row.blockClass);
+
+      // Task 7 — review-date resurfacing. Only a PAUSED row (never a blocked
+      // one — a block's review date is informational only; no override
+      // becomes available just because a date passed) whose review_date has
+      // arrived re-enters Needs Review. A future date, or no date at all,
+      // changes nothing. Purely a display/bucketing concern — it never
+      // blocks anything, so it applies identically in shadow and enforce
+      // (§16 rule 2).
+      const isPausedRow = row.outreachEligibility === 'paused';
+      const reviewDateArrived = isReviewDateArrived(row.reviewDate, now);
+      const pausedAndDue = isPausedRow && reviewDateArrived;
+
+      // Task 8 — routed/assigned queue. A company the resolver routes to an
+      // account owner or a dedicated workflow (§8.6/§8.7), surfaced
+      // separately from ordinary Ready/Needs Review so an operator can see
+      // who owns it (or that nobody does yet) at a glance. Derived from the
+      // EXISTING `recommendedRoute` and `accountOwnerUserId` — no migration.
+      const recommendedRoute = canonical.recommendedRoute ?? 'none';
+      const isRoutedCandidate = ROUTED_ROUTE_CODES.has(recommendedRoute);
+
       const item: DecisionWorkbenchCompanyItem = {
         companyId: row.companyId,
         companyName: row.companyName,
         companyDomain: row.companyDomain,
-        accountOwnerUserId: row.accountOwnerUserId,
+        accountOwnerUserId: canonical.accountOwnerUserId ?? row.accountOwnerUserId,
         canonicalDecision: canonical.decision,
         canonicalReasonCode: canonical.reasonCode,
         canonicalBlockerCode: canonical.blockerCode,
         effectiveDecision,
         enforcementMode: canonical.enforcementMode,
         requiresExplicitApproval: effectiveDecision === 'review',
+        policyId: row.policyId,
         outreachEligibility: row.outreachEligibility,
         externalHiringPolicy: row.externalHiringPolicy,
         relationshipType: row.relationshipType,
-        blockClass: row.blockClass,
-        isNonOverridable: row.isNonOverridable,
+        blockClass: effectiveBlockClass,
+        isNonOverridable,
+        nonOverridableScopeKey,
         reviewDate: row.reviewDate,
+        reviewDateArrived,
         policyReasonCode: row.policyReasonCode,
         policyScopeKey: row.policyScopeKey,
         contactConfidenceTier,
         duplicatePending,
         duplicateId,
+        routed: false,
+        recommendedRoute,
         disabledReason: null,
       };
       item.disabledReason = disabledReasonFor(item);
 
       // State precedence per PRD-005 §13: non-overridable/overridable block →
-      // pending duplicate → paused → needs_review → eligible. `deny` covers
-      // both "blocked" and "paused" outreachEligibility (both resolve to a
-      // deny at the gate, §8.2 L5); the raw `outreachEligibility` field lets
-      // the UI group Paused separately from Blocked without a second engine.
-      // A pending duplicate is itself a gate-L5 deny (`outreachGate.ts:551`),
-      // so under `enforce` a `duplicatePending` company ALWAYS carried
-      // `decision === 'deny'` and the duplicate branch below was unreachable —
-      // duplicates landed in Paused or Blocked with a block affordance instead
-      // of Needs Review with Merge / Confirm Separate. §13's precedence is
-      // blocked → pending duplicate → paused → needs_review → eligible, so a
-      // genuine block still outranks a duplicate, but a duplicate outranks a
-      // pause and every softer state.
+      // pending duplicate → paused (unless its review date has arrived) →
+      // routed → needs_review → eligible. `deny` covers both "blocked" and
+      // "paused" outreachEligibility (both resolve to a deny at the gate,
+      // §8.2 L5); the raw `outreachEligibility` field lets the UI group
+      // Paused separately from Blocked without a second engine. A pending
+      // duplicate is itself a gate-L5 deny (`outreachGate.ts:551`), so under
+      // `enforce` a `duplicatePending` company ALWAYS carried
+      // `decision === 'deny'` and the duplicate branch below was
+      // unreachable — duplicates landed in Paused or Blocked with a block
+      // affordance instead of Needs Review with Merge / Confirm Separate.
       const isBlockedRow = row.outreachEligibility === 'blocked';
       if (effectiveDecision === 'deny' && isBlockedRow) {
         pausedOrBlocked.push(item);
       } else if (duplicatePending) {
         needsReview.push(item);
+      } else if (effectiveDecision === 'deny' && pausedAndDue) {
+        // Paused, but the review date has arrived — re-enters Needs Review
+        // rather than sitting in Paused or Blocked indefinitely.
+        needsReview.push(item);
       } else if (effectiveDecision === 'deny') {
         pausedOrBlocked.push(item);
+      } else if (isRoutedCandidate) {
+        item.routed = true;
+        routed.push(item);
       } else if (effectiveDecision === 'review') {
         needsReview.push(item);
       } else if (contactConfidenceTier === 'high') {
@@ -426,11 +582,13 @@ export async function buildTodayQueues(tenantId: string, limit = 200): Promise<T
     needsReview,
     repliesNeedingAction,
     pausedOrBlocked,
+    routed,
     counts: {
       readyToContact: readyToContact.length,
       needsReview: needsReview.length,
       repliesNeedingAction: repliesNeedingAction.length,
       pausedOrBlocked: pausedOrBlocked.length,
+      routed: routed.length,
     },
     partial,
   };

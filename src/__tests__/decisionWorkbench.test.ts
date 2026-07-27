@@ -33,6 +33,15 @@ const fixtures = vi.hoisted(() => ({
   duplicateRows: [] as unknown[],
   contactRows: [] as unknown[],
   enrolmentRows: [] as unknown[],
+  // PR 8A hardening (task 3) — `fetchNarrowerNonOverridableBlockByCompany`
+  // queries `wizmatchCompanyPolicies` a SECOND time with a DIFFERENT
+  // projection (companyId/scopeKey/blockClass only) and different WHERE
+  // conditions (blocked + non-overridable + not entire_company). A mock that
+  // returned `companyRows` verbatim for this query too would falsely detect
+  // a narrower non-overridable block on every fixture (mock vacuity — the
+  // exact defect class flagged repeatedly in this project's PR reviews).
+  // Empty by default; a test opts in explicitly.
+  narrowerNonOverridableRows: [] as unknown[],
 }));
 
 function makeChain(rows: unknown[]) {
@@ -53,9 +62,16 @@ vi.mock('../db', async (importOriginal) => {
   return {
     ...actual,
     db: {
-      select: () => ({
+      // Captures the select projection so the two different queries against
+      // `wizmatchCompanyPolicies` can be told apart by shape, rather than
+      // both returning the same fixture array regardless of which ran.
+      select: (projection: Record<string, unknown> = {}) => ({
         from: (table: unknown) => {
-          if (table === actual.wizmatchCompanyPolicies) return makeChain(fixtures.companyRows);
+          if (table === actual.wizmatchCompanyPolicies) {
+            return 'policyId' in projection
+              ? makeChain(fixtures.companyRows)
+              : makeChain(fixtures.narrowerNonOverridableRows);
+          }
           if (table === actual.wizmatchCompanyDuplicates) return makeChain(fixtures.duplicateRows);
           if (table === actual.wizmatchContactCandidates) return makeChain(fixtures.contactRows);
           if (table === actual.wizmatchOutreachEnrolments) return makeChain(fixtures.enrolmentRows);
@@ -93,6 +109,7 @@ beforeEach(() => {
   fixtures.duplicateRows = [];
   fixtures.contactRows = [];
   fixtures.enrolmentRows = [];
+  fixtures.narrowerNonOverridableRows = [];
 });
 
 describe('buildTodayQueues — bucket assignment', () => {
@@ -258,7 +275,158 @@ describe('buildTodayQueues — bucket assignment', () => {
     expect(queues.pausedOrBlocked).toHaveLength(1);
     expect(queues.needsReview).toHaveLength(0);
   });
+});
 
+// PR 8A hardening (task 3) — non-overridable at every scope.
+describe('buildTodayQueues — non-overridable block at a narrower scope (ADR-006 D-17/L1c)', () => {
+  it('disables every action and names the narrower scope, even though the root row itself is only a standard overridable block', async () => {
+    fixtures.companyRows = [
+      companyRow({ companyId: 'narrow-1', outreachEligibility: 'blocked', isNonOverridable: false, blockClass: 'standard' }),
+    ];
+    fixtures.narrowerNonOverridableRows = [
+      { companyId: 'narrow-1', scopeKey: 'region:india', blockClass: 'compliance' },
+    ];
+    eligibilityByCompany.set('narrow-1', {
+      decision: 'deny', reasonCode: 'manual_block_by_operator', blockerCode: 'policy_manual_block_by_operator',
+      enforcementMode: 'enforce', actsOnDecision: true,
+    });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.pausedOrBlocked).toHaveLength(1);
+    const item = queues.pausedOrBlocked[0];
+    expect(item.isNonOverridable).toBe(true);
+    expect(item.nonOverridableScopeKey).toBe('region:india');
+    expect(item.disabledReason).toMatch(/non-overridable block at scope 'region:india'/);
+  });
+
+  it('ignores a supersededAt/entire_company-scoped row from the narrower-block query (already surfaced via the root row)', async () => {
+    fixtures.companyRows = [companyRow({ companyId: 'root-only-1', outreachEligibility: 'blocked', isNonOverridable: true, blockClass: 'legal' })];
+    // Simulates the root row itself appearing in a naive query result — must be skipped, not double-counted.
+    fixtures.narrowerNonOverridableRows = [{ companyId: 'root-only-1', scopeKey: 'entire_company', blockClass: 'legal' }];
+    eligibilityByCompany.set('root-only-1', {
+      decision: 'deny', reasonCode: 'legal_notice', blockerCode: 'policy_legal_notice',
+      enforcementMode: 'enforce', actsOnDecision: true,
+    });
+
+    const queues = await buildTodayQueues('tenant-1');
+    const item = queues.pausedOrBlocked[0];
+    expect(item.isNonOverridable).toBe(true);
+    // Names the ROOT's own scope key (policyScopeKey), not the query artefact.
+    expect(item.nonOverridableScopeKey).toBe('entire_company');
+  });
+});
+
+// PR 8A hardening (task 7) — review-date resurfacing.
+describe('buildTodayQueues — review-date resurfacing', () => {
+  it('re-surfaces a paused company into Needs Review once its review_date has arrived', async () => {
+    fixtures.companyRows = [
+      companyRow({ companyId: 'paused-due', outreachEligibility: 'paused', reviewDate: '2020-01-01' }),
+    ];
+    eligibilityByCompany.set('paused-due', {
+      decision: 'deny', reasonCode: 'policy_paused_by_owner', blockerCode: 'policy_policy_paused_by_owner',
+      enforcementMode: 'enforce', actsOnDecision: true,
+    });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.pausedOrBlocked).toHaveLength(0);
+    expect(queues.needsReview).toHaveLength(1);
+    expect(queues.needsReview[0].reviewDateArrived).toBe(true);
+  });
+
+  it('keeps a paused company with a FUTURE review_date in Paused or Blocked', async () => {
+    fixtures.companyRows = [
+      companyRow({ companyId: 'paused-future', outreachEligibility: 'paused', reviewDate: '2099-01-01' }),
+    ];
+    eligibilityByCompany.set('paused-future', {
+      decision: 'deny', reasonCode: 'policy_paused_by_owner', blockerCode: 'policy_policy_paused_by_owner',
+      enforcementMode: 'enforce', actsOnDecision: true,
+    });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.pausedOrBlocked).toHaveLength(1);
+    expect(queues.needsReview).toHaveLength(0);
+    expect(queues.pausedOrBlocked[0].reviewDateArrived).toBe(false);
+  });
+
+  it('a BLOCKED company (not paused) never resurfaces just because its review_date has arrived', async () => {
+    fixtures.companyRows = [
+      companyRow({ companyId: 'blocked-with-date', outreachEligibility: 'blocked', reviewDate: '2020-01-01' }),
+    ];
+    eligibilityByCompany.set('blocked-with-date', {
+      decision: 'deny', reasonCode: 'manual_block_by_operator', blockerCode: 'policy_manual_block_by_operator',
+      enforcementMode: 'enforce', actsOnDecision: true,
+    });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.pausedOrBlocked).toHaveLength(1);
+    expect(queues.needsReview).toHaveLength(0);
+  });
+
+  it('a null review_date retains its settled meaning (no resurfacing signal at all)', async () => {
+    fixtures.companyRows = [
+      companyRow({ companyId: 'blocked-no-date', outreachEligibility: 'blocked', reviewDate: null }),
+    ];
+    eligibilityByCompany.set('blocked-no-date', {
+      decision: 'deny', reasonCode: 'manual_block_by_operator', blockerCode: 'policy_manual_block_by_operator',
+      enforcementMode: 'enforce', actsOnDecision: true,
+    });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.pausedOrBlocked[0].reviewDateArrived).toBe(false);
+  });
+});
+
+// PR 8A hardening (task 8) — routed/assigned queue.
+describe('buildTodayQueues — routed queue', () => {
+  it('surfaces an existing_client company (account_owner route) in the routed queue, not Needs Review or Ready to Contact', async () => {
+    fixtures.companyRows = [
+      companyRow({ companyId: 'routed-1', outreachEligibility: 'eligible', relationshipType: 'existing_client' }),
+    ];
+    eligibilityByCompany.set('routed-1', {
+      decision: 'allow', reasonCode: 'relationship_existing_client', blockerCode: null,
+      enforcementMode: 'shadow', actsOnDecision: false,
+      recommendedRoute: 'account_owner', accountOwnerUserId: 'user-42',
+    });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.routed).toHaveLength(1);
+    expect(queues.needsReview).toHaveLength(0);
+    expect(queues.readyToContact).toHaveLength(0);
+    expect(queues.routed[0].accountOwnerUserId).toBe('user-42');
+    expect(queues.routed[0].recommendedRoute).toBe('account_owner');
+    expect(queues.counts.routed).toBe(1);
+  });
+
+  it('an ordinary standard_outreach company is never placed in the routed queue', async () => {
+    fixtures.companyRows = [companyRow({ companyId: 'not-routed-1', outreachEligibility: 'eligible' })];
+    fixtures.contactRows = [{ companyId: 'not-routed-1', confidenceScore: 9, metadata: {} }];
+    eligibilityByCompany.set('not-routed-1', {
+      decision: 'allow', reasonCode: null, blockerCode: null, enforcementMode: 'shadow', actsOnDecision: false,
+      recommendedRoute: 'standard_outreach', accountOwnerUserId: null,
+    });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.routed).toHaveLength(0);
+    expect(queues.readyToContact).toHaveLength(1);
+  });
+
+  it('a blocked company is never placed in the routed queue even if its recommendedRoute would otherwise qualify', async () => {
+    fixtures.companyRows = [
+      companyRow({ companyId: 'blocked-routed', outreachEligibility: 'blocked', relationshipType: 'existing_client' }),
+    ];
+    eligibilityByCompany.set('blocked-routed', {
+      decision: 'deny', reasonCode: 'company_removal_request', blockerCode: 'policy_company_removal_request',
+      enforcementMode: 'enforce', actsOnDecision: true,
+      recommendedRoute: 'account_owner', accountOwnerUserId: 'user-42',
+    });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.routed).toHaveLength(0);
+    expect(queues.pausedOrBlocked).toHaveLength(1);
+  });
+});
+
+describe('buildTodayQueues — bucket assignment (contact confidence)', () => {
   // `deriveConfidenceTier` reads `confidenceTier` off `metadata.raw`. Passing
   // `metadata` itself meant the cascade-computed tier was never found and every
   // row fell through to the numeric threshold.

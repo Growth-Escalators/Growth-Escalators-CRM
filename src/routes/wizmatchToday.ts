@@ -21,6 +21,7 @@
 import { Router, type Request, type Response } from 'express';
 import { buildTodayQueues } from '../modules/outreach/decisionWorkbench';
 import { runTodayActions, TodayActionValidationError, type TodayActionRequest } from '../modules/outreach/decisionWorkbenchActions';
+import { wizmatchPilotGate } from '../middleware/wizmatchPilotGate';
 
 const router = Router();
 
@@ -40,6 +41,10 @@ function featureGate(_req: Request, _res: Response, next: (route?: string) => vo
   next();
 }
 router.use(featureGate);
+// PR 8A hardening — pilot roster enforcement (§4 "read queues"/"Today
+// actions" are pilot-member surfaces). Applied before the role checks below
+// so a non-pilot user never reaches either route regardless of role.
+router.use(wizmatchPilotGate);
 
 function actorFrom(req: Request) {
   // `role` is carried into the action layer because PRD-005 §4 gates "admin

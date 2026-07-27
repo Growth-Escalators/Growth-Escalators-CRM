@@ -21,6 +21,7 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { db, wizmatchCompanies, wizmatchCompanyDuplicates, wizmatchStaffingEvents } from '../../db';
 import { auditLog } from '../../services/auditLogger';
+import { getReasonCodeMeta } from '../../config/wizmatchReasonCodes';
 import type { PolicyActor } from './policyService';
 
 export class DuplicateValidationError extends Error {
@@ -107,6 +108,15 @@ export async function resolveDuplicate(
   }
   if (!params.reasonCode?.trim()) {
     throw new DuplicateValidationError('reasonCode is required to resolve a duplicate.', 'reason_code_required');
+  }
+  // PR 8A hardening — same fail-closed taxonomy check as the policy write
+  // chokepoint (policyService.ts): a duplicate resolution is a permanent,
+  // evidence-required decision, so it gets no less scrutiny than a policy row.
+  if (!getReasonCodeMeta(params.reasonCode)) {
+    throw new DuplicateValidationError(
+      `Unknown reasonCode '${params.reasonCode}'. It is not in the ratified §9 taxonomy.`,
+      'unknown_reason_code',
+    );
   }
 
   const updated = await db.transaction(async (tx) => {

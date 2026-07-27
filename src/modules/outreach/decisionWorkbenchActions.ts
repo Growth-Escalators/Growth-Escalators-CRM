@@ -31,6 +31,7 @@ import {
   assignAccountOwner,
   PolicyValidationError,
   PolicyOverrideRefusedError,
+  PolicyStaleStateError,
   type PolicyActor,
   type PolicyWriteInput,
 } from './policyService';
@@ -78,6 +79,18 @@ export interface TodayActionRequest {
   evidenceRef?: string;
   reviewDate?: string;
   ownerUserId?: string;
+  /**
+   * Stale-state precondition (PR 8A hardening). When supplied, the target's
+   * CURRENT root policy id must match exactly, or the action is rejected
+   * before any write — the workbench's own re-read below is what catches a
+   * predecessor that became non-overridable or was superseded since page
+   * load, but only a client-supplied precondition can catch the case where a
+   * DIFFERENT, still-valid decision was made in between (e.g. another
+   * operator already approved with different evidence). Optional and
+   * per-target-checked, not per-request, so one stale target never aborts
+   * the rest of a bulk selection.
+   */
+  expectedPolicyId?: string | null;
 }
 
 export interface TodayActionResult {
@@ -185,6 +198,17 @@ async function applyCompanyEligibilityAction(
     return;
   }
 
+  // PR 8A hardening — approval provenance requires a real actor. Every write
+  // below records `actorUserId` on both the policy row and its audit event;
+  // an undefined actor here would silently produce a row nobody can be shown
+  // to have approved. Fail closed rather than let the DB accept a null.
+  if (!actor.userId) {
+    throw new TodayActionValidationError(
+      'This action requires an authenticated actor with a user id.',
+      'actor_required',
+    );
+  }
+
   // Re-reads the CURRENT root row for this company at call time — the
   // server-side re-validation the bulk contract requires. A company whose
   // root row was superseded (or blocked non-overridably) since the page
@@ -197,6 +221,41 @@ async function applyCompanyEligibilityAction(
   const root = effective.rootRow;
   if (!root) {
     throw new TodayActionValidationError('This company has no root policy row yet (policy_missing_root).', 'policy_missing_root');
+  }
+
+  // PR 8A hardening — stale-state protection. Only enforced when the client
+  // supplies a precondition; omitting it falls back to the re-read-and-
+  // re-validate behaviour this function already had, so older/not-yet-updated
+  // callers are not broken. When supplied, a mismatch means a DIFFERENT
+  // decision was made on this company since the operator's view was built —
+  // even one that would otherwise pass every check below — and must be
+  // rejected before any write, never partially applied.
+  if (request.expectedPolicyId !== undefined && request.expectedPolicyId !== root.id) {
+    throw new TodayActionValidationError(
+      "This company's policy has changed since you loaded it. Refresh and retry.",
+      'stale_policy_state',
+    );
+  }
+
+  // PR 8A hardening (task 3) — a non-overridable block at ANY active scope
+  // (region/business_unit/location/specific_signal/specific_requirement, not
+  // only entire_company) must refuse every unblocking action, for every
+  // role including admin — ADR-006 D-17/L1c: "no admin override at any
+  // scope". The previous check only ever inspected the ROOT row, so a
+  // narrower non-overridable block (e.g. a `region:india` compliance
+  // removal) never stopped `approve_queue` from writing the root to
+  // `eligible` — a misleading write the gate would still deny at request
+  // time, but one the workbench had no business making in the first place.
+  const nonOverridableBlock = effective.allActiveRows.find(
+    (r) => r.outreachEligibility === 'blocked' && r.isNonOverridable,
+  );
+  if (nonOverridableBlock && UNBLOCKING_ACTIONS.includes(request.action)) {
+    throw new TodayActionValidationError(
+      `This company has a non-overridable block at scope '${nonOverridableBlock.scopeKey}' ` +
+        `(block_class='${nonOverridableBlock.blockClass}'). No override, resume or reclassify ` +
+        'action is available at any scope.',
+      'non_overridable_block_at_scope',
+    );
   }
 
   // PRD-005 §4: "Write a policy row (approve/pause/block/reclassify)" is
@@ -214,6 +273,65 @@ async function applyCompanyEligibilityAction(
       'Overriding a block requires an admin.',
       'requires_admin_override',
     );
+  }
+
+  // PR 8A hardening (task 1) — approval provenance + idempotency.
+  // `approve_queue` converting a `review`-state company into `eligible` must
+  // not be re-appliable without limit: each successful call writes a new
+  // superseding row (a fresh audit event), so a double-submitted click would
+  // otherwise leave a trail of look-alike "re-approvals" with no new
+  // decision behind them. Already-eligible is treated as a safe, informative
+  // rejection — not a silent no-op and not a further write — so the caller
+  // (and the UI's optimistic-update logic) can tell the difference between
+  // "your click did nothing new" and "your click succeeded".
+  if (request.action === 'approve_queue' && root.outreachEligibility === 'eligible') {
+    throw new TodayActionValidationError(
+      'This company is already eligible; the approval was already recorded.',
+      'already_approved',
+    );
+  }
+
+  // PR 8A hardening (task 6) — `set_review_date` must change ONLY the review
+  // date (plus the metadata required to store it). It is handled as its own
+  // branch, entirely separate from the generic `base` below, because the
+  // generic path (a) applies `ACTION_DEFAULT_REASON_CODE`, which has no entry
+  // for this action and fell through to the unrelated `'manual_reclassified'`
+  // — silently overwriting e.g. a `company_removal_request` row's reasonCode,
+  // which flows straight into `isPreparationAllowed(reasonCode)` at the next
+  // gate evaluation and would have flipped a compliance-blocked company back
+  // to preparable; and (b) accepts request-supplied evidence/reason
+  // overrides, which this action must never apply. Every field below is
+  // read from `root` verbatim; the ONLY field that can differ from the
+  // predecessor is `reviewDate`.
+  if (request.action === 'set_review_date') {
+    if (!root.outreachEligibility || !root.externalHiringPolicy || !root.relationshipType || !root.reasonCode) {
+      // The root row's own CHECK constraints guarantee these are set; this
+      // branch exists so a future defect never silently defaults a missing
+      // dimension to a cold-start value (which would be an allow-adjacent
+      // weakening) instead of refusing outright.
+      throw new TodayActionValidationError(
+        "This company's policy row is missing a required field; refusing to change its review date " +
+          'without a fully-resolved policy.',
+        'policy_dimension_unresolved',
+      );
+    }
+    await writeCompanyPolicy(actor, companyId, {
+      scopeType: 'entire_company',
+      outreachEligibility: root.outreachEligibility,
+      externalHiringPolicy: root.externalHiringPolicy,
+      relationshipType: root.relationshipType,
+      isPermanent: root.isPermanent,
+      blockClass: root.blockClass,
+      isNonOverridable: root.isNonOverridable,
+      reasonCode: root.reasonCode,
+      evidenceKind: root.evidenceKind ?? undefined,
+      evidenceText: root.evidenceText ?? undefined,
+      evidenceUrl: root.evidenceUrl ?? undefined,
+      evidenceRef: root.evidenceRef ?? undefined,
+      reviewDate: request.reviewDate,
+      expectedPolicyId: request.expectedPolicyId,
+    });
+    return;
   }
 
   const reasonCode = request.reasonCode || ACTION_DEFAULT_REASON_CODE[request.action] || 'manual_reclassified';
@@ -235,10 +353,22 @@ async function applyCompanyEligibilityAction(
     evidenceUrl: request.evidenceUrl ?? root.evidenceUrl ?? undefined,
     evidenceRef: request.evidenceRef ?? root.evidenceRef ?? undefined,
     reviewDate: request.reviewDate,
+    // Defence in depth (task 5): re-asserted inside `writeCompanyPolicy`'s own
+    // transaction against the row IT reads, closing the gap between this
+    // function's own `resolveEffectivePolicy` read above and the write below.
+    expectedPolicyId: request.expectedPolicyId,
   };
 
   switch (request.action) {
     case 'approve_queue':
+      // Provenance (task 1): `writeCompanyPolicy` already records
+      // `actorUserId` (now guaranteed non-null above), `source: 'human'`,
+      // `reasonCode`, evidence and the full supersession chain
+      // (`previousPolicyId`/`fromState`/`toState` on the paired
+      // `wizmatch_company_policy_events` row) — the exact provenance fields
+      // this schema has, with no `approved_by`/`approved_at` columns to
+      // duplicate them into (those exist only on `wizmatch_outreach_batches`,
+      // a different table, per PRD-005 §10.5).
       await writeCompanyPolicy(actor, companyId, { ...base, outreachEligibility: 'eligible' });
       return;
     case 'skip':
@@ -254,9 +384,6 @@ async function applyCompanyEligibilityAction(
     case 'reject':
       await writeCompanyPolicy(actor, companyId, { ...base, outreachEligibility: 'blocked' });
       return;
-    case 'set_review_date':
-      await writeCompanyPolicy(actor, companyId, { ...base, outreachEligibility: root.outreachEligibility ?? 'needs_review' });
-      return;
     default:
       throw new TodayActionValidationError(`Action '${request.action}' is not a company-target action.`, 'unsupported_action');
   }
@@ -271,6 +398,10 @@ async function applyDuplicateAction(actor: TodayActor, duplicateId: string, requ
 function messageAndCodeFor(error: unknown): { message: string; code?: string } {
   if (error instanceof PolicyValidationError) return { message: error.message, code: error.code };
   if (error instanceof PolicyOverrideRefusedError) return { message: error.message, code: 'override_refused' };
+  // Same stable code the pre-check above uses, whether the staleness is
+  // caught by this function's own re-read or (closing the TOCTOU gap) by
+  // `writeCompanyPolicy`'s own in-transaction check on the same precondition.
+  if (error instanceof PolicyStaleStateError) return { message: error.message, code: 'stale_policy_state' };
   if (error instanceof DuplicateValidationError) return { message: error.message, code: error.code };
   if (error instanceof TodayActionValidationError) return { message: error.message, code: error.code };
   if (error instanceof Error) return { message: error.message };

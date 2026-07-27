@@ -28,6 +28,7 @@ import { auditLog } from '../../services/auditLogger';
 import { normalizeDomain } from '../../services/wizmatchContactIntelligenceRepo';
 import { buildScopeKey } from './scopeKey';
 import { resolveEffectivePolicy, type EffectivePolicy } from './policyResolver';
+import { getReasonCodeMeta } from '../../config/wizmatchReasonCodes';
 import type {
   BlockClass,
   EvidenceKind,
@@ -117,6 +118,24 @@ export interface PolicyWriteInput {
   isNonOverridable?: boolean;
   reviewDate?: string;
   blockClass?: BlockClass;
+  /**
+   * Stale-state precondition (PR 8A hardening). When supplied, the scope's
+   * CURRENT active policy id at this scope_key must match exactly (or be
+   * `null` when no active row exists at this scope yet), checked inside the
+   * SAME transaction that reads the predecessor — not by a caller's earlier,
+   * separate read — so there is no window between "check" and "act" for a
+   * concurrent write to slip through. `undefined` (the default) skips the
+   * check entirely, preserving this function's existing behaviour for
+   * callers that do not supply a precondition.
+   */
+  expectedPolicyId?: string | null;
+}
+
+export class PolicyStaleStateError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PolicyStaleStateError';
+  }
 }
 
 const SCOPE_TYPES: ScopeType[] = [
@@ -138,6 +157,20 @@ const SCOPE_TYPES: ScopeType[] = [
 function validatePolicyWrite(input: PolicyWriteInput): void {
   if (!SCOPE_TYPES.includes(input.scopeType)) {
     throw new PolicyValidationError(`Unknown scopeType '${input.scopeType}'.`, 'unknown_scope_type');
+  }
+  // PR 8A hardening — reasonCode is free text with no DB CHECK behind it
+  // (§9 is documentation-only until the taxonomy is made database-backed), so
+  // this write chokepoint is the only place that can fail closed on a typo, a
+  // retired code, or a client-invented string. Without this, an unrecognised
+  // reasonCode was stored, displayed and — via `isPreparationAllowed`'s own
+  // now-fixed fail-open default — silently treated as "preparation allowed".
+  // A single source of truth: no UI, route or job may invent a second
+  // interpretation of what a valid reason code is.
+  if (!getReasonCodeMeta(input.reasonCode)) {
+    throw new PolicyValidationError(
+      `Unknown reasonCode '${input.reasonCode}'. It is not in the ratified §9 taxonomy.`,
+      'unknown_reason_code',
+    );
   }
   // H-8 / D-37 — fail closed on every unknown enum value; never fall through.
   if (input.outreachEligibility !== undefined && !OUTREACH_ELIGIBILITY_VALUES.includes(input.outreachEligibility)) {
@@ -356,6 +389,15 @@ export async function writeCompanyPolicy(
         ),
       );
     const previousRow = previousRows[0] ?? null;
+    // PR 8A hardening — stale-state protection, checked against the row this
+    // SAME transaction just read (not a caller's earlier, separate read), so
+    // there is no gap between validating the precondition and acting on it.
+    if (input.expectedPolicyId !== undefined && (previousRow?.id ?? null) !== input.expectedPolicyId) {
+      throw new PolicyStaleStateError(
+        `Scope '${scopeKey}' has changed since this precondition was read (expected policy id ` +
+          `'${input.expectedPolicyId ?? 'null'}', found '${previousRow?.id ?? 'null'}').`,
+      );
+    }
     if (previousRow?.isNonOverridable) {
       throw new PolicyOverrideRefusedError(
         `Scope '${scopeKey}' is non-overridable (block_class='${previousRow.blockClass}'); it cannot be superseded.`,
