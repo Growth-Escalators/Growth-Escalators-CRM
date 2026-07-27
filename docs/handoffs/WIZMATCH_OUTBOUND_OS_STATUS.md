@@ -67,10 +67,30 @@ Chat-independent status for the `ge/outbound-0X-*` stacked-PR sequence. Read thi
 > §16. **Still not pushed, not merged, `0037` still not applied to production or Railway. PR 3 not
 > started.**
 >
-> **Updated 2026-07-27 (final independent review): PR 8B is CODE READY at `7a0cea20`.**
-> Zero Critical, zero High — **the first PR in this stack to survive its review with no corrective
-> commit** (PR 8 needed six High fixed; PR 8A three). Marker: `.ai/OUTBOUND_PR8B_CODE_READY`. Full
-> report: [`docs/reviews/wizmatch-outbound-pr8b-opus-review.md`](../reviews/wizmatch-outbound-pr8b-opus-review.md).
+> **Updated 2026-07-27 (final independent review, CORRECTED): PR 8B is NOT CODE READY.**
+> An earlier revision of this entry declared CODE READY at `7a0cea20` with "zero Critical, zero High".
+> **That verdict was wrong and the marker has been REVOKED.** Six High findings, all independently
+> re-verified. Full report:
+> [`docs/reviews/wizmatch-outbound-pr8b-opus-review.md`](../reviews/wizmatch-outbound-pr8b-opus-review.md).
+>
+> **Why the first verdict failed:** the five parallel review agents went idle without reporting; the
+> lead issued a verdict on his own pass alone; the agents then returned and found five High issues he
+> had missed. The instructive case — the lead's mutation deleted the whole `NOT EXISTS` block in
+> `prepareCompanies.ts` and went red, so tenancy was graded PASS. Deleting only
+> `AND p.tenant_id = s.tenant_id` leaves **25/25 green**, because a doc comment on line 276 satisfies
+> the source grep. A passing control proves only what it mutates.
+>
+> **The six High:** blocked-signal tenancy guard has no working control; the readiness CLI reads
+> `.env` from `cwd` and lets stale shell exports override it (**it can report SAFE against
+> sending-enabled + a live Smartlead credential, and it *is* the G3 gate**); the gate fails OPEN on an
+> unrecognised `scope_type` with no DB CHECK; blocked signals still rank/score via client discovery (a
+> third call site the PASS verdict missed); the bulk bar enables actions its own rows forbid, on the
+> default action of the queue where those rows live. Plus five Medium — notably **the pilot roster
+> does not gate the send/spend routes at all**.
+>
+> **Next: another PR 8B implementation round, then a fresh review. Do not proceed to G1/G2/G3.**
+>
+> **Superseded claims from the withdrawn revision** (kept so the correction is auditable):
 > Six mutation controls run against the integrated tree, all six genuinely red — including a dropped
 > tenant predicate, which closes PR 3's B-2 `.where()`-discarding vacuity class. All 17 readiness
 > scenarios executed for real with synthetic values; no secret printed. Gates: build 0, `npm test`

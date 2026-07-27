@@ -6,6 +6,72 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-27 — WizMatch Outbound OS: PR 8B review CORRECTED — NOT CODE READY, marker REVOKED — Claude
+
+**Supersedes the entry below it.** That entry recorded PR 8B as CODE READY at `7a0cea20` with zero
+Critical and zero High. **The verdict was wrong.** `.ai/OUTBOUND_PR8B_CODE_READY` has been deleted.
+
+**What happened:** the five parallel review agents went idle without returning reports. The lead
+requested them three times, then issued a verdict on the strength of his own pass. The agents
+subsequently returned complete reports containing **six High findings**, of which the lead had
+independently found exactly one — graded Medium.
+
+**The instructive failure, recorded because it generalises:** the lead ran six mutation controls and
+all six went red, which felt like strong evidence. But a passing control proves only what it mutates.
+Mutation 5 deleted the entire `NOT EXISTS` block in `prepareCompanies.ts` → red → "tenancy PASS".
+R5 deleted only `AND p.tenant_id = s.tenant_id` → **25/25 still green**, because a doc comment at
+`prepareCompanies.ts:276` satisfies the test's `expect(source).toContain(...)` grep and the SQL-
+interpreting mock never checks the tenant correlation. Reproduced by the lead before accepting it.
+
+**Six High, each re-verified by the lead, not accepted on an agent's word:**
+1. Blocked-signal exclusion's cross-tenant guard has **no working control** (mutation-proven).
+2. `scripts/wizmatch-pilot-readiness.ts:28` resolves `.env` from `cwd`, not the repo — the audited
+   file is silently ignored from any other directory (**red/green pair**: same dangerous `.env`, SAFE
+   from one cwd, 2 DANGERs from another).
+3. dotenv does not override existing `process.env`, so stale shell exports beat the file
+   (**reproduced**: `.env` with sending enabled + a fake Smartlead key audits as exit 0).
+   2 and 3 together: **the CLI can report SAFE against sending-enabled with a live Smartlead
+   credential — and that CLI is the mechanical G3 gate.**
+4. `outreachGate.ts:476` scans `applicableRows` (closed candidate list) while
+   `decisionWorkbenchActions.ts:256` scans `allActiveRows`; an unrecognised `scope_type` is invisible
+   to the gate. **No `CHECK (scope_type IN (...))` exists** — `0037:21` is bare `text NOT NULL` and
+   constraints `:44-55` are vacuously satisfied. The G2 backfill is the realistic write path.
+5. Blocked signals still rank/score/recommend through client discovery — `ClientDiscoveryInput.id`
+   **is** the signal id (`routes/wizmatch.ts:396`), `fetchBlockedScopedIds` is only ever called with
+   `'specific_requirement'`, and `active_signal_count` has no policy predicate. A **third** call site
+   the review's own "PASS" verdict missed.
+6. `computeBulkCapability` is role-only, and `decisionWorkbench.ts:618` routes every non-overridable
+   company into the queue where `resume` is the **default** bulk action. Upgraded from the lead's
+   own Medium — the reachability argument is decisive.
+
+**Five Medium, verified:** bulk denies `team_lead` at count=1 where the route allows; `GET
+/staffing/access` (`wizmatchStaffing.ts:39`) is registered above the pilot gate (`:46`); **the pilot
+roster does not gate the 82-route send/spend router at all** (`grep -c wizmatchPilotGate
+src/routes/wizmatch.ts` → 0), so a non-rostered team_lead can still trigger paid discovery;
+`NODE_ENV` still selects Staffing phase defaults; the capability-attachment wiring has zero tests and
+the PR 9/10 boundary guard is evaded by `SmartleadCsvAdapter`.
+
+**Two agent claims were checked and are correctly bounded, not inflated:** H-6 is not a security hole
+(the server refuses every target), and H-4 needs a malformed row app code will not write.
+
+**Next:** another PR 8B implementation round addressing the six High and five Medium, then a fresh
+independent review. **Do not proceed to G1, G2 or G3.**
+
+**G1 is separately NO-GO** (`docs/go-live/WIZMATCH_G1_PRODUCTION_PREFLIGHT.md`, commit `e7ecc3fe`).
+Genuine wins from that preflight, unaffected by this correction: production target positively
+identified; deployed commit `1e748125` = `origin/main` with zero drift; **`NODE_ENV=production`
+VERIFIED at runtime** via `GET /health` (closes PR 8A H-4's open item); the admin SPA is confirmed
+built and shipped on deploy; `docs/DEPLOYMENT.md`'s worker service does not exist. Blockers: no
+production DB access; the CRM's Postgres not positively identified among three; U-7 unsigned; no
+production-sized restore; and **migrations run automatically at container start**, so merging to
+`main` auto-applies `0037` — G1 and G3 are coupled and the runbook does not say so.
+
+**Nothing was pushed, merged or deployed as a result of this correction beyond the feature branch.**
+Migration `0037` unapplied, backfill not run, enforcement `shadow`, sending/Smartlead/preparation/
+adapter/paid-discovery all disabled.
+
+---
+
 ## 2026-07-27 — WizMatch Outbound OS: PR 8B independent review — CODE READY at `7a0cea20` — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT MERGED
 
 **Why:** PR 8B was self-reported as implemented. Standing practice on this stack reserves

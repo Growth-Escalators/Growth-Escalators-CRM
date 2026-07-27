@@ -5,40 +5,56 @@
 - **Reviewed commit:** `7a0cea2005ad8f8efeb460840b53f5cff201521f`
 - **Reviewed at:** 2026-07-27T10:30:00Z
 - **Reviewer:** independent Opus review session (not the implementing session)
-- **Corrections made during this review:** none — no Critical or High defect was found
+- **Corrections made during this review:** none to code. **The review's own first verdict was
+  corrected — see below.**
 
 ---
 
 ## FINAL VERDICT
 
-**CODE READY at `7a0cea20`.** Marker written: `.ai/OUTBOUND_PR8B_CODE_READY`.
+> ## **NOT CODE READY. Marker REVOKED.**
+>
+> **An earlier revision of this document declared CODE READY at `7a0cea20` with "zero Critical, zero
+> High". That verdict was WRONG and is withdrawn.** `.ai/OUTBOUND_PR8B_CODE_READY` was created and
+> has been deleted.
+>
+> **Six High-severity findings**, every one independently re-verified by the review lead. Two of them
+> break the readiness CLI that *is* the mechanical G3 gate. One proves a test this review originally
+> cited as its own evidence **cannot fail**.
 
-Zero Critical, zero High. Two Medium and four Low findings are recorded below; none blocks G3 under
-the required initial pilot configuration. Unlike PR 8 (six High fixed during review) and PR 8A (three
-High fixed during review), this branch required **no corrective commit** — the submitted code
-survived every control this review ran.
+### How the first verdict went wrong — stated plainly
 
-That verdict is deliberately narrow: it certifies the **code**. It does not certify the production
-schema, the backfill, or the deployment, all of which remain gated behind G1/G2/G3 approval tokens.
+The five parallel review agents were launched as specified, went idle without reporting, and the lead
+issued a verdict on the strength of his own pass alone. **The agents then returned complete reports,
+and they found what the lead had missed:** six High findings, of which the lead had independently
+found exactly one — and had graded it Medium.
+
+The lead's six mutation controls were real and all went red. But *a passing control proves only what
+it mutates.* The sharpest instance:
+
+- The lead's mutation 5 deleted the **entire `NOT EXISTS` block** in `prepareCompanies.ts`, correctly
+  went red, and was recorded as proving the tenancy guarantee.
+- R5 deleted **only the line `AND p.tenant_id = s.tenant_id`** — and **all 25 tests still passed**,
+  reproduced by the lead. The accompanying source-grep guard is satisfied by a **doc comment** on
+  line 276.
+
+Same file, same guarantee: one mutation red, one green. The green one was the one that mattered. A
+"PASS — tenancy" verdict was issued on a control that could not fail.
+
+**Recorded rather than smoothed over:** a single-reviewer pass with genuine mutation discipline still
+missed five of six High findings. The parallel-agent structure was not ceremony, and a verdict should
+not have been issued while it was outstanding.
 
 ---
 
-## Method, and an honest limitation
+## Method
 
-Five parallel read-only review agents were launched as specified (R1 policy/tenancy/block-scope,
-R2 roster/auth/RBAC, R3 capabilities/UI/a11y, R4 readiness/credentials, R5 test quality). **All five
-went idle without returning their reports** despite three escalating requests each. No agent output
-was received, so **nothing in this document rests on a subagent's word.**
+Five parallel read-only review agents (R1 policy/tenancy/block-scope, R2 roster/auth/RBAC,
+R3 capabilities/UI/a11y, R4 readiness/credentials, R5 test quality), plus the lead's own independent
+pass. The agents' reports arrived after the lead had already committed a verdict.
 
-The review lead therefore performed all five lanes directly. This is stated plainly rather than
-papered over, because the implementation report's own credibility rests on a five-agent
-reconciliation and a reader is entitled to know this review could not reproduce that structure. What
-this review substitutes for it is *more* mechanical evidence, not less: six red/green mutation
-controls executed against the integrated tree, all seventeen readiness scenarios executed for real,
-and line-by-line reading of every changed source file.
-
-Where a claim below says "verified", it means the lead ran the command or read the lines and can
-name them. Where it says "assessed", it means reasoned judgment without a mechanical control.
+**Every High and Medium below was re-verified by the lead before being accepted** — by mutation, by
+red/green command pair, or by reading the named lines. Nothing is accepted on an agent's word alone.
 
 ---
 
@@ -161,9 +177,118 @@ holds, and PR7 O-3 genuinely does not block G3 under the required configuration.
 ## Findings
 
 ### Critical — none
-### High — none
 
-### M-1 (Medium) — the readiness CLI's required-marker list stops at PR 8
+### HIGH — six, all re-verified by the lead
+
+#### H-1 — the tenancy guard on the blocked-signal exclusion has no working control (R5-F1)
+`src/__tests__/prepareCompanies.test.ts:612-615` asserts `expect(source).toContain('p.tenant_id = s.tenant_id')`.
+`src/modules/outreach/prepareCompanies.ts:276` contains that exact string **inside a doc comment**,
+so the grep is satisfied by prose. The behavioural mock at `:91-107` interprets the SQL, but its
+`excludesBlockedSignals` conjunction checks `NOT EXISTS`, the table name, `scope_type`,
+`outreach_eligibility` and `superseded_at` — **never the tenant correlation.**
+
+**Verified by mutation:** deleting only `AND p.tenant_id = s.tenant_id` from `:283` → **25/25 tests
+still pass.** The only cross-tenant guard on that subquery has no control at all, and this review's
+first revision graded it PASS.
+
+#### H-2 — readiness CLI reads `.env` from `cwd`, silently ignoring the audited file (R4-H1)
+`scripts/wizmatch-pilot-readiness.ts:28` uses `import 'dotenv/config'`, which resolves `.env` relative
+to `process.cwd()`, while `repoRoot` is resolved independently from `__dirname`. Run from any other
+directory and the file is ignored with no "loaded 0 variables" notice — and every marker/migration
+check still reports OK, because those key off `repoRoot`.
+
+**Verified by red/green pair**, same dangerous `.env` (sending enabled + a fake Smartlead credential):
+from another cwd → `RESULT: no dangerous configuration detected`, exit 0. With `cwd` set to the file's
+directory → **2 DANGERs, NOT SAFE.** The runbook's G3 step instructs exactly the failing usage.
+
+#### H-3 — stale shell exports silently override the audited `.env` (R4-H2)
+dotenv does not override variables already in `process.env`. **Verified:** a `.env` with
+`WIZMATCH_SENDING_ENABLED=true` and a Smartlead credential, with the safe values exported in the
+shell → "sending is off", "No Smartlead-shaped environment variable is set", **exit 0.** This repo's
+own dev workflow exports those same variables.
+
+**H-2 and H-3 together mean the readiness CLI can report SAFE against a configuration with sending
+enabled and a live Smartlead credential present.** It is the mechanical G3 gate. This is why the
+"all 17 scenarios pass" result in this document is necessary but **not sufficient** — the matrix
+passes env vars inline and never exercises the `.env` path the runbook actually prescribes.
+
+#### H-4 — the gate fails OPEN on an unrecognised `scope_type` (R1-F1)
+`outreachGate.ts:476` scans `effective.applicableRows`, built from `buildCandidateScopeKeys` — a
+closed list of six known scope shapes. A row at any other `scope_type` never becomes a candidate, so
+the gate never sees it. `decisionWorkbenchActions.ts:256` scans `allActiveRows` and **does** catch it.
+The two layers disagree, and **the side that gates the send is the one that fails open.**
+
+**Verified:** there is no `CHECK (scope_type IN (...))`. `0037_unknown_siren.sql:21` is a bare
+`"scope_type" text NOT NULL`, and every constraint at `:44-55` is a conditional an unrecognised value
+satisfies vacuously. Validation exists only in app code (`policyService.ts:158`) — which a backfill
+or manual SQL bypasses. **The G2 backfill is the realistic write path.**
+
+#### H-5 — blocked signals still rank, score and drive recommendations (R1-F2)
+PR 8B closed the blocked-signal leak at two call sites and this document graded that **PASS**. There
+is a **third**. **Verified:** `routes/wizmatch.ts:396` maps `id: row.id` from
+`SELECT s.id FROM wizmatch_job_signals s`, so `ClientDiscoveryInput.id` **is the signal id**;
+`fetchBlockedScopedIds` is called **only** with `'specific_requirement'`, never `'specific_signal'`;
+and `active_signal_count` (`routes/wizmatch.ts:450-452`) carries **no policy predicate** while being a
+scoring input (`wizmatchClientDiscovery.ts:217-220`). A blocked signal still ranks, still recommends,
+and still raises its own company's discovery score.
+
+#### H-6 — the bulk bar enables actions the selected rows individually forbid (R3-H1)
+`decisionWorkbenchCapabilities.ts:168-172` — `computeBulkCapability` takes **only** the role and never
+sees an item. **This review originally graded it Medium; that was too low.** R3's reachability
+argument is correct and decisive: `decisionWorkbench.ts:618` routes **every** non-overridable company
+into "Paused or Blocked", and `TodayDecisionWorkbench.jsx:41` offers `resume` as a bulk action on
+exactly that queue. The guaranteed-to-fail combination is the **default bulk action on the queue
+where those rows all live.** The card renders "No action available" while the bar above it renders
+Resume enabled — from data already in the same payload.
+
+Not a security hole: the server refuses every target at `decisionWorkbenchActions.ts:256-264`. But
+per-target results are a safety net, not an honesty mechanism, and UI honesty *is* this PR's
+deliverable.
+
+---
+
+### MEDIUM — verified
+
+#### M-0 — bulk bar denies `team_lead` at selection size 1, where the server allows (R3-H2)
+`wizmatchToday.ts:98` defines `isBulk = targets.length > 1`, but the bar renders whenever
+`size > 0` (`TodayDecisionWorkbench.jsx:517`) and always resolves the admin-only bulk answer.
+**Verified.** A `team_lead` selecting one row is told "Bulk actions require admin" — a false
+statement. Fail-closed, but the UI gives two answers for one action.
+
+#### M-01 — `GET /staffing/access` is registered above the pilot gate (R2-F1)
+**Verified:** `wizmatchStaffing.ts:39` registers the route; the gate `router.use` is at `:46`. Express
+runs layers in registration order, so this is the one Staffing OS route reachable without roster
+membership. It returns `{allowed, configured, phases, role, capabilities}` — a config-state oracle for
+any role in the mount allow-list. Roster ids do **not** leak.
+
+#### M-02 — the pilot roster does not gate the send/spend routes (R2-F2)
+**Verified:** `src/index.ts:361` mounts the 82-route `wizmatchRouter` behind `requireRole` only —
+`grep -c wizmatchPilotGate src/routes/wizmatch.ts` → **0**. `POST /signals/:id/send`,
+`/contact-intelligence/…/discover`, `/signals/:id/discover-poc` and `/client-discovery/seed-company`
+live there. A `team_lead` deliberately left **off** the roster can still trigger contact discovery,
+and once sending is enabled, a real send. **The roster restricts the workbench but not the things
+that cost money or email a human** — the opposite of how "pilot roster" reads in the runbook. Either
+extend the gate or state the boundary explicitly in the runbook and operator guide.
+
+#### M-03 — `NODE_ENV` still selects Staffing phase defaults (R2-F3, upgraded from this review's L-2)
+`wizmatchStaffingAccess.ts:23` and `wizmatchStaffing.ts:31` both return `NODE_ENV !== 'production'`
+when the phase flag is unset. The second is a **live 404 gate** on phase B/C routes. This review
+originally recorded it as Low on the grounds that phases are display-only; R2 showed the second call
+site is admission-adjacent. The P8B-3 comment's "no environment-string branch" is true of `allowed`
+and **not** of the file.
+
+#### M-04 — the capability-attachment wiring has no test (R5-F4)
+**Verified:** `grep -ic capabilit src/__tests__/wizmatchTodayRoutes.test.ts` → **0**. Reverting
+`wizmatchToday.ts:86` to `res.json(queues)`, or hardcoding `'admin'` for `req.user?.role`, leaves
+1418/1418 green. That wiring **is** P8B-2's deliverable and the S2-4 fix.
+
+#### M-05 — the PR 9/10 scope-boundary guard proves far less than claimed (R5-F3)
+**Verified by construction:** `export class SmartleadCsvAdapter {}` — an entirely plausible PR 9 name
+— **evades** the guard, as does `smartleadExport()`. It is a four-identifier name list. The migration
+check tests only the `0038` prefix, so `0039` passes. Either strengthen it or downgrade the claim
+that it proves "PR 9 and PR 10 have not started".
+
+#### M-1 (Medium) — the readiness CLI's required-marker list stops at PR 8
 
 `src/services/wizmatchPilotReadiness.ts:36-45`. `REQUIRED_CODE_READY_MARKERS` covers PR 2, 3, 5, 6, 7
 and 8. It does **not** require `OUTBOUND_PR8A_CODE_READY`, and it has no PR 8B marker check at all —
@@ -260,7 +385,26 @@ one. This is a specification-versus-implementation mismatch in the brief, not a 
 - Nothing new from this branch. Dry-run review against real production data remains the precondition.
 
 ### Before G3 (merge + shadow deployment)
-- Confirm `NODE_ENV=production` on the deployed Railway service (no code check can substitute).
+
+**BLOCKING — must be fixed and re-reviewed before PR 8B can be CODE READY:**
+- **H-1** — fix the `prepareCompanies` mock to assert the tenant correlation; delete the source grep.
+- **H-2 / H-3** — load `.env` from an explicit absolute path with `{ override: true }`, print the
+  resolved path, and raise a `danger` when nothing parsed.
+- **H-5** — mirror the requirement fix into `rankClientDiscoveryQueueWithPolicy` /
+  `scoreClientDiscoveryOpportunityWithPolicy`, plus a `NOT EXISTS` on `active_signal_count`.
+- **H-6 / M-0** — intersect the bulk capability with the selected rows, and switch on count.
+- **M-01** — move `GET /staffing/access` below the pilot gate.
+- **M-02** — extend the pilot gate to the send/spend routes, **or** state the boundary explicitly in
+  the runbook and operator guide. Owner's call which.
+- **M-03** — default the Staffing phase flags to false.
+- **M-04** — add the capability-attachment route test.
+- **M-05** — strengthen the scope-boundary guard or downgrade its claim.
+
+**H-4** does not block G3 (shadow blocks nothing) but **blocks G4**, and its `CHECK (scope_type IN …)`
+half must be sequenced into a migration — **not `0038`**, which this session is forbidden to create.
+
+**Standing checklist items (unchanged):**
+- Confirm `NODE_ENV=production` on the deployed Railway service — **now verified**, see below.
 - Set `WIZMATCH_STAFFING_PILOT_USER_IDS` to an explicit UUID list — **not** the all-users override,
   and **not** containing a `viewer`, who would be silently denied.
 - Set `WIZMATCH_COMPANY_POLICY_ENABLED=true` and `WIZMATCH_DECISION_WORKBENCH_ENABLED=true`.

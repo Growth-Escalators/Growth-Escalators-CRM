@@ -2,35 +2,42 @@
 
 ## Active task
 
-**PR 8B is CODE READY at `7a0cea20` (independent review, 2026-07-27T10:30:00Z).** Marker:
-`.ai/OUTBOUND_PR8B_CODE_READY`. Report:
+**PR 8B is NOT CODE READY. The CODE_READY marker was created in error and has been REVOKED.**
+Branch `ge/outbound-08b-g3-pilot-completion`, PR #89 (draft). Report:
 [`docs/reviews/wizmatch-outbound-pr8b-opus-review.md`](../docs/reviews/wizmatch-outbound-pr8b-opus-review.md).
 
-**Zero Critical, zero High — no corrective commit was needed.** Two Medium (M-1 readiness-CLI marker
-list stops at PR 8; M-2 bulk bar is a pure role gate) and four Low are recorded; none blocks G3.
+**Six High findings, all independently re-verified.** An earlier revision of the review declared
+"zero Critical, zero High" and wrote `.ai/OUTBOUND_PR8B_CODE_READY`. That verdict was wrong. The five
+parallel review agents went idle without reporting, the lead issued a verdict on his own pass alone,
+and the agents then returned reports finding five High issues the lead had missed.
 
-Six mutation controls were run against the integrated tree and all six went genuinely red, including
-a tenant-predicate drop — the `.where()`-dropping vacuity class from PR 3's finding B-2 is closed.
-All 17 readiness scenarios were executed for real with synthetic values; no secret value was printed.
-Gates: `git diff --check` clean · `npm run build` exit 0 · `npm test` 126 files/1418 tests green ·
-`npm run admin:build` exit 0 · Playwright 99 passed/15 skipped/0 failed (skips verified as the
-documented no-password real-backend skips).
+**The instructive one:** the lead's mutation deleted the whole `NOT EXISTS` block in
+`prepareCompanies.ts` and went red. R5 deleted only `AND p.tenant_id = s.tenant_id` — 25/25 tests
+still passed, because a doc comment on line 276 satisfies the source grep. A passing control proves
+only what it mutates.
 
-**Limitation stated plainly:** the five parallel review agents all went idle without returning
-reports. The review lead performed all five lanes directly and substituted additional mechanical
-evidence. Nothing in the review report rests on a subagent's word.
+**The six High:** (H-1) the blocked-signal tenancy guard has no working control; (H-2) the readiness
+CLI reads `.env` from `cwd`, silently ignoring the audited file; (H-3) stale shell exports override
+it — H-2/H-3 together let the CLI report SAFE against sending-enabled + a live Smartlead credential,
+and that CLI *is* the G3 gate; (H-4) the gate fails OPEN on an unrecognised `scope_type` and there is
+no DB CHECK; (H-5) blocked signals still rank/score/recommend via client discovery — a third call
+site the "PASS" verdict missed; (H-6) the bulk bar enables actions the selected rows forbid, on the
+default action of the queue where those rows all live.
 
-**Two things G3 must not get wrong:**
-1. **M-1** — the readiness CLI does **not** check `OUTBOUND_PR8A_CODE_READY` or any PR 8B marker.
-   Verify both by hand; a green CLI does not cover them.
-2. **`viewer` is not a pilot-eligible role.** It is 403'd at the pilot gate even when named on the
-   roster. The read-only tier inside the pilot is `staff`/`manager_ops`/`sales`. Build the G3 roster
-   and the onboarding role matrix against the real tiers.
+**Plus five Medium:** bulk denies team_lead at count=1; `GET /staffing/access` sits above the pilot
+gate; the roster does **not** gate the send/spend routes (`grep -c wizmatchPilotGate
+src/routes/wizmatch.ts` → 0); `NODE_ENV` still selects Staffing phase defaults; the capability
+wiring and the PR 9/10 boundary guard are both untested/evadable.
 
-**Next step:** push the branch and open PR 8B as a draft off `ge/outbound-08a-live-pilot-hardening`,
-then G1 read-only production preflight. Migration `0037` is still unapplied, the backfill has not
-been run with `--apply`, and sending/Smartlead/preparation/adapter/paid discovery all remain
-disabled.
+**Next step: another implementation round on PR 8B**, then a fresh independent review. Do NOT
+proceed to G1/G2/G3.
+
+**G1 is separately NO-GO** — see `docs/go-live/WIZMATCH_G1_PRODUCTION_PREFLIGHT.md`. Production target
+identified (GE-Backend-Server / production / `web`, deployed `1e748125` = origin/main, healthy).
+**`NODE_ENV=production` is now VERIFIED** at runtime via `GET /health`. But: no production DB access,
+the CRM's Postgres is not positively identified among three candidates, U-7 unsigned, no
+production-sized restore, and **migrations run automatically at container start** — so merging to
+`main` auto-applies 0037 and G1/G3 are coupled. The runbook does not say so.
 
 ---
 
