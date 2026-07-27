@@ -2,6 +2,62 @@
 
 ## Active task
 
+**PR 8A IMPLEMENTED (self-reported, not independently reviewed) 2026-07-27 — WizMatch Outbound
+Operating System, Smartlead-free live-pilot hardening.** Branch `ge/outbound-08a-live-pilot-hardening`
+(cut from code-ready `ge/outbound-08-outreach-adapter` at `1b4b59fa`), local only, NOT pushed, NOT
+merged. This is an ADDITIONAL hardening pass before the first internal production pilot — it does
+not replace PR 9 (Smartlead CSV adapter) or PR 10 (reply ingestion), both still gated on U-6
+(sanitised Smartlead fixtures) and not required for this pilot. Marker: `.ai/OUTBOUND_PR8A_IMPLEMENTED`.
+Full detail: [`docs/reviews/wizmatch-outbound-pr8a-implementation.md`](../docs/reviews/wizmatch-outbound-pr8a-implementation.md),
+`docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md`'s PR 8A section, `.ai/HANDOFF_LOG.md`.
+
+**Scope delivered (14 items):** approval provenance + idempotency on `approve_queue`
+(`decisionWorkbenchActions.ts`); pilot roster enforcement wired onto `wizmatchPolicy.ts`/
+`wizmatchToday.ts`/`wizmatchPrepare.ts` (new `src/middleware/wizmatchPilotGate.ts`, reusing the
+existing `WIZMATCH_STAFFING_PILOT_USER_IDS` pattern — these three routers previously had a broad
+role allow-list but no pilot-roster check at all); non-overridable blocks now derived at every
+scope, not only `entire_company` (both the action layer's write-time check and the workbench's
+display layer); `isPreparationAllowed()` fixed from fail-open to fail-closed on an unrecognised
+reason code, plus new taxonomy validation at the `writeCompanyPolicy`/`resolveDuplicate` write
+chokepoints (previously no check existed at all); `expectedPolicyId` stale-state precondition
+added to `writeCompanyPolicy` (checked inside its own transaction) and threaded through the
+Today-actions layer and the frontend; `set_review_date` rewritten as its own branch that changes
+ONLY the review date (the shared path had been silently overwriting `reasonCode` with
+`manual_reclassified`, which flows into `isPreparationAllowed` and would have un-blocked a
+compliance-removed company's preparation eligibility); review-date resurfacing for paused
+companies (explicit UTC-midnight comparison); a new `routed` queue derived from the existing
+`recommendedRoute`/`accountOwnerUserId` (no migration); decision badges fixed (the workbench's
+own `allow`/`review`/`deny` decision was never a `STATUS_TONE` key, so every decision silently
+rendered as a neutral grey badge) plus a genuine WCAG contrast fix (`badge-danger` was the only
+badge tone missing a 700 text shade, ~4.22:1, now ~5.65:1) and two real focus-trap defects in
+`useDialogA11y.js` (disabled elements were included in the Tab cycle; focus was never restored on
+close); 13 new pilot-gate tests plus route-level pilot-gate coverage added to all three routers;
+one closed test gap (a migrated Command Center file could import the canonical adapter and never
+call it, undetected); the live-pilot configuration contract doc; a new read-only
+`npm run wizmatch:pilot-readiness` CLI (no DB/network/migration, never prints a secret value); and
+the go-live runbook with G1–G4 approval gates.
+
+**Gates:** `git diff --check` clean · `npm run build` exit 0 · `npm test` **122 files / 1246 tests**
+(was 120/1165 at the PR 8 baseline, +2 files/+81 tests) · `npm run admin:build` exit 0 ·
+`npx playwright test --config=playwright.wizmatch-local.config.ts` **99 passed / 15 skipped / 0
+failed** (identical to the PR 8 baseline) · `npm run wizmatch:pilot-readiness` exit 0, no dangerous
+findings against this repo's real local environment.
+
+**Not done, deliberately:** PR 9/10 not started; migration `0037` still not applied to any
+database; backfill not run; enforcement mode untouched (`shadow`); sending, the outreach adapter,
+and paid discovery all remain disabled; no Smartlead connection of any kind; no guardrail file
+touched (verified); no `package-lock.json` change; nothing pushed, merged, or deployed; no Railway
+or production access; no database mutation.
+
+**Exact next action:** get an independent readiness review of PR 8A (three-subagent method, per
+the PR 2–8 precedent). `.ai/OUTBOUND_PR8A_CODE_READY` is reserved for that review, not created
+here. Do not start PR 9/10, apply `0037`, run backfill `--apply`, promote `enforce`, enable
+sending, or connect Smartlead on the strength of this session.
+
+---
+
+## Prior task — PR 8 CODE READY (independently reviewed) 2026-07-27
+
 **PR 8 CODE READY (independently reviewed) 2026-07-27 — WizMatch Outbound Operating System, PR 8 of 10
 (provider-neutral outreach adapter).** Branch `ge/outbound-08-outreach-adapter` (cut from code-ready
 `ge/outbound-07-free-prep` at `70c310b5`), local only, NOT pushed, NOT merged. Markers:
