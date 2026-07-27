@@ -98,8 +98,15 @@ Checklist:
   `AUTOMATED_EMAILS_ENABLED=false`, `WIZMATCH_AUTO_PREP_ENABLED=false`,
   `WIZMATCH_OUTREACH_ADAPTER_ENABLED=false`, no Smartlead credential present, no paid-discovery
   flag on.
-- [ ] Run `npm run wizmatch:pilot-readiness -- --production` against the deployment's actual
-  environment (or an identical local `.env` copy) and confirm exit code 0 / no `DANGER` findings.
+- [ ] Run `npm run wizmatch:pilot-readiness -- --production --audit-env-file <path>` against an
+  identical local copy of the deployment's actual `.env`, and confirm exit code 0 / no `DANGER`
+  findings. `<path>` must be an explicit path to the copied `.env` file — pass it exactly, do not
+  `cd` into its directory first and omit the flag. This is deliberate: the readiness CLI resolves
+  `--audit-env-file` independent of the current working directory and treats the file's values as
+  authoritative over anything already exported in your shell, so the result is the same regardless
+  of where you run the command from or what you have exported locally. Running the command with no
+  `--audit-env-file` at all assesses your shell's own `process.env` instead of the copied file —
+  only do that if that really is what you mean to audit.
   **The `--production` flag is required for this step.** A copied `.env` does not carry
   `NODE_ENV=production`, so it is the flag that turns the runtime assertion itself — asserted
   production target vs. actual `NODE_ENV` — into a blocking failure. Every roster finding is now
@@ -114,8 +121,9 @@ Checklist:
   nothing in this repo records that the variable is set at runtime (Nixpacks' documented
   `NODE_ENV=production` applies to the *build* phase, which says nothing about the running
   container). Check the Railway service variables directly;
-  `npm run wizmatch:pilot-readiness -- --production` reports a DANGER when the asserted target and
-  the actual `NODE_ENV` disagree, but it can only see the environment it is run in.
+  `npm run wizmatch:pilot-readiness -- --production --audit-env-file <path>` reports a DANGER when
+  the asserted target and the `NODE_ENV` value in the audited file disagree, but it can only see
+  the file (or process env) it is pointed at — it never reads Railway itself.
 - [ ] Pilot roster validation — confirm `WIZMATCH_STAFFING_PILOT_USER_IDS` is set to exactly the
   intended pilot members (**not** the all-users override, which the readiness command reports as
   a dangerous open deployment), and that a non-pilot account is rejected end to end (one manual
@@ -163,8 +171,9 @@ of this document alone.
 ## Read-only verification at any point
 
 ```bash
-npm run wizmatch:pilot-readiness                 # assess as-is
-npm run wizmatch:pilot-readiness -- --production # assert a production target (required at G3)
+npm run wizmatch:pilot-readiness                                        # assess this shell's own process env, as-is
+npm run wizmatch:pilot-readiness -- --audit-env-file <path>              # assess an explicit, audited .env copy — deterministic, cwd-independent
+npm run wizmatch:pilot-readiness -- --production --audit-env-file <path> # assert a production target (required at G3)
 ```
 
 Checks (without touching any database, network, or provider): code-ready markers through
@@ -173,11 +182,22 @@ presence including known aliases such as `SL_API_KEY` (name only, never the valu
 flags, provider selection, pilot roster configuration and id format, migration/backfill status (reported, never changed), and dangerous contradictory
 combinations. Exits non-zero on any dangerous finding.
 
-It loads `.env` before reading the environment, so running it against a copied production `.env`
-assesses that file's values and not the empty shell environment. What it **cannot** do is reach
-into Railway: it only ever sees the environment of the machine it runs on, so "run it against the
-deployment's actual environment" means exactly that — run it where those values are present, or
-against a faithful copy. It also cannot tell whether `0037` has been applied to any database.
+`--audit-env-file <path>` is the deterministic path: `<path>` is resolved to an absolute path
+before it is opened, so the result is identical no matter what directory you run the command from,
+and the file's values are fully authoritative over the assessment — nothing already exported in
+your shell is consulted once a file is given. A `<path>` that doesn't exist or can't be read is a
+hard failure (non-zero exit, the resolved path named in the error) with no fallback to any other
+source. With **no** `--audit-env-file` at all, the command reads this shell's own `process.env`
+only — it never goes looking for a `.env` file anywhere, implicitly or otherwise. What it
+**cannot** do in either mode is reach into Railway: it only ever sees the file (or process env) it
+is pointed at, so "run it against the deployment's actual environment" means run it with
+`--audit-env-file` pointed at a faithful, current copy of that environment. It also cannot tell
+whether `0037` has been applied to any database.
+
+The CLI's own flag is named `--audit-env-file`, not `--env-file` — deliberately: `--env-file` is a
+reserved Node.js CLI flag (Node 20.6+) that Node's own bootstrap intercepts before this script
+would ever see it, silently activating Node's own (non-authoritative, non-deterministic-for-this-
+purpose) env loader instead. Do not substitute `--env-file` when running this command.
 
 ## Safety reminders
 

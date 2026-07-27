@@ -15,6 +15,11 @@ vi.mock('../db', () => ({
   pool: { query: (...args: unknown[]) => mockPoolQuery(...args) },
 }));
 
+/** Runtime SQL text captured the last time the fetchBestSignal query ran —
+ * used to assert against the actual executed statement rather than raw
+ * source text, which a doc comment can also satisfy (see the test below). */
+let capturedSignalQuery = '';
+
 const state = vi.hoisted(() => ({
   lockAcquired: true,
   gateDecision: {
@@ -90,6 +95,7 @@ function dispatch(sql: string, params: unknown[]) {
   }
   if (/^SELECT s\.id, s\.job_title/.test(text)) {
     expect(params[0]).toBe('tenant-1');
+    capturedSignalQuery = text;
     // P8B-1 — a faithful (small) interpreter of the ONE predicate under test,
     // rather than returning the fixture verbatim. Returning it verbatim would
     // make the blocked-signal exclusion untestable: deleting the NOT EXISTS
@@ -98,6 +104,7 @@ function dispatch(sql: string, params: unknown[]) {
     const excludesBlockedSignals =
       /NOT EXISTS/.test(text)
       && /wizmatch_company_policies/.test(text)
+      && /p\.tenant_id\s*=\s*s\.tenant_id/.test(text)
       && /scope_type = 'specific_signal'/.test(text)
       && /outreach_eligibility = 'blocked'/.test(text)
       && /superseded_at IS NULL/.test(text);
@@ -180,6 +187,7 @@ function withExistingContact(overrides: Record<string, unknown>) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  capturedSignalQuery = '';
   mockPoolQuery.mockImplementation((sql: string, params: unknown[] = []) => dispatch(sql, params));
   state.lockAcquired = true;
   state.gateDecision = {
@@ -609,9 +617,21 @@ describe('prepareCompaniesJob — a blocked signal never drives the draft or the
     expect(report.results[0].draft?.subject).toContain('Head of Legal Hiring');
   });
 
-  it('scopes the exclusion subquery to the same tenant as the signal it guards', () => {
-    const source = readFileSync(join(__dirname, '../modules/outreach/prepareCompanies.ts'), 'utf8');
-    expect(source).toContain('p.tenant_id = s.tenant_id');
-    expect(source).toContain('p.company_id = s.company_id');
+  it('scopes the exclusion subquery to the same tenant as the signal it guards', async () => {
+    // Asserts against the actual runtime SQL text executed by the query
+    // interception mock (captured in `dispatch` above), not `readFileSync`
+    // over the source file. A `readFileSync` + `toContain` assertion is
+    // satisfied by prose in a doc comment above the query (see the
+    // `fetchBestSignal` comment block) just as readily as by the real SQL,
+    // so it never actually proves the executed statement is tenant-scoped.
+    // A JS/SQL comment cannot appear inside a template literal's
+    // interpolated runtime value the way it can in raw source text, so this
+    // assertion is structurally immune to doc-comment satisfaction.
+    state.blockedSignalIds = ['signal-blocked'];
+    const { prepareCompaniesJob } = await import('../modules/outreach/prepareCompanies');
+    await prepareCompaniesJob('tenant-1');
+
+    expect(capturedSignalQuery).toContain('p.tenant_id = s.tenant_id');
+    expect(capturedSignalQuery).toContain('p.company_id = s.company_id');
   });
 });

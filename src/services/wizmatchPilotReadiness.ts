@@ -22,11 +22,26 @@ export interface PilotReadinessFinding {
   message: string;
 }
 
+/**
+ * D-R3 (owner-ratified) — H-2/H-3 fix. Where the audited environment came
+ * from: an explicit `--env-file` (resolved cwd-independently, file values
+ * authoritative over any stale shell export) or the ambient `process.env`
+ * only (no file read at all). Purely informational — never affects any
+ * finding's severity, and never carries a parsed value, only the source kind
+ * and the resolved path in file mode.
+ */
+export interface PilotReadinessConfigurationSource {
+  source: 'file' | 'process_environment';
+  resolvedPath?: string;
+}
+
 export interface PilotReadinessReport {
   findings: PilotReadinessFinding[];
   /** True when ANY finding is `danger` — the CLI exits non-zero exactly on this. */
   dangerous: boolean;
   generatedAt: string;
+  /** Optional and additive — omitted when the caller doesn't supply one. */
+  configurationSource?: PilotReadinessConfigurationSource;
 }
 
 function isEnabled(value: string | undefined): boolean {
@@ -57,6 +72,12 @@ export interface PilotReadinessInputs {
    * when it mattered most. Defaults to `false` — unchanged local behaviour.
    */
   assumeProductionTarget?: boolean;
+  /**
+   * D-R3 (owner-ratified) — where the CLI sourced `env` from. Optional: the
+   * assessor's own signature is unchanged for existing callers, this is a
+   * purely additive passthrough surfaced in the printed report only.
+   */
+  configurationSource?: PilotReadinessConfigurationSource;
 }
 
 /**
@@ -359,11 +380,19 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
   );
 
   const dangerous = findings.some((f) => f.severity === 'danger');
-  return { findings, dangerous, generatedAt: new Date().toISOString() };
+  return { findings, dangerous, generatedAt: new Date().toISOString(), configurationSource: inputs.configurationSource };
 }
 
 export function formatWizmatchPilotReadinessReport(report: PilotReadinessReport): string {
-  const lines = ['WizMatch Smartlead-free live-pilot readiness', `Generated: ${report.generatedAt}`, ''];
+  const lines = ['WizMatch Smartlead-free live-pilot readiness', `Generated: ${report.generatedAt}`];
+  if (report.configurationSource) {
+    lines.push(
+      report.configurationSource.source === 'file'
+        ? `Configuration source: file (${report.configurationSource.resolvedPath ?? 'unknown path'})`
+        : 'Configuration source: process_environment (no --env-file supplied)',
+    );
+  }
+  lines.push('');
   for (const f of report.findings) {
     const tag = f.severity === 'danger' ? 'DANGER ' : f.severity === 'warning' ? 'WARN   ' : 'OK     ';
     lines.push(`${tag} [${f.code}] ${f.message}`);
