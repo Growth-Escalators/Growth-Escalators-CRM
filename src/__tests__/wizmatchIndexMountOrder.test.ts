@@ -65,19 +65,21 @@ function firstIndexOf(needle: string): number {
 describe('src/index.ts — /api/wizmatch mount order (M-1)', () => {
   it('mounts wizmatchPolicyRouter BEFORE the wizmatchRequireAdmin-gated wizmatchRouter', () => {
     const policyMount = firstIndexOf("wizmatchRequireStaffing, wizmatchPolicyRouter)");
-    // M-3 — the admin-gated mount now also wires wizmatchPilotGate into the
-    // chain (src/index.ts); this needle was updated in lockstep so the M-1
+    // F-A — the admin-gated mount now wires wizmatchPilotOrMachineSync (which
+    // wraps wizmatchPilotGate) into the chain instead of wizmatchPilotGate
+    // directly (src/index.ts); this needle was updated in lockstep so the M-1
     // ordering assertions keep matching the real line instead of going stale.
-    const adminGatedMount = firstIndexOf("requireAuth, wizmatchRequireAdmin, wizmatchPilotGate, wizmatchRouter)");
+    const adminGatedMount = firstIndexOf("requireAuth, wizmatchRequireAdmin, wizmatchPilotOrMachineSync, wizmatchRouter)");
     expect(policyMount).toBeLessThan(adminGatedMount);
   });
 
   it('mounts wizmatchTodayRouter BEFORE the wizmatchRequireAdmin-gated wizmatchRouter', () => {
     const todayMount = firstIndexOf("wizmatchRequireStaffing, wizmatchTodayRouter)");
-    // M-3 — the admin-gated mount now also wires wizmatchPilotGate into the
-    // chain (src/index.ts); this needle was updated in lockstep so the M-1
+    // F-A — the admin-gated mount now wires wizmatchPilotOrMachineSync (which
+    // wraps wizmatchPilotGate) into the chain instead of wizmatchPilotGate
+    // directly (src/index.ts); this needle was updated in lockstep so the M-1
     // ordering assertions keep matching the real line instead of going stale.
-    const adminGatedMount = firstIndexOf("requireAuth, wizmatchRequireAdmin, wizmatchPilotGate, wizmatchRouter)");
+    const adminGatedMount = firstIndexOf("requireAuth, wizmatchRequireAdmin, wizmatchPilotOrMachineSync, wizmatchRouter)");
     expect(todayMount).toBeLessThan(adminGatedMount);
   });
 
@@ -87,10 +89,11 @@ describe('src/index.ts — /api/wizmatch mount order (M-1)', () => {
   // that moves this mount below the admin-gated one in the real index.ts.
   it('mounts wizmatchPrepareRouter BEFORE the wizmatchRequireAdmin-gated wizmatchRouter', () => {
     const prepareMount = firstIndexOf("wizmatchRequireStaffing, wizmatchPrepareRouter)");
-    // M-3 — the admin-gated mount now also wires wizmatchPilotGate into the
-    // chain (src/index.ts); this needle was updated in lockstep so the M-1
+    // F-A — the admin-gated mount now wires wizmatchPilotOrMachineSync (which
+    // wraps wizmatchPilotGate) into the chain instead of wizmatchPilotGate
+    // directly (src/index.ts); this needle was updated in lockstep so the M-1
     // ordering assertions keep matching the real line instead of going stale.
-    const adminGatedMount = firstIndexOf("requireAuth, wizmatchRequireAdmin, wizmatchPilotGate, wizmatchRouter)");
+    const adminGatedMount = firstIndexOf("requireAuth, wizmatchRequireAdmin, wizmatchPilotOrMachineSync, wizmatchRouter)");
     expect(prepareMount).toBeLessThan(adminGatedMount);
   });
 

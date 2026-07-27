@@ -65,6 +65,7 @@ import wizmatchPolicyRouter from './routes/wizmatchPolicy';
 import wizmatchTodayRouter from './routes/wizmatchToday';
 import wizmatchPrepareRouter from './routes/wizmatchPrepare';
 import { wizmatchPilotGate } from './middleware/wizmatchPilotGate';
+import { wizmatchPilotOrMachineSync } from './middleware/wizmatchMachineSyncLane';
 // Workers and cron jobs now run via src/worker.ts (see railway.json)
 import analyticsRouter from './routes/analytics';
 import whatsappTemplatesRouter from './routes/whatsappTemplates';
@@ -359,26 +360,30 @@ app.use('/api/wizmatch', requireAuth, wizmatchRequireStaffing, wizmatchPrepareRo
 // to Wizmatch data. Safe because requireAuth blocks the viewer role on any non-GET
 // method, so viewer can read the Wizmatch surfaces but never trigger a write.
 //
-// STALE AS OF THE M-3 PILOT GATE BELOW — READ THIS BEFORE RELYING ON IT.
 // `viewer` is NOT in `PILOT_ELIGIBLE_ROLES` (`wizmatchStaffingAccess.ts:13` —
-// admin, team_lead, manager_ops, sales, staff), and `wizmatchPilotGate` runs
-// after this role gate. A `viewer` therefore now passes THIS list and is then
-// 403'd by the pilot gate on every one of the 82 routes below, including every
-// GET — and no roster configuration can change that, because the roster is only
-// consulted after the role-eligibility test fails
-// (`resolveStaffingAccess`: `pilotAllowed = roleEligible && (...)`). This is
-// deliberate, pre-existing pilot-gate behaviour (pinned by
-// `wizmatchPilotGate.test.ts:90`), but it was previously confined to the
-// policy/today/prepare routers; M-3 extended it to this one.
+// admin, team_lead, manager_ops, sales, staff), and role-eligibility is
+// tested before the pilot roster is ever consulted
+// (`resolveStaffingAccess`: `pilotAllowed = roleEligible && (...)`), so a
+// `viewer` is unconditionally 403'd by `wizmatchPilotGate` on every one of
+// the 82 routes below — deliberately, and no roster configuration changes
+// that (pinned by `wizmatchPilotGate.test.ts:90`). That is correct for
+// interactive `viewer` access, but it also broke the Command Deck sync
+// (`GE-Brain/scripts/crm-sync.mjs`, outside this repo), which authenticates
+// as `viewer` and only ever GETs eight read-only routes.
 //
-// Consequence, surfaced by the final independent review and NOT yet decided:
-// the Command Deck sync (`GE-Brain/scripts/crm-sync.mjs`) reads eight routes
-// from this router (`/dashboard`, `/command-center`,
+// F-A (owner-ratified) — the fix is NOT a general viewer role change or a
+// roster addition. `wizmatchPilotOrMachineSync`
+// (`src/middleware/wizmatchMachineSyncLane.ts`) wraps `wizmatchPilotGate`
+// with one narrow, read-only allowlist exact-matching the eight paths
+// `crm-sync.mjs` calls (`/dashboard`, `/command-center`,
 // `/candidate-intelligence/queue`, `/client-discovery/queue`,
-// `/review-workbench`, `/guardrails`, `/placements`, `/candidates`). If that
-// sync authenticates as `viewer`, it starts receiving 403 the moment this
-// branch is deployed. Owner decision required before G3 — see
-// `docs/runbooks/WIZMATCH_SMARTLEAD_FREE_PILOT_GO_LIVE.md`.
+// `/review-workbench`, `/guardrails`, `/placements`, `/candidates`), and only
+// for an authenticated, tenant-scoped `viewer` making a GET request. Every
+// other request — any non-GET, any path outside the eight, any other role —
+// falls straight through to the unchanged `wizmatchPilotGate`, so nothing
+// about interactive access (roles, pilot roster, send/spend/provider routes)
+// changed. See `wizmatchMachineSyncLane.ts` for the full rationale and
+// `wizmatchMachineSyncLane.test.ts` for the coverage.
 const wizmatchRequireAdmin = requireRole('admin', 'team_lead', 'viewer');
 // M-3 — pilot-roster gate. This 82-route router carries send
 // (`POST /signals/:id/send`), paid discovery
@@ -388,17 +393,19 @@ const wizmatchRequireAdmin = requireRole('admin', 'team_lead', 'viewer');
 // of it carried a pilot-roster check, only the role gate above. The other
 // three WizMatch routers (`wizmatchPolicyRouter`, `wizmatchTodayRouter`,
 // `wizmatchPrepareRouter`) each already call `router.use(wizmatchPilotGate)`
-// internally (see wizmatchToday.ts); this mounts the SAME middleware for the
-// whole router rather than cherry-picking which of the 82 routes need it,
-// which is safer given the size of the file. `wizmatchPilotGate` runs AFTER
-// `wizmatchRequireAdmin` (so an out-of-role caller still gets the existing
-// RBAC 403 first) and BEFORE `wizmatchRouter` itself.
+// internally (see wizmatchToday.ts); this mounts the SAME middleware (via the
+// F-A wrapper above) for the whole router rather than cherry-picking which of
+// the 82 routes need it, which is safer given the size of the file.
+// `wizmatchPilotOrMachineSync` runs AFTER `wizmatchRequireAdmin` (so an
+// out-of-role caller still gets the existing RBAC 403 first) and BEFORE
+// `wizmatchRouter` itself.
 //
 // Real behaviour change, called out explicitly: this pilot-gates every
 // GET/read route in wizmatchRouter too, not only the mutating ones — the same
 // posture wizmatchToday.ts already takes for its own `GET /today/queues`.
 // A non-roster admin/team_lead/viewer now gets 403'd on reads here as well as
-// writes, not only on send/spend routes.
+// writes, not only on send/spend routes — except for the eight-route F-A
+// machine-sync lane described above.
 //
 // Does NOT affect the internal-ingest/unsubscribe short-circuit above (the
 // `app.use('/api/wizmatch', ...)` block that tests `WIZMATCH_INTERNAL_POST`/
@@ -406,8 +413,9 @@ const wizmatchRequireAdmin = requireRole('admin', 'team_lead', 'viewer');
 // that block is registered EARLIER and, for a matching request, invokes the
 // router directly rather than calling `next()` — a matched request never
 // reaches this mount at all, so it never sees `requireAuth`,
-// `wizmatchRequireAdmin` or `wizmatchPilotGate` here, unchanged by this fix.
-app.use('/api/wizmatch', requireAuth, wizmatchRequireAdmin, wizmatchPilotGate, wizmatchRouter);
+// `wizmatchRequireAdmin` or `wizmatchPilotOrMachineSync` here, unchanged by
+// this fix.
+app.use('/api/wizmatch', requireAuth, wizmatchRequireAdmin, wizmatchPilotOrMachineSync, wizmatchRouter);
 // Funnel-configs: /public/* needs no auth (checkout frontend hits it
 // unauthenticated from ecom.growthescalators.com); everything else is
 // behind requireAuth. The previous hoisted app.get wrapper was a no-op —

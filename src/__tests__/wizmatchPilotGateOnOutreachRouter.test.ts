@@ -58,15 +58,24 @@ describe('src/index.ts — /api/wizmatch wizmatchRouter mount wires wizmatchPilo
     expect(source).toMatch(/import \{ wizmatchPilotGate \} from '\.\/middleware\/wizmatchPilotGate';/);
   });
 
-  it('mounts wizmatchPilotGate in the wizmatchRouter chain, after wizmatchRequireAdmin and before wizmatchRouter', () => {
+  // F-A — the mount now wires wizmatchPilotOrMachineSync, a thin wrapper
+  // around wizmatchPilotGate (src/middleware/wizmatchMachineSyncLane.ts) that
+  // adds the eight-route read-only machine-sync allowlist and otherwise
+  // delegates to wizmatchPilotGate unchanged. This asserts the wrapper (not
+  // wizmatchPilotGate directly) is imported and wired into the chain.
+  it('imports wizmatchPilotOrMachineSync from the machine-sync-lane module', () => {
+    expect(source).toMatch(/import \{ wizmatchPilotOrMachineSync \} from '\.\/middleware\/wizmatchMachineSyncLane';/);
+  });
+
+  it('mounts wizmatchPilotOrMachineSync in the wizmatchRouter chain, after wizmatchRequireAdmin and before wizmatchRouter', () => {
     expect(source).toMatch(
-      /app\.use\('\/api\/wizmatch', requireAuth, wizmatchRequireAdmin, wizmatchPilotGate, wizmatchRouter\);/,
+      /app\.use\('\/api\/wizmatch', requireAuth, wizmatchRequireAdmin, wizmatchPilotOrMachineSync, wizmatchRouter\);/,
     );
   });
 
   it('the internal-ingest/unsubscribe short-circuit is registered BEFORE this mount and never reaches it', () => {
     const shortCircuitIdx = source.indexOf("if (isInternalIngest || isPublicUnsubscribe) return wizmatchRouter(req, res, next);");
-    const gatedMountIdx = source.indexOf("app.use('/api/wizmatch', requireAuth, wizmatchRequireAdmin, wizmatchPilotGate, wizmatchRouter);");
+    const gatedMountIdx = source.indexOf("app.use('/api/wizmatch', requireAuth, wizmatchRequireAdmin, wizmatchPilotOrMachineSync, wizmatchRouter);");
     expect(shortCircuitIdx).toBeGreaterThan(-1);
     expect(gatedMountIdx).toBeGreaterThan(-1);
     expect(shortCircuitIdx).toBeLessThan(gatedMountIdx);
