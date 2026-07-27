@@ -41,6 +41,17 @@ restricted the workbench but not the surfaces capable of external cost. This is 
 structurally, not only by convention: `app.use('/api/wizmatch', requireAuth, wizmatchRequireAdmin,
 wizmatchPilotGate, wizmatchRouter)` in `src/index.ts`.
 
+**Consequence for `viewer`, added by the final independent review — owner decision required.**
+`viewer` is absent from `PILOT_ELIGIBLE_ROLES` (`src/services/wizmatchStaffingAccess.ts:13`), and
+`resolveStaffingAccess` tests role-eligibility *before* roster membership
+(`pilotAllowed = roleEligible && (allUsers || ids.has(userId))`). A `viewer` is therefore refused
+on all 82 routes of this router — reads included — and **adding it to
+`WIZMATCH_STAFFING_PILOT_USER_IDS` does not help**, because the roster is never reached. The
+read-only Command Deck sync account is documented in `src/index.ts` as a `viewer` and reads eight
+of these routes; see the blocking checklist item in
+[`WIZMATCH_SMARTLEAD_FREE_PILOT_GO_LIVE.md`](../runbooks/WIZMATCH_SMARTLEAD_FREE_PILOT_GO_LIVE.md)
+for the four options and the required decision.
+
 ## Also required (not new flags, but must hold true)
 
 - **No Smartlead credential may be present.** No environment variable whose

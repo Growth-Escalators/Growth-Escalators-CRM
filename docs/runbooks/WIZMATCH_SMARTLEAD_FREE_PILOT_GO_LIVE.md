@@ -134,6 +134,24 @@ Checklist:
   `POST /api/wizmatch/contact-intelligence/companies/:id/discover`. Before this fix the roster
   restricted only the workbench/policy/preparation surfaces, not the routes capable of external
   cost — that gap is now closed structurally.
+- [ ] **BLOCKING — `viewer` accounts lose all WizMatch API access, and the roster cannot restore
+  them.** Raised by the final independent review; **an owner decision is required before this
+  branch is merged.** `viewer` is not in `PILOT_ELIGIBLE_ROLES`
+  (`src/services/wizmatchStaffingAccess.ts:13`), and role-eligibility is tested *before* roster
+  membership, so a `viewer` is 403'd on all 82 `/api/wizmatch` routes — **including every GET** —
+  even if explicitly named in `WIZMATCH_STAFFING_PILOT_USER_IDS`. Until M-3 this only affected the
+  workbench/policy/preparation routers; it now affects the main router too.
+  **Known consumer:** the Command Deck sync (`GE-Brain/scripts/crm-sync.mjs`) reads eight routes
+  from that router — `/dashboard`, `/command-center`, `/candidate-intelligence/queue`,
+  `/client-discovery/queue`, `/review-workbench`, `/guardrails`, `/placements`, `/candidates`.
+  If it authenticates as `viewer`, it begins failing on deploy.
+  **Decide one, before merge:** (a) re-role the sync account to a pilot-eligible read tier
+  (`staff`) and add its user id to the roster — ops-only, no code change; (b) add `viewer` to
+  `PILOT_ELIGIBLE_ROLES` — an RBAC change needing its own review; (c) exempt GET requests from the
+  pilot gate on this router — widens read access beyond the roster, contradicting M-3's intent; or
+  (d) accept that the Command Deck WizMatch card goes stale for the pilot's duration.
+  Verify the chosen outcome by running the sync (or one of the eight GETs) as the real sync
+  account after deploy and confirming 200, not 403.
 - [ ] Health/readiness validation — confirm the deployed process starts cleanly, the existing
   health-check endpoint reports healthy, and no error-rate spike appears in the first
   observation window.
@@ -187,10 +205,16 @@ presence including known aliases such as `SL_API_KEY` (name only, never the valu
 flags, provider selection, pilot roster configuration and id format, migration/backfill status (reported, never changed), and dangerous contradictory
 combinations. Exits non-zero on any dangerous finding.
 
-`--audit-env-file <path>` is the deterministic path: `<path>` is resolved to an absolute path
-before it is opened, so the result is identical no matter what directory you run the command from,
-and the file's values are fully authoritative over the assessment — nothing already exported in
-your shell is consulted once a file is given. A `<path>` that doesn't exist or can't be read is a
+`--audit-env-file <path>` is the deterministic path, and the file's values are fully authoritative
+over the assessment — nothing already exported in your shell is consulted once a file is given.
+
+**Pass an absolute path.** `<path>` is resolved with the standard path rules: an **absolute**
+`<path>` gives an identical result no matter what directory you run the command from, but a
+**relative** `<path>` is resolved against your current working directory, exactly like any other
+command-line path argument. The same relative argument run from two different directories audits
+two different files and can return two different verdicts. The report always names the file it
+actually read on its `Configuration source: file (...)` line — **read that line and confirm it is
+the file you meant** before acting on the verdict. A `<path>` that doesn't exist or can't be read is a
 hard failure (non-zero exit, the resolved path named in the error) with no fallback to any other
 source. With **no** `--audit-env-file` at all, the command reads this shell's own `process.env`
 only — it never goes looking for a `.env` file anywhere, implicitly or otherwise. What it

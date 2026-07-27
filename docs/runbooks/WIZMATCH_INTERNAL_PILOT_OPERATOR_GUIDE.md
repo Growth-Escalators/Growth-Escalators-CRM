@@ -73,6 +73,14 @@ routes (`/signals/ingest`, `/signals/:id/(score|enrich|match)`, `/candidates/ing
 `/classify-reply`, `/unsubscribe`) are unaffected — they authenticate via an internal token, not a
 human session, and are resolved before this gate.
 
+**`viewer` accounts cannot be admitted to the pilot at all.** `viewer` is not a pilot-eligible
+role, and unlike every other role that check runs *before* the roster is consulted — so naming a
+`viewer` in `WIZMATCH_STAFFING_PILOT_USER_IDS` has no effect. A `viewer` now receives 403 on every
+`/api/wizmatch` route in the main router, reads included. If you have a read-only integration or
+dashboard account on the `viewer` role, it will stop working when this ships; it needs a
+pilot-eligible role (`staff` is the read tier) *and* a roster entry. See the go-live runbook's
+blocking checklist item — this is an open owner decision, not a settled configuration step.
+
 | Action | Minimum role |
 |---|---|
 | Read policy, read queues | any pilot-roster member (`staff`+) |

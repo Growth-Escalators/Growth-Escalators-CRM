@@ -355,9 +355,30 @@ app.use('/api/wizmatch', requireAuth, wizmatchRequireStaffing, wizmatchTodayRout
 // next('router') convention and same M-1 mount-order reasoning as the two
 // routers above).
 app.use('/api/wizmatch', requireAuth, wizmatchRequireStaffing, wizmatchPrepareRouter);
-// `viewer` (the read-only Command Deck sync account) is included for GET access to
-// Wizmatch data. Safe because requireAuth (below) blocks the viewer role on any
-// non-GET method, so viewer can read the Wizmatch surfaces but never trigger a write.
+// `viewer` (the read-only Command Deck sync account) is listed here for GET access
+// to Wizmatch data. Safe because requireAuth blocks the viewer role on any non-GET
+// method, so viewer can read the Wizmatch surfaces but never trigger a write.
+//
+// STALE AS OF THE M-3 PILOT GATE BELOW — READ THIS BEFORE RELYING ON IT.
+// `viewer` is NOT in `PILOT_ELIGIBLE_ROLES` (`wizmatchStaffingAccess.ts:13` —
+// admin, team_lead, manager_ops, sales, staff), and `wizmatchPilotGate` runs
+// after this role gate. A `viewer` therefore now passes THIS list and is then
+// 403'd by the pilot gate on every one of the 82 routes below, including every
+// GET — and no roster configuration can change that, because the roster is only
+// consulted after the role-eligibility test fails
+// (`resolveStaffingAccess`: `pilotAllowed = roleEligible && (...)`). This is
+// deliberate, pre-existing pilot-gate behaviour (pinned by
+// `wizmatchPilotGate.test.ts:90`), but it was previously confined to the
+// policy/today/prepare routers; M-3 extended it to this one.
+//
+// Consequence, surfaced by the final independent review and NOT yet decided:
+// the Command Deck sync (`GE-Brain/scripts/crm-sync.mjs`) reads eight routes
+// from this router (`/dashboard`, `/command-center`,
+// `/candidate-intelligence/queue`, `/client-discovery/queue`,
+// `/review-workbench`, `/guardrails`, `/placements`, `/candidates`). If that
+// sync authenticates as `viewer`, it starts receiving 403 the moment this
+// branch is deployed. Owner decision required before G3 — see
+// `docs/runbooks/WIZMATCH_SMARTLEAD_FREE_PILOT_GO_LIVE.md`.
 const wizmatchRequireAdmin = requireRole('admin', 'team_lead', 'viewer');
 // M-3 — pilot-roster gate. This 82-route router carries send
 // (`POST /signals/:id/send`), paid discovery
