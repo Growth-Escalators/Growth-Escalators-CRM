@@ -6,6 +6,60 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-27 — WizMatch Outbound OS: PR 8A independently reviewed — NOT READY as submitted; fixed at `a2662cb1`; CODE_READY marker deliberately NOT created — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT MERGED
+
+**Why:** the PR 8A marker was self-reported. Standing practice on this stack (PR 2/3/5/6/7/8) is an
+independent readiness review by a session that did not write the code, using three parallel read-only
+Explore subagents reconciled by the lead.
+
+**Method deviation, stated plainly.** The three subagents were spawned in parallel with fixed output
+contracts (workbench/policy mutations; RBAC/roster/frontend; preparation/go-live safety). They ran
+~2h. Each was sent four escalating requests to return its report. **None returned any output.** The
+lead covered all three assigned areas by hand instead. No subagent output was fabricated and no
+finding is attributed to one. Because `.ai/OUTBOUND_PR8A_CODE_READY` attests to a completed
+three-subagent review, **it was not created** — the hand review found three High defects the five
+green gates did not, which is exactly why one reviewer's pass is not the intended bar here.
+
+**What changed (two fix commits, `3cfedccd` and `a2662cb1`):**
+
+- **H-1** — `scripts/wizmatch-pilot-readiness.ts` loaded no `.env`, unlike every sibling script.
+  The go-live runbook's G3 step tells an operator to run it "against an identical local `.env` copy",
+  against which every safety flag read `undefined` -> "off" -> exit 0. It reported SAFE against a
+  configuration with sending enabled. Added `import 'dotenv/config'`.
+- **H-2** — the workbench's "No action available" affordance lost its explanation: the `title`
+  fallback was replaced by an `aria-describedby` that is `undefined` when `disabledReason` is null,
+  and `disabledReasonFor` returned null for a routed company that already has an account owner — the
+  exact state `primaryActionFor` gives no primary action to, and a state PR 8A itself introduced.
+  Added a routed branch server-side plus an always-present reason client-side; `routed` is now
+  resolved before the item is constructed rather than mutated after bucketing.
+- **H-3** — approval provenance was enforced in `decisionWorkbenchActions.ts` only, while
+  `POST /companies/:id/policy`, `POST /companies/bulk/policy` and `writeCompanyPolicyOverride` reach
+  `writeCompanyPolicy` directly with an optional `actor.userId` and a nullable `actor_user_id`
+  column. `writeCompanyPolicy` now refuses a `source: 'human'` write with no actor; non-human
+  sources (the backfill) unaffected. `resolveDuplicate` got the same guard.
+- **M-1/M-2/M-3, L-1/L-2** — unknown `OUTREACH_PROVIDER` now dangerous independent of the adapter
+  flag; `--production` added (required at G3) so an absent roster is caught against a copied `.env`,
+  and `WIZMATCH_STAFFING_PILOT_ALL_USERS` is reported as the open deployment it is; the configuration
+  contract gained its missing pilot-roster section; two self-contradicting comments corrected;
+  `npx tsx` aligned with sibling scripts.
+
+**How to verify:** `git diff --check` clean · `npm run build` exit 0 · `npm test` **122 files /
+1263 tests** (submitted tree reproduced at 1246, matching the implementation doc exactly) ·
+`npm run admin:build` exit 0 · `npx playwright test --config=playwright.wizmatch-local.config.ts`
+**99 passed / 15 skipped / 0 failed** · `npm run wizmatch:pilot-readiness` exit 0 on the approved safe
+baseline and exit 1 on all nine required danger conditions. Eleven control runs; ten failed
+correctly, and two of the reviewer's own new guards were found evadable and rewritten.
+
+**Read next:** `docs/reviews/wizmatch-outbound-pr8a-opus-review.md` (full report, findings, blockers
+per gate), `docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md`'s PR 8A review section, `.ai/CURRENT_TASK.md`.
+
+**What's next:** **re-run the three-subagent review pass against `a2662cb1`** and create
+`.ai/OUTBOUND_PR8A_CODE_READY` only if nothing new surfaces. **Do not** push, merge, deploy, apply
+`0037`, run backfill `--apply`, promote `enforce`, enable sending/preparation/the adapter/paid
+discovery, connect Smartlead, or start PR 9/10 on the strength of this review.
+
+---
+
 ## 2026-07-27 — WizMatch Outbound OS: PR 8 independently reviewed — CODE READY at `1b4b59fa` — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT MERGED
 
 **Why:** the PR 8 marker was self-reported. Standing practice on this stack (PR 2/3/5/6/7) is an
