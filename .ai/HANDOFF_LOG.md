@@ -4922,3 +4922,64 @@ So the write-blocking `SHARE` locks on the three shared tables span essentially 
 not the three small builds — and that total cannot be inferred from table sizes. §6 rewritten with
 the exact statement counts (R2 estimated ~30 FKs / 22 indexes; verified figures are 37 / 23).
 Reinforces, and does not change, the requirement for a clone-based measurement. R2 concurs NO-GO.
+
+### Third addendum — R1 and R4 reported; all four subagents now reconciled
+
+R1 (migration mechanism) and R4 (backup/clone) reported last. Both found material items; all claims
+were verified against source before folding in. Two of their objections were artefacts of their
+repo-only view and are corrected back to them.
+
+**R1 — accepted:**
+- **Exit code 0 is not proof of application.** `migrate.ts:34` logs `[migrate] Migration complete` and
+  exits 0 *identically* when nothing was pending, because drizzle computes pending work from the
+  container's journal, not the DB. Run in the current container (37 entries, no `0037`) it would exit
+  0 having applied nothing. Only the `__drizzle_migrations` row (`created_at = 1785039545644` AND hash
+  `76729b60…`) proves application. Recorded in §11.
+- **Hash definition tightened.** It is sha256 of `readFileSync(...).toString()` — the UTF-8
+  re-encoding of the decoded string — not strictly of raw bytes. Identical for `0037` (valid UTF-8, no
+  BOM); would differ for a file with a BOM. §11 corrected.
+- **NEW, material — the sourcing crons write into a `0037` table.** `src/worker.ts:1709-1712`
+  (TheirStack, `'35 1 * * 1,4'`) and `:1722-1725` (ATS, `'40 0 * * *'`) import
+  `src/services/wizmatchSourcing.ts`, which at line 3 imports `wizmatchRootPolicyBootstrapCte` from
+  `src/modules/outreach/companyBootstrap.ts` → `INSERT INTO wizmatch_company_policies`
+  (`:87`, `:119`). Production has `WIZMATCH_ATS_POLLING_ENABLED=true` and
+  `DISABLE_BACKGROUND_JOBS=false`, so this runs in `web` today. **If the code deploys before `0037` is
+  applied, those crons throw on a schedule, unattended** — a path no PR 8B feature flag covers. Makes
+  the out-of-band ordering mandatory rather than preferable. New §11.1.
+- **R1 corrected:** its claim that `max(created_at)` was "inferred, not verified" reflects its
+  repo-only view. The production `drizzle.__drizzle_migrations` table was read directly.
+- R1 independently confirms zero `ensure*` collisions with any `0037` object name (matching the
+  empirical 0-collision probe), and confirms the one-transaction claim (no `CONCURRENTLY`, no
+  `ALTER TYPE … ADD VALUE`, no `VACUUM`, no literal `BEGIN`/`COMMIT`).
+
+**R4 — accepted:**
+- **The backup finding upgrades a recorded blocker**, from "not verified" to "verified absent", and
+  makes two written requirements unsatisfiable as worded (the runbook's "confirm a recent backup
+  exists", and U-7's "verified backup/rollback plan"). Belongs to the owner as its own item, separate
+  from the clone decision. §9 expanded.
+- **Deploy collision during the dump — genuine gap.** A deploy landing mid-dump puts an
+  `ACCESS EXCLUSIVE` `ALTER` behind the dump's `ACCESS SHARE`, and then every write to that table
+  behind the `ALTER`. "Blocks DDL, not DML" understated it. **Freeze deploys for the window.** New §12.2.
+- **Zero-PII alternative should be offered:** schema + synthetic rows at matched cardinality
+  (2 813 / 4 719 / 15) measures the same builds with no PII on the clone. Earlier text saying a
+  full-data dump "is required" overstated it — what is required is real *cardinality*. New §12.1.
+- **The approval token collapses three gates the repo already separates.**
+  `docs/wizmatch/WIZMATCH_STAFFING_OS_CLAUDE_CODE_KICKOFF.md:119-141` mandates creation → (read-back,
+  stop) → migration/data → deployment as three explicit approvals. Approval to create an empty clone
+  is not approval to load production PII into it. The single specified token has been kept, with the
+  three-gate split recommended to the owner. New §12.4.
+- **Conventions to follow rather than reinvent:** `docs/build/WIZMATCH_DATA_SAFETY.md` cleanup rule
+  (prefix-tag, delete by exact ID, verify `count(*) = 0`); `ge-prod-data-mutation`'s pause-and-confirm
+  + handoff logging; never checkpoint a Railway sandbox (durable server-side PII image);
+  `scripts/db-table-sizes.ts` exists and is prod-safe but its header suggests `railway run`, which is
+  the forbidden local-`DATABASE_URL` pattern. New §12.3.
+- **Threshold and reporting discipline:** fix the numeric lock threshold *before* measuring; report
+  row counts alongside timings so the result cannot be dismissed as a fixture; report timings and
+  counts only. The preflight also requires the clone procedure to be written **and reviewed** before
+  provisioning — §12 is the written procedure and still needs that review. New §12.5.
+- **R4 corrected:** its concern that `${{Postgres.DATABASE_URL}}` "presupposes the answer to Blocker A"
+  is stale — the production Postgres is positively identified (§3), by server major version 18.3
+  against `Postgres-K0lx`'s image 17, plus volume instance `144db25d-…`, not by name inference.
+
+**Verdict unchanged: G1 NO-GO.** No new *blocker* emerged, but the required ordering is now stricter
+(migrate before deploy) and the clone procedure has picked up four operational conditions.

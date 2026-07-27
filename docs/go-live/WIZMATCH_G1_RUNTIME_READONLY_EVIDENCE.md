@@ -497,6 +497,21 @@ The same two queries return `[]` for `Postgres-K0lx` and for the Redis volume as
 an artefact of one misconfigured volume: **no volume in this project has any backup or any backup
 schedule.**
 
+**This upgrades a recorded blocker rather than creating a new category.** `WIZMATCH_G1_PRODUCTION_PREFLIGHT_FINAL.md`
+recorded backup/rollback as *"not verified"*; it is now **verified absent**. Two written G1 requirements
+become unsatisfiable as worded:
+
+- `docs/runbooks/WIZMATCH_SMARTLEAD_FREE_PILOT_GO_LIVE.md` — *"Backup/rollback verification — confirm
+  a recent backup exists and that the rollback path … is understood by whoever is on call."*
+  There is no recent backup to confirm.
+- `WIZMATCH_G1_PRODUCTION_PREFLIGHT_FINAL.md` — U-7 sign-off is conditional on the lock measurement
+  **and** *"a verified backup/rollback plan"*.
+
+`0037` is non-destructive and ADR-004's rollback is a code revert, so the *migration-specific* risk is
+low. That does not rescue the gate: **G1 as written cannot pass while this is true.** This belongs in
+front of the owner as **its own item, separate from the clone decision** — it is arguably the larger
+of the two findings.
+
 > ### This is bigger than G1.
 >
 > Independently of migration `0037`, the production Growth Escalators CRM database — customers,
@@ -597,11 +612,48 @@ Mechanism details verified from source:
 - **Pending detection is timestamp-only:** `Number(lastDbMigration.created_at) < migration.folderMillis`.
   With production at `max(created_at) = 1784464092263` and `0037` at `1785039545644`, **exactly one
   migration will run.**
-- **Byte identity is provable after the fact.** `hash` = `sha256` of the raw file
-  (`drizzle-orm/migrator.js`). The reviewed `0037_unknown_siren.sql` at branch HEAD hashes to
+- **Byte identity is provable after the fact.** `hash` is `sha256` of
+  `readFileSync(...).toString()` — i.e. of the **UTF-8 re-encoding of the decoded string**, not
+  strictly of the file's raw bytes (`drizzle-orm/migrator.js`). For `0037` the two are identical (the
+  file is valid UTF-8 with no BOM), so the value below is correct; the distinction would matter for
+  any future migration file carrying a BOM or non-UTF-8 bytes. The reviewed `0037_unknown_siren.sql`
+  at branch HEAD hashes to
   `76729b609e2981f272a18f26ce032fee1978f3f0b3cc60ba53ab57c1c5937db5`. After application, the newest
   `__drizzle_migrations` row must show exactly that hash and `created_at = 1785039545644`. Anything
   else means a different file ran.
+- **⚠️ Exit code 0 is necessary but NOT sufficient proof that `0037` applied.** `migrate.ts` logs
+  `[migrate] Migration complete` and exits `0` **identically** whether it applied a migration or found
+  nothing pending — because drizzle computes pending work from the journal **inside the container**,
+  not from the database. Run inside the *current* production container (which has no `0037` and only
+  37 journal entries), `node dist/scripts/migrate.js` would exit `0` with a clean success log having
+  applied **nothing**. The only proof of application is the `__drizzle_migrations` row carrying
+  `created_at = 1785039545644` **and** hash `76729b60…`. Never accept the exit code or the log line
+  alone.
+
+### 11.1 ⚠️ Ordering hazard: the sourcing crons write into a `0037` table
+
+`0037` is not merely "additive and inert until features are switched on". A **currently-enabled**
+production cron path writes into one of its new tables:
+
+`src/worker.ts:1709-1712` (TheirStack importer, `'35 1 * * 1,4'`) and `src/worker.ts:1722-1725`
+(ATS poller, `'40 0 * * *'`) dynamically import `src/services/wizmatchSourcing.ts`, which at line 3
+imports `wizmatchRootPolicyBootstrapCte` from `src/modules/outreach/companyBootstrap.ts` —
+and that performs `INSERT INTO wizmatch_company_policies` (`companyBootstrap.ts:87`, `:119`).
+
+Production has **`WIZMATCH_ATS_POLLING_ENABLED=true`** and `DISABLE_BACKGROUND_JOBS=false`, so these
+crons run in the `web` process today.
+
+**Two consequences, both arguing the same way:**
+
+1. **If this branch's code reaches production before `0037` is applied, those crons throw** on a
+   missing `wizmatch_company_policies` table — on a schedule, unattended. This is the same failure
+   direction the preflight recorded for the HTTP routes, but via the cron path, which no feature flag
+   in the PR 8B gate set covers.
+2. Once the code *is* deployed with `0037` applied, sourcing-driven company creation begins writing
+   root policy rows **unattended**, without any operator action.
+
+**This makes the out-of-band ordering mandatory, not merely preferable: `0037` must be applied
+before the code deploys.** It is a further argument against the merge-and-auto-migrate path.
 - **Preventing app startup during an out-of-band run:** invoke `node dist/scripts/migrate.js` alone.
   Because the start command is `migrate && index`, running only the first half never boots the
   server, never registers a cron, and never touches any backfill — no backfill script is invoked from
@@ -661,6 +713,89 @@ Rationale: it is the only option available today, and at **52 MB** it is cheap, 
 immediately after the measurement, and never connected to any application service.
 
 **Cost:** one short-lived Postgres service plus ~52 MB of storage for a few minutes. Negligible.
+
+### 12.1 A zero-PII alternative the owner should be offered
+
+A full-data dump is *one* way to get a real-sized measurement, not the only one. **Schema + synthetic
+rows at matched cardinality** (2 813 / 4 719 / 15) builds the same indexes over the same shapes at the
+same row counts, with **no production PII on the clone at all**. `WIZMATCH_G1_PRODUCTION_PREFLIGHT_FINAL.md`
+already contemplates "another repository-approved disposable database at representative scale".
+
+Caveat, stated so the owner can weigh it: value distribution and physical row ordering would not match
+production, which can affect index build time in principle. At these row counts the effect is
+immaterial. **This is the owner's call — it is offered, not foreclosed.** Earlier text in this document
+said a full-data dump "is required"; that overstated it. What is required is *real cardinality*, not
+real people.
+
+### 12.2 ⚠️ Freeze deploys during the dump window
+
+`railway.json`'s start command runs the migrator on **every** deploy, and any push to `main`
+auto-deploys. A migration's `ALTER TABLE … ADD COLUMN` takes `ACCESS EXCLUSIVE`, which would **queue
+behind** the dump's `ACCESS SHARE` — and once that `ALTER` is queued, **every subsequent write to that
+table queues behind it**. So "`pg_dump` blocks DDL, not DML" is correct but understates the
+consequence: a deploy landing mid-dump converts a harmless read lock into a write pile-up.
+
+Even at 52 MB and seconds-scale, **announce the window and hold deploys** for its duration.
+
+### 12.3 Repo conventions this procedure must follow rather than reinvent
+
+There is **no existing clone or dump tooling in this repository** (`pg_dump`/`pg_restore`/
+`pg_basebackup`/`pitr` all return zero hits across `scripts/`, `src/`, `docs/`, `.github/`). But three
+established conventions apply and should be followed verbatim:
+
+1. **Cleanup discipline** — `docs/build/WIZMATCH_DATA_SAFETY.md`: prefix-tag every disposable
+   artifact, delete **only** exact-prefix matches confirmed by ID, and verify with a final
+   `count(*) = 0` before declaring cleanup complete. Apply the same "verify, don't assume" shape to
+   service and volume deletion, not just to rows.
+2. **Pause-and-confirm + logging** — `.claude/skills/ge-prod-data-mutation/SKILL.md`: never proceed
+   without an explicit human "go", and log what/why/scope/date in `.ai/HANDOFF_LOG.md`.
+3. **Never checkpoint a Railway sandbox** if one is used as the execution context — checkpoints
+   persist server-side by name and would leave a **durable disk image containing production PII**
+   after teardown.
+
+Existing read-only tooling worth reusing for sizing: `scripts/db-table-sizes.ts` (`npm run db:sizes`),
+documented as safe on production. **Run it inside Railway, not via `railway run`** — that script's own
+header suggests `railway run --service web`, which would place `DATABASE_URL` on a local machine, the
+exact pattern this whole workstream forbids.
+
+### 12.4 The approval token collapses three gates the repo already separates
+
+`docs/wizmatch/WIZMATCH_STAFFING_OS_CLAUDE_CODE_KICKOFF.md:119-141` documents this org's approved
+choreography for standing up a disposable database, and it is **three separate explicit human
+approvals**, not one:
+
+1. **Creation** — create only the empty service. *"Do not deploy code or apply migrations under the
+   creation approval."* Then a mandatory **read-back** verifying the new database has no production
+   reference or data, no worker, no phase flags, no sending, no paid-provider enablement. Then stop.
+2. **Migration / data** — a separate approval before anything is loaded or applied.
+3. **Deployment** — a third, separate approval.
+
+`APPROVE_G1_CLONE_PROVISIONING` as specified covers creation *and* loading production data *and* the
+migration test in a single token. **Approval to create an empty clone is not approval to load
+production PII into it.**
+
+**Recommendation to the owner:** honour the documented three-gate pattern — (1) provision the empty
+disposable Postgres and read it back, (2) a separate go for the `pg_dump` from production, (3) run the
+measurement and delete. This session has kept the single token because it is the one specified, but
+the split is the repo's own standard and is the safer shape.
+
+### 12.5 Decide the disposal threshold before measuring
+
+`WIZMATCH_G1_PRODUCTION_PREFLIGHT_FINAL.md` is prescriptive about what happens to the result: material
+write blocking or lock waiting → *"return G1 NO-GO, do not apply, and prepare a reviewed
+concurrent-index/out-of-transaction migration plan. **Do not improvise on production.**"* **Fix the
+numeric threshold before the measurement is taken**, so the outcome cannot be rationalised afterwards.
+
+Two reporting rules for the measurement session:
+
+- **Report row counts alongside every timing.** At 52 MB the answer will almost certainly be
+  single-digit milliseconds, and the preflight explicitly forbade "calling a small fixture
+  production-sized" — publishing the counts next to the timings pre-empts that objection honestly.
+- **Report timings and counts only.** No sample rows, emails, names or real-person IDs.
+
+Note also that the preflight requires the clone procedure to be *written and reviewed* **before**
+anything is provisioned. §12 is that written procedure; it still needs the review, and that review is
+a gate *preceding* the approval token, not a step inside it.
 
 ---
 
