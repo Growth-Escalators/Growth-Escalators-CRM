@@ -41,16 +41,30 @@ restricted the workbench but not the surfaces capable of external cost. This is 
 structurally, not only by convention: `app.use('/api/wizmatch', requireAuth, wizmatchRequireAdmin,
 wizmatchPilotGate, wizmatchRouter)` in `src/index.ts`.
 
-**Consequence for `viewer`, added by the final independent review — owner decision required.**
+**Consequence for `viewer` — RESOLVED by owner decision F-A (narrow machine-sync exception).**
 `viewer` is absent from `PILOT_ELIGIBLE_ROLES` (`src/services/wizmatchStaffingAccess.ts:13`), and
 `resolveStaffingAccess` tests role-eligibility *before* roster membership
-(`pilotAllowed = roleEligible && (allUsers || ids.has(userId))`). A `viewer` is therefore refused
-on all 82 routes of this router — reads included — and **adding it to
-`WIZMATCH_STAFFING_PILOT_USER_IDS` does not help**, because the roster is never reached. The
-read-only Command Deck sync account is documented in `src/index.ts` as a `viewer` and reads eight
-of these routes; see the blocking checklist item in
-[`WIZMATCH_SMARTLEAD_FREE_PILOT_GO_LIVE.md`](../runbooks/WIZMATCH_SMARTLEAD_FREE_PILOT_GO_LIVE.md)
-for the four options and the required decision.
+(`pilotAllowed = roleEligible && (allUsers || ids.has(userId))`), so a `viewer` is refused on this
+router and **adding it to `WIZMATCH_STAFFING_PILOT_USER_IDS` does not help** — the roster is never
+reached. `viewer` was deliberately NOT made pilot-eligible and is NOT on the roster.
+
+Instead, the read-only Command Deck sync is served by a narrow machine-sync lane
+(`src/middleware/wizmatchMachineSyncLane.ts`, mounted as `wizmatchPilotOrMachineSync`). It engages
+only when **all** of these hold — otherwise the request falls through to the unchanged pilot gate:
+
+| Condition | Why |
+|---|---|
+| `GET` only | no mutation can ever use the lane; `HEAD`/`OPTIONS` are refused too |
+| authenticated (`req.user` present) | `requireAuth` runs first in the mount chain |
+| RBAC passed | `wizmatchRequireAdmin` runs before the lane |
+| non-empty `tenantId` **and** `id` | tenant-safe; handlers scope by `req.user.tenantId` only |
+| `role === 'viewer'` | the documented machine/service identity |
+| `req.path` exactly equals one of **eight** allowlisted paths | frozen list, exact string equality — not a prefix, regex or wildcard |
+
+The eight are the exact set `GE-Brain/scripts/crm-sync.mjs` calls. Everything else on the router —
+all other GETs, and every non-GET including on those eight paths — still requires full pilot-roster
+membership. See the mandatory production verification and the pre-existing `/placements` caveat in
+[`WIZMATCH_SMARTLEAD_FREE_PILOT_GO_LIVE.md`](../runbooks/WIZMATCH_SMARTLEAD_FREE_PILOT_GO_LIVE.md).
 
 ## Also required (not new flags, but must hold true)
 

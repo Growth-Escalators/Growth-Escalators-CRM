@@ -2,6 +2,44 @@
 
 ## Active task
 
+**PR 8B is CODE READY at `0d330269`.** Branch `ge/outbound-08b-g3-pilot-completion`, PR #89 (draft).
+Marker `.ai/OUTBOUND_PR8B_CODE_READY` created. **Zero Critical, zero High.** Report:
+[`docs/reviews/wizmatch-outbound-pr8b-final-opus-review.md`](../docs/reviews/wizmatch-outbound-pr8b-final-opus-review.md).
+
+The one blocker (F-A — the M-3 pilot gate locking every `viewer` out of all 82 WizMatch routes,
+breaking the Command Deck sync) was ratified by the owner as a **narrow read-only machine-sync
+exception** and implemented at `111e5322`. `viewer` was NOT made pilot-eligible, NOT added to the
+roster, and the pilot gate was NOT removed. `src/middleware/wizmatchMachineSyncLane.ts` admits a
+request only when it is a `GET`, from an authenticated RBAC-passed caller with non-empty `tenantId`
+and `id`, role exactly `viewer`, and `req.path` exactly equal to one of eight frozen paths — the set
+`GE-Brain/scripts/crm-sync.mjs` calls. Everything else delegates to the untouched pilot gate;
+`PILOT_ELIGIBLE_ROLES` and `wizmatchPilotGate.ts` both have zero-line diffs.
+
+**Six vacuous mutation controls have now been found across three rounds on this branch** — four on
+the remediated tree, two more in the F-A lane's own tests (`43c7fa89`, `0d330269`). In two of the
+six, a reviewer cited a control that could not fail as its own evidence. All are fixed and red.
+If you review this stack again, assume a control is vacuous until you have watched it fail.
+
+**Gates at `0d330269`:** `git diff --check` clean · build exit 0 · `npm test` **132 files / 1551
+tests** · admin build exit 0 · Playwright **99 passed / 15 skipped / 0 failed**.
+
+**Exact next action — G3 preparation, all read-only or configuration:**
+1. Configure `WIZMATCH_STAFFING_PILOT_USER_IDS` with exactly the three human roster ids (two `admin`,
+   one `team_lead`), resolved read-only. Do not record their emails in this repo.
+2. Perform the mandatory read-only verification of the production sync principal, its role, its
+   tenant and its endpoints. The lane engages only for `role === 'viewer'`. If no legitimate sync
+   exists, leave the lane unused — do not create a machine account.
+3. Note the recorded pre-existing limitation: `GET /placements` still 403s for the sync via its own
+   `['admin','team_lead']` check, which predates this branch and feeds no cockpit tile.
+
+**G1 remains separately NO-GO** (production-database blockers, unchanged). Do not push, merge,
+deploy, apply `0037`, run backfill `--apply`, promote `enforce`, enable sending/preparation/the
+adapter/paid discovery, connect Smartlead, or start PR 9/10.
+
+---
+
+## Prior entry — PR 8B NOT CODE READY, blocked on F-A (superseded by the resolution above)
+
 **PR 8B is NOT CODE READY after the final independent review of the remediated tree.** Branch
 `ge/outbound-08b-g3-pilot-completion`, PR #89 (draft). Reviewed `84fc340e`; fixes at `5f045b5d`
 (tests + doc accuracy) and `2b1f074a` (disclosure). Report:

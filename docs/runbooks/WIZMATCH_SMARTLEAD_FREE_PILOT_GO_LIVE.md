@@ -134,24 +134,43 @@ Checklist:
   `POST /api/wizmatch/contact-intelligence/companies/:id/discover`. Before this fix the roster
   restricted only the workbench/policy/preparation surfaces, not the routes capable of external
   cost — that gap is now closed structurally.
-- [ ] **BLOCKING — `viewer` accounts lose all WizMatch API access, and the roster cannot restore
-  them.** Raised by the final independent review; **an owner decision is required before this
-  branch is merged.** `viewer` is not in `PILOT_ELIGIBLE_ROLES`
-  (`src/services/wizmatchStaffingAccess.ts:13`), and role-eligibility is tested *before* roster
-  membership, so a `viewer` is 403'd on all 82 `/api/wizmatch` routes — **including every GET** —
-  even if explicitly named in `WIZMATCH_STAFFING_PILOT_USER_IDS`. Until M-3 this only affected the
-  workbench/policy/preparation routers; it now affects the main router too.
-  **Known consumer:** the Command Deck sync (`GE-Brain/scripts/crm-sync.mjs`) reads eight routes
-  from that router — `/dashboard`, `/command-center`, `/candidate-intelligence/queue`,
-  `/client-discovery/queue`, `/review-workbench`, `/guardrails`, `/placements`, `/candidates`.
-  If it authenticates as `viewer`, it begins failing on deploy.
-  **Decide one, before merge:** (a) re-role the sync account to a pilot-eligible read tier
-  (`staff`) and add its user id to the roster — ops-only, no code change; (b) add `viewer` to
-  `PILOT_ELIGIBLE_ROLES` — an RBAC change needing its own review; (c) exempt GET requests from the
-  pilot gate on this router — widens read access beyond the roster, contradicting M-3's intent; or
-  (d) accept that the Command Deck WizMatch card goes stale for the pilot's duration.
-  Verify the chosen outcome by running the sync (or one of the eight GETs) as the real sync
-  account after deploy and confirming 200, not 403.
+- [ ] **Pilot roster contents.** Exactly three human members are admitted (owner-ratified). Resolve
+  each to its exact application user id **read-only** at G3 and configure only those three ids in
+  `WIZMATCH_STAFFING_PILOT_USER_IDS`. Do not invent ids, and do not record the members' email
+  addresses in this repo. Required roles: two `admin`, one `team_lead` — the `team_lead` tier is
+  deliberate, so that member can perform policy writes, approvals, owner assignment and duplicate
+  resolution, which `manager_ops` cannot. Confirm no `viewer` is on the list (a `viewer` is refused
+  by the pilot gate regardless — see the machine-sync note below).
+
+- [ ] **Machine-sync lane verification (F-A, RESOLVED in code — this check confirms it in
+  production).** The Command Deck sync is a non-human integration and is **not** a fourth pilot
+  member. It is served by a narrow read-only lane
+  (`src/middleware/wizmatchMachineSyncLane.ts`): authenticated + RBAC + tenant-scoped + `GET` only +
+  `role === 'viewer'` + an exact eight-path allowlist. Everything else still goes through the
+  pilot gate unchanged.
+  **This check is mandatory because the sync's live identity cannot be verified without production
+  access, which the review deliberately did not take.** Confirm, read-only:
+  - the production sync **principal** (which account `GE-Brain/scripts/crm-sync.mjs` authenticates
+    as, via `~/.ge-crm/config.json` — never print the token);
+  - its **actual role** — the lane engages only for `viewer`. If the account is some other role it
+    gets no lane and is subject to the pilot gate like any human;
+  - its **tenant**, which must be the WizMatch tenant;
+  - the **exact endpoints** it calls, which must still be the eight in the allowlist.
+  Then run the sync and confirm the eight WizMatch pulls return 200 — **except `/placements`, see
+  the next item.**
+  **If no legitimate production sync exists, leave the lane unused.** Do not create a machine
+  account to make it applicable.
+
+- [ ] **Known pre-existing limitation — `GET /placements` will still 403 for the sync.** That route
+  carries its own in-handler check `['admin','team_lead'].includes(req.user!.role)`
+  (`src/routes/wizmatch.ts:3352`), which is unrelated to the pilot gate and **predates this branch**
+  — verified byte-identical at the review base and on `origin/main`, so the sync has always been
+  refused there. It is the only one of the eight with such a check. The machine-sync lane correctly
+  carries the request *past* the pilot gate; the route's own RBAC then refuses it, with the
+  distinguishable body `commercial_access_requires_lead` rather than
+  `staffing_pilot_access_required`. No cockpit tile depends on it — `buildWizmatchTile()` reads only
+  `command-center`. Decide separately whether to widen that route's RBAC; it is **not** an F-A
+  regression and does not block G3.
 - [ ] Health/readiness validation — confirm the deployed process starts cleanly, the existing
   health-check endpoint reports healthy, and no error-rate spike appears in the first
   observation window.

@@ -3,7 +3,9 @@
 - **Branch:** `ge/outbound-08b-g3-pilot-completion` (PR #89, draft, stacked on PR #88)
 - **Review base:** `ece8d3ba`
 - **Remediated code HEAD reviewed:** `84fc340e` (tree state `30e6ccf1`, two docs commits on top)
-- **Fixes made during this review:** `5f045b5d` (tests + doc accuracy), `2b1f074a` (disclosure)
+- **Fixes made during this review:** `5f045b5d` (tests + doc accuracy), `2b1f074a` (F-A disclosure)
+- **F-A resolution:** `111e5322` (machine-sync lane), `43c7fa89` + `0d330269` (two vacuous controls)
+- **Final reviewed code commit:** `0d330269`
 - **Reviewed at:** 2026-07-27T15:20:00Z
 - **Reviewer:** fresh independent Opus session, no memory of the remediation work
 - **Method:** five parallel read-only Explore subagents (R1–R5) + the lead's own independent pass;
@@ -13,9 +15,24 @@
 
 ## FINAL VERDICT
 
-> ## **NOT CODE READY.**
+> ## **CODE READY** — at `0d330269`, after F-A was resolved.
 >
-> `.ai/OUTBOUND_PR8B_CODE_READY` is **not** created.
+> `.ai/OUTBOUND_PR8B_CODE_READY` is created. **Zero Critical, zero High.**
+>
+> This document's original verdict was NOT CODE READY, blocked on one new High (F-A). The owner
+> ratified a narrow machine-sync exception; it is implemented, independently reviewed by two fresh
+> agents, and verified here by eleven executed mutation controls. The verdict below is superseded
+> and left intact as the record of why the branch was held.
+>
+> **Still true, and the reason to read the rest of this document:** across this review and its F-A
+> follow-up, **six separate mutation controls were found to be vacuous** — four on the remediated
+> tree, two in the F-A lane's own tests. Every one has been fixed and proven red. This is the third
+> consecutive round in which this branch's mutation evidence was overstated, and in two cases a
+> reviewer cited a control that could not fail as its own evidence.
+
+### Superseded original verdict (kept as the record)
+
+> ## **NOT CODE READY.**
 >
 > The six prior High findings are all genuinely closed — verified by mutation, not by reading the
 > remediation report. The blocker is **one new High finding (F-A)** that the remediation
@@ -26,8 +43,96 @@
 >
 > Separately, **four narrow mutation controls stayed green** on the submitted tree — four safety
 > properties the remediation reports as closed had no regression control at all. Those are fixed in
-> this review (`5f045b5d`) and all four now go red. They are no longer blockers, but they are the
-> second consecutive round in which this branch's own mutation evidence was overstated.
+> this review (`5f045b5d`) and all four now go red.
+
+---
+
+## F-A RESOLUTION (owner-ratified, implemented and reviewed)
+
+**Owner decision:** a narrow read-only machine-sync exception. `viewer` is explicitly NOT made
+generally pilot-eligible, is NOT added to the roster, and the pilot gate is NOT removed from the
+WizMatch router. The human pilot roster is exactly three people (two `admin`, one `team_lead` — that
+tier chosen deliberately so the third member can perform policy writes, approvals, owner assignment
+and duplicate resolution). Their identities are resolved to user ids read-only at G3 and are
+deliberately **not** recorded in this repository.
+
+**Implementation** — `src/middleware/wizmatchMachineSyncLane.ts` (commit `111e5322`), mounted as
+`wizmatchPilotOrMachineSync` replacing `wizmatchPilotGate` at exactly one line in `src/index.ts`.
+`requireAuth` and `wizmatchRequireAdmin` still run first, so the lane is unreachable without
+authentication and without passing RBAC. The lane engages only when **all** hold:
+
+| Condition | Effect |
+|---|---|
+| `req.method === 'GET'` | no mutation, ever; `HEAD`/`OPTIONS` refused too |
+| `req.user` present, non-empty `tenantId` **and** `id` | tenant-safe; handlers read `req.user.tenantId` only |
+| `req.user.role === 'viewer'` | the documented machine/service identity |
+| `req.path` **exactly equals** one of eight frozen paths | not a prefix, regex or wildcard |
+
+Anything else delegates to the untouched `wizmatchPilotGate`. `PILOT_ELIGIBLE_ROLES` has a zero-line
+diff; `wizmatchPilotGate.ts` has a zero-line diff.
+
+**Authorization boundary (reviewer A, independently confirmed).** Verified with live Express 5.2.1
+probes using raw `http.request()` to bypass client-side URL normalisation: `req.path` is neither
+percent-decoded nor dot-segment-normalised, so `/dashboard/`, `/Dashboard`, `/%64ashboard`,
+`/%2e%2e/signals`, `/dashboard/../signals`, `/dashboard%00`, `/dashboard;x=1` and `//dashboard` all
+fail exact equality and fall through to the gate. No method-override middleware exists anywhere in
+the app. None of the four earlier-mounted WizMatch routers defines any of the eight paths, so
+nothing can shadow the lane.
+
+**Effective authorization change:** before, all 82 routes 403'd every viewer. After, a `viewer` may
+issue `GET` on eight paths and nothing else. All 74 other routes, and every non-GET on those eight,
+remain gated exactly as before. Human roles are unchanged.
+
+### Two more vacuous controls, found and fixed during the F-A review
+
+- **The tenant-safety assertion could not fail.** It looped over `poolQuery.mock.calls` asserting no
+  call carried an attacker-supplied tenant; with an empty call list the loop body never ran. Proven
+  by removing `/dashboard` from the allowlist — the request 403s, no query runs, and the test stayed
+  **green**. It now asserts the handler was actually reached and that a query carried the
+  authenticated tenant. Fixed in `43c7fa89`. **Reviewer A had cited this exact test as its evidence
+  for the owner's "tenant-safe resolution" constraint.**
+- **A second assertion accepted either outcome.** A test named "403s on a Workbench/policy-adjacent
+  read" asserted `expect([200, 403]).toContain(status)` and discarded the body. Its name was also
+  wrong — `/review-workbench` is allowlisted, so the real answer is 200, and the range had been
+  widened to paper over the mismatch. Found by reviewer C, rewritten into two deterministic claims,
+  fixed in `0d330269`. Requirement 2 proper is proven where it belongs, in
+  `wizmatchTodayRoutes.test.ts` and `wizmatchPolicyRoutes.test.ts`.
+
+### F-A mutation controls — eleven run by the lead, all red
+
+| # | Mutation | Result |
+|---|---|---|
+| A | exact match → `startsWith` | **RED** — 2 failed |
+| B | drop `req.method === 'GET'` | **RED** — 3 failed |
+| C | drop `role === 'viewer'` | **RED** — 6 failed |
+| D | drop the `tenantId` requirement | **RED** — 2 failed |
+| E | widen the allowlist by one entry | **RED** — 5 failed |
+| F | drop the `req.user` presence check | **RED** — 2 failed |
+| G | drop the `id` requirement | **RED** — 2 failed |
+| H | lane always allows (gate never reached) | **RED** — 22 failed across 2 files |
+| I | widen method check to allow `HEAD` | **RED** — 1 failed (new control) |
+| J | de-allowlist `/dashboard` (tenant-test vacuity probe) | was **GREEN**, now **RED** after fix |
+| K | de-allowlist `/review-workbench` (C's probe) | was **GREEN**, now **RED** after fix |
+
+### Recorded, not fixed
+
+- **`GET /placements` will still 403 for the sync — pre-existing, not an F-A regression.** That route
+  carries its own `['admin','team_lead']` check (`src/routes/wizmatch.ts:3352`), verified
+  byte-identical at the review base and on `origin/main`. It is the only one of the eight with such a
+  check. The lane correctly carries the request *past* the pilot gate; the route's own RBAC then
+  refuses it with the distinguishable body `commercial_access_requires_lead`. No cockpit tile depends
+  on it — `buildWizmatchTile()` reads only `command-center`. Whether to widen that route's RBAC is a
+  separate decision; it does not block G3.
+- **Reported flake (reviewer A, N-2), not reproduced.** One failure was observed when three test
+  files ran together. **Not reproduced in 13 runs** — 8 sequential and 5 deliberately concurrent. The
+  single observation coincided with the lead's Playwright suite saturating CPU and ports. Recorded as
+  a CI watch item; nothing fixed, because nothing reproducible was found.
+- **The sync's live identity is unverified.** The lane engages only for `role === 'viewer'`. The
+  repo documents the sync as a viewer and `crm-sync.mjs:257` treats `role === 'viewer'` as its own
+  service-account marker, but confirming the production principal needs production access this review
+  deliberately did not take. **A mandatory read-only G3 check** now covers principal, role, tenant and
+  endpoints. If no legitimate production sync exists, the lane simply stays unused — no account is to
+  be manufactured.
 
 ### What the remediation got right, stated plainly
 
@@ -49,6 +154,16 @@ class of reason. The pattern from the previous round — *a passing control prov
 mutates* — recurred, one level down.
 
 ---
+
+## AGENT RECONCILIATION — AND A PROCESS FAILURE WORTH RECORDING
+
+Across this review and its F-A follow-up, **five of eight subagents went idle without delivering
+their reports** (R1, R3, R4 in the first pass; FA-rev-B twice and FA-rev-B2 twice in the second).
+This is the exact failure that caused the original wrong CODE READY verdict on this branch. No
+verdict was formed while any report was outstanding. R1/R3/R4 delivered in full when re-prompted;
+FA-rev-B and FA-rev-B2 never did, and were replaced by FA-rev-C, which delivered and immediately
+found a vacuous test the lead had missed. **The structure earned its keep in both rounds** — the
+highest-yield findings in each came from agents, not the lead.
 
 ## FIVE-AGENT RECONCILIATION
 
@@ -139,14 +254,19 @@ byte-identical backup with a SHA-256 equality assertion. `git status` was empty 
 
 ## GATES
 
+Final, at `0d330269`:
+
 ```
 git diff --check                          → clean
 npm run build                             → tsc, exit 0
-npm test                                  → 131 files / 1495 tests, all passed
+npm test                                  → 132 files / 1551 tests, all passed
 npm run admin:build                       → exit 0
 npx playwright test --config=playwright.wizmatch-local.config.ts
                                           → 99 passed / 15 skipped / 0 failed
 ```
+
+Intermediate: 130/1469 as submitted (reproduced exactly, so the remediation marker did not overstate
+its numbers) → 131/1495 after this review's first fixes → 132/1551 after F-A.
 
 The submitted tree reproduced the claimed **130 files / 1469 tests** exactly before any fix, so the
 remediation marker did not overstate its numbers. This review's fixes add 1 file / 26 tests.
@@ -173,9 +293,9 @@ Playwright matches every prior baseline in this stack.
 
 ### Critical — none
 
-### HIGH — one, blocking
+### HIGH — one, now RESOLVED
 
-#### F-A — the M-3 pilot gate locks out every `viewer`, and no roster entry can restore it
+#### F-A — the M-3 pilot gate locks out every `viewer`, and no roster entry can restore it — **RESOLVED at `111e5322`**
 
 `viewer` is absent from `PILOT_ELIGIBLE_ROLES` (`wizmatchStaffingAccess.ts:13`), and
 `resolveStaffingAccess` computes `pilotAllowed = roleEligible && (allUsers || ids.has(userId))` —
@@ -256,7 +376,9 @@ owner must confirm which it is.
 - Nothing new. Dry-run review against real production data remains the precondition.
 
 ### Before G3 (merge + shadow deployment)
-- **F-A — BLOCKING.** Owner decision on the `viewer` lockout, before merge.
+- **F-A — RESOLVED in code.** What remains is the mandatory read-only production check of the sync
+  principal / role / tenant / endpoints, and the three-member roster configuration. Both are
+  checklist items in the go-live runbook, not code blockers.
 - Standing: confirm `NODE_ENV=production` on Railway; set `WIZMATCH_STAFFING_PILOT_USER_IDS` to an
   explicit UUID list (not the all-users override, and not containing a `viewer`, who is silently
   denied); set `WIZMATCH_COMPANY_POLICY_ENABLED` and `WIZMATCH_DECISION_WORKBENCH_ENABLED`; run
@@ -269,7 +391,7 @@ owner must confirm which it is.
 - G3's observation window must show the readiness report's hard preconditions met.
 
 ### Owner decisions still open
-1. **F-A** — the `viewer` lockout remedy (four options in the runbook). **Blocks G3.**
+1. ~~**F-A**~~ — **RATIFIED and implemented.** Narrow machine-sync exception; see above.
 2. **PR 7 O-3 / PR8A S2-3** — role tier for `POST .../prepare`. Verified inert while
    `WIZMATCH_AUTO_PREP_ENABLED=false`.
 3. **PR 6 M-1 residual** — dedicated `approved_by`/`approved_at` columns. Migration-gated.

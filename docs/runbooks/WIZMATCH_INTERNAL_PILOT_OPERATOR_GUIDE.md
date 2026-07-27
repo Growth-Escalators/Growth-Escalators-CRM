@@ -75,11 +75,15 @@ human session, and are resolved before this gate.
 
 **`viewer` accounts cannot be admitted to the pilot at all.** `viewer` is not a pilot-eligible
 role, and unlike every other role that check runs *before* the roster is consulted — so naming a
-`viewer` in `WIZMATCH_STAFFING_PILOT_USER_IDS` has no effect. A `viewer` now receives 403 on every
-`/api/wizmatch` route in the main router, reads included. If you have a read-only integration or
-dashboard account on the `viewer` role, it will stop working when this ships; it needs a
-pilot-eligible role (`staff` is the read tier) *and* a roster entry. See the go-live runbook's
-blocking checklist item — this is an open owner decision, not a settled configuration step.
+`viewer` in `WIZMATCH_STAFFING_PILOT_USER_IDS` has no effect. A `viewer` receives 403 on every
+`/api/wizmatch` route in the main router, reads included. If you have a human read-only account on
+the `viewer` role, it needs a pilot-eligible role (`staff` is the read tier) *and* a roster entry.
+
+**The one exception is the machine sync, and it is not a pilot member.** The read-only Command Deck
+sync reaches exactly eight GET routes through a narrow lane that requires authentication, RBAC, a
+tenant, `GET`, the `viewer` role, and an exact path match against a frozen eight-entry allowlist.
+It grants nothing else: no mutation of any kind, and no other GET route. Do not treat it as a
+fourth pilot seat, and do not add it to the roster — the roster is for the three human members.
 
 | Action | Minimum role |
 |---|---|

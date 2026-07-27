@@ -6,7 +6,62 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
-## 2026-07-27 — WizMatch Outbound OS: PR 8B final independent review — STILL NOT CODE READY — Claude
+## 2026-07-27 — WizMatch Outbound OS: PR 8B F-A resolved — CODE READY at `0d330269` — Claude
+
+Owner ratified F-A as a **narrow read-only machine-sync exception**, not a role change. Implemented
+by one dedicated agent (`111e5322`), reviewed by two fresh read-only agents, verified by eleven
+mutation controls run by the lead. Marker `.ai/OUTBOUND_PR8B_CODE_READY` created. Zero Critical,
+zero High.
+
+**What shipped:** `src/middleware/wizmatchMachineSyncLane.ts`, mounted as `wizmatchPilotOrMachineSync`
+in place of `wizmatchPilotGate` at exactly one line of `src/index.ts`. It admits a request only when
+ALL hold — `GET`; authenticated (`requireAuth` runs first); RBAC passed (`wizmatchRequireAdmin` runs
+first); non-empty `tenantId` AND `id`; `role === 'viewer'`; and `req.path` **exactly equal** to one of
+eight frozen paths (the exact set `GE-Brain/scripts/crm-sync.mjs` calls). Everything else delegates to
+the untouched pilot gate. `PILOT_ELIGIBLE_ROLES` and `wizmatchPilotGate.ts` both have zero-line diffs;
+`viewer` is not pilot-eligible and is not on the roster. Effective change: previously all 82 routes
+403'd every viewer; now a viewer may `GET` eight paths and nothing else.
+
+**Two more vacuous controls found and fixed — six now across three rounds on this branch.**
+- The tenant-safety test looped over `poolQuery.mock.calls`; with an empty list the loop body never
+  ran, so it passed while proving nothing. Demonstrated by de-allowlisting `/dashboard`: request
+  403s, no query runs, test stayed GREEN. **The first-line reviewer had cited that exact test as its
+  evidence for the owner's tenant-safety constraint.** Fixed `43c7fa89`.
+- A second test asserted `expect([200, 403]).toContain(status)` and discarded the body — satisfied
+  either way. Its name was wrong too (`/review-workbench` is allowlisted, so the answer is 200); the
+  range had been widened to paper over that. Found by the replacement reviewer. Fixed `0d330269`.
+
+**The standing lesson, now three rounds deep.** Round one: *a passing control proves only what it
+mutates.* Round two: *a control never run against its own defect proves nothing.* Round three:
+**a reviewer's citation of a control is not evidence the control can fail — check it yourself.**
+Assume vacuity until you have watched the test go red.
+
+**Process failure worth recording: five of eight subagents went idle without delivering reports**
+(R1, R3, R4 in round one; FA-rev-B twice and FA-rev-B2 twice in round two) — the same failure that
+caused the original wrong CODE READY verdict here. No verdict was formed while any was outstanding.
+R1/R3/R4 delivered when re-prompted; B and B2 never did and were replaced by FA-rev-C, which
+delivered and immediately found a vacuous test the lead had missed. In both rounds the agents found
+the highest-yield defects — the structure is not ceremony.
+
+**How to verify:** `npm run build` exit 0 · `npm test` **132 files / 1551 tests** · `npm run
+admin:build` exit 0 · `npx playwright test --config=playwright.wizmatch-local.config.ts`
+**99 passed / 15 skipped / 0 failed** · `git diff --check` clean.
+
+**What's next — G3, all read-only or configuration:** set `WIZMATCH_STAFFING_PILOT_USER_IDS` to
+exactly the three human roster ids (two `admin`, one `team_lead`; emails deliberately not recorded
+here); then perform the mandatory read-only check of the production sync principal, role, tenant and
+endpoints, since the lane engages only for `role === 'viewer'` and that could not be confirmed
+without production access. If no legitimate sync exists, leave the lane unused — do not create a
+machine account. Recorded pre-existing limitation: `GET /placements` still 403s for the sync via its
+own `['admin','team_lead']` check, which predates this branch and feeds no cockpit tile.
+
+Nothing pushed, merged or deployed; `0037` not applied to any real database; backfill not run;
+enforcement still `shadow`; sending/Smartlead/preparation/adapter/paid-discovery all disabled;
+PR 9/10 not started; G1 remains NO-GO.
+
+---
+
+## 2026-07-27 — WizMatch Outbound OS: PR 8B final independent review — NOT CODE READY (superseded) — Claude
 
 Fresh Opus session, no memory of the remediation work, reviewing the remediated tree at `84fc340e`.
 Report: `docs/reviews/wizmatch-outbound-pr8b-final-opus-review.md`.

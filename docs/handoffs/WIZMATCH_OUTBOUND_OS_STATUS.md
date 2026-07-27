@@ -104,8 +104,45 @@ Chat-independent status for the `ge/outbound-0X-*` stacked-PR sequence. Read thi
 > **Still not pushed, not merged, `0037` still not applied, backfill not run, enforcement still
 > `shadow`, sending/Smartlead/preparation/adapter/paid-discovery all still disabled. PR 9/10 not started.**
 >
-> **Updated 2026-07-27 (FINAL INDEPENDENT REVIEW OF THE REMEDIATED TREE): PR 8B is STILL NOT CODE
-> READY.** Fresh Opus session, no memory of the remediation work, reviewing `84fc340e`. Report:
+> **Updated 2026-07-27 (F-A RESOLVED): PR 8B is CODE READY at `0d330269`.** Marker
+> `.ai/OUTBOUND_PR8B_CODE_READY` created. **Zero Critical, zero High.**
+>
+> The single blocker below (F-A) was ratified by the owner as a **narrow read-only machine-sync
+> exception** and implemented at `111e5322`. `viewer` was deliberately NOT made pilot-eligible, NOT
+> added to the roster, and the pilot gate was NOT removed from the WizMatch router. Instead
+> `src/middleware/wizmatchMachineSyncLane.ts` lets a request through only when it is a `GET`, from an
+> authenticated RBAC-passed caller with a non-empty `tenantId` and `id`, whose role is exactly
+> `viewer`, and whose `req.path` exactly equals one of eight frozen paths — the precise set
+> `GE-Brain/scripts/crm-sync.mjs` calls. Everything else delegates to the untouched pilot gate.
+> `PILOT_ELIGIBLE_ROLES` and `wizmatchPilotGate.ts` both have zero-line diffs. The human roster is
+> three people (two `admin`, one `team_lead`), resolved to user ids read-only at G3 and deliberately
+> not recorded in this repo.
+>
+> **Two more vacuous controls were found and fixed during the F-A review** (`43c7fa89`, `0d330269`):
+> the tenant-safety test looped over an empty mock-call list so it could never fail — and the
+> first-line reviewer had cited that exact test as its evidence for the owner's tenant-safety
+> constraint — and a second test asserted `expect([200, 403]).toContain(status)`, accepting either
+> outcome. That makes **six vacuous controls across three rounds** on this branch. Eleven F-A
+> mutation controls now all go red.
+>
+> **Still required at G3, as checklist items rather than code blockers:** configure exactly the three
+> roster ids, and perform the mandatory read-only verification of the production sync principal, its
+> role, its tenant and its endpoints — the lane engages only for `role === 'viewer'` and that could
+> not be confirmed without production access. If no legitimate sync exists the lane stays unused; no
+> machine account is to be created. Recorded pre-existing limitation: `GET /placements` still 403s for
+> the sync via its own `['admin','team_lead']` check, which predates this branch (verified identical
+> at the review base and on `origin/main`) and feeds no cockpit tile.
+>
+> Gates at `0d330269`: build 0, `npm test` **132 files / 1551 tests**, admin build 0, Playwright
+> **99 passed / 15 skipped / 0 failed**. **Nothing pushed, merged or deployed; `0037` not applied to
+> any real database; backfill not run; enforcement still `shadow`; sending/Smartlead/preparation/
+> adapter/paid-discovery all disabled; PR 9/10 not started; G1 remains NO-GO.**
+>
+> ---
+>
+> **Updated 2026-07-27 (FINAL INDEPENDENT REVIEW OF THE REMEDIATED TREE): PR 8B was NOT CODE
+> READY — superseded by the F-A resolution above.** Fresh Opus session, no memory of the remediation
+> work, reviewing `84fc340e`. Report:
 > [`docs/reviews/wizmatch-outbound-pr8b-final-opus-review.md`](../reviews/wizmatch-outbound-pr8b-final-opus-review.md).
 > **`.ai/OUTBOUND_PR8B_CODE_READY` is NOT created.**
 >
