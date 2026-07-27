@@ -48,10 +48,28 @@ export interface PilotReadinessInputs {
   env: NodeJS.ProcessEnv;
   /** Repo root — used to locate `.ai/`, `src/db/migrations/`, and `scripts/`. Never used to open a DB connection. */
   repoRoot: string;
+  /**
+   * PR 8A review fix — the operator asserts that the environment being
+   * assessed is the PRODUCTION pilot target. `NODE_ENV` alone is not enough:
+   * the runbook's G3 step tells an operator to run this against a copied
+   * `.env`, which does not carry `NODE_ENV=production`, so a production-only
+   * check (an absent pilot roster) silently degraded to a warning exactly
+   * when it mattered most. Defaults to `false` — unchanged local behaviour.
+   */
+  assumeProductionTarget?: boolean;
 }
+
+/**
+ * The only outreach provider with an implementation on disk
+ * (`src/modules/outreach/providers/index.ts`'s `KNOWN_PROVIDERS`). Anything
+ * else — including `smartlead_csv`, the documented default and the exact
+ * provider this pilot must not use — is an unknown provider.
+ */
+const KNOWN_OUTREACH_PROVIDERS = ['mock'];
 
 export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): PilotReadinessReport {
   const { env, repoRoot } = inputs;
+  const assumeProductionTarget = inputs.assumeProductionTarget === true;
   const findings: PilotReadinessFinding[] = [];
   const push = (code: string, severity: PilotReadinessSeverity, message: string) => {
     findings.push({ code, severity, message });
@@ -131,36 +149,79 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
       : 'Paid-discovery flags remain disabled.',
   );
 
-  // 9. Provider selection. `OUTREACH_PROVIDER` only matters once the adapter
-  //    flag is on; still worth reporting so a future flip isn't a surprise.
-  const outreachProvider = env.OUTREACH_PROVIDER;
+  // 9. Provider selection. The pilot's configuration contract says "no
+  //    provider is selected", so an UNRECOGNISED non-empty `OUTREACH_PROVIDER`
+  //    is dangerous on its own — not only when the adapter flag happens to be
+  //    on. `smartlead_csv` is the documented default and the exact provider
+  //    this pilot must not use; before this fix it passed silently whenever
+  //    the adapter was off.
+  const outreachProvider = (env.OUTREACH_PROVIDER ?? '').trim();
   const adapterEnabled = isEnabled(env.WIZMATCH_OUTREACH_ADAPTER_ENABLED);
+  const providerIsUnknown = outreachProvider.length > 0 && !KNOWN_OUTREACH_PROVIDERS.includes(outreachProvider.toLowerCase());
   if (adapterEnabled) {
-    // Already reported as `danger` above (flag:WIZMATCH_OUTREACH_ADAPTER_ENABLED);
-    // this adds the compounding detail rather than a second danger for the same root cause.
+    // Compounds the `flag:WIZMATCH_OUTREACH_ADAPTER_ENABLED` danger above
+    // rather than restating it: adapter-on plus ANY provider selection is a
+    // combination that must not exist in this pilot.
     push(
       'provider:selection',
       'danger',
-      `WIZMATCH_OUTREACH_ADAPTER_ENABLED is on AND OUTREACH_PROVIDER=${JSON.stringify(outreachProvider ?? null)} — ` +
+      `WIZMATCH_OUTREACH_ADAPTER_ENABLED is on AND OUTREACH_PROVIDER=${JSON.stringify(env.OUTREACH_PROVIDER ?? null)} — ` +
         'adapter availability does not imply sending availability, but this combination should not exist in this pilot at all.',
+    );
+  } else if (providerIsUnknown) {
+    push(
+      'provider:selection',
+      'danger',
+      `OUTREACH_PROVIDER=${JSON.stringify(env.OUTREACH_PROVIDER ?? null)} is not a recognised provider ` +
+        `(the only implementation on disk is ${JSON.stringify(KNOWN_OUTREACH_PROVIDERS)}). The pilot's configuration ` +
+        'contract requires that no provider is selected; a provider name set here would fail closed at the factory, ' +
+        'but it must not be present at all.',
     );
   } else {
     push(
       'provider:selection',
       'ok',
-      `Outreach adapter is off; OUTREACH_PROVIDER=${JSON.stringify(outreachProvider ?? null)} is inert.`,
+      outreachProvider.length === 0
+        ? 'Outreach adapter is off and no OUTREACH_PROVIDER is selected.'
+        : `Outreach adapter is off; OUTREACH_PROVIDER=${JSON.stringify(env.OUTREACH_PROVIDER ?? null)} is a recognised provider and inert.`,
     );
   }
 
   // 10. Pilot roster configuration (presence only — never lists user ids).
-  const rosterConfigured = Boolean((env.WIZMATCH_STAFFING_PILOT_USER_IDS ?? '').trim()) || isEnabled(env.WIZMATCH_STAFFING_PILOT_ALL_USERS);
-  const isProduction = env.NODE_ENV === 'production';
-  if (!rosterConfigured && isProduction) {
-    push('pilot-roster', 'danger', 'NODE_ENV=production with no pilot roster configured — every pilot surface fails closed (by design), but nothing will work until this is set.');
+  //     `assumeProductionTarget` exists because the runbook's G3 step is run
+  //     against a COPIED `.env`, which carries no `NODE_ENV=production`; without
+  //     it the one control that makes this a pilot rather than an open
+  //     deployment degraded to a warning exactly when it mattered.
+  const rosterByIds = Boolean((env.WIZMATCH_STAFFING_PILOT_USER_IDS ?? '').trim());
+  const rosterByAllUsers = isEnabled(env.WIZMATCH_STAFFING_PILOT_ALL_USERS);
+  const rosterConfigured = rosterByIds || rosterByAllUsers;
+  const productionTarget = env.NODE_ENV === 'production' || assumeProductionTarget;
+  if (!rosterConfigured && productionTarget) {
+    push(
+      'pilot-roster',
+      'danger',
+      `${env.NODE_ENV === 'production' ? 'NODE_ENV=production' : '--production asserted'} with no pilot roster configured — ` +
+        'every pilot surface fails closed (by design), but nothing will work until this is set.',
+    );
   } else if (!rosterConfigured) {
-    push('pilot-roster', 'warning', 'Pilot roster is not configured. Fine for local/dev (permissive default); required before production.');
+    push(
+      'pilot-roster',
+      'warning',
+      'Pilot roster is not configured. Fine for local/dev (permissive default); required before production — ' +
+        're-run with `--production` to have this treated as a blocking failure.',
+    );
+  } else if (rosterByAllUsers && !rosterByIds) {
+    // A configured roster that is "everyone with a pilot-eligible role" is a
+    // legitimate documented override, but it is NOT a restricted pilot and
+    // must never be reported as though it were.
+    push(
+      'pilot-roster',
+      productionTarget ? 'danger' : 'warning',
+      'WIZMATCH_STAFFING_PILOT_ALL_USERS is set with no explicit user-id roster — every pilot-eligible role ' +
+        '(admin, team_lead, manager_ops, sales, staff) is admitted. That is an open deployment, not a restricted pilot.',
+    );
   } else {
-    push('pilot-roster', 'ok', 'Pilot roster is configured.');
+    push('pilot-roster', 'ok', 'Pilot roster is configured with an explicit user-id list (ids not shown).');
   }
 
   // 11. Required feature flags for the pilot's own visible surfaces.

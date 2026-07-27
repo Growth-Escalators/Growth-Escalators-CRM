@@ -21,6 +21,18 @@ variable — that remains a separate, explicit action gated by
 | `WIZMATCH_AUTO_PREP_ENABLED` | `false` | Gates BOTH the automatic preparation cron and the manual `POST/GET .../prepare[/status]` routes (same flag, `wizmatchPrepare.ts`). Preparation ships off on day one; enabling it is a later, separate decision once the pilot roster and policy surfaces have been observed. |
 | `WIZMATCH_OUTREACH_ADAPTER_ENABLED` | `false` | No outreach batch/export/import route may be reachable. Adapter availability never implies sending availability, but this pilot needs neither. |
 
+## Pilot roster — the control that makes this a pilot
+
+| Variable | Required initial value | Why |
+|---|---|---|
+| `WIZMATCH_STAFFING_PILOT_USER_IDS` | an explicit, comma/whitespace-separated list of exactly the intended pilot members' user ids | This is the ONLY thing that limits the pilot surfaces (Decision Workbench, policy read/write, preparation) to the pilot group. `resolveStaffingAccess` fails closed in production when it is unset — no role, not even `admin`, gets through — so an unset value does not leak, it simply makes the pilot unusable. |
+| `WIZMATCH_STAFFING_PILOT_ALL_USERS` | unset / `false` | Setting this admits **every** pilot-eligible role (`admin`, `team_lead`, `manager_ops`, `sales`, `staff`) tenant-wide. That is an open deployment, not a restricted pilot; `npm run wizmatch:pilot-readiness -- --production` reports it as a dangerous finding. |
+
+Note the role gate and the roster gate are independent and neither implies the
+other: a roster member with an ineligible role is still refused, and passing
+the roster grants **no** write permission on its own — every write still passes
+its own `team_lead`+/`admin` check.
+
 ## Also required (not new flags, but must hold true)
 
 - **No Smartlead credential may be present.** No environment variable whose
@@ -38,7 +50,11 @@ variable — that remains a separate, explicit action gated by
   `src/modules/outreach/providers/index.ts` — there is no real (Smartlead or
   otherwise) provider implementation on disk yet, so `OUTREACH_PROVIDER`
   cannot select one even if it were misconfigured. This is a structural
-  guarantee, not merely a configuration one (PR 8 review).
+  guarantee, not merely a configuration one (PR 8 review). The readiness
+  command nonetheless reports a non-empty `OUTREACH_PROVIDER` that is not in
+  that allow-list as a **dangerous** finding regardless of the adapter flag —
+  including `smartlead_csv`, the documented default and the exact provider
+  this pilot must not use. Leave it unset.
 - **Adapter availability does not imply sending availability.** Even in a
   later state where `WIZMATCH_OUTREACH_ADAPTER_ENABLED=true` and a real
   provider exists, `capabilities.sends` and `WIZMATCH_SENDING_ENABLED` /

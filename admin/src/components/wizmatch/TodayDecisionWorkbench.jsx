@@ -65,19 +65,26 @@ function primaryActionFor(item) {
 
 function CompanyCard({ item, onAction, isStale }) {
   const primary = primaryActionFor(item);
-  const disabledReasonId = item.disabledReason ? `disabled-reason-${item.companyId}` : undefined;
+  // PR 8A review fix — the "No action available" affordance must ALWAYS have
+  // an explanation. `item.disabledReason` can legitimately be null for a state
+  // that still has no primary action (a routed company that already has an
+  // account owner), and the previous code dropped the old `title` fallback in
+  // favour of an `aria-describedby` that then pointed at nothing — leaving the
+  // affordance unexplained for every user, not only screen-reader users.
+  const disabledReason = item.disabledReason
+    || 'No action is available for this company in its current state. Open the company drawer for the full policy history.';
+  const disabledReasonId = `disabled-reason-${item.companyId}`;
   return (
     <div className="space-y-1.5">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-semibold text-neutral-900">{item.companyName}</span>
         {item.companyDomain && <span className="text-[11px] text-neutral-500">{item.companyDomain}</span>}
         {/* Task 9 — non-overridable is folded into the SAME badge as the
-            decision (relabelled), not a second `badge-danger` element: the
-            shared `badge-danger` class already fails color-contrast
-            (recorded, not fixed, in the PR 6 review), so a second instance
-            on one row would multiply that defect rather than add new
-            information a screen-reader user couldn't already get from the
-            disabled-action text below. */}
+            decision (relabelled), not a second `badge-danger` element: two
+            red badges on one row would repeat, not add, information the
+            disabled-action text below already carries. (`badge-danger`'s own
+            contrast defect was fixed in this same pass, in
+            `admin/src/index.css`.) */}
         <StatusBadge
           status={effectiveDecisionOf(item)}
           label={
@@ -147,10 +154,10 @@ function CompanyCard({ item, onAction, isStale }) {
             <button type="button" onClick={() => onAction('skip', item)} className="btn-standard btn-compact">Skip for Now</button>
           </>
         )}
-        {item.disabledReason && (
-          <span id={disabledReasonId} className="text-[11px] text-neutral-500" aria-label={`Disabled: ${item.disabledReason}`}>
+        {(item.disabledReason || !primary) && (
+          <span id={disabledReasonId} className="text-[11px] text-neutral-500" aria-label={`Disabled: ${disabledReason}`}>
             <AlertTriangle className="inline w-3 h-3 mr-0.5 -mt-0.5" aria-hidden="true" />
-            {item.disabledReason}
+            {disabledReason}
           </span>
         )}
       </div>

@@ -98,8 +98,11 @@ Checklist:
   `AUTOMATED_EMAILS_ENABLED=false`, `WIZMATCH_AUTO_PREP_ENABLED=false`,
   `WIZMATCH_OUTREACH_ADAPTER_ENABLED=false`, no Smartlead credential present, no paid-discovery
   flag on.
-- [ ] Run `npm run wizmatch:pilot-readiness` against the deployment's actual environment (or an
-  identical local `.env` copy) and confirm exit code 0 / no `DANGER` findings.
+- [ ] Run `npm run wizmatch:pilot-readiness -- --production` against the deployment's actual
+  environment (or an identical local `.env` copy) and confirm exit code 0 / no `DANGER` findings.
+  **The `--production` flag is required for this step.** A copied `.env` does not carry
+  `NODE_ENV=production`, so without it the production-only checks — most importantly an absent
+  or all-users pilot roster — report as warnings rather than blocking failures.
 - [ ] Deploy in shadow. This repo auto-deploys on push to `main` — pushing is itself a
   production-sensitive action requiring its own explicit confirmation, separate from this
   runbook's gates.
@@ -143,14 +146,21 @@ of this document alone.
 ## Read-only verification at any point
 
 ```bash
-npm run wizmatch:pilot-readiness
+npm run wizmatch:pilot-readiness                 # assess as-is
+npm run wizmatch:pilot-readiness -- --production # assert a production target (required at G3)
 ```
 
 Checks (without touching any database, network, or provider): code-ready markers through
 PR 8, enforcement mode, sending/automated-email/preparation/adapter flags, Smartlead credential
-presence (name only, never the value), paid-discovery flags, pilot roster configuration,
-migration/backfill status (reported, never changed), and dangerous contradictory combinations.
-Exits non-zero on any dangerous finding.
+presence (name only, never the value), paid-discovery flags, provider selection, pilot roster
+configuration, migration/backfill status (reported, never changed), and dangerous contradictory
+combinations. Exits non-zero on any dangerous finding.
+
+It loads `.env` before reading the environment, so running it against a copied production `.env`
+assesses that file's values and not the empty shell environment. What it **cannot** do is reach
+into Railway: it only ever sees the environment of the machine it runs on, so "run it against the
+deployment's actual environment" means exactly that — run it where those values are present, or
+against a faithful copy. It also cannot tell whether `0037` has been applied to any database.
 
 ## Safety reminders
 

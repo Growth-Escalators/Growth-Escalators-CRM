@@ -6,6 +6,7 @@
 // access only, no network, no DB.
 
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { assessWizmatchPilotReadiness } from '../services/wizmatchPilotReadiness';
 
@@ -112,6 +113,90 @@ describe('assessWizmatchPilotReadiness — dangerous configurations (each must f
     const report = assessWizmatchPilotReadiness({ env: baseEnv(), repoRoot: join(__dirname, 'fixtures', 'does-not-exist') });
     expect(report.dangerous).toBe(true);
     expect(report.findings.some((f) => f.code.startsWith('marker:') && f.severity === 'danger')).toBe(true);
+  });
+});
+
+// PR 8A REVIEW fixes — two required danger conditions were not actually
+// implemented as dangers, and one "roster configured" state was reported as a
+// restricted pilot when it is an open deployment.
+describe('assessWizmatchPilotReadiness — review fixes', () => {
+  it('an unrecognised OUTREACH_PROVIDER is dangerous even while the adapter flag is OFF', () => {
+    const report = assessWizmatchPilotReadiness({ env: baseEnv({ OUTREACH_PROVIDER: 'smartlead_csv' }), repoRoot });
+    expect(report.dangerous).toBe(true);
+    expect(report.findings.find((f) => f.code === 'provider:selection')?.severity).toBe('danger');
+  });
+
+  it("the one provider that IS implemented ('mock') is not flagged while the adapter is off", () => {
+    const report = assessWizmatchPilotReadiness({ env: baseEnv({ OUTREACH_PROVIDER: 'mock' }), repoRoot });
+    expect(report.findings.find((f) => f.code === 'provider:selection')?.severity).toBe('ok');
+    expect(report.dangerous).toBe(false);
+  });
+
+  it('an absent pilot roster is dangerous when the operator asserts a production target, without NODE_ENV', () => {
+    const report = assessWizmatchPilotReadiness({ env: baseEnv(), repoRoot, assumeProductionTarget: true });
+    expect(report.dangerous).toBe(true);
+    expect(report.findings.find((f) => f.code === 'pilot-roster')?.severity).toBe('danger');
+  });
+
+  it('without the production assertion an absent roster stays a warning (unchanged local behaviour)', () => {
+    const report = assessWizmatchPilotReadiness({ env: baseEnv(), repoRoot });
+    expect(report.findings.find((f) => f.code === 'pilot-roster')?.severity).toBe('warning');
+    expect(report.dangerous).toBe(false);
+  });
+
+  it('the all-users override is NOT reported as a configured pilot roster in production', () => {
+    const report = assessWizmatchPilotReadiness({
+      env: baseEnv({ NODE_ENV: 'production', WIZMATCH_STAFFING_PILOT_ALL_USERS: 'true' }),
+      repoRoot,
+    });
+    expect(report.dangerous).toBe(true);
+    expect(report.findings.find((f) => f.code === 'pilot-roster')?.message).toMatch(/open deployment, not a restricted pilot/);
+  });
+
+  it('an explicit user-id roster in production passes and never prints the ids', () => {
+    const report = assessWizmatchPilotReadiness({
+      env: baseEnv({ NODE_ENV: 'production', WIZMATCH_STAFFING_PILOT_USER_IDS: 'user-aaa,user-bbb' }),
+      repoRoot,
+    });
+    expect(report.findings.find((f) => f.code === 'pilot-roster')?.severity).toBe('ok');
+    expect(report.findings.map((f) => f.message).join('\n')).not.toContain('user-aaa');
+  });
+});
+
+// The pure assessor is only as good as what the CLI feeds it. These are
+// static assertions on the CLI wrapper because the defect they pin is an
+// ABSENT import, which no behavioural test of the assessor can observe.
+describe('scripts/wizmatch-pilot-readiness.ts — the CLI wrapper', () => {
+  const cliSource = readFileSync(join(repoRoot, 'scripts', 'wizmatch-pilot-readiness.ts'), 'utf8');
+  /**
+   * Comment-stripped, so a guard here can never be satisfied by a
+   * commented-out or merely DOCUMENTED occurrence. The first draft of this
+   * suite asserted against the raw text and passed with the dotenv import
+   * commented out — the same evadable-static-guard class the PR 2 / PR 5 /
+   * PR 7 / PR 8 reviews each found. Verified by a control run.
+   */
+  const cliCode = cliSource
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('//'))
+    .join('\n');
+
+  it("loads .env before reading process.env — the runbook's G3 step runs it against a copied .env", () => {
+    // Without this, every safety flag in that file reads `undefined` -> "off"
+    // -> exit 0: the CLI reports SAFE against a configuration with sending on.
+    expect(cliCode).toMatch(/^\s*import\s+['"]dotenv\/config['"]/m);
+  });
+
+  it('threads the --production assertion through INTO the assessor call, not merely into a local', () => {
+    expect(cliCode).toMatch(/--production/);
+    // Asserting the identifier merely EXISTS is satisfied by its own `const`
+    // declaration, so deleting the pass-through left this green (control run).
+    // Pin the call site itself.
+    expect(cliCode).toMatch(/assessWizmatchPilotReadiness\(\s*\{[^}]*assumeProductionTarget[^}]*\}\s*\)/);
+  });
+
+  it('opens no database connection and makes no network call', () => {
+    expect(cliCode).not.toMatch(/\b(?:from\s+['"](?:pg|\.\.\/src\/db)|drizzle|fetch\s*\(|axios|https?:\/\/)/);
   });
 });
 

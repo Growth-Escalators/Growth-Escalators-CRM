@@ -364,6 +364,8 @@ function disabledReasonFor(item: {
   nonOverridableScopeKey: string | null;
   duplicatePending: boolean;
   contactConfidenceTier: 'high' | 'medium' | 'low' | null;
+  routed: boolean;
+  accountOwnerUserId: string | null;
 }): string | null {
   // PR 8A hardening (task 3) — derived from the EFFECTIVE isNonOverridable,
   // which is true when either the root row or any narrower active scope is
@@ -380,6 +382,19 @@ function disabledReasonFor(item: {
   }
   if (item.duplicatePending) {
     return 'A possible duplicate company is pending review. Queueing and export are disabled until resolved.';
+  }
+  // PR 8A review fix — a ROUTED company that already has an account owner has
+  // no primary action (§8.6/§8.7 route it to that owner, not to cold
+  // outreach), so the UI renders "No action available" for it. Before this
+  // branch, `disabledReasonFor` returned null for exactly that state, the UI's
+  // `aria-describedby` therefore pointed at nothing, and the affordance was
+  // left unexplained — for every user, not only screen-reader users. Placed
+  // ahead of the contact-confidence branch because for a routed company the
+  // routing, not the contact tier, is the operative reason.
+  if (item.routed) {
+    return item.accountOwnerUserId
+      ? 'This company is routed to its account owner rather than cold outreach. Work it through the owner, or use the menu actions.'
+      : 'This company is routed to an owner or a dedicated workflow rather than cold outreach. Assign an owner to proceed.';
   }
   if (item.contactConfidenceTier === 'low' || item.contactConfidenceTier === null) {
     return 'No high- or medium-confidence contact is available yet.';
@@ -458,12 +473,20 @@ export async function buildTodayQueues(tenantId: string, limit = 200): Promise<T
       // EXISTING `recommendedRoute` and `accountOwnerUserId` — no migration.
       const recommendedRoute = canonical.recommendedRoute ?? 'none';
       const isRoutedCandidate = ROUTED_ROUTE_CODES.has(recommendedRoute);
+      // PR 8A review fix — resolved BEFORE the item is built, not mutated
+      // after bucketing, because `disabledReasonFor` now needs it: an item
+      // whose reason is "routed to its account owner" must carry that reason
+      // from construction, and `routed` must never be true for a row that
+      // precedence sends to Paused or Blocked / Needs Review instead. Mirrors
+      // the bucketing chain below exactly.
+      const effectiveAccountOwnerUserId = canonical.accountOwnerUserId ?? row.accountOwnerUserId;
+      const willBeRouted = isRoutedCandidate && effectiveDecision !== 'deny' && !duplicatePending;
 
       const item: DecisionWorkbenchCompanyItem = {
         companyId: row.companyId,
         companyName: row.companyName,
         companyDomain: row.companyDomain,
-        accountOwnerUserId: canonical.accountOwnerUserId ?? row.accountOwnerUserId,
+        accountOwnerUserId: effectiveAccountOwnerUserId,
         canonicalDecision: canonical.decision,
         canonicalReasonCode: canonical.reasonCode,
         canonicalBlockerCode: canonical.blockerCode,
@@ -484,7 +507,7 @@ export async function buildTodayQueues(tenantId: string, limit = 200): Promise<T
         contactConfidenceTier,
         duplicatePending,
         duplicateId,
-        routed: false,
+        routed: willBeRouted,
         recommendedRoute,
         disabledReason: null,
       };
@@ -512,8 +535,7 @@ export async function buildTodayQueues(tenantId: string, limit = 200): Promise<T
         needsReview.push(item);
       } else if (effectiveDecision === 'deny') {
         pausedOrBlocked.push(item);
-      } else if (isRoutedCandidate) {
-        item.routed = true;
+      } else if (willBeRouted) {
         routed.push(item);
       } else if (effectiveDecision === 'review') {
         needsReview.push(item);

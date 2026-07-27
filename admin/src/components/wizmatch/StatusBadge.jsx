@@ -34,11 +34,9 @@ const STATUS_TONE = {
   // shadow-vs-canonical divergence badge and a routed/assigned item.
   // Non-overridable is folded into the SAME badge as the decision (a
   // relabelled `deny`, not a second `badge-danger` element) rather than a
-  // standalone tone — `badge-danger`'s shared CSS already fails the repo's
-  // own color-contrast check (recorded, not fixed, in the PR 6 review —
-  // editing a class used by dozens of other pages is out of scope here), so
-  // a second `badge-danger` on the same row multiplies a known defect
-  // instead of adding a new one.
+  // standalone tone, so one row never carries two red badges saying the same
+  // thing. (`badge-danger`'s own contrast defect — 4.23:1 — was fixed in this
+  // same pass in `admin/src/index.css`; it is now 5.66:1.)
   shadow_would_block: 'info',
   // A stale (policy changed since load) workbench item. Deliberately its OWN
   // key — `stale` above already means "an old contact candidate" for the

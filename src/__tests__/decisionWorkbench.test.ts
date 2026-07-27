@@ -424,6 +424,58 @@ describe('buildTodayQueues — routed queue', () => {
     expect(queues.routed).toHaveLength(0);
     expect(queues.pausedOrBlocked).toHaveLength(1);
   });
+
+  // PR 8A REVIEW fix — a routed company has NO primary action in the UI
+  // (`primaryActionFor` returns null once it has an owner), so it renders the
+  // "No action available" affordance. Before this fix `disabledReasonFor`
+  // returned null for exactly that state, so the affordance's
+  // `aria-describedby` pointed at nothing and no user — sighted or not — was
+  // told why.
+  it('a routed company WITH an account owner carries an explicit disabledReason', async () => {
+    fixtures.companyRows = [
+      companyRow({ companyId: 'routed-owned', outreachEligibility: 'eligible', relationshipType: 'existing_client' }),
+    ];
+    fixtures.contactRows = [{ companyId: 'routed-owned', confidenceScore: 9, metadata: {} }];
+    eligibilityByCompany.set('routed-owned', {
+      decision: 'allow', reasonCode: null, blockerCode: null, enforcementMode: 'shadow', actsOnDecision: false,
+      recommendedRoute: 'account_owner', accountOwnerUserId: 'user-42',
+    });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.routed).toHaveLength(1);
+    expect(queues.routed[0].disabledReason).toBeTruthy();
+    expect(queues.routed[0].disabledReason).toMatch(/routed to its account owner/);
+  });
+
+  it('a routed company with NO account owner is told to assign one', async () => {
+    fixtures.companyRows = [
+      companyRow({ companyId: 'routed-unowned', outreachEligibility: 'eligible', relationshipType: 'existing_client' }),
+    ];
+    fixtures.contactRows = [{ companyId: 'routed-unowned', confidenceScore: 9, metadata: {} }];
+    eligibilityByCompany.set('routed-unowned', {
+      decision: 'allow', reasonCode: null, blockerCode: null, enforcementMode: 'shadow', actsOnDecision: false,
+      recommendedRoute: 'msp_vms_research', accountOwnerUserId: null,
+    });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.routed).toHaveLength(1);
+    expect(queues.routed[0].disabledReason).toMatch(/Assign an owner to proceed/);
+  });
+
+  it("`routed` is false on an item precedence sends elsewhere, so the flag never contradicts the queue it is in", async () => {
+    fixtures.companyRows = [
+      companyRow({ companyId: 'blocked-routed-2', outreachEligibility: 'blocked', relationshipType: 'existing_client' }),
+    ];
+    eligibilityByCompany.set('blocked-routed-2', {
+      decision: 'deny', reasonCode: 'company_removal_request', blockerCode: 'policy_company_removal_request',
+      enforcementMode: 'enforce', actsOnDecision: true,
+      recommendedRoute: 'account_owner', accountOwnerUserId: 'user-42',
+    });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.pausedOrBlocked).toHaveLength(1);
+    expect(queues.pausedOrBlocked[0].routed).toBe(false);
+  });
 });
 
 describe('buildTodayQueues — bucket assignment (contact confidence)', () => {
