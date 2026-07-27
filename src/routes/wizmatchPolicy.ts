@@ -17,6 +17,7 @@
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { requireRole } from '../middleware/rbac';
+import { wizmatchPilotGate } from '../middleware/wizmatchPilotGate';
 import {
   getCompanyPolicyView,
   writeCompanyPolicy,
@@ -26,6 +27,7 @@ import {
   listCompaniesByPolicy,
   PolicyValidationError,
   PolicyOverrideRefusedError,
+  PolicyStaleStateError,
   type PolicyWriteInput,
 } from '../modules/outreach/policyService';
 import { listDuplicates, resolveDuplicate, DuplicateValidationError } from '../modules/outreach/duplicateService';
@@ -49,6 +51,12 @@ function featureGate(_req: Request, _res: Response, next: NextFunction): void {
   next();
 }
 router.use(featureGate);
+// PR 8A hardening — pilot roster enforcement (§4 "pilot member" applies to
+// every route in this file, reads and writes alike). Runs after the feature
+// gate (an off flag must still 404-equivalent via next('router'), not 403) and
+// before every role check below, so a non-pilot user never reaches a route
+// this router defines regardless of role.
+router.use(wizmatchPilotGate);
 
 const requireTeamLead = requireRole('admin', 'team_lead');
 const requireAdmin = requireRole('admin');
@@ -64,6 +72,10 @@ function handleServiceError(error: unknown, res: Response): void {
   }
   if (error instanceof PolicyOverrideRefusedError) {
     res.status(409).json({ error: 'override_refused', message: error.message });
+    return;
+  }
+  if (error instanceof PolicyStaleStateError) {
+    res.status(409).json({ error: 'stale_policy_state', message: error.message });
     return;
   }
   if (error instanceof DuplicateValidationError) {

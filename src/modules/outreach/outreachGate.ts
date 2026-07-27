@@ -50,6 +50,7 @@ import {
   type PolicyDecision,
   type PolicyDecisionFields,
   type RouteCode,
+  type BlockClass,
 } from './policyTypes';
 
 export { OutreachBlockedError };
@@ -721,6 +722,19 @@ export interface CompanyStatusResult {
    * the exact string `enforce`.
    */
   actsOnDecision: boolean;
+  /**
+   * PR 8A hardening (task 3) — carried through from the full `PolicyDecision`
+   * so a display caller (the Decision Workbench, in particular) can derive
+   * "is this company non-overridable-blocked" from the SAME canonical
+   * decision used everywhere else, rather than re-reading only the
+   * `entire_company` row itself and missing an L1c narrower-scope block.
+   * Previously discarded here, which is exactly the gap task 3 closes.
+   */
+  blockClass: BlockClass | null;
+  isNonOverridable: boolean;
+  /** PR 8A hardening (task 8) — the routed/assigned queue needs this to tell a "route to account owner" decision from an ordinary allow/review/deny. */
+  recommendedRoute: RouteCode;
+  accountOwnerUserId: string | null;
 }
 
 /**
@@ -738,5 +752,9 @@ export async function resolveCompanyStatus(tenantId: string, companyId: string):
     reasonCode: decision.reasonCodes[0] ?? null,
     enforcementMode: decision.enforcementMode,
     actsOnDecision: decision.decision !== 'allow' && decision.enforcementMode === 'enforce',
+    blockClass: decision.blockClass,
+    isNonOverridable: decision.isNonOverridable,
+    recommendedRoute: decision.recommendedRoute,
+    accountOwnerUserId: decision.accountOwnerUserId,
   };
 }

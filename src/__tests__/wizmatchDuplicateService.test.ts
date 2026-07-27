@@ -151,29 +151,44 @@ describe('listDuplicates', () => {
 
 describe('resolveDuplicate', () => {
   it('resolves a pending pair as confirmed_separate, recording resolvedBy/resolvedAt', async () => {
-    const updated = await resolveDuplicate(actor, 'dup-1', { resolution: 'confirmed_separate', reasonCode: 'legal_suffix_variant' });
+    const updated = await resolveDuplicate(actor, 'dup-1', { resolution: 'confirmed_separate', reasonCode: 'duplicate_confirmed_separate' });
     expect(updated.resolution).toBe('confirmed_separate');
     expect(updated.resolvedBy).toBe('user-1');
     expect(updated.resolvedAt).toBeInstanceOf(Date);
   });
 
   it('refuses to re-resolve an already-resolved pair (idempotency, not silent overwrite)', async () => {
-    await resolveDuplicate(actor, 'dup-1', { resolution: 'merged', reasonCode: 'same_entity' });
-    await expect(resolveDuplicate(actor, 'dup-1', { resolution: 'confirmed_separate', reasonCode: 'oops' })).rejects.toMatchObject(
+    await resolveDuplicate(actor, 'dup-1', { resolution: 'merged', reasonCode: 'duplicate_merged' });
+    await expect(resolveDuplicate(actor, 'dup-1', { resolution: 'confirmed_separate', reasonCode: 'duplicate_confirmed_separate' })).rejects.toMatchObject(
       { code: 'already_resolved' },
     );
   });
 
   it('rejects an invalid resolution value', async () => {
     await expect(
-      resolveDuplicate(actor, 'dup-1', { resolution: 'deleted' as any, reasonCode: 'x' }),
+      resolveDuplicate(actor, 'dup-1', { resolution: 'deleted' as any, reasonCode: 'duplicate_merged' }),
     ).rejects.toBeInstanceOf(DuplicateValidationError);
   });
 
   it('rejects a duplicate id from another tenant', async () => {
     await expect(
-      resolveDuplicate({ tenantId: 'tenant-2', userId: 'user-9' }, 'dup-1', { resolution: 'merged', reasonCode: 'x' }),
+      resolveDuplicate({ tenantId: 'tenant-2', userId: 'user-9' }, 'dup-1', { resolution: 'merged', reasonCode: 'duplicate_merged' }),
     ).rejects.toMatchObject({ code: 'not_found' });
+  });
+
+  it('rejects an unrecognised reasonCode not in the ratified §9 taxonomy', async () => {
+    await expect(
+      resolveDuplicate(actor, 'dup-1', { resolution: 'merged', reasonCode: 'not_a_real_code' }),
+    ).rejects.toMatchObject({ code: 'unknown_reason_code' });
+  });
+
+  // PR 8A REVIEW fix — a duplicate resolution is a permanent human decision
+  // and must carry an identifiable actor, exactly as a policy write now does.
+  it('refuses a resolution with no actor userId, before any write', async () => {
+    await expect(
+      resolveDuplicate({ tenantId: 'tenant-1' }, 'dup-1', { resolution: 'merged', reasonCode: 'duplicate_merged' }),
+    ).rejects.toMatchObject({ code: 'actor_required' });
+    expect(state.staffingEventInserts).toHaveLength(0);
   });
 
   // H-14 regression: resolveDuplicate used to discard reasonCode/evidence and
@@ -181,7 +196,7 @@ describe('resolveDuplicate', () => {
   it('persists reasonCode/evidence in a staffing event and an audit_events row', async () => {
     await resolveDuplicate(actor, 'dup-1', {
       resolution: 'merged',
-      reasonCode: 'same_entity',
+      reasonCode: 'duplicate_merged',
       evidence: 'Same registered address and GSTIN.',
     });
 
@@ -191,7 +206,7 @@ describe('resolveDuplicate', () => {
       payload: expect.objectContaining({
         duplicateId: 'dup-1',
         resolution: 'merged',
-        reasonCode: 'same_entity',
+        reasonCode: 'duplicate_merged',
         evidence: 'Same registered address and GSTIN.',
       }),
     });
@@ -200,7 +215,7 @@ describe('resolveDuplicate', () => {
     expect(state.auditLogCalls[0][0]).toMatchObject({
       action: 'wizmatch_company_duplicate_resolved',
       entityId: 'dup-1',
-      newValues: expect.objectContaining({ resolution: 'merged', reasonCode: 'same_entity' }),
+      newValues: expect.objectContaining({ resolution: 'merged', reasonCode: 'duplicate_merged' }),
     });
   });
 

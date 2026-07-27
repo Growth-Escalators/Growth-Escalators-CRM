@@ -103,6 +103,67 @@ describe('wizmatchToday router — GET /today/queues (staff+ read)', () => {
   });
 });
 
+// PR 8A hardening (task 2/10) — pilot roster enforcement (PRD-005 §4). Both
+// routes in this router carry no pilot-roster check of their own beyond the
+// shared middleware — this proves it actually runs here.
+describe('wizmatchToday router — pilot roster enforcement', () => {
+  it('rejects an unauthenticated request with 401', async () => {
+    const { default: router } = await import('../routes/wizmatchToday');
+    const app = express();
+    app.use(express.json());
+    app.use('/api/wizmatch', router);
+    await new Promise<void>((resolve) => {
+      server = app.listen(0, () => resolve());
+    });
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+    const res = await fetch(`${baseUrl}/api/wizmatch/today/queues`);
+    expect(res.status).toBe(401);
+    expect(calls.buildTodayQueues).toHaveLength(0);
+  });
+
+  it("rejects 'viewer' reading the queues — pilot roster gate, not the role list, is what stops it", async () => {
+    await startServer('viewer');
+    const res = await fetch(`${baseUrl}/api/wizmatch/today/queues`);
+    expect(res.status).toBe(403);
+    expect(calls.buildTodayQueues).toHaveLength(0);
+  });
+
+  it.each(['admin', 'team_lead', 'manager_ops', 'sales', 'staff'])('allows pilot-eligible role %s to read queues', async (role) => {
+    await startServer(role);
+    const res = await fetch(`${baseUrl}/api/wizmatch/today/queues`);
+    expect(res.status).toBe(200);
+  });
+
+  it('fails closed in production with no pilot roster configured, even for admin', async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      await startServer('admin');
+      const res = await fetch(`${baseUrl}/api/wizmatch/today/queues`);
+      expect(res.status).toBe(403);
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+  });
+
+  it('production with a roster configured: a listed user passes, an unlisted one does not', async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalRoster = process.env.WIZMATCH_STAFFING_PILOT_USER_IDS;
+    process.env.NODE_ENV = 'production';
+    process.env.WIZMATCH_STAFFING_PILOT_USER_IDS = 'user-1';
+    try {
+      await startServer('team_lead'); // startServer always uses id: 'user-1'
+      const listedRes = await fetch(`${baseUrl}/api/wizmatch/today/queues`);
+      expect(listedRes.status).toBe(200);
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+      if (originalRoster === undefined) delete process.env.WIZMATCH_STAFFING_PILOT_USER_IDS;
+      else process.env.WIZMATCH_STAFFING_PILOT_USER_IDS = originalRoster;
+    }
+  });
+});
+
 describe('wizmatchToday router — POST /today/actions role gating (PRD-005 §4)', () => {
   it('rejects a staff role on a single-target action (requires team_lead+)', async () => {
     await startServer('staff');

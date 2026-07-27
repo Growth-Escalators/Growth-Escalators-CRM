@@ -46,6 +46,7 @@
 
 import { resolveCompanyStatus, isEnforcementActive, type CompanyStatusResult } from './outreachGate';
 import type { CompanyIntelligenceStatus } from '../../services/wizmatchContactIntelligence';
+import type { BlockClass, RouteCode } from './policyTypes';
 
 export interface CanonicalCompanyEligibility {
   tenantId: string;
@@ -58,6 +59,18 @@ export interface CanonicalCompanyEligibility {
   enforcementMode: CompanyStatusResult['enforcementMode'];
   /** True only when `decision !== 'allow' && enforcementMode === 'enforce'` — mirrors `shouldBlock` (D-31). */
   actsOnDecision: boolean;
+  /**
+   * PR 8A hardening (task 3) — carried through from the canonical decision so
+   * a display caller can tell a non-overridable block from an ordinary one
+   * without re-reading only the `entire_company` row itself. Optional (not
+   * every existing fixture/caller constructs one) — a caller that omits it
+   * must treat the omission as "unknown", never as "definitely overridable".
+   */
+  blockClass?: BlockClass | null;
+  isNonOverridable?: boolean;
+  /** PR 8A hardening (task 8) — the routed/assigned queue's source of truth for "this company routes to an account owner / a specific workflow", not an ordinary allow/review/deny. Optional for the same reason as above. */
+  recommendedRoute?: RouteCode;
+  accountOwnerUserId?: string | null;
 }
 
 /**
@@ -73,7 +86,8 @@ export async function resolveCanonicalCompanyEligibility(
   tenantId: string,
   companyId: string,
 ): Promise<CanonicalCompanyEligibility> {
-  const { decision, reasonCode, enforcementMode, actsOnDecision } = await resolveCompanyStatus(tenantId, companyId);
+  const { decision, reasonCode, enforcementMode, actsOnDecision, blockClass, isNonOverridable, recommendedRoute, accountOwnerUserId } =
+    await resolveCompanyStatus(tenantId, companyId);
   return {
     tenantId,
     companyId,
@@ -82,6 +96,10 @@ export async function resolveCanonicalCompanyEligibility(
     blockerCode: decision === 'deny' ? `policy_${reasonCode ?? 'denied'}` : null,
     enforcementMode,
     actsOnDecision,
+    blockClass,
+    isNonOverridable,
+    recommendedRoute,
+    accountOwnerUserId,
   };
 }
 

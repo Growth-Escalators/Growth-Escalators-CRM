@@ -28,6 +28,7 @@ import { auditLog } from '../../services/auditLogger';
 import { normalizeDomain } from '../../services/wizmatchContactIntelligenceRepo';
 import { buildScopeKey } from './scopeKey';
 import { resolveEffectivePolicy, type EffectivePolicy } from './policyResolver';
+import { getReasonCodeMeta } from '../../config/wizmatchReasonCodes';
 import type {
   BlockClass,
   EvidenceKind,
@@ -117,6 +118,24 @@ export interface PolicyWriteInput {
   isNonOverridable?: boolean;
   reviewDate?: string;
   blockClass?: BlockClass;
+  /**
+   * Stale-state precondition (PR 8A hardening). When supplied, the scope's
+   * CURRENT active policy id at this scope_key must match exactly (or be
+   * `null` when no active row exists at this scope yet), checked inside the
+   * SAME transaction that reads the predecessor — not by a caller's earlier,
+   * separate read — so there is no window between "check" and "act" for a
+   * concurrent write to slip through. `undefined` (the default) skips the
+   * check entirely, preserving this function's existing behaviour for
+   * callers that do not supply a precondition.
+   */
+  expectedPolicyId?: string | null;
+}
+
+export class PolicyStaleStateError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PolicyStaleStateError';
+  }
 }
 
 const SCOPE_TYPES: ScopeType[] = [
@@ -138,6 +157,20 @@ const SCOPE_TYPES: ScopeType[] = [
 function validatePolicyWrite(input: PolicyWriteInput): void {
   if (!SCOPE_TYPES.includes(input.scopeType)) {
     throw new PolicyValidationError(`Unknown scopeType '${input.scopeType}'.`, 'unknown_scope_type');
+  }
+  // PR 8A hardening — reasonCode is free text with no DB CHECK behind it
+  // (§9 is documentation-only until the taxonomy is made database-backed), so
+  // this write chokepoint is the only place that can fail closed on a typo, a
+  // retired code, or a client-invented string. Without this, an unrecognised
+  // reasonCode was stored, displayed and — via `isPreparationAllowed`'s own
+  // now-fixed fail-open default — silently treated as "preparation allowed".
+  // A single source of truth: no UI, route or job may invent a second
+  // interpretation of what a valid reason code is.
+  if (!getReasonCodeMeta(input.reasonCode)) {
+    throw new PolicyValidationError(
+      `Unknown reasonCode '${input.reasonCode}'. It is not in the ratified §9 taxonomy.`,
+      'unknown_reason_code',
+    );
   }
   // H-8 / D-37 — fail closed on every unknown enum value; never fall through.
   if (input.outreachEligibility !== undefined && !OUTREACH_ELIGIBILITY_VALUES.includes(input.outreachEligibility)) {
@@ -338,6 +371,24 @@ export async function writeCompanyPolicy(
   input: PolicyWriteInput,
   source: 'human' | 'import' | 'deterministic_rule' | 'provider' = 'human',
 ): Promise<typeof wizmatchCompanyPolicies.$inferSelect> {
+  // PR 8A review fix — approval provenance, enforced at the WRITE CHOKEPOINT.
+  // `wizmatch_company_policies.actor_user_id` is nullable at the database
+  // level and this table has no `approved_by`/`approved_at` pair, so
+  // `actor_user_id` + `source` + the paired event row's supersession chain IS
+  // the whole provenance record for a human decision. PR 8A added an
+  // `actor_required` guard to `decisionWorkbenchActions.ts` only — but
+  // `POST /companies/:id/policy`, `POST /companies/bulk/policy` and
+  // `writeCompanyPolicyOverride` all reach this function directly, so a human
+  // approval to `eligible` could still be persisted with a NULL actor: a
+  // decision nobody can be shown to have made. Non-human sources (`import`,
+  // `deterministic_rule`, `provider`) legitimately have no user and are
+  // unaffected.
+  if (source === 'human' && !actor.userId) {
+    throw new PolicyValidationError(
+      'A human policy write requires an authenticated actor with a user id.',
+      'actor_required',
+    );
+  }
   validatePolicyWrite(input);
   assertSafeEvidenceUrl(input.evidenceUrl);
   const scopeKey = buildScopeKeyForInput(input);
@@ -356,6 +407,15 @@ export async function writeCompanyPolicy(
         ),
       );
     const previousRow = previousRows[0] ?? null;
+    // PR 8A hardening — stale-state protection, checked against the row this
+    // SAME transaction just read (not a caller's earlier, separate read), so
+    // there is no gap between validating the precondition and acting on it.
+    if (input.expectedPolicyId !== undefined && (previousRow?.id ?? null) !== input.expectedPolicyId) {
+      throw new PolicyStaleStateError(
+        `Scope '${scopeKey}' has changed since this precondition was read (expected policy id ` +
+          `'${input.expectedPolicyId ?? 'null'}', found '${previousRow?.id ?? 'null'}').`,
+      );
+    }
     if (previousRow?.isNonOverridable) {
       throw new PolicyOverrideRefusedError(
         `Scope '${scopeKey}' is non-overridable (block_class='${previousRow.blockClass}'); it cannot be superseded.`,
@@ -427,7 +487,45 @@ export async function writeCompanyPolicy(
     });
 
     return inserted;
+  }).catch((error) => {
+    // PR 8A review fix — concurrency. `expectedPolicyId` is OPTIONAL, so two
+    // genuinely simultaneous writes at one scope (the classic double-clicked
+    // "Approve & Queue") can both read the same predecessor, both pass every
+    // check above, and both reach the INSERT. The partial unique index
+    // `wizmatch_company_policies_active_scope_uniq` correctly prevents the
+    // second from creating a second active row — but it surfaces as a raw
+    // Postgres 23505, which is none of the typed errors the routes and the
+    // Today-actions layer know how to map. The caller got a leaked database
+    // error string instead of the same stable `stale_policy_state` code the
+    // sequential path already returns. Losing this race IS staleness: the
+    // scope changed under this write between its read and its insert.
+    if (isUniqueViolation(error)) {
+      throw new PolicyStaleStateError(
+        `Scope '${scopeKey}' was written concurrently by another request; this write lost the race. `
+          + 'Refresh and retry.',
+      );
+    }
+    throw error;
   });
+}
+
+/**
+ * Postgres `unique_violation`. Checked structurally (SQLSTATE), never by
+ * message text, and narrowed to the active-scope index so an unrelated
+ * constraint is never silently reported as a stale-state conflict.
+ */
+function isUniqueViolation(error: unknown): boolean {
+  const candidate = error as { code?: unknown; constraint?: unknown; cause?: unknown } | null;
+  if (!candidate || typeof candidate !== 'object') return false;
+  const matches = (e: { code?: unknown; constraint?: unknown }) =>
+    e.code === '23505'
+    && (e.constraint === undefined
+      || e.constraint === null
+      || String(e.constraint).includes('wizmatch_company_policies_active_scope'));
+  if (matches(candidate)) return true;
+  // Some drivers wrap the driver error; check one level of `cause`.
+  const cause = candidate.cause as { code?: unknown; constraint?: unknown } | undefined;
+  return Boolean(cause && typeof cause === 'object' && matches(cause));
 }
 
 /**

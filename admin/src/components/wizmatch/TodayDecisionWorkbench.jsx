@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Ban, CheckCircle2, Clock, MessageSquareWarning, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Ban, CheckCircle2, Clock, Lock, MessageSquareWarning, RefreshCw, Route as RouteIcon } from 'lucide-react';
 import { apiFetch } from '../../lib/api.js';
 import { useToast } from './Toast.jsx';
 import ErrorRetry from './ErrorRetry.jsx';
@@ -19,6 +19,10 @@ import TodayBulkActionBar from './TodayBulkActionBar.jsx';
 const QUEUE_META = {
   readyToContact: { label: 'Ready to Contact', icon: CheckCircle2, tone: 'success' },
   needsReview: { label: 'Needs Review', icon: Clock, tone: 'warning' },
+  // PR 8A hardening (task 8) — companies the resolver routes to an account
+  // owner or a dedicated workflow (§8.6/§8.7), shown apart from ordinary
+  // review/ready so an operator can see ownership at a glance.
+  routed: { label: 'Routed', icon: RouteIcon, tone: 'info' },
   pausedOrBlocked: { label: 'Paused or Blocked', icon: Ban, tone: 'danger' },
 };
 
@@ -30,6 +34,9 @@ const QUEUE_META = {
 const BULK_ACTIONS_BY_QUEUE = {
   readyToContact: ['approve_queue', 'skip', 'pause', 'block', 'assign_owner', 'set_review_date'],
   needsReview: ['approve_queue', 'skip', 'pause', 'block', 'assign_owner', 'set_review_date'],
+  // Routed items are not queued for cold outreach directly (§8.6/§8.7 routes
+  // them to an owner or a dedicated workflow instead) — no `approve_queue`.
+  routed: ['skip', 'pause', 'block', 'assign_owner', 'set_review_date'],
   pausedOrBlocked: ['resume', 'block', 'assign_owner', 'set_review_date'],
 };
 
@@ -47,30 +54,67 @@ function primaryActionFor(item) {
     return item.isNonOverridable ? null : { action: 'resume', label: 'Reclassify' };
   }
   if (item.duplicatePending) return { action: 'merge', label: 'Merge' };
+  // PR 8A hardening (task 8) — a routed item's primary action is getting it
+  // an owner when it has none; once owned, the operator works it through the
+  // menu actions rather than a cold-outreach "Approve & Queue" primary.
+  if (item.routed) {
+    return item.accountOwnerUserId ? null : { action: 'assign_owner', label: 'Assign Owner' };
+  }
   return { action: 'approve_queue', label: 'Approve & Queue' };
 }
 
-function CompanyCard({ item, onAction }) {
+function CompanyCard({ item, onAction, isStale }) {
   const primary = primaryActionFor(item);
+  // PR 8A review fix — the "No action available" affordance must ALWAYS have
+  // an explanation. `item.disabledReason` can legitimately be null for a state
+  // that still has no primary action (a routed company that already has an
+  // account owner), and the previous code dropped the old `title` fallback in
+  // favour of an `aria-describedby` that then pointed at nothing — leaving the
+  // affordance unexplained for every user, not only screen-reader users.
+  const disabledReason = item.disabledReason
+    || 'No action is available for this company in its current state. Open the company drawer for the full policy history.';
+  const disabledReasonId = `disabled-reason-${item.companyId}`;
   return (
     <div className="space-y-1.5">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-semibold text-neutral-900">{item.companyName}</span>
         {item.companyDomain && <span className="text-[11px] text-neutral-500">{item.companyDomain}</span>}
-        <StatusBadge status={effectiveDecisionOf(item)} label={effectiveDecisionOf(item)} />
+        {/* Task 9 — non-overridable is folded into the SAME badge as the
+            decision (relabelled), not a second `badge-danger` element: two
+            red badges on one row would repeat, not add, information the
+            disabled-action text below already carries. (`badge-danger`'s own
+            contrast defect was fixed in this same pass, in
+            `admin/src/index.css`.) */}
+        <StatusBadge
+          status={effectiveDecisionOf(item)}
+          label={
+            item.isNonOverridable
+              ? `${effectiveDecisionOf(item)} (non-overridable${item.nonOverridableScopeKey && item.nonOverridableScopeKey !== 'entire_company' ? ` — ${item.nonOverridableScopeKey}` : ''})`
+              : effectiveDecisionOf(item)
+          }
+        />
+        {item.routed && (
+          <StatusBadge status="routed" label={item.accountOwnerUserId ? 'routed' : 'routed — unassigned'} />
+        )}
         {item.duplicatePending && <StatusBadge status="pending" label="possible duplicate" />}
         {/* D-31 disclosure: in shadow the canonical resolver may disagree with the
             stored policy row. Show that difference explicitly rather than either
             hiding it or letting it silently change the row's actions. */}
         {item.canonicalDecision && item.canonicalDecision !== effectiveDecisionOf(item) && (
-          <StatusBadge status="pending" label={`shadow: would ${item.canonicalDecision}`} />
+          <StatusBadge status="shadow_would_block" label={`shadow: would ${item.canonicalDecision}`} />
         )}
+        {/* Task 9 — a stale item (the last action against it failed with
+            stale_policy_state) must not be silently retried against
+            outdated data; it stays flagged until the next successful reload
+            replaces this row with current state. */}
+        {isStale && <StatusBadge status="stale_policy_state" label="stale — refresh to see the current state" />}
       </div>
       <p className="text-[12px] text-neutral-500">
         {item.outreachEligibility ? `Eligibility: ${item.outreachEligibility.replaceAll('_', ' ')}` : ''}
         {item.canonicalReasonCode ? ` · Reason: ${item.canonicalReasonCode.replaceAll('_', ' ')}` : ' · No reason code on file.'}
         {item.policyScopeKey ? ` · scope: ${item.policyScopeKey}` : ''}
         {item.contactConfidenceTier ? ` · contact confidence: ${item.contactConfidenceTier}` : ' · no contact identified'}
+        {item.reviewDate ? ` · review date: ${item.reviewDate}${item.reviewDateArrived ? ' (arrived)' : ''}` : ''}
       </p>
       {item.requiresExplicitApproval && (
         <p className="text-[11.5px] text-warning-700">Requires explicit approval before queueing or export.</p>
@@ -87,7 +131,7 @@ function CompanyCard({ item, onAction }) {
         ) : (
           <span
             className="text-[11.5px] text-neutral-500"
-            title={item.disabledReason || 'No action is available at any scope for a non-overridable block.'}
+            aria-describedby={disabledReasonId}
           >
             No action available
           </span>
@@ -110,10 +154,10 @@ function CompanyCard({ item, onAction }) {
             <button type="button" onClick={() => onAction('skip', item)} className="btn-standard btn-compact">Skip for Now</button>
           </>
         )}
-        {item.disabledReason && (
-          <span className="text-[11px] text-neutral-500" title={item.disabledReason} aria-label={`Disabled: ${item.disabledReason}`}>
+        {(item.disabledReason || !primary) && (
+          <span id={disabledReasonId} className="text-[11px] text-neutral-500" aria-label={`Disabled: ${disabledReason}`}>
             <AlertTriangle className="inline w-3 h-3 mr-0.5 -mt-0.5" aria-hidden="true" />
-            {item.disabledReason}
+            {disabledReason}
           </span>
         )}
       </div>
@@ -121,16 +165,16 @@ function CompanyCard({ item, onAction }) {
   );
 }
 
-function QueueSection({ queueKey, items, selectedIds, onToggleRow, onToggleAll, onAction, loading }) {
+function QueueSection({ queueKey, items, selectedIds, onToggleRow, onToggleAll, onAction, loading, staleCompanyIds }) {
   const meta = QUEUE_META[queueKey];
   const Icon = meta.icon;
   const columns = useMemo(() => [
     {
       key: 'company',
       label: 'Company',
-      render: (row) => <CompanyCard item={row} onAction={onAction} />,
+      render: (row) => <CompanyCard item={row} onAction={onAction} isStale={staleCompanyIds?.has(row.companyId)} />,
     },
-  ], [onAction]);
+  ], [onAction, staleCompanyIds]);
 
   const rows = items.map((item) => ({ ...item, id: item.companyId, rowAriaLabel: `Select ${item.companyName}` }));
 
@@ -176,7 +220,10 @@ function ReplyRow({ item }) {
   );
 }
 
-const EMPTY_QUEUES = { readyToContact: [], needsReview: [], pausedOrBlocked: [], repliesNeedingAction: [], counts: {}, partial: { skippedCompanyIds: [], skippedEnrolmentIds: [] } };
+// `routed` defaults to `[]` rather than being required by `isQueuePayload` —
+// an older/mocked backend response that predates the routed queue (PR 8A,
+// task 8) must not be rejected as malformed; it simply has no routed items.
+const EMPTY_QUEUES = { readyToContact: [], needsReview: [], routed: [], pausedOrBlocked: [], repliesNeedingAction: [], counts: {}, partial: { skippedCompanyIds: [], skippedEnrolmentIds: [] } };
 
 export default function TodayDecisionWorkbench() {
   const [loading, setLoading] = useState(true);
@@ -185,14 +232,19 @@ export default function TodayDecisionWorkbench() {
   const [disabledOnServer, setDisabledOnServer] = useState(false);
   const [queues, setQueues] = useState(EMPTY_QUEUES);
   const [users, setUsers] = useState([]);
-  const [selected, setSelected] = useState({ readyToContact: new Set(), needsReview: new Set(), pausedOrBlocked: new Set() });
-  const [dialog, setDialog] = useState(null); // { action, targets: [{type,id}], targetLabel, defaultReasonCode }
+  const [selected, setSelected] = useState({ readyToContact: new Set(), needsReview: new Set(), routed: new Set(), pausedOrBlocked: new Set() });
+  const [dialog, setDialog] = useState(null); // { action, targets: [{type,id}], targetLabel, defaultReasonCode, expectedPolicyId }
   const [submitting, setSubmitting] = useState(false);
   // Failed per-target results from the last action, kept on screen. A toast
   // auto-dismisses in 5s and was truncated to two messages, so after a bulk
   // action there was no way to learn WHICH targets failed — the opposite of
   // the "per-target result, never a silent partial success" contract.
   const [lastResults, setLastResults] = useState([]);
+  // PR 8A hardening (task 9) — companyIds whose last action failed with
+  // `stale_policy_state`. Flagged visually until the next successful reload
+  // replaces the row with current data; never cleared by a mere re-render,
+  // only by `load()` actually returning fresh queues.
+  const [staleCompanyIds, setStaleCompanyIds] = useState(new Set());
   const { showSuccess, showError } = useToast();
 
   // `apiFetch` returns `await res.json().catch(() => null)`, so a 200 with an
@@ -215,8 +267,9 @@ export default function TodayDecisionWorkbench() {
       if (!isQueuePayload(data)) {
         throw new Error('The decision-queue response was not in the expected format.');
       }
-      setQueues(data);
-      setSelected({ readyToContact: new Set(), needsReview: new Set(), pausedOrBlocked: new Set() });
+      setQueues({ ...data, routed: Array.isArray(data.routed) ? data.routed : [] });
+      setSelected({ readyToContact: new Set(), needsReview: new Set(), routed: new Set(), pausedOrBlocked: new Set() });
+      setStaleCompanyIds(new Set());
     } catch (e) {
       // A 404 here means WIZMATCH_DECISION_WORKBENCH_ENABLED is off on this
       // backend while the UI build has it on — which is the DEFAULT locally,
@@ -251,10 +304,17 @@ export default function TodayDecisionWorkbench() {
   };
 
   const openDialogForSingle = (action, item) => {
+    const isDuplicateTarget = action === 'merge' || action === 'confirm_separate';
     setDialog({
       action,
-      targets: [{ type: action === 'merge' || action === 'confirm_separate' ? 'duplicate' : 'company', id: action === 'merge' || action === 'confirm_separate' ? item.duplicateId : item.companyId }],
+      targets: [{ type: isDuplicateTarget ? 'duplicate' : 'company', id: isDuplicateTarget ? item.duplicateId : item.companyId }],
       targetLabel: item.companyName,
+      // Stale-state precondition (PR 8A hardening, task 5): round-trips the
+      // policy id the operator's view was built from. A single-target dialog
+      // always knows exactly which company it targets, so this is safe here;
+      // a bulk selection spans multiple companies with different policy ids,
+      // so it is intentionally omitted for bulk (openDialogForBulk below).
+      expectedPolicyId: isDuplicateTarget ? undefined : item.policyId,
     });
   };
 
@@ -274,7 +334,12 @@ export default function TodayDecisionWorkbench() {
     try {
       const outcome = await apiFetch('/api/wizmatch/today/actions', {
         method: 'POST',
-        body: JSON.stringify({ action: dialog.action, targets: dialog.targets, ...extra }),
+        body: JSON.stringify({
+          action: dialog.action,
+          targets: dialog.targets,
+          expectedPolicyId: dialog.expectedPolicyId,
+          ...extra,
+        }),
       });
       // A 2xx means the writes already ran server-side. Never let a malformed
       // body throw here: the old code did, and the throw was caught below as
@@ -293,6 +358,13 @@ export default function TodayDecisionWorkbench() {
         showError(`All ${failed.length} failed: ${failed.map((f) => f.error).slice(0, 2).join('; ')}`);
       }
       setLastResults(failed);
+      // Task 9 — flag exactly the targets the server told us were stale, so
+      // the badge is not a guess about which row changed underneath the
+      // operator. Cleared once `load()` below replaces the row with current
+      // data (or, if the fetch itself fails, cleared nowhere — the ErrorRetry
+      // screen takes over instead).
+      const staleIds = failed.filter((r) => r.type === 'company' && r.code === 'stale_policy_state').map((r) => r.id);
+      if (staleIds.length > 0) setStaleCompanyIds(new Set(staleIds));
     } catch (e) {
       showError(e.message || 'Action failed.');
     } finally {
@@ -322,7 +394,7 @@ export default function TodayDecisionWorkbench() {
   }
 
   const totalDecisions = (queues.readyToContact?.length || 0) + (queues.needsReview?.length || 0)
-    + (queues.repliesNeedingAction?.length || 0) + (queues.pausedOrBlocked?.length || 0);
+    + (queues.routed?.length || 0) + (queues.repliesNeedingAction?.length || 0) + (queues.pausedOrBlocked?.length || 0);
   const skipped = (queues.partial?.skippedCompanyIds?.length || 0) + (queues.partial?.skippedEnrolmentIds?.length || 0);
 
   return (
@@ -391,7 +463,7 @@ export default function TodayDecisionWorkbench() {
         />
       )}
 
-      {(['readyToContact', 'needsReview', 'pausedOrBlocked']).map((queueKey) => (
+      {(['readyToContact', 'needsReview', 'routed', 'pausedOrBlocked']).map((queueKey) => (
         <div key={queueKey} className="relative">
           <QueueSection
             queueKey={queueKey}
@@ -401,6 +473,7 @@ export default function TodayDecisionWorkbench() {
             onToggleAll={toggleAll(queueKey, (queues[queueKey] || []).map((i) => i.companyId))}
             onAction={openDialogForSingle}
             loading={false}
+            staleCompanyIds={staleCompanyIds}
           />
           {selected[queueKey].size > 0 && (
             <TodayBulkActionBar

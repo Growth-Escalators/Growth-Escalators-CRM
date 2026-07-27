@@ -21,6 +21,12 @@ const state = vi.hoisted(() => ({
   auditLogCalls: [] as any[],
   capturedWhere: new Map<string, unknown[]>(),
   nextId: 1,
+  /**
+   * PR 8A review fix — lets a test inject the exact driver error a REAL
+   * concurrent write raises, including its `constraint`, which the mock's own
+   * conflict path cannot vary. Consumed once.
+   */
+  failNextInsertWith: null as unknown,
 }));
 
 function makeThenable<T>(getValue: () => T) {
@@ -112,6 +118,11 @@ vi.mock('../db', async () => {
           const row = { id: `policy-${state.nextId++}`, supersededAt: null, supersededByPolicyId: null, ...vals };
           const inserted = makeThenable(() => [row]);
           inserted.returning = () => makeThenable(() => {
+            if (state.failNextInsertWith) {
+              const injected = state.failNextInsertWith;
+              state.failNextInsertWith = null;
+              throw injected;
+            }
             // Enforce the real §10.1 partial unique index
             // `wizmatch_company_policies_active_scope_uniq` ON
             // (tenant_id, company_id, scope_key) WHERE superseded_at IS NULL.
@@ -182,6 +193,7 @@ import {
   bulkWriteCompanyPolicy,
   PolicyValidationError,
   PolicyOverrideRefusedError,
+  PolicyStaleStateError,
 } from '../modules/outreach/policyService';
 
 vi.mock('../services/auditLogger', () => ({
@@ -204,6 +216,7 @@ beforeEach(() => {
   state.auditLogCalls = [];
   state.capturedWhere = new Map();
   state.nextId = 1;
+  state.failNextInsertWith = null;
 });
 
 describe('writeCompanyPolicy — evidence and inheritance validation', () => {
@@ -213,7 +226,7 @@ describe('writeCompanyPolicy — evidence and inheritance validation', () => {
         scopeType: 'entire_company',
         outreachEligibility: 'eligible',
         // externalHiringPolicy / relationshipType missing
-        reasonCode: 'test',
+        reasonCode: 'manual_reclassified',
       } as any),
     ).rejects.toBeInstanceOf(PolicyValidationError);
   });
@@ -223,7 +236,7 @@ describe('writeCompanyPolicy — evidence and inheritance validation', () => {
       writeCompanyPolicy(actor, 'company-1', {
         scopeType: 'location',
         scopeRefLabel: 'bengaluru',
-        reasonCode: 'test',
+        reasonCode: 'policy_location_restricted',
       } as any),
     ).rejects.toMatchObject({ code: 'scoped_requires_one_dimension' });
   });
@@ -264,9 +277,24 @@ describe('writeCompanyPolicy — evidence and inheritance validation', () => {
         outreachEligibility: 'paused',
         externalHiringPolicy: 'unknown',
         relationshipType: 'new_prospect',
-        reasonCode: 'test',
+        reasonCode: 'policy_paused_by_owner',
       } as any),
     ).rejects.toMatchObject({ code: 'paused_requires_review_date' });
+  });
+
+  // PR 8A hardening — reasonCode had no taxonomy check at all; an unknown or
+  // malformed value was stored as free text, and defeated `isPreparationAllowed`'s
+  // now-fixed fail-closed default by presenting a code it had never seen.
+  it('rejects a reasonCode that is not in the ratified §9 taxonomy', async () => {
+    await expect(
+      writeCompanyPolicy(actor, 'company-1', {
+        scopeType: 'entire_company',
+        outreachEligibility: 'eligible',
+        externalHiringPolicy: 'accepts_external_vendors',
+        relationshipType: 'new_prospect',
+        reasonCode: 'not_a_real_taxonomy_code',
+      } as any),
+    ).rejects.toMatchObject({ code: 'unknown_reason_code' });
   });
 
   it('accepts a valid root row and writes exactly one policy event', async () => {
@@ -282,6 +310,112 @@ describe('writeCompanyPolicy — evidence and inheritance validation', () => {
     expect(row.scopeKey).toBe('entire_company');
     expect(state.policyEventInserts).toHaveLength(1);
     expect(state.policyEventInserts[0].previousPolicyId).toBeNull();
+  });
+});
+
+// PR 8A REVIEW fix — approval provenance at the WRITE CHOKEPOINT, not only in
+// the Decision Workbench action layer. `POST /companies/:id/policy`,
+// `POST /companies/bulk/policy` and `writeCompanyPolicyOverride` all reach
+// `writeCompanyPolicy` directly and bypass the workbench's own actor check,
+// and `actor_user_id` is nullable in the schema with no
+// `approved_by`/`approved_at` pair to fall back on.
+describe('writeCompanyPolicy — approval provenance', () => {
+  const actorWithNoUser = { tenantId: 'tenant-1' };
+
+  it('refuses a HUMAN write with no actor userId — an eligible row nobody can be shown to have approved', async () => {
+    await expect(
+      writeCompanyPolicy(actorWithNoUser, 'company-1', {
+        scopeType: 'entire_company',
+        outreachEligibility: 'eligible',
+        externalHiringPolicy: 'accepts_external_vendors',
+        relationshipType: 'new_prospect',
+        reasonCode: 'policy_accepts_external_vendors',
+      }),
+    ).rejects.toMatchObject({ code: 'actor_required' });
+    expect(state.policyRows).toHaveLength(0);
+  });
+
+  it('refuses before any write, so no partial row or event is left behind', async () => {
+    await expect(
+      writeCompanyPolicy(actorWithNoUser, 'company-1', {
+        scopeType: 'entire_company',
+        outreachEligibility: 'blocked',
+        externalHiringPolicy: 'no_external_agencies',
+        relationshipType: 'new_prospect',
+        reasonCode: 'manual_block_by_operator',
+      }),
+    ).rejects.toMatchObject({ code: 'actor_required' });
+    expect(state.policyRows).toHaveLength(0);
+    expect(state.policyEventInserts).toHaveLength(0);
+  });
+
+  it('a NON-human source (import/backfill) legitimately has no user and is unaffected', async () => {
+    const row = await writeCompanyPolicy(
+      actorWithNoUser,
+      'company-1',
+      {
+        scopeType: 'entire_company',
+        outreachEligibility: 'needs_review',
+        externalHiringPolicy: 'unknown',
+        relationshipType: 'new_prospect',
+        reasonCode: 'policy_unknown_cold_start',
+      },
+      'import',
+    );
+    expect(row).toBeTruthy();
+    expect(state.policyRows).toHaveLength(1);
+  });
+
+  it('records the actor on the row it writes when one IS supplied', async () => {
+    await writeCompanyPolicy(actor, 'company-1', {
+      scopeType: 'entire_company',
+      outreachEligibility: 'eligible',
+      externalHiringPolicy: 'accepts_external_vendors',
+      relationshipType: 'new_prospect',
+      reasonCode: 'policy_accepts_external_vendors',
+    });
+    expect(state.policyRows[0].actorUserId).toBe('user-1');
+    expect(state.policyRows[0].source).toBe('human');
+  });
+});
+
+// PR 8A REVIEW fix — `expectedPolicyId` is optional, so two simultaneous
+// writes at one scope can both pass every check and both reach the INSERT. The
+// partial unique index stops the second, but it surfaced as a raw Postgres
+// 23505 that none of the typed error handlers recognise.
+describe('writeCompanyPolicy — concurrent write at the same scope', () => {
+  it('maps a unique-violation on the active-scope index to a stable stale_policy_state error', async () => {
+    state.failNextInsertWith = Object.assign(new Error('duplicate key value violates unique constraint'), {
+      code: '23505',
+      constraint: 'wizmatch_company_policies_active_scope_uniq',
+    });
+
+    await expect(
+      writeCompanyPolicy(actor, 'company-1', {
+        scopeType: 'entire_company',
+        outreachEligibility: 'eligible',
+        externalHiringPolicy: 'accepts_external_vendors',
+        relationshipType: 'new_prospect',
+        reasonCode: 'policy_accepts_external_vendors',
+      }),
+    ).rejects.toBeInstanceOf(PolicyStaleStateError);
+  });
+
+  it('does NOT swallow an unrelated unique violation as a stale-state conflict', async () => {
+    state.failNextInsertWith = Object.assign(new Error('duplicate key value violates unique constraint'), {
+      code: '23505',
+      constraint: 'some_other_unrelated_uniq',
+    });
+
+    await expect(
+      writeCompanyPolicy(actor, 'company-1', {
+        scopeType: 'entire_company',
+        outreachEligibility: 'eligible',
+        externalHiringPolicy: 'accepts_external_vendors',
+        relationshipType: 'new_prospect',
+        reasonCode: 'policy_accepts_external_vendors',
+      }),
+    ).rejects.not.toBeInstanceOf(PolicyStaleStateError);
   });
 });
 
@@ -319,6 +453,98 @@ describe('writeCompanyPolicy — supersession', () => {
     expect(state.policyRows.filter((r) => r.supersededAt == null)).toHaveLength(1);
   });
 
+  // PR 8A hardening (task 5) — stale-state protection, checked inside the
+  // SAME transaction that reads the predecessor, not against a caller's
+  // earlier, separate read.
+  describe('expectedPolicyId precondition', () => {
+    it('rejects a write whose expectedPolicyId does not match the current active row at this scope', async () => {
+      const first = await writeCompanyPolicy(actor, 'company-1', {
+        scopeType: 'entire_company',
+        outreachEligibility: 'needs_review',
+        externalHiringPolicy: 'unknown',
+        relationshipType: 'new_prospect',
+        reasonCode: 'policy_unknown_cold_start',
+      });
+      expect(first.id).toBeTruthy();
+
+      await expect(
+        writeCompanyPolicy(actor, 'company-1', {
+          scopeType: 'entire_company',
+          outreachEligibility: 'eligible',
+          externalHiringPolicy: 'accepts_external_vendors',
+          relationshipType: 'new_prospect',
+          reasonCode: 'policy_accepts_external_vendors',
+          evidenceKind: 'human_text',
+          evidenceText: 'confirmed',
+          expectedPolicyId: 'a-different-policy-id',
+        }),
+      ).rejects.toBeInstanceOf(PolicyStaleStateError);
+      // No new row and no supersession — the stale write must never partially apply.
+      expect(state.policyRows.filter((r) => r.supersededAt == null)).toHaveLength(1);
+    });
+
+    it('accepts a write whose expectedPolicyId matches the current active row', async () => {
+      const first = await writeCompanyPolicy(actor, 'company-1', {
+        scopeType: 'entire_company',
+        outreachEligibility: 'needs_review',
+        externalHiringPolicy: 'unknown',
+        relationshipType: 'new_prospect',
+        reasonCode: 'policy_unknown_cold_start',
+      });
+
+      const second = await writeCompanyPolicy(actor, 'company-1', {
+        scopeType: 'entire_company',
+        outreachEligibility: 'eligible',
+        externalHiringPolicy: 'accepts_external_vendors',
+        relationshipType: 'new_prospect',
+        reasonCode: 'policy_accepts_external_vendors',
+        evidenceKind: 'human_text',
+        evidenceText: 'confirmed',
+        expectedPolicyId: first.id,
+      });
+      expect(second.id).not.toBe(first.id);
+    });
+
+    it('rejects a write against a scope that expected no active row (expectedPolicyId: null) but one now exists', async () => {
+      await writeCompanyPolicy(actor, 'company-1', {
+        scopeType: 'entire_company',
+        outreachEligibility: 'needs_review',
+        externalHiringPolicy: 'unknown',
+        relationshipType: 'new_prospect',
+        reasonCode: 'policy_unknown_cold_start',
+      });
+
+      await expect(
+        writeCompanyPolicy(actor, 'company-1', {
+          scopeType: 'entire_company',
+          outreachEligibility: 'eligible',
+          externalHiringPolicy: 'accepts_external_vendors',
+          relationshipType: 'new_prospect',
+          reasonCode: 'policy_accepts_external_vendors',
+          expectedPolicyId: null,
+        }),
+      ).rejects.toBeInstanceOf(PolicyStaleStateError);
+    });
+
+    it('omitting expectedPolicyId preserves the existing unconditional-supersede behaviour', async () => {
+      await writeCompanyPolicy(actor, 'company-1', {
+        scopeType: 'entire_company',
+        outreachEligibility: 'needs_review',
+        externalHiringPolicy: 'unknown',
+        relationshipType: 'new_prospect',
+        reasonCode: 'policy_unknown_cold_start',
+      });
+      const second = await writeCompanyPolicy(actor, 'company-1', {
+        scopeType: 'entire_company',
+        outreachEligibility: 'eligible',
+        externalHiringPolicy: 'accepts_external_vendors',
+        relationshipType: 'new_prospect',
+        reasonCode: 'policy_accepts_external_vendors',
+      });
+      expect(second.id).toBeTruthy();
+    });
+  });
+
   it('refuses to supersede a predecessor with isNonOverridable = true, even via the override path', async () => {
     state.policyRows.push({
       id: 'policy-locked',
@@ -337,7 +563,7 @@ describe('writeCompanyPolicy — supersession', () => {
         outreachEligibility: 'eligible',
         externalHiringPolicy: 'accepts_external_vendors',
         relationshipType: 'new_prospect',
-        reasonCode: 'test',
+        reasonCode: 'policy_accepts_external_vendors',
       } as any),
     ).rejects.toBeInstanceOf(PolicyOverrideRefusedError);
 

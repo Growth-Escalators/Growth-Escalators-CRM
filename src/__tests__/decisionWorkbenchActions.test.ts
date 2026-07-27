@@ -30,9 +30,11 @@ vi.mock('../modules/outreach/policyService', () => {
     }
   }
   class PolicyOverrideRefusedError extends Error {}
+  class PolicyStaleStateError extends Error {}
   return {
     PolicyValidationError,
     PolicyOverrideRefusedError,
+    PolicyStaleStateError,
     writeCompanyPolicy: async (...args: unknown[]) => {
       calls.writeCompanyPolicy.push(args);
       if (state.writeShouldThrow) throw state.writeShouldThrow;
@@ -64,7 +66,13 @@ vi.mock('../modules/outreach/duplicateService', () => {
 });
 
 vi.mock('../modules/outreach/policyResolver', () => ({
-  resolveEffectivePolicy: async () => ({ rootRow: state.rootRow }),
+  resolveEffectivePolicy: async () => ({
+    rootRow: state.rootRow,
+    // PR 8A hardening — the action layer now scans ALL active rows (not only
+    // the root) for a narrower non-overridable block (ADR-006 D-17/L1c). The
+    // default fixture has no narrower rows, so this is just the root itself.
+    allActiveRows: state.rootRow ? [state.rootRow] : [],
+  }),
 }));
 
 import { runTodayActions, TodayActionValidationError } from '../modules/outreach/decisionWorkbenchActions';
@@ -120,7 +128,8 @@ describe('runTodayActions — per-target results (never silently partial-succeed
     let call = 0;
     vi.spyOn(await import('../modules/outreach/policyResolver'), 'resolveEffectivePolicy').mockImplementation(async () => {
       call += 1;
-      return { rootRow: call === 1 ? state.rootRow : null } as never;
+      const rootRow = call === 1 ? state.rootRow : null;
+      return { rootRow, allActiveRows: rootRow ? [rootRow] : [] } as never;
     });
 
     const outcome = await runTodayActions(actor, {
@@ -219,6 +228,7 @@ describe('runTodayActions — the predecessor row is preserved, not rebuilt from
       relationshipType: 'new_prospect',
       isPermanent: true,
       blockClass: 'compliance',
+      reasonCode: 'company_removal_request',
       evidenceKind: 'human_text',
       evidenceText: 'Legal asked us to stop.',
     };
@@ -234,6 +244,28 @@ describe('runTodayActions — the predecessor row is preserved, not rebuilt from
     expect(input.blockClass).toBe('compliance');
     expect(input.evidenceText).toBe('Legal asked us to stop.');
     expect(input.outreachEligibility).toBe('blocked');
+    // PR 8A hardening — set_review_date must never swap in the generic
+    // manual_reclassified default; the predecessor's own reasonCode drives
+    // `isPreparationAllowed` at the next gate evaluation and must survive
+    // exactly, or a compliance block's preparation-stop silently lifts.
+    expect(input.reasonCode).toBe('company_removal_request');
+  });
+
+  it('refuses set_review_date fail-closed when the root row is missing a required dimension', async () => {
+    state.rootRow = {
+      outreachEligibility: 'needs_review',
+      externalHiringPolicy: 'unknown',
+      relationshipType: 'new_prospect',
+      // reasonCode deliberately absent — set_review_date must refuse rather
+      // than invent one.
+    };
+    const outcome = await runTodayActions(
+      { ...actor, role: 'admin' },
+      { action: 'set_review_date', targets: [{ type: 'company', id: 'company-1' }], reviewDate: '2026-09-01' },
+    );
+    expect(outcome.failed).toBe(1);
+    expect(outcome.results[0].code).toBe('policy_dimension_unresolved');
+    expect(calls.writeCompanyPolicy).toHaveLength(0);
   });
 });
 
@@ -275,5 +307,90 @@ describe('runTodayActions — action -> write mapping', () => {
     await runTodayActions(actor, { action: 'merge', targets: [{ type: 'duplicate', id: 'dup-1' }], reasonCode: 'manual_reclassified' });
     const [, , input] = calls.resolveDuplicate[0] as [unknown, unknown, Record<string, unknown>];
     expect(input.resolution).toBe('merged');
+  });
+});
+
+// PR 8A hardening — approval provenance (task 1): approve_queue requires a
+// real actor and must not be silently re-appliable.
+describe('runTodayActions — approval provenance and idempotency', () => {
+  it('rejects approve_queue with no authenticated actor userId', async () => {
+    const outcome = await runTodayActions(
+      { tenantId: 'tenant-1' },
+      { action: 'approve_queue', targets: [{ type: 'company', id: 'company-1' }] },
+    );
+    expect(outcome.failed).toBe(1);
+    expect(outcome.results[0].code).toBe('actor_required');
+    expect(calls.writeCompanyPolicy).toHaveLength(0);
+  });
+
+  it('safely rejects a repeat approve_queue on an already-eligible company instead of re-writing', async () => {
+    state.rootRow = { outreachEligibility: 'eligible', externalHiringPolicy: 'accepts_external_vendors', relationshipType: 'new_prospect' };
+    const outcome = await runTodayActions(actor, { action: 'approve_queue', targets: [{ type: 'company', id: 'company-1' }] });
+    expect(outcome.failed).toBe(1);
+    expect(outcome.results[0].code).toBe('already_approved');
+    expect(calls.writeCompanyPolicy).toHaveLength(0);
+  });
+});
+
+// PR 8A hardening (task 3) — a non-overridable block at ANY active scope must
+// refuse every unblocking action, for every role including admin.
+describe('runTodayActions — non-overridable block at any scope (ADR-006 D-17/L1c)', () => {
+  it('refuses approve_queue when a NARROWER row (not the root) is non-overridable-blocked, even for admin', async () => {
+    state.rootRow = { id: 'policy-root', outreachEligibility: 'needs_review', externalHiringPolicy: 'unknown', relationshipType: 'new_prospect' };
+    vi.spyOn(await import('../modules/outreach/policyResolver'), 'resolveEffectivePolicy').mockResolvedValue({
+      rootRow: state.rootRow,
+      allActiveRows: [
+        state.rootRow,
+        {
+          id: 'policy-region-india',
+          scopeKey: 'region:india',
+          outreachEligibility: 'blocked',
+          isNonOverridable: true,
+          blockClass: 'compliance',
+        },
+      ],
+    } as never);
+
+    const outcome = await runTodayActions(
+      { ...actor, role: 'admin' },
+      { action: 'approve_queue', targets: [{ type: 'company', id: 'company-1' }] },
+    );
+    expect(outcome.failed).toBe(1);
+    expect(outcome.results[0].code).toBe('non_overridable_block_at_scope');
+    expect(calls.writeCompanyPolicy).toHaveLength(0);
+  });
+});
+
+// PR 8A hardening (task 5) — stale-state protection.
+describe('runTodayActions — stale-state protection', () => {
+  it('rejects an action whose expectedPolicyId does not match the current root policy id', async () => {
+    state.rootRow = { id: 'policy-current', outreachEligibility: 'needs_review', externalHiringPolicy: 'unknown', relationshipType: 'new_prospect' };
+    const outcome = await runTodayActions(actor, {
+      action: 'approve_queue',
+      targets: [{ type: 'company', id: 'company-1' }],
+      expectedPolicyId: 'policy-stale',
+    });
+    expect(outcome.failed).toBe(1);
+    expect(outcome.results[0].code).toBe('stale_policy_state');
+    expect(calls.writeCompanyPolicy).toHaveLength(0);
+  });
+
+  it('allows the action when expectedPolicyId matches the current root policy id', async () => {
+    state.rootRow = { id: 'policy-current', outreachEligibility: 'needs_review', externalHiringPolicy: 'unknown', relationshipType: 'new_prospect' };
+    const outcome = await runTodayActions(actor, {
+      action: 'approve_queue',
+      targets: [{ type: 'company', id: 'company-1' }],
+      expectedPolicyId: 'policy-current',
+    });
+    expect(outcome.succeeded).toBe(1);
+  });
+
+  it('does not require expectedPolicyId — omitting it preserves the existing re-validation behaviour', async () => {
+    state.rootRow = { id: 'policy-current', outreachEligibility: 'needs_review', externalHiringPolicy: 'unknown', relationshipType: 'new_prospect' };
+    const outcome = await runTodayActions(actor, {
+      action: 'approve_queue',
+      targets: [{ type: 'company', id: 'company-1' }],
+    });
+    expect(outcome.succeeded).toBe(1);
   });
 });

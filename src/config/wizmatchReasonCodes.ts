@@ -153,9 +153,18 @@ export const WIZMATCH_PREP_BLOCKING_REASON_CODES: readonly string[] = WIZMATCH_R
   (r) => !r.prepAllowed,
 ).map((r) => r.code);
 
+/**
+ * Fail-closed on an unrecognised or malformed code (PR 8A hardening). The
+ * previous default of `true` meant a typo, a stale client value, or a code
+ * retired by a future taxonomy migration would silently continue preparing —
+ * and therefore scraping and writing contact candidates for — a company the
+ * resolver could not classify. An unknown code is exactly the case §8.10 rule
+ * 5 says must resolve to DENY, never to last-known-good; the same rule now
+ * applies to this derived permission, not only to the top-level decision.
+ */
 export function isPreparationAllowed(code: string): boolean {
   const meta = getReasonCodeMeta(code);
-  return meta ? meta.prepAllowed : true;
+  return meta ? meta.prepAllowed : false;
 }
 
 /** §9.11 mechanical invariant checks. Thrown, not just returned, so a taxonomy edit that violates one fails loudly at import time in tests. */

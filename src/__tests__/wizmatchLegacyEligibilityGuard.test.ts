@@ -99,6 +99,27 @@ describe('PRD-005 §5.2 C-2 — no sixth independent eligibility computation', (
     expect(missingImport).toEqual([]);
   });
 
+  // PR 8A hardening (task 11) — an import alone proves nothing; the prior
+  // assertion above would still pass if a migrated file imported the adapter
+  // and never actually called it (a dead import, or a call deleted during a
+  // later edit) — "canonical resolver use is bypassed" is exactly the failure
+  // mode task 11 names. This asserts each migrated file actually INVOKES one
+  // of the adapter's fold/resolve functions, not merely references its module
+  // specifier in a comment or an unused import.
+  it('the three company-scoped, migrated files actually CALL a canonical adapter function, not just import one', () => {
+    const ADAPTER_CALL_PATTERN = /\b(?:resolveCanonicalCompanyEligibility(?:Batch)?|applyCanonicalEligibilityToPriorityResults?|applyCanonicalEligibilityToContactIntelligence)\s*\(/;
+    const migrated = [
+      'src/services/wizmatchClientDiscovery.ts',
+      'src/services/wizmatchCommandCenter.ts',
+      'src/services/wizmatchRequirementPriority.ts',
+    ];
+    const notCalling = priorityUnionFiles
+      .filter(({ path }) => migrated.includes(path))
+      .filter(({ text }) => !ADAPTER_CALL_PATTERN.test(text))
+      .map(({ path }) => path);
+    expect(notCalling).toEqual([]);
+  });
+
   it('wizmatchContactIntelligenceRepo.ts folds the canonical decision into hardBlocks/companyStatus', () => {
     // This file uses a 9-value companyStatus + hardBlocks[] shape, not the
     // 4-value priority union, so it is not caught by the regex above — assert
