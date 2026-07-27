@@ -20,9 +20,20 @@
 
 ## 1. What was and was not done
 
-**Done (all read-only):** Railway CLI metadata discovery; four `railway ssh -s web -e production`
-non-interactive command executions; four read-only Postgres sessions inside the production `web`
-container; three read-only Railway GraphQL queries for backup state.
+**Done (all read-only):** Railway CLI metadata discovery; five `railway ssh -s web -e production`
+non-interactive command executions; five read-only Postgres sessions inside the production `web`
+container; read-only Railway GraphQL queries for backup state.
+
+**Method disclosure.** Four repository-only Explore subagents were launched for the code-side
+analysis. **None returned a report before the main session had completed that scope itself from
+source**, so every finding here was independently derived and is cited to source. Two of the four
+(R2 — drift-query design; R3 — user/identity model) reported afterwards; their late findings were
+reconciled against the completed work and **materially improved it**: R2 identified that the
+index-name collision check was missing (§5.1.1 — a real gap, now closed by measurement with a
+negative result), and R3 corrected the framing of the two unmodelled `users` columns (§5.1.2) and
+supplied the roster and sync-client details in §7.2 and §8. Both corrections are folded in above.
+This mirrors a pattern already recorded on this stack: subagents returning late, and each pass
+catching what the other missed.
 
 **Not done:** no migration; no database write; no `dist/scripts/migrate.js` execution; no drizzle
 migration; no backfill `--apply`; no database or service created, restored or deleted; no Railway
@@ -169,6 +180,12 @@ Reconciling all 37 container journal entries against the 35 applied rows:
 - **One applied row has no corresponding journal entry at all**: `id=5, created_at=1774280451000,
   hash=66282396728e…`. A migration applied to production whose journal entry no longer exists in the
   repo (removed or renamed during the baseline repair).
+- **The arithmetic, spelled out** (it confused one reviewer, so here it is explicitly). The
+  **deployed container** journal has **37** entries — not the 38 on this branch, because the
+  container is built from `main` and `main` has no `0037`. Of those 37: 33 match an applied row by
+  timestamp; `0003` matches by hash under a different `created_at` (below); `0008`/`0013`/`0014` have
+  no applied row at all. `33 + 1 = 34`, plus the one orphan row (`id=5`) that matches no journal
+  entry `= 35 applied rows`. ✅ Closes exactly.
 - **Three migrations have never been applied and never will be by this mechanism:**
   `0008_great_romulus` (idx 8), `0013_lively_blue_shield` (idx 13),
   `0014_brevo_email_templates_seed` (idx 14).
@@ -214,14 +231,67 @@ Probed against the expected object matrix derived from `0037_unknown_siren.sql` 
 | 2 guarded FKs (`wizmatch_companies_account_owner_fk`, `wizmatch_suppression_list_contact_channel_fk`) | absent | both **absent** | ✅ |
 | Trigger `wizmatch_company_policies_immutability_trg` + function `wizmatch_company_policies_enforce_immutability` | absent | both **absent** | ✅ |
 
-**No partial application. No name collisions from `ensure*` runtime hooks. No unexpected `0037`
-objects.** The database is in a clean, fully pre-`0037` state.
+**No partial application. No unexpected `0037` objects.** The database is in a clean, fully
+pre-`0037` state.
 
-**One pre-existing application-schema drift, unrelated to `0037`:** production `users` has two
-columns that `src/db/schema.ts` does not model — `is_active boolean` and `is_test_account boolean` —
-and `created_at` is `timestamp without time zone`. Full production column list:
+#### 5.1.1 Schema-wide relation-name collision probe — 0 collisions
+
+The object-by-object probe above is **not sufficient on its own**, and the gap is worth stating
+plainly because the first pass got it wrong. "The parent table is absent, therefore its indexes are
+absent" is valid for **constraint** names (scoped per table) but **invalid for index names**, which
+live in `pg_class` and are unique **per schema**. `0037` creates 8 tables with **no**
+`IF NOT EXISTS` and 32 indexes of which only 7 carry `IF NOT EXISTS` — so **25 unguarded index
+creates**. Any pre-existing relation of *any* kind (table, view, matview, sequence, or an index on an
+unrelated table) occupying one of those names raises `42P07 relation already exists`, and because
+drizzle wraps the whole migration in one transaction (§11), that aborts **all** of `0037` mid-deploy.
+`pg_tables`, used in the first pass, also cannot see a colliding *view*.
+
+Closed with a direct probe of all **40** relation names `0037` creates, extracted programmatically
+from the migration file rather than hand-listed:
+
+```sql
+SELECT c.relname, c.relkind, n.nspname
+  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+ WHERE n.nspname = 'public' AND c.relname = ANY($1);
+-- and the same across every non-system schema
+```
+
+| Probe | Result |
+|---|---|
+| Names probed | 40 |
+| Collisions in `public` | **0** |
+| Collisions in **any** non-system schema | **0** |
+
+The 37 runtime `ensure*` hooks in this repo create objects outside the migration journal, so this was
+a real hazard rather than a theoretical one. It is now excluded by measurement, not by inference.
+
+#### 5.1.2 The two unmodelled `users` columns — repo-originated, not mystery drift
+
+Production `users` carries `is_active boolean` and `is_test_account boolean`, neither of which is in
+`src/db/schema.ts`, and `created_at` is `timestamp without time zone`. Full production column list:
 `id, tenant_id, name, email, password_hash, created_at, role, token_version, is_active, is_test_account`.
-`0037` touches none of these. Recorded, not actioned.
+
+Both columns are created by **repo code at runtime**, not by an unexplained hand-edit:
+
+- `is_active` — `src/routes/permissions.ts`:
+  ``db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true`).catch(() => {})``
+  executed at module import (that router is imported from `src/index.ts`). The deliberate `ensure*`
+  pattern this repo uses instead of a migration.
+- `is_test_account` — `scripts/meta-app-review/seed-reviewer-user.ts` uses the same
+  `ALTER TABLE … ADD COLUMN IF NOT EXISTS` form, by explicit plan ("no migration").
+
+**Do not "fix" this by adding either column to `schema.ts`** — that would make `db:generate` emit a
+migration for a column that already exists.
+
+**But note the sharp edge:** `is_active` is **load-bearing for login**. `src/routes/auth.ts:83-84`,
+`:169-170`, `:258-259` all gate authentication on
+`(u.is_active IS NULL OR u.is_active = true) AND (t.is_active IS NULL OR t.is_active = true)`
+(NULL means active). The ensure-hook that creates the column swallows its own failure with
+`.catch(() => {})`. On any database where that hook silently failed, **every login would 500** on a
+missing column. Mid-session revocation runs through `users.token_version`
+(`src/middleware/auth.ts`), not through `is_active`; `requireAuth`/`requireRole` never read it.
+
+`0037` touches none of this. Recorded, not actioned.
 
 ### 5.2 Existing indexes on the three U-7 target tables
 
@@ -294,6 +364,12 @@ Their Growth-tenant counterparts (`e480cc54-…` and `b49f78bb-…`) are correct
 cannot be added to the roster because there is nothing to add. **Creating the account is a production
 write and was not performed** — it needs a separate, explicitly approved action.
 
+> **When that account is created, create it with a lower-cased email.** `users_tenant_email_unique`
+> is on the **raw** `email` text, while login matches `u.email = <lowercased input>` exactly
+> (`src/routes/auth.ts`). An account stored with any uppercase character would exist, satisfy the
+> unique index, and be **permanently unable to log in**. Her required role `team_lead` is already in
+> `PILOT_ELIGIBLE_ROLES`, so no role-model change is needed.
+
 ### 7.1 Current pilot roster state — correct as far as it goes
 
 `WIZMATCH_STAFFING_PILOT_USER_IDS` is **set** on the production `web` service and contains **exactly
@@ -308,6 +384,26 @@ never printed**:
 `WIZMATCH_STAFFING_PILOT_ALL_USERS=false` — the open-deployment override is off. **No roster change
 was made.** The roster is correct for the two humans who exist; it is missing only the user who does
 not.
+
+### 7.2 Two latent roster risks — not currently biting, but they will if the roster is edited
+
+Both verified in `src/services/wizmatchStaffingAccess.ts`. Neither is a defect today; both are traps
+for whoever adds Itika's ID.
+
+1. **Roster matching is case-sensitive; the readiness checker validates case-INSENSITIVELY.**
+   `pilotIds()` splits on `/[\s,]+/` and trims each entry into a `Set<string>`; admission is
+   `ids.has(actor.userId)` — plain, case-sensitive string equality. But
+   `src/services/wizmatchPilotReadiness.ts`'s `UUID_SHAPE` regex carries the `i` flag. **An
+   upper-case UUID would therefore pass the readiness check as well-formed and silently never match**
+   the lower-case UUID Postgres returns — a pilot user locked out with a green readiness report.
+   Not currently a problem: the live roster entries were confirmed to match the lower-case IDs
+   exactly (verified by set membership, without printing the value). Paste new IDs lower-case.
+2. **The roster is not tenant-scoped.** `resolveStaffingAccess` never reads `actor.tenantId` at all —
+   admission is role + ID only. A Growth-tenant user ID placed in the roster would pass the gate on
+   `/api/wizmatch` routes. Data would still be scoped by `req.user.tenantId` downstream, so this is
+   not a data-leak path, but the containment comes from the handlers, not from the gate. What makes
+   the current configuration safe is that **both roster IDs are the WizMatch-tenant rows** — note
+   that Jatin and Kanishk each also have a Growth-tenant row, and those are the wrong IDs to use.
 
 ---
 
@@ -339,8 +435,26 @@ Full production role histogram (counts only, no identities): `admin`=6, `team_le
 `/dashboard` · `/command-center` · `/candidate-intelligence/queue` · `/client-discovery/queue` ·
 `/review-workbench` · `/guardrails` · `/placements` · `/candidates`
 
-(The recorded pre-existing limitation stands: `GET /placements` still 403s for the sync via its own
-`['admin','team_lead']` check, which predates this branch and feeds no cockpit tile.)
+**Only 7 of the 8 actually return data.** The recorded pre-existing limitation stands and is worth
+stating precisely: the lane admits `/placements`, but the handler then self-rejects a `viewer` via its
+own `['admin','team_lead']` check (`src/routes/wizmatch.ts`), returning 403
+`commercial_access_requires_lead`. Deliberate, and pinned by
+`src/__tests__/wizmatchMachineSyncLane.test.ts`. Consequence for the operator: the sync will cache a
+403 for placements indefinitely — if any Command Deck tile is ever expected to show placements, it
+never will until that handler check changes. Predates this branch; not this branch's to change.
+
+**Two facts about the sync client itself** (`~/GE-Brain/scripts/crm-sync.mjs`, outside this repo),
+relevant to anyone debugging a sync outage:
+
+- **Its credentials are not in Railway.** Base URL and both JWTs load from `~/.ge-crm/config.json` on
+  the machine that runs the sync. Nothing in the Railway environment controls it, and rotation is a
+  manual step on that host.
+- **The JWT carries a 7-day expiry and is checked against `users.token_version` on every request.**
+  Any password reset on the `deck-sync` account silently 401s the entire sync.
+
+Its own service-account detection (`role === 'viewer'` or an email/name matching
+`reviewer|deck.?sync|no-?reply`) is consistent with the `deck-sync` row found in production, and its
+path list is byte-identical to `WIZMATCH_MACHINE_SYNC_GET_ALLOWLIST` — zero drift.
 
 ---
 

@@ -4864,3 +4864,49 @@ logical `pg_dump | pg_restore` clone (Option A/PITR unavailable) and the product
 migration + lock test on that clone. It does **not** authorise applying `0037` to production.
 Recommended in parallel: enable a Railway backup schedule on the production `Postgres` volume.
 **G1 = NO-GO.** `APPROVE_G1_MIGRATION_0037` is not requested.
+
+### Addendum, same session — late subagent reports reconciled
+
+Two of the four repository-only Explore subagents (R2 drift-queries, R3 users-identity) returned
+**after** the main session had completed their scope and written the evidence record. Their findings
+were checked against source and folded in; both were net improvements, and one closed a real gap.
+
+- **R2 — genuine gap, now closed.** The first-pass object probe inferred "parent table absent ⇒ its
+  indexes absent". That holds for constraint names (per-table) but **not for index names**, which are
+  unique per *schema*. `0037` has 8 `CREATE TABLE` with **no** `IF NOT EXISTS` and 32 `CREATE INDEX`
+  of which only 7 are guarded — **25 unguarded creates**, each a `42P07` abort of the whole
+  single-transaction migration if the name is taken by any relation, including a view (`pg_tables`,
+  used in the first pass, cannot see views). Closed with a fifth read-only session probing all **40**
+  relation names `0037` creates, extracted programmatically: **0 collisions in `public`, 0 in any
+  non-system schema.** Recorded as §5.1.1.
+- **R2 — challenge to the journal arithmetic, resolved in the main session's favour.** R2 computed
+  against the branch journal (38 entries); the probe ran against the **container** journal (37, since
+  the container is built from `main`). 33 timestamp-matched + `0003` hash-matched + 1 orphan row = 35.
+  The arithmetic is now spelled out in §4.1 so it does not read as a discrepancy.
+- **R3 — correction accepted.** `users.is_active` is **not** drift: it is created by an ensure-hook,
+  ``ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active …).catch(() => {})`` in
+  `src/routes/permissions.ts`, imported at boot. `is_test_account` comes from
+  `scripts/meta-app-review/seed-reviewer-user.ts` by the same deliberate no-migration pattern. Neither
+  should be added to `schema.ts`. Sharp edge recorded: `is_active` is load-bearing for **login**
+  (`src/routes/auth.ts`, `IS NULL OR = true`), and the hook that creates it swallows its own failure —
+  so a silent hook failure would 500 every login. Rewritten as §5.1.2.
+- **R3 — two latent roster traps, verified and recorded as §7.2.** (i) admission is
+  `ids.has(actor.userId)`, case-**sensitive**, while the readiness checker's UUID regex is
+  case-**insensitive** — an upper-case roster entry would pass readiness green and never match.
+  Confirmed not currently biting: the live entries match the lower-case IDs exactly. (ii)
+  `resolveStaffingAccess` never reads `actor.tenantId`, so the roster is not tenant-scoped; safety
+  today comes from both entries being the WizMatch-tenant rows, not from the gate.
+- **R3 — sync-client detail added to §8.** Only 7 of the 8 allowlisted paths return data
+  (`/placements` self-rejects `viewer` in its handler with `commercial_access_requires_lead`);
+  `crm-sync.mjs` credentials live in `~/.ge-crm/config.json`, not Railway; its JWT has a 7-day expiry
+  plus a `token_version` check, so a password reset on `deck-sync` silently 401s the whole sync.
+- **Provisioning warning added to §7** for whoever creates Itika's account: `users_tenant_email_unique`
+  is on raw `email` while login matches an exact lower-cased string, so a non-lower-case email creates
+  an account that can never log in. `team_lead` is already pilot-eligible.
+
+R1 (migration mechanism) and R4 (backup/clone) had not reported at the time of writing. Their scope
+was completed in-session from source and from Railway's read-only API; if they report later, reconcile
+against §11 and §9/§12 respectively.
+
+**Verdict unchanged: G1 NO-GO.** No new blocker; the collision probe returned clean. Still read-only
+throughout — the fifth session used the same protocol and ended in `ROLLBACK`.
