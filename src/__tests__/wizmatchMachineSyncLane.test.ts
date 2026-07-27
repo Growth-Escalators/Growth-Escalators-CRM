@@ -231,16 +231,36 @@ describe('wizmatchPilotOrMachineSync + wizmatchRouter, mounted in the fixed inde
   // everywhere, exactly as wizmatchPilotGate already gave it.
   // ---------------------------------------------------------------------
   describe('an ordinary (non-roster) viewer cannot reach Workbench/Today/policy or arbitrary GETs (requirements 2, 3)', () => {
-    it('403s on a Workbench/policy-adjacent read, /review-workbench', async () => {
+    // Rewritten by the final review. This previously asserted
+    // `expect([200, 403]).toContain(status)` and discarded the body — an
+    // assertion satisfied identically whether the code was correct or broken,
+    // so it could never fail. Its name was wrong too: `/review-workbench` is
+    // one of the eight ALLOWLISTED paths, so a machine-shaped viewer gets 200
+    // there, not 403. The accept-either range had been widened to paper over
+    // that mismatch.
+    //
+    // Split into the two deterministic claims it was reaching for:
+    //   (a) the lane's decision does not depend on roster membership, and
+    //   (b) the same viewer is still refused on a non-allowlisted read.
+    // Requirement 2 proper — that a viewer cannot reach the Decision Workbench
+    // or policy surfaces — is NOT provable here: those live in
+    // wizmatchTodayRouter / wizmatchPolicyRouter, which self-gate with their
+    // own `router.use(wizmatchPilotGate)` and are not behind this lane at all.
+    // It is proven where it belongs, in wizmatchTodayRoutes.test.ts ("rejects
+    // 'viewer' reading the queues") and wizmatchPolicyRoutes.test.ts ("rejects
+    // 'viewer' on GET /companies/:id/policy").
+    it('serves an allowlisted read to a machine viewer who is NOT on the roster — the lane is roster-independent', async () => {
       baseUrl = await startLane({ tenantId: 'tenant-1', id: 'viewer-1', role: 'viewer' });
       const { status, body } = await getJson(baseUrl, '/api/wizmatch/review-workbench');
-      // review-workbench IS one of the 8 allowlisted paths — a viewer with no
-      // tenant/id gap and a valid identity WOULD pass the machine lane here.
-      // This test uses a viewer whose id happens not to be on the roster to
-      // prove the roster is irrelevant to the lane; the *non-allowlisted*
-      // surfaces below are the real proof of requirement 2/3.
-      expect([200, 403]).toContain(status);
-      void body;
+      expect(status).toBe(200);
+      expect(body).not.toMatchObject(GATE_DENIED_BODY);
+    });
+
+    it('still refuses that same off-roster machine viewer on a non-allowlisted read', async () => {
+      baseUrl = await startLane({ tenantId: 'tenant-1', id: 'viewer-1', role: 'viewer' });
+      const { status, body } = await getJson(baseUrl, '/api/wizmatch/review-workbench-does-not-exist');
+      expect(status).toBe(403);
+      expect(body).toMatchObject(GATE_DENIED_BODY);
     });
 
     it.each(['/signals', '/domains', '/suppression', '/analytics', '/env-check'])(
