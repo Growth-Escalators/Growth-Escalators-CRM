@@ -1,0 +1,5 @@
+REMEDIATED
+branch=ge/outbound-08b-g3-pilot-completion
+review_base=ece8d3ba
+remediated_commit=84fc340e
+remediated_at=2026-07-27T13:12:56Z
