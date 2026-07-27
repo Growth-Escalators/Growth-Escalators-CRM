@@ -79,13 +79,15 @@ staff` — **excludes `viewer`**, **includes `team_lead`** (Itika's required tie
 
 ## 2. Phase 1 — parallel analysis
 
-Four read-only agents were launched simultaneously. **Three returned complete reports (P1, P3, P4).**
-**P2 (stack topology) went idle and never returned a report despite two re-prompts** — its two
-critical outputs were therefore re-derived directly by the session lead and are marked as such below.
-This is disclosed rather than papered over; the prior G1 preflight recorded the same agent-idle
-failure mode.
+Four read-only agents were launched simultaneously. **All four ultimately returned complete reports
+(P1, P3, P4, and — after two re-prompts and a long delay — P2).** Because P2's report had not arrived
+when this analysis was first written, its two critical outputs were independently re-derived by the
+session lead; P2's later report **agreed with that derivation in every particular** and added the
+extra detail marked below. The delay is disclosed rather than papered over — the prior G1 preflight
+recorded the same agent-idle failure mode, and independent re-derivation is what kept it from
+blocking.
 
-### 2.1 PR #80–#89 stack (derived directly by session lead)
+### 2.1 PR #80–#89 stack (derived by session lead; independently confirmed by P2)
 
 All ten PRs are **OPEN, DRAFT, and unmerged**, chained head-to-base in sequence:
 
@@ -107,7 +109,13 @@ All ten PRs are **OPEN, DRAFT, and unmerged**, chained head-to-base in sequence:
 `git log --format='%s' origin/main..033d1aa7 | sort | uniq -d` → **empty** (no duplicate subjects).
 PR #89 therefore already contains the complete reviewed ancestry of the whole stack.
 
-### 2.2 Landing options (session lead; P2's recommendation was never received)
+P2 additionally cross-checked with `git patch-id --stable` per commit — all unique. Three commits
+returned blank patch-ids because they are the branch's own **internal merge commits**
+(`def57ad0`, `5de115c8`, `2e51cd1b` — "integrate Lane 1/2/3" remediation lanes), which `patch-id`
+cannot diff. Both parents of each were verified to be inside the 72-commit set, so no external or
+duplicated content leaks in.
+
+### 2.2 Landing options
 
 | Option | Prod deploys | Duplicate-commit risk | Auditability | Notes |
 |---|---|---|---|---|
@@ -115,15 +123,41 @@ PR #89 therefore already contains the complete reviewed ancestry of the whole st
 | (b) New integration PR `ge/outbound-08b-g3-pilot-completion` → `main` | 1 | None | Same as (a), plus one extra PR record | Equivalent to (a); only worth it if #89's own history is considered too noisy |
 | (c) Merge each layer #80→#89 sequentially | 1 *if* strictly ordered bottom-up (only #80's base is `main`) | Moderate — 10 operations, rebase/conflict surface at each | Best per-PR record | Highest operational risk for no additional safety |
 
-**Recommendation: (a).** Because `origin/main` is a strict ancestor, the merge is conflict-free and
-no commit is duplicated. **Retargeting or merging PR #89 is a G3 action and requires
-`APPROVE_G3_MERGE_DEPLOY_SHADOW`. It has not been done.**
+**Recommendation: (a)** — session lead and P2 independently reached the same conclusion. Because
+`origin/main` is a strict ancestor, the merge is conflict-free and no commit is duplicated.
+
+Additional detail from P2, worth carrying into G3:
+
+- **The repo's established convention is a plain merge-commit, not squash.** Verified from history:
+  `origin/main` is dense with 2-parent `"Merge pull request #N …"` commits (e.g. `1e748125` has
+  `%P` = two parents). Squash would collapse all 72 commits — including the three remediation-lane
+  merges and the audit trail in messages like *"close a vacuous tenant-safety assertion"* — into one,
+  losing per-commit attribution the review docs reference by intent. **Use the standard merge-commit
+  button.**
+- **PR #89 is currently a draft** and must be marked ready for review before GitHub will allow a
+  normal merge — an extra explicit step in the G3 sequence.
+- **Auditability:** GitHub marks a PR "Merged" once its head SHA becomes reachable from its base, so
+  #80–#88 should backfill to Merged automatically once `033d1aa7` lands. P2 flagged this as
+  well-known platform behaviour it **could not verify live** without performing the merge — worth a
+  confirmatory check immediately after the real merge.
+- P2 also noted repo precedent for integration PRs (PR #64) but correctly judged it **does not
+  transfer**: that case merged three *parallel* branches each based on `main`, not a sequential
+  stack.
+
+**Retargeting or merging PR #89 is a G3 action and requires `APPROVE_G3_MERGE_DEPLOY_SHADOW`. It has
+not been done.**
 
 ### 2.3 CI and deploy triggers (P3, independently re-verified by session lead)
 
 **GitHub CI has never run on this PR.** `.github/workflows/ci.yml` triggers only on
 `pull_request: branches: [main]` and `push: branches: [main]`. PR #89 targets
 `ge/outbound-08a-live-pilot-hardening`, so no CI check-run exists for `033d1aa7`.
+
+The same is true of **PRs #81–#89** — every one is based on a non-`main` branch, so none has ever run
+`build-and-test`. **PR #80 is the sole exception**: its base *is* `main`, and its CI ran and passed.
+Consequently the green checkmarks visible on #81–#89 are **Vercel previews only and are not evidence
+of a passing build**. Retargeting #89 to `main` would be the **first time** the full 72-commit diff
+is exercised by CI — budget for it surfacing something, and fix it before merging rather than after.
 
 - Check-runs on `033d1aa7`: `Vercel Preview Comments` (success) only.
 - Combined status: `{state: success, total: 1, contexts: ["Vercel"]}` — a **Vercel preview**, not CI.
@@ -222,8 +256,8 @@ head `033d1aa7`, MERGEABLE.** Not retargeted. Not merged. Not marked ready.
 
 ## 4. Verdict
 
-**Phase 0: PASS. Phase 1: COMPLETE**, with one disclosed gap (P2 idle; its critical outputs
-re-derived by the session lead and independently verified).
+**Phase 0: PASS. Phase 1: COMPLETE** — all four agents reported; P2's late report confirmed the
+session lead's independent re-derivation in every particular.
 
 **Proceed to Phase 2 (read-only production identification and G1 preflight).**
 
