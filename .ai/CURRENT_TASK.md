@@ -2,6 +2,50 @@
 
 ## Active task
 
+**PR 8 IMPLEMENTED (self-reported, not independently reviewed) 2026-07-27 — WizMatch Outbound
+Operating System, PR 8 of 10 (provider-neutral outreach adapter).** Branch
+`ge/outbound-08-outreach-adapter` (cut from code-ready `ge/outbound-07-free-prep` at `70c310b5`), local
+only, NOT pushed, NOT merged. Marker: `.ai/OUTBOUND_PR8_IMPLEMENTED`. Full detail:
+[`docs/reviews/wizmatch-outbound-pr8-implementation.md`](../docs/reviews/wizmatch-outbound-pr8-implementation.md),
+`docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md`'s PR 8 section, `.ai/HANDOFF_LOG.md`.
+
+**Scope delivered:** ADR-007 D-1's provider boundary — `src/modules/outreach/providers/outreach-provider.interface.ts`
+(vendor-neutral types, an 11-flag typed `OutreachProviderCapabilities`, identity, config status, the
+two-method `OutreachProvider` interface with no generic execute/request escape hatch, a 7-code
+`OutreachProviderError`, and `assertOutreachProviderCapability`/`assertOutreachProviderReady`),
+`providers/mock.provider.ts` (`MockOutreachProvider` — deterministic, in-memory, no network/credential
+code, per-tenant call capture and id sequencing, controllable success/unsupported/failure/duplicate
+scenarios, `__reset`/`__setScenario`/`__setConfigStatus`/`__getCalls` test-only hooks mirroring the
+esign mock's `__view`/`__sign`/`__reject`/`__reset` convention), `providers/index.ts` (lazy singleton
+factory mirroring `src/modules/esign/providers/index.ts`; `KNOWN_PROVIDERS = ['mock']` is an allow-list
+with no fallback — an unrecognised or unimplemented name, including the documented default
+`'smartlead_csv'`, fails closed with `unknown_provider` rather than substituting anything, a deliberate
+divergence from esign's own fail-open-to-`documenso` behaviour), and `outreachIdempotencyKey.ts`
+(`deriveOutreachIdempotencyKey` — ADR-007 D-3's four-tier order, provider-neutral for PR 9/10 reuse).
+
+Also produced: `docs/handoffs/WIZMATCH_PR9_SANITISED_FIXTURE_CHECKLIST.md` (blocking, U-6 — no
+Smartlead field invented) and `docs/handoffs/WIZMATCH_PR10_PROVIDER_EVENT_MAP.md` (provider-neutral
+reply-ingestion fields, grounded in existing schema/services, gaps stated not papered over).
+
+**Gates:** `git diff --check` clean · `npm run build` exit 0 · `npm test` **120 files / 1154 tests**
+(was 119/1119 at the PR 7 baseline, +1 file / +35 tests) · `npm run admin:build` clean (no admin files
+touched) · Playwright **99 passed / 15 skipped / 0 failed** — identical to the PR 7 baseline.
+
+**Not done, deliberately:** no Smartlead API/CSV, no IMAP/reply-ingestion, no schema/migration change
+(no `0038`), `WIZMATCH_OUTREACH_ADAPTER_ENABLED`/`OUTREACH_PROVIDER` not wired into any route/worker job
+(no caller exists yet — PR 9/10 scope), no guardrail file touched, no Growth/SEO/n8n/
+`package-lock.json` change, nothing pushed/merged/deployed, no Railway/production access, no database
+mutation, no sending or paid discovery enabled.
+
+**Exact next action:** get an independent readiness review of PR 8 (three-subagent method, per the
+PR 2–7 precedent). PR 9 (`ge/outbound-09-smartlead-csv`) remains **GATED** on the sanitised Smartlead
+fixtures (U-6) regardless of that review's outcome. **Do not** start PR 9/10, connect Smartlead, or
+enable sending on the strength of this session.
+
+---
+
+## Prior task — PR 7 CODE READY (independently reviewed) 2026-07-26
+
 **PR 7 CODE READY (independently reviewed) 2026-07-26 — WizMatch Outbound Operating System, PR 7 of
 10 (zero-cost company preparation).** Branch `ge/outbound-07-free-prep` (cut from code-ready
 `ge/outbound-06-decision-workbench`), local only, NOT pushed, NOT merged. Markers:
