@@ -372,10 +372,26 @@ function disabledReasonFor(item: {
   // non-overridable-blocked, not only the root. A narrower-scope block must
   // never present as "Reclassify requires an admin" (implying an admin CAN
   // do something here) when no override is actually possible at any scope.
-  if (item.effectiveDecision === 'deny' && item.isNonOverridable) {
-    return item.nonOverridableScopeKey && item.nonOverridableScopeKey !== 'entire_company'
-      ? `This company has a non-overridable block at scope '${item.nonOverridableScopeKey}'. No override or reclassify action is available at any scope.`
-      : 'This company has a non-overridable block. No override or reclassify action is available at any scope.';
+  // PR 8A review fix — a non-overridable block must surface REGARDLESS of the
+  // effective decision, not only when the row itself reads `deny`. In shadow
+  // (§16 rule 2) `effectiveDecision` follows the ROOT row, so a company whose
+  // root is `eligible` while a narrower scope carries an active
+  // non-overridable compliance block resolved to `allow` here — and therefore
+  // landed in Ready to Contact with no warning at all. `writeCompanyPolicy`
+  // only refuses a supersession at the SAME scope_key, so a root written to
+  // `eligible` through the direct or bulk policy route reaches exactly that
+  // state. The narrower block is never weakened (the gate re-resolves every
+  // active row at send/enrol time and `findUnresolvableScopeType` fails
+  // closed), so no send is enabled by this — but the operator was being shown
+  // "ready to contact" for a company nobody may contact.
+  if (item.isNonOverridable) {
+    const where = item.nonOverridableScopeKey && item.nonOverridableScopeKey !== 'entire_company'
+      ? ` at scope '${item.nonOverridableScopeKey}'`
+      : '';
+    return item.effectiveDecision === 'deny'
+      ? `This company has a non-overridable block${where}. No override or reclassify action is available at any scope.`
+      : `This company has a non-overridable block${where} even though its company-level policy currently reads `
+        + `'${item.effectiveDecision}'. No override or reclassify action is available at any scope, and it must not be contacted.`;
   }
   if (item.effectiveDecision === 'deny') {
     return 'This company is blocked by policy. Reclassify requires an admin.';
@@ -525,7 +541,16 @@ export async function buildTodayQueues(tenantId: string, limit = 200): Promise<T
       // unreachable — duplicates landed in Paused or Blocked with a block
       // affordance instead of Needs Review with Merge / Confirm Separate.
       const isBlockedRow = row.outreachEligibility === 'blocked';
-      if (effectiveDecision === 'deny' && isBlockedRow) {
+      // PR 8A review fix — a non-overridable-blocked company NEVER enters
+      // Ready to Contact, whatever its root row says. "Ready to Contact" means
+      // exactly "you may contact these now", and this company may not be
+      // contacted at any scope. This is a display/bucketing decision only —
+      // it blocks no write and removes no affordance (the action layer already
+      // refuses every unblocking action for it), so it holds identically in
+      // shadow and enforce and does not violate §16 rule 2.
+      if (isNonOverridable) {
+        pausedOrBlocked.push(item);
+      } else if (effectiveDecision === 'deny' && isBlockedRow) {
         pausedOrBlocked.push(item);
       } else if (duplicatePending) {
         needsReview.push(item);

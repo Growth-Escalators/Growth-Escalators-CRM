@@ -106,10 +106,21 @@ Checklist:
 - [ ] Deploy in shadow. This repo auto-deploys on push to `main` — pushing is itself a
   production-sensitive action requiring its own explicit confirmation, separate from this
   runbook's gates.
-- [ ] Pilot roster validation — confirm `WIZMATCH_STAFFING_PILOT_USER_IDS` (or the explicit
-  all-users override) is set to exactly the intended pilot members, and that a non-pilot
-  account is rejected end to end (one manual check: log in as a non-roster account, confirm
-  `/today/queues` and `/companies/:id/policy` both 403).
+- [ ] **`NODE_ENV=production` confirmed on the deployed service.** This is load-bearing and easy
+  to miss: the pilot roster gate fails closed **only** when `NODE_ENV` is exactly the string
+  `production` (`resolveStaffingAccess`). With any other value — unset, blank, `prod` — the roster
+  check is bypassed and **every** pilot-eligible role (`admin`, `team_lead`, `manager_ops`,
+  `sales`, `staff`) is admitted, silently turning the pilot into an open deployment. Nothing in
+  this repo records that the variable is set at runtime (Nixpacks' documented `NODE_ENV=production`
+  applies to the *build* phase, which says nothing about the running container). Check the Railway
+  service variables directly; `npm run wizmatch:pilot-readiness -- --production` reports a DANGER
+  when the asserted target and the actual `NODE_ENV` disagree, but it can only see the environment
+  it is run in.
+- [ ] Pilot roster validation — confirm `WIZMATCH_STAFFING_PILOT_USER_IDS` is set to exactly the
+  intended pilot members (**not** the all-users override, which the readiness command reports as
+  a dangerous open deployment), and that a non-pilot account is rejected end to end (one manual
+  check: log in as a non-roster account, confirm `/today/queues` and `/companies/:id/policy` both
+  403).
 - [ ] Health/readiness validation — confirm the deployed process starts cleanly, the existing
   health-check endpoint reports healthy, and no error-rate spike appears in the first
   observation window.

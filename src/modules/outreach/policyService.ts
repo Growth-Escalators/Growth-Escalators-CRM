@@ -487,7 +487,45 @@ export async function writeCompanyPolicy(
     });
 
     return inserted;
+  }).catch((error) => {
+    // PR 8A review fix — concurrency. `expectedPolicyId` is OPTIONAL, so two
+    // genuinely simultaneous writes at one scope (the classic double-clicked
+    // "Approve & Queue") can both read the same predecessor, both pass every
+    // check above, and both reach the INSERT. The partial unique index
+    // `wizmatch_company_policies_active_scope_uniq` correctly prevents the
+    // second from creating a second active row — but it surfaces as a raw
+    // Postgres 23505, which is none of the typed errors the routes and the
+    // Today-actions layer know how to map. The caller got a leaked database
+    // error string instead of the same stable `stale_policy_state` code the
+    // sequential path already returns. Losing this race IS staleness: the
+    // scope changed under this write between its read and its insert.
+    if (isUniqueViolation(error)) {
+      throw new PolicyStaleStateError(
+        `Scope '${scopeKey}' was written concurrently by another request; this write lost the race. `
+          + 'Refresh and retry.',
+      );
+    }
+    throw error;
   });
+}
+
+/**
+ * Postgres `unique_violation`. Checked structurally (SQLSTATE), never by
+ * message text, and narrowed to the active-scope index so an unrelated
+ * constraint is never silently reported as a stale-state conflict.
+ */
+function isUniqueViolation(error: unknown): boolean {
+  const candidate = error as { code?: unknown; constraint?: unknown; cause?: unknown } | null;
+  if (!candidate || typeof candidate !== 'object') return false;
+  const matches = (e: { code?: unknown; constraint?: unknown }) =>
+    e.code === '23505'
+    && (e.constraint === undefined
+      || e.constraint === null
+      || String(e.constraint).includes('wizmatch_company_policies_active_scope'));
+  if (matches(candidate)) return true;
+  // Some drivers wrap the driver error; check one level of `cause`.
+  const cause = candidate.cause as { code?: unknown; constraint?: unknown } | undefined;
+  return Boolean(cause && typeof cause === 'object' && matches(cause));
 }
 
 /**

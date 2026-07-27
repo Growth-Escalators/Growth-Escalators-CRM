@@ -196,6 +196,30 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
   const rosterByAllUsers = isEnabled(env.WIZMATCH_STAFFING_PILOT_ALL_USERS);
   const rosterConfigured = rosterByIds || rosterByAllUsers;
   const productionTarget = env.NODE_ENV === 'production' || assumeProductionTarget;
+
+  // PR 8A review fix — the pilot gate's fail-closed branch is selected by
+  // `NODE_ENV === 'production'` and NOTHING ELSE (`wizmatchStaffingAccess.ts`:
+  // `allowed = NODE_ENV === 'production' ? configured && pilotAllowed : ...`).
+  // If that variable is unset, blank, or anything but the exact string
+  // `production` in the deployed process, the roster check is BYPASSED for
+  // every pilot-eligible role — the pilot silently becomes an open deployment.
+  // Nothing in this repo (railway.json, nixpacks.toml, docs/DEPLOYMENT.md)
+  // records that it is set at runtime; Nixpacks' documented `NODE_ENV=production`
+  // applies to the BUILD phase, which says nothing about the running container.
+  // So when an operator asserts a production target, disagreement with the
+  // actual `NODE_ENV` is itself the finding.
+  if (assumeProductionTarget && env.NODE_ENV !== 'production') {
+    push(
+      'runtime:NODE_ENV',
+      'danger',
+      `--production was asserted but NODE_ENV=${JSON.stringify(env.NODE_ENV ?? null)}, not 'production'. `
+        + 'The pilot roster gate fails closed ONLY when NODE_ENV is exactly \'production\'; with any other value '
+        + 'every pilot-eligible role (admin, team_lead, manager_ops, sales, staff) is admitted regardless of the '
+        + 'roster. Confirm NODE_ENV=production is set on the deployed service before go-live.',
+    );
+  } else if (env.NODE_ENV === 'production') {
+    push('runtime:NODE_ENV', 'ok', "NODE_ENV=production — the pilot roster gate is in its fail-closed mode.");
+  }
   if (!rosterConfigured && productionTarget) {
     push(
       'pilot-roster',

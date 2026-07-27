@@ -21,6 +21,12 @@ const state = vi.hoisted(() => ({
   auditLogCalls: [] as any[],
   capturedWhere: new Map<string, unknown[]>(),
   nextId: 1,
+  /**
+   * PR 8A review fix — lets a test inject the exact driver error a REAL
+   * concurrent write raises, including its `constraint`, which the mock's own
+   * conflict path cannot vary. Consumed once.
+   */
+  failNextInsertWith: null as unknown,
 }));
 
 function makeThenable<T>(getValue: () => T) {
@@ -112,6 +118,11 @@ vi.mock('../db', async () => {
           const row = { id: `policy-${state.nextId++}`, supersededAt: null, supersededByPolicyId: null, ...vals };
           const inserted = makeThenable(() => [row]);
           inserted.returning = () => makeThenable(() => {
+            if (state.failNextInsertWith) {
+              const injected = state.failNextInsertWith;
+              state.failNextInsertWith = null;
+              throw injected;
+            }
             // Enforce the real §10.1 partial unique index
             // `wizmatch_company_policies_active_scope_uniq` ON
             // (tenant_id, company_id, scope_key) WHERE superseded_at IS NULL.
@@ -205,6 +216,7 @@ beforeEach(() => {
   state.auditLogCalls = [];
   state.capturedWhere = new Map();
   state.nextId = 1;
+  state.failNextInsertWith = null;
 });
 
 describe('writeCompanyPolicy — evidence and inheritance validation', () => {
@@ -364,6 +376,46 @@ describe('writeCompanyPolicy — approval provenance', () => {
     });
     expect(state.policyRows[0].actorUserId).toBe('user-1');
     expect(state.policyRows[0].source).toBe('human');
+  });
+});
+
+// PR 8A REVIEW fix — `expectedPolicyId` is optional, so two simultaneous
+// writes at one scope can both pass every check and both reach the INSERT. The
+// partial unique index stops the second, but it surfaced as a raw Postgres
+// 23505 that none of the typed error handlers recognise.
+describe('writeCompanyPolicy — concurrent write at the same scope', () => {
+  it('maps a unique-violation on the active-scope index to a stable stale_policy_state error', async () => {
+    state.failNextInsertWith = Object.assign(new Error('duplicate key value violates unique constraint'), {
+      code: '23505',
+      constraint: 'wizmatch_company_policies_active_scope_uniq',
+    });
+
+    await expect(
+      writeCompanyPolicy(actor, 'company-1', {
+        scopeType: 'entire_company',
+        outreachEligibility: 'eligible',
+        externalHiringPolicy: 'accepts_external_vendors',
+        relationshipType: 'new_prospect',
+        reasonCode: 'policy_accepts_external_vendors',
+      }),
+    ).rejects.toBeInstanceOf(PolicyStaleStateError);
+  });
+
+  it('does NOT swallow an unrelated unique violation as a stale-state conflict', async () => {
+    state.failNextInsertWith = Object.assign(new Error('duplicate key value violates unique constraint'), {
+      code: '23505',
+      constraint: 'some_other_unrelated_uniq',
+    });
+
+    await expect(
+      writeCompanyPolicy(actor, 'company-1', {
+        scopeType: 'entire_company',
+        outreachEligibility: 'eligible',
+        externalHiringPolicy: 'accepts_external_vendors',
+        relationshipType: 'new_prospect',
+        reasonCode: 'policy_accepts_external_vendors',
+      }),
+    ).rejects.not.toBeInstanceOf(PolicyStaleStateError);
   });
 });
 

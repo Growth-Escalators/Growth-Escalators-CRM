@@ -144,6 +144,31 @@ describe('assessWizmatchPilotReadiness — review fixes', () => {
     expect(report.dangerous).toBe(false);
   });
 
+  it('asserting --production while NODE_ENV is not exactly "production" is dangerous', () => {
+    // The pilot roster gate fails closed ONLY on `NODE_ENV === 'production'`.
+    // Nothing in the repo records that it is set at runtime, so a mismatch
+    // between the asserted target and the actual value IS the finding.
+    const report = assessWizmatchPilotReadiness({
+      env: baseEnv({ WIZMATCH_STAFFING_PILOT_USER_IDS: 'user-a' }),
+      repoRoot,
+      assumeProductionTarget: true,
+    });
+    expect(report.dangerous).toBe(true);
+    const finding = report.findings.find((f) => f.code === 'runtime:NODE_ENV');
+    expect(finding?.severity).toBe('danger');
+    expect(finding?.message).toMatch(/every pilot-eligible role/);
+  });
+
+  it('NODE_ENV=production with a roster is clean — no runtime finding fires', () => {
+    const report = assessWizmatchPilotReadiness({
+      env: baseEnv({ NODE_ENV: 'production', WIZMATCH_STAFFING_PILOT_USER_IDS: 'user-a' }),
+      repoRoot,
+      assumeProductionTarget: true,
+    });
+    expect(report.findings.find((f) => f.code === 'runtime:NODE_ENV')?.severity).toBe('ok');
+    expect(report.dangerous).toBe(false);
+  });
+
   it('the all-users override is NOT reported as a configured pilot roster in production', () => {
     const report = assessWizmatchPilotReadiness({
       env: baseEnv({ NODE_ENV: 'production', WIZMATCH_STAFFING_PILOT_ALL_USERS: 'true' }),

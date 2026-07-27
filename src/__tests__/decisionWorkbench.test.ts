@@ -44,12 +44,27 @@ const fixtures = vi.hoisted(() => ({
   narrowerNonOverridableRows: [] as unknown[],
 }));
 
-function makeChain(rows: unknown[]) {
+/**
+ * PR 8A review fix — the chain used to DISCARD `.where()` entirely, so no test
+ * could observe a dropped or wrong predicate on the brand-new
+ * `fetchNarrowerNonOverridableBlockByCompany` query. Dropping
+ * `eq(outreachEligibility,'blocked')` from it (so a merely-paused narrower row
+ * falsely raised the non-overridable banner, or worse a dropped
+ * `isNonOverridable` predicate did) left the whole suite green. This is the
+ * project's recurring mock-vacuity class (PR 2 / PR 5 / PR 7 T-3). The
+ * predicate is now captured so a test can assert on it.
+ */
+const capturedWhere: unknown[] = [];
+
+function makeChain(rows: unknown[], captureKey?: string) {
   const chain: Record<string, unknown> = {
     from: () => chain,
     innerJoin: () => chain,
     leftJoin: () => chain,
-    where: () => chain,
+    where: (condition: unknown) => {
+      if (captureKey) capturedWhere.push({ key: captureKey, condition });
+      return chain;
+    },
     orderBy: () => chain,
     limit: () => Promise.resolve(rows),
     then: (resolve: (v: unknown) => unknown) => resolve(rows),
@@ -69,8 +84,8 @@ vi.mock('../db', async (importOriginal) => {
         from: (table: unknown) => {
           if (table === actual.wizmatchCompanyPolicies) {
             return 'policyId' in projection
-              ? makeChain(fixtures.companyRows)
-              : makeChain(fixtures.narrowerNonOverridableRows);
+              ? makeChain(fixtures.companyRows, 'rootPolicies')
+              : makeChain(fixtures.narrowerNonOverridableRows, 'narrowerNonOverridable');
           }
           if (table === actual.wizmatchCompanyDuplicates) return makeChain(fixtures.duplicateRows);
           if (table === actual.wizmatchContactCandidates) return makeChain(fixtures.contactRows);
@@ -110,6 +125,7 @@ beforeEach(() => {
   fixtures.contactRows = [];
   fixtures.enrolmentRows = [];
   fixtures.narrowerNonOverridableRows = [];
+  capturedWhere.length = 0;
 });
 
 describe('buildTodayQueues — bucket assignment', () => {
@@ -373,6 +389,93 @@ describe('buildTodayQueues — review-date resurfacing', () => {
 
     const queues = await buildTodayQueues('tenant-1');
     expect(queues.pausedOrBlocked[0].reviewDateArrived).toBe(false);
+  });
+});
+
+/**
+ * Walks a Drizzle condition graph and collects every referenced column name.
+ *
+ * **The `table` key MUST be skipped.** Every column object carries a circular
+ * `.table` back-reference to ALL of its sibling columns, so a naive walk
+ * collects the entire table's column list and the assertion becomes vacuous —
+ * removing a predicate outright still "passes". Verified empirically by a
+ * control run: dropping `eq(outreachEligibility, 'blocked')` left this test
+ * green until this skip was added. Same trap, and same fix, as `paramValues`
+ * in `wizmatchPolicyService.test.ts`.
+ */
+function collectColumnNames(node: unknown, seen = new Set<unknown>(), out = new Set<string>()): string[] {
+  if (!node || typeof node !== 'object' || seen.has(node)) return [...out];
+  seen.add(node);
+  const record = node as Record<string, unknown>;
+  // A Drizzle column carries both a `name` and a `columnType`; a bare object
+  // with a `name` (e.g. a table) must not be mistaken for one.
+  if (typeof record.name === 'string' && typeof record.columnType === 'string') out.add(record.name);
+  for (const [key, value] of Object.entries(record)) {
+    if (key === 'table') continue;
+    if (Array.isArray(value)) value.forEach((v) => collectColumnNames(v, seen, out));
+    else if (value && typeof value === 'object') collectColumnNames(value, seen, out);
+  }
+  return [...out];
+}
+
+// PR 8A REVIEW fix — the narrower-non-overridable query's WHERE clause is now
+// observable, so dropping one of its predicates is detectable at runtime and
+// not only by the compensating source-level regex.
+describe('fetchNarrowerNonOverridableBlockByCompany — the predicate is actually applied', () => {
+  it('filters on tenant, company set, not-superseded, blocked AND non-overridable', async () => {
+    fixtures.companyRows = [companyRow({ companyId: 'c1' })];
+    eligibilityByCompany.set('c1', {
+      decision: 'review', reasonCode: null, blockerCode: null, enforcementMode: 'shadow', actsOnDecision: false,
+      recommendedRoute: 'standard_outreach', accountOwnerUserId: null,
+    });
+
+    await buildTodayQueues('tenant-1');
+
+    const captured = capturedWhere.filter((c) => (c as { key: string }).key === 'narrowerNonOverridable');
+    expect(captured).toHaveLength(1);
+    // Drizzle's condition graph is circular (every column points back at its
+    // table), so walk it with a visited set and collect the `name` of anything
+    // that looks like a column, rather than serialising.
+    const referenced = collectColumnNames((captured[0] as { condition: unknown }).condition);
+    for (const column of ['tenant_id', 'company_id', 'superseded_at', 'outreach_eligibility', 'is_non_overridable']) {
+      expect(referenced, `predicate must reference ${column}`).toContain(column);
+    }
+  });
+});
+
+// PR 8A REVIEW fix — a non-overridable block must surface regardless of the
+// effective decision. In shadow, `effectiveDecision` follows the ROOT row, so
+// an `eligible` root with a narrower non-overridable compliance block resolved
+// to `allow` and landed in Ready to Contact with no warning whatsoever.
+describe('buildTodayQueues — a narrower non-overridable block outranks an eligible root', () => {
+  beforeEach(() => {
+    fixtures.companyRows = [companyRow({ companyId: 'nonov-1', outreachEligibility: 'eligible', isNonOverridable: false })];
+    fixtures.contactRows = [{ companyId: 'nonov-1', confidenceScore: 9, metadata: {} }];
+    fixtures.narrowerNonOverridableRows = [
+      { companyId: 'nonov-1', scopeKey: 'region:india', blockClass: 'compliance' },
+    ];
+    eligibilityByCompany.set('nonov-1', {
+      decision: 'allow', reasonCode: null, blockerCode: null,
+      // Shadow: actsOnDecision false, so effectiveDecision follows the root row.
+      enforcementMode: 'shadow', actsOnDecision: false,
+      recommendedRoute: 'standard_outreach', accountOwnerUserId: null,
+    });
+  });
+
+  it('never places it in Ready to Contact', async () => {
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.readyToContact).toHaveLength(0);
+    expect(queues.pausedOrBlocked).toHaveLength(1);
+    expect(queues.pausedOrBlocked[0].isNonOverridable).toBe(true);
+    expect(queues.pausedOrBlocked[0].nonOverridableScopeKey).toBe('region:india');
+  });
+
+  it('states the block in disabledReason even though the row reads allow', async () => {
+    const queues = await buildTodayQueues('tenant-1');
+    const item = queues.pausedOrBlocked[0];
+    expect(item.effectiveDecision).toBe('allow');
+    expect(item.disabledReason).toMatch(/non-overridable block at scope 'region:india'/);
+    expect(item.disabledReason).toMatch(/must not be contacted/);
   });
 });
 
