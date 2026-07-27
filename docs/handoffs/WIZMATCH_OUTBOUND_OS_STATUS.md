@@ -27,6 +27,13 @@ Chat-independent status for the `ge/outbound-0X-*` stacked-PR sequence. Read thi
 > §15. **Still not pushed, not merged, `0037` still not applied to production or Railway.** PR 3 was
 > not started this session.
 >
+> **Updated 2026-07-27: PR 7 implemented (self-reported).** `ge/outbound-07-free-prep`
+> (`prepareCompaniesJob`, PRD-005 §14) is built against a code-ready PR 6
+> (`.ai/OUTBOUND_PR6_CODE_READY`). Full detail:
+> [`docs/reviews/wizmatch-outbound-pr7-implementation.md`](../reviews/wizmatch-outbound-pr7-implementation.md)
+> and the PR 7 section at the bottom of this file. **Not independently reviewed yet — do not start PR 8
+> before that review.**
+>
 > **Updated 2026-07-26 (final independent readiness review): PR 2 is CODE READY at `102b657`.**
 > The closeout above declared §22.2 #16 closed; an independent re-check found it closed on **two of
 > three** company-insert paths, and on neither in the literal "same transaction" sense for the
@@ -1020,3 +1027,138 @@ the queues · close the two test gaps · G4 remains an owner decision, now obser
 **Safety:** nothing pushed, merged or deployed; no Railway or production access; no database mutation;
 `0037` not applied; backfill `--apply` not run; enforcement still `shadow`; sending and paid-discovery
 kill-switches untouched; Smartlead not connected; no shared env var changed; PR 7 not started.
+
+---
+
+## PR 7 — implemented (self-reported, 2026-07-27)
+
+Full report: [`docs/reviews/wizmatch-outbound-pr7-implementation.md`](../reviews/wizmatch-outbound-pr7-implementation.md).
+Marker: `.ai/OUTBOUND_PR7_IMPLEMENTED`. Branch `ge/outbound-07-free-prep`, cut from a code-ready PR 6
+(`.ai/OUTBOUND_PR6_CODE_READY`, `docs/reviews/wizmatch-outbound-pr6-opus-review.md`).
+
+**Scope:** PRD-005 §14 `prepareCompaniesJob` — zero-cost company preparation. New
+`src/modules/outreach/prepareCompanies.ts` (`prepareCompaniesJob`, `prepareSingleCompany`,
+`getPrepStatus`), new `src/routes/wizmatchPrepare.ts` (`POST/GET .../prepare`), a new
+`WIZMATCH_AUTO_PREP_ENABLED` cron in `worker.ts` (default off), and a targeted SSRF fix in
+`src/services/emailExtractorService.ts` (redirect-hop revalidation, bounded to 3 hops — the shared
+`fetchPage` helper PR 7's website-discovery step depends on had none).
+
+**Zero-spend, by construction and by test.** The module calls only `websitePatternSearch`
+(`costCents: 0`) for new-contact discovery — never `discoverFreePocsForSignal` as a whole, since its
+SearchAPI rung can spend a credit; never Apollo/Snov/Serper. A static test parses the module's own
+`import` lines and fails if a paid identifier (`Apollo`, `Snov`, `Serper`, `SearchAPI`,
+`searchPublicWeb`, `discoverFreePocsForSignal`) ever appears there.
+
+**Tenant safety, locking, idempotency.** Every query is tenant-scoped (tests assert `tenantId` is bound
+first on every statement). The whole run is serialised per tenant via the existing
+`withWizmatchSourceLock` advisory lock. Storage reuses the existing `wizmatch_company_intelligence.metadata`
+jsonb column (`metadata.prep`) — **no migration**. The prep report is a single overwrite, never
+appended; a newly discovered contact is inserted only when no existing candidate row already carries
+the same email, so a retried or concurrent run cannot duplicate contacts/evidence/reports/drafts.
+
+**Policy gate, cold-start confidence gate, campaign recommendation, drafting** — all reuse existing PR
+2/PR 5 canonical modules (`evaluateWizmatchOutreachGate`, `deriveConfidenceTier`,
+`computeCampaignCompatibility`) rather than re-deriving any of their logic. `preparationAllowed` is the
+hard stop. Medium/low contact confidence is recorded but never auto-surfaced as the recommended
+contact. Draft personalisation is a deterministic template merge (no LLM call); `hypotheses` is always
+empty in v1 — the module never fabricates a fact.
+
+**Gates:** `git diff --check` clean · `npm run build` exit 0 · `npm test` **119 files / 1097 tests**
+(was 117/1081 at the PR 6 review baseline, +16 new tests) · `npm run admin:build` clean (no admin files
+touched — PR 7 is backend-only) · Playwright `wizmatch-local` **99 passed / 15 skipped / 0 failed**,
+identical to the PR 6 baseline.
+
+**Disclosed, not silently dropped:** no per-domain rate limiter beyond the per-run fetch cap and
+sequential (concurrency-1) processing — no such utility exists anywhere in the repo yet, a pre-existing
+gap this PR does not introduce but also does not generalise-fix. No CLI (PRD-005 §12 names only the two
+HTTP routes for Preparation). The §7 cold-start confidence gate remains unwired *inside*
+`evaluateWizmatchOutreachGate` itself (confirmed still true, `outreachGate.ts:13-17`); PR 7 applies an
+equivalent gate at its own job level, sufficient for this PR's own output but not a fix to that shared
+gap for other callers. The PR 6 §13 approval-capture gap (`approve_queue` has no `approved_by`/
+`approved_at`) is **not** touched or closed by this PR.
+
+**Not done, by instruction:** migration 0037 still not applied; no backfill `--apply`; enforcement mode
+untouched (`shadow`); both sending kill-switches untouched; no paid provider enabled; Smartlead not
+connected; no guardrail file touched (`schema.ts`, `migrations/`, `auth.ts`, `rbac.ts`, `cashfree.ts`,
+`sodEodService.ts` all verified untouched); no Growth/SEO/n8n/`package-lock.json` change; nothing
+pushed, merged, or deployed; no Railway or production access; no database mutation; no scheduler or
+production invocation enabled.
+
+**Exact next action:** get an independent readiness review of PR 7 (three-subagent method, per the
+PR 2/3/5/6 precedent). Then PR 8 (`ge/outbound-08-outreach-adapter` — interface + mock + factory, no
+Smartlead) per the standing 10-PR programme. **Do not** start PR 8 before that review.
+
+---
+
+## PR 7 — independently reviewed and CODE READY (2026-07-26)
+
+Full report: [`docs/reviews/wizmatch-outbound-pr7-opus-review.md`](../reviews/wizmatch-outbound-pr7-opus-review.md).
+Markers: `.ai/OUTBOUND_PR7_IMPLEMENTED` (self-reported) + `.ai/OUTBOUND_PR7_CODE_READY` (independent).
+Branch `ge/outbound-07-free-prep`, local only, NOT pushed, NOT merged.
+
+**Verdict: NOT READY as submitted at `ac2c2b06`; READY at `70c310b5`** after **twelve** fixes made
+during the review — five High, seven Medium — plus three test-quality gaps closed. Method: three
+parallel read-only Explore subagents, reconciled with an independent hand review; every fix has a
+control run proving its new test fails on the defect (six controls, failing 1/1/2/2/4/1).
+
+None of the twelve was visible to the five gates the implementing session ran, and all five gates
+reproduced exactly on the submitted tree (119 files / 1097 tests), so the `IMPLEMENTED` marker did not
+overstate itself. What it did overstate is corrected in §6 of the report.
+
+**The five High findings.**
+- **H-1** — `deriveConfidenceTier` was passed the whole `metadata` column instead of `metadata.raw`.
+  This is **PR 6's H-4 reintroduced**: every canonically-written contact read as ungraded and fell back
+  to the numeric heuristic, promoting an explicitly-graded `low` contact to `high` whenever its score
+  was ≥ 8 — defeating §7's cold-start gate and putting that contact's name into the draft as a
+  verified fact. The PR's own test encoded the wrong shape, so it could never have caught it.
+- **H-2** — the discovered-contact INSERT wrote the provider's `raw` object *as* the metadata column
+  rather than the canonical `{ reasons, providerCostCents, raw }` envelope, silently stripping
+  `confidenceTier`/`roleCategory`/`team`/`mxProvider` from every other reader of that row.
+- **H-3** — a gate `deny` that still permits preparation (`policy_paused_by_owner`,
+  `manual_block_by_operator`, `signal_role_irrelevant` — only six §9 codes stop prep) was reported
+  `status: 'prepared'` with a full draft, i.e. a policy-denied company presented as ready to contact.
+- **H-4** — a `medium`-confidence contact was likewise reported `prepared`, against PRD-005's explicit
+  "high → Ready; medium → Needs Review".
+- **H-5** — the batch selector starved itself: `skipped` and `failed` companies never wrote a freshness
+  key, so with `ORDER BY updated_at DESC LIMIT 25` the same dead companies refilled every run forever.
+  A tenant with 25+ permanently-denied companies would never prepare any other company, and the report
+  would look identical every day.
+- **H-6** — `WIZMATCH_AUTO_PREP_ENABLED=1` started the **cron** (which scrapes websites and writes
+  contact candidates) while both HTTP routes stayed 404. PR 6's M-D class, on a new flag.
+
+**Seven Mediums fixed:** a dedup that could never fire (`ON CONFLICT DO NOTHING` with no unique index
+on `wizmatch_contact_candidates`) replaced by an atomic `INSERT … WHERE NOT EXISTS`; missing
+`company_intelligence_id`; a scraped contact falsely also tagged `internal_crm` provenance; a draft
+greeting a published `careers@` role inbox by "first name"; a website budget that understated the
+outbound HTTP surface ~11× and dropped scrapes whose company later failed; a 0-row report write
+reported as success; a hardcoded `zeroSpend: true` replaced by a measurement; and a `409` returned for
+a company that does not exist.
+
+**Three test gaps closed:** the mount-order guard did not cover the new router; the SSRF
+redirect-revalidation fix — the security core of the PR's §18.2 claim — shipped with **no test at
+all** (reverting `redirect: 'manual'` → `'follow'` left the suite green); and the tenant-predicate
+assertions were vacuous against a dropped `WHERE` clause (third recurrence of the PR 2 / PR 5
+mock-vacuity finding).
+
+**Gates on `70c310b5`:** `git diff --check` clean · `npm run build` exit 0 · `npm test` **119 files /
+1119 tests** (+22) · `npm run admin:build` clean · Playwright `wizmatch-local` **99 passed / 15 skipped
+/ 0 failed**.
+
+**Boundary checks all pass:** no guardrail file, no migration, no `package-lock.json`, no admin/client/
+scripts change, no Growth/SEO/n8n contamination, no PR 8 adapter or Smartlead reference, no send or
+paid-provider capability enabled, no production action. No PR 6 Medium/Low finding is falsely marked
+closed anywhere; M-D itself (on `WIZMATCH_DECISION_WORKBENCH_ENABLED`) remains open.
+
+**Before PR 8:** nothing. PR 8 may start from `70c310b5`.
+**Before enabling `WIZMATCH_AUTO_PREP_ENABLED` with real data:** O-1 (a denied company with no
+intelligence row still churns — decide whether being denied may create one), O-3 (ratify staff+ on a
+write surface, and PR 6's M-6 pilot roster, now applying to a write for the first time), O-4 (§21 G5
+calls this job "read-only"; it is not).
+**Before G4/`enforce`:** O-2 (cross-job duplicate-contact race with `poc_discovery` — a partial unique
+index would be a migration, blocked behind 0037), plus everything carried from PR 3/5/6.
+**Before `main`:** **B-1 — apply `0037`** (the repo auto-deploys on push), then the §10.11.4
+fresh-database checks (G1).
+
+**Safety:** nothing pushed, merged or deployed; no Railway or production access; no database mutation;
+`0037` not applied; backfill `--apply` not run; enforcement still `shadow`; sending and paid-discovery
+kill-switches untouched; Smartlead not connected; no shared env var changed; PR 8 not started.
