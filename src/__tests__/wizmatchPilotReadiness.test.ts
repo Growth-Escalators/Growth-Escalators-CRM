@@ -8,7 +8,11 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { assessWizmatchPilotReadiness, PROVIDER_CREDENTIAL_ENV_VAR_MAP } from '../services/wizmatchPilotReadiness';
+import {
+  assessWizmatchPilotReadiness,
+  formatWizmatchPilotReadinessReport,
+  PROVIDER_CREDENTIAL_ENV_VAR_MAP,
+} from '../services/wizmatchPilotReadiness';
 
 const repoRoot = join(__dirname, '..', '..');
 
@@ -338,8 +342,14 @@ describe('assessWizmatchPilotReadiness — pilot roster fails closed in every ru
 });
 
 // The pure assessor is only as good as what the CLI feeds it. These are
-// static assertions on the CLI wrapper because the defect they pin is an
-// ABSENT import, which no behavioural test of the assessor can observe.
+// static assertions on the CLI wrapper because the defects they pin (an
+// absent import, an implicit cwd-relative `.env` load) are import-time /
+// argv-parsing behaviour that no behavioural test of the assessor alone can
+// observe. Full behavioural coverage of the new --env-file contract
+// (cwd-independence, file-over-stale-shell-export authority, credential
+// non-leakage) lives in the real subprocess integration suite at
+// `src/__tests__/wizmatchPilotReadinessCli.test.ts` — an in-process import
+// can't honestly test cwd-independence or "process.env was never mutated".
 describe('scripts/wizmatch-pilot-readiness.ts — the CLI wrapper', () => {
   const cliSource = readFileSync(join(repoRoot, 'scripts', 'wizmatch-pilot-readiness.ts'), 'utf8');
   /**
@@ -355,10 +365,32 @@ describe('scripts/wizmatch-pilot-readiness.ts — the CLI wrapper', () => {
     .filter((line) => !line.trim().startsWith('//'))
     .join('\n');
 
-  it("loads .env before reading process.env — the runbook's G3 step runs it against a copied .env", () => {
-    // Without this, every safety flag in that file reads `undefined` -> "off"
-    // -> exit 0: the CLI reports SAFE against a configuration with sending on.
-    expect(cliCode).toMatch(/^\s*import\s+['"]dotenv\/config['"]/m);
+  // D-R3 (owner-ratified) — H-2/H-3 fix. `import 'dotenv/config'` resolved
+  // `.env` relative to `process.cwd()`, silently diverging from `repoRoot`
+  // (resolved from `__dirname`) whenever the CLI ran from any other
+  // directory, and dotenv's `config()` never overrides an already-set
+  // `process.env` key. Both are gone: the CLI no longer has any import-time
+  // env-loading side effect at all.
+  it('no longer has an import-time dotenv/config side effect (cwd-relative .env load is gone)', () => {
+    expect(cliCode).not.toMatch(/^\s*import\s+['"]dotenv\/config['"]/m);
+  });
+
+  it('imports only the pure, side-effect-free dotenv.parse — never dotenv.config, which mutates process.env', () => {
+    expect(cliCode).toMatch(/import\s*\{\s*parse\s+as\s+parseDotenv\s*\}\s*from\s+['"]dotenv['"]/);
+    expect(cliCode).not.toMatch(/dotenv\.config\(/);
+  });
+
+  it('parses --audit-env-file explicitly rather than relying on any implicit .env lookup', () => {
+    // Named --audit-env-file, not the owner-ratified contract's literal
+    // --env-file: empirically verified (see this task's final report) that
+    // --env-file collides with Node.js's OWN native --env-file CLI flag
+    // (Node 20.6+), which intercepts it before this script's code runs at
+    // all — reproduced via plain `node`, via `tsx`, and via this repo's
+    // actual `npm run wizmatch:pilot-readiness -- --env-file <path>`
+    // wrapper form. A non-reserved flag name was required to make the
+    // argument actually reach this script.
+    expect(cliCode).toMatch(/--audit-env-file/);
+    expect(cliCode).toMatch(/resolve\(envFilePathArg\)/);
   });
 
   it('threads the --production assertion through INTO the assessor call, not merely into a local', () => {
@@ -369,8 +401,40 @@ describe('scripts/wizmatch-pilot-readiness.ts — the CLI wrapper', () => {
     expect(cliCode).toMatch(/assessWizmatchPilotReadiness\(\s*\{[^}]*assumeProductionTarget[^}]*\}\s*\)/);
   });
 
+  it('threads the resolved configuration source INTO the assessor call, not merely into a local', () => {
+    expect(cliCode).toMatch(/assessWizmatchPilotReadiness\(\s*\{[^}]*configurationSource[^}]*\}\s*\)/);
+  });
+
   it('opens no database connection and makes no network call', () => {
     expect(cliCode).not.toMatch(/\b(?:from\s+['"](?:pg|\.\.\/src\/db)|drizzle|fetch\s*\(|axios|https?:\/\/)/);
+  });
+});
+
+describe('formatWizmatchPilotReadinessReport — configuration source line', () => {
+  it('prints the resolved path in file mode, and no other field', () => {
+    const report = assessWizmatchPilotReadiness({
+      env: baseEnv(),
+      repoRoot,
+      configurationSource: { source: 'file', resolvedPath: '/tmp/example/.env.audited' },
+    });
+    const text = formatWizmatchPilotReadinessReport(report);
+    expect(text).toContain('Configuration source: file (/tmp/example/.env.audited)');
+  });
+
+  it('prints process_environment when no file was used', () => {
+    const report = assessWizmatchPilotReadiness({
+      env: baseEnv(),
+      repoRoot,
+      configurationSource: { source: 'process_environment' },
+    });
+    const text = formatWizmatchPilotReadinessReport(report);
+    expect(text).toContain('Configuration source: process_environment');
+  });
+
+  it('omits the configuration-source line entirely when the caller supplies none (back-compat)', () => {
+    const report = assessWizmatchPilotReadiness({ env: baseEnv(), repoRoot });
+    const text = formatWizmatchPilotReadinessReport(report);
+    expect(text).not.toContain('Configuration source:');
   });
 });
 
