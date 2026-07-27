@@ -67,6 +67,51 @@ export interface PilotReadinessInputs {
  */
 const KNOWN_OUTREACH_PROVIDERS = ['mock'];
 
+/**
+ * PR 8B (P8B-4) — provider name -> the credential environment-variable names
+ * that provider's integration would read. A name-substring test on
+ * `/SMARTLEAD/i` alone cannot see an alias like `SL_API_KEY`, so a live
+ * Smartlead credential could sit in the pilot environment completely
+ * unreported. Exact names only — never a `SL_` prefix test, which would
+ * false-positive on unrelated variables such as `SL_TIMEZONE`.
+ *
+ * This module is the only consumer today: PR 9 is gated, so no real
+ * `smartlead_csv` provider implementation exists to own this contract. If a
+ * provider-configuration contract is added in a later PR, this map moves there.
+ */
+const PROVIDER_CREDENTIAL_ENV_VARS: Readonly<Record<string, readonly string[]>> = {
+  smartlead_csv: [
+    'SMARTLEAD_API_KEY',
+    'SMARTLEAD_KEY',
+    'SMARTLEAD_TOKEN',
+    'SMARTLEAD_API_TOKEN',
+    'SMARTLEAD_SECRET',
+    'SMARTLEAD_CLIENT_SECRET',
+    'SL_API_KEY',
+    'SL_API_TOKEN',
+    'SL_TOKEN',
+    'SL_SECRET',
+  ],
+};
+
+/** Exported for tests so the alias suite is data-driven off the map itself. */
+export const PROVIDER_CREDENTIAL_ENV_VAR_MAP = PROVIDER_CREDENTIAL_ENV_VARS;
+
+const CREDENTIAL_ALIAS_NAMES: ReadonlySet<string> = new Set(
+  Object.values(PROVIDER_CREDENTIAL_ENV_VARS)
+    .flat()
+    .map((name) => name.toUpperCase()),
+);
+
+/** `pilotIds()` in `wizmatchStaffingAccess.ts` parses the roster exactly this way. */
+function parsePilotRosterIds(raw: string | undefined): string[] {
+  return String(raw ?? '')
+    .split(/[\s,]+/)
+    .filter((entry) => entry.length > 0);
+}
+
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): PilotReadinessReport {
   const { env, repoRoot } = inputs;
   const assumeProductionTarget = inputs.assumeProductionTarget === true;
@@ -127,9 +172,17 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
     );
   }
 
-  // 7. No Smartlead credential configured anywhere. Presence-only — never
-  //    prints the value.
-  const smartleadKeys = Object.keys(env).filter((k) => /SMARTLEAD/i.test(k) && (env[k] ?? '').trim().length > 0);
+  // 7. No Smartlead credential configured anywhere, under its own name OR
+  //    under a known alias (P8B-4). Two independent detectors, both
+  //    presence-only — never prints the value:
+  //      - the broad `/SMARTLEAD/i` name test, which catches names nobody
+  //        enumerated (e.g. SMARTLEAD_WORKSPACE_TOKEN);
+  //      - exact-name membership in PROVIDER_CREDENTIAL_ENV_VARS, which
+  //        catches aliases with no "smartlead" in them at all (SL_API_KEY).
+  const smartleadKeys = Object.keys(env).filter((k) => {
+    if ((env[k] ?? '').trim().length === 0) return false;
+    return /SMARTLEAD/i.test(k) || CREDENTIAL_ALIAS_NAMES.has(k.toUpperCase());
+  });
   push(
     'smartlead:credentials',
     smartleadKeys.length > 0 ? 'danger' : 'ok',
@@ -188,64 +241,82 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
   }
 
   // 10. Pilot roster configuration (presence only — never lists user ids).
-  //     `assumeProductionTarget` exists because the runbook's G3 step is run
-  //     against a COPIED `.env`, which carries no `NODE_ENV=production`; without
-  //     it the one control that makes this a pilot rather than an open
-  //     deployment degraded to a warning exactly when it mattered.
-  const rosterByIds = Boolean((env.WIZMATCH_STAFFING_PILOT_USER_IDS ?? '').trim());
+  //
+  //     PR 8B — `resolveStaffingAccess` now computes `allowed = configured &&
+  //     pilotAllowed` UNCONDITIONALLY: the old `NODE_ENV === 'production' ?
+  //     strict : permissive` branch is gone, so an unset/empty roster fails
+  //     closed in EVERY runtime, not only production. An absent roster is
+  //     therefore a DANGER regardless of `--production` or `NODE_ENV` — the
+  //     deployment is unusable-by-omission everywhere, and reporting that as a
+  //     warning would describe a permissive fallback that no longer exists.
+  const rosterIds = parsePilotRosterIds(env.WIZMATCH_STAFFING_PILOT_USER_IDS);
+  const rosterByIds = rosterIds.length > 0;
   const rosterByAllUsers = isEnabled(env.WIZMATCH_STAFFING_PILOT_ALL_USERS);
   const rosterConfigured = rosterByIds || rosterByAllUsers;
-  const productionTarget = env.NODE_ENV === 'production' || assumeProductionTarget;
 
-  // PR 8A review fix — the pilot gate's fail-closed branch is selected by
-  // `NODE_ENV === 'production'` and NOTHING ELSE (`wizmatchStaffingAccess.ts`:
-  // `allowed = NODE_ENV === 'production' ? configured && pilotAllowed : ...`).
-  // If that variable is unset, blank, or anything but the exact string
-  // `production` in the deployed process, the roster check is BYPASSED for
-  // every pilot-eligible role — the pilot silently becomes an open deployment.
-  // Nothing in this repo (railway.json, nixpacks.toml, docs/DEPLOYMENT.md)
+  // PR 8A review fix, retained — `NODE_ENV` no longer selects the pilot gate's
+  // fail-closed branch, but it still selects production-only Express behaviour
+  // (error-response verbosity, secure cookie flags, and anything else keyed off
+  // it). Nothing in this repo (railway.json, nixpacks.toml, docs/DEPLOYMENT.md)
   // records that it is set at runtime; Nixpacks' documented `NODE_ENV=production`
   // applies to the BUILD phase, which says nothing about the running container.
   // So when an operator asserts a production target, disagreement with the
-  // actual `NODE_ENV` is itself the finding.
+  // actual `NODE_ENV` is itself the finding: the configuration just assessed is
+  // not the one the deployed service will run under.
   if (assumeProductionTarget && env.NODE_ENV !== 'production') {
     push(
       'runtime:NODE_ENV',
       'danger',
       `--production was asserted but NODE_ENV=${JSON.stringify(env.NODE_ENV ?? null)}, not 'production'. `
-        + 'The pilot roster gate fails closed ONLY when NODE_ENV is exactly \'production\'; with any other value '
-        + 'every pilot-eligible role (admin, team_lead, manager_ops, sales, staff) is admitted regardless of the '
-        + 'roster. Confirm NODE_ENV=production is set on the deployed service before go-live.',
+        + 'NODE_ENV selects production-only Express behaviour (error-response verbosity, secure cookie flags); '
+        + 'a mismatch means the environment just assessed is not the one the deployed service runs under. '
+        + 'Confirm NODE_ENV=production is set on the deployed service before go-live.',
     );
   } else if (env.NODE_ENV === 'production') {
-    push('runtime:NODE_ENV', 'ok', "NODE_ENV=production — the pilot roster gate is in its fail-closed mode.");
+    push('runtime:NODE_ENV', 'ok', 'NODE_ENV=production — production-only Express behaviour is active.');
   }
-  if (!rosterConfigured && productionTarget) {
+  if (!rosterConfigured) {
     push(
       'pilot-roster',
       'danger',
-      `${env.NODE_ENV === 'production' ? 'NODE_ENV=production' : '--production asserted'} with no pilot roster configured — ` +
-        'every pilot surface fails closed (by design), but nothing will work until this is set.',
-    );
-  } else if (!rosterConfigured) {
-    push(
-      'pilot-roster',
-      'warning',
-      'Pilot roster is not configured. Fine for local/dev (permissive default); required before production — ' +
-        're-run with `--production` to have this treated as a blocking failure.',
+      'No pilot roster configured (WIZMATCH_STAFFING_PILOT_USER_IDS unset/blank and ' +
+        'WIZMATCH_STAFFING_PILOT_ALL_USERS not set). The staffing pilot gate fails closed in every runtime — ' +
+        'no role, not even admin, reaches any pilot surface until this is set.',
     );
   } else if (rosterByAllUsers && !rosterByIds) {
     // A configured roster that is "everyone with a pilot-eligible role" is a
-    // legitimate documented override, but it is NOT a restricted pilot and
-    // must never be reported as though it were.
+    // legitimate documented override, but it is NOT a restricted pilot and must
+    // never be reported as though it were. Dangerous in EVERY runtime for the
+    // same reason an absent roster is: `resolveStaffingAccess` has no
+    // environment condition left, so this admits everyone everywhere — gating
+    // the finding on a production target would leave exactly the hole the
+    // absent-roster fix above just closed.
     push(
       'pilot-roster',
-      productionTarget ? 'danger' : 'warning',
+      'danger',
       'WIZMATCH_STAFFING_PILOT_ALL_USERS is set with no explicit user-id roster — every pilot-eligible role ' +
         '(admin, team_lead, manager_ops, sales, staff) is admitted. That is an open deployment, not a restricted pilot.',
     );
   } else {
     push('pilot-roster', 'ok', 'Pilot roster is configured with an explicit user-id list (ids not shown).');
+  }
+
+  // 10b. Roster entries must be UUID-shaped. A typo'd id grants nobody
+  //      unintended access — it simply never matches — so this is not a leak,
+  //      but it silently excludes the intended pilot member, which looks
+  //      identical to "the gate is broken". Count only: roster ids are not
+  //      credentials, but there is no reason to print them either.
+  if (rosterByIds) {
+    const malformed = rosterIds.filter((id) => !UUID_SHAPE.test(id));
+    push(
+      'pilot-roster:format',
+      malformed.length > 0 ? 'danger' : 'ok',
+      malformed.length > 0
+        ? `Pilot roster contains ${malformed.length} malformed entr${malformed.length === 1 ? 'y' : 'ies'} ` +
+          '(not UUID-shaped; ids not shown). A typo\'d id silently excludes that user without granting anyone ' +
+          'unintended access, but the roster must be corrected before go-live.'
+        : `Pilot roster entries are all UUID-shaped (${rosterIds.length} entr${rosterIds.length === 1 ? 'y' : 'ies'}; ids not shown).`,
+    );
   }
 
   // 11. Required feature flags for the pilot's own visible surfaces.

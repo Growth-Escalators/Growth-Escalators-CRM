@@ -101,21 +101,21 @@ Checklist:
 - [ ] Run `npm run wizmatch:pilot-readiness -- --production` against the deployment's actual
   environment (or an identical local `.env` copy) and confirm exit code 0 / no `DANGER` findings.
   **The `--production` flag is required for this step.** A copied `.env` does not carry
-  `NODE_ENV=production`, so without it the production-only checks — most importantly an absent
-  or all-users pilot roster — report as warnings rather than blocking failures.
+  `NODE_ENV=production`, so it is the flag that turns the runtime assertion itself — asserted
+  production target vs. actual `NODE_ENV` — into a blocking failure. Every roster finding is now
+  unconditional: an absent, empty, malformed, or all-users roster is a DANGER with or without the
+  flag, because the staffing gate fails closed in every runtime.
 - [ ] Deploy in shadow. This repo auto-deploys on push to `main` — pushing is itself a
   production-sensitive action requiring its own explicit confirmation, separate from this
   runbook's gates.
-- [ ] **`NODE_ENV=production` confirmed on the deployed service.** This is load-bearing and easy
-  to miss: the pilot roster gate fails closed **only** when `NODE_ENV` is exactly the string
-  `production` (`resolveStaffingAccess`). With any other value — unset, blank, `prod` — the roster
-  check is bypassed and **every** pilot-eligible role (`admin`, `team_lead`, `manager_ops`,
-  `sales`, `staff`) is admitted, silently turning the pilot into an open deployment. Nothing in
-  this repo records that the variable is set at runtime (Nixpacks' documented `NODE_ENV=production`
-  applies to the *build* phase, which says nothing about the running container). Check the Railway
-  service variables directly; `npm run wizmatch:pilot-readiness -- --production` reports a DANGER
-  when the asserted target and the actual `NODE_ENV` disagree, but it can only see the environment
-  it is run in.
+- [ ] **`NODE_ENV=production` confirmed on the deployed service.** The pilot roster gate no longer
+  depends on this — `resolveStaffingAccess` fails closed in every runtime — but `NODE_ENV` still
+  selects production-only Express behaviour (error-response verbosity, secure cookie flags), and
+  nothing in this repo records that the variable is set at runtime (Nixpacks' documented
+  `NODE_ENV=production` applies to the *build* phase, which says nothing about the running
+  container). Check the Railway service variables directly;
+  `npm run wizmatch:pilot-readiness -- --production` reports a DANGER when the asserted target and
+  the actual `NODE_ENV` disagree, but it can only see the environment it is run in.
 - [ ] Pilot roster validation — confirm `WIZMATCH_STAFFING_PILOT_USER_IDS` is set to exactly the
   intended pilot members (**not** the all-users override, which the readiness command reports as
   a dangerous open deployment), and that a non-pilot account is rejected end to end (one manual
@@ -163,8 +163,8 @@ npm run wizmatch:pilot-readiness -- --production # assert a production target (r
 
 Checks (without touching any database, network, or provider): code-ready markers through
 PR 8, enforcement mode, sending/automated-email/preparation/adapter flags, Smartlead credential
-presence (name only, never the value), paid-discovery flags, provider selection, pilot roster
-configuration, migration/backfill status (reported, never changed), and dangerous contradictory
+presence including known aliases such as `SL_API_KEY` (name only, never the value), paid-discovery
+flags, provider selection, pilot roster configuration and id format, migration/backfill status (reported, never changed), and dangerous contradictory
 combinations. Exits non-zero on any dangerous finding.
 
 It loads `.env` before reading the environment, so running it against a copied production `.env`

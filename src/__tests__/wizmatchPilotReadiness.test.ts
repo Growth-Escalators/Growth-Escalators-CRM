@@ -8,12 +8,23 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { assessWizmatchPilotReadiness } from '../services/wizmatchPilotReadiness';
+import { assessWizmatchPilotReadiness, PROVIDER_CREDENTIAL_ENV_VAR_MAP } from '../services/wizmatchPilotReadiness';
 
 const repoRoot = join(__dirname, '..', '..');
 
+/** UUID-shaped, fabricated — matches nothing real. */
+const PILOT_ID_A = '11111111-2222-4333-8444-555555555555';
+const PILOT_ID_B = '66666666-7777-4888-8999-aaaaaaaaaaaa';
+
+/**
+ * PR 8B — a configured roster is now part of the SAFE baseline, not an
+ * optional extra: `resolveStaffingAccess` fails closed in every runtime, so an
+ * absent roster is dangerous everywhere. Tests that exercise the missing/empty
+ * roster cases override this explicitly.
+ */
 function baseEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return {
+    WIZMATCH_STAFFING_PILOT_USER_IDS: `${PILOT_ID_A},${PILOT_ID_B}`,
     ...overrides,
   } as NodeJS.ProcessEnv;
 }
@@ -78,22 +89,20 @@ describe('assessWizmatchPilotReadiness — dangerous configurations (each must f
   });
 
   it('missing pilot roster in production fails', () => {
-    const report = assessWizmatchPilotReadiness({ env: baseEnv({ NODE_ENV: 'production' }), repoRoot });
+    const report = assessWizmatchPilotReadiness({
+      env: baseEnv({ NODE_ENV: 'production', WIZMATCH_STAFFING_PILOT_USER_IDS: '' }),
+      repoRoot,
+    });
     expect(report.dangerous).toBe(true);
-  });
-
-  it('missing pilot roster OUTSIDE production is a warning only, not dangerous', () => {
-    const report = assessWizmatchPilotReadiness({ env: baseEnv(), repoRoot });
-    expect(report.findings.find((f) => f.code === 'pilot-roster')?.severity).toBe('warning');
-    expect(report.dangerous).toBe(false);
   });
 
   it('a configured pilot roster in production is fine (no roster-related danger)', () => {
     const report = assessWizmatchPilotReadiness({
-      env: baseEnv({ NODE_ENV: 'production', WIZMATCH_STAFFING_PILOT_USER_IDS: 'user-1,user-2' }),
+      env: baseEnv({ NODE_ENV: 'production' }),
       repoRoot,
     });
     expect(report.findings.find((f) => f.code === 'pilot-roster')?.severity).toBe('ok');
+    expect(report.findings.find((f) => f.code === 'pilot-roster:format')?.severity).toBe('ok');
   });
 
   it('an unrecognised/unimplemented provider combined with the adapter flag on fails', () => {
@@ -133,35 +142,34 @@ describe('assessWizmatchPilotReadiness — review fixes', () => {
   });
 
   it('an absent pilot roster is dangerous when the operator asserts a production target, without NODE_ENV', () => {
-    const report = assessWizmatchPilotReadiness({ env: baseEnv(), repoRoot, assumeProductionTarget: true });
+    const report = assessWizmatchPilotReadiness({
+      env: baseEnv({ WIZMATCH_STAFFING_PILOT_USER_IDS: '' }),
+      repoRoot,
+      assumeProductionTarget: true,
+    });
     expect(report.dangerous).toBe(true);
     expect(report.findings.find((f) => f.code === 'pilot-roster')?.severity).toBe('danger');
   });
 
-  it('without the production assertion an absent roster stays a warning (unchanged local behaviour)', () => {
-    const report = assessWizmatchPilotReadiness({ env: baseEnv(), repoRoot });
-    expect(report.findings.find((f) => f.code === 'pilot-roster')?.severity).toBe('warning');
-    expect(report.dangerous).toBe(false);
-  });
-
   it('asserting --production while NODE_ENV is not exactly "production" is dangerous', () => {
-    // The pilot roster gate fails closed ONLY on `NODE_ENV === 'production'`.
-    // Nothing in the repo records that it is set at runtime, so a mismatch
-    // between the asserted target and the actual value IS the finding.
+    // `NODE_ENV` no longer selects the pilot gate's fail-closed branch (PR 8B),
+    // but it still selects production-only Express behaviour, and nothing in
+    // the repo records that it is set at runtime — so a mismatch between the
+    // asserted target and the actual value IS the finding.
     const report = assessWizmatchPilotReadiness({
-      env: baseEnv({ WIZMATCH_STAFFING_PILOT_USER_IDS: 'user-a' }),
+      env: baseEnv(),
       repoRoot,
       assumeProductionTarget: true,
     });
     expect(report.dangerous).toBe(true);
     const finding = report.findings.find((f) => f.code === 'runtime:NODE_ENV');
     expect(finding?.severity).toBe('danger');
-    expect(finding?.message).toMatch(/every pilot-eligible role/);
+    expect(finding?.message).toMatch(/production-only Express behaviour/);
   });
 
   it('NODE_ENV=production with a roster is clean — no runtime finding fires', () => {
     const report = assessWizmatchPilotReadiness({
-      env: baseEnv({ NODE_ENV: 'production', WIZMATCH_STAFFING_PILOT_USER_IDS: 'user-a' }),
+      env: baseEnv({ NODE_ENV: 'production' }),
       repoRoot,
       assumeProductionTarget: true,
     });
@@ -169,22 +177,163 @@ describe('assessWizmatchPilotReadiness — review fixes', () => {
     expect(report.dangerous).toBe(false);
   });
 
-  it('the all-users override is NOT reported as a configured pilot roster in production', () => {
+  // M-2 (PR 8A) — the all-users override must never be reported as a restricted
+  // pilot. PR 8B makes it dangerous in EVERY runtime, not only a production
+  // target: the staffing gate has no environment condition left, so this admits
+  // every pilot-eligible role everywhere.
+  it.each([
+    ['NODE_ENV=production', { NODE_ENV: 'production' }, false],
+    ['no NODE_ENV and no --production', {}, false],
+    ['NODE_ENV=development', { NODE_ENV: 'development' }, false],
+    ['--production asserted', {}, true],
+  ] as const)('the all-users override is dangerous with %s', (_label, envOverrides, assumeProductionTarget) => {
     const report = assessWizmatchPilotReadiness({
-      env: baseEnv({ NODE_ENV: 'production', WIZMATCH_STAFFING_PILOT_ALL_USERS: 'true' }),
+      env: baseEnv({
+        ...envOverrides,
+        WIZMATCH_STAFFING_PILOT_USER_IDS: '',
+        WIZMATCH_STAFFING_PILOT_ALL_USERS: 'true',
+      }),
       repoRoot,
+      assumeProductionTarget,
     });
     expect(report.dangerous).toBe(true);
-    expect(report.findings.find((f) => f.code === 'pilot-roster')?.message).toMatch(/open deployment, not a restricted pilot/);
+    const finding = report.findings.find((f) => f.code === 'pilot-roster');
+    expect(finding?.severity).toBe('danger');
+    expect(finding?.message).toMatch(/open deployment, not a restricted pilot/);
   });
 
   it('an explicit user-id roster in production passes and never prints the ids', () => {
     const report = assessWizmatchPilotReadiness({
-      env: baseEnv({ NODE_ENV: 'production', WIZMATCH_STAFFING_PILOT_USER_IDS: 'user-aaa,user-bbb' }),
+      env: baseEnv({ NODE_ENV: 'production' }),
       repoRoot,
     });
     expect(report.findings.find((f) => f.code === 'pilot-roster')?.severity).toBe('ok');
-    expect(report.findings.map((f) => f.message).join('\n')).not.toContain('user-aaa');
+    expect(report.findings.map((f) => f.message).join('\n')).not.toContain(PILOT_ID_A);
+  });
+});
+
+// PR 8B / P8B-4 — a Smartlead credential parked under an alias that contains
+// no "smartlead" anywhere in its name was completely invisible to the old
+// substring-only detector.
+describe('assessWizmatchPilotReadiness — Smartlead credential alias detection', () => {
+  const smartleadAliases = PROVIDER_CREDENTIAL_ENV_VAR_MAP.smartlead_csv;
+
+  it('exposes a non-empty alias list for the smartlead_csv provider', () => {
+    expect(smartleadAliases.length).toBeGreaterThan(0);
+  });
+
+  it('SL_API_KEY — an alias with no "smartlead" in the name — is dangerous', () => {
+    const report = assessWizmatchPilotReadiness({
+      env: baseEnv({ SL_API_KEY: 'fake-not-a-real-key-000' }),
+      repoRoot,
+    });
+    expect(report.dangerous).toBe(true);
+    const finding = report.findings.find((f) => f.code === 'smartlead:credentials');
+    expect(finding?.severity).toBe('danger');
+    expect(finding?.message).toContain('SL_API_KEY');
+    expect(report.findings.map((f) => f.message).join('\n')).not.toContain('fake-not-a-real-key-000');
+  });
+
+  // Data-driven off the map itself, so a future entry is covered automatically
+  // and a duplicated hardcoded list in the assessor could not satisfy it.
+  it.each([...smartleadAliases])('%s present with a value is dangerous and its value is never printed', (name) => {
+    const report = assessWizmatchPilotReadiness({
+      env: baseEnv({ [name]: 'fake-credential-value-zzz' }),
+      repoRoot,
+    });
+    expect(report.dangerous).toBe(true);
+    const finding = report.findings.find((f) => f.code === 'smartlead:credentials');
+    expect(finding?.severity).toBe('danger');
+    expect(finding?.message).toContain(name);
+    expect(report.findings.map((f) => f.message).join('\n')).not.toContain('fake-credential-value-zzz');
+  });
+
+  it.each([...smartleadAliases])('%s set to an empty/whitespace value is NOT flagged', (name) => {
+    const report = assessWizmatchPilotReadiness({ env: baseEnv({ [name]: '   ' }), repoRoot });
+    expect(report.findings.find((f) => f.code === 'smartlead:credentials')?.severity).toBe('ok');
+    expect(report.dangerous).toBe(false);
+  });
+
+  it('an unrelated SL_-prefixed variable is NOT flagged — detection is exact-name, never a prefix test', () => {
+    const report = assessWizmatchPilotReadiness({
+      env: baseEnv({ SL_TIMEZONE: 'Asia/Kolkata', SL_MAX_RETRIES: '3' }),
+      repoRoot,
+    });
+    const finding = report.findings.find((f) => f.code === 'smartlead:credentials');
+    expect(finding?.severity).toBe('ok');
+    expect(finding?.message).not.toContain('SL_TIMEZONE');
+    expect(report.dangerous).toBe(false);
+  });
+});
+
+// PR 8B — `resolveStaffingAccess` computes `allowed = configured && pilotAllowed`
+// unconditionally; the old `NODE_ENV === 'production' ? strict : permissive`
+// branch is gone. A missing roster is therefore broken-by-omission in every
+// runtime, and a typo'd id silently excludes its intended member.
+describe('assessWizmatchPilotReadiness — pilot roster fails closed in every runtime', () => {
+  it('a missing roster with no --production and no NODE_ENV is DANGER, not a warning', () => {
+    const report = assessWizmatchPilotReadiness({
+      env: baseEnv({ WIZMATCH_STAFFING_PILOT_USER_IDS: '' }),
+      repoRoot,
+    });
+    expect(report.findings.find((f) => f.code === 'pilot-roster')?.severity).toBe('danger');
+    expect(report.dangerous).toBe(true);
+  });
+
+  it('a whitespace-only roster is DANGER in development', () => {
+    const report = assessWizmatchPilotReadiness({
+      env: baseEnv({ NODE_ENV: 'development', WIZMATCH_STAFFING_PILOT_USER_IDS: '   \t ' }),
+      repoRoot,
+    });
+    expect(report.findings.find((f) => f.code === 'pilot-roster')?.severity).toBe('danger');
+    expect(report.dangerous).toBe(true);
+  });
+
+  it('a whitespace-only roster is DANGER in production too', () => {
+    const report = assessWizmatchPilotReadiness({
+      env: baseEnv({ NODE_ENV: 'production', WIZMATCH_STAFFING_PILOT_USER_IDS: '  ' }),
+      repoRoot,
+    });
+    expect(report.findings.find((f) => f.code === 'pilot-roster')?.severity).toBe('danger');
+    expect(report.dangerous).toBe(true);
+  });
+
+  it('a malformed roster is DANGER and reports a COUNT, never the ids themselves', () => {
+    const report = assessWizmatchPilotReadiness({
+      env: baseEnv({ WIZMATCH_STAFFING_PILOT_USER_IDS: 'not-a-uuid, also-bad' }),
+      repoRoot,
+    });
+    const finding = report.findings.find((f) => f.code === 'pilot-roster:format');
+    expect(finding?.severity).toBe('danger');
+    expect(finding?.message).toContain('2 malformed');
+    expect(report.dangerous).toBe(true);
+    const joined = report.findings.map((f) => f.message).join('\n');
+    expect(joined).not.toContain('not-a-uuid');
+    expect(joined).not.toContain('also-bad');
+  });
+
+  it('a partially malformed roster counts only the bad entries', () => {
+    const report = assessWizmatchPilotReadiness({
+      env: baseEnv({ WIZMATCH_STAFFING_PILOT_USER_IDS: `${PILOT_ID_A} typo-id` }),
+      repoRoot,
+    });
+    const finding = report.findings.find((f) => f.code === 'pilot-roster:format');
+    expect(finding?.severity).toBe('danger');
+    expect(finding?.message).toContain('1 malformed entry');
+  });
+
+  it('a well-formed UUID roster raises no malformed-roster danger', () => {
+    const report = assessWizmatchPilotReadiness({ env: baseEnv(), repoRoot });
+    expect(report.findings.find((f) => f.code === 'pilot-roster:format')?.severity).toBe('ok');
+    expect(report.dangerous).toBe(false);
+  });
+
+  it('the all-users override reports no roster-format finding at all (there is no id list to check)', () => {
+    const report = assessWizmatchPilotReadiness({
+      env: baseEnv({ WIZMATCH_STAFFING_PILOT_USER_IDS: '', WIZMATCH_STAFFING_PILOT_ALL_USERS: 'true' }),
+      repoRoot,
+    });
+    expect(report.findings.find((f) => f.code === 'pilot-roster:format')).toBeUndefined();
   });
 });
 

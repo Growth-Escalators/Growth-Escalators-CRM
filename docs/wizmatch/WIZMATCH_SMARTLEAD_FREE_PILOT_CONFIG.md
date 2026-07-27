@@ -25,8 +25,8 @@ variable — that remains a separate, explicit action gated by
 
 | Variable | Required initial value | Why |
 |---|---|---|
-| `WIZMATCH_STAFFING_PILOT_USER_IDS` | an explicit, comma/whitespace-separated list of exactly the intended pilot members' user ids | This is the ONLY thing that limits the pilot surfaces (Decision Workbench, policy read/write, preparation) to the pilot group. `resolveStaffingAccess` fails closed in production when it is unset — no role, not even `admin`, gets through — so an unset value does not leak, it simply makes the pilot unusable. |
-| `WIZMATCH_STAFFING_PILOT_ALL_USERS` | unset / `false` | Setting this admits **every** pilot-eligible role (`admin`, `team_lead`, `manager_ops`, `sales`, `staff`) tenant-wide. That is an open deployment, not a restricted pilot; `npm run wizmatch:pilot-readiness -- --production` reports it as a dangerous finding. |
+| `WIZMATCH_STAFFING_PILOT_USER_IDS` | an explicit, comma/whitespace-separated list of exactly the intended pilot members' user ids | This is the ONLY thing that limits the pilot surfaces (Decision Workbench, policy read/write, preparation) to the pilot group. `resolveStaffingAccess` fails closed in **every** runtime when it is unset — dev, staging and production alike, with no permissive local branch — so no role, not even `admin`, gets through; an unset value does not leak, it simply makes the pilot unusable. `npm run wizmatch:pilot-readiness` reports an unset/blank roster as a DANGER without needing `--production`, and reports a count of any entry that is not UUID-shaped (ids never printed). |
+| `WIZMATCH_STAFFING_PILOT_ALL_USERS` | unset / `false` | Setting this admits **every** pilot-eligible role (`admin`, `team_lead`, `manager_ops`, `sales`, `staff`) tenant-wide. That is an open deployment, not a restricted pilot, in every runtime — the staffing gate has no environment condition — so `npm run wizmatch:pilot-readiness` reports it as a DANGER with or without `--production`. |
 
 Note the role gate and the roster gate are independent and neither implies the
 other: a roster member with an ineligible role is still refused, and passing
@@ -36,7 +36,13 @@ its own `team_lead`+/`admin` check.
 ## Also required (not new flags, but must hold true)
 
 - **No Smartlead credential may be present.** No environment variable whose
-  name matches `/SMARTLEAD/i` may hold a non-empty value. `OUTREACH_PROVIDER`
+  name matches `/SMARTLEAD/i` may hold a non-empty value, **and** no known
+  Smartlead credential alias may either — the readiness command also exact-name
+  matches an enumerated alias list (`SL_API_KEY`, `SL_API_TOKEN`, `SL_TOKEN`,
+  `SL_SECRET`, and the `SMARTLEAD_*` names) so a credential parked under a name
+  containing no "smartlead" at all is still caught. Matching is by exact name,
+  never an `SL_` prefix, so unrelated variables such as `SL_TIMEZONE` are not
+  flagged. `OUTREACH_PROVIDER`
   is irrelevant while `WIZMATCH_OUTREACH_ADAPTER_ENABLED=false` — it is read
   by no code path in that state — but it must never be set to a real
   provider name while the adapter is (or might be) turned on.

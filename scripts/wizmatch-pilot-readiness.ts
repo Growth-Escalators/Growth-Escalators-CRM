@@ -9,10 +9,12 @@
  *   npm run wizmatch:pilot-readiness              # assess as-is
  *   npm run wizmatch:pilot-readiness -- --production
  *       # assert that the environment being assessed is the PRODUCTION pilot
- *       # target. Escalates the production-only checks (currently: an absent
- *       # pilot roster) from a warning to a danger, so the runbook's G3 step
- *       # can be run against a copied `.env` — which will not carry
- *       # NODE_ENV=production — and still catch a missing roster.
+ *       # target. An absent pilot roster is a danger in every runtime (PR 8B —
+ *       # the staffing gate no longer has a permissive non-production branch),
+ *       # so this flag is no longer what catches that. It still escalates the
+ *       # all-users override, and it turns a NODE_ENV that disagrees with the
+ *       # asserted target into its own danger — the runbook's G3 step runs
+ *       # against a copied `.env`, which will not carry NODE_ENV=production.
  *
  * Exits non-zero when a dangerous configuration is detected.
  */
