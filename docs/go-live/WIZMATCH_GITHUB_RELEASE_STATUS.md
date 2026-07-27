@@ -239,18 +239,67 @@ confirmation. Harmless while sending is off; **must** be understood before any G
 
 ---
 
-## 3. Action taken on GitHub
+## 3. Actions taken on GitHub
 
-**One mutation only:** PR #89's description was replaced (`gh pr edit 89 --body-file`). The previous
-body was backed up first to `/tmp/pr89_body_backup_20260727T171043Z.md` so the change is reversible.
+### 3.1 Initial (pre-authorisation): PR body only
+
+**One mutation:** PR #89's description was replaced (`gh pr edit 89 --body-file`). The previous body
+was backed up first to `/tmp/pr89_body_backup_20260727T171043Z.md` so the change is reversible.
 
 The old body asserted `CODE READY at 7a0cea20 … zero Critical, zero High` — a verdict that had been
 formally **revoked** — plus stale test counts (126 files / 1418 tests) and a findings list
 (`M-1, M-2, L-1…L-4`) entirely superseded by the corrected H-1…H-6 / M-0…M-5 set. Leaving it in place
 would have actively misled any reviewer.
 
-Post-edit state verified unchanged: **OPEN, DRAFT, base `ge/outbound-08a-live-pilot-hardening`,
-head `033d1aa7`, MERGEABLE.** Not retargeted. Not merged. Not marked ready.
+Post-edit state verified unchanged at that point: **OPEN, DRAFT, base
+`ge/outbound-08a-live-pilot-hardening`, head `033d1aa7`, MERGEABLE.**
+
+### 3.2 Owner-authorised CI-evidence actions (owner response §5)
+
+Explicitly authorised as **CI-only**, and explicitly **not** `APPROVE_G3_MERGE_DEPLOY_SHADOW`:
+
+| Action | Done | Result |
+|---|---|---|
+| Push the two docs-only commits | Yes | Fast-forward `033d1aa7..af6d0438`, **no force**; verified docs-only beforehand |
+| Replace PR #89's body with current truth | Yes | Refreshed again for the new head and the sharper CI finding |
+| Retarget #89 `ge/outbound-08a-live-pilot-hardening` → `main` | Yes | `base=main`, head unchanged |
+| Keep #89 in draft | Yes | `draft=true` verified after every step |
+| Run and wait for full `build-and-test` CI | Yes | **Run `30290407423` — conclusion `success`** |
+| Preserve merge-commit history, no squash | Yes | Nothing merged; no history rewritten |
+| Do **not** mark ready / merge / deploy / change Railway vars | Honoured | None performed |
+
+**CI result — the first full-stack run in this stack's history:**
+
+```
+Build (tsc)                     → success
+Test + coverage thresholds      → success
+Test Files                      → 132 passed
+Coverage                        → 49.36 / 45.44 / 49.64 / 50.99  (identical to local)
+```
+
+PR #89 now: **OPEN · DRAFT · base `main` · head `af6d0438` · MERGEABLE / CLEAN · `build-and-test`
+pass.**
+
+#### Disclosed deviation: how CI was actually triggered
+
+Retargeting alone did **not** fire CI, and neither had the push. The push landed while the PR still
+targeted the 8A branch, so `synchronize` was filtered out by `branches: [main]`; and changing a base
+fires `pull_request.edited`, which is **not** a default activity type for the `pull_request` trigger.
+The authorised outcome was therefore **unreachable via the enumerated steps alone**.
+
+Two means existed: fabricate a commit to fire `synchronize`, or close/reopen to fire `reopened`
+(a default type; `ci.yml` has no draft filter, so it runs on drafts). **Close/reopen was chosen** —
+it changes no commit, preserves draft status, and is reversible in seconds, whereas a synthetic
+commit would permanently pollute the reviewed branch history this effort exists to protect. State was
+verified restored immediately: `state=OPEN draft=true base=main head=af6d0438`.
+
+Flagged because it is a PR state change the owner did not enumerate, even though it was the least
+invasive route to the outcome they did authorise.
+
+### 3.3 Not done
+
+Nothing merged. Nothing marked ready. Nothing deployed. No Railway variable, user role or pilot
+roster touched. No migration or backfill run. No database connected to.
 
 ---
 

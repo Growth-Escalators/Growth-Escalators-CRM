@@ -5,14 +5,122 @@
 - **Supersedes:** `WIZMATCH_G1_PRODUCTION_PREFLIGHT.md` (which referenced the stale pre-remediation
   commit `7a0cea20`). Its five blockers are re-tested here against current reality.
 
-> ## VERDICT: **NO-GO**
+> ## VERDICT: **NO-GO** (updated 2026-07-27 after the owner response)
 >
 > Migration `0037` must **not** be applied. **No approval token is requested.**
 >
 > This is a NO-GO on *evidence availability*, not on any defect in the migration. Everything
-> examinable from code says `0037` is additive and safe. The checks that would prove it safe
-> **against production** cannot be run from an agent session, and one of them — a production-sized
-> lock measurement — has no mechanism in this repository at all.
+> examinable from code says `0037` is additive and safe.
+>
+> **The owner response resolved two of the six blockers and closed the CI gap** (see §0). **Three
+> hard blockers remain, and they are mutually entangled:** the production Postgres was left as an
+> unfilled template placeholder, so it is still unidentified; the production-sized lock measurement
+> is now explicitly *required with no waiver*, but no mechanism to produce one exists and building
+> one requires knowing the database first; and the three pilot users still cannot be resolved.
+
+---
+
+## 0. Owner response of 2026-07-27 — what it resolved, and what it did not
+
+### 0.1 RESOLVED — U-7 shared-index sign-off (was Blocker C)
+
+The owner approved the three additive `(tenant_id, id)` indexes on `users`, `contacts`,
+`contact_channels`, **conditionally**:
+
+- conditional on the production-sized lock measurement **and** a verified backup/rollback plan;
+- `CONCURRENTLY` is **not** mandated in advance — but if the measurement shows material write
+  blocking, lock waiting, or unacceptable operational impact, the instruction is explicit: **return
+  G1 NO-GO, do not apply, and prepare a reviewed concurrent-index/out-of-transaction migration plan.
+  Do not improvise on production.**
+
+So U-7 is signed off *as a decision*, but it **cannot take effect** until the measurement exists.
+
+### 0.2 RESOLVED — migration mechanism (was Blocker 5 / the coupling decision)
+
+**Out-of-band execution, separate from the application merge and deployment.** G1 and G3 must not be
+combined for convenience. Preferred command: `node dist/scripts/migrate.js`, run only through the
+confirmed production Railway application service or a repository-approved migration execution
+context.
+
+> **Distinction the owner should be aware of before execution.** The mechanism previously proposed
+> in analysis was `railway run node dist/scripts/migrate.js`, which injects the production service's
+> environment — **including `DATABASE_URL`** — into a process on a *local* machine. That is
+> materially different from executing inside the Railway service container, and it places a
+> production credential on a developer workstation. The owner's wording ("through the confirmed
+> production Railway application service") points at in-service execution, which is the safer
+> reading and the one recorded here.
+
+### 0.3 RESOLVED — the CI gap is now closed
+
+Owner-authorised CI-only actions were performed (see `WIZMATCH_GITHUB_RELEASE_STATUS.md` §3 for the
+full record). Result:
+
+| | |
+|---|---|
+| Workflow run | `30290407423`, event `pull_request`, **conclusion `success`** |
+| Head SHA tested | `af6d0438b800cbc679f2f62c41f9f3c3f6c84400` |
+| Steps | checkout · node 20 · `npm ci` · admin `npm ci` · **Build (tsc) success** · **Test + coverage success** |
+| Result | **132 test files passed**; coverage 49.36 / 45.44 / 49.64 / 50.99 — identical to the local run |
+| PR #89 | OPEN, **still DRAFT**, base **`main`**, `MERGEABLE` / `CLEAN`, `build-and-test` **pass** |
+
+**This is the first time the full 72-commit stack has ever been exercised by CI**, and it is green.
+PRs #81–#89 had never run `build-and-test`; only #80 had.
+
+> **Mechanism note — a deviation worth disclosing.** Retargeting alone did **not** trigger CI.
+> The push landed while the PR still targeted the 8A branch (so `synchronize` was filtered out by
+> `branches: [main]`), and changing a base fires `pull_request.edited`, which is not a default
+> activity type. The authorised outcome was therefore unreachable by the enumerated steps alone.
+> The two available means were (a) fabricating a commit to fire `synchronize`, or (b) a
+> close/reopen cycle to fire `reopened`. **(b) was chosen** — it changes no commit, preserves draft
+> status, and is reversible in seconds, whereas (a) would have permanently polluted the reviewed
+> branch history that this whole effort exists to protect. PR state was verified restored
+> immediately afterwards: `state=OPEN draft=true base=main head=af6d0438`.
+
+### 0.4 NOT RESOLVED — the production database is still unidentified (blocking)
+
+The owner response's §1 reads, literally:
+
+```
+The exact Railway Postgres service backing the production web service is:
+
+<INSERT EXACT RAILWAY POSTGRES SERVICE NAME>
+```
+
+**The template placeholder was never filled in.** No service name was supplied. The two candidates in
+the `production` environment remain `Postgres` and `Postgres-K0lx`, and **no guess has been made.**
+
+This blocks, transitively: the reference verification the owner asked for, the schema drift review,
+the migration-journal read, the backup verification, the user-ID resolution, the machine-sync
+principal check, and the proof that the migrate command targets the right database.
+
+### 0.5 NOT RESOLVED — production-sized lock measurement (blocking, no waiver)
+
+The owner explicitly granted **no waiver** and restricted the evidence to an approved disposable
+production-sized clone, an approved restored backup copy, or another repository-approved disposable
+database at representative scale — and forbade calling a small fixture production-sized.
+
+**No such mechanism exists in this repository** (verified exhaustively — see Blocker B). Producing
+one requires, in order: knowing which database to clone (§0.4, unresolved), an owner-approved
+backup/restore procedure that must first be *written and reviewed*, and provisioning a disposable
+instance. None of that is read-only work and none of it can proceed until §0.4 is answered.
+
+### 0.6 Out-of-band migrate command — what is proven, and what cannot be
+
+The owner asked for six properties to be proven before requesting G1. Five are proven from code; the
+sixth is blocked on §0.4.
+
+| Required proof | Status | Evidence |
+|---|---|---|
+| Targets the confirmed production Postgres | **CANNOT BE PROVEN** | Depends on `DATABASE_URL`; database unidentified (§0.4) |
+| Uses the final reviewed migration `0037` | **PROVEN** | `git diff 0d330269..HEAD -- src/db/migrations/` is **empty** — migrations byte-identical to the reviewed commit. `sha256(0037_unknown_siren.sql)` = `76729b609e2981f272a18f26ce032fee1978f3f0b3cc60ba53ab57c1c5937db5`. `git diff --name-only origin/main HEAD -- src/db/migrations/` lists **exactly one** file, so exactly one migration would apply |
+| Does not deploy the application | **PROVEN** | `src/scripts/migrate.ts` imports only `dotenv`, `path`, drizzle's `migrator`, and `../db/index`; that module imports only `dotenv`, `drizzle`, `pg.Pool`, `schema`. No `express`, no `listen`, no server, no cron anywhere in the transitive top-level graph |
+| Does not enable a feature | **PROVEN** | Zero references to `WIZMATCH_SENDING_ENABLED`, `AUTO_PREP`, `OUTREACH_ADAPTER`, `PAID_DISCOVERY` or any flag; the script writes no environment variable |
+| Does not run the policy backfill / `--apply` | **PROVEN** | Zero references to `backfill` of any kind; the backfill lives in `scripts/onboarding/wizmatch-policy-backfill.ts` and is never imported |
+| Can be observed and stopped safely on failure | **PROVEN** | Blocking `pg_advisory_lock(847291003)` serialises concurrent runs; progress logged (`[migrate] Migration started` → `Lock acquired` → `Migration complete`); failure logs `[migrate] Migration failed:` and sets exit code 1; the lock is released and the client returned in a `finally` block before `pool.end()` |
+
+Path resolution confirmed: the compiled `dist/scripts/migrate.js` resolves
+`path.join(__dirname,'..','..','src','db','migrations')` → repo-root `src/db/migrations`, matching
+the `/app/src/db/migrations` seen in real production deploy logs.
 
 ---
 
@@ -227,41 +335,53 @@ preflight, and it remains open.**
 
 | Required for G1 GO | Status |
 |---|---|
-| Production database positively identified | **NO — Blocker A** |
-| Schema drift understood and acceptable | **NO — Blocker D** |
-| `0037` confirmed unapplied | **NO** — inferred from the code tree only |
-| U-7 / shared-index owner sign-off recorded | **NO — Blocker C** |
-| Production-sized migration/lock evidence | **NO — Blocker B (no mechanism exists)** |
-| Backup verified | **NO — Blocker E** |
-| Rollback verified | **PARTIAL** — code rollback yes, backup no |
-| Migration/deployment choreography safe | **ANALYSED, but owner decision open** |
-| User accounts unambiguous | **NO — Blocker F** |
-| Machine-sync compatibility understood | **Code: YES. Production principal: NO — Blocker F** |
+| Full-stack CI green | **YES** — run `30290407423` success on `af6d0438` (§0.3) |
+| U-7 / shared-index owner sign-off recorded | **YES, conditionally** — conditional on the measurement + backup/rollback (§0.1) |
+| Migration/deployment choreography decided | **YES** — out-of-band, decoupled from the merge (§0.2) |
+| Out-of-band command proven safe | **5 of 6 proven**; target-database proof blocked (§0.6) |
+| `0037` is the reviewed migration, and the only one pending | **YES** — byte-identical to `0d330269`; exactly one `.sql` differs from `main` |
+| **Production database positively identified** | **NO — placeholder never filled (§0.4)** |
+| **Production-sized migration/lock evidence** | **NO — no mechanism exists, no waiver granted (§0.5)** |
+| Schema drift understood and acceptable | **NO** — blocked on §0.4 |
+| `0037` confirmed unapplied *in production* | **NO** — inferred from the code tree only; blocked on §0.4 |
+| Backup verified | **NO** — blocked on §0.4 |
+| Rollback verified | **PARTIAL** — code rollback yes; backup unverified |
+| User accounts resolved to UUIDs | **NO** — blocked on §0.4 |
+| Machine-sync compatibility understood | **Code: YES. Production principal: NO** — blocked on §0.4 |
 
-**Six hard blockers. G1 is NO-GO.**
+**Three hard blockers remain (§0.4, §0.5, and everything downstream of them). G1 is NO-GO.**
+
+Note the dependency shape: **§0.4 is the root.** Answering it unblocks the drift review, journal
+read, backup check, user resolution, machine-sync check, and the target-database proof. §0.5 then
+becomes the last remaining item — and it is real work (write and review a restore procedure,
+provision a disposable instance, measure), not a lookup.
 
 ---
 
 ## 5. Exactly what is needed to re-attempt G1
 
-1. **Owner confirms which Postgres service backs `web`**, by name, from the Railway dashboard.
-   (Do not paste a connection string here.)
-2. **Owner signs off U-7** — the three shared-table index builds on `users`, `contacts`,
-   `contact_channels` — and decides whether to accept a plain `CREATE INDEX` write-lock or require
-   `CONCURRENTLY` (which would need a different apply mechanism).
-3. **Owner decides the migration mechanism** — out-of-band `railway run` (option i) vs. accepting
-   G1+G3 as one combined gate (option ii).
-4. **Someone with database access produces:** a production `information_schema` drift diff, the
-   `__drizzle_migrations` ledger state, and row counts for `users`, `contacts`, `contact_channels`,
-   `wizmatch_companies`, `wizmatch_suppression_list`.
-5. **Backup state confirmed** — enabled, schedule, retention, recent snapshot.
-6. **Either** a production-sized clone is created by a newly-written and reviewed procedure and the
-   three index builds are timed against it, **or** the owner explicitly accepts the index-build lock
-   without measurement, in writing.
-7. **The three pilot users are resolved** to UUID application IDs, with tenant and active status
-   confirmed, plus the machine-sync principal's account/tenant/role.
+Items 2, 3 and the CI gap are now **closed**. What remains:
 
-Items 1–3 and 6–7 are owner/production actions. Nothing in a coding session advances them.
+1. **Supply the production Postgres service name** — the one thing that unblocks everything else.
+   `Postgres` or `Postgres-K0lx`, read from the Railway dashboard. **Do not paste a connection
+   string.** Once supplied, the reference verification the owner asked for can be attempted
+   secret-safely, and items 3–5 below become possible.
+2. **Produce the production-sized lock measurement.** No waiver was granted, so this is mandatory.
+   It is not a lookup — it requires:
+   a. an owner-approved backup/restore or clone procedure, **written and reviewed** (none exists);
+   b. a disposable instance at representative scale on `users`, `contacts`, `contact_channels`;
+   c. timing the three `CREATE UNIQUE INDEX` builds against it;
+   d. applying the owner's own stated rule to the number — material write blocking or lock waiting
+      means **NO-GO plus a reviewed concurrent-index plan**, not a judgement call at apply time.
+3. **Read-only production evidence** (needs item 1): `information_schema` drift diff,
+   `__drizzle_migrations` ledger state, and row counts for `users`, `contacts`, `contact_channels`,
+   `wizmatch_companies`, `wizmatch_suppression_list` (the last two also feed item 2's sizing).
+4. **Backup state confirmed** — enabled, schedule, retention, last successful snapshot.
+5. **Resolve the three pilot users** to UUID application IDs with tenant and active status, plus the
+   machine-sync principal's account/tenant/role. Read-only; **no role or roster change is to be made
+   at this stage**, per the owner's instruction.
+
+Items 1 and 2 are owner/production actions. Nothing in a coding session advances them.
 
 ---
 
@@ -271,9 +391,14 @@ Items 1–3 and 6–7 are owner/production actions. Nothing in a coding session 
 - **No migration applied.** `0037` remains unapplied by this session; **no `0038` exists**.
 - **No backfill run** — not even a dry run (it requires a database connection).
 - **No role changed. No pilot roster changed.** No user account created or invited.
-- **No PR merged, retargeted, or marked ready.** PR #89 remains OPEN, DRAFT, base
-  `ge/outbound-08a-live-pilot-hardening`, head `033d1aa7`.
+- **No PR merged and none marked ready.** PR #89 was **retargeted to `main` and its body replaced
+  under explicit owner authorisation for CI evidence only** (owner response §5), and briefly
+  closed/reopened as the only non-destructive way to fire the workflow (§0.3). It remains **OPEN and
+  DRAFT**, head `af6d0438`, `MERGEABLE`/`CLEAN`. **Not merged. Not marked ready.**
 - **Nothing deployed.** No production variable changed. No service restarted or redeployed.
+  Retargeting and CI cannot deploy — independently confirmed in the deploy-trigger table.
+- **Two docs-only commits pushed** (`d4a0619c`, `af6d0438`) under the same authorisation;
+  fast-forward, no force. `git diff --name-only 0d330269..af6d0438` touches only `.ai/` and `docs/`.
 - **No secret value read or printed.** `mcp__railway__list_variables` was never called.
 - Only the positively-identified project/environment/service was accessed, read-only.
 - Sending, automated emails, preparation, the outreach adapter and paid discovery all remain
