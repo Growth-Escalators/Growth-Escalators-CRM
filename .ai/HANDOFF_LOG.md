@@ -6,6 +6,79 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-27 — WizMatch Outbound OS: PR 8B independent review — CODE READY at `7a0cea20` — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT MERGED
+
+**Why:** PR 8B was self-reported as implemented. Standing practice on this stack reserves
+`.ai/OUTBOUND_PR8B_CODE_READY` for an independent review session that does not trust the
+implementation report.
+
+**Verdict: CODE READY at `7a0cea20`. Zero Critical, zero High — no corrective commit needed.** This
+is the first PR in the stack to survive its review unchanged (PR 8 needed six High fixed, PR 8A three).
+
+**Honest limitation:** the five parallel read-only review agents (R1 policy/tenancy, R2 roster/RBAC,
+R3 capabilities/a11y, R4 readiness/credentials, R5 test quality) **all went idle without returning
+reports**, despite three escalating requests each. The review lead performed all five lanes directly
+and substituted more mechanical evidence rather than fewer. No conclusion rests on a subagent's word.
+Recorded so a future reader does not credit this review with a five-agent reconciliation it did not have.
+
+**What was verified mechanically (not accepted on assertion):**
+- Six red/green mutation controls, all genuinely red: signal/scope predicate (6 red across 3 files);
+  `NODE_ENV` roster ternary reinstated (19 red across 5 files, matching the implementation report
+  exactly); readiness exact-name → prefix swap (1 red, proving the `SL_TIMEZONE` negative is
+  non-vacuous); frontend capability fallback flipped fail-open (6 red); `prepareCompanies`
+  blocked-signal exclusion removed (3 red); **tenant predicate dropped from `fetchBlockedScopedIds`
+  (2 red)**.
+- The last one matters most: PR 3's finding B-2 was that Drizzle mocks discarded `.where()`, so a
+  deleted tenant predicate stayed green. `wizmatchRequirementScopeBlock.test.ts:23-34` now captures
+  the condition and walks the real predicate graph. **That vacuity class is closed.**
+- All 17 readiness scenarios run through the real CLI with synthetic values under `env -i`. Scenario
+  9's output inspected directly: credential **name** shown, **value** withheld. A temporary `.env`
+  (confirmed gitignored before creation) was used for scenario 17, then deleted.
+- Playwright's 15 skips traced to `test.skip(!TEST_PASSWORD, …)` in the two hardening specs —
+  5 tests × 3 projects. No undocumented skip.
+- The "prepare route is inert while the flag is off" claim checked directly: `wizmatchPrepare.ts:27-34`
+  registers `featureGate` before the pilot gate and calls `next('router')`, skipping the whole router.
+  **The claim holds**, so PR7 O-3 genuinely does not block G3.
+- The unauthenticated carve-out at `src/index.ts:315-322` has anchored regexes that cannot match any
+  pilot path.
+
+**Findings recorded (none blocking G3):**
+- **M-1** — `wizmatchPilotReadiness.ts:36-45` requires markers only through PR 8; it never checks
+  `OUTBOUND_PR8A_CODE_READY` or any PR 8B marker. A green CLI therefore does not prove the stack was
+  reviewed. Not fixed here because the readiness tests run against the real repo root, so requiring a
+  marker this session creates would couple the suite to it. **G3 must check both markers by hand.**
+- **M-2** — `computeBulkCapability` is role-only, so the bulk bar can enable an action the server
+  refuses for some selected rows. Bounded: the server is authoritative and returns per-target results,
+  never a silent partial success. Closing it properly is a design change beyond this branch's scope.
+- **L-1** — `wizmatchPilotGate.ts:8-11` still documents the `NODE_ENV`-permissive behaviour P8B-3
+  deleted. Code correct, comment stale and potentially misleading.
+- **L-2** — `wizmatchStaffingAccess.ts:23` `phaseEnabled()` retains a `NODE_ENV` default; affects
+  Staffing OS phase visibility only, not the pilot gate.
+- **L-3/L-4** — report wording imprecision; one tautological assertion.
+
+**Behavioural fact that changes the G3 roster:** **`viewer` is not a pilot-eligible role.** It is
+403'd at the pilot gate even when named on the roster (`wizmatchStaffingAccess.ts:13`, tested at
+`wizmatchPilotGate.test.ts:90,139`). The orchestration brief's assumed "pilot viewer" tier does not
+exist; the real read-only tier is `staff`/`manager_ops`/`sales`. The onboarding role matrix must be
+written against the real tiers.
+
+**How to verify:** `git diff --check` clean · `npm run build` exit 0 · `npm test` 126 files/1418 tests
+green · `npm run admin:build` exit 0 · `npx playwright test --config=playwright.wizmatch-local.config.ts`
+99 passed/15 skipped/0 failed. Full report:
+`docs/reviews/wizmatch-outbound-pr8b-opus-review.md`.
+
+**Not done, deliberately:** no push, no PR opened, no merge, no deploy, no Railway or production
+access, no database access, migration `0037` **not applied**, no `0038`, backfill `--apply` **not
+run**, enforcement still `shadow`, sending/automated-emails/preparation/adapter/paid-discovery all
+still disabled, no Smartlead credential introduced, no PR 9 or PR 10 work, no guardrail file touched,
+`input-data/` never staged or accessed, no force-push and no destructive git command.
+
+**Next:** push the branch, open PR 8B as a draft off `ge/outbound-08a-live-pilot-hardening`, verify
+the #80–#88 stack, then G1 read-only production preflight. G1/G2/G3 each still require their exact
+approval token.
+
+---
+
 ## 2026-07-27 — WizMatch Outbound OS: PR 8B implemented (self-reported) — G3 pilot completion — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT MERGED
 
 **Why:** PR 8A's independent review left three owner-decision findings unresolved (S1-2, S2-4, S3-1)

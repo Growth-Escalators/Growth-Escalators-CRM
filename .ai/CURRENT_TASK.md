@@ -2,6 +2,40 @@
 
 ## Active task
 
+**PR 8B is CODE READY at `7a0cea20` (independent review, 2026-07-27T10:30:00Z).** Marker:
+`.ai/OUTBOUND_PR8B_CODE_READY`. Report:
+[`docs/reviews/wizmatch-outbound-pr8b-opus-review.md`](../docs/reviews/wizmatch-outbound-pr8b-opus-review.md).
+
+**Zero Critical, zero High — no corrective commit was needed.** Two Medium (M-1 readiness-CLI marker
+list stops at PR 8; M-2 bulk bar is a pure role gate) and four Low are recorded; none blocks G3.
+
+Six mutation controls were run against the integrated tree and all six went genuinely red, including
+a tenant-predicate drop — the `.where()`-dropping vacuity class from PR 3's finding B-2 is closed.
+All 17 readiness scenarios were executed for real with synthetic values; no secret value was printed.
+Gates: `git diff --check` clean · `npm run build` exit 0 · `npm test` 126 files/1418 tests green ·
+`npm run admin:build` exit 0 · Playwright 99 passed/15 skipped/0 failed (skips verified as the
+documented no-password real-backend skips).
+
+**Limitation stated plainly:** the five parallel review agents all went idle without returning
+reports. The review lead performed all five lanes directly and substituted additional mechanical
+evidence. Nothing in the review report rests on a subagent's word.
+
+**Two things G3 must not get wrong:**
+1. **M-1** — the readiness CLI does **not** check `OUTBOUND_PR8A_CODE_READY` or any PR 8B marker.
+   Verify both by hand; a green CLI does not cover them.
+2. **`viewer` is not a pilot-eligible role.** It is 403'd at the pilot gate even when named on the
+   roster. The read-only tier inside the pilot is `staff`/`manager_ops`/`sales`. Build the G3 roster
+   and the onboarding role matrix against the real tiers.
+
+**Next step:** push the branch and open PR 8B as a draft off `ge/outbound-08a-live-pilot-hardening`,
+then G1 read-only production preflight. Migration `0037` is still unapplied, the backfill has not
+been run with `--apply`, and sending/Smartlead/preparation/adapter/paid discovery all remain
+disabled.
+
+---
+
+## Prior entry — PR 8B implementation (self-reported)
+
 **PR 8B IMPLEMENTED (self-reported) 2026-07-27 — WizMatch Outbound Operating System, G3 pilot
 completion.** Branch `ge/outbound-08b-g3-pilot-completion`, local only, NOT pushed, NOT merged. Built
 on the independently-reviewed `ge/outbound-08a-live-pilot-hardening` (CODE READY at `f12c62ca`).

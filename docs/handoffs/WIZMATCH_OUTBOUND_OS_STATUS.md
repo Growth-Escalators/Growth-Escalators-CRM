@@ -67,6 +67,23 @@ Chat-independent status for the `ge/outbound-0X-*` stacked-PR sequence. Read thi
 > §16. **Still not pushed, not merged, `0037` still not applied to production or Railway. PR 3 not
 > started.**
 >
+> **Updated 2026-07-27 (final independent review): PR 8B is CODE READY at `7a0cea20`.**
+> Zero Critical, zero High — **the first PR in this stack to survive its review with no corrective
+> commit** (PR 8 needed six High fixed; PR 8A three). Marker: `.ai/OUTBOUND_PR8B_CODE_READY`. Full
+> report: [`docs/reviews/wizmatch-outbound-pr8b-opus-review.md`](../reviews/wizmatch-outbound-pr8b-opus-review.md).
+> Six mutation controls run against the integrated tree, all six genuinely red — including a dropped
+> tenant predicate, which closes PR 3's B-2 `.where()`-discarding vacuity class. All 17 readiness
+> scenarios executed for real with synthetic values; no secret printed. Gates: build 0, `npm test`
+> 126 files/1418 tests green, admin build 0, Playwright 99/15 skipped/0 failed.
+> **Stated limitation:** the five parallel review agents all went idle without returning reports; the
+> review lead ran all five lanes directly. No conclusion rests on a subagent's word.
+> **Two G3 must-nots:** (1) **M-1** — the readiness CLI checks markers only through PR 8, so it never
+> verifies `OUTBOUND_PR8A_CODE_READY` or any PR 8B marker; check both by hand. (2) **`viewer` is not a
+> pilot-eligible role** — it is 403'd at the pilot gate even when rostered; the pilot's read-only tier
+> is `staff`/`manager_ops`/`sales`, so build the roster and role matrix against the real tiers.
+> **Still not pushed, not merged, `0037` still not applied, backfill not run, enforcement still
+> `shadow`, sending/Smartlead/preparation/adapter/paid-discovery all still disabled. PR 9/10 not started.**
+>
 > **Updated 2026-07-27: PR 8B IMPLEMENTED (self-reported) — G3 pilot completion.**
 > `ge/outbound-08b-g3-pilot-completion` (built on the independently-reviewed PR 8A, CODE READY at
 > `f12c62ca`) resolves all three PR 8A owner-decision findings (S1-2 signal/scope conflation, S2-4
