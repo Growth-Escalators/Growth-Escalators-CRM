@@ -182,6 +182,15 @@ describe('resolveDuplicate', () => {
     ).rejects.toMatchObject({ code: 'unknown_reason_code' });
   });
 
+  // PR 8A REVIEW fix — a duplicate resolution is a permanent human decision
+  // and must carry an identifiable actor, exactly as a policy write now does.
+  it('refuses a resolution with no actor userId, before any write', async () => {
+    await expect(
+      resolveDuplicate({ tenantId: 'tenant-1' }, 'dup-1', { resolution: 'merged', reasonCode: 'duplicate_merged' }),
+    ).rejects.toMatchObject({ code: 'actor_required' });
+    expect(state.staffingEventInserts).toHaveLength(0);
+  });
+
   // H-14 regression: resolveDuplicate used to discard reasonCode/evidence and
   // write no audit or event row at all.
   it('persists reasonCode/evidence in a staffing event and an audit_events row', async () => {

@@ -301,6 +301,72 @@ describe('writeCompanyPolicy — evidence and inheritance validation', () => {
   });
 });
 
+// PR 8A REVIEW fix — approval provenance at the WRITE CHOKEPOINT, not only in
+// the Decision Workbench action layer. `POST /companies/:id/policy`,
+// `POST /companies/bulk/policy` and `writeCompanyPolicyOverride` all reach
+// `writeCompanyPolicy` directly and bypass the workbench's own actor check,
+// and `actor_user_id` is nullable in the schema with no
+// `approved_by`/`approved_at` pair to fall back on.
+describe('writeCompanyPolicy — approval provenance', () => {
+  const actorWithNoUser = { tenantId: 'tenant-1' };
+
+  it('refuses a HUMAN write with no actor userId — an eligible row nobody can be shown to have approved', async () => {
+    await expect(
+      writeCompanyPolicy(actorWithNoUser, 'company-1', {
+        scopeType: 'entire_company',
+        outreachEligibility: 'eligible',
+        externalHiringPolicy: 'accepts_external_vendors',
+        relationshipType: 'new_prospect',
+        reasonCode: 'policy_accepts_external_vendors',
+      }),
+    ).rejects.toMatchObject({ code: 'actor_required' });
+    expect(state.policyRows).toHaveLength(0);
+  });
+
+  it('refuses before any write, so no partial row or event is left behind', async () => {
+    await expect(
+      writeCompanyPolicy(actorWithNoUser, 'company-1', {
+        scopeType: 'entire_company',
+        outreachEligibility: 'blocked',
+        externalHiringPolicy: 'no_external_agencies',
+        relationshipType: 'new_prospect',
+        reasonCode: 'manual_block_by_operator',
+      }),
+    ).rejects.toMatchObject({ code: 'actor_required' });
+    expect(state.policyRows).toHaveLength(0);
+    expect(state.policyEventInserts).toHaveLength(0);
+  });
+
+  it('a NON-human source (import/backfill) legitimately has no user and is unaffected', async () => {
+    const row = await writeCompanyPolicy(
+      actorWithNoUser,
+      'company-1',
+      {
+        scopeType: 'entire_company',
+        outreachEligibility: 'needs_review',
+        externalHiringPolicy: 'unknown',
+        relationshipType: 'new_prospect',
+        reasonCode: 'policy_unknown_cold_start',
+      },
+      'import',
+    );
+    expect(row).toBeTruthy();
+    expect(state.policyRows).toHaveLength(1);
+  });
+
+  it('records the actor on the row it writes when one IS supplied', async () => {
+    await writeCompanyPolicy(actor, 'company-1', {
+      scopeType: 'entire_company',
+      outreachEligibility: 'eligible',
+      externalHiringPolicy: 'accepts_external_vendors',
+      relationshipType: 'new_prospect',
+      reasonCode: 'policy_accepts_external_vendors',
+    });
+    expect(state.policyRows[0].actorUserId).toBe('user-1');
+    expect(state.policyRows[0].source).toBe('human');
+  });
+});
+
 describe('writeCompanyPolicy — supersession', () => {
   it('supersedes the prior active row at the same scope_key and links it via supersededByPolicyId', async () => {
     const first = await writeCompanyPolicy(actor, 'company-1', {

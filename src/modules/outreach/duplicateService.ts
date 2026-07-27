@@ -109,6 +109,15 @@ export async function resolveDuplicate(
   if (!params.reasonCode?.trim()) {
     throw new DuplicateValidationError('reasonCode is required to resolve a duplicate.', 'reason_code_required');
   }
+  // PR 8A review fix — same provenance requirement as the policy write
+  // chokepoint. A duplicate resolution is a permanent human decision; it must
+  // not be recordable with no identifiable actor.
+  if (!actor.userId) {
+    throw new DuplicateValidationError(
+      'Resolving a duplicate requires an authenticated actor with a user id.',
+      'actor_required',
+    );
+  }
   // PR 8A hardening — same fail-closed taxonomy check as the policy write
   // chokepoint (policyService.ts): a duplicate resolution is a permanent,
   // evidence-required decision, so it gets no less scrutiny than a policy row.

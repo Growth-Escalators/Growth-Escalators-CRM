@@ -371,6 +371,24 @@ export async function writeCompanyPolicy(
   input: PolicyWriteInput,
   source: 'human' | 'import' | 'deterministic_rule' | 'provider' = 'human',
 ): Promise<typeof wizmatchCompanyPolicies.$inferSelect> {
+  // PR 8A review fix — approval provenance, enforced at the WRITE CHOKEPOINT.
+  // `wizmatch_company_policies.actor_user_id` is nullable at the database
+  // level and this table has no `approved_by`/`approved_at` pair, so
+  // `actor_user_id` + `source` + the paired event row's supersession chain IS
+  // the whole provenance record for a human decision. PR 8A added an
+  // `actor_required` guard to `decisionWorkbenchActions.ts` only — but
+  // `POST /companies/:id/policy`, `POST /companies/bulk/policy` and
+  // `writeCompanyPolicyOverride` all reach this function directly, so a human
+  // approval to `eligible` could still be persisted with a NULL actor: a
+  // decision nobody can be shown to have made. Non-human sources (`import`,
+  // `deterministic_rule`, `provider`) legitimately have no user and are
+  // unaffected.
+  if (source === 'human' && !actor.userId) {
+    throw new PolicyValidationError(
+      'A human policy write requires an authenticated actor with a user id.',
+      'actor_required',
+    );
+  }
   validatePolicyWrite(input);
   assertSafeEvidenceUrl(input.evidenceUrl);
   const scopeKey = buildScopeKeyForInput(input);
