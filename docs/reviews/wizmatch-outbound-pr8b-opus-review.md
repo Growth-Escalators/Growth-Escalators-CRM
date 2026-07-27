@@ -6,6 +6,24 @@
 > every finding below are left unmodified as the historical record of what was found and why.**
 > `.ai/OUTBOUND_PR8B_CODE_READY` remains absent — the remediation report is not a readiness verdict.
 > A fresh, independent review session, with no memory of the remediation work, owns that verdict.
+>
+> ## FINAL REVIEW OUTCOME (added 2026-07-27, superseding the line above)
+>
+> The independent review is done:
+> [`wizmatch-outbound-pr8b-final-opus-review.md`](wizmatch-outbound-pr8b-final-opus-review.md).
+> **Verdict: still NOT CODE READY. `.ai/OUTBOUND_PR8B_CODE_READY` is NOT created.**
+>
+> **H-1 through H-6 are all genuinely closed**, confirmed by executed mutation controls rather than
+> by the remediation report's account of them. **M-5 was not** — `SmartLeadCsvAdapter` and three
+> other plausible identifiers evaded the strengthened scope guard; fixed during the final review.
+>
+> **Two qualifications on the remediation's own evidence.** First, four narrow mutations stayed
+> **green** on the submitted tree, so M-2, M-4, the application half of H-4, and M-5 had no working
+> control — the remediation report's claim that M-4's control "went red" for both implementations is
+> incorrect for `wizmatchStaffing.ts`. All four are fixed and now go red (`5f045b5d`). Second, the
+> M-3 fix introduced a new **High (F-A)**: the pilot gate now locks every `viewer` out of all 82
+> WizMatch routes with no configuration remedy, which the repo's own comment says is the Command
+> Deck sync account. That needs an owner decision before merge and is what blocks the marker.
 
 # WizMatch Outbound OS — PR 8B independent review (G3 pilot completion)
 

@@ -2,6 +2,50 @@
 
 ## Active task
 
+**PR 8B is NOT CODE READY after the final independent review of the remediated tree.** Branch
+`ge/outbound-08b-g3-pilot-completion`, PR #89 (draft). Reviewed `84fc340e`; fixes at `5f045b5d`
+(tests + doc accuracy) and `2b1f074a` (disclosure). Report:
+[`docs/reviews/wizmatch-outbound-pr8b-final-opus-review.md`](../docs/reviews/wizmatch-outbound-pr8b-final-opus-review.md).
+**`.ai/OUTBOUND_PR8B_CODE_READY` is NOT created.**
+
+**The remediation's core work holds.** All six High findings are genuinely closed, proven by
+fifteen executed mutation controls rather than by the remediation report's account of them —
+including the one that stayed green last round (deleting only `p.tenant_id = s.tenant_id` from
+`prepareCompanies.ts`, now three tests red). Migration `0037` verified end-to-end on disposable
+local Postgres. Zero Critical.
+
+**Exactly one thing blocks the marker: F-A, a new High needing an owner decision.** The M-3 fix
+gates the whole 82-route `wizmatchRouter` with `wizmatchPilotGate`. `viewer` is not in
+`PILOT_ELIGIBLE_ROLES` and role-eligibility is checked *before* roster membership, so every
+`viewer` is now 403'd on all 82 routes — reads included — and **adding it to the roster does not
+help**. `src/index.ts` names `viewer` as the read-only Command Deck sync account, and
+`GE-Brain/scripts/crm-sync.mjs` reads eight of those routes; merging auto-deploys, so that sync
+breaks on merge. Four remedies (re-role the sync account / make `viewer` pilot-eligible / exempt
+GETs / accept the stale card) are recorded as a blocking pre-merge item in the go-live runbook —
+two are RBAC changes, so the choice is the owner's. Unverifiable from here: whether the live sync
+account really is `viewer` (needs production access, deliberately not taken).
+
+**Also found: four narrow mutation controls stayed GREEN on the submitted tree** — M-2, M-4, the
+application half of H-4, and M-5 had no working regression control. The remediation report's claim
+that M-4's control "went red" for both implementations is wrong for `wizmatchStaffing.ts`. The
+worst was H-4's app half: deleting `validatePolicyWrite`'s unknown-scope guard left the **entire**
+suite green (1469 tests), and the DB CHECK that would otherwise cover it is not in force until
+`0037` is applied (G1, NO-GO). M-5's scope guard was separately evaded by `SmartLeadCsvAdapter`
+and three other plausible names. All fixed this session; all four now go red, and
+`KNOWN_PROVIDERS` is pinned to `['mock']` so a PR 9 provider is caught regardless of naming.
+
+**Gates after fixes:** `git diff --check` clean · `npm run build` exit 0 · `npm test` **131 files /
+1495 tests** · `npm run admin:build` exit 0 · Playwright **99 passed / 15 skipped / 0 failed**.
+
+**Exact next action:** owner decides F-A, then a short re-review to confirm that one item and
+create the marker. **G1 remains separately NO-GO.** Do not push, merge, deploy, apply `0037`, run
+backfill `--apply`, promote `enforce`, enable sending/preparation/the adapter/paid discovery,
+connect Smartlead, or start PR 9/10.
+
+---
+
+## Prior entry — PR 8B REMEDIATED (superseded by the final review above)
+
 **PR 8B is REMEDIATED. All six High and all five Medium findings from the corrected review are
 closed.** Branch `ge/outbound-08b-g3-pilot-completion`, PR #89 (draft), remediated commit
 `84fc340e` (code, before the docs/marker commit). Report:

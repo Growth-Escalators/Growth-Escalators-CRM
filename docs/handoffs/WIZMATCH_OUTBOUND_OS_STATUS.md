@@ -104,6 +104,43 @@ Chat-independent status for the `ge/outbound-0X-*` stacked-PR sequence. Read thi
 > **Still not pushed, not merged, `0037` still not applied, backfill not run, enforcement still
 > `shadow`, sending/Smartlead/preparation/adapter/paid-discovery all still disabled. PR 9/10 not started.**
 >
+> **Updated 2026-07-27 (FINAL INDEPENDENT REVIEW OF THE REMEDIATED TREE): PR 8B is STILL NOT CODE
+> READY.** Fresh Opus session, no memory of the remediation work, reviewing `84fc340e`. Report:
+> [`docs/reviews/wizmatch-outbound-pr8b-final-opus-review.md`](../reviews/wizmatch-outbound-pr8b-final-opus-review.md).
+> **`.ai/OUTBOUND_PR8B_CODE_READY` is NOT created.**
+>
+> **H-1 through H-6 are all genuinely closed** — proven by fifteen executed mutation controls, not
+> by reading the remediation report. The decisive one: deleting *only*
+> `p.tenant_id = s.tenant_id` from `prepareCompanies.ts`, the mutation that stayed green last
+> round, now turns three tests red. Migration `0037` verified on disposable local Postgres (fresh
+> replay, incremental `0036`→`0037`, six canonical values accepted, seven invalid values rejected by
+> the scope-type CHECK specifically, three-way schema/SQL/snapshot parity exact). Zero Critical.
+>
+> **What blocks the marker — one new High (F-A), needing an owner decision before merge.** The M-3
+> fix mounts the pilot gate on the whole 82-route router. `viewer` is not in
+> `PILOT_ELIGIBLE_ROLES`, and role-eligibility is tested *before* roster membership, so a `viewer`
+> is now 403'd on **all 82 routes including every GET**, and **naming it in the roster does not
+> help**. `src/index.ts` documents `viewer` as the read-only Command Deck sync account, and
+> `GE-Brain/scripts/crm-sync.mjs` reads eight of those routes — so on merge (which auto-deploys)
+> that sync starts failing. Undisclosed in every document until this review. Four remedies are
+> recorded in the go-live runbook as a blocking pre-merge checklist item; two of them are RBAC
+> changes, so the choice is the owner's, not a reviewer's.
+>
+> **Second qualification: four narrow mutation controls stayed GREEN on the submitted tree**, so
+> M-2, M-4, the application half of H-4 and M-5 had no working regression control. The remediation
+> report's claim that M-4's control went red for both implementations is incorrect for
+> `wizmatchStaffing.ts`. Most consequential: deleting `validatePolicyWrite`'s unknown-scope guard
+> left the **entire** suite green (1469 tests) — and the DB CHECK that would otherwise cover it is
+> not in force until `0037` is applied (G1, NO-GO), so that guard is currently the only protection.
+> Also, the M-5 scope guard was evaded by `SmartLeadCsvAdapter` and three other plausible names.
+> All fixed during this review (`5f045b5d`), all now red; `KNOWN_PROVIDERS` is additionally pinned
+> to `['mock']`, which catches a PR 9 provider regardless of naming or location.
+>
+> Gates after fixes: build 0, `npm test` **131 files / 1495 tests**, admin build 0, Playwright
+> **99 passed / 15 skipped / 0 failed**. **Nothing pushed, merged or deployed; `0037` not applied to
+> any real database; backfill not run; enforcement still `shadow`; sending/Smartlead/preparation/
+> adapter/paid-discovery all still disabled; PR 9/10 not started; G1 remains NO-GO.**
+>
 > **Updated 2026-07-27: PR 8B REMEDIATED.** All six High and all five Medium findings from the
 > corrected review above are closed. Migration `0037` amended in place (no `0038`) with a
 > `CHECK (scope_type IN (...))` constraint (D-R2); the readiness CLI now takes an explicit

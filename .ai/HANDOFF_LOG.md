@@ -6,6 +6,73 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-27 — WizMatch Outbound OS: PR 8B final independent review — STILL NOT CODE READY — Claude
+
+Fresh Opus session, no memory of the remediation work, reviewing the remediated tree at `84fc340e`.
+Report: `docs/reviews/wizmatch-outbound-pr8b-final-opus-review.md`.
+**`.ai/OUTBOUND_PR8B_CODE_READY` is NOT created.**
+
+**What changed:** `5f045b5d` — four new/strengthened regression controls plus a documentation
+accuracy fix (tests and docs only, no production behaviour). `2b1f074a` — disclosure of the
+`viewer` lockout in `src/index.ts`'s comment, the go-live runbook, the operator guide and the
+config contract (comments and docs only).
+
+**Verdict: H-1 through H-6 all genuinely closed.** Fifteen mutation controls executed by the lead
+(the five subagents were strictly read-only and designed rather than ran them). The decisive one:
+deleting *only* `p.tenant_id = s.tenant_id` from `prepareCompanies.ts` — the mutation that stayed
+green last round and caused the revoked verdict — now turns three tests red. Migration `0037`
+verified on disposable local Postgres: fresh replay, incremental `0036`→`0037`, six canonical
+values accepted, seven invalid values rejected by the scope-type CHECK specifically (isolated so
+no other constraint could take the credit), three-way parity exact. Zero Critical.
+
+**What blocks the marker — F-A, one new High requiring an owner decision.** The M-3 fix mounts
+`wizmatchPilotGate` on the whole 82-route `wizmatchRouter`. `viewer` is absent from
+`PILOT_ELIGIBLE_ROLES` and `resolveStaffingAccess` tests role-eligibility *before* roster
+membership, so every `viewer` is 403'd on all 82 routes including every GET, with **no roster entry
+able to restore it**. `src/index.ts` documents `viewer` as the read-only Command Deck sync account;
+`GE-Brain/scripts/crm-sync.mjs` reads eight of those routes. The repo auto-deploys on merge, so
+G3 breaks that sync. No document mentioned this. Four remedies recorded as a blocking pre-merge
+checklist item; two are RBAC changes, so the choice is the owner's, not a reviewer's. Not verifiable
+from here: whether the live sync account is actually on the `viewer` role — that needs production
+access, deliberately not taken.
+
+**The generalisable lesson, one level down from last round's.** Last round: *a passing control
+proves only what it mutates.* This round: **a control that has never been run against its own
+defect proves nothing at all.** Four mutations stayed GREEN on the submitted tree —
+
+- reintroducing the `NODE_ENV` fallback in `wizmatchStaffing.ts`'s `isStaffingPhaseEnabled`
+  (its only test samples `NODE_ENV='production'`, the one value where fixed and broken agree);
+- making `GET /staffing/access` honour a caller-supplied `?userId` (its "current-caller-only"
+  property — the entire basis of the M-2 pilot-gate exception — was never exercised through the
+  Express handler);
+- deleting `validatePolicyWrite`'s unknown-scope guard, which left the **entire** suite green
+  (130 files / 1469 tests) — and that guard is currently the *only* protection, because the DB
+  CHECK is not in force until `0037` is applied (G1, NO-GO);
+- the M-5 scope guard, evaded by `SmartLeadCsvAdapter`, `SmartLeadAdapter`, `smartLeadExporter`
+  and a generically-named `CsvBulkOutreachAdapter` — verified by planting each in `src/`.
+
+The remediation report states M-4's control went red for "both fixes"; that is incorrect for
+`wizmatchStaffing.ts`. All four are now fixed and red, with negative controls that stay green.
+`KNOWN_PROVIDERS` is additionally pinned to `['mock']` — a structural check that catches a PR 9
+provider regardless of what it is named or where it lives, which no identifier regex can do.
+
+**Process note worth keeping:** R1, R3 and R4 again went idle *without delivering their reports* —
+the precise failure that produced the revoked verdict. This time no verdict was formed; they were
+re-prompted and delivered in full. R5 and R2 produced the highest-yield findings, and R2's one
+overstatement (grading the relative-path issue as breaking H-2) was moderated after the lead
+reproduced it and found the CLI discloses the resolved path.
+
+**How to verify:** `npm run build` exit 0 · `npm test` **131 files / 1495 tests** ·
+`npm run admin:build` exit 0 · `npx playwright test --config=playwright.wizmatch-local.config.ts`
+**99 passed / 15 skipped / 0 failed** · `git diff --check` clean.
+
+**What's next:** owner decides F-A, then a short re-review of that one item to create the marker.
+Nothing pushed, merged or deployed; `0037` not applied to any real database; backfill not run;
+enforcement still `shadow`; sending/Smartlead/preparation/adapter/paid-discovery all disabled;
+PR 9/10 not started; G1 remains NO-GO.
+
+---
+
 ## 2026-07-27 — WizMatch Outbound OS: PR 8B review CORRECTED — NOT CODE READY, marker REVOKED — Claude
 
 **Supersedes the entry below it.** That entry recorded PR 8B as CODE READY at `7a0cea20` with zero
