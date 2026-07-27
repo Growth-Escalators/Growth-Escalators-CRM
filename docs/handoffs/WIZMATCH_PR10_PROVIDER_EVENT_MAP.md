@@ -33,6 +33,12 @@ identifier fields so a reply can be correlated back to the batch/enrolment it be
 idempotency-key derivation this PR ships (`deriveOutreachIdempotencyKey`,
 `src/modules/outreach/outreachIdempotencyKey.ts`) rather than a second, divergent scheme.
 
+**Open question, added by the PR 8 review (finding M-10) — `OutreachResultEvent` carries no
+`tenantId`.** Tenancy travels only on `OutreachBatchMeta.tenantId`, which is fine for a CSV import
+(there is always a batch) but undefined for an IMAP-originated reply, which may have no batch at all.
+PR 10 must decide its tenant carrier explicitly — most likely the polled mailbox's own
+`wizmatch_reply_mailboxes.tenantId` row (see §1) — and must not assume the event shape supplies one.
+
 ## 3. Normalised sender/recipient
 
 Today's IMAP extraction (`src/services/imapService.ts`, scoped to the legacy `outreach_leads` tenant)
@@ -79,6 +85,14 @@ provider-neutral `deriveOutreachIdempotencyKey()` this PR ships, using the IMAP 
 dedupe table — `wizmatch_outreach_events`'s existing `UNIQUE (tenant_id, provider, idempotency_key)`
 already gives WizMatch the same guarantee `outreach_processed_replies` gives Growth.
 
+**Caveat, added by the PR 8 review (finding M-11) — this is not a drop-in equivalent.**
+`wizmatch_outreach_events.enrolmentId` is `NOT NULL` with a composite FK to
+`wizmatch_outreach_enrolments` (`src/db/schema.ts`). A reply arriving from an address with no
+enrolment therefore **cannot** be written to that table at all, whereas `outreach_processed_replies`
+accepts any message-id. PR 10 must decide what happens to an unenrollable reply (drop, park, or
+create an enrolment) before adopting this recommendation — and creating an enrolment is a gated
+write, not a bookkeeping detail.
+
 ## 8. Company/contact linkage inputs
 
 Already built (PR 3): `resolveWizmatchLinkage(tenantId, contactId)` /
@@ -95,6 +109,15 @@ Its current input contract is `{ signal_id, reply_text, contact_email }` — no 
 raw-payload field flows in today. PR 10's job (ADR-007 D-6) is to extend `imapService` to also match
 WizMatch `contact_channels` (in addition to Growth's `outreach_leads`) and call this already-implemented
 route — not to rebuild classification.
+
+**Tenancy warning, added by the PR 8 review (finding H-4) — this route is NOT tenant-parameterised.**
+`src/routes/wizmatch.ts` resolves its tenant as `process.env.WIZMATCH_TENANT_ID`, ignoring the caller
+entirely, and then writes `wizmatch_job_signals`, inserts a `tasks` row, calls `suppress()` and sets
+`contacts.do_not_contact` — all against that single env-pinned tenant. Nothing else in this document's
+"tenant-safe" framing applies to it. PR 10 must **not** wire a multi-tenant reply poller into this route
+as-is: either parameterise the tenant on the route first, or resolve the tenant from the polled
+mailbox row (§1) and pass it explicitly. Feeding tenant B's replies into an endpoint hardcoded to
+tenant A would cross-write suppression and do-not-contact state between tenants.
 
 ## 10. Conversation-lock inputs
 

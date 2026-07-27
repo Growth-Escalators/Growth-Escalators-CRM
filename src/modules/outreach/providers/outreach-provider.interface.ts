@@ -1,7 +1,16 @@
-// The outreach-provider contract (PRD-005 §15, ADR-007). Mirrors the shape of
-// src/modules/esign/providers/esign-provider.interface.ts exactly (ADR-007 D-1):
-// a plain vendor-neutral interface/types module the rest of WizMatch depends on
-// ONLY through these shapes — never a vendor's own response model.
+// The outreach-provider contract (PRD-005 §15, ADR-007 D-1). Follows the same
+// pattern as src/modules/esign/providers/esign-provider.interface.ts — a plain
+// vendor-neutral interface/types module the rest of WizMatch depends on ONLY
+// through these shapes, never a vendor's own response model.
+//
+// It is NOT a literal copy of that file, and the differences are deliberate:
+// types live here rather than in a separate esign.types.ts; identity is an
+// object (name + adapter version) rather than a bare `name`; and there is an
+// explicit capability model and error taxonomy, neither of which esign has.
+// ADR-007's own draft sketch (exportBatch/parseResults, capabilities
+// { sends, polls }) is likewise superseded here by prepareExportBatch /
+// parseResultFeed and the 11-flag capability object — the ADR still carries the
+// draft names and needs amending (PR 8 review, D-b/D-c/D-d).
 //
 // Scope of this module (PR 8): contract + capability model + structured errors.
 // No Smartlead code, no credentials, no network call, no sending. The mock

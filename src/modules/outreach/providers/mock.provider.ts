@@ -5,9 +5,14 @@
 // reset state) and are NOT part of the OutreachProvider interface — mirrors
 // the convention in src/modules/esign/providers/mock.provider.ts exactly.
 //
-// State is keyed per tenantId throughout, including the sequence counter used
-// for deterministic ids, so two tenants driving the same mock instance in the
-// same test process can never observe or influence each other's calls or ids.
+// Per-tenant state — captured calls, the scenario, and the sequence counter
+// used for deterministic ids — is keyed by tenantId, so two tenants driving the
+// same mock instance in the same test process can never observe or influence
+// each other's calls or ids. `configStatus` is deliberately NOT tenant-keyed:
+// it models a provider-level (process-wide) configuration fact, matching
+// getConfigStatus()'s tenant-free signature on the interface. Setting it for
+// one tenant therefore changes it for all of them — see the PR 8 review's
+// M-9/PR-9 blocker on giving getConfigStatus() a tenant argument.
 import {
   assertOutreachProviderCapability,
   OutreachProviderError,
@@ -33,6 +38,13 @@ export interface MockOutreachCallRecord {
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/**
+ * Strict ISO-8601 UTC only. `new Date(x)` alone would accept locale-dependent
+ * forms like 'Jul 27 2026' or '07/27/2026', which ECMA-262 parses in LOCAL
+ * time — the same feed would then yield different `eventAt` values (and so
+ * different tier-3/tier-4 idempotency keys) on an IST laptop and a UTC CI box.
+ */
+const ISO_UTC_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
 const VALID_EVENT_TYPES: ReadonlySet<string> = new Set([
   'sent',
   'bounced',
@@ -42,9 +54,13 @@ const VALID_EVENT_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 export class MockOutreachProvider implements OutreachProvider {
-  readonly identity: OutreachProviderIdentity = { name: 'mock', version: '1.0.0' };
+  // Frozen, not just `readonly`: the factory hands out a process-wide singleton,
+  // so a stray `(provider.capabilities as any).sends = true` in one caller would
+  // otherwise flip the sending capability for every tenant in the process.
+  // `readonly` is erased at runtime; Object.freeze is not.
+  readonly identity: OutreachProviderIdentity = Object.freeze({ name: 'mock', version: '1.0.0' });
 
-  readonly capabilities: OutreachProviderCapabilities = {
+  readonly capabilities: OutreachProviderCapabilities = Object.freeze({
     exportsCsv: true,
     submitsViaApi: false,
     sends: false,
@@ -56,7 +72,7 @@ export class MockOutreachProvider implements OutreachProvider {
     supportsReplyIngestion: true,
     supportsProviderSuppression: false,
     supportsIdempotentSubmission: true,
-  };
+  });
 
   private readonly callsByTenant = new Map<string, MockOutreachCallRecord[]>();
   private readonly scenarioByTenant = new Map<string, MockOutreachScenario>();
@@ -69,6 +85,7 @@ export class MockOutreachProvider implements OutreachProvider {
 
   async prepareExportBatch(rows: OutreachContactRow[], batch: OutreachBatchMeta): Promise<OutreachExportResult> {
     assertOutreachProviderCapability(this, 'exportsCsv');
+    this.assertTenantId(batch.tenantId);
     this.applyScenario(batch.tenantId, 'prepareExportBatch', batch.batchId);
 
     rows.forEach((row, index) => {
@@ -113,6 +130,7 @@ export class MockOutreachProvider implements OutreachProvider {
    */
   async parseResultFeed(raw: string, batch: OutreachBatchMeta): Promise<OutreachResultEvent[]> {
     assertOutreachProviderCapability(this, 'importsResults');
+    this.assertTenantId(batch.tenantId);
     this.applyScenario(batch.tenantId, 'parseResultFeed', batch.batchId);
 
     const events: OutreachResultEvent[] = [];
@@ -127,6 +145,9 @@ export class MockOutreachProvider implements OutreachProvider {
         throw new OutreachProviderError('provider_response_invalid', this.identity.name, 'malformed result line');
       }
       if (!VALID_EVENT_TYPES.has(eventType)) {
+        throw new OutreachProviderError('provider_response_invalid', this.identity.name, 'malformed result line');
+      }
+      if (!ISO_UTC_RE.test(eventAtRaw)) {
         throw new OutreachProviderError('provider_response_invalid', this.identity.name, 'malformed result line');
       }
       const eventAt = new Date(eventAtRaw);
@@ -171,6 +192,17 @@ export class MockOutreachProvider implements OutreachProvider {
 
   // ---- internals ------------------------------------------------------------
 
+  /**
+   * An empty/blank tenantId would silently collapse every such caller into one
+   * shared Map bucket, sharing scenarios, captured calls and the id counter —
+   * i.e. the exact cross-tenant leak the per-tenant keying exists to prevent.
+   */
+  private assertTenantId(tenantId: string): void {
+    if (typeof tenantId !== 'string' || tenantId.trim().length === 0) {
+      throw new OutreachProviderError('invalid_input', this.identity.name, 'batch.tenantId is required');
+    }
+  }
+
   private applyScenario(tenantId: string, method: MockOutreachCallRecord['method'], batchId: string): void {
     const scenario = this.scenarioByTenant.get(tenantId) ?? 'success';
     if (scenario === 'success') return;
@@ -203,9 +235,28 @@ export class MockOutreachProvider implements OutreachProvider {
   }
 }
 
+/**
+ * An export file exists to be opened by a human in Excel or Google Sheets
+ * (ADR-007: "Export files contain contact PII: generated on demand, streamed").
+ * A cell beginning `= + - @` — or a tab/CR, which those apps strip before
+ * evaluating — is executed as a formula by both, and `companyName`/`title`
+ * originate from scraped job-signal data, so they are attacker-influenceable.
+ * Prefixing with an apostrophe is the standard neutralisation; the value is
+ * always quoted too, so the guard cannot itself break the CSV record.
+ * PR 9's real Smartlead exporter must reuse this, not re-roll its own escaper.
+ */
+const CSV_FORMULA_PREFIX_RE = /^[=+\-@\t\r]/;
+
 function csvEscape(value: string): string {
-  if (value.includes(',') || value.includes('"') || value.includes('\n')) {
-    return `"${value.replace(/"/g, '""')}"`;
+  const neutralised = CSV_FORMULA_PREFIX_RE.test(value) ? `'${value}` : value;
+  if (
+    neutralised !== value ||
+    neutralised.includes(',') ||
+    neutralised.includes('"') ||
+    neutralised.includes('\n') ||
+    neutralised.includes('\r')
+  ) {
+    return `"${neutralised.replace(/"/g, '""')}"`;
   }
-  return value;
+  return neutralised;
 }

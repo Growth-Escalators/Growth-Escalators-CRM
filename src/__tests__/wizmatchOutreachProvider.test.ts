@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -18,14 +18,38 @@ import {
 } from '../modules/outreach/providers';
 import { deriveOutreachIdempotencyKey } from '../modules/outreach/outreachIdempotencyKey';
 
-const PROVIDER_FILES = [
-  'outreach-provider.interface.ts',
-  'mock.provider.ts',
-  'index.ts',
-].map((f) => join(__dirname, '..', 'modules', 'outreach', 'providers', f));
+const OUTREACH_DIR = join(__dirname, '..', 'modules', 'outreach');
+const PROVIDER_DIR = join(OUTREACH_DIR, 'providers');
+/** Adapter-boundary files outside providers/ that the same rules bind. */
+const EXTRA_GUARDED = ['outreachIdempotencyKey.ts'];
+
+/**
+ * Globbed, never hardcoded. A hardcoded list is invisible to every guard below
+ * the moment someone adds a file — and the single most likely such file is
+ * PR 9's smartlead provider, i.e. exactly what these guards exist to catch.
+ */
+function providerFiles(): string[] {
+  const files = readdirSync(PROVIDER_DIR).filter((f) => f.endsWith('.ts'));
+  if (files.length === 0) throw new Error('provider directory scan found no files — guard is not running');
+  return [...files, ...EXTRA_GUARDED];
+}
 
 function providerSource(filename: string): string {
-  return readFileSync(join(__dirname, '..', 'modules', 'outreach', 'providers', filename), 'utf8');
+  const dir = EXTRA_GUARDED.includes(filename) ? OUTREACH_DIR : PROVIDER_DIR;
+  return readFileSync(join(dir, filename), 'utf8');
+}
+
+/**
+ * Strips comments before grepping. Without this every guard can be defeated (or
+ * spuriously tripped) by a word in a docblock, and — more importantly — the
+ * guards below scan the WHOLE source rather than only lines starting with
+ * `import`, because prettier's own multi-line `import {` style puts the module
+ * specifier on a continuation line that an `/^\s*import\b/` filter discards.
+ */
+function providerCode(filename: string): string {
+  return providerSource(filename)
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
 }
 
 function batch(tenantId = 'tenant-a', batchId = 'batch-1'): OutreachBatchMeta {
@@ -106,6 +130,60 @@ describe('MockOutreachProvider — capability + determinism contract', () => {
     expect(fallback.key).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it('trims provider identifiers so whitespace cannot produce two rows for one event', () => {
+    const base = {
+      email: 'jane@acme.com',
+      eventType: 'sent' as const,
+      eventAt: new Date('2026-07-27T00:00:00.000Z'),
+      batchRef: 'batch-1',
+    };
+    // A CSV parser is exactly where stray whitespace originates. Untrimmed,
+    // these derive two different keys and the UNIQUE (tenant, provider, key)
+    // constraint that makes a re-import a no-op admits a duplicate row.
+    expect(deriveOutreachIdempotencyKey({ ...base, externalEventId: ' evt_1 ' }).key).toBe('evt_1');
+    expect(deriveOutreachIdempotencyKey({ ...base, externalMessageId: '\tmsg_1\n' }).key).toBe('msg_1');
+    expect(deriveOutreachIdempotencyKey({ ...base, externalLeadRef: ' lead_1 ' }).key).toBe(
+      'lead_1:sent:2026-07-27T00:00:00.000Z',
+    );
+  });
+
+  it('treats a whitespace-only or empty identifier as absent and falls through to the next tier', () => {
+    const base = {
+      email: 'jane@acme.com',
+      eventType: 'sent' as const,
+      eventAt: new Date('2026-07-27T00:00:00.000Z'),
+      batchRef: 'batch-1',
+    };
+    expect(deriveOutreachIdempotencyKey({ ...base, externalEventId: '   ', externalMessageId: 'msg_1' })).toEqual({
+      key: 'msg_1',
+      keySource: 'provider_message_id',
+    });
+    expect(deriveOutreachIdempotencyKey({ ...base, externalEventId: '', externalMessageId: '  ' }).keySource).toBe(
+      'fallback_hash',
+    );
+  });
+
+  it('rejects an unusable eventAt as a structured error, not a bare RangeError', () => {
+    const base = {
+      email: 'jane@acme.com',
+      eventType: 'sent' as const,
+      batchRef: 'batch-1',
+      externalLeadRef: 'lead_1',
+    };
+    expect(() => deriveOutreachIdempotencyKey({ ...base, eventAt: new Date('nonsense') })).toThrow(
+      OutreachProviderError,
+    );
+    expect(() => deriveOutreachIdempotencyKey({ ...base, eventAt: '2026-07-27' as unknown as Date })).toThrow(
+      OutreachProviderError,
+    );
+    try {
+      deriveOutreachIdempotencyKey({ ...base, eventAt: new Date('nonsense') });
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect((err as OutreachProviderError).code).toBe('invalid_input');
+    }
+  });
+
   it('validates rows and reports invalid input by row index, never by embedding the bad email', async () => {
     await expect(
       provider.prepareExportBatch([{ email: 'not-an-email', companyName: 'Acme' }], batch()),
@@ -146,6 +224,25 @@ describe('MockOutreachProvider — capability + determinism contract', () => {
     await expect(provider.parseResultFeed('jane@acme.com|not_a_real_event|2026-07-27T00:00:00.000Z|', batch())).rejects.toMatchObject({
       code: 'provider_response_invalid',
     });
+    // invalid-email branch
+    await expect(provider.parseResultFeed('not-an-email|sent|2026-07-27T00:00:00.000Z|', batch())).rejects.toMatchObject({
+      code: 'provider_response_invalid',
+    });
+    // invalid-date branch
+    await expect(provider.parseResultFeed('jane@acme.com|sent|not-a-date|', batch())).rejects.toMatchObject({
+      code: 'provider_response_invalid',
+    });
+  });
+
+  it('rejects a timezone-ambiguous timestamp rather than parsing it in local time', async () => {
+    // `new Date('Jul 27 2026')` succeeds and is parsed in LOCAL time, so the
+    // same feed would produce different eventAt values — and different
+    // idempotency keys — on an IST laptop and a UTC CI box.
+    for (const stamp of ['Jul 27 2026', '07/27/2026', '2026-07-27', '2026-07-27T00:00:00']) {
+      await expect(
+        provider.parseResultFeed(`jane@acme.com|sent|${stamp}|`, batch()),
+      ).rejects.toMatchObject({ code: 'provider_response_invalid' });
+    }
   });
 
   it('scenario=unsupported fails closed and performs no work', async () => {
@@ -154,6 +251,57 @@ describe('MockOutreachProvider — capability + determinism contract', () => {
       code: 'unsupported_capability',
     });
     expect(provider.__getCalls('tenant-a')).toEqual([]);
+    // The call log alone cannot prove "no work": if the scenario check were
+    // moved to just before recordCall, the log would still be empty while the
+    // CSV had been built and two ids burned. Assert the id counter is untouched.
+    provider.__setScenario('tenant-a', 'success');
+    const { csv } = await provider.prepareExportBatch(rows(), batch());
+    expect(csv).toContain('mock-lead-tenant-a-1');
+  });
+
+  it('an operation whose capability is false cannot execute, even though the method exists', async () => {
+    class CapabilityStrippedProvider extends MockOutreachProvider {
+      readonly capabilities = Object.freeze({
+        ...new MockOutreachProvider().capabilities,
+        exportsCsv: false,
+        importsResults: false,
+      });
+    }
+    const stripped = new CapabilityStrippedProvider();
+    await expect(stripped.prepareExportBatch(rows(), batch())).rejects.toMatchObject({
+      code: 'unsupported_capability',
+    });
+    await expect(stripped.parseResultFeed('jane@acme.com|sent|2026-07-27T00:00:00.000Z|', batch())).rejects.toMatchObject({
+      code: 'unsupported_capability',
+    });
+    // and nothing ran
+    expect(stripped.__getCalls('tenant-a')).toEqual([]);
+  });
+
+  it('capabilities and identity are frozen against runtime mutation of the shared singleton', () => {
+    expect(Object.isFrozen(provider.capabilities)).toBe(true);
+    expect(Object.isFrozen(provider.identity)).toBe(true);
+    expect(() => {
+      (provider.capabilities as { sends: boolean }).sends = true;
+    }).toThrow(TypeError);
+    expect(provider.capabilities.sends).toBe(false);
+  });
+
+  it('refuses a blank tenantId rather than collapsing every caller into one bucket', async () => {
+    await expect(provider.prepareExportBatch(rows(), batch(''))).rejects.toMatchObject({ code: 'invalid_input' });
+    await expect(provider.prepareExportBatch(rows(), batch('   '))).rejects.toMatchObject({ code: 'invalid_input' });
+  });
+
+  it('neutralises CSV formula injection in operator-facing export cells', async () => {
+    const { csv } = await provider.prepareExportBatch(
+      [{ email: 'jane@acme.com', companyName: '=HYPERLINK("http://evil","click")', title: '@SUM(A1)' }],
+      batch(),
+    );
+    expect(csv).toContain('"\'=HYPERLINK');
+    expect(csv).toContain('"\'@SUM(A1)"');
+    // the raw formula must never appear at the start of a cell
+    expect(csv).not.toMatch(/(^|,)=/m);
+    expect(csv).not.toMatch(/(^|,)@/m);
   });
 
   it('scenario=failure reports provider_unavailable', async () => {
@@ -204,14 +352,28 @@ describe('MockOutreachProvider — capability + determinism contract', () => {
     expect(provider.__getCalls('tenant-a')).toHaveLength(1);
   });
 
-  it('__reset clears calls, scenarios, and the id counter for every tenant', async () => {
+  it('__reset clears calls, scenarios, the id counter and the config status for every tenant', async () => {
     provider.__setScenario('tenant-a', 'failure');
-    await provider.prepareExportBatch(rows(), batch('tenant-b')).catch(() => undefined);
+    provider.__setConfigStatus({ status: 'not_configured', reason: 'simulated' });
+    // both tenants have real captured calls before the reset, so the
+    // post-reset emptiness assertions below are not tautological
+    await expect(provider.prepareExportBatch(rows(), batch('tenant-a'))).rejects.toMatchObject({
+      code: 'provider_unavailable',
+    });
+    await provider.prepareExportBatch(rows(), batch('tenant-b'));
+    expect(provider.__getCalls('tenant-b')).toHaveLength(1);
+
     provider.__reset();
+
     expect(provider.__getCalls('tenant-a')).toEqual([]);
     expect(provider.__getCalls('tenant-b')).toEqual([]);
-    // scenario cleared too — tenant-a now succeeds instead of failing.
+    // scenario cleared — tenant-a now succeeds instead of failing
     await expect(provider.prepareExportBatch(rows(), batch('tenant-a'))).resolves.toBeTruthy();
+    // id counter cleared — tenant-b restarts at 1 rather than continuing at 3
+    const { csv } = await provider.prepareExportBatch(rows(), batch('tenant-b'));
+    expect(csv).toContain('mock-lead-tenant-b-1');
+    // config status restored to ready
+    expect(provider.getConfigStatus()).toEqual({ status: 'ready' });
   });
 
   it('missing configuration is never treated as ready', () => {
@@ -329,43 +491,95 @@ describe('outreach provider factory/registry', () => {
 });
 
 describe('provider-boundary source guards — no PR 9/PR 10 work leaked into PR 8', () => {
+  it('scans every file in the providers directory, not a hardcoded list', () => {
+    // Pins the glob itself. If this ever regresses to a fixed array, a new
+    // provider file silently escapes every guard below.
+    expect(providerFiles().sort()).toEqual([
+      'index.ts',
+      'mock.provider.ts',
+      'outreach-provider.interface.ts',
+      'outreachIdempotencyKey.ts',
+    ]);
+  });
+
   it('no provider file references a Smartlead-specific field, header, or module', () => {
-    for (const file of PROVIDER_FILES) {
-      const src = readFileSync(file, 'utf8');
-      // The default provider *name* string is documented and expected (PRD-005 §16);
-      // anything else Smartlead-shaped (a header map, a column list) must not exist yet.
-      expect(src).not.toMatch(/smartlead[_-]?csv\.provider/i);
-      expect(src).not.toMatch(/HEADER_ALIASES/);
+    for (const file of providerFiles()) {
+      const src = providerCode(file);
+      // The default provider *name* string 'smartlead_csv' is documented and
+      // expected (PRD-005 §16). Any other Smartlead-shaped identifier — an
+      // adapter class, a header/column map under any of its usual names — is
+      // PR 9 work and must not exist yet.
+      expect(src.replace(/'smartlead_csv'|"smartlead_csv"/g, '')).not.toMatch(/smartlead/i);
+      expect(src).not.toMatch(/HEADER_ALIASES|HEADERS\b|COLUMN_MAP|FIELD_ALIASES|CSV_COLUMNS/);
     }
   });
 
   it('no provider file implements or references PR 10 reply-ingestion machinery', () => {
-    for (const file of PROVIDER_FILES) {
-      const src = readFileSync(file, 'utf8');
-      expect(src).not.toMatch(/ReplyInboxProvider|listMailboxes|fetchUnseen|imapService|classify-reply/i);
+    for (const file of providerFiles()) {
+      // Case- and separator-insensitive: `classify-reply` and `classifyReply`
+      // must both trip it, since camelCase is this repo's own convention.
+      const src = providerCode(file).replace(/[-_]/g, '');
+      expect(src).not.toMatch(/replyinbox|listmailboxes|listinboxes|fetchunseen|fetchunread|imap|classifyreply/i);
     }
   });
 
-  it('no provider file imports the policy gate or reads/writes policy state at runtime', () => {
-    for (const file of PROVIDER_FILES) {
-      const src = readFileSync(file, 'utf8');
-      const importLines = src.split('\n').filter((line) => /^\s*import\b/.test(line));
-      for (const line of importLines) {
-        expect(line).not.toMatch(/outreachGate|policyService|policyResolver|decisionWorkbench/);
+  it('no provider file imports the policy gate, under any import syntax', () => {
+    for (const file of providerFiles()) {
+      // Whole source, not just lines starting with `import`: a prettier-style
+      // multi-line import puts the module specifier on a continuation line, so
+      // an /^\s*import\b/ line filter never sees it. Also covers `require(),
+      // dynamic `await import()`, and barrel re-exports.
+      const src = providerCode(file);
+      expect(src).not.toMatch(/outreachGate|policyService|policyResolver|decisionWorkbench|campaignCompatibility/);
+      expect(src).not.toMatch(/evaluateWizmatchOutreachGate|assertWizmatchOutreachAllowed|resolveCompanyStatus/);
+    }
+  });
+
+  it('no provider file reads or writes the database, under any access syntax', () => {
+    for (const file of providerFiles()) {
+      const src = providerCode(file);
+      // `db.insert(` alone is trivially evaded by db.execute(sql`INSERT ...`),
+      // a tx handle inside db.transaction(), a getDb() accessor, or prettier's
+      // own `db\n  .insert(` line break. Reads count too — the provider may not
+      // consult policy state either.
+      expect(src).not.toMatch(
+        /\b(db|tx|trx|pool|client|database|getDb\(\))\s*(?:\.|\[\s*['"])\s*(insert|update|delete|execute|transaction|query|select)\b/i,
+      );
+      expect(src).not.toMatch(/drizzle|from\s+['"][^'"]*\/db['"]|sql`/i);
+    }
+  });
+
+  it('no provider file imports anything network-capable, under any import syntax', () => {
+    for (const file of providerFiles()) {
+      const src = providerCode(file);
+      // The bare specifier form (`import https from 'https'`) is the one a
+      // node:-prefixed pattern misses, and it is also invisible to a global
+      // fetch spy. Cover the whole family, not just fetch.
+      expect(src).not.toMatch(/\bfetch\b|XMLHttpRequest|undici|axios|node-fetch|superagent|nodemailer|\bgot\b/i);
+      expect(src).not.toMatch(
+        /(?:from|import|require)\s*\(?\s*['"](?:node:)?(?:https?|net|tls|dgram|dns|child_process|fs)['"]/,
+      );
+    }
+  });
+
+  it('no provider file reads process.env except the factory\'s single OUTREACH_PROVIDER read', () => {
+    for (const file of providerFiles()) {
+      const src = providerCode(file);
+      const envReads = src.match(/process\s*(?:\.|\[\s*['"])\s*env|\bfrom\s+['"](?:node:)?process['"]/g) ?? [];
+      if (file === 'index.ts') {
+        // Positive assertion too: exactly one read, and it is the documented one.
+        expect(envReads).toHaveLength(1);
+        expect(src).toMatch(/process\.env\.OUTREACH_PROVIDER/);
+      } else {
+        expect(envReads).toEqual([]);
       }
-      expect(src).not.toMatch(/db\.(insert|update|delete)\(/);
     }
   });
 
-  it('the mock provider file makes no network-capable import', () => {
-    const src = providerSource('mock.provider.ts');
-    expect(src).not.toMatch(/\bfetch\(|undici|node:https?|require\(['"]https?['"]\)/);
-  });
-
-  it('no provider file reads process.env directly except the factory\'s single OUTREACH_PROVIDER read', () => {
-    const interfaceSrc = providerSource('outreach-provider.interface.ts');
-    const mockSrc = providerSource('mock.provider.ts');
-    expect(interfaceSrc).not.toMatch(/process\.env/);
-    expect(mockSrc).not.toMatch(/process\.env/);
+  it('no provider file contains a credential-shaped literal', () => {
+    for (const file of providerFiles()) {
+      const src = providerCode(file);
+      expect(src).not.toMatch(/api[_-]?key\s*[:=]\s*['"]|Bearer\s+[A-Za-z0-9]|secret\s*[:=]\s*['"][^'"]+['"]/i);
+    }
   });
 });

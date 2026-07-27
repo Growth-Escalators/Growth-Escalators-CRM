@@ -41,10 +41,17 @@ attach.
   (`src/modules/outreach/outreachIdempotencyKey.ts`, `deriveOutreachIdempotencyKey`) — PR 9 calls this
   for every parsed result row rather than re-deriving the ADR-007 D-3 order itself.
 - A grep-enforced rule (ADR-007 D-4): no Smartlead header literal may appear outside
-  `providers/smartlead-csv.provider.ts`. `src/__tests__/wizmatchOutreachProvider.test.ts` already
-  asserts today's provider files (`outreach-provider.interface.ts`, `mock.provider.ts`, `index.ts`)
-  contain none — PR 9 should extend an equivalent grep to cover the new adapter file's siblings once it
-  exists, so the isolation rule stays mechanically checked rather than merely stated.
+  `providers/smartlead-csv.provider.ts`.
+
+  **Corrected by the PR 8 review (finding M-13) — read this before relying on the existing guard.**
+  `src/__tests__/wizmatchOutreachProvider.test.ts`'s source-guard block asserts that no file in
+  `src/modules/outreach/providers/` (globbed, plus `outreachIdempotencyKey.ts`) contains the word
+  *Smartlead* outside the `'smartlead_csv'` discriminator, nor a column-map constant under any of its
+  usual names. That is a guard against **PR 9 work leaking into PR 8's files** — it is **not** yet an
+  implementation of D-4, because D-4 constrains where a Smartlead *header literal* may live once one
+  exists, and no header literal exists anywhere yet. PR 9 must add the actual D-4 grep (every Smartlead
+  header string it introduces must appear only in `smartlead-csv.provider.ts`) and must not treat the
+  existing test as already satisfying it.
 
 ## What already exists and constrains the eventual mapping (facts, not guesses)
 
@@ -64,5 +71,8 @@ attach.
 
 The research pass for this PR was explicitly instructed not to invent Smartlead column names, and did
 not: no CSV header, no field name, and no payload shape from Smartlead itself appears anywhere in PR 8's
-code or in this checklist. The only Smartlead-shaped string anywhere in `src/` is the provider-identity
-default `'smartlead_csv'`, which is a discriminator value, not a schema guess.
+code or in this checklist. The only Smartlead-shaped **identifier or value** anywhere in `src/` is the
+provider-key default `'smartlead_csv'`, which is a discriminator, not a schema guess. (Precision fix
+from the PR 8 review, L-6: the word "Smartlead" does also appear in explanatory *comments* in the three
+provider files and in test names — the earlier claim that `'smartlead_csv'` was the only occurrence of
+any kind was wrong. No schema is leaked by any of them; the substantive claim stands.)
