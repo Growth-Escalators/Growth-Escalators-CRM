@@ -68,10 +68,17 @@ beforeEach(() => {
   state.runTodayActionsShouldThrow = null;
   state.runTodayActionsResult = { requested: 1, succeeded: 1, failed: 0, results: [{ type: 'company', id: 'company-1', ok: true }] };
   process.env.WIZMATCH_DECISION_WORKBENCH_ENABLED = 'true';
+  // P8B-3 — pilot admission is fail-closed in every runtime, so a roster is a
+  // precondition for reaching any route in this file. Satisfied here so these
+  // cases keep testing the flag/role/path behaviour they were written for
+  // rather than incidentally re-testing the pilot gate (which has its own
+  // coverage, below and in wizmatchPilotGate.test.ts).
+  process.env.WIZMATCH_STAFFING_PILOT_ALL_USERS = 'true';
 });
 
 afterEach(async () => {
   delete process.env.WIZMATCH_DECISION_WORKBENCH_ENABLED;
+  delete process.env.WIZMATCH_STAFFING_PILOT_ALL_USERS;
   if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
@@ -135,25 +142,38 @@ describe('wizmatchToday router — pilot roster enforcement', () => {
     expect(res.status).toBe(200);
   });
 
-  it('fails closed in production with no pilot roster configured, even for admin', async () => {
-    const originalNodeEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
-    try {
-      await startServer('admin');
-      const res = await fetch(`${baseUrl}/api/wizmatch/today/queues`);
-      expect(res.status).toBe(403);
-    } finally {
-      process.env.NODE_ENV = originalNodeEnv;
-    }
-  });
+  // P8B-3 — asserted across every NODE_ENV a misconfigured deploy could carry,
+  // not only 'production'. The suite-wide `WIZMATCH_STAFFING_PILOT_ALL_USERS`
+  // is removed inside each case so "no roster configured" is literally true.
+  it.each(['production', 'staging', 'development', 'test'])(
+    'fails closed with NODE_ENV=%s and no pilot roster configured, even for admin',
+    async (nodeEnv) => {
+      const originalNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = nodeEnv;
+      delete process.env.WIZMATCH_STAFFING_PILOT_ALL_USERS;
+      try {
+        await startServer('admin');
+        const res = await fetch(`${baseUrl}/api/wizmatch/today/queues`);
+        expect(res.status).toBe(403);
+        expect(calls.buildTodayQueues).toHaveLength(0);
+      } finally {
+        process.env.NODE_ENV = originalNodeEnv;
+      }
+    },
+  );
 
   it('production with a roster configured: a listed user passes, an unlisted one does not', async () => {
     const originalNodeEnv = process.env.NODE_ENV;
     const originalRoster = process.env.WIZMATCH_STAFFING_PILOT_USER_IDS;
     process.env.NODE_ENV = 'production';
-    process.env.WIZMATCH_STAFFING_PILOT_USER_IDS = 'user-1';
+    delete process.env.WIZMATCH_STAFFING_PILOT_ALL_USERS;
+    process.env.WIZMATCH_STAFFING_PILOT_USER_IDS = 'someone-else';
     try {
       await startServer('team_lead'); // startServer always uses id: 'user-1'
+      const unlistedRes = await fetch(`${baseUrl}/api/wizmatch/today/queues`);
+      expect(unlistedRes.status).toBe(403);
+
+      process.env.WIZMATCH_STAFFING_PILOT_USER_IDS = 'user-1';
       const listedRes = await fetch(`${baseUrl}/api/wizmatch/today/queues`);
       expect(listedRes.status).toBe(200);
     } finally {

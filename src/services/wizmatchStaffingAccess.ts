@@ -41,9 +41,15 @@ export function resolveStaffingAccess(actor: StaffingActor, env: Environment = p
   const configured = allUsers || ids.size > 0;
   const roleEligible = PILOT_ELIGIBLE_ROLES.has(actor.role);
   const pilotAllowed = roleEligible && (allUsers || ids.has(actor.userId));
-  const allowed = env.NODE_ENV === 'production'
-    ? configured && pilotAllowed
-    : roleEligible && (!configured || pilotAllowed);
+  // PR 8B (P8B-3) — pilot admission is fail-closed in EVERY runtime, with no
+  // environment-string branch. The previous `NODE_ENV === 'production'`
+  // ternary admitted every pilot-eligible role whenever the roster was
+  // unconfigured, so anything that was not the literal string 'production' at
+  // runtime (staging, test, an unset var, a Nixpacks build-phase-only value)
+  // was an open deployment. Deleting the branch removes the risk class rather
+  // than hardening around it: an explicit roster is now the only way in,
+  // locally included.
+  const allowed = configured && pilotAllowed;
 
   return {
     allowed,

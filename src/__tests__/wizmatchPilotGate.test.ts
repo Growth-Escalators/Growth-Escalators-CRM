@@ -7,8 +7,10 @@
 //   - a role outside PILOT_ELIGIBLE_ROLES (viewer) -> 403, even for a READ
 //     route that carries no additional role gate of its own (read permission
 //     must not imply pilot access, and vice versa)
-//   - staff/sales/manager_ops/team_lead/admin -> pass the pilot gate (dev/test
-//     default, roster unconfigured)
+//   - staff/sales/manager_ops/team_lead/admin -> STILL rejected while the
+//     roster is unconfigured (P8B-3: admission is fail-closed in every
+//     runtime, not only production — an eligible role is necessary but never
+//     sufficient)
 //   - in production with NO roster configured -> fail closed for every role,
 //     including admin (no role receives access "merely because" the roster
 //     check is skipped)
@@ -66,22 +68,34 @@ describe('wizmatchPilotGate — unauthenticated', () => {
   });
 });
 
-describe('wizmatchPilotGate — role matrix (dev/test default, roster unconfigured)', () => {
+describe('wizmatchPilotGate — role matrix (roster unconfigured, NODE_ENV unset)', () => {
   const eligibleRoles = ['admin', 'team_lead', 'manager_ops', 'sales', 'staff'];
   for (const role of eligibleRoles) {
-    it(`allows role '${role}' through when the roster is unconfigured (permissive dev/test default)`, () => {
+    it(`rejects role '${role}' while the roster is unconfigured — no permissive non-production default`, () => {
+      const { statusCode, nextCalled } = invoke({ tenantId: 'tenant-1', id: 'user-1', role });
+      expect(nextCalled).toBe(false);
+      expect(statusCode).toBe(403);
+    });
+
+    it(`allows role '${role}' once the roster names the user`, () => {
+      process.env.WIZMATCH_STAFFING_PILOT_USER_IDS = 'user-1';
       const { nextCalled } = invoke({ tenantId: 'tenant-1', id: 'user-1', role });
       expect(nextCalled).toBe(true);
     });
   }
 
-  it("rejects 'viewer' — not a pilot-eligible role, even with the roster unconfigured", () => {
+  // Rostered so the ONLY remaining reason to reject is the role itself —
+  // otherwise the unconfigured roster would reject these regardless and the
+  // assertion would say nothing about the role allow-list.
+  it("rejects 'viewer' — not a pilot-eligible role, even when named on the roster", () => {
+    process.env.WIZMATCH_STAFFING_PILOT_USER_IDS = 'viewer-1';
     const { statusCode, nextCalled } = invoke({ tenantId: 'tenant-1', id: 'viewer-1', role: 'viewer' });
     expect(nextCalled).toBe(false);
     expect(statusCode).toBe(403);
   });
 
   it('rejects an unrecognised role — fails closed, not open, on an unknown value', () => {
+    process.env.WIZMATCH_STAFFING_PILOT_USER_IDS = 'user-1';
     const { statusCode, nextCalled } = invoke({ tenantId: 'tenant-1', id: 'user-1', role: 'nonexistent_role' });
     expect(nextCalled).toBe(false);
     expect(statusCode).toBe(403);

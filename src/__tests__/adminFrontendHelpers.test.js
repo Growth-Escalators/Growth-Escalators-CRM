@@ -5,6 +5,7 @@ import { isTerminalOutcome } from '../../admin/src/lib/pipelineStageOutcomes.js'
 import { computeFlags, getVisibleEntries } from '../../admin/src/components/navEntries.js';
 import { getWizmatchPreviewLinks } from '../../admin/src/lib/wizmatchPreviewLinks.js';
 import { normalizeStaffingAccess } from '../../admin/src/lib/staffingAccess.js';
+import { capabilityFor, resolveBulkCapability } from '../../admin/src/lib/todayActionCapabilities.js';
 
 function installBrowserPath(pathname, storedTenant = 'growth-escalators') {
   const store = new Map([['crm_active_tenant_slug', storedTenant]]);
@@ -166,5 +167,58 @@ describe('admin tenant and pipeline outcome helpers', () => {
     expect(store.has('wizmatch_crm_user')).toBe(false);
     expect(store.has('wizmatch_crm_permissions')).toBe(false);
     expect(globalThis.window.location.href).toBe('/login');
+  });
+});
+
+// PR 8B (P8B-2) — the workbench renders only actions the server told it the
+// user may take. Everything the UI cannot interpret must fail CLOSED: showing
+// an enabled control on unreadable data is the same dishonesty P8B-2 removes,
+// even though the server would still reject the click.
+describe('Today workbench action capabilities — fail closed on missing or malformed data', () => {
+  const enabledItem = { capabilities: { approve_queue: { enabled: true, reason: null } } };
+
+  it('renders an action the backend marked enabled', () => {
+    expect(capabilityFor(enabledItem, 'approve_queue')).toEqual({ enabled: true, reason: null });
+  });
+
+  it.each([
+    ['item is undefined', undefined],
+    ['item has no capabilities object at all (older backend)', {}],
+    ['capabilities is null', { capabilities: null }],
+    ['capabilities is not an object', { capabilities: 'nope' }],
+    ['this action is absent from capabilities', { capabilities: { pause: { enabled: true } } }],
+    ['the entry is not an object', { capabilities: { approve_queue: true } }],
+    ['enabled is missing', { capabilities: { approve_queue: { reason: 'why' } } }],
+    ['enabled is truthy but not exactly true', { capabilities: { approve_queue: { enabled: 'yes' } } }],
+  ])('fails closed when %s', (_label, item) => {
+    const capability = capabilityFor(item, 'approve_queue');
+    expect(capability.enabled).toBe(false);
+    expect(capability.reason).toBeTruthy();
+  });
+
+  it("keeps the server's own reason when it supplied one with enabled:false", () => {
+    const item = { capabilities: { resume: { enabled: false, reason: 'Overriding a block requires an admin.' } } };
+    expect(capabilityFor(item, 'resume')).toEqual({
+      enabled: false,
+      reason: 'Overriding a block requires an admin.',
+    });
+  });
+
+  it.each([
+    ['undefined', undefined],
+    ['null', null],
+    ['a non-object', 'admin'],
+    ['an object with no enabled flag', {}],
+    ['enabled truthy but not exactly true', { enabled: 1 }],
+  ])('bulk capability fails closed when it is %s', (_label, capability) => {
+    const resolved = resolveBulkCapability(capability);
+    expect(resolved.enabled).toBe(false);
+    expect(resolved.reason).toBeTruthy();
+  });
+
+  it('bulk capability is enabled only on an explicit enabled:true', () => {
+    expect(resolveBulkCapability({ enabled: true, reason: null })).toEqual({ enabled: true, reason: null });
+    expect(resolveBulkCapability({ enabled: false, reason: 'Bulk actions require admin.' }))
+      .toEqual({ enabled: false, reason: 'Bulk actions require admin.' });
   });
 });

@@ -83,10 +83,17 @@ beforeEach(() => {
   calls.bulkWriteCompanyPolicy.length = 0;
   calls.roleGates.length = 0;
   process.env.WIZMATCH_COMPANY_POLICY_ENABLED = 'true';
+  // P8B-3 — pilot admission is fail-closed in every runtime, so a roster is a
+  // precondition for reaching any route in this file. Satisfied here so these
+  // cases keep testing path-precedence/role/flag behaviour rather than
+  // incidentally re-testing the pilot gate (covered below and in
+  // wizmatchPilotGate.test.ts).
+  process.env.WIZMATCH_STAFFING_PILOT_ALL_USERS = 'true';
 });
 
 afterEach(async () => {
   delete process.env.WIZMATCH_COMPANY_POLICY_ENABLED;
+  delete process.env.WIZMATCH_STAFFING_PILOT_ALL_USERS;
   if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
@@ -170,17 +177,23 @@ describe('wizmatchPolicy router — pilot roster enforcement', () => {
     expect(res.status).toBe(200);
   });
 
-  it('fails closed in production with no pilot roster configured, even for admin', async () => {
-    const originalNodeEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
-    try {
-      await startServer('admin');
-      const res = await fetch(`${baseUrl}/api/wizmatch/companies/c1/policy`);
-      expect(res.status).toBe(403);
-    } finally {
-      process.env.NODE_ENV = originalNodeEnv;
-    }
-  });
+  // P8B-3 — asserted across every NODE_ENV a misconfigured deploy could carry,
+  // not only 'production'.
+  it.each(['production', 'staging', 'development', 'test'])(
+    'fails closed with NODE_ENV=%s and no pilot roster configured, even for admin',
+    async (nodeEnv) => {
+      const originalNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = nodeEnv;
+      delete process.env.WIZMATCH_STAFFING_PILOT_ALL_USERS;
+      try {
+        await startServer('admin');
+        const res = await fetch(`${baseUrl}/api/wizmatch/companies/c1/policy`);
+        expect(res.status).toBe(403);
+      } finally {
+        process.env.NODE_ENV = originalNodeEnv;
+      }
+    },
+  );
 
   // `requireRole` is mocked in this file to always call next() (see the top
   // of the file) so path/pilot-gate behaviour can be tested in isolation from

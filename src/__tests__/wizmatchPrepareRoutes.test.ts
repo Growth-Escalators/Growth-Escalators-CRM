@@ -59,10 +59,17 @@ beforeEach(() => {
   state.prepareOutcome = { ok: true, result: { companyId: 'company-1', status: 'prepared' } };
   state.prepStatus = { lastPreparedAt: '2026-07-27T00:00:00.000Z' };
   process.env.WIZMATCH_AUTO_PREP_ENABLED = 'true';
+  // P8B-3 — pilot admission is fail-closed in every runtime, so a roster is a
+  // precondition for reaching any route in this file. Satisfied here so these
+  // cases keep testing flag-parsing/error-shape behaviour rather than
+  // incidentally re-testing the pilot gate (covered below and in
+  // wizmatchPilotGate.test.ts).
+  process.env.WIZMATCH_STAFFING_PILOT_ALL_USERS = 'true';
 });
 
 afterEach(async () => {
   delete process.env.WIZMATCH_AUTO_PREP_ENABLED;
+  delete process.env.WIZMATCH_STAFFING_PILOT_ALL_USERS;
   if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
@@ -180,16 +187,23 @@ describe('wizmatchPrepare router — pilot roster enforcement (PRD-005 §4)', ()
     expect(res.status).toBe(200);
   });
 
-  it('fails closed in production with no pilot roster configured, even for admin', async () => {
-    const originalNodeEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
-    try {
-      await startServer('admin');
-      const res = await fetch(`${baseUrl}/api/wizmatch/companies/company-1/prepare`, { method: 'POST' });
-      expect(res.status).toBe(403);
-      expect(calls.prepareSingleCompany).toHaveLength(0);
-    } finally {
-      process.env.NODE_ENV = originalNodeEnv;
-    }
-  });
+  // P8B-3 — asserted across every NODE_ENV a misconfigured deploy could carry,
+  // not only 'production'. Preparation writes (scrapes a website, creates
+  // contact candidates), so an unconfigured roster must stop it everywhere.
+  it.each(['production', 'staging', 'development', 'test'])(
+    'fails closed with NODE_ENV=%s and no pilot roster configured, even for admin',
+    async (nodeEnv) => {
+      const originalNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = nodeEnv;
+      delete process.env.WIZMATCH_STAFFING_PILOT_ALL_USERS;
+      try {
+        await startServer('admin');
+        const res = await fetch(`${baseUrl}/api/wizmatch/companies/company-1/prepare`, { method: 'POST' });
+        expect(res.status).toBe(403);
+        expect(calls.prepareSingleCompany).toHaveLength(0);
+      } finally {
+        process.env.NODE_ENV = originalNodeEnv;
+      }
+    },
+  );
 });

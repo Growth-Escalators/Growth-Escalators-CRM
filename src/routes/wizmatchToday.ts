@@ -19,8 +19,9 @@
 // reach `/today/queues` without being 403'd by an unrelated stricter gate.
 
 import { Router, type Request, type Response } from 'express';
-import { buildTodayQueues } from '../modules/outreach/decisionWorkbench';
+import { buildTodayQueues, type DecisionWorkbenchCompanyItem } from '../modules/outreach/decisionWorkbench';
 import { runTodayActions, TodayActionValidationError, type TodayActionRequest } from '../modules/outreach/decisionWorkbenchActions';
+import { computeTodayActionCapabilities, computeBulkCapability } from '../modules/outreach/decisionWorkbenchCapabilities';
 import { wizmatchPilotGate } from '../middleware/wizmatchPilotGate';
 
 const router = Router();
@@ -59,11 +60,31 @@ function clampLimit(raw: unknown, fallback: number, max: number): number {
   return Math.min(parsed, max);
 }
 
+// PR 8B (P8B-2) — the workbench renders actions from `item.capabilities`
+// rather than deciding for itself which roles/states may act. Computing it
+// here (not in the SPA) keeps one rule set: the frontend is a pure renderer of
+// an answer the backend already gave.
+const QUEUE_KEYS = ['readyToContact', 'needsReview', 'routed', 'pausedOrBlocked'] as const;
+
+function attachCapabilities(queues: Record<string, unknown>, role: string | undefined) {
+  const withCapabilities: Record<string, unknown> = { ...queues };
+  for (const key of QUEUE_KEYS) {
+    const items = queues[key];
+    if (!Array.isArray(items)) continue;
+    withCapabilities[key] = (items as DecisionWorkbenchCompanyItem[]).map((item) => ({
+      ...item,
+      capabilities: computeTodayActionCapabilities(item, role, 'single'),
+    }));
+  }
+  withCapabilities.bulkCapability = computeBulkCapability(role);
+  return withCapabilities;
+}
+
 router.get('/today/queues', async (req: Request, res: Response) => {
   try {
     const limit = clampLimit(req.query.limit, 200, 500);
     const queues = await buildTodayQueues(req.user!.tenantId, limit);
-    res.json(queues);
+    res.json(attachCapabilities(queues as unknown as Record<string, unknown>, req.user?.role));
   } catch (error) {
     console.error('[wizmatch today/queues] failed to build decision queues', error);
     res.status(500).json({ error: 'internal_error' });

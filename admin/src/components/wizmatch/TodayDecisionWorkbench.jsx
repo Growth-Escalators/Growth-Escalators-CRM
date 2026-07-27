@@ -8,6 +8,7 @@ import StatusBadge from './StatusBadge.jsx';
 import DataTable from '../ui/DataTable.jsx';
 import TodayActionDialog from './TodayActionDialog.jsx';
 import TodayBulkActionBar from './TodayBulkActionBar.jsx';
+import { capabilityFor } from '../../lib/todayActionCapabilities.js';
 
 // PRD-005 PR 6 §13 — the Decision Workbench. Re-buckets WizMatch Today into
 // four canonical queues fed entirely by GET /api/wizmatch/today/queues
@@ -61,6 +62,50 @@ function primaryActionFor(item) {
     return item.accountOwnerUserId ? null : { action: 'assign_owner', label: 'Assign Owner' };
   }
   return { action: 'approve_queue', label: 'Approve & Queue' };
+}
+
+// PR 8B (P8B-2) — the backend attaches `item.capabilities` (computed by
+// src/modules/outreach/decisionWorkbenchCapabilities.ts from the item's state
+// and the caller's role). This component is a pure renderer of that answer and
+// deliberately owns NO rule of its own: before this, every action rendered as
+// an enabled button for every role, so a staff/manager_ops/sales pilot reader
+// was shown controls the server was always going to 403.
+//
+// A response with no (or malformed) `capabilities` FAILS CLOSED — see
+// admin/src/lib/todayActionCapabilities.js. An action we cannot prove the user
+// may take is not shown as available.
+
+// Renders one contextual action. When disabled, the reason is BOTH visible
+// text and the button's `aria-describedby` target — the same pattern the "No
+// action available" affordance below uses. Each action carries its own id
+// because two actions on one card can be disabled for different reasons at
+// the same time.
+function ActionButton({ item, action, label, className, onAction }) {
+  const { enabled, reason } = capabilityFor(item, action);
+  const reasonId = `action-reason-${item.companyId}-${action}`;
+  if (enabled) {
+    return (
+      <button type="button" onClick={() => onAction(action, item)} className={className}>
+        {label}
+      </button>
+    );
+  }
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      <button
+        type="button"
+        disabled
+        aria-describedby={reasonId}
+        className={`${className} disabled:opacity-40 disabled:cursor-not-allowed`}
+      >
+        {label}
+      </button>
+      <span id={reasonId} className="text-[11px] text-neutral-500">
+        <AlertTriangle className="inline w-3 h-3 mr-0.5 -mt-0.5" aria-hidden="true" />
+        {reason}
+      </span>
+    </span>
+  );
 }
 
 function CompanyCard({ item, onAction, isStale }) {
@@ -121,13 +166,13 @@ function CompanyCard({ item, onAction, isStale }) {
       )}
       <div className="flex flex-wrap items-center gap-2 pt-1">
         {primary ? (
-          <button
-            type="button"
-            onClick={() => onAction(primary.action, item)}
+          <ActionButton
+            item={item}
+            action={primary.action}
+            label={primary.label}
             className="btn-primary btn-compact"
-          >
-            {primary.label}
-          </button>
+            onAction={onAction}
+          />
         ) : (
           <span
             className="text-[11.5px] text-neutral-500"
@@ -137,21 +182,15 @@ function CompanyCard({ item, onAction, isStale }) {
           </span>
         )}
         {item.duplicatePending && (
-          <button type="button" onClick={() => onAction('confirm_separate', item)} className="btn-standard btn-compact">
-            Confirm Separate
-          </button>
+          <ActionButton item={item} action="confirm_separate" label="Confirm Separate" className="btn-standard btn-compact" onAction={onAction} />
         )}
-        <button type="button" onClick={() => onAction('assign_owner', item)} className="btn-standard btn-compact">
-          Assign Owner
-        </button>
-        <button type="button" onClick={() => onAction('set_review_date', item)} className="btn-standard btn-compact">
-          Set Review Date
-        </button>
+        <ActionButton item={item} action="assign_owner" label="Assign Owner" className="btn-standard btn-compact" onAction={onAction} />
+        <ActionButton item={item} action="set_review_date" label="Set Review Date" className="btn-standard btn-compact" onAction={onAction} />
         {effectiveDecisionOf(item) !== 'deny' && (
           <>
-            <button type="button" onClick={() => onAction('pause', item)} className="btn-standard btn-compact">Pause</button>
-            <button type="button" onClick={() => onAction('block', item)} className="btn-standard btn-compact">Block</button>
-            <button type="button" onClick={() => onAction('skip', item)} className="btn-standard btn-compact">Skip for Now</button>
+            <ActionButton item={item} action="pause" label="Pause" className="btn-standard btn-compact" onAction={onAction} />
+            <ActionButton item={item} action="block" label="Block" className="btn-standard btn-compact" onAction={onAction} />
+            <ActionButton item={item} action="skip" label="Skip for Now" className="btn-standard btn-compact" onAction={onAction} />
           </>
         )}
         {(item.disabledReason || !primary) && (
@@ -479,6 +518,7 @@ export default function TodayDecisionWorkbench() {
             <TodayBulkActionBar
               count={selected[queueKey].size}
               actions={BULK_ACTIONS_BY_QUEUE[queueKey] || []}
+              capability={queues.bulkCapability}
               onClear={() => setSelected((prev) => ({ ...prev, [queueKey]: new Set() }))}
               onAction={(action) => openDialogForBulk(queueKey, action)}
             />

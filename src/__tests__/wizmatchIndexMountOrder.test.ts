@@ -19,7 +19,7 @@
 // edit that re-introduces the M-1 ordering is caught mechanically rather than
 // depending on a reviewer re-reading the mount block.
 
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -103,10 +103,19 @@ describe('src/index.ts — /api/wizmatch mount order (M-1)', () => {
 describe('/api/wizmatch feature gates — off must hide the router, not the prefix', () => {
   let server: Server | null = null;
 
+  // P8B-3 — pilot admission is fail-closed in every runtime, so the flagged
+  // routers now need a roster before any request reaches them. Satisfied here
+  // so this suite keeps testing MOUNT ORDER and feature-flag fall-through
+  // rather than incidentally re-testing the pilot gate.
+  beforeEach(() => {
+    process.env.WIZMATCH_STAFFING_PILOT_ALL_USERS = 'true';
+  });
+
   afterEach(async () => {
     delete process.env.WIZMATCH_COMPANY_POLICY_ENABLED;
     delete process.env.WIZMATCH_DECISION_WORKBENCH_ENABLED;
     delete process.env.WIZMATCH_AUTO_PREP_ENABLED;
+    delete process.env.WIZMATCH_STAFFING_PILOT_ALL_USERS;
     if (server) {
       const s = server;
       server = null;
