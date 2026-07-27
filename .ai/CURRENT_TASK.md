@@ -2,78 +2,78 @@
 
 ## Active task
 
-**PR 8A REVIEWED 2026-07-27 — verdict NOT READY as submitted; technically sound at `a2662cb1` after
-this review's fixes, but `.ai/OUTBOUND_PR8A_CODE_READY` was DELIBERATELY NOT CREATED.** Independent
-readiness review of `ge/outbound-08-outreach-adapter..HEAD` (submitted at `47c27173`). Branch
-`ge/outbound-08a-live-pilot-hardening`, local only, NOT pushed, NOT merged. Report:
+**PR 8A CODE READY (independently reviewed) 2026-07-27 — WizMatch Outbound Operating System,
+Smartlead-free live-pilot hardening.** Branch `ge/outbound-08a-live-pilot-hardening`, local only,
+NOT pushed, NOT merged. Markers: `.ai/OUTBOUND_PR8A_IMPLEMENTED` (self-reported) +
+**`.ai/OUTBOUND_PR8A_CODE_READY` (independent review, at `f12c62ca`)**. Report:
 [`docs/reviews/wizmatch-outbound-pr8a-opus-review.md`](../docs/reviews/wizmatch-outbound-pr8a-opus-review.md),
 `docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md`'s PR 8A review section, `.ai/HANDOFF_LOG.md`.
 
-**Why no marker — read this first.** The marker attests to a three-subagent review. The three
-read-only Explore subagents were spawned in parallel as required and ran ~2h; each was sent four
-escalating requests to return its report; **none returned any output.** The lead covered all three
-assigned areas by hand and found **three High** defects that the implementing session's five green
-gates did not — which is precisely the argument for not treating one reviewer's pass as the required
-assurance. No subagent output was fabricated. **Exact next action: re-run the three-subagent pass
-against `a2662cb1` (a much smaller job now — fixes are in, gates green) and create
-`.ai/OUTBOUND_PR8A_CODE_READY` only if it surfaces nothing new.**
+**Review outcome:** NOT READY as submitted at `47c27173`; **READY at `f12c62ca`** after **four High,
+six Medium and three Low fixes**. **Zero Critical.** Three parallel read-only Explore subagents
+reconciled with an independent hand review. **Nineteen control runs.** Every submitted-tree gate
+number reproduced exactly (122 files / 1246 tests; Playwright 99/15/0), so the implementation marker
+did not overstate itself.
 
-- **H-1** — the go-live readiness CLI **read no `.env`**. `scripts/wizmatch-pilot-readiness.ts`
-  imported no dotenv, unlike every sibling script in the repo. The runbook's G3 step tells an
-  operator to run it "against an identical local `.env` copy" — against which every safety flag
-  resolved to `undefined` -> "off" -> exit 0, `RESULT: no dangerous configuration detected`. A `.env`
-  with `WIZMATCH_SENDING_ENABLED=true` would have been reported **safe to go live**. The single
-  mechanical check between the operator and a bad production configuration was blind to the exact
-  file the runbook points it at.
-- **H-2** — the **"No action available" affordance lost its explanation**, for a state PR 8A itself
-  introduced. The `title` fallback was replaced by an `aria-describedby` that is `undefined` whenever
-  `disabledReason` is null, and `disabledReasonFor` returned null for a **routed company that already
-  has an account owner** — exactly the state `primaryActionFor` gives no primary action to. Bare,
-  unexplained "No action available", for every user, not only screen-reader users. Fixed on both
-  sides; `routed` is now resolved before the item is built rather than mutated after bucketing, so it
-  can never contradict the queue the item is in.
-- **H-3** — **approval provenance was enforced in the workbench layer only, not at the write
-  chokepoint.** `POST /companies/:id/policy`, `POST /companies/bulk/policy` and
-  `writeCompanyPolicyOverride` all call `writeCompanyPolicy` directly; `PolicyActor.userId` is
-  optional and `wizmatch_company_policies.actor_user_id` is nullable. This table has no
-  `approved_by`/`approved_at` pair (verified — the implementation doc is correct about that), so
-  `actor_user_id` + `source` + the event chain **is** the entire provenance record, and an approval
-  to `eligible` was still persistable with a NULL actor. Now refused at the chokepoint for
-  `source: 'human'`; `import`/`deterministic_rule`/`provider` (the backfill) unaffected.
-  `resolveDuplicate` got the same guard.
-- **M-1/M-2/M-3** — an unknown `OUTREACH_PROVIDER` was only dangerous with the adapter on, so
-  `smartlead_csv` (the documented default, and the exact provider this pilot must not use) passed
-  silently; an absent pilot roster was only dangerous under `NODE_ENV=production`, which a copied
-  `.env` never carries (added `--production`, now required at G3, and
-  `WIZMATCH_STAFFING_PILOT_ALL_USERS` is no longer reported as a configured pilot); the configuration
-  contract had **no roster row at all**. **L-1/L-2 fixed; L-3…L-6 recorded, not fixed.**
+**Method note worth keeping.** The three subagents returned *late* — after the lead had finished an
+independent hand review of all three areas and committed a first round of fixes. That made the two
+passes genuinely independent, and **each caught defects the other missed**: the lead found H-1/M-2/M-3,
+the subagents found H-4/S1-1/S1-3/S1-5 plus three recorded owner decisions, and three findings were
+confirmed by both. One subagent reading was wrong on the merits and is corrected in the report (S3
+read the absent dotenv import as deliberate; it is not).
 
-**Verified clean:** tenancy on the one new query; non-overridable across the full action union AND
-through the direct/bulk policy APIs (the property holds at every scope — most-restrictive-wins plus
-`findUnresolvableScopeType`'s fail-closed); `set_review_date` field-by-field; stale-state checked
-inside the authoritative transaction; taxonomy fail-closed with no second engine anywhere;
-the pilot gate's ordering, roster parsing and fail-closed-in-production behaviour; runbook G1–G4
-separation with no auto-apply command; scope boundary. Contrast recomputed independently
-(4.23:1 -> 5.66:1) — the claim is accurate.
+- **H-1** — the go-live readiness CLI **read no `.env`**, unlike every sibling script. The runbook's
+  G3 step tells an operator to run it "against an identical local `.env` copy"; against one, every
+  safety flag read `undefined` -> "off" -> exit 0. **A `.env` with `WIZMATCH_SENDING_ENABLED=true`
+  would have been reported safe to go live.**
+- **H-2** — the **"No action available" affordance lost its explanation** for a state PR 8A itself
+  introduced (a routed company that already has an account owner). Bare, unexplained text for every
+  user. `routed` is now resolved before the item is built rather than mutated after bucketing.
+- **H-3** — **approval provenance was enforced in the workbench layer only**, while three other paths
+  reach `writeCompanyPolicy` directly with an optional `actor.userId` and a nullable
+  `actor_user_id`. With no `approved_by`/`approved_at` on this table (verified), an `eligible` row was
+  still persistable with a NULL actor. Now refused at the chokepoint for `source: 'human'`; the
+  backfill's non-human sources are unaffected. `resolveDuplicate` too.
+- **H-4 (subagent)** — **the pilot roster's fail-closed branch turns entirely on `NODE_ENV === 'production'`,
+  and nothing in this repo records that it is set at runtime** (Nixpacks' documented value is
+  build-phase). With any other value the roster is bypassed and every pilot-eligible role is admitted —
+  an open deployment, not a pilot. Asserting `--production` while `NODE_ENV` disagrees is now a
+  readiness DANGER, and G3 gained an explicit checked step. **Railway was not accessed; the live value
+  must be confirmed by a human at G3.**
+- **M-1/M-2/M-3** — unknown `OUTREACH_PROVIDER` only dangerous with the adapter on, so `smartlead_csv`
+  passed silently; an absent roster only dangerous under `NODE_ENV=production`, which a copied `.env`
+  never carries (added `--production`; `WIZMATCH_STAFFING_PILOT_ALL_USERS` is now reported as the open
+  deployment it is); the configuration contract had **no roster row at all**.
+- **S1-1/S1-3/S1-5 (subagent, fixed)** — a narrower non-overridable block was **invisible in shadow**
+  when the root read `eligible`, landing a company nobody may contact in **Ready to Contact** (nothing
+  was sendable — the gate re-resolves every active row — but the operator was shown the wrong thing);
+  a concurrent double-submit leaked a raw Postgres `23505` instead of the stable `stale_policy_state`;
+  `decisionWorkbench.test.ts`'s mock discarded `.where()`, so the new narrower-block query's predicates
+  were unobservable.
+- **RECORDED, needing an owner decision — S1-2** the non-overridable scan does not separate PRD §8.2's
+  L4 per-signal blocks from L1c scope blocks, so one per-signal block freezes every company-level
+  action (deliberately NOT changed — loosening a block guard is not a reviewer's call, and the current
+  behaviour errs safe); **S2-4** the workbench shows actions a `staff` member's role always 403s;
+  **S3-1** Smartlead detection is env-var-name-substring only.
 
-**Eleven control runs.** Ten failed correctly; **two of the reviewer's own new guards were evadable
-and were rewritten** (a commented-out import satisfied one; an identifier's own `const` declaration
-satisfied another) — the fourth-generation form of this repo's recurring evadable-static-guard class.
+**Three of the reviewer's OWN guards were found vacuous by control runs and rewritten** — a
+commented-out import satisfied one, an identifier's own `const` satisfied another, and a walker
+followed Drizzle's circular `.table` back-reference and so collected every sibling column. All three
+are the repo's recurring evadable-guard class, reproduced while reviewing for it.
 
-**Gates.** The submitted tree reproduced the implementation doc exactly (122 files / **1246 tests**;
-Playwright 99/15/0), so the marker did not overstate its numbers. Fix tree at `a2662cb1`:
-`git diff --check` clean · `npm run build` exit 0 · `npm test` **122 files / 1263 tests** (+17) ·
-`npm run admin:build` exit 0 · `npx playwright test --config=playwright.wizmatch-local.config.ts`
-**99 passed / 15 skipped / 0 failed** · readiness CLI exit 0 on the approved safe baseline and exit 1
-on **all nine** required danger conditions.
+**Gates at `f12c62ca`:** `git diff --check` clean · `npm run build` exit 0 · `npm test` **122 files /
+1270 tests** (+24) · `npm run admin:build` exit 0 ·
+`npx playwright test --config=playwright.wizmatch-local.config.ts` **99 passed / 15 skipped / 0
+failed** · readiness CLI exit 0 on the approved safe baseline AND on a fully correct production
+config, exit 1 on all nine required danger conditions plus the new `NODE_ENV` mismatch.
 
-**Before G3/live pilot:** set `WIZMATCH_STAFFING_PILOT_USER_IDS` to an explicit id list (NOT the
-all-users override); run `npm run wizmatch:pilot-readiness -- --production`; enable
-`WIZMATCH_COMPANY_POLICY_ENABLED` and `WIZMATCH_DECISION_WORKBENCH_ENABLED`. **PR 7's O-3 is still
-open** — `POST .../prepare` is a write at pilot-member tier with no role gate (inert while
-`WIZMATCH_AUTO_PREP_ENABLED=false`). Before G1: **B-1, apply `0037`** (the repo auto-deploys on push)
-plus the U-7 shared-index owner sign-off. Before G4: everything carried from PR 3/5/6 plus PR 7's O-2.
-**PR 9 remains GATED on U-6.**
+**Exact next action:** owner decisions on S1-2, S2-4 and S3-1, then G1. **Before G1:** apply migration
+`0037` (**B-1** — the repo auto-deploys on push) plus the U-7 shared-index owner sign-off, and run the
+§10.11.4 fresh-database checks. **Before G3:** confirm `NODE_ENV=production` on Railway (H-4); set
+`WIZMATCH_STAFFING_PILOT_USER_IDS` to an explicit id list (not the all-users override); run
+`npm run wizmatch:pilot-readiness -- --production`; enable `WIZMATCH_COMPANY_POLICY_ENABLED` and
+`WIZMATCH_DECISION_WORKBENCH_ENABLED`. **PR 7's O-3 is still open.** Before G4: everything carried
+from PR 3/5/6 plus PR 7's O-2. **PR 9 remains GATED on U-6.**
 
 **Do not** push, merge, deploy, apply `0037`, run backfill `--apply`, promote `enforce`, enable
 sending/preparation/the adapter/paid discovery, connect Smartlead, or start PR 9/10 on the strength

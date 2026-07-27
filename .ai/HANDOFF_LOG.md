@@ -6,21 +6,22 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
-## 2026-07-27 — WizMatch Outbound OS: PR 8A independently reviewed — NOT READY as submitted; fixed at `a2662cb1`; CODE_READY marker deliberately NOT created — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT MERGED
+## 2026-07-27 — WizMatch Outbound OS: PR 8A independently reviewed — CODE READY at `f12c62ca` — Claude — LOCAL BRANCH ONLY, NOT PUSHED, NOT MERGED
 
 **Why:** the PR 8A marker was self-reported. Standing practice on this stack (PR 2/3/5/6/7/8) is an
 independent readiness review by a session that did not write the code, using three parallel read-only
 Explore subagents reconciled by the lead.
 
-**Method deviation, stated plainly.** The three subagents were spawned in parallel with fixed output
-contracts (workbench/policy mutations; RBAC/roster/frontend; preparation/go-live safety). They ran
-~2h. Each was sent four escalating requests to return its report. **None returned any output.** The
-lead covered all three assigned areas by hand instead. No subagent output was fabricated and no
-finding is attributed to one. Because `.ai/OUTBOUND_PR8A_CODE_READY` attests to a completed
-three-subagent review, **it was not created** — the hand review found three High defects the five
-green gates did not, which is exactly why one reviewer's pass is not the intended bar here.
+**Method note worth keeping.** The three subagents (workbench/policy; RBAC/roster/frontend;
+preparation/go-live) returned **late** — after the lead had completed an independent hand review of
+all three areas and committed a first round of fixes. That made the two passes genuinely independent,
+and **each caught defects the other missed**: the lead found H-1/M-2/M-3, the subagents found
+H-4/S1-1/S1-3/S1-5 plus three recorded owner decisions, and three findings were confirmed by both.
+One subagent reading was wrong on the merits and is corrected in the report (S3 read the absent
+dotenv import as deliberate; it is not — dotenv has nothing to do with DB access).
+`.ai/OUTBOUND_PR8A_CODE_READY` created at `f12c62ca`.
 
-**What changed (two fix commits, `3cfedccd` and `a2662cb1`):**
+**What changed (three fix commits: `3cfedccd`, `a2662cb1`, `f12c62ca`):**
 
 - **H-1** — `scripts/wizmatch-pilot-readiness.ts` loaded no `.env`, unlike every sibling script.
   The go-live runbook's G3 step tells an operator to run it "against an identical local `.env` copy",
@@ -37,24 +38,37 @@ green gates did not, which is exactly why one reviewer's pass is not the intende
   `writeCompanyPolicy` directly with an optional `actor.userId` and a nullable `actor_user_id`
   column. `writeCompanyPolicy` now refuses a `source: 'human'` write with no actor; non-human
   sources (the backfill) unaffected. `resolveDuplicate` got the same guard.
+- **H-4 (subagent S2)** — the pilot roster's fail-closed branch turns entirely on
+  `NODE_ENV === 'production'`, and nothing in this repo records it is set at runtime (Nixpacks'
+  documented value is build-phase). With any other value the roster is bypassed and every
+  pilot-eligible role is admitted. Asserting `--production` while `NODE_ENV` disagrees is now a
+  readiness DANGER; G3 gained an explicit checked step. Railway was NOT accessed.
+- **S1-1/S1-3/S1-5 (subagent, fixed)** — a narrower non-overridable block was invisible in shadow
+  when the root read `eligible`, landing a company nobody may contact in Ready to Contact; a
+  concurrent double-submit leaked a raw `23505`; the workbench test mock discarded `.where()`.
 - **M-1/M-2/M-3, L-1/L-2** — unknown `OUTREACH_PROVIDER` now dangerous independent of the adapter
   flag; `--production` added (required at G3) so an absent roster is caught against a copied `.env`,
   and `WIZMATCH_STAFFING_PILOT_ALL_USERS` is reported as the open deployment it is; the configuration
   contract gained its missing pilot-roster section; two self-contradicting comments corrected;
   `npx tsx` aligned with sibling scripts.
+- **RECORDED, owner decisions (not changed):** S1-2 (L4 per-signal vs L1c scope blocks — loosening a
+  block guard is not a reviewer's call), S2-4 (UI shows actions `staff` always 403s), S3-1 (Smartlead
+  name-substring detection).
 
 **How to verify:** `git diff --check` clean · `npm run build` exit 0 · `npm test` **122 files /
-1263 tests** (submitted tree reproduced at 1246, matching the implementation doc exactly) ·
+1270 tests** (submitted tree reproduced at 1246, matching the implementation doc exactly) ·
 `npm run admin:build` exit 0 · `npx playwright test --config=playwright.wizmatch-local.config.ts`
 **99 passed / 15 skipped / 0 failed** · `npm run wizmatch:pilot-readiness` exit 0 on the approved safe
-baseline and exit 1 on all nine required danger conditions. Eleven control runs; ten failed
-correctly, and two of the reviewer's own new guards were found evadable and rewritten.
+baseline and on a fully correct production config, exit 1 on all nine required danger conditions plus
+the new `NODE_ENV` mismatch. **Nineteen control runs**; sixteen failed correctly, and **three of the
+reviewer's own guards were found vacuous and rewritten** (a commented-out import; an identifier's own
+`const`; a walker following Drizzle's circular `.table` back-reference).
 
 **Read next:** `docs/reviews/wizmatch-outbound-pr8a-opus-review.md` (full report, findings, blockers
 per gate), `docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md`'s PR 8A review section, `.ai/CURRENT_TASK.md`.
 
-**What's next:** **re-run the three-subagent review pass against `a2662cb1`** and create
-`.ai/OUTBOUND_PR8A_CODE_READY` only if nothing new surfaces. **Do not** push, merge, deploy, apply
+**What's next:** owner decisions on S1-2 / S2-4 / S3-1, then G1. Before G3, confirm
+`NODE_ENV=production` on the Railway service (H-4) and set an explicit pilot roster. **Do not** push, merge, deploy, apply
 `0037`, run backfill `--apply`, promote `enforce`, enable sending/preparation/the adapter/paid
 discovery, connect Smartlead, or start PR 9/10 on the strength of this review.
 

@@ -3,49 +3,42 @@
 - **Branch:** `ge/outbound-08a-live-pilot-hardening` · **Parent:** `ge/outbound-08-outreach-adapter` (code-ready at `1b4b59fa`)
 - **Reviewed range:** `ge/outbound-08-outreach-adapter..HEAD`
 - **Submitted at:** `47c27173` (implementation marker `.ai/OUTBOUND_PR8A_IMPLEMENTED`, self-reported)
-- **Reviewed/fix HEAD:** `a2662cb1`
+- **Reviewed/fix HEAD:** `f12c62ca`
 - **Reviewed at:** 2026-07-27
-- **Review method:** three parallel read-only Explore subagents + an independent hand review by the
-  lead. **The three subagents did not return reports** — see "Method deviation" below. Everything in
-  this report is from the lead's own hand review, and every finding is evidenced by file:line, a
-  reproduced command, or a control run.
+- **Review method:** three parallel read-only Explore subagents, reconciled with an independent hand
+  review by the lead. Every finding is evidenced by file:line, a reproduced command, or a control run.
 
 ---
 
 ## FINAL VERDICT
 
-**NOT READY as submitted at `47c27173`. Fixed to a state the lead considers technically sound at
-`a2662cb1` — but `.ai/OUTBOUND_PR8A_CODE_READY` was deliberately NOT created, because the review
-process the marker attests to did not complete.**
+**NOT READY as submitted at `47c27173`. READY at `f12c62ca`** after **three High, three Medium and
+two Low fixes in the first pass, plus one High, three Medium and one Low from the three-subagent
+reconciliation.** Zero Critical. `.ai/OUTBOUND_PR8A_CODE_READY` **created.**
 
-Three High findings were fixed during this review, plus three Medium and three Low. Zero Critical.
-Every fix carries a control run proving its new assertion fails on the defect. All five gates are
-green on the fix tree, and the readiness CLI now fires on all nine required danger conditions.
+All five gates green on the fix tree. The readiness CLI fires on all nine required danger conditions
+plus a new tenth (a `NODE_ENV` that would silently disable the pilot roster), and passes both the
+approved safe baseline and a fully correct production configuration.
 
-**But the marker's stated precondition — "all three subagent reports are returned and reconciled" —
-is not met.** The three read-only Explore subagents were spawned in parallel as required and ran for
-approximately two hours; each was sent four escalating requests to return its report; none returned
-any output. The lead's hand review covered all three assigned areas, and it found three High defects
-the implementing session's own five green gates did not — which is itself evidence that a single
-reviewer is not the intended level of assurance here. Creating the marker on one reviewer's pass
-would misrepresent what was done.
+## Method — three subagents, reconciled
 
-**Recommended next step: re-run the three-subagent pass against `a2662cb1` (a much smaller job now —
-the fixes are in and the gates are green), and create the marker only if it surfaces nothing new.**
+Three read-only Explore subagents were spawned in parallel with fixed output contracts:
+S1 workbench/policy mutations, S2 RBAC/pilot roster/frontend, S3 preparation/go-live safety. They
+returned late — after the lead had completed an independent hand review of all three areas and
+committed a first round of fixes — so this review has **two passes**, both recorded below.
 
----
+That timing turned out to be useful rather than wasteful: the two passes were genuinely independent,
+and each caught defects the other did not.
 
-## Method deviation (stated plainly)
+| | Found by the lead's hand review | Found by the subagents |
+|---|---|---|
+| Confirmed by **both**, independently | H-3 actor-at-chokepoint (= S1-4) · H-2 routed disabled-reason (= S2-5) · M-1 unknown provider (= S3-2) · H-1's underlying fact, the absent dotenv (= S3-3) | same three, plus the dotenv observation |
+| Found by the lead **only** | H-1 (that the absent dotenv makes the CLI report SAFE against a sending-enabled config — S3 saw the absence but read it as deliberate) · M-2 roster/`--production` · M-3 contract gap · L-1, L-2 | — |
+| Found by the subagents **only** | — | **S2-1** `NODE_ENV` runtime assumption (High) · **S1-1** non-overridable invisible in shadow · **S1-3** leaked 23505 · **S1-2** L4-vs-L1c scope conflation · **S2-4** UI role affordances · **S3-1** Smartlead name-detection blind spots · **S1-5** vacuous `.where()` mock |
 
-| Required | What happened |
-|---|---|
-| Three read-only Explore subagents in parallel | Spawned in parallel with fixed output contracts (workbench/policy mutations; RBAC/roster/frontend; preparation/go-live safety). |
-| Reports returned and reconciled | **Did not happen.** No subagent produced output after ~2h and four escalating final-call messages each. |
-| Lead reconciles + owns fixes | Done. The lead independently covered all three areas by hand; all fixes and commits are the lead's. |
-
-No subagent output was fabricated, and no finding below is attributed to one.
-
----
+One notable disagreement: **S3 read the absent dotenv import as deliberate** ("consistent with its
+no-DB claim"). That reading is wrong — dotenv has nothing to do with database access, and the runbook
+explicitly instructs an operator to point the CLI at a `.env` copy. The lead's H-1 fix stands.
 
 ## Verdicts
 
@@ -53,17 +46,17 @@ No subagent output was fabricated, and no finding below is attributed to one.
 |---|---|
 | **Implementation completeness** | **PASS.** All fourteen claimed items exist and do what the doc says, with three exceptions found and fixed (H-1, H-2, H-3) and three under-implemented conditions (M-1, M-2, M-3). The gate numbers in the implementation doc reproduced exactly on the submitted tree (122 files / 1246 tests; Playwright 99/15/0), so the marker did not overstate itself. |
 | **Tenancy** | **PASS.** The one new query, `fetchNarrowerNonOverridableBlockByCompany` (`decisionWorkbench.ts:250-270`), filters `tenantId` first, then `inArray(companyIds)`, then `isNull(supersededAt)`. No new query anywhere in the diff omits a tenant predicate. |
-| **RBAC / pilot roster** | **PASS-WITH-GAPS.** The gate is correct and correctly ordered; the roster's *configuration* was under-checked (M-2, fixed) and undocumented (M-3, fixed). See the endpoint table below. |
-| **Approval provenance** | **FAIL as submitted → PASS at `a2662cb1`.** H-3: the `actor_required` guard existed only in the workbench action layer; three other paths reach the write chokepoint directly. Fixed. |
-| **Stale-state** | **PASS.** `expectedPolicyId` is compared inside `writeCompanyPolicy`'s own transaction against the row that transaction just read (`policyService.ts:389-398` pre-fix numbering), before any mutation. Stable `stale_policy_state` code, 409 on the direct route, per-target `ok:false` on Today actions — never a whole-request abort. One semantic note recorded as L-3. |
-| **Non-overridable** | **PASS.** Verified across the full action union; see the table below. |
+| **RBAC / pilot roster** | **PASS-WITH-GAPS.** The gate is correct and correctly ordered; the roster's *configuration* was under-checked (M-2, fixed) and undocumented (M-3, fixed). **H-4: its fail-closed branch turns entirely on a runtime `NODE_ENV` this repo never confirms is set** — now a readiness DANGER and an explicit G3 checklist step, but the live value must be confirmed by the operator. See the endpoint table below. |
+| **Approval provenance** | **FAIL as submitted → PASS at `f12c62ca`.** H-3: the `actor_required` guard existed only in the workbench action layer; three other paths reach the write chokepoint directly. Fixed. |
+| **Stale-state** | **PASS at `f12c62ca`.** S1-3 (a concurrent write leaking a raw `23505` instead of the stable code) fixed. `expectedPolicyId` is compared inside `writeCompanyPolicy`'s own transaction against the row that transaction just read (`policyService.ts:389-398` pre-fix numbering), before any mutation. Stable `stale_policy_state` code, 409 on the direct route, per-target `ok:false` on Today actions — never a whole-request abort. One semantic note recorded as L-3. |
+| **Non-overridable** | **PASS at `f12c62ca`.** Verified across the full action union (table below). S1-1 (a narrower block invisible in shadow behind an `eligible` root) fixed. **S1-2 recorded as a G3 blocker needing an owner decision** — the scan does not separate PRD §8.2's L4 per-signal blocks from L1c scope blocks, so it is currently *too* restrictive. |
 | **Preparation / taxonomy** | **PASS.** `isPreparationAllowed` now defaults `false`; both write chokepoints validate against the §9 taxonomy; grep confirms no second reason-code or preparation-permission engine. |
-| **Queue** | **PASS at `a2662cb1`.** Precedence is as documented and a routed item appears exactly once. H-2's fix also removed a latent contradiction: `routed` was mutated *after* bucketing, so it could disagree with the queue the item was in. |
-| **Accessibility** | **FAIL as submitted → PASS at `a2662cb1`.** H-2: the "No action available" affordance lost its explanation for a state PR 8A itself introduced. Contrast claims independently verified by computation. |
-| **Readiness CLI** | **FAIL as submitted → PASS at `a2662cb1`.** H-1 (read no `.env` — reported SAFE against a sending-enabled config), M-1 (unknown provider), M-2 (absent roster). All nine required danger conditions now fire; safe baseline passes. |
-| **Configuration contract** | **PASS-WITH-GAPS → PASS at `a2662cb1`.** M-3: the contract had no row for the pilot roster — the single control that makes this a pilot. Added. |
+| **Queue** | **PASS at `f12c62ca`.** Precedence is as documented and a routed item appears exactly once. H-2's fix also removed a latent contradiction: `routed` was mutated *after* bucketing, so it could disagree with the queue the item was in. |
+| **Accessibility** | **FAIL as submitted → PASS at `f12c62ca`.** S2-4 (UI shows actions that always 403 for `staff`) recorded as a G3 blocker, not fixed — an owner decision. H-2: the "No action available" affordance lost its explanation for a state PR 8A itself introduced. Contrast claims independently verified by computation. |
+| **Readiness CLI** | **FAIL as submitted → PASS at `f12c62ca`.** H-1 (read no `.env` — reported SAFE against a sending-enabled config), H-4 (`NODE_ENV`), M-1 (unknown provider), M-2 (absent roster). All nine required danger conditions fire, plus a tenth for the `NODE_ENV` mismatch; the safe baseline and a fully correct production config both pass. **S3-1 recorded**: Smartlead detection is name-substring only. |
+| **Configuration contract** | **PASS-WITH-GAPS → PASS at `f12c62ca`.** M-3: the contract had no row for the pilot roster — the single control that makes this a pilot. Added. |
 | **Runbook** | **PASS.** G1–G4 are four separate signed approvals; no auto-apply command for `0037` or `--apply`; no automatic flag promotion. Updated for the CLI's new `--production` requirement at G3 and for the CLI's honest limits. |
-| **Test quality** | **PASS.** New tests are behavioural against real Express apps and real service code, not assertions on mocks. Eleven control runs performed; ten failed correctly first time, **one of my own new guards was evadable and was rewritten** (see "Control runs"). |
+| **Test quality** | **PASS at `f12c62ca`.** New tests are behavioural against real Express apps and real service code. **Nineteen control runs across both passes**; **three of the reviewer's own guards were found vacuous and rewritten** (see "Control runs"). S1-5's discarded-`.where()` mock fixed. |
 | **Scope boundary** | **PASS.** No guardrail file, no migration, no `0038`, no Smartlead/sending/enrolment/reply-ingestion/paid-discovery code, no `package-lock.json`, no Growth/SEO/n8n change, no production action. |
 
 ---
@@ -74,7 +67,7 @@ No subagent output was fabricated, and no finding below is attributed to one.
 
 None.
 
-### High (all three fixed in this review)
+### High (all four fixed in this review)
 
 **H-1 — the go-live readiness CLI read no `.env`, so it reported SAFE against a dangerous configuration.**
 `scripts/wizmatch-pilot-readiness.ts` imported no dotenv, unlike every sibling script in the repo
@@ -116,6 +109,23 @@ nobody can be shown to have approved. Fixed: `writeCompanyPolicy` refuses a `sou
 with no `actor.userId`, before any read or write inside the transaction; non-human sources
 (`import`/`deterministic_rule`/`provider` — the backfill's path) are legitimately unaffected.
 `resolveDuplicate` gets the same guard. Controls: 2 failed / 1 failed.
+
+**H-4 — the pilot roster's fail-closed branch depends on a runtime `NODE_ENV` nothing in this repo confirms is set.** *(found by subagent S2)*
+`resolveStaffingAccess` selects its fail-closed branch with
+`NODE_ENV === 'production' ? (configured && pilotAllowed) : (roleEligible && (!configured || pilotAllowed))`.
+If `NODE_ENV` is unset, blank, or anything but that exact string in the deployed process, the roster
+check is **bypassed entirely** and every pilot-eligible role (`admin`, `team_lead`, `manager_ops`,
+`sales`, `staff`) is admitted — the restricted pilot silently becomes an open deployment. S2 checked
+`railway.json`, `nixpacks.toml` and `docs/DEPLOYMENT.md` and found **nothing** recording that the
+variable is set at runtime; the `NODE_ENV=production` documented there is Nixpacks' *build-phase*
+behaviour, which says nothing about the running container. This is pre-existing (the same code backs
+the Staffing OS surfaces) but PR 8A extends it to three more write-capable routers and makes it the
+pilot's primary access control. Compounding it, the readiness CLI used the same unverified
+assumption, so the one automated safety net could not catch it either.
+**Fixed as far as a code review can:** asserting `--production` while `NODE_ENV` disagrees is now a
+`DANGER` finding naming the exact consequence, and runbook G3 gained an explicit checked step.
+**Railway was not accessed** — verifying the live variable is explicitly out of scope for this
+read-only review and remains a G3 checklist item for the operator. Control: 1 failed.
 
 ### Medium (all three fixed)
 
@@ -164,6 +174,67 @@ roster-gate independence stated explicitly.
 - **L-6 (recorded)** — `.badge-danger` is a repo-wide shared class; the change touches every Growth
   CRM page that renders a danger badge. It is strictly an improvement (see the verified numbers
   below), so no action, but it is a change beyond the WizMatch surface and is recorded as such.
+
+### Reconciliation pass — findings raised by the subagents
+
+**S1-1 (Medium, fixed) — a non-overridable block was invisible in shadow when the root read `eligible`.**
+`disabledReasonFor` surfaced the block only when `effectiveDecision === 'deny'`. In shadow (§16 rule
+2) `effectiveDecision` follows the ROOT row, so a company whose root is `eligible` while a narrower
+scope carries an active non-overridable **compliance** block resolved to `allow`, showed no warning,
+and landed in **Ready to Contact** — the queue whose entire meaning is "you may contact these now".
+`writeCompanyPolicy` only refuses a supersession at the *same* scope_key, so a root written to
+`eligible` through the direct or bulk policy route reaches exactly that state. The block itself was
+never weakened (the gate re-resolves every active row at send/enrol time and
+`findUnresolvableScopeType` fails closed), so **nothing was sendable** — the defect is that the
+operator was shown the wrong thing on the pilot's main screen. Fixed: non-overridable now surfaces
+regardless of decision, with wording that states the contradiction, and such a company never enters
+Ready to Contact. Display-only — blocks no write and removes no affordance, so §16 rule 2 holds.
+Controls: 1 failed / 2 failed.
+
+**S1-3 (Medium, fixed) — a concurrent double-submit leaked a raw Postgres `23505`.**
+`expectedPolicyId` is optional, so two simultaneous `approve_queue` writes at one scope can both read
+the same predecessor, both pass every check, and both reach the INSERT. The partial unique index
+correctly prevents a second active row, but raised a driver error that is none of the typed errors
+`messageAndCodeFor` maps — the caller got a leaked database string instead of the same stable
+`stale_policy_state` code the sequential path returns. Losing that race *is* staleness. Fixed and
+narrowed by SQLSTATE **and** constraint name, so an unrelated unique violation is never disguised as
+a stale-state conflict (pinned by its own test). Control: 1 failed.
+
+**S1-5 (Low, fixed) — `decisionWorkbench.test.ts`'s mock discarded `.where()` entirely.**
+The brand-new `fetchNarrowerNonOverridableBlockByCompany` query's predicates were therefore
+unobservable: dropping `eq(outreachEligibility,'blocked')` or `eq(isNonOverridable,true)` left the
+suite green. This is the project's recurring mock-vacuity class (PR 2 / PR 5 / PR 7 T-3). Predicate
+capture added; controls now fail on each of the tenant, blocked and non-overridable predicates.
+
+**S1-2 (Medium, RECORDED — needs an owner decision, deliberately not changed).**
+The non-overridable scan does not distinguish `specific_signal` / `specific_requirement` blocks from
+company/region/BU/location ones. PRD §8.2 draws a real line: L1c denies that scope, whereas L4 denies
+**that signal or requirement only — "company and contact remain active"**. So a single per-signal
+non-overridable block currently freezes every company-level action forever. **I did not change this.**
+The correct behaviour is a spec-interpretation call whose effect is to *loosen* a block guard, and
+loosening a safety guard is not a reviewer's decision to make unilaterally. Current behaviour errs
+toward too restrictive, which is the right direction to be wrong in. **Blocker before G3.**
+
+**S2-4 (Medium, RECORDED).** The Decision Workbench shows every action to every pilot-eligible role;
+a `staff` pilot member can click Approve & Queue, Pause, Block and the bulk bar, all correctly 403'd
+server-side. The sibling `CompanyPolicySection.jsx` already solves this (`getAuthUser()?.role` gating
+`canWrite`) and the pattern is not reused. Not a security defect — the backend enforces correctly —
+but operators should not be shown actions that always fail. The role→action mapping for this
+component is not written down anywhere, so this is an owner decision, not a mechanical fix.
+
+**S3-1 (Medium, RECORDED).** Smartlead credential detection is `/SMARTLEAD/i` against env var
+**names** only. A credential under a name not containing that substring (`SL_API_KEY`, a future
+rebrand) is invisible — a false negative on the exact thing this pilot must never have. No alias list
+exists in the repo to reuse, so the fix is not decision-free.
+
+**S3-3 (Low, partially addressed).** The runbook's "run against the deployment's actual environment"
+named no mechanism. The `.env` half is fixed by H-1; the runbook now also states plainly that the CLI
+only ever sees the environment of the machine it runs on and cannot reach into Railway. Naming a
+concrete `railway run --service <name> …` command needs the real service name, which this read-only
+review did not look up.
+
+**S2-3 / PR 7 O-3 (carried, unchanged).** `POST .../prepare` remains a write at pilot-member tier with
+no role gate. Confirmed by both the lead and S2. Inert while `WIZMATCH_AUTO_PREP_ENABLED=false`.
 
 ---
 
@@ -308,26 +379,34 @@ tests, or docs.
 
 ## Control runs
 
-Eleven mutations, each reverted immediately afterwards. Ten failed correctly. **One did not, and the
-test was rewritten** — recorded because it is the fourth-generation form of this repo's recurring
-evadable-static-guard defect (PR 2, PR 5, PR 7 T-3, PR 8 H-1), and this time the reviewer wrote it:
+**Nineteen mutations across the two passes**, each reverted immediately. Sixteen failed correctly.
+**Three did not, and the tests were rewritten** — all three are the reviewer's own guards, and all
+three are instances of this repo's recurring evadable-guard class (PR 2, PR 5, PR 7 T-3, PR 8 H-1),
+which is worth recording precisely because the reviewer reproduced it while reviewing for it:
 
 | Mutation | Result |
 |---|---|
-| dotenv import **commented out** | ✗ **survived** — my guard matched the commented line. Rewritten to strip comments first. |
-| dotenv import commented out (after rewrite) | ✓ 1 failed |
-| dotenv import deleted | ✓ 1 failed |
+| dotenv import **commented out** | ✗ **survived** — the guard matched the commented line. Rewritten to strip comments first. |
+| dotenv import commented out / deleted (after rewrite) | ✓ 1 failed / 1 failed |
 | `--production` pass-through deleted | ✗ **survived** — the identifier's own `const` satisfied the guard. Rewritten to pin the call site. |
 | `--production` pass-through deleted (after rewrite) | ✓ 1 failed |
+| `blocked` predicate dropped from the narrower query | ✗ **survived** — the walker followed Drizzle's circular `.table` back-reference and so collected every sibling column, exactly the trap `wizmatchPolicyService.test.ts`'s own `paramValues` documents. Rewritten to skip `table`. |
+| `blocked` / `isNonOverridable` / tenant predicate dropped (after rewrite) | ✓ 1 / 1 / 2 failed |
 | unknown-provider danger removed | ✓ 1 failed |
 | `assumeProductionTarget` ignored | ✓ 1 failed |
 | all-users override treated as a roster | ✓ 1 failed |
+| `NODE_ENV` runtime check removed | ✓ 1 failed |
 | routed `disabledReason` branch removed | ✓ 2 failed |
 | `routed` not set at construction | ✓ 2 failed |
+| non-overridable surfaced only on `deny` (old behaviour) | ✓ 1 failed |
+| non-overridable bucketing removed | ✓ 2 failed |
+| `23505` mapping removed | ✓ 1 failed |
 | policy `actor_required` guard removed | ✓ 2 failed |
 | duplicate `actor_required` guard removed | ✓ 1 failed |
 
----
+A fourth control was **invalid rather than survived**: the first attempt to drop the tenant predicate
+matched the *root* query's identical line first, so it mutated the wrong statement. Re-run against a
+unique multi-line context, it failed 2 correctly.
 
 ## Gates — every one run for real, on both trees
 
@@ -341,16 +420,16 @@ evadable-static-guard defect (PR 2, PR 5, PR 7 T-3, PR 8 H-1), and this time the
 | `npm run admin:build` | exit 0 |
 | `npx playwright test --config=playwright.wizmatch-local.config.ts` | **99 passed / 15 skipped / 0 failed** — matches |
 
-**Fix tree (`a2662cb1`):**
+**Fix tree (`f12c62ca`):**
 
 | Gate | Result |
 |---|---|
 | `git diff --check` | clean |
 | `npm run build` | exit 0 |
-| `npm test` | **122 files / 1263 tests** (+17) |
+| `npm test` | **122 files / 1270 tests** (+24 over the submitted tree) |
 | `npm run admin:build` | exit 0 |
 | `npx playwright test --config=playwright.wizmatch-local.config.ts` | **99 passed / 15 skipped / 0 failed** |
-| `npm run wizmatch:pilot-readiness` | exit 0 on the safe baseline; exit 1 on all nine danger conditions |
+| `npm run wizmatch:pilot-readiness` | exit 0 on the approved safe baseline; exit 0 on a fully correct production config (`NODE_ENV=production` + explicit roster + `--production`); exit 1 on every one of the nine required danger conditions and on the new `NODE_ENV` mismatch |
 
 The 15 Playwright skips are the documented no-password real-backend specs (two hardening specs × 5
 tests × 3 projects) — the same count and the same reason as every prior PR in this stack.
@@ -360,8 +439,7 @@ tests × 3 projects) — the same count and the same reason as every prior PR in
 ## Blockers
 
 ### Before creating the PR
-- **Re-run the three-subagent review pass against `a2662cb1`** and create `.ai/OUTBOUND_PR8A_CODE_READY`
-  only if it surfaces nothing new. This is the one outstanding item.
+- Nothing outstanding. `.ai/OUTBOUND_PR8A_CODE_READY` created at `f12c62ca`.
 
 ### Before G1 (apply migration `0037`)
 - **B-1**, carried from PR 5/6/7/8: `0037` must be applied before this stack reaches `main` — the repo
@@ -374,6 +452,17 @@ tests × 3 projects) — the same count and the same reason as every prior PR in
   PR 8A changes this.
 
 ### Before G3 (shadow deployment / live pilot)
+- **Confirm `NODE_ENV=production` on the deployed Railway service (H-4).** The pilot roster gate fails
+  closed on that exact string and nothing else; with any other value every pilot-eligible role is
+  admitted regardless of the roster. Now an explicit G3 checklist step and a readiness `DANGER`, but
+  the live value must be checked by a human — this review did not access Railway.
+- **Owner decision on S1-2**: whether a `specific_signal` / `specific_requirement` non-overridable
+  block should freeze company-level actions (current behaviour) or deny only that signal (PRD §8.2
+  L4). Current behaviour is the safe direction to be wrong in, but it can strand a company.
+- **Owner decision on S2-4**: whether the workbench should hide actions a `staff` pilot member's role
+  will always cause the backend to 403.
+- **Owner decision on S3-1**: whether Smartlead detection needs an alias list beyond the
+  `/SMARTLEAD/i` name match.
 - **Set `WIZMATCH_STAFFING_PILOT_USER_IDS` to an explicit id list.** Not the all-users override — the
   readiness CLI now refuses it as an open deployment.
 - **Run `npm run wizmatch:pilot-readiness -- --production`** (the `--production` flag is now required
