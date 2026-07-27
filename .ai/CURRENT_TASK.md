@@ -2,6 +2,63 @@
 
 ## Active task
 
+**G1 read-only production evidence session complete (2026-07-28). G1 remains NO-GO.** Branch
+`ge/outbound-08b-g3-pilot-completion` @ `85c9dd09` (docs-only, unpushed); PR #89 open/draft/base
+`main`/head `af6d0438`, CI green. Full record:
+[`docs/go-live/WIZMATCH_G1_RUNTIME_READONLY_EVIDENCE.md`](../docs/go-live/WIZMATCH_G1_RUNTIME_READONLY_EVIDENCE.md).
+
+This was the first session to actually connect to the production database. Read-only throughout —
+every transaction ran under `default_transaction_read_only=on` + `BEGIN READ ONLY` with 15s/2s/30s
+timeouts and ended in an explicit `ROLLBACK`.
+
+**Six G1 blockers resolved:** the production Postgres is the Railway service **`Postgres`**
+(`0c31ec38-0433-46c6-9fbb-5dd2859d1a08`, volume instance `144db25d-…`) — proven by `server_version
+18.3` versus `Postgres-K0lx`'s `postgres-ssl:17` image, **not** by trusting
+`postgres.railway.internal`; production schema is **clean pre-`0037`** (all 8 tables, 7 indexes, 3
+columns, 2 FKs, trigger and function absent); the journal head is byte-identical to this repo
+(`0036` hash `f7c20080…` matches); `0037` is unapplied, proven by journal, by object probe, and by
+the container not containing the file; the migration mechanism is `railway.json`'s
+`node dist/scripts/migrate.js && node dist/index.js`, so **merging auto-applies `0037`**; and the
+Command Deck sync principal is confirmed `deck-sync` `role='viewer'`, `acdab2ee-7e02-4e7d-b2c1-4bcabd4f2579`,
+WizMatch tenant — settling the one F-A item the PR 8B review flagged as unverifiable from code.
+
+**The new blocker is the serious one: production has ZERO database backups and NO backup schedule.**
+Railway's read-only API returns `[]` for `volumeInstanceBackupList` and
+`volumeInstanceBackupScheduleList` on every volume in the project. That fails the owner's U-7
+condition ("verified backup/rollback plan") outright, rules out a PITR clone, and is a standing
+data-loss exposure independent of this branch.
+
+**Second blocker: `itika.khandelwal@growthescalators.com` has no production account** — 0 exact and
+0 fuzzy matches. Jatin (`427e6b95-68f7-42b6-83b0-ced1799139b2`, admin) and Kanishk
+(`115f2251-cf72-417e-bdbb-b63cd23415b3`, admin) resolve cleanly in the WizMatch tenant
+(`4b3dd3e2-…`), both `is_active=true`, and are already the roster's only two entries. Creating
+Itika's account is a production write and was not performed.
+
+**Recorded, needs an owner decision, not actioned:** `WIZMATCH_PAID_DISCOVERY_ENABLED=true` in
+production with `SERPER_API_KEY` present and `WIZMATCH_GOOGLE_FALLBACK_ENABLED=true` — a spending
+path is reachable, contradicting "paid discovery disabled". Apollo/Snov per-provider flags are off.
+Also: production `users` has `is_active`/`is_test_account` columns that `schema.ts` does not model,
+and three migrations (`0008`, `0013`, `0014`) are permanently skipped by drizzle's timestamp-only
+pending rule — both pre-existing, neither touched by `0037`.
+
+**Confirmed safe:** sending `false`, enforcement unset → `shadow`, preparation/adapter/provider
+unset, all eleven Smartlead credential aliases absent, `WIZMATCH_STAFFING_PILOT_ALL_USERS=false`,
+`NODE_ENV=production` (settles PR 8A H-4).
+
+**Exact next action: request `APPROVE_G1_CLONE_PROVISIONING`** — authorises only an in-Railway
+logical `pg_dump | pg_restore` clone (Option A/PITR is unavailable: nothing to restore from) plus
+the production-sized `0037` migration and lock test on that clone. The database is 52 MB, so this
+is a seconds-scale operation. **Recommended in parallel: enable a Railway backup schedule on the
+production `Postgres` volume and take one manual backup** — blocker 7 cannot close otherwise.
+
+**Do not** apply `0037`, push, merge, mark PR #89 ready, deploy, run backfill `--apply`, promote
+`enforce`, enable sending/preparation/the adapter, connect Smartlead, change roles or the roster, or
+start PR 9/10.
+
+---
+
+## Prior entry — PR 8B CODE READY (superseded above)
+
 **PR 8B is CODE READY at `0d330269`.** Branch `ge/outbound-08b-g3-pilot-completion`, PR #89 (draft).
 Marker `.ai/OUTBOUND_PR8B_CODE_READY` created. **Zero Critical, zero High.** Report:
 [`docs/reviews/wizmatch-outbound-pr8b-final-opus-review.md`](../docs/reviews/wizmatch-outbound-pr8b-final-opus-review.md).

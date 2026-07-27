@@ -5,6 +5,30 @@
 - **Final reviewed code commit:** `0d330269`
 - **Purpose:** record the verified GitHub/CI/release state before any production access.
 
+> ### Re-verified 2026-07-28 (read-only, unchanged)
+>
+> | Item | State |
+> |---|---|
+> | Local HEAD | `85c9dd09` (docs-only, intentionally unpushed) |
+> | Local commits ahead of origin | exactly 1 — `85c9dd09` |
+> | Working tree | clean |
+> | Commits after reviewed `0d330269` | 4, **all docs/marker-only** (`033d1aa7`, `d4a0619c`, `af6d0438`, `85c9dd09`) — `git diff --stat 0d330269..HEAD` touches only `.ai/*` and `docs/*`; **zero application code** |
+> | PR #89 | OPEN · **draft** · base `main` · head `af6d0438` · `mergeable=MERGEABLE` · `mergeStateStatus=CLEAN` · `mergedAt=null` · 74 commits |
+> | CI run `30290407423` | `conclusion=success`, `headSha=af6d0438b800cbc679f2f62c41f9f3c3f6c84400` |
+> | `origin/main` | `1e748125` — unchanged |
+> | Migration `0037` | exists on branch; **absent from `origin/main`**; sha256 `76729b609e2981f272a18f26ce032fee1978f3f0b3cc60ba53ab57c1c5937db5` |
+> | Migration `0038` | does not exist |
+> | `input-data/` | ignored (via `v2/.git/info/exclude`), 0 tracked files |
+> | CODE_READY marker | present, `reviewed_commit=0d330269` |
+>
+> **Note on commit count:** the PR shows **74** commits, not the 72 recorded earlier — the two extra
+> are the docs-only commits `d4a0619c` and `af6d0438` pushed after that count was taken. No
+> application code was added.
+>
+> **Deployment state:** production `web` is running `1e748125` = `origin/main`. **No deployment of
+> this branch has occurred**, and the running container does not contain `0037_unknown_siren.sql`
+> (37 migration files, ending at `0036`). `backfill --apply` has not run.
+
 ---
 
 ## 1. Phase 0 — local and remote verification: **PASS**

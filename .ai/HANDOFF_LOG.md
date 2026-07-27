@@ -4784,3 +4784,83 @@ review); `.ai/OUTBOUND_PR8B_CODE_READY` was NOT created.
 remediation work, owns the `.ai/OUTBOUND_PR8B_CODE_READY` verdict. Do not proceed to G1/G2/G3 on
 the strength of this remediation alone. G1 remains separately NO-GO (production-access blockers,
 unchanged by this remediation).
+
+---
+
+## 2026-07-28 — G1 read-only production evidence session (Claude, Opus main session)
+
+**Unit of work:** complete the remaining read-only G1 production investigation for the WizMatch
+Outbound Operating System. Branch `ge/outbound-08b-g3-pilot-completion` @ `85c9dd09`, PR #89
+(open, draft, base `main`, head `af6d0438`, CI run `30290407423` green). Record:
+`docs/go-live/WIZMATCH_G1_RUNTIME_READONLY_EVIDENCE.md`.
+
+**Access model:** the main session alone held Railway, SSH and database access. Four repository-only
+Explore subagents were launched for the code-side analysis (migration mechanism, drift-query design,
+user/identity model, backup/clone options); **none returned within the session**, so the main session
+performed that scope directly from the repository. This is disclosed rather than papered over — the
+findings below are the main session's own, verified against source, not a subagent summary.
+
+**Method:** Railway CLI metadata discovery (`status`, `status --json`, `volume list`, read-only
+GraphQL via `railway api`) → four non-interactive `railway ssh -s web -e production` executions →
+four read-only Postgres sessions, each under `SET default_transaction_read_only=on` +
+`statement_timeout=15s` + `lock_timeout=2s` + `idle_in_transaction_session_timeout=30s` +
+`BEGIN READ ONLY`, each verifying `SHOW transaction_read_only=on`, each ending in explicit
+`ROLLBACK` and clean close. Container `/tmp` scripts deleted at the end.
+
+**Resolved:**
+- **Production Postgres identified: Railway service `Postgres`**, `0c31ec38-0433-46c6-9fbb-5dd2859d1a08`,
+  volume instance `144db25d-1d4a-4dbc-abe5-3abd5e132893`. Proven by `server_version 18.3` against
+  `Postgres-K0lx`'s `postgres-ssl:17` image — a container on the 17 image cannot report 18.3.
+  Hostname (`postgres.railway.internal`) and volume size were treated as corroboration only.
+- **`0037` is NOT applied**, three ways: no journal row `>= 1785039545644`; all 21 objects absent;
+  the container does not contain the file (37 migrations, ending at `0036`).
+- **Schema drift: clean pre-`0037`.** No partial application, no `ensure*` name collisions.
+- **Journal head byte-identical to this repo** (`0036` → `f7c20080…`, `0035` → `a0e6d660…`,
+  `0034` → `268155e2…`). Journal `idx` ≠ filename number — verified from `_journal.json`, not assumed.
+- **Migration mechanism:** `railway.json` `startCommand` = `node dist/scripts/migrate.js && node
+  dist/index.js` → migrations run at container start, so **merging auto-applies `0037`**. Drizzle
+  wraps all pending migrations in ONE transaction and selects them by timestamp only, so exactly one
+  migration (`0037`) would run. `hash` = sha256 of raw file bytes → byte identity provable after the
+  fact against `76729b609e2981f2…`.
+- **Machine-sync principal verified:** `deck-sync`, `acdab2ee-7e02-4e7d-b2c1-4bcabd4f2579`,
+  WizMatch tenant, `role='viewer'`, `is_active=true`, outside the pilot roster. Settles the PR 8B F-A
+  item that was explicitly unverifiable from code.
+- **`NODE_ENV=production` verified at runtime** (settles PR 8A H-4).
+- **Pilot roster verified by set membership without printing its value:** exactly 2 UUID entries =
+  Jatin + Kanishk WizMatch IDs; contains neither `deck-sync` account; no unrecognised entry.
+
+**New blockers found:**
+- **ZERO database backups and NO backup schedule** on the production Postgres volume — Railway's
+  read-only API returns `[]` for `volumeInstanceBackupList` and `volumeInstanceBackupScheduleList`,
+  and for every other volume in the project. Fails the owner's U-7 condition, rules out a PITR clone,
+  and is a standing data-loss exposure independent of this branch.
+- **`itika.khandelwal@growthescalators.com` has no production account** (0 exact, 0 fuzzy).
+- **`WIZMATCH_PAID_DISCOVERY_ENABLED=true`** with `SERPER_API_KEY` present and
+  `WIZMATCH_GOOGLE_FALLBACK_ENABLED=true` — a paid path is reachable, contradicting "paid discovery
+  disabled". Apollo/Snov per-provider flags are off.
+
+**Pre-existing, recorded, not actioned:** production `users` carries `is_active`/`is_test_account`
+columns absent from `schema.ts`; `contacts_tenant_email_idx` is really `(tenant_id, first_name)`;
+migrations `0008`, `0013`, `0014` are permanently skipped by drizzle's timestamp-only pending rule
+(their `when` values are out of ascending order), and one applied row (`id=5`) has no journal entry
+at all — artefacts of the historical baseline repair. None affects `0037`.
+
+**Scale (re-scopes U-7 without discharging it):** whole DB 52 MB · `users` 15 rows · `contacts`
+2 813 · `contact_channels` 4 719 · largest affected table `wizmatch_job_signals` 7 MB / 6 743 rows.
+
+**Not done, deliberately:** no migration applied; `dist/scripts/migrate.js` never executed; no
+database write; no backfill `--apply`; no database, service or backup created, restored or deleted;
+no Railway variable, role or roster change; nothing pushed, merged, deployed, or retargeted; PR #89
+untouched; no secret printed; `DATABASE_PUBLIC_URL` never used; `railway variables` never run;
+`railway run` never used against the production database.
+
+**Files changed (docs only):** `docs/go-live/WIZMATCH_G1_RUNTIME_READONLY_EVIDENCE.md` (new);
+`docs/go-live/WIZMATCH_G1_PRODUCTION_PREFLIGHT_FINAL.md`;
+`docs/go-live/WIZMATCH_GITHUB_RELEASE_STATUS.md`; `docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md`;
+`.ai/CURRENT_TASK.md`; this file. **Zero application-code change.**
+
+**Exact next action:** request `APPROVE_G1_CLONE_PROVISIONING` — authorising only an in-Railway
+logical `pg_dump | pg_restore` clone (Option A/PITR unavailable) and the production-sized `0037`
+migration + lock test on that clone. It does **not** authorise applying `0037` to production.
+Recommended in parallel: enable a Railway backup schedule on the production `Postgres` volume.
+**G1 = NO-GO.** `APPROVE_G1_MIGRATION_0037` is not requested.

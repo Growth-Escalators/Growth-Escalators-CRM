@@ -3,6 +3,44 @@
 Chat-independent status for the `ge/outbound-0X-*` stacked-PR sequence. Read this before
 `docs/prd/005-wizmatch-outbound-operating-system.md` if you only need "where are we, what's next."
 
+> ## LATEST — 2026-07-28: first read-only production evidence session. **G1 still NO-GO.**
+>
+> Full record: [`docs/go-live/WIZMATCH_G1_RUNTIME_READONLY_EVIDENCE.md`](../go-live/WIZMATCH_G1_RUNTIME_READONLY_EVIDENCE.md).
+> Read-only throughout: no migration, no database write, no backfill, no service created or deleted,
+> no push/merge/deploy, no role/roster/variable change, no secret printed.
+>
+> **Resolved (6 of 10 G1 blockers):** production Postgres identified as Railway service `Postgres`
+> (`0c31ec38-…`) — proven by server version `18.3` against `Postgres-K0lx`'s image `17`, not by
+> hostname · schema drift **clean pre-`0037`**, all 21 objects absent · journal reviewed, head
+> byte-identical to this repo · `0037` proven unapplied three ways · migration mechanism verified
+> (`railway.json` start command runs `migrate.js` before `index.js`, so merging auto-applies) ·
+> machine-sync principal verified as `deck-sync` `role='viewer'` (`acdab2ee-…`, WizMatch tenant),
+> which settles the one thing the PR 8B F-A review could not verify from code.
+>
+> **Blocking, and one is new:**
+> 1. **The production database has ZERO backups and NO backup schedule** (Railway API returns `[]`
+>    for both backup queries, on every volume in the project). This fails the owner's U-7 condition
+>    directly and is a standing data-loss exposure regardless of this branch.
+> 2. **`itika.khandelwal@growthescalators.com` has no production account.** 0 exact + 0 fuzzy
+>    matches. Jatin (`427e6b95-…`, admin) and Kanishk (`115f2251-…`, admin) both resolve cleanly in
+>    the WizMatch tenant and are already the roster's only two entries.
+> 3. No production-sized clone → no lock measurement → U-7 unsatisfied.
+>
+> **Also recorded, not actioned:** `WIZMATCH_PAID_DISCOVERY_ENABLED=true` in production with
+> `SERPER_API_KEY` present and `WIZMATCH_GOOGLE_FALLBACK_ENABLED=true` — a paid path is reachable,
+> contradicting "paid discovery disabled". Apollo/Snov per-provider flags are off. Sending,
+> preparation, the adapter and Smartlead are all confirmed off/absent; enforcement defaults to
+> `shadow`; `NODE_ENV=production` verified (settles PR 8A H-4).
+>
+> **Data scale (relevant to U-7):** whole DB 52 MB · `users` 15 rows · `contacts` 2 813 ·
+> `contact_channels` 4 719. The three additive `(tenant_id, id)` indexes are trivially small — but
+> drizzle runs the whole migration in one transaction, so what must be measured is `0037`'s total
+> commit duration, not any single index.
+>
+> **Next safe action:** `APPROVE_G1_CLONE_PROVISIONING` (in-Railway logical `pg_dump | pg_restore`
+> clone — Option A/PITR is unavailable because no backup exists). Recommended in parallel: enable a
+> Railway backup schedule on the production `Postgres` volume.
+
 > **Reviewed 2026-07-26 (Opus review lead), then repaired 2026-07-26 (spec-repair pass).** Full report:
 > [`docs/reviews/wizmatch-outbound-overnight-opus-review.md`](../reviews/wizmatch-outbound-overnight-opus-review.md)
 > — findings in §§3–6, dispositions in **§19**.

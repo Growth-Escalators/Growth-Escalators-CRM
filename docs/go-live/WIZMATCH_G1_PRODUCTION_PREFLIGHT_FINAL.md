@@ -1,5 +1,33 @@
 # WizMatch G1 — production preflight, FINAL
 
+> ## ⚠️ SUPERSEDED IN PART — 2026-07-28
+>
+> A subsequent **read-only production session did connect** to the production database and to the
+> Railway API, and resolved most of this document's open blockers with direct evidence. Read
+> [`WIZMATCH_G1_RUNTIME_READONLY_EVIDENCE.md`](WIZMATCH_G1_RUNTIME_READONLY_EVIDENCE.md) **first**;
+> where the two disagree, that document wins on anything requiring runtime evidence.
+>
+> **Now resolved by that session:** production Postgres positively identified as the Railway service
+> `Postgres` (`0c31ec38-…`, verified by server major version 18.3 vs `Postgres-K0lx`'s image 17, not
+> by hostname inference) · schema drift reviewed and **clean pre-`0037`** · migration journal reviewed
+> and its head byte-identical to this repo · `0037` proven **unapplied** three ways · migration
+> mechanism verified · machine-sync principal verified as `role='viewer'`
+> (`acdab2ee-…`, WizMatch tenant) · `NODE_ENV=production` verified at runtime.
+>
+> **Still open, and one is new and worse:**
+> - **NEW — the production database has ZERO backups and NO backup schedule.** Railway's own
+>   read-only API returns `[]` for both `volumeInstanceBackupList` and
+>   `volumeInstanceBackupScheduleList`. This **fails the owner's U-7 condition outright** ("a verified
+>   backup/rollback plan") and is a standing data-loss exposure independent of this branch.
+> - **NEW — `WIZMATCH_PAID_DISCOVERY_ENABLED=true` in production**, with `SERPER_API_KEY` present and
+>   `WIZMATCH_GOOGLE_FALLBACK_ENABLED=true`. Apollo/Snov per-provider flags are off, but a spending
+>   path is reachable. This contradicts "paid discovery disabled" as stated elsewhere.
+> - **`itika.khandelwal@growthescalators.com` has no production account at all** (0 exact matches,
+>   0 fuzzy). The pilot roster correctly holds Jatin + Kanishk only. G3 blocker.
+> - No production-sized clone, therefore no lock measurement, therefore U-7 still unsatisfied.
+>
+> **Verdict is unchanged: G1 NO-GO.** The blocker set has changed shape, not size.
+
 - **Performed:** 2026-07-27. Read-only throughout. No database was connected to.
 - **Branch:** `ge/outbound-08b-g3-pilot-completion` @ `033d1aa7`; final reviewed code commit `0d330269`.
 - **Supersedes:** `WIZMATCH_G1_PRODUCTION_PREFLIGHT.md` (which referenced the stale pre-remediation
