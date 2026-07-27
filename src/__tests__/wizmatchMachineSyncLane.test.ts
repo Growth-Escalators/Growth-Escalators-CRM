@@ -109,6 +109,15 @@ describe('isWizmatchMachineSyncRequest — unit-level path/method/identity match
     expect(isWizmatchMachineSyncRequest(req({ user: undefined }))).toBe(false);
   });
 
+  // N-1 (final review) — HEAD and OPTIONS are blocked correctly today, purely
+  // as a side effect of the `!== 'GET'` test, but nothing pinned it. Express
+  // routes HEAD to GET handlers, so a future widening to
+  // `!['GET','HEAD'].includes(req.method)` would look harmless and silently
+  // hand the machine principal a second verb. These two rows make that red.
+  it.each(['HEAD', 'OPTIONS'])('false for method %s on an allowlisted path', (method) => {
+    expect(isWizmatchMachineSyncRequest(req({ method }))).toBe(false);
+  });
+
   it('false when tenantId is missing/empty', () => {
     expect(isWizmatchMachineSyncRequest(req({ user: machineUser({ tenantId: '' }) }))).toBe(false);
     expect(isWizmatchMachineSyncRequest(req({ user: { id: 'sync-account', role: 'viewer' } }))).toBe(false);
@@ -411,14 +420,28 @@ describe('wizmatchPilotOrMachineSync + wizmatchRouter, mounted in the fixed inde
     await fetch(`${baseUrl}/api/wizmatch/dashboard?tenantId=attacker-tenant`, {
       headers: { 'x-tenant-id': 'attacker-tenant' },
     });
+    // NON-VACUITY GUARD (added by the final review). Without this the test
+    // below is trivially true: if the request never reaches the handler — e.g.
+    // the lane stops engaging and the pilot gate 403s it — `mock.calls` is
+    // empty, the loop body never runs, and the assertion passes while proving
+    // nothing. Verified by mutation: removing '/dashboard' from the allowlist
+    // left this test GREEN before these two assertions were added.
+    const paramLists = poolQuery.mock.calls
+      .map((call) => call[1])
+      .filter((params): params is unknown[] => Array.isArray(params));
+    expect(paramLists.length, 'the request must actually reach the handler and query the database').toBeGreaterThan(0);
+    // The authenticated tenant must genuinely be the one queried, so this
+    // cannot pass merely because no tenant value appears anywhere.
+    expect(
+      paramLists.some((params) => params.includes('real-tenant')),
+      'at least one query must be parameterised with the authenticated tenant',
+    ).toBe(true);
+
     // Every pool.query call made while building the dashboard snapshot must
     // have been parameterised with the authenticated tenant, never the
     // query-string/header value.
-    for (const call of poolQuery.mock.calls) {
-      const params = call[1] as unknown[] | undefined;
-      if (Array.isArray(params)) {
-        expect(params).not.toContain('attacker-tenant');
-      }
+    for (const params of paramLists) {
+      expect(params).not.toContain('attacker-tenant');
     }
   });
 });
