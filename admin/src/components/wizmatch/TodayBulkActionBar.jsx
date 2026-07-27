@@ -6,7 +6,7 @@
 // POST /api/wizmatch/today/actions, which is admin-gated server-side for any
 // selection with more than one target (PRD-005 §4) and always returns a
 // per-target result — never a silent partial success.
-import { resolveBulkCapability } from '../../lib/todayActionCapabilities.js';
+import { AlertTriangle } from 'lucide-react';
 
 const ACTION_LABELS = {
   approve_queue: 'Approve & Queue',
@@ -18,19 +18,24 @@ const ACTION_LABELS = {
   set_review_date: 'Set Review Date',
 };
 
-// PR 8B (P8B-2) — `capability` comes from the backend
-// (`bulkCapability` on GET /today/queues, computed by
-// decisionWorkbenchCapabilities.ts). Bulk is a pure ROLE gate server-side: the
-// route treats any selection of more than one target as admin-only whatever
-// the action or the individual rows look like, so this bar asks once rather
-// than reconciling N selected items with different per-item states. Before
-// this, every button here rendered enabled for every role and a team_lead's
-// click was guaranteed to come back 403. A missing or malformed `capability`
-// fails closed, same as the per-item capabilities.
-export default function TodayBulkActionBar({ count, actions, capability, onClear, onAction }) {
+// PR 8B (P8B-2) remediation — H-6 / M-0 / M-1. `capabilityForAction(action)`
+// is supplied by the caller (`TodayDecisionWorkbench.jsx`) and resolves the
+// INTERSECTION of the currently selected rows' own per-item capabilities
+// (`resolveSelectionCapability` in ../../lib/todayActionCapabilities.js) — not
+// a single role-only answer shared by every button.
+//
+// Before this fix, every button rendered from one shared `bulkCapability`
+// value (a pure role gate): a team_lead selecting exactly one row was told
+// "Bulk actions require admin" even though the server accepts a single-target
+// action from that role (M-0/M-1), and every button on the "Paused or
+// Blocked" queue rendered ENABLED even when every selected row was
+// non-overridable-blocked and the server was guaranteed to refuse every one
+// of them (H-6). Each action is now independently enabled/disabled, and each
+// carries its own visible reason plus `aria-describedby` — the same
+// accessible-disabled-reason pattern `ActionButton` uses per row in
+// TodayDecisionWorkbench.jsx, not a single reason shared by the whole bar.
+export default function TodayBulkActionBar({ count, actions, capabilityForAction, onClear, onAction }) {
   if (count === 0 || actions.length === 0) return null;
-  const { enabled, reason } = resolveBulkCapability(capability);
-  const reasonId = 'today-bulk-action-bar-reason';
   return (
     <div
       role="toolbar"
@@ -38,23 +43,31 @@ export default function TodayBulkActionBar({ count, actions, capability, onClear
       className="sticky bottom-3 z-40 mt-2 flex flex-wrap items-center gap-2 rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-2.5 text-white shadow-modal"
     >
       <span className="text-[12.5px] font-semibold">{count} selected</span>
-      <div className="flex flex-wrap gap-1.5">
-        {actions.map((action) => (
-          <button
-            key={action}
-            type="button"
-            disabled={!enabled}
-            aria-describedby={enabled ? undefined : reasonId}
-            onClick={() => onAction(action)}
-            className="rounded-md bg-white/10 px-2.5 py-1 text-[12px] font-medium hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/60 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white/10"
-          >
-            {ACTION_LABELS[action] || action}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {actions.map((action) => {
+          const { enabled, reason } = capabilityForAction(action);
+          const reasonId = `today-bulk-action-bar-reason-${action}`;
+          return (
+            <span key={action} className="inline-flex flex-wrap items-center gap-1">
+              <button
+                type="button"
+                disabled={!enabled}
+                aria-describedby={enabled ? undefined : reasonId}
+                onClick={() => onAction(action)}
+                className="rounded-md bg-white/10 px-2.5 py-1 text-[12px] font-medium hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/60 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white/10"
+              >
+                {ACTION_LABELS[action] || action}
+              </button>
+              {!enabled && (
+                <span id={reasonId} className="text-[11px] text-neutral-300">
+                  <AlertTriangle className="inline w-3 h-3 mr-0.5 -mt-0.5" aria-hidden="true" />
+                  {reason}
+                </span>
+              )}
+            </span>
+          );
+        })}
       </div>
-      {!enabled && (
-        <span id={reasonId} className="text-[11.5px] text-neutral-300">{reason}</span>
-      )}
       <button
         type="button"
         onClick={onClear}

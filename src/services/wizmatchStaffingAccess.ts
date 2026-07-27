@@ -17,10 +17,15 @@ function enabled(value: string | undefined): boolean {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
 }
 
+// M-4 — no environment-string branch. An unset gate flag now resolves to OFF
+// in every runtime, the same fail-closed posture P8B-3 already gave pilot
+// admission just above. The previous `env.NODE_ENV !== 'production'` fallback
+// admitted every Staffing phase whenever the flag was unconfigured and the
+// runtime was not the literal string 'production' — staging, test, an unset
+// var, or a Nixpacks build-phase-only value all read as "on". An explicit
+// flag is now the only way to enable a phase, locally included.
 function phaseEnabled(phase: 'A' | 'B' | 'C', env: Environment): boolean {
-  const configured = env[`WIZMATCH_STAFFING_GATE_${phase}_ENABLED`];
-  if (configured !== undefined) return enabled(configured);
-  return env.NODE_ENV !== 'production';
+  return enabled(env[`WIZMATCH_STAFFING_GATE_${phase}_ENABLED`]);
 }
 
 function pilotIds(env: Environment): Set<string> {

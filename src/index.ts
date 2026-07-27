@@ -64,6 +64,7 @@ import wizmatchStaffingRouter from './routes/wizmatchStaffing';
 import wizmatchPolicyRouter from './routes/wizmatchPolicy';
 import wizmatchTodayRouter from './routes/wizmatchToday';
 import wizmatchPrepareRouter from './routes/wizmatchPrepare';
+import { wizmatchPilotGate } from './middleware/wizmatchPilotGate';
 // Workers and cron jobs now run via src/worker.ts (see railway.json)
 import analyticsRouter from './routes/analytics';
 import whatsappTemplatesRouter from './routes/whatsappTemplates';
@@ -358,7 +359,34 @@ app.use('/api/wizmatch', requireAuth, wizmatchRequireStaffing, wizmatchPrepareRo
 // Wizmatch data. Safe because requireAuth (below) blocks the viewer role on any
 // non-GET method, so viewer can read the Wizmatch surfaces but never trigger a write.
 const wizmatchRequireAdmin = requireRole('admin', 'team_lead', 'viewer');
-app.use('/api/wizmatch', requireAuth, wizmatchRequireAdmin, wizmatchRouter);
+// M-3 — pilot-roster gate. This 82-route router carries send
+// (`POST /signals/:id/send`), paid discovery
+// (`POST /contact-intelligence/companies/:companyId/discover`), and provider
+// invocation (`/sourcing/:provider/run`, `/requirements/:id/source-candidates-xray`,
+// `/candidates/source-now`) alongside ordinary reads — before this fix, none
+// of it carried a pilot-roster check, only the role gate above. The other
+// three WizMatch routers (`wizmatchPolicyRouter`, `wizmatchTodayRouter`,
+// `wizmatchPrepareRouter`) each already call `router.use(wizmatchPilotGate)`
+// internally (see wizmatchToday.ts); this mounts the SAME middleware for the
+// whole router rather than cherry-picking which of the 82 routes need it,
+// which is safer given the size of the file. `wizmatchPilotGate` runs AFTER
+// `wizmatchRequireAdmin` (so an out-of-role caller still gets the existing
+// RBAC 403 first) and BEFORE `wizmatchRouter` itself.
+//
+// Real behaviour change, called out explicitly: this pilot-gates every
+// GET/read route in wizmatchRouter too, not only the mutating ones — the same
+// posture wizmatchToday.ts already takes for its own `GET /today/queues`.
+// A non-roster admin/team_lead/viewer now gets 403'd on reads here as well as
+// writes, not only on send/spend routes.
+//
+// Does NOT affect the internal-ingest/unsubscribe short-circuit above (the
+// `app.use('/api/wizmatch', ...)` block that tests `WIZMATCH_INTERNAL_POST`/
+// `WIZMATCH_PUBLIC_GET` and calls `wizmatchRouter(req, res, next)` directly):
+// that block is registered EARLIER and, for a matching request, invokes the
+// router directly rather than calling `next()` — a matched request never
+// reaches this mount at all, so it never sees `requireAuth`,
+// `wizmatchRequireAdmin` or `wizmatchPilotGate` here, unchanged by this fix.
+app.use('/api/wizmatch', requireAuth, wizmatchRequireAdmin, wizmatchPilotGate, wizmatchRouter);
 // Funnel-configs: /public/* needs no auth (checkout frontend hits it
 // unauthenticated from ecom.growthescalators.com); everything else is
 // behind requireAuth. The previous hoisted app.get wrapper was a no-op —

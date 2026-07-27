@@ -16,12 +16,16 @@ const calls = vi.hoisted(() => ({
 const state = vi.hoisted(() => ({
   runTodayActionsResult: { requested: 1, succeeded: 1, failed: 0, results: [{ type: 'company', id: 'company-1', ok: true }] } as Record<string, unknown>,
   runTodayActionsShouldThrow: null as Error | null,
+  // M-5 — overridable per test so the capability-wiring test (below) can seed
+  // a real item shape without every other test in this file having to know
+  // about it. `undefined` falls back to the original empty-queues default.
+  buildTodayQueuesResult: undefined as Record<string, unknown> | undefined,
 }));
 
 vi.mock('../modules/outreach/decisionWorkbench', () => ({
   buildTodayQueues: async (...args: unknown[]) => {
     calls.buildTodayQueues.push(args);
-    return { readyToContact: [], needsReview: [], repliesNeedingAction: [], pausedOrBlocked: [], counts: {}, partial: { skippedCompanyIds: [], skippedEnrolmentIds: [] } };
+    return state.buildTodayQueuesResult ?? { readyToContact: [], needsReview: [], repliesNeedingAction: [], pausedOrBlocked: [], counts: {}, partial: { skippedCompanyIds: [], skippedEnrolmentIds: [] } };
   },
 }));
 
@@ -67,6 +71,7 @@ beforeEach(() => {
   calls.runTodayActions.length = 0;
   state.runTodayActionsShouldThrow = null;
   state.runTodayActionsResult = { requested: 1, succeeded: 1, failed: 0, results: [{ type: 'company', id: 'company-1', ok: true }] };
+  state.buildTodayQueuesResult = undefined;
   process.env.WIZMATCH_DECISION_WORKBENCH_ENABLED = 'true';
   // P8B-3 — pilot admission is fail-closed in every runtime, so a roster is a
   // precondition for reaching any route in this file. Satisfied here so these
@@ -253,5 +258,85 @@ describe('wizmatchToday router — POST /today/actions role gating (PRD-005 §4)
     const body = (await res.json()) as { requested: number; succeeded: number; failed: number; results: Array<{ id: string; ok: boolean }> };
     expect(body).toMatchObject({ requested: 1, succeeded: 1, failed: 0 });
     expect(body.results[0]).toMatchObject({ id: 'company-1', ok: true });
+  });
+});
+
+// M-5 — missing capability-wiring regression coverage. Before this test, no
+// assertion in this file (or anywhere) proved `attachCapabilities` in
+// wizmatchToday.ts actually threads `req.user?.role` into
+// `computeTodayActionCapabilities`/`computeBulkCapability` rather than
+// dropping it or hardcoding a role. A seeded item with a `blocked` root row is
+// used because that state is exactly where `capabilityFor`
+// (decisionWorkbenchCapabilities.ts) branches on role — `outreachEligibility
+// === 'blocked'` denies every unblocking action for a non-admin but allows it
+// for admin — so the two roles' responses are provably different, not just
+// coincidentally different superficial strings.
+describe('wizmatchToday router — GET /today/queues capabilities/bulkCapability wiring (M-5)', () => {
+  const blockedCompanyItem = {
+    companyId: 'company-1',
+    companyName: 'Acme Corp',
+    companyDomain: 'acme.test',
+    accountOwnerUserId: null,
+    canonicalDecision: 'deny',
+    canonicalReasonCode: 'manual_block_by_operator',
+    canonicalBlockerCode: null,
+    effectiveDecision: 'deny',
+    enforcementMode: 'enforce',
+    requiresExplicitApproval: false,
+    policyId: 'policy-1',
+    outreachEligibility: 'blocked',
+    externalHiringPolicy: 'unknown',
+    relationshipType: 'new_prospect',
+    blockClass: 'standard',
+    isNonOverridable: false,
+    nonOverridableScopeKey: null,
+    nonOverridableBlockKind: null,
+    reviewDate: null,
+    reviewDateArrived: false,
+    policyReasonCode: 'manual_block_by_operator',
+    policyScopeKey: 'entire_company',
+    contactConfidenceTier: 'high',
+    duplicatePending: false,
+    duplicateId: null,
+    routed: false,
+    recommendedRoute: 'none',
+    disabledReason: null,
+  };
+
+  it("attaches capabilities/bulkCapability that actually differ by the CALLER'S role, proving the role parameter is wired through", async () => {
+    state.buildTodayQueuesResult = {
+      readyToContact: [blockedCompanyItem],
+      needsReview: [],
+      repliesNeedingAction: [],
+      pausedOrBlocked: [],
+      counts: {},
+      partial: { skippedCompanyIds: [], skippedEnrolmentIds: [] },
+    };
+
+    await startServer('staff');
+    const staffBody = (await (await fetch(`${baseUrl}/api/wizmatch/today/queues`)).json()) as {
+      readyToContact: Array<{ capabilities: Record<string, { enabled: boolean; reason: string | null }> }>;
+      bulkCapability: { enabled: boolean; reason: string | null };
+    };
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+
+    await startServer('admin');
+    const adminBody = (await (await fetch(`${baseUrl}/api/wizmatch/today/queues`)).json()) as typeof staffBody;
+
+    // staff is outside the single-context role allow-list — every action is
+    // denied for the role-check reason.
+    expect(staffBody.readyToContact[0].capabilities.approve_queue).toMatchObject({
+      enabled: false,
+      reason: 'This action requires team_lead or admin.',
+    });
+    // admin passes the role check, and admin (unlike a non-admin) may
+    // override a `blocked` root row — the exact branch that makes this a real
+    // role-behaviour difference, not a cosmetic one.
+    expect(adminBody.readyToContact[0].capabilities.approve_queue).toEqual({ enabled: true, reason: null });
+
+    // bulkCapability is present on both responses and is role-appropriate
+    // (admin-only, per ROLES_BY_CONTEXT.bulk in decisionWorkbenchCapabilities.ts).
+    expect(staffBody.bulkCapability).toMatchObject({ enabled: false });
+    expect(adminBody.bulkCapability).toEqual({ enabled: true, reason: null });
   });
 });

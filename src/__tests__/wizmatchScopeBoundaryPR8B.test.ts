@@ -69,17 +69,67 @@ describe('PR 8B scope boundary — PR 9/10 must not have started', () => {
     expect(offenders.map((f) => f.path)).toEqual([]);
   });
 
+  // M-5 strengthening #2 — the literal 4-name list above only catches an
+  // implementation that happens to be named exactly one of those identifiers.
+  // A `SmartleadCsvAdapter`, `SmartleadExportClient`, or any other
+  // Smartlead-prefixed class/function ending in a provider-ish suffix would
+  // sail through it untouched. This is a SHAPE pattern instead of a name
+  // list, scanned across the exact same file set the guard above already
+  // scans (comment-stripped, same ALLOWED_FILES carve-out) — it widens
+  // coverage without narrowing what was already scanned.
+  //
+  // `[A-Za-z0-9]*` (not `\w*`) deliberately EXCLUDES underscore between
+  // "Smartlead" and the suffix, and the suffix words are matched
+  // case-SENSITIVELY as capitalised — i.e. this matches identifier shapes
+  // (`SmartleadCsvAdapter`, `smartleadExportBatch`), never the documented
+  // `'smartlead_csv'` provider-NAME string literal (PRD-005 §16,
+  // src/modules/outreach/providers/index.ts), which is expected, disclosed,
+  // and already has its own dedicated guard in wizmatchOutreachProvider.test.ts.
+  it('no Smartlead-prefixed provider/adapter/client-shaped identifier exists outside the allowed files', () => {
+    const pattern = /\b[Ss]martlead[A-Za-z0-9]*(?:Provider|Adapter|Client|Csv|Export|Import|Parser)[A-Za-z0-9]*\b/;
+    const offenders = filesWithStrippedText.filter(
+      (f) => !ALLOWED_FILES.has(f.path) && pattern.test(f.stripped),
+    );
+    expect(offenders.map((f) => f.path)).toEqual([]);
+  });
+
+  // M-5 strengthening #1 — an allow-list of exact filenames only fails a file
+  // named one of the identifiers scanned above. A real provider implementation
+  // dropped into this directory under an unrelated name (e.g.
+  // `csvExportAdapter.ts` with no "Smartlead" in its own identifiers, wired up
+  // from elsewhere) would not be caught by either identifier scan. This
+  // asserts DIRECTORY MEMBERSHIP itself: the provider directory may contain
+  // ONLY the two files this PR ships, in total — any addition of any name
+  // fails this test, whatever it is called or what it contains.
+  it('the outreach provider directory contains ONLY the allowed provider-interface and mock files — no other file of any name', () => {
+    const providersDir = join(REPO_ROOT, 'src', 'modules', 'outreach', 'providers');
+    const entries = readdirSync(providersDir).sort();
+    expect(entries).toEqual(['index.ts', 'mock.provider.ts', 'outreach-provider.interface.ts']);
+  });
+
   it('no reply-ingestion/classification implementation identifier exists anywhere', () => {
     const pattern = /\bImapReplyClassifier\b|\bReplyClassifier\b|\bclassifyReplyEvent\b|\bimapReplyPoller\b/;
     const offenders = filesWithStrippedText.filter((f) => pattern.test(f.stripped));
     expect(offenders.map((f) => f.path)).toEqual([]);
   });
 
-  it('no migration 0038 exists', () => {
+  // M-5 strengthening #3 — the previous check only ever asked "does a file
+  // literally named 0038* exist", which a migration named e.g.
+  // `0039_something.sql` (skipping 0038 entirely) would evade while still
+  // starting PR 9/10's schema work. This instead asserts the HIGHEST migration
+  // number present is exactly 37 — the last number this branch's mandate
+  // covers — so ANY migration numbered 38 or above fails it, regardless of
+  // its name. Only the NUMBER matters here, not 0037's own content: another
+  // lane in this same remediation session amends 0037_unknown_siren.sql's
+  // CHECK constraint in place (same filename, same number), which this
+  // assertion is intentionally blind to.
+  it('no migration numbered higher than 0037 exists', () => {
     const migrationsDir = join(REPO_ROOT, 'src', 'db', 'migrations');
-    const entries = readdirSync(migrationsDir).filter((e) => e.endsWith('.sql'));
-    const has0038 = entries.some((e) => e.startsWith('0038'));
-    expect(has0038).toBe(false);
+    const prefixes = readdirSync(migrationsDir)
+      .filter((e) => e.endsWith('.sql'))
+      .map((e) => parseInt(e.slice(0, 4), 10))
+      .filter((n) => Number.isFinite(n));
+    expect(Math.max(...prefixes)).toBe(37);
   });
 
   it('control — the comment-stripping actually strips comments (mutation-proof for this guard itself)', () => {
