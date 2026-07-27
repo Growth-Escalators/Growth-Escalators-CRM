@@ -8,7 +8,7 @@ import StatusBadge from './StatusBadge.jsx';
 import DataTable from '../ui/DataTable.jsx';
 import TodayActionDialog from './TodayActionDialog.jsx';
 import TodayBulkActionBar from './TodayBulkActionBar.jsx';
-import { capabilityFor } from '../../lib/todayActionCapabilities.js';
+import { capabilityFor, resolveSelectionCapability } from '../../lib/todayActionCapabilities.js';
 
 // PRD-005 PR 6 §13 — the Decision Workbench. Re-buckets WizMatch Today into
 // four canonical queues fed entirely by GET /api/wizmatch/today/queues
@@ -436,6 +436,34 @@ export default function TodayDecisionWorkbench() {
     + (queues.routed?.length || 0) + (queues.repliesNeedingAction?.length || 0) + (queues.pausedOrBlocked?.length || 0);
   const skipped = (queues.partial?.skippedCompanyIds?.length || 0) + (queues.partial?.skippedEnrolmentIds?.length || 0);
 
+  // H-6 / M-0 / M-1 remediation — a companyId -> item lookup per queue, built
+  // ONCE per `queues` change rather than a `.find()` per selected id. `load()`
+  // fully replaces `queues` (and resets `selected` to empty) on every
+  // successful reload and there is no polling/auto-refetch interval, so this
+  // map is always built from the CURRENT queues state at render time — there
+  // is no code path where a selected id resolves to a stale item, because the
+  // ids in `selected` and the items in `queues` are always from the same load.
+  const itemsByIdByQueue = useMemo(() => {
+    const map = {};
+    for (const queueKey of ['readyToContact', 'needsReview', 'routed', 'pausedOrBlocked']) {
+      const byId = new Map();
+      for (const item of queues[queueKey] || []) byId.set(item.companyId, item);
+      map[queueKey] = byId;
+    }
+    return map;
+  }, [queues]);
+
+  const selectedItemsFor = (queueKey) => {
+    const byId = itemsByIdByQueue[queueKey];
+    const ids = [...selected[queueKey]];
+    const items = [];
+    for (const id of ids) {
+      const item = byId?.get(id);
+      if (item) items.push(item);
+    }
+    return items;
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -502,29 +530,35 @@ export default function TodayDecisionWorkbench() {
         />
       )}
 
-      {(['readyToContact', 'needsReview', 'routed', 'pausedOrBlocked']).map((queueKey) => (
-        <div key={queueKey} className="relative">
-          <QueueSection
-            queueKey={queueKey}
-            items={queues[queueKey] || []}
-            selectedIds={selected[queueKey]}
-            onToggleRow={toggleRow(queueKey)}
-            onToggleAll={toggleAll(queueKey, (queues[queueKey] || []).map((i) => i.companyId))}
-            onAction={openDialogForSingle}
-            loading={false}
-            staleCompanyIds={staleCompanyIds}
-          />
-          {selected[queueKey].size > 0 && (
-            <TodayBulkActionBar
-              count={selected[queueKey].size}
-              actions={BULK_ACTIONS_BY_QUEUE[queueKey] || []}
-              capability={queues.bulkCapability}
-              onClear={() => setSelected((prev) => ({ ...prev, [queueKey]: new Set() }))}
-              onAction={(action) => openDialogForBulk(queueKey, action)}
+      {(['readyToContact', 'needsReview', 'routed', 'pausedOrBlocked']).map((queueKey) => {
+        // Resolved fresh on every render from the CURRENT `queues[queueKey]`
+        // array via `itemsByIdByQueue` above — never a snapshot captured at
+        // selection time. `selected` only ever stores ids.
+        const selectedItems = selectedItemsFor(queueKey);
+        return (
+          <div key={queueKey} className="relative">
+            <QueueSection
+              queueKey={queueKey}
+              items={queues[queueKey] || []}
+              selectedIds={selected[queueKey]}
+              onToggleRow={toggleRow(queueKey)}
+              onToggleAll={toggleAll(queueKey, (queues[queueKey] || []).map((i) => i.companyId))}
+              onAction={openDialogForSingle}
+              loading={false}
+              staleCompanyIds={staleCompanyIds}
             />
-          )}
-        </div>
-      ))}
+            {selected[queueKey].size > 0 && (
+              <TodayBulkActionBar
+                count={selected[queueKey].size}
+                actions={BULK_ACTIONS_BY_QUEUE[queueKey] || []}
+                capabilityForAction={(action) => resolveSelectionCapability(selectedItems, action, queues.bulkCapability)}
+                onClear={() => setSelected((prev) => ({ ...prev, [queueKey]: new Set() }))}
+                onAction={(action) => openDialogForBulk(queueKey, action)}
+              />
+            )}
+          </div>
+        );
+      })}
 
       <section className="card p-4" aria-labelledby="queue-heading-replies">
         <div className="flex items-center gap-2 mb-3">
