@@ -30,7 +30,7 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync, chmodSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, chmodSync, mkdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -79,8 +79,8 @@ afterEach(() => {
   }
 });
 
-function writeSafeEnvFile(dir: string, extra: Record<string, string> = {}): string {
-  const path = join(dir, 'safe.env');
+function writeSafeEnvFile(dir: string, extra: Record<string, string> = {}, filename = 'safe.env'): string {
+  const path = join(dir, filename);
   const lines = [`WIZMATCH_STAFFING_PILOT_USER_IDS=${PILOT_ID}`, ...Object.entries(extra).map(([k, v]) => `${k}=${v}`)];
   writeFileSync(path, lines.join('\n') + '\n');
   return path;
@@ -112,6 +112,44 @@ describe('wizmatch-pilot-readiness CLI — scenario 2: cwd-independence', () => 
     // comparing so the assertion targets everything ELSE being identical.
     const normalize = (s: string) => s.replace(/^Generated:.*$/m, 'Generated: <normalized>');
     expect(normalize(fromTmpdir.stdout)).toBe(normalize(fromRepoRoot.stdout));
+  });
+
+  // Added by the final independent review. The assertion above — and the
+  // "cwd-independent" claim the runbook makes — held only for ABSOLUTE paths,
+  // which is all `writeSafeEnvFile` (mkdtempSync-rooted) can produce. A
+  // relative argument resolves against process.cwd() like any other CLI path,
+  // so the same command from two directories audits two different files and
+  // can return opposite verdicts. That is standard, unavoidable path
+  // behaviour, NOT a defect to fix in the resolver — but it was undocumented
+  // and untested, so the docs overclaimed and nothing would have caught a
+  // future regression in either direction. This pins the real contract:
+  // relative is cwd-relative, and the resolved path is always disclosed.
+  it('resolves a RELATIVE --audit-env-file against cwd, and always names the file it actually read', () => {
+    const dir = makeTempDir();
+    const safeDir = join(dir, 'safe');
+    const dangerousDir = join(dir, 'dangerous');
+    mkdirSync(safeDir);
+    mkdirSync(dangerousDir);
+    writeSafeEnvFile(safeDir, {}, 'config.env');
+    writeSafeEnvFile(dangerousDir, { WIZMATCH_SENDING_ENABLED: 'true' }, 'config.env');
+
+    const fromSafe = runCli(['--audit-env-file', 'config.env'], {}, safeDir);
+    const fromDangerous = runCli(['--audit-env-file', 'config.env'], {}, dangerousDir);
+
+    // Same literal argument, different cwd, different file — by design.
+    expect(fromSafe.status).toBe(0);
+    expect(fromDangerous.status).toBe(1);
+
+    // The mitigation that makes the above safe to ship: the report always
+    // discloses the absolute path it resolved to, so an operator can confirm
+    // which file was audited. If this disclosure is ever dropped, a relative
+    // path becomes genuinely ambiguous and this test goes red.
+    // realpathSync because the child process reports its cwd resolved through
+    // symlinks (on macOS the temp root is /var -> /private/var), so comparing
+    // the raw mkdtempSync path would fail for a reason unrelated to the
+    // property under test.
+    expect(fromSafe.stdout).toContain(`Configuration source: file (${join(realpathSync(safeDir), 'config.env')})`);
+    expect(fromDangerous.stdout).toContain(`Configuration source: file (${join(realpathSync(dangerousDir), 'config.env')})`);
   });
 });
 

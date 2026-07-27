@@ -195,6 +195,7 @@ import {
   PolicyOverrideRefusedError,
   PolicyStaleStateError,
 } from '../modules/outreach/policyService';
+import { SCOPE_TYPES } from '../modules/outreach/policyTypes';
 
 vi.mock('../services/auditLogger', () => ({
   auditLog: (...args: any[]) => {
@@ -220,6 +221,38 @@ beforeEach(() => {
 });
 
 describe('writeCompanyPolicy — evidence and inheritance validation', () => {
+  // H-4 / D-R2, application-layer half. Added by the final independent review:
+  // deleting `validatePolicyWrite`'s `SCOPE_TYPES.includes(...)` guard left the
+  // ENTIRE suite green (130 files / 1469 tests), so the app-side fail-closed on
+  // an unrecognised scope_type had no control at all — only migration 0037's
+  // CHECK constraint did, and that constraint is not in force until 0037 is
+  // applied (G1, still NO-GO). Until then this guard is the ONLY protection.
+  it.each(['team', 'entire_Company', 'ENTIRE_COMPANY', 'specific_signals', 'regionx', ''])(
+    'rejects an unrecognised scopeType %o — fails closed on the application side, independent of the DB CHECK',
+    async (scopeType) => {
+      await expect(
+        writeCompanyPolicy(actor, 'company-1', {
+          scopeType,
+          outreachEligibility: 'eligible',
+          externalHiringPolicy: 'unknown',
+          relationshipType: 'none',
+          reasonCode: 'manual_reclassified',
+        } as any),
+      ).rejects.toMatchObject({ code: 'unknown_scope_type' });
+    },
+  );
+
+  // Negative control — every canonical value must still pass this specific
+  // guard, so the assertion above cannot be satisfied by a blanket rejection.
+  it('does not reject any canonical scope value with unknown_scope_type', async () => {
+    for (const scopeType of SCOPE_TYPES) {
+      const attempt = writeCompanyPolicy(actor, 'company-1', { scopeType, reasonCode: 'manual_reclassified' } as any)
+        .then(() => null)
+        .catch((error: unknown) => error);
+      await expect(attempt).resolves.not.toMatchObject({ code: 'unknown_scope_type' });
+    }
+  });
+
   it('rejects an entire_company row missing a dimension', async () => {
     await expect(
       writeCompanyPolicy(actor, 'company-1', {

@@ -85,12 +85,66 @@ describe('PR 8B scope boundary — PR 9/10 must not have started', () => {
   // `'smartlead_csv'` provider-NAME string literal (PRD-005 §16,
   // src/modules/outreach/providers/index.ts), which is expected, disclosed,
   // and already has its own dedicated guard in wizmatchOutreachProvider.test.ts.
+  // Final independent review — the shape pattern above was case-flexible only
+  // on the leading `S`, so every letter after it had to be lowercase
+  // `martlead`. `SmartLeadCsvAdapter` — capitalising the second word of a
+  // two-word compound, which is the MORE idiomatic PascalCase spelling and the
+  // one this codebase uses everywhere else (`OutreachProvider`,
+  // `CandidateAccess`) — evaded it entirely. Verified empirically by planting
+  // each identifier below in `src/` and re-running this file: only the
+  // all-lowercase spelling was caught; `SmartLeadCsvAdapter`,
+  // `SmartLeadAdapter` and `smartLeadExporter` all passed green. Matching the
+  // "smartlead" stem case-insensitively closes the whole spelling family at
+  // once rather than enumerating variants.
   it('no Smartlead-prefixed provider/adapter/client-shaped identifier exists outside the allowed files', () => {
-    const pattern = /\b[Ss]martlead[A-Za-z0-9]*(?:Provider|Adapter|Client|Csv|Export|Import|Parser)[A-Za-z0-9]*\b/;
+    const pattern = /\bsmartlead[A-Za-z0-9]*(?:Provider|Adapter|Client|Csv|CSV|Export|Import|Parser)[A-Za-z0-9]*\b/i;
     const offenders = filesWithStrippedText.filter(
       (f) => !ALLOWED_FILES.has(f.path) && pattern.test(f.stripped),
     );
     expect(offenders.map((f) => f.path)).toEqual([]);
+  });
+
+  // Control for the assertion above — proves the widened pattern actually
+  // catches the spelling family that evaded the previous one, so this is a
+  // real strengthening and not a regex that happens to match nothing.
+  it('control — the identifier pattern catches every plausible Smartlead spelling, and no innocent one', () => {
+    const pattern = /\bsmartlead[A-Za-z0-9]*(?:Provider|Adapter|Client|Csv|CSV|Export|Import|Parser)[A-Za-z0-9]*\b/i;
+    for (const caught of [
+      'SmartleadCsvAdapter', 'SmartLeadCsvAdapter', 'SmartLeadAdapter', 'smartLeadExporter',
+      'SMARTLEADCSVADAPTER', 'SmartleadCSVAdapter', 'smartleadExportBatch', 'SmartLeadImportClient',
+    ]) {
+      expect(pattern.test(`export class ${caught} {}`), `should catch ${caught}`).toBe(true);
+    }
+    // Must NOT match the documented provider-NAME string literal, nor unrelated
+    // identifiers that merely contain one of the suffix words.
+    for (const innocent of ["const p = 'smartlead_csv';", 'class CsvExporter {}', 'function parseImportClient() {}']) {
+      expect(pattern.test(innocent), `should not match ${innocent}`).toBe(false);
+    }
+  });
+
+  // The structural half, and the one that does not depend on naming at all.
+  // Both identifier scans above are keyed to the string "smartlead" appearing
+  // in an identifier, so a fully generically-named adapter (e.g.
+  // `CsvBulkOutreachAdapter`, verified to evade both scans) implemented OUTSIDE
+  // `providers/` and merely REGISTERED here would be a complete PR 9 with no
+  // alarm — the directory-membership assertion does not catch it either,
+  // because `index.ts` is itself an allowed member and nothing stops it
+  // importing from elsewhere. `KNOWN_PROVIDERS` is the actual chokepoint: no
+  // provider can be constructed by `buildProvider` without an entry here, so
+  // pinning this list to exactly `['mock']` detects PR 9 regardless of what
+  // anything is named or where it lives.
+  it('the outreach provider allow-list still contains ONLY the mock — no real provider is registered', () => {
+    const source = readFileSync(
+      join(REPO_ROOT, 'src', 'modules', 'outreach', 'providers', 'index.ts'),
+      'utf8',
+    );
+    const match = stripComments(source).match(/const KNOWN_PROVIDERS = \[([^\]]*)\]/);
+    expect(match, 'KNOWN_PROVIDERS declaration not found in providers/index.ts').not.toBeNull();
+    const names = match![1]
+      .split(',')
+      .map((v) => v.trim().replace(/^['"]|['"]$/g, ''))
+      .filter(Boolean);
+    expect(names).toEqual(['mock']);
   });
 
   // M-5 strengthening #1 — an allow-list of exact filenames only fails a file

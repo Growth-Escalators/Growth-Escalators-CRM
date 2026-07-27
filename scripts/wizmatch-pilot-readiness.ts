@@ -6,10 +6,18 @@
  *   - reveals presence only for anything credential-shaped, never a value
  *
  * Usage:
- *   npm run wizmatch:pilot-readiness -- --audit-env-file <path>
- *       # assess the audited env file at <path>, deterministically —
- *       # resolved independent of the current working directory, and its
+ *   npm run wizmatch:pilot-readiness -- --audit-env-file <absolute-path>
+ *       # assess the audited env file at <path>, deterministically — its
  *       # values win over any stale shell export.
+ *       #
+ *       # PASS AN ABSOLUTE PATH. `<path>` is resolved with node:path.resolve,
+ *       # so an ABSOLUTE path gives an identical result from any working
+ *       # directory, but a RELATIVE path is resolved against process.cwd()
+ *       # like any other CLI path argument — the same relative argument run
+ *       # from two directories audits two different files. The report always
+ *       # prints the resolved absolute path it actually read
+ *       # ("Configuration source: file (...)"); check that line matches the
+ *       # file you meant before acting on the verdict.
  *   npm run wizmatch:pilot-readiness -- --production --audit-env-file <path>
  *       # assert that the environment being assessed is the PRODUCTION pilot
  *       # target. An absent pilot roster is a danger in every runtime (PR 8B —
