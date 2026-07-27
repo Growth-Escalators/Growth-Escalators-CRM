@@ -2529,6 +2529,18 @@ export const wizmatchCompanyPolicies = pgTable(
     }).onDelete('set null'),
 
     // -- scope identity (ADR-006 D-2, resolves review H-5) --
+    // D-R2 (owner-ratified, code review revoking PR 8B CODE_READY) — the
+    // canonical set is defined once in src/modules/outreach/policyTypes.ts's
+    // SCOPE_TYPES tuple; this CHECK is the database-layer half of failing
+    // closed on an unrecognised scope_type (the application-layer half is
+    // policyService.ts's validatePolicyWrite, which imports the same
+    // SCOPE_TYPES rather than re-declaring it). Placed first in this block to
+    // match the file's "scope identity" grouping — every other CHECK here
+    // already assumes scope_type is one of these six values.
+    scopeTypeChk: check(
+      'wizmatch_company_policies_scope_type_chk',
+      sql`scope_type IN ('entire_company','region','business_unit','location','specific_signal','specific_requirement')`,
+    ),
     scopeKeyRootChk: check(
       'wizmatch_company_policies_scope_key_root_chk',
       sql`(scope_type = 'entire_company') = (scope_key = 'entire_company')`,

@@ -3,13 +3,26 @@
 // (ADR-007 D-1): a plain interface/type module the rest of WizMatch depends on,
 // with no logic of its own.
 
-export type ScopeType =
-  | 'entire_company'
-  | 'region'
-  | 'business_unit'
-  | 'location'
-  | 'specific_signal'
-  | 'specific_requirement';
+// D-R2 (owner-ratified, code review revoking PR 8B CODE_READY) — the single
+// source of truth for the canonical scope_type vocabulary. Previously
+// `ScopeType` was a hand-written union here AND a separately hand-written
+// runtime array in policyService.ts (`validatePolicyWrite`'s SCOPE_TYPES) —
+// two declarations that could silently drift. `SCOPE_TYPES` is now the one
+// place either the type or the runtime membership check may be derived from;
+// migration 0037's `wizmatch_company_policies_scope_type_chk` CHECK
+// constraint is hand-kept in agreement with this exact list (proven by
+// src/__tests__/wizmatchPolicyScopeTypeParity.test.ts, which regex-extracts
+// the migration's CHECK and asserts set-equality against this array).
+export const SCOPE_TYPES = [
+  'entire_company',
+  'region',
+  'business_unit',
+  'location',
+  'specific_signal',
+  'specific_requirement',
+] as const;
+
+export type ScopeType = (typeof SCOPE_TYPES)[number];
 
 export type OutreachEligibility = 'eligible' | 'needs_review' | 'paused' | 'blocked';
 

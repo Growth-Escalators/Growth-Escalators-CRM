@@ -41,6 +41,7 @@ CREATE TABLE "wizmatch_company_policies" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"superseded_at" timestamp with time zone,
 	"superseded_by_policy_id" uuid,
+	CONSTRAINT "wizmatch_company_policies_scope_type_chk" CHECK (scope_type IN ('entire_company','region','business_unit','location','specific_signal','specific_requirement')),
 	CONSTRAINT "wizmatch_company_policies_scope_key_root_chk" CHECK ((scope_type = 'entire_company') = (scope_key = 'entire_company')),
 	CONSTRAINT "wizmatch_company_policies_signal_ref_chk" CHECK ((scope_type = 'specific_signal') = (signal_id IS NOT NULL)),
 	CONSTRAINT "wizmatch_company_policies_requirement_ref_chk" CHECK ((scope_type = 'specific_requirement') = (requirement_id IS NOT NULL)),

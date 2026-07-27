@@ -11169,6 +11169,10 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
+        "wizmatch_company_policies_scope_type_chk": {
+          "name": "wizmatch_company_policies_scope_type_chk",
+          "value": "scope_type IN ('entire_company','region','business_unit','location','specific_signal','specific_requirement')"
+        },
         "wizmatch_company_policies_scope_key_root_chk": {
           "name": "wizmatch_company_policies_scope_key_root_chk",
           "value": "(scope_type = 'entire_company') = (scope_key = 'entire_company')"

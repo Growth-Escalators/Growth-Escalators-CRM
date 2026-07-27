@@ -29,6 +29,7 @@ import { normalizeDomain } from '../../services/wizmatchContactIntelligenceRepo'
 import { buildScopeKey } from './scopeKey';
 import { resolveEffectivePolicy, type EffectivePolicy } from './policyResolver';
 import { getReasonCodeMeta } from '../../config/wizmatchReasonCodes';
+import { SCOPE_TYPES } from './policyTypes';
 import type {
   BlockClass,
   EvidenceKind,
@@ -137,15 +138,6 @@ export class PolicyStaleStateError extends Error {
     this.name = 'PolicyStaleStateError';
   }
 }
-
-const SCOPE_TYPES: ScopeType[] = [
-  'entire_company',
-  'region',
-  'business_unit',
-  'location',
-  'specific_signal',
-  'specific_requirement',
-];
 
 /**
  * Service-layer mirror of the §10.1 evidence/inheritance CHECK constraints
