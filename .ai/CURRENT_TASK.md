@@ -2,6 +2,46 @@
 
 ## Active task
 
+**PR 8B is REMEDIATED. All six High and all five Medium findings from the corrected review are
+closed.** Branch `ge/outbound-08b-g3-pilot-completion`, PR #89 (draft), remediated commit
+`84fc340e` (code, before the docs/marker commit). Report:
+[`docs/reviews/wizmatch-outbound-pr8b-remediation.md`](../docs/reviews/wizmatch-outbound-pr8b-remediation.md).
+
+**Method:** five parallel read-only discovery agents (one per finding cluster), reconciled before
+any code was written; three isolated git-worktree implementation lanes with zero file overlap,
+each producing its own mutation controls; three clean merges into the target branch with zero
+conflicts; one integration-only defect found and fixed afterward — a React hooks-order violation
+in `TodayDecisionWorkbench.jsx` (H-6's `useMemo` landed after early returns), invisible to
+`npm test` since it never renders a component, only caught by re-running the full Playwright suite
+against the fully integrated tree. Fixed, full suite re-verified at the exact historical baseline
+(99 passed / 15 skipped / 0 failed).
+
+**Deviations from the literal mission spec, both forced and empirically proven, both documented:**
+the readiness CLI flag is `--audit-env-file`, not the originally-specified `--env-file` — proven
+(three ways: plain `node`, `tsx`, and the real npm-wrapper invocation) to collide with Node.js's
+own native `--env-file` flag (20.6+), which intercepts it before the script runs at all. The
+`--audit-env-file` merge semantics are file-only (no `process.env` fallback for keys the file
+omits), not a literal `{...processEnv, ...fileValues}` spread — the literal formula could not pass
+the mission's own stale-credential scenario 4, reproduced then fixed.
+
+**Gates on the final integrated tree:** `git diff --check` clean, `npm run build` exit 0, `npm
+test` **130 files / 1469 tests** (was 126/1418 at the review baseline), `npm run admin:build` exit
+0, Playwright `wizmatch-local` **99 passed / 15 skipped / 0 failed**.
+
+**`.ai/OUTBOUND_PR8B_CODE_READY` remains absent** — this is remediation, not an independent
+readiness verdict. **Next step: a fresh, independent Opus review session**, with no memory of this
+remediation work, per standing practice on this stack. Do NOT proceed to G1/G2/G3 on the strength
+of this remediation alone.
+
+**G1 remains separately NO-GO** — unchanged by this remediation; every G1 blocker is about
+production database access this session did not have and did not take (see
+`docs/go-live/WIZMATCH_G1_PRODUCTION_PREFLIGHT.md`, code-side note added noting `0037`'s content
+changed via the D-R2 CHECK constraint but no G1 blocker is resolved by that).
+
+---
+
+## Prior entry — PR 8B NOT CODE READY (revoked), before remediation
+
 **PR 8B is NOT CODE READY. The CODE_READY marker was created in error and has been REVOKED.**
 Branch `ge/outbound-08b-g3-pilot-completion`, PR #89 (draft). Report:
 [`docs/reviews/wizmatch-outbound-pr8b-opus-review.md`](../docs/reviews/wizmatch-outbound-pr8b-opus-review.md).

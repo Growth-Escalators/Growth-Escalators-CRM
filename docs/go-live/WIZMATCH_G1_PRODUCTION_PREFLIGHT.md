@@ -4,7 +4,7 @@
 - **Branch under consideration:** `ge/outbound-08b-g3-pilot-completion` (PR #89, draft), CODE READY at `7a0cea20`.
 - **Purpose:** establish whether migration `0037_unknown_siren.sql` may be applied to production.
 
-> ## VERDICT: **NO-GO**
+> ## VERDICT: **NO-GO** (unchanged after the PR 8B remediation — see note below)
 >
 > Migration `0037` must **not** be applied yet. Five blockers below; three of them cannot be
 > resolved from a coding session at all. **No approval token is requested.**
@@ -12,6 +12,18 @@
 > This is a NO-GO on *evidence availability*, not on any defect found in the migration. Nothing
 > here suggests `0037` is unsafe — it says the checks that would prove it safe have not been run,
 > and three of them cannot be run from here.
+>
+> **Code-side note added 2026-07-27 (PR 8B remediation, D-R2):** `0037_unknown_siren.sql`'s
+> *content* was amended (in place — no `0038` created) to add a `CHECK (scope_type IN (...))`
+> constraint on `wizmatch_company_policies`, closing an application-level fail-open finding
+> (H-4). This is a **code correction, not a new production verdict** — every blocker below is
+> about production database access this session did not have and did not take, and none of them
+> are resolved by a constraint addition to an already-unapplied migration. Re-run the disposable-
+> Postgres and `information_schema` drift checks against the *amended* file once Blockers 1/2 are
+> resolved; do not assume the file this preflight originally inspected is still byte-identical to
+> what will actually be applied. See
+> [`docs/reviews/wizmatch-outbound-pr8b-remediation.md`](../reviews/wizmatch-outbound-pr8b-remediation.md)
+> for the full amendment and its local (disposable-only) verification.
 
 ---
 

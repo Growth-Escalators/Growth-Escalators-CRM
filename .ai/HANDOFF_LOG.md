@@ -4583,3 +4583,82 @@ or production access; no database mutation.
 PR 2–8 precedent). `.ai/OUTBOUND_PR8A_CODE_READY` is reserved for that review. Do not start PR 9/10,
 apply `0037`, run backfill `--apply`, promote `enforce`, enable sending, or connect Smartlead on the
 strength of this session.
+
+---
+
+## PR 8B remediation — 2026-07-27
+
+**PR 8B REMEDIATED.** Branch `ge/outbound-08b-g3-pilot-completion`, local only, NOT pushed, NOT
+merged. Remediates all six High and all five Medium findings from the corrected independent review
+at `ece8d3ba` (`docs/reviews/wizmatch-outbound-pr8b-opus-review.md`), which had revoked an earlier
+incorrect CODE_READY verdict. Full detail:
+[`docs/reviews/wizmatch-outbound-pr8b-remediation.md`](../docs/reviews/wizmatch-outbound-pr8b-remediation.md).
+
+**Method:** five parallel read-only Explore discovery agents (H-1 tenancy; H-2/H-3 readiness CLI;
+H-4/H-5 policy scope + discovery; H-6 bulk capabilities/frontend; Mediums + full 82-route
+inventory), reconciled by the orchestrating session before any code was written. Three isolated
+git-worktree implementation lanes, run in parallel, zero file overlap by design (verified via
+`git diff --name-only` against the base commit before merging), each with its own mutation-control
+matrix. Both spawning rounds hit an account-wide API session limit mid-task; all three lanes were
+resumed from their persisted worktrees/branches with no work lost. Main-session integration: three
+clean `--no-ff` merges, zero conflicts. **One integration-only defect found afterward:** a React
+hooks-order violation in `TodayDecisionWorkbench.jsx` (Lane 3's H-6 `useMemo` landed after three
+early `return` statements) — invisible to `npm test` (which never renders the component), only
+surfaced by re-running the full Playwright suite against the integrated tree (2 failures, both
+traced to the same crash — one of them an a11y scan of the crash's own error-boundary fallback
+screen, not a real contrast regression). Fixed in commit `84fc340e`; full suite re-verified at the
+exact historical baseline.
+
+**Six High closed:** H-1 (tenancy guard was real; the test was vacuous — doc-comment-satisfied
+source grep replaced with a captured-runtime-SQL assertion); H-2/H-3 (readiness CLI now takes an
+explicit `--audit-env-file <path>`, file-authoritative over stale shell exports, no `process.env`
+mutation — renamed from the originally-specified `--env-file` after empirically proving a
+collision with Node's own native flag, three ways); H-4 (`outreachGate.ts` now scans
+`allActiveRows` instead of `applicableRows`, matching `decisionWorkbenchActions.ts`'s already-
+correct pattern — a real behavior widening, confirmed against ADR-006 D-17 before accepting it);
+H-5 (blocked signals excluded at the SQL source in `fetchClientDiscoverySignals` and its
+`active_signal_count` subquery, closing a third leak site the original PR 8B pass missed); H-6
+(bulk action bar now intersects per-row capabilities for the actual selection instead of a
+role-only answer).
+
+**Five Medium closed:** M-0/M-1 (closed as part of H-6 — a size-1 selection now uses single-target
+rules, not the always-admin-only bulk answer); M-2 (`GET /staffing/access`'s exception
+independently re-verified against every D-R1 criterion, no code change needed); M-3 (pilot roster
+now gates the full 82-route send/spend router via `wizmatchPilotGate` on the `src/index.ts`
+mount — a real behavior change, disclosed); M-4 (`NODE_ENV` no longer selects Staffing phase
+defaults in either call site); M-5 (scope-boundary guard now uses a directory-membership allowlist
++ shape-based identifier regex + a migration-number-ceiling check instead of a static 4-name list
+and a `0038`-literal check; previously-missing capability-wiring regression test added).
+
+**Owner decisions implemented:** D-R1 (send/spend route gating, via M-3), D-R2 (migration `0037`
+amended in place — no `0038` — with a `CHECK (scope_type IN (...))` constraint kept in sync across
+the SQL file, `schema.ts`, and the drizzle-kit snapshot; `SCOPE_TYPES` is now a single TS source of
+truth with a parity test), D-R3 (deterministic `--audit-env-file` contract, with the one forced
+flag-name deviation above).
+
+**Migration 0037 verification:** `npm run db:generate` produces zero diff after the three-file
+amendment. Disposable local Postgres verification via Homebrew's `postgresql@16` binaries
+(Docker's daemon was not running) — fresh replay, incremental replay, all six canonical scope
+values accepted, an invalid value rejected, safe reapply, sibling constraints confirmed unloosened,
+guaranteed teardown. No `0038` created. No real, shared, or production database touched.
+
+**Gates on the final integrated tree:** `git diff --check` clean · `npm run build` exit 0 ·
+`npm test` **130 files / 1469 tests** (was 126/1418 at the review baseline, +4 files/+51 tests) ·
+`npm run admin:build` exit 0 · `npx playwright test --config=playwright.wizmatch-local.config.ts`
+**99 passed / 15 skipped / 0 failed** (exact match to every prior baseline in this stack).
+
+**Docs updated:** the new remediation report; a status banner (not a rewrite) on the opus-review
+doc; a code-side note (not a new verdict) on the G1 preflight; the go-live runbook and operator
+guide updated for `--audit-env-file` and the M-3 roster-gating expansion; the Smartlead-free pilot
+config doc updated for M-3; this file; `CURRENT_TASK.md`.
+
+**Not done, deliberately, per HARD SAFETY:** nothing pushed, merged, or deployed; migration `0037`
+not applied to any real database; `backfill --apply` not run; sending, preparation, the adapter,
+paid discovery, and Smartlead all remain disabled; enforcement remains `shadow`; no PR 9/10 code
+exists (mechanically confirmed by the strengthened scope-boundary guard, not only by manual
+review); `.ai/OUTBOUND_PR8B_CODE_READY` was NOT created.
+
+**Exact next action:** a fresh, independent Opus review session, with no memory of this
+remediation work, owns the `.ai/OUTBOUND_PR8B_CODE_READY` verdict. Do not proceed to G1/G2/G3 on
+the strength of this remediation alone. G1 remains separately NO-GO (production-access blockers,
+unchanged by this remediation).

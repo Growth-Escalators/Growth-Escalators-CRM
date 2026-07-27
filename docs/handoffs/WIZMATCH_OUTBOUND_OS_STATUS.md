@@ -104,6 +104,25 @@ Chat-independent status for the `ge/outbound-0X-*` stacked-PR sequence. Read thi
 > **Still not pushed, not merged, `0037` still not applied, backfill not run, enforcement still
 > `shadow`, sending/Smartlead/preparation/adapter/paid-discovery all still disabled. PR 9/10 not started.**
 >
+> **Updated 2026-07-27: PR 8B REMEDIATED.** All six High and all five Medium findings from the
+> corrected review above are closed. Migration `0037` amended in place (no `0038`) with a
+> `CHECK (scope_type IN (...))` constraint (D-R2); the readiness CLI now takes an explicit
+> `--audit-env-file <path>` (D-R3, renamed from the originally-specified `--env-file` after
+> empirically proving a collision with Node's own native flag); the pilot roster now gates the
+> full 82-route send/spend router (D-R1/M-02); the bulk action bar now intersects per-row
+> capabilities instead of a role-only answer (H-6). One integration-only defect (a React
+> hooks-order violation invisible to `npm test`, only caught by the full Playwright run) was found
+> and fixed during integration — see the remediation report for detail. Full report:
+> [`docs/reviews/wizmatch-outbound-pr8b-remediation.md`](../reviews/wizmatch-outbound-pr8b-remediation.md).
+> Gates: build 0, `npm test` 130 files/1469 tests green (+4 files/+51 tests over the review
+> baseline), admin build 0, Playwright 99 passed/15 skipped/0 failed (exact historical baseline).
+> **`.ai/OUTBOUND_PR8B_CODE_READY` is still not created** — this is remediation, not an independent
+> readiness verdict; that review is still pending, by a fresh session with no memory of this
+> remediation work. **Still not pushed, not merged, `0037` still not applied to any real database,
+> backfill not run, enforcement still `shadow`, sending/Smartlead/preparation/adapter/paid-discovery
+> all still disabled. PR 9/10 not started. G1 remains NO-GO (production-access blockers, unchanged
+> by this remediation).**
+>
 > **Updated 2026-07-27: PR 8B IMPLEMENTED (self-reported) — G3 pilot completion.**
 > `ge/outbound-08b-g3-pilot-completion` (built on the independently-reviewed PR 8A, CODE READY at
 > `f12c62ca`) resolves all three PR 8A owner-decision findings (S1-2 signal/scope conflation, S2-4

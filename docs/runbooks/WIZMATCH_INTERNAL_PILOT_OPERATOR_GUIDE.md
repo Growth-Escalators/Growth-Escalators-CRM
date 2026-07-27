@@ -64,6 +64,15 @@ operational specifics the deploying human fills in at G3, not something this doc
 No new roles were introduced for this pilot — it reuses the CRM's existing roles, narrowed further
 by the pilot roster (see §6).
 
+**PR 8B remediation, M-3:** the pilot roster now gates the entire `/api/wizmatch` router (82 routes),
+not only the Decision Workbench/policy/preparation surfaces. Sending, paid contact discovery,
+provider-run sourcing, and every other outreach-mutating or read route in that router require pilot
+roster membership. This is a behavior change from the original PR 8B submission, where a
+role-permitted user outside the roster could still reach those routes. Machine-to-machine internal
+routes (`/signals/ingest`, `/signals/:id/(score|enrich|match)`, `/candidates/ingest`,
+`/classify-reply`, `/unsubscribe`) are unaffected — they authenticate via an internal token, not a
+human session, and are resolved before this gate.
+
 | Action | Minimum role |
 |---|---|
 | Read policy, read queues | any pilot-roster member (`staff`+) |
@@ -120,8 +129,14 @@ The reasons you will see:
 
 - **"This action requires team_lead or admin."** — your role does not meet the action's minimum
   tier (§3).
-- **"Bulk actions require admin."** — bulk/multi-select actions are always admin-only, regardless
-  of the individual items selected.
+- **"Bulk actions require admin."** — a true multi-select (more than one row) is always admin-only,
+  regardless of what the individual items permit. Selecting exactly one row is **not** bulk — it
+  uses that row's own single-target rules, so a `team_lead` can act on a single selected company
+  without seeing this message (PR 8B remediation, M-0/M-1). Within an actual multi-select, the bar
+  also now disables an action the moment **any** selected row individually forbids it — e.g. Resume
+  is disabled, with the specific reason, if even one selected company carries a non-overridable
+  block, rather than showing every bulk action as available and letting the server refuse each
+  target silently (PR 8B remediation, H-6).
 - **"This company has a non-overridable block... No override, resume or reclassify action is
   available at any scope."** — a company, region, business-unit, or location-level compliance/legal
   block is active. This cannot be overridden by anyone, including admin.

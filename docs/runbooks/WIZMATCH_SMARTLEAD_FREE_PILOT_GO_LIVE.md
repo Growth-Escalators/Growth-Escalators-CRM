@@ -128,7 +128,12 @@ Checklist:
   intended pilot members (**not** the all-users override, which the readiness command reports as
   a dangerous open deployment), and that a non-pilot account is rejected end to end (one manual
   check: log in as a non-roster account, confirm `/today/queues` and `/companies/:id/policy` both
-  403).
+  403). **As of the PR 8B remediation (M-3), the roster now also gates the full `/api/wizmatch`
+  router** — confirm a non-roster, role-permitted account also gets 403 on a send/spend/provider
+  route, e.g. `POST /api/wizmatch/signals/:id/send` and
+  `POST /api/wizmatch/contact-intelligence/companies/:id/discover`. Before this fix the roster
+  restricted only the workbench/policy/preparation surfaces, not the routes capable of external
+  cost — that gap is now closed structurally.
 - [ ] Health/readiness validation — confirm the deployed process starts cleanly, the existing
   health-check endpoint reports healthy, and no error-rate spike appears in the first
   observation window.

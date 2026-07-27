@@ -34,6 +34,13 @@ other: a roster member with an ineligible role is still refused, and passing
 the roster grants **no** write permission on its own — every write still passes
 its own `team_lead`+/`admin` check.
 
+**PR 8B remediation, M-3:** the roster gate now covers the full `/api/wizmatch` router (82 routes),
+including sending, paid contact discovery, and provider-run sourcing — previously those routes were
+reachable by any role-permitted user regardless of roster membership, which meant the roster
+restricted the workbench but not the surfaces capable of external cost. This is now closed
+structurally, not only by convention: `app.use('/api/wizmatch', requireAuth, wizmatchRequireAdmin,
+wizmatchPilotGate, wizmatchRouter)` in `src/index.ts`.
+
 ## Also required (not new flags, but must hold true)
 
 - **No Smartlead credential may be present.** No environment variable whose

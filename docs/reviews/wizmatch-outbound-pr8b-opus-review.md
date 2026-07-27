@@ -1,3 +1,12 @@
+> ## REMEDIATION STATUS (added 2026-07-27, after this review)
+>
+> All six High and all five Medium findings below are now closed. See
+> [`wizmatch-outbound-pr8b-remediation.md`](wizmatch-outbound-pr8b-remediation.md) for the full
+> disposition, mutation controls, and gate results. **This document's NOT-CODE-READY verdict and
+> every finding below are left unmodified as the historical record of what was found and why.**
+> `.ai/OUTBOUND_PR8B_CODE_READY` remains absent — the remediation report is not a readiness verdict.
+> A fresh, independent review session, with no memory of the remediation work, owns that verdict.
+
 # WizMatch Outbound OS — PR 8B independent review (G3 pilot completion)
 
 - **Branch:** `ge/outbound-08b-g3-pilot-completion`
