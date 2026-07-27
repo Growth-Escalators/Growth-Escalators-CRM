@@ -36,7 +36,7 @@ import {
   type PolicyWriteInput,
 } from './policyService';
 import { resolveDuplicate, DuplicateValidationError } from './duplicateService';
-import { resolveEffectivePolicy } from './policyResolver';
+import { resolveEffectivePolicy, isCompanyOrScopeFreezingBlock } from './policyResolver';
 import type { EvidenceKind } from './policyTypes';
 
 export type TodayActionType =
@@ -237,18 +237,23 @@ async function applyCompanyEligibilityAction(
     );
   }
 
-  // PR 8A hardening (task 3) — a non-overridable block at ANY active scope
-  // (region/business_unit/location/specific_signal/specific_requirement, not
-  // only entire_company) must refuse every unblocking action, for every
-  // role including admin — ADR-006 D-17/L1c: "no admin override at any
-  // scope". The previous check only ever inspected the ROOT row, so a
-  // narrower non-overridable block (e.g. a `region:india` compliance
-  // removal) never stopped `approve_queue` from writing the root to
-  // `eligible` — a misleading write the gate would still deny at request
-  // time, but one the workbench had no business making in the first place.
-  const nonOverridableBlock = effective.allActiveRows.find(
-    (r) => r.outreachEligibility === 'blocked' && r.isNonOverridable,
-  );
+  // PR 8A hardening (task 3) — a non-overridable block at any active
+  // COMPANY-OR-SCOPE level (entire_company/region/business_unit/location) must
+  // refuse every unblocking action, for every role including admin — ADR-006
+  // D-17/L1c: "no admin override at any scope". The original check only ever
+  // inspected the ROOT row, so a narrower non-overridable block (e.g. a
+  // `region:india` compliance removal) never stopped `approve_queue` from
+  // writing the root to `eligible`.
+  //
+  // P8B-1 (owner-ratified) — but that scan then went too far the other way: it
+  // had no scope-type predicate, so a PRD §8.2 L4 `specific_signal` /
+  // `specific_requirement` block froze `approve_queue`/`resume`/`skip`/`pause`
+  // for the WHOLE company. L4 denies only the affected signal or requirement;
+  // it must not freeze unrelated company-level review, preparation, assignment
+  // or review-date work, and must never silently become a permanent
+  // company-wide block. The shared predicate lives in `policyResolver.ts` so
+  // this file, `decisionWorkbench.ts` and `outreachGate.ts` cannot drift.
+  const nonOverridableBlock = effective.allActiveRows.find(isCompanyOrScopeFreezingBlock);
   if (nonOverridableBlock && UNBLOCKING_ACTIONS.includes(request.action)) {
     throw new TodayActionValidationError(
       `This company has a non-overridable block at scope '${nonOverridableBlock.scopeKey}' ` +

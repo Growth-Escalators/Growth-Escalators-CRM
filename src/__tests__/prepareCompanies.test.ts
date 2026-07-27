@@ -29,6 +29,10 @@ const state = vi.hoisted(() => ({
     },
   },
   websitePatternSearchResult: [] as unknown[],
+  /** Open signals on file for the company, highest score first after sorting. */
+  signalRows: [] as Array<{ id: string; job_title: string; days_open: number | null; location: string | null; score: number | null }>,
+  /** Signal ids carrying an active `specific_signal:<id>` blocked policy row (PRD-005 §8.2 L4). */
+  blockedSignalIds: [] as string[],
 }));
 
 const providerSpies = vi.hoisted(() => ({
@@ -84,9 +88,24 @@ function dispatch(sql: string, params: unknown[]) {
     expect(params[0]).toBe('tenant-1');
     return { rows: [], rowCount: 0 };
   }
-  if (text.startsWith('SELECT job_title, days_open, location, score')) {
+  if (/^SELECT s\.id, s\.job_title/.test(text)) {
     expect(params[0]).toBe('tenant-1');
-    return { rows: [{ job_title: 'Senior Java Engineer', days_open: 12, location: 'Bengaluru', score: 80 }], rowCount: 1 };
+    // P8B-1 — a faithful (small) interpreter of the ONE predicate under test,
+    // rather than returning the fixture verbatim. Returning it verbatim would
+    // make the blocked-signal exclusion untestable: deleting the NOT EXISTS
+    // clause from the statement would leave the suite green, which is this
+    // project's recurring mock-vacuity defect class.
+    const excludesBlockedSignals =
+      /NOT EXISTS/.test(text)
+      && /wizmatch_company_policies/.test(text)
+      && /scope_type = 'specific_signal'/.test(text)
+      && /outreach_eligibility = 'blocked'/.test(text)
+      && /superseded_at IS NULL/.test(text);
+    const eligible = excludesBlockedSignals
+      ? state.signalRows.filter((s) => !state.blockedSignalIds.includes(s.id))
+      : state.signalRows;
+    const ordered = [...eligible].sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+    return { rows: ordered.slice(0, 1), rowCount: Math.min(ordered.length, 1) };
   }
   if (text.startsWith('SELECT id, name, title, email, source, ranking_score, confidence_score, status, metadata FROM wizmatch_contact_candidates')) {
     expect(params[0]).toBe('tenant-1');
@@ -175,6 +194,10 @@ beforeEach(() => {
     },
   };
   state.websitePatternSearchResult = [];
+  state.signalRows = [
+    { id: 'signal-top', job_title: 'Senior Java Engineer', days_open: 12, location: 'Bengaluru', score: 80 },
+  ];
+  state.blockedSignalIds = [];
 });
 
 describe('prepareCompaniesJob — zero-spend boundary', () => {
@@ -518,7 +541,7 @@ describe('prepareCompaniesJob — campaign recommendation and draft', () => {
   it('never fabricates a fact — hypotheses stay empty and verifiedFacts only lists what was actually found', async () => {
     mockPoolQuery.mockImplementation((sql: string, params: unknown[] = []) => {
       const text = String(sql).replace(/\s+/g, ' ').trim();
-      if (text.startsWith('SELECT job_title, days_open, location, score')) return { rows: [], rowCount: 0 };
+      if (/^SELECT s\.id, s\.job_title/.test(text)) return { rows: [], rowCount: 0 };
       return dispatch(sql, params);
     });
     const { prepareCompaniesJob } = await import('../modules/outreach/prepareCompanies');
@@ -533,7 +556,7 @@ describe('prepareCompaniesJob — per-company failure isolation', () => {
   it('reports a thrown error as failed without crashing the batch', async () => {
     mockPoolQuery.mockImplementation((sql: string, params: unknown[] = []) => {
       const text = String(sql).replace(/\s+/g, ' ').trim();
-      if (text.startsWith('SELECT job_title, days_open, location, score')) throw new Error('db exploded');
+      if (/^SELECT s\.id, s\.job_title/.test(text)) throw new Error('db exploded');
       return dispatch(sql, params);
     });
     const { prepareCompaniesJob } = await import('../modules/outreach/prepareCompanies');
@@ -541,5 +564,54 @@ describe('prepareCompaniesJob — per-company failure isolation', () => {
 
     expect(report.failed).toBe(1);
     expect(report.results[0]).toMatchObject({ status: 'failed', error: 'db exploded' });
+  });
+});
+
+// P8B-1 (owner-ratified) — PRD-005 §8.2 L4 requirement #5: no blocked signal
+// may be used to justify readiness, a campaign recommendation, a
+// personalisation claim or a route recommendation. `fetchBestSignal`'s output
+// feeds `buildDeterministicDraft` and the persisted prep report the workbench
+// displays, so this is where that leak actually closes.
+describe('prepareCompaniesJob — a blocked signal never drives the draft or the report', () => {
+  beforeEach(() => {
+    state.signalRows = [
+      { id: 'signal-blocked', job_title: 'Head of Legal Hiring', days_open: 3, location: 'Mumbai', score: 95 },
+      { id: 'signal-open', job_title: 'Senior Java Engineer', days_open: 12, location: 'Bengaluru', score: 40 },
+    ];
+  });
+
+  it('falls through to the next-best eligible signal when the top-scoring one is blocked', async () => {
+    state.blockedSignalIds = ['signal-blocked'];
+    const { prepareCompaniesJob } = await import('../modules/outreach/prepareCompanies');
+    const report = await prepareCompaniesJob('tenant-1');
+    const draft = report.results[0].draft;
+    expect(draft?.subject).toContain('Senior Java Engineer');
+    expect(draft?.subject).not.toContain('Head of Legal Hiring');
+    expect(draft?.body).not.toContain('Head of Legal Hiring');
+    expect(draft?.verifiedFacts).toContain('Open role: Senior Java Engineer');
+    expect(draft?.verifiedFacts.join(' ')).not.toContain('Head of Legal Hiring');
+  });
+
+  it('produces a signal-free draft when every open signal is blocked', async () => {
+    state.blockedSignalIds = ['signal-blocked', 'signal-open'];
+    const { prepareCompaniesJob } = await import('../modules/outreach/prepareCompanies');
+    const report = await prepareCompaniesJob('tenant-1');
+    const draft = report.results[0].draft;
+    expect(draft?.subject).toBe('Quick note for Acme Inc');
+    expect(draft?.verifiedFacts.some((f) => f.startsWith('Open role:'))).toBe(false);
+  });
+
+  // CONTROL — with no blocked signal, the highest-scoring one still wins.
+  it('still selects the highest-scoring signal when none is blocked', async () => {
+    state.blockedSignalIds = [];
+    const { prepareCompaniesJob } = await import('../modules/outreach/prepareCompanies');
+    const report = await prepareCompaniesJob('tenant-1');
+    expect(report.results[0].draft?.subject).toContain('Head of Legal Hiring');
+  });
+
+  it('scopes the exclusion subquery to the same tenant as the signal it guards', () => {
+    const source = readFileSync(join(__dirname, '../modules/outreach/prepareCompanies.ts'), 'utf8');
+    expect(source).toContain('p.tenant_id = s.tenant_id');
+    expect(source).toContain('p.company_id = s.company_id');
   });
 });

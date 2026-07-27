@@ -6,7 +6,7 @@
 // rule only (ADR-006 D-4) — Phase 1 (src/modules/outreach/outreachGate.ts)
 // applies the enforcement gates to this composite.
 
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { db, wizmatchCompanyPolicies } from '../../db';
 import { buildScopeKey } from './scopeKey';
 import { resolveBusinessUnitLabel, resolveLocationLabel, resolveRegionLabel } from './scopeApplicability';
@@ -85,6 +85,79 @@ async function fetchActivePolicyRows(tenantId: string, companyId: string): Promi
     source: r.source,
     actorUserId: r.actorUserId,
   }));
+}
+
+/**
+ * P8B-1 (owner-ratified) — PRD-005 §8.2 L4. A row scoped to ONE signal or ONE
+ * requirement denies/suppresses only that signal or requirement. It is never a
+ * company-level freeze, so it must be excluded from every "is this company
+ * frozen" scan. Keyed on the real `scope_type` column, never on string-parsing
+ * `scope_key`.
+ */
+export function isSignalOrRequirementScoped(row: { scopeType?: ScopeType | string | null }): boolean {
+  return row.scopeType === 'specific_signal' || row.scopeType === 'specific_requirement';
+}
+
+/**
+ * P8B-1 — PRD-005 §8.2 L1c. The single predicate for "an active non-overridable
+ * block that freezes company/scope-level actions" (entire_company, region,
+ * business_unit, location). Exported so `outreachGate.ts`,
+ * `decisionWorkbench.ts` and `decisionWorkbenchActions.ts` share ONE definition
+ * rather than three hand-written copies that can drift apart — the drift is
+ * exactly what let an L4 signal block freeze a whole company.
+ *
+ * A row whose `scopeType` is absent (a partial fixture, or a projection that
+ * did not select the column) is treated as company-freezing: unknown scope
+ * fails CLOSED, never open.
+ */
+export function isCompanyOrScopeFreezingBlock(row: {
+  scopeType?: ScopeType | string | null;
+  outreachEligibility?: OutreachEligibility | string | null;
+  isNonOverridable?: boolean | null;
+}): boolean {
+  return row.outreachEligibility === 'blocked'
+    && row.isNonOverridable === true
+    && !isSignalOrRequirementScoped(row);
+}
+
+/**
+ * P8B-1 — the ids carried by ACTIVE `specific_signal:<id>` /
+ * `specific_requirement:<id>` scope keys whose own row reads
+ * `outreach_eligibility = 'blocked'`, for the given companies.
+ *
+ * Overridability is deliberately NOT part of this predicate. `is_non_overridable`
+ * decides whether an admin may SUPERSEDE the row, not whether the block is in
+ * force right now — a merely-overridable blocked signal is still blocked until
+ * somebody actually overrides it, so it must not drive a draft, a
+ * recommendation or a priority ranking either.
+ *
+ * Tenant predicate first, then the company set: a blocked signal in another
+ * tenant can never enter this set.
+ */
+export async function fetchBlockedScopedIds(
+  tenantId: string,
+  companyIds: string[],
+  scopeType: 'specific_signal' | 'specific_requirement',
+): Promise<Set<string>> {
+  const ids = new Set<string>();
+  if (companyIds.length === 0) return ids;
+  const rows = await db
+    .select({ scopeKey: wizmatchCompanyPolicies.scopeKey })
+    .from(wizmatchCompanyPolicies)
+    .where(
+      and(
+        eq(wizmatchCompanyPolicies.tenantId, tenantId),
+        inArray(wizmatchCompanyPolicies.companyId, companyIds),
+        isNull(wizmatchCompanyPolicies.supersededAt),
+        eq(wizmatchCompanyPolicies.scopeType, scopeType),
+        eq(wizmatchCompanyPolicies.outreachEligibility, 'blocked'),
+      ),
+    );
+  const prefix = `${scopeType}:`;
+  for (const row of rows) {
+    if (row.scopeKey?.startsWith(prefix)) ids.add(row.scopeKey.slice(prefix.length));
+  }
+  return ids;
 }
 
 /** Builds the narrow-to-broad candidate scope-key list for a request context. Does not check DB. */

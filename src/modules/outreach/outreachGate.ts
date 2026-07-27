@@ -42,7 +42,7 @@ import { WIZMATCH_SYSTEM_CHANNEL } from '../../config/constants';
 import { sendSlackMessage } from '../../services/slackService';
 import { auditLog } from '../../services/auditLogger';
 import { isPreparationAllowed } from '../../config/wizmatchReasonCodes';
-import { resolveEffectivePolicy } from './policyResolver';
+import { resolveEffectivePolicy, isCompanyOrScopeFreezingBlock } from './policyResolver';
 import { computeCampaignCompatibility } from './campaignCompatibility';
 import {
   OutreachBlockedError,
@@ -467,9 +467,14 @@ export async function evaluateWizmatchOutreachGate(ctx: OutreachGateContext): Pr
       );
     }
 
-    // L1c — non-overridable block at a narrower scope.
+    // L1c — non-overridable block at a narrower COMPANY-OR-SCOPE level
+    // (region/business_unit/location). P8B-1 (owner-ratified): a
+    // `specific_signal`/`specific_requirement` row is PRD §8.2 L4, not L1c —
+    // matching it here reported an L4 signal block as a company-scope freeze,
+    // with `effectiveLevel: 1` and an L1c reason code. It is denied on its own
+    // dedicated branch below, at its own level, with its own provenance.
     const narrowerNonOverridable = effective.applicableRows.find(
-      (r) => r.scopeType !== 'entire_company' && r.outreachEligibility === 'blocked' && r.isNonOverridable,
+      (r) => r.scopeType !== 'entire_company' && isCompanyOrScopeFreezingBlock(r),
     );
     if (narrowerNonOverridable) {
       return makeDecision({
@@ -536,13 +541,48 @@ export async function evaluateWizmatchOutreachGate(ctx: OutreachGateContext): Pr
       );
     }
 
-    // L4 — signal/requirement restriction.
+    // L4 — signal/requirement restriction. DENY for that signal or requirement
+    // ONLY (PRD-005 §8.2 L4): it is never a company-level freeze, and the
+    // company's own review/preparation/assignment work is untouched.
+    //
+    // P8B-1 (owner-ratified) — this branch used to build its decision with
+    // `denyDecision`, which hardcodes `isNonOverridable: false`,
+    // `blockClass: null` and `evidence: null`. A non-overridable legal block on
+    // a signal therefore surfaced as an ordinary overridable one with no
+    // evidence at all — the row's real provenance was discarded at exactly the
+    // point an operator needs it. It is now built from the underlying row, the
+    // same way L1 and L1c already are.
     if (
       eligibility &&
       (eligibility.value === 'blocked' || eligibility.value === 'paused') &&
       (eligibility.scopeKey.startsWith('specific_signal:') || eligibility.scopeKey.startsWith('specific_requirement:'))
     ) {
-      return denyDecision('signal_role_irrelevant', 4, effectiveSnapshot);
+      const l4Row = effective.allActiveRows.find((r) => r.id === eligibility.policyId);
+      const l4ReasonCode = l4Row?.reasonCode ?? 'signal_role_irrelevant';
+      return makeDecision({
+        decision: 'deny',
+        recommendedRoute: 'none',
+        allowedCampaignTypes: [],
+        allowedOutreachModes: [],
+        reasonCodes: [l4ReasonCode],
+        effectiveLevel: 4,
+        effective: effectiveSnapshot,
+        blockClass: l4Row?.blockClass ?? null,
+        isNonOverridable: l4Row?.isNonOverridable ?? false,
+        preparationAllowed: isPreparationAllowed(l4ReasonCode),
+        requiresExplicitApproval: false,
+        accountOwnerUserId: null,
+        evidence: l4Row
+          ? {
+              kind: l4Row.evidenceKind ?? undefined,
+              text: l4Row.evidenceText ?? undefined,
+              url: l4Row.evidenceUrl ?? undefined,
+              ref: l4Row.evidenceRef ?? undefined,
+              source: l4Row.source,
+              actorUserId: l4Row.actorUserId ?? undefined,
+            }
+          : null,
+      });
     }
 
     // L5 — pause / needs-review / duplicate-suspected.

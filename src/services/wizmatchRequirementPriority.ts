@@ -290,14 +290,62 @@ function withMissingCompanyBlocker(scored: RequirementPriorityResult): Requireme
   };
 }
 
+/** The §9 blocker code for "this specific requirement carries its own active block". */
+export const REQUIREMENT_SCOPE_BLOCKER = 'requirement_blocked_by_policy';
+
+/**
+ * P8B-1 (owner-ratified) — PRD-005 §8.2 L4: a `specific_requirement:<id>`
+ * blocked policy row is a DENY for that requirement and nothing else. The
+ * company-level fold above never sees it (it asks the gate only about the
+ * COMPANY), so before this a requirement an operator had explicitly blocked
+ * kept its raw score and kept being ranked, recommended and worked.
+ *
+ * Applied in BOTH enforcement modes, deliberately, and this is not the §16
+ * rule-2 / D-31 violation it superficially resembles. D-31 gates a decision the
+ * canonical RESOLVER infers; this is an explicit, evidence-backed row a human
+ * wrote against this exact requirement, and honouring it removes a work item
+ * the operator already asked to have removed. It grants no permission, enables
+ * no send, and never converts into a company-level block — the company's own
+ * requirements, review and preparation work are untouched. `missing_company`
+ * above is mode-gated for the opposite reason: there, nothing was ever written,
+ * the block is inferred from an ABSENCE, and it is new behaviour in PR 5.
+ */
+function withBlockedRequirementScope(scored: RequirementPriorityResult): RequirementPriorityResult {
+  if (scored.blockers.includes(REQUIREMENT_SCOPE_BLOCKER)) return scored;
+  return {
+    ...scored,
+    // Capped below the module's own `blocked` threshold (45) so the sort in
+    // `rankRequirementPriorityQueueWithPolicy` de-ranks it too — "denied
+    // regardless of its raw score" has to hold for ordering, not only for the
+    // label.
+    score: Math.min(scored.score, 44),
+    priority: 'blocked',
+    blockers: [...scored.blockers, REQUIREMENT_SCOPE_BLOCKER],
+    reasons: [...scored.reasons, 'Blocked: an active policy blocks this specific requirement.'],
+    nextAction: 'blocked',
+    // Never overwrite a company-level DENY's own cause — that is a different,
+    // broader fact and the operator needs to keep seeing it.
+    canonicalDecision: scored.canonicalDecision === 'deny' ? scored.canonicalDecision : 'deny',
+    canonicalReasonCode: scored.canonicalDecision === 'deny' ? scored.canonicalReasonCode : 'signal_role_irrelevant',
+    canonicalBlockerCode:
+      scored.canonicalDecision === 'deny' ? scored.canonicalBlockerCode : 'policy_signal_role_irrelevant',
+  };
+}
+
 export async function scoreRequirementPriorityWithPolicy(
   tenantId: string,
   input: RequirementPriorityInput,
 ): Promise<RequirementPriorityResult> {
   const scored = scoreRequirementPriority(input);
   if (!input.companyId) return withMissingCompanyBlocker(scored);
-  const canonical = await resolveCanonicalCompanyEligibility(tenantId, input.companyId);
-  return applyCanonicalEligibilityToPriorityResult(scored, canonical);
+  const [canonical, blockedRequirementIds] = await Promise.all([
+    resolveCanonicalCompanyEligibility(tenantId, input.companyId),
+    fetchBlockedScopedIds(tenantId, [input.companyId], 'specific_requirement'),
+  ]);
+  const withCanonical = applyCanonicalEligibilityToPriorityResult(scored, canonical);
+  return blockedRequirementIds.has(input.id.trim().toLowerCase())
+    ? withBlockedRequirementScope(withCanonical)
+    : withCanonical;
 }
 
 export async function rankRequirementPriorityQueueWithPolicy(
@@ -305,16 +353,20 @@ export async function rankRequirementPriorityQueueWithPolicy(
   inputs: RequirementPriorityInput[],
 ): Promise<RequirementPriorityResult[]> {
   const scored = inputs.map(scoreRequirementPriority);
-  const canonicalByCompanyId = await resolveCanonicalCompanyEligibilityBatch(
-    tenantId,
-    inputs.map((i) => i.companyId),
-  );
+  const companyIds = inputs.map((i) => i.companyId).filter((id): id is string => Boolean(id));
+  const [canonicalByCompanyId, blockedRequirementIds] = await Promise.all([
+    resolveCanonicalCompanyEligibilityBatch(tenantId, inputs.map((i) => i.companyId)),
+    fetchBlockedScopedIds(tenantId, [...new Set(companyIds)], 'specific_requirement'),
+  ]);
   return scored
     .map((result, idx) => {
       const companyId = inputs[idx]?.companyId;
       if (!companyId) return withMissingCompanyBlocker(result);
       const canonical = canonicalByCompanyId.get(companyId);
-      return canonical ? applyCanonicalEligibilityToPriorityResult(result, canonical) : result;
+      const withCanonical = canonical ? applyCanonicalEligibilityToPriorityResult(result, canonical) : result;
+      return blockedRequirementIds.has(result.id.trim().toLowerCase())
+        ? withBlockedRequirementScope(withCanonical)
+        : withCanonical;
     })
     .sort((a, b) => b.score - a.score || b.topCandidateMatches.length - a.topCandidateMatches.length);
 }
@@ -325,3 +377,4 @@ import {
   applyCanonicalEligibilityToPriorityResult,
 } from '../modules/outreach/legacyEligibilityAdapter';
 import { isEnforcementActive } from '../modules/outreach/outreachGate';
+import { fetchBlockedScopedIds } from '../modules/outreach/policyResolver';

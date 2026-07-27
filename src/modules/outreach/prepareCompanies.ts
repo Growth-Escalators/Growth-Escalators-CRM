@@ -253,11 +253,41 @@ async function fetchBestSignal(tenantId: string, companyId: string): Promise<Bes
   // Reuse the persisted output of the existing deterministic scorer
   // (wizmatchScoring.ts) — this job never recomputes a score, it only reads
   // the highest one already on file for the company.
+  //
+  // P8B-1 (owner-ratified) — a signal carrying an ACTIVE
+  // `specific_signal:<its id>` blocked policy row (PRD-005 §8.2 L4) is excluded
+  // outright, so selection falls through to the next-best eligible signal (or
+  // to "no eligible signal"). This is the only place §8.2 L4's "DENY for that
+  // signal only" is enforced for the prep path: `fetchBestSignal`'s output
+  // feeds `campaignRecommendation` and `buildDeterministicDraft`, which write
+  // the signal's job title, location and days-open straight into the draft and
+  // the persisted prep report the workbench displays. Without this filter a
+  // blocked signal silently became the evidence justifying readiness,
+  // personalisation and a route recommendation.
+  //
+  // Overridability is deliberately NOT in the predicate: `is_non_overridable`
+  // governs whether an admin may supersede the row, not whether the block is in
+  // force. A blocked-but-overridable signal is still blocked until somebody
+  // overrides it, and must not drive a draft in the meantime.
+  //
+  // Expressed as a correlated NOT EXISTS rather than a second round trip so the
+  // exclusion cannot drift from the selection it guards, and so the tenant
+  // predicate (`s.tenant_id = $1`, carried into the subquery via
+  // `p.tenant_id = s.tenant_id`) covers both halves of the statement.
   const result = await pool.query(
-    `SELECT job_title, days_open, location, score
-       FROM wizmatch_job_signals
-      WHERE tenant_id = $1 AND company_id = $2 AND status NOT IN ('dead', 'placed')
-      ORDER BY score DESC NULLS LAST, created_at DESC
+    `SELECT s.id, s.job_title, s.days_open, s.location, s.score
+       FROM wizmatch_job_signals s
+      WHERE s.tenant_id = $1 AND s.company_id = $2 AND s.status NOT IN ('dead', 'placed')
+        AND NOT EXISTS (
+          SELECT 1 FROM wizmatch_company_policies p
+           WHERE p.tenant_id = s.tenant_id
+             AND p.company_id = s.company_id
+             AND p.superseded_at IS NULL
+             AND p.scope_type = 'specific_signal'
+             AND p.scope_key = 'specific_signal:' || LOWER(s.id::text)
+             AND p.outreach_eligibility = 'blocked'
+        )
+      ORDER BY s.score DESC NULLS LAST, s.created_at DESC
       LIMIT 1`,
     [tenantId, companyId],
   );

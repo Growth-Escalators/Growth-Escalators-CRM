@@ -300,7 +300,7 @@ describe('buildTodayQueues — non-overridable block at a narrower scope (ADR-00
       companyRow({ companyId: 'narrow-1', outreachEligibility: 'blocked', isNonOverridable: false, blockClass: 'standard' }),
     ];
     fixtures.narrowerNonOverridableRows = [
-      { companyId: 'narrow-1', scopeKey: 'region:india', blockClass: 'compliance' },
+      { companyId: 'narrow-1', scopeType: 'region', scopeKey: 'region:india', blockClass: 'compliance' },
     ];
     eligibilityByCompany.set('narrow-1', {
       decision: 'deny', reasonCode: 'manual_block_by_operator', blockerCode: 'policy_manual_block_by_operator',
@@ -318,7 +318,7 @@ describe('buildTodayQueues — non-overridable block at a narrower scope (ADR-00
   it('ignores a supersededAt/entire_company-scoped row from the narrower-block query (already surfaced via the root row)', async () => {
     fixtures.companyRows = [companyRow({ companyId: 'root-only-1', outreachEligibility: 'blocked', isNonOverridable: true, blockClass: 'legal' })];
     // Simulates the root row itself appearing in a naive query result — must be skipped, not double-counted.
-    fixtures.narrowerNonOverridableRows = [{ companyId: 'root-only-1', scopeKey: 'entire_company', blockClass: 'legal' }];
+    fixtures.narrowerNonOverridableRows = [{ companyId: 'root-only-1', scopeType: 'entire_company', scopeKey: 'entire_company', blockClass: 'legal' }];
     eligibilityByCompany.set('root-only-1', {
       decision: 'deny', reasonCode: 'legal_notice', blockerCode: 'policy_legal_notice',
       enforcementMode: 'enforce', actsOnDecision: true,
@@ -437,9 +437,121 @@ describe('fetchNarrowerNonOverridableBlockByCompany — the predicate is actuall
     // table), so walk it with a visited set and collect the `name` of anything
     // that looks like a column, rather than serialising.
     const referenced = collectColumnNames((captured[0] as { condition: unknown }).condition);
-    for (const column of ['tenant_id', 'company_id', 'superseded_at', 'outreach_eligibility', 'is_non_overridable']) {
+    for (const column of [
+      'tenant_id',
+      'company_id',
+      'superseded_at',
+      'outreach_eligibility',
+      'is_non_overridable',
+      // P8B-1 — the query is now scope-type aware, so the narrower-block scan
+      // can tell an L1c company/BU/location freeze from an L4 signal or
+      // requirement block instead of conflating them.
+      'scope_type',
+    ]) {
       expect(referenced, `predicate must reference ${column}`).toContain(column);
     }
+  });
+});
+
+// P8B-1 (owner-ratified) — a PRD-005 §8.2 L4 signal/requirement block is
+// reported, but never treated as a company-level freeze.
+describe('buildTodayQueues — an L4 signal/requirement block does not freeze the company', () => {
+  it('keeps a requirement-scoped block out of pausedOrBlocked and reports it as nonOverridableBlockKind', async () => {
+    fixtures.companyRows = [companyRow({ companyId: 'l4-req', outreachEligibility: 'eligible', isNonOverridable: false })];
+    fixtures.contactRows = [{ companyId: 'l4-req', confidenceScore: 9, metadata: { raw: { confidenceTier: 'high' } } }];
+    fixtures.narrowerNonOverridableRows = [
+      {
+        companyId: 'l4-req',
+        scopeType: 'specific_requirement',
+        scopeKey: 'specific_requirement:22222222-2222-4222-8222-222222222222',
+        blockClass: 'compliance',
+      },
+    ];
+    eligibilityByCompany.set('l4-req', {
+      decision: 'allow', reasonCode: null, blockerCode: null,
+      enforcementMode: 'shadow', actsOnDecision: false,
+      recommendedRoute: 'standard_outreach', accountOwnerUserId: null,
+    });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.pausedOrBlocked).toHaveLength(0);
+    expect(queues.readyToContact).toHaveLength(1);
+    const item = queues.readyToContact[0];
+    expect(item.isNonOverridable).toBe(false);
+    expect(item.nonOverridableScopeKey).toBeNull();
+    expect(item.nonOverridableBlockKind).toBe('requirement');
+    expect(item.disabledReason).toMatch(/specific requirement is blocked/);
+    expect(item.disabledReason).not.toMatch(/at any scope/);
+  });
+
+  it('reports a signal-scoped block as nonOverridableBlockKind "signal"', async () => {
+    fixtures.companyRows = [companyRow({ companyId: 'l4-sig', outreachEligibility: 'needs_review' })];
+    fixtures.narrowerNonOverridableRows = [
+      {
+        companyId: 'l4-sig',
+        scopeType: 'specific_signal',
+        scopeKey: 'specific_signal:11111111-1111-4111-8111-111111111111',
+        blockClass: 'legal',
+      },
+    ];
+    eligibilityByCompany.set('l4-sig', {
+      decision: 'review', reasonCode: null, blockerCode: null,
+      enforcementMode: 'shadow', actsOnDecision: false,
+      recommendedRoute: 'standard_outreach', accountOwnerUserId: null,
+    });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.pausedOrBlocked).toHaveLength(0);
+    expect(queues.needsReview).toHaveLength(1);
+    expect(queues.needsReview[0].nonOverridableBlockKind).toBe('signal');
+    // The L4 block never fabricates a company-level block class.
+    expect(queues.needsReview[0].blockClass).toBe('standard');
+  });
+
+  // CONTROL — unchanged before and after P8B-1.
+  it('still freezes the company for a business_unit-scoped non-overridable block', async () => {
+    fixtures.companyRows = [companyRow({ companyId: 'l1c-bu', outreachEligibility: 'eligible', isNonOverridable: false })];
+    fixtures.contactRows = [{ companyId: 'l1c-bu', confidenceScore: 9, metadata: { raw: { confidenceTier: 'high' } } }];
+    fixtures.narrowerNonOverridableRows = [
+      { companyId: 'l1c-bu', scopeType: 'business_unit', scopeKey: 'business_unit:gcc', blockClass: 'compliance' },
+    ];
+    eligibilityByCompany.set('l1c-bu', {
+      decision: 'allow', reasonCode: null, blockerCode: null,
+      enforcementMode: 'shadow', actsOnDecision: false,
+      recommendedRoute: 'standard_outreach', accountOwnerUserId: null,
+    });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.readyToContact).toHaveLength(0);
+    expect(queues.pausedOrBlocked).toHaveLength(1);
+    expect(queues.pausedOrBlocked[0].isNonOverridable).toBe(true);
+    expect(queues.pausedOrBlocked[0].nonOverridableBlockKind).toBe('company_scope');
+    expect(queues.pausedOrBlocked[0].nonOverridableScopeKey).toBe('business_unit:gcc');
+  });
+
+  // CONTROL — company scope always wins the display enum, even when an L4 block
+  // is also active, because it is the one that actually disables actions.
+  it('reports company_scope when a company-scope block co-exists with an L4 one', async () => {
+    fixtures.companyRows = [companyRow({ companyId: 'both-1', outreachEligibility: 'needs_review' })];
+    fixtures.narrowerNonOverridableRows = [
+      {
+        companyId: 'both-1',
+        scopeType: 'specific_signal',
+        scopeKey: 'specific_signal:11111111-1111-4111-8111-111111111111',
+        blockClass: 'legal',
+      },
+      { companyId: 'both-1', scopeType: 'location', scopeKey: 'location:pune', blockClass: 'compliance' },
+    ];
+    eligibilityByCompany.set('both-1', {
+      decision: 'review', reasonCode: null, blockerCode: null,
+      enforcementMode: 'shadow', actsOnDecision: false,
+      recommendedRoute: 'standard_outreach', accountOwnerUserId: null,
+    });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.pausedOrBlocked).toHaveLength(1);
+    expect(queues.pausedOrBlocked[0].nonOverridableBlockKind).toBe('company_scope');
+    expect(queues.pausedOrBlocked[0].nonOverridableScopeKey).toBe('location:pune');
   });
 });
 
@@ -452,7 +564,7 @@ describe('buildTodayQueues — a narrower non-overridable block outranks an elig
     fixtures.companyRows = [companyRow({ companyId: 'nonov-1', outreachEligibility: 'eligible', isNonOverridable: false })];
     fixtures.contactRows = [{ companyId: 'nonov-1', confidenceScore: 9, metadata: {} }];
     fixtures.narrowerNonOverridableRows = [
-      { companyId: 'nonov-1', scopeKey: 'region:india', blockClass: 'compliance' },
+      { companyId: 'nonov-1', scopeType: 'region', scopeKey: 'region:india', blockClass: 'compliance' },
     ];
     eligibilityByCompany.set('nonov-1', {
       decision: 'allow', reasonCode: null, blockerCode: null,

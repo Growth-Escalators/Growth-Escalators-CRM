@@ -47,6 +47,7 @@ import {
   wizmatchOutreachEnrolments,
 } from '../../db';
 import { resolveCanonicalCompanyEligibilityBatch, type CanonicalCompanyEligibility } from './legacyEligibilityAdapter';
+import { isSignalOrRequirementScoped } from './policyResolver';
 import { deriveConfidenceTier } from '../../services/wizmatchContactIntelligenceRepo';
 
 // PRD-005 §13 — "every live conversation state, since all of them hold the
@@ -93,6 +94,18 @@ export interface DecisionWorkbenchCompanyItem {
    */
   isNonOverridable: boolean;
   nonOverridableScopeKey: string | null;
+  /**
+   * P8B-1 (owner-ratified) — WHICH KIND of non-overridable block is active, as
+   * a closed enum, so a capability-rendering client branches on a type rather
+   * than parsing a scope-key string.
+   *
+   * `'company_scope'` whenever a company/region/business-unit/location
+   * non-overridable block is active (it wins even if an L4 block also exists,
+   * because it is the one that actually disables company-level actions);
+   * `'signal'`/`'requirement'` when ONLY a PRD §8.2 L4 block is active — the
+   * company itself stays actionable; `null` when there is none.
+   */
+  nonOverridableBlockKind: 'signal' | 'requirement' | 'company_scope' | null;
   reviewDate: string | null;
   /** PR 8A hardening (task 7) — true when `reviewDate` is a UTC calendar date at or before now. Only meaningful when `reviewDate` is set. */
   reviewDateArrived: boolean;
@@ -245,14 +258,22 @@ async function fetchPendingDuplicateIdByCompany(tenantId: string, companyIds: st
  * narrower non-overridable block" even when it cannot yet say against which
  * specific signal or region a future action would be evaluated.
  */
+interface NarrowerNonOverridableBlocks {
+  /** A region/business_unit/location non-overridable block — freezes company-level actions (L1c). */
+  companyScope: { scopeKey: string; blockClass: string } | null;
+  /** An L4 `specific_signal`/`specific_requirement` non-overridable block — freezes nothing at company level. */
+  signalOrRequirement: 'signal' | 'requirement' | null;
+}
+
 async function fetchNarrowerNonOverridableBlockByCompany(
   tenantId: string,
   companyIds: string[],
-): Promise<Map<string, { scopeKey: string; blockClass: string }>> {
+): Promise<Map<string, NarrowerNonOverridableBlocks>> {
   if (companyIds.length === 0) return new Map();
   const rows = await db
     .select({
       companyId: wizmatchCompanyPolicies.companyId,
+      scopeType: wizmatchCompanyPolicies.scopeType,
       scopeKey: wizmatchCompanyPolicies.scopeKey,
       blockClass: wizmatchCompanyPolicies.blockClass,
     })
@@ -262,14 +283,35 @@ async function fetchNarrowerNonOverridableBlockByCompany(
         eq(wizmatchCompanyPolicies.tenantId, tenantId),
         inArray(wizmatchCompanyPolicies.companyId, companyIds),
         isNull(wizmatchCompanyPolicies.supersededAt),
+        // P8B-1 — scope_type is now part of the predicate. `entire_company` is
+        // excluded because the root row is already surfaced via RawCompanyRow;
+        // the L4 grains ARE selected (they must still be reported to the UI as
+        // `nonOverridableBlockKind`) but are partitioned below so they never
+        // count as a company-freezing block.
+        inArray(wizmatchCompanyPolicies.scopeType, [
+          'region',
+          'business_unit',
+          'location',
+          'specific_signal',
+          'specific_requirement',
+        ]),
         eq(wizmatchCompanyPolicies.outreachEligibility, 'blocked'),
         eq(wizmatchCompanyPolicies.isNonOverridable, true),
       ),
     );
-  const map = new Map<string, { scopeKey: string; blockClass: string }>();
+  const map = new Map<string, NarrowerNonOverridableBlocks>();
   for (const row of rows) {
     if (row.scopeKey === 'entire_company') continue; // the root row is already surfaced via RawCompanyRow
-    if (!map.has(row.companyId)) map.set(row.companyId, { scopeKey: row.scopeKey, blockClass: row.blockClass });
+    const entry = map.get(row.companyId) ?? { companyScope: null, signalOrRequirement: null };
+    if (isSignalOrRequirementScoped(row)) {
+      // P8B-1 — reported, never company-freezing. Company-scope wins the
+      // display enum below, so first-signal-wins here is only a tie-break
+      // between two L4 grains.
+      entry.signalOrRequirement ??= row.scopeType === 'specific_signal' ? 'signal' : 'requirement';
+    } else if (!entry.companyScope) {
+      entry.companyScope = { scopeKey: row.scopeKey, blockClass: row.blockClass };
+    }
+    map.set(row.companyId, entry);
   }
   return map;
 }
@@ -362,6 +404,7 @@ function disabledReasonFor(item: {
   effectiveDecision: string;
   isNonOverridable: boolean;
   nonOverridableScopeKey: string | null;
+  nonOverridableBlockKind: 'signal' | 'requirement' | 'company_scope' | null;
   duplicatePending: boolean;
   contactConfidenceTier: 'high' | 'medium' | 'low' | null;
   routed: boolean;
@@ -415,6 +458,18 @@ function disabledReasonFor(item: {
   if (item.contactConfidenceTier === 'low' || item.contactConfidenceTier === null) {
     return 'No high- or medium-confidence contact is available yet.';
   }
+  // P8B-1 (owner-ratified) — a PRD §8.2 L4 signal/requirement block denies only
+  // that signal or requirement. Telling the operator "no override or reclassify
+  // action is available at any scope" for it was doubly wrong: the company IS
+  // still actionable, and the copy implied a company-wide freeze the action
+  // layer no longer applies. It is still surfaced — a blocked signal must stay
+  // visible in the company's decision provenance — but stated as what it is,
+  // and stated LAST so it never displaces a reason that genuinely does gate the
+  // primary action (duplicate, routing, contact confidence).
+  if (item.nonOverridableBlockKind === 'signal' || item.nonOverridableBlockKind === 'requirement') {
+    return `A specific ${item.nonOverridableBlockKind} is blocked and cannot be used as evidence or as an `
+      + 'outreach route. The company itself is otherwise active and its company-level actions remain available.';
+  }
   return null;
 }
 
@@ -466,10 +521,21 @@ export async function buildTodayQueues(tenantId: string, limit = 200): Promise<T
       // non-overridable-blocked independent of the root's own state (e.g. a
       // root `standard` block plus a `region:india` compliance removal).
       // Either one must disable every unblocking action.
+      //
+      // P8B-1 (owner-ratified) — but ONLY a company/region/business-unit/
+      // location block counts here. A PRD §8.2 L4 `specific_signal`/
+      // `specific_requirement` block denies that signal or requirement alone;
+      // treating it as company-freezing dropped an otherwise-active company
+      // into Paused or Blocked and told the operator no override existed at any
+      // scope. It is reported through `nonOverridableBlockKind` instead.
       const narrower = narrowerNonOverridableByCompany.get(row.companyId) ?? null;
-      const isNonOverridable = row.isNonOverridable || narrower !== null;
-      const nonOverridableScopeKey = row.isNonOverridable ? row.policyScopeKey : (narrower?.scopeKey ?? null);
-      const effectiveBlockClass = row.isNonOverridable ? row.blockClass : (narrower?.blockClass ?? row.blockClass);
+      const companyScopeBlock = narrower?.companyScope ?? null;
+      const isNonOverridable = row.isNonOverridable || companyScopeBlock !== null;
+      const nonOverridableScopeKey = row.isNonOverridable ? row.policyScopeKey : (companyScopeBlock?.scopeKey ?? null);
+      const effectiveBlockClass = row.isNonOverridable ? row.blockClass : (companyScopeBlock?.blockClass ?? row.blockClass);
+      const nonOverridableBlockKind: DecisionWorkbenchCompanyItem['nonOverridableBlockKind'] = isNonOverridable
+        ? 'company_scope'
+        : (narrower?.signalOrRequirement ?? null);
 
       // Task 7 — review-date resurfacing. Only a PAUSED row (never a blocked
       // one — a block's review date is informational only; no override
@@ -516,6 +582,7 @@ export async function buildTodayQueues(tenantId: string, limit = 200): Promise<T
         blockClass: effectiveBlockClass,
         isNonOverridable,
         nonOverridableScopeKey,
+        nonOverridableBlockKind,
         reviewDate: row.reviewDate,
         reviewDateArrived,
         policyReasonCode: row.policyReasonCode,

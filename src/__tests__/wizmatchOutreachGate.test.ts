@@ -302,3 +302,115 @@ describe('evaluateWizmatchOutreachGate — fail-closed on error', () => {
     expect(decision.reasonCodes).toContain('policy_resolver_error');
   });
 });
+
+// P8B-1 (owner-ratified) — PRD-005 §8.2 L4. A `specific_signal` /
+// `specific_requirement` block denies THAT signal or requirement only, at its
+// own level, carrying its own real provenance. It is not an L1c company-scope
+// freeze, and it is not the provenance-less deny the old `denyDecision(...)`
+// path produced (isNonOverridable: false, blockClass: null, evidence: null).
+describe('evaluateWizmatchOutreachGate — L4 signal/requirement restriction', () => {
+  const SIGNAL_ID = '11111111-1111-4111-8111-111111111111';
+  const REQUIREMENT_ID = '22222222-2222-4222-8222-222222222222';
+
+  function scopedBlockRow(overrides: Record<string, unknown> = {}) {
+    return rootPolicyRow({
+      id: 'policy-signal-1',
+      scopeType: 'specific_signal',
+      scopeKey: `specific_signal:${SIGNAL_ID}`,
+      outreachEligibility: 'blocked',
+      externalHiringPolicy: null,
+      relationshipType: null,
+      reasonCode: null,
+      blockClass: 'legal',
+      isNonOverridable: true,
+      evidenceKind: 'legal_notice',
+      evidenceText: 'Counsel instruction: this requisition is off-limits.',
+      source: 'human',
+      actorUserId: 'user-legal-1',
+      ...overrides,
+    });
+  }
+
+  it('carries the blocking row\'s real isNonOverridable/blockClass/evidence, not hardcoded nulls', async () => {
+    state.policyRows = [rootPolicyRow(), scopedBlockRow()];
+    const decision = await evaluateWizmatchOutreachGate({
+      tenantId: TENANT,
+      action: 'enrol',
+      companyId: COMPANY,
+      signalId: SIGNAL_ID,
+    });
+
+    expect(decision.decision).toBe('deny');
+    expect(decision.effectiveLevel).toBe(4);
+    expect(decision.reasonCodes).toContain('signal_role_irrelevant');
+    expect(decision.isNonOverridable).toBe(true);
+    expect(decision.blockClass).toBe('legal');
+    expect(decision.evidence).toMatchObject({
+      kind: 'legal_notice',
+      text: 'Counsel instruction: this requisition is off-limits.',
+      source: 'human',
+      actorUserId: 'user-legal-1',
+    });
+    // Provenance names the signal scope, not the company root.
+    expect(decision.effective.outreachEligibility?.scopeKey).toBe(`specific_signal:${SIGNAL_ID}`);
+  });
+
+  it('reports the row\'s own reason code when it has one', async () => {
+    state.policyRows = [rootPolicyRow(), scopedBlockRow({ reasonCode: 'company_removal_request' })];
+    const decision = await evaluateWizmatchOutreachGate({
+      tenantId: TENANT,
+      action: 'enrol',
+      companyId: COMPANY,
+      signalId: SIGNAL_ID,
+    });
+    expect(decision.effectiveLevel).toBe(4);
+    expect(decision.reasonCodes).toEqual(['company_removal_request']);
+  });
+
+  it('applies to a requirement-scoped block the same way', async () => {
+    state.policyRows = [
+      rootPolicyRow(),
+      scopedBlockRow({
+        id: 'policy-req-1',
+        scopeType: 'specific_requirement',
+        scopeKey: `specific_requirement:${REQUIREMENT_ID}`,
+      }),
+    ];
+    const decision = await evaluateWizmatchOutreachGate({
+      tenantId: TENANT,
+      action: 'enrol',
+      companyId: COMPANY,
+      requirementId: REQUIREMENT_ID,
+    });
+    expect(decision.decision).toBe('deny');
+    expect(decision.effectiveLevel).toBe(4);
+    expect(decision.isNonOverridable).toBe(true);
+  });
+
+  // The company itself is untouched: an evaluation that does NOT name the
+  // blocked signal still resolves normally. This is the whole point of L4.
+  it('never denies the company when the request does not name the blocked signal', async () => {
+    state.policyRows = [rootPolicyRow(), scopedBlockRow()];
+    const decision = await evaluateWizmatchOutreachGate({ tenantId: TENANT, action: 'enrol', companyId: COMPANY });
+    expect(decision.decision).toBe('allow');
+    expect(decision.isNonOverridable).toBe(false);
+  });
+
+  // CONTROL — a region-scoped non-overridable block is still L1c, and is still
+  // a company-scope freeze regardless of which signal the request names.
+  it('still denies at L1c for a region-scoped non-overridable block', async () => {
+    state.policyRows = [
+      rootPolicyRow(),
+      scopedBlockRow({ id: 'policy-region-1', scopeType: 'region', scopeKey: 'region:india' }),
+    ];
+    const decision = await evaluateWizmatchOutreachGate({
+      tenantId: TENANT,
+      action: 'enrol',
+      companyId: COMPANY,
+      region: 'india',
+    });
+    expect(decision.decision).toBe('deny');
+    expect(decision.effectiveLevel).toBe(1);
+    expect(decision.isNonOverridable).toBe(true);
+  });
+});

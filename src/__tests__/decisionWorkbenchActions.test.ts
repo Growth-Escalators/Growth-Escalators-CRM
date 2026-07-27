@@ -65,7 +65,11 @@ vi.mock('../modules/outreach/duplicateService', () => {
   };
 });
 
-vi.mock('../modules/outreach/policyResolver', () => ({
+vi.mock('../modules/outreach/policyResolver', async (importOriginal) => ({
+  // The scope-type predicates are pure functions with no DB access and are the
+  // very thing under test here — mocking them would make every assertion below
+  // vacuous. Only the DB-touching resolver is replaced.
+  ...(await importOriginal<typeof import('../modules/outreach/policyResolver')>()),
   resolveEffectivePolicy: async () => ({
     rootRow: state.rootRow,
     // PR 8A hardening — the action layer now scans ALL active rows (not only
@@ -358,6 +362,128 @@ describe('runTodayActions — non-overridable block at any scope (ADR-006 D-17/L
     expect(outcome.failed).toBe(1);
     expect(outcome.results[0].code).toBe('non_overridable_block_at_scope');
     expect(calls.writeCompanyPolicy).toHaveLength(0);
+  });
+});
+
+// P8B-1 (owner-ratified) — a PRD-005 §8.2 L4 block denies only the affected
+// signal/requirement. It must NOT freeze the company's own review, preparation,
+// assignment, review-date or policy actions, and must never silently become a
+// permanent company-wide block. The §8.2 L1c company/BU/location case is
+// unchanged and is the control below.
+describe('runTodayActions — an L4 signal/requirement block does not freeze company-level actions', () => {
+  async function mockActiveRows(rows: unknown[]) {
+    state.rootRow = {
+      id: 'policy-root',
+      scopeType: 'entire_company',
+      scopeKey: 'entire_company',
+      outreachEligibility: 'needs_review',
+      externalHiringPolicy: 'unknown',
+      relationshipType: 'new_prospect',
+    };
+    vi.spyOn(await import('../modules/outreach/policyResolver'), 'resolveEffectivePolicy').mockResolvedValue({
+      rootRow: state.rootRow,
+      allActiveRows: [state.rootRow, ...rows],
+    } as never);
+  }
+
+  const signalBlock = {
+    id: 'policy-signal-1',
+    scopeType: 'specific_signal',
+    scopeKey: 'specific_signal:11111111-1111-4111-8111-111111111111',
+    outreachEligibility: 'blocked',
+    isNonOverridable: true,
+    blockClass: 'compliance',
+  };
+
+  const requirementBlock = {
+    id: 'policy-req-1',
+    scopeType: 'specific_requirement',
+    scopeKey: 'specific_requirement:22222222-2222-4222-8222-222222222222',
+    outreachEligibility: 'blocked',
+    isNonOverridable: true,
+    blockClass: 'compliance',
+  };
+
+  it('allows approve_queue as admin when the only non-overridable block is scoped to one signal', async () => {
+    await mockActiveRows([signalBlock]);
+    const outcome = await runTodayActions(
+      { ...actor, role: 'admin' },
+      { action: 'approve_queue', targets: [{ type: 'company', id: 'company-1' }] },
+    );
+    expect(outcome.results[0].error).toBeUndefined();
+    expect(outcome.succeeded).toBe(1);
+    expect(calls.writeCompanyPolicy).toHaveLength(1);
+  });
+
+  it('allows pause/resume/skip too — an L4 block freezes no company-level action', async () => {
+    for (const action of ['resume', 'skip'] as const) {
+      calls.writeCompanyPolicy.length = 0;
+      await mockActiveRows([requirementBlock]);
+      const outcome = await runTodayActions(
+        { ...actor, role: 'admin' },
+        { action, targets: [{ type: 'company', id: 'company-1' }] },
+      );
+      expect(outcome.results[0].error, `action '${action}' must not be frozen by an L4 block`).toBeUndefined();
+      expect(outcome.succeeded).toBe(1);
+    }
+  });
+
+  // CONTROL — must fail identically before and after the P8B-1 fix. Proves the
+  // guard was narrowed by scope type only, not loosened generally.
+  it('still refuses approve_queue for a region-scoped non-overridable block, even for admin', async () => {
+    await mockActiveRows([
+      {
+        id: 'policy-region-india',
+        scopeType: 'region',
+        scopeKey: 'region:india',
+        outreachEligibility: 'blocked',
+        isNonOverridable: true,
+        blockClass: 'compliance',
+      },
+    ]);
+    const outcome = await runTodayActions(
+      { ...actor, role: 'admin' },
+      { action: 'approve_queue', targets: [{ type: 'company', id: 'company-1' }] },
+    );
+    expect(outcome.failed).toBe(1);
+    expect(outcome.results[0].code).toBe('non_overridable_block_at_scope');
+    expect(calls.writeCompanyPolicy).toHaveLength(0);
+  });
+
+  // CONTROL — a company/BU-scoped block co-existing with an L4 one still wins.
+  it('refuses when a business_unit block co-exists with the signal block', async () => {
+    await mockActiveRows([
+      signalBlock,
+      {
+        id: 'policy-bu-1',
+        scopeType: 'business_unit',
+        scopeKey: 'business_unit:gcc',
+        outreachEligibility: 'blocked',
+        isNonOverridable: true,
+        blockClass: 'legal',
+      },
+    ]);
+    const outcome = await runTodayActions(
+      { ...actor, role: 'admin' },
+      { action: 'approve_queue', targets: [{ type: 'company', id: 'company-1' }] },
+    );
+    expect(outcome.failed).toBe(1);
+    expect(outcome.results[0].code).toBe('non_overridable_block_at_scope');
+  });
+
+  // Fail-closed: a row whose scope type could not be read is NOT assumed to be
+  // signal-scoped. Unknown provenance freezes the company action, per P8B-1's
+  // "never silently allow" clause.
+  it('still refuses when the blocking row carries no readable scope type', async () => {
+    await mockActiveRows([
+      { id: 'policy-unknown', scopeKey: 'region:india', outreachEligibility: 'blocked', isNonOverridable: true, blockClass: 'compliance' },
+    ]);
+    const outcome = await runTodayActions(
+      { ...actor, role: 'admin' },
+      { action: 'approve_queue', targets: [{ type: 'company', id: 'company-1' }] },
+    );
+    expect(outcome.failed).toBe(1);
+    expect(outcome.results[0].code).toBe('non_overridable_block_at_scope');
   });
 });
 
