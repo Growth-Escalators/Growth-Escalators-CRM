@@ -4910,3 +4910,15 @@ against §11 and §9/§12 respectively.
 
 **Verdict unchanged: G1 NO-GO.** No new blocker; the collision probe returned clean. Still read-only
 throughout — the fifth session used the same protocol and ended in `ROLLBACK`.
+
+**Second addendum — R2 follow-up, lock window quantified.** R2 confirmed the arithmetic resolution
+and accepted the collision result, and sharpened the U-7 risk statement in a way worth keeping:
+"held until the migration commits" understates it. The six additive `(tenant_id, id)` uniques sit
+EARLY, in the MANUAL REORDER block at `0037_unknown_siren.sql:215-220` (they are FK targets, so they
+must precede the constraint block) — `contact_channels`/`contacts`/`users` are lines 215/216/217.
+Between there and commit at line 372 the migration still runs **37 more `ADD CONSTRAINT`s, 23 more
+index creations**, the guarded `DO $$` FK blocks, and the immutability function + trigger (333-372).
+So the write-blocking `SHARE` locks on the three shared tables span essentially the entire migration,
+not the three small builds — and that total cannot be inferred from table sizes. §6 rewritten with
+the exact statement counts (R2 estimated ~30 FKs / 22 indexes; verified figures are 37 / 23).
+Reinforces, and does not change, the requirement for a clone-based measurement. R2 concurs NO-GO.

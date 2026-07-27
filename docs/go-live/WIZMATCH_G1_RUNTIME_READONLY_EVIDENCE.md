@@ -327,14 +327,28 @@ No redundancy with, or conflict against, the three additive `(tenant_id, id)` in
 was asked to sign off on are *tiny*: 15 rows, 2 813 rows and 4 719 rows. A non-`CONCURRENTLY`
 `CREATE UNIQUE INDEX` on tables of this size completes in single-digit milliseconds.
 
-**What still must be measured, and why it is not a formality:** drizzle applies **all pending
+**What still must be measured, and why it is not a formality.** Drizzle applies **all pending
 migrations inside one transaction** (`session.transaction(...)` wrapping the statement loop, in
-`drizzle-orm/pg-core/dialect.js`). Every lock `0037` takes — including the `SHARE` locks on `users`,
-`contacts` and `contact_channels` from the three index builds — is held **until the entire migration
-commits**, not just for that statement. So the number that matters is the *total wall-clock duration
-of the whole of `0037`*, not the cost of any single index. On a 52 MB database that is expected to be
-well under a second, but "expected" is exactly what the owner's conditional approval refuses to
-accept. It must be measured on a real-sized clone.
+`drizzle-orm/pg-core/dialect.js`), and Postgres holds locks **to commit**. So the write-stall window
+on the three shared tables is *not* the few milliseconds their own index builds take — it is
+everything that runs after them.
+
+Reading the statement order in `0037_unknown_siren.sql` makes the span concrete. The six additive
+`(tenant_id, id)` uniques sit early, in the MANUAL REORDER block at **lines 215–220** — they have to,
+because they are FK targets and must exist before the constraint block. `contact_channels`,
+`contacts` and `users` are lines **215, 216, 217**. Between there and `COMMIT` at line **372** the
+migration still executes:
+
+- **37** further `ADD CONSTRAINT` statements,
+- **23** further index creations,
+- the guarded `DO $$` FK blocks, and
+- the policy-immutability function and trigger (lines 333–372).
+
+So the `SHARE` locks on `users`, `contacts` and `contact_channels` — which block writes but not reads
+— are held across **essentially the whole of `0037`**, not across three small builds. That total is
+the number the owner's condition is really about, and it **cannot be inferred from the table sizes in
+the table above**. On a 52 MB database it is expected to be well under a second, but "expected" is
+exactly what the conditional approval refuses to accept. It must be measured on a real-sized clone.
 
 The owner's condition also has a second limb — **a verified backup/rollback plan** — and that limb
 has now failed outright (§9).
