@@ -414,3 +414,79 @@ describe('evaluateWizmatchOutreachGate — L4 signal/requirement restriction', (
     expect(decision.isNonOverridable).toBe(true);
   });
 });
+
+// H-4 (code review, revoked-PR-8B remediation) — the L1c scan at
+// outreachGate.ts ~line 476 must scan `effective.allActiveRows`, not
+// `effective.applicableRows`. `applicableRows` is filtered to only the rows
+// matching THIS request's resolved scope-key candidates
+// (policyResolver.buildCandidateScopeKeys), so a non-overridable block that
+// exists but does not match the request's own resolved scope was silently
+// invisible to the old scan — a fail-OPEN. `decisionWorkbenchActions.ts`
+// never had this bug (it always scanned `allActiveRows`); this proves
+// `outreachGate.ts` now matches it, at the exact call site, not only via a
+// DB-layer CHECK constraint.
+describe('evaluateWizmatchOutreachGate — H-4 fail-closed on non-applicable non-overridable block', () => {
+  it('denies at L1c even when the block\'s scope does not match this request\'s resolved context', async () => {
+    // Non-overridable region:india block exists, but THIS request resolves
+    // region:us — buildCandidateScopeKeys would never include 'region:india'
+    // in its candidate list, so `applicableRows` never contains this row.
+    // `allActiveRows` always does. The old code (scanning `applicableRows`)
+    // fell through this row entirely and reached a terminal `allow` at L8;
+    // the fixed code (scanning `allActiveRows`) must still deny at L1c.
+    state.policyRows = [
+      rootPolicyRow(),
+      rootPolicyRow({
+        id: 'policy-region-india-1',
+        scopeType: 'region',
+        scopeKey: 'region:india',
+        outreachEligibility: 'blocked',
+        externalHiringPolicy: null,
+        relationshipType: null,
+        reasonCode: 'company_removal_request',
+        blockClass: 'compliance',
+        isNonOverridable: true,
+        isPermanent: true,
+        evidenceKind: 'human_text',
+        evidenceText: 'Legal instructed removal for the India entity.',
+      }),
+    ];
+    const decision = await evaluateWizmatchOutreachGate({
+      tenantId: TENANT,
+      action: 'enrol',
+      companyId: COMPANY,
+      region: 'us', // deliberately NOT 'india' — resolved, but non-matching
+    });
+    expect(decision.decision).toBe('deny');
+    expect(decision.effectiveLevel).toBe(1);
+    expect(decision.isNonOverridable).toBe(true);
+    expect(decision.reasonCodes).toContain('company_removal_request');
+  });
+
+  // CONTROL — an OVERRIDABLE narrower block that does not match the request's
+  // resolved scope must NOT be swept in by this fix; only non-overridable
+  // company-or-scope-freezing rows are in scope for L1c.
+  it('does not deny at L1c for a non-matching, merely-overridable narrower block', async () => {
+    state.policyRows = [
+      rootPolicyRow(),
+      rootPolicyRow({
+        id: 'policy-region-india-2',
+        scopeType: 'region',
+        scopeKey: 'region:india',
+        outreachEligibility: 'blocked',
+        externalHiringPolicy: null,
+        relationshipType: null,
+        reasonCode: 'manual_block_by_operator',
+        blockClass: 'standard',
+        isNonOverridable: false,
+        isPermanent: false,
+      }),
+    ];
+    const decision = await evaluateWizmatchOutreachGate({
+      tenantId: TENANT,
+      action: 'enrol',
+      companyId: COMPANY,
+      region: 'us',
+    });
+    expect(decision.decision).toBe('allow');
+  });
+});

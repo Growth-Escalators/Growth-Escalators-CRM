@@ -419,7 +419,13 @@ function mapClientDiscoveryRow(row: ClientDiscoverySignalRow): ClientDiscoveryIn
   };
 }
 
-async function fetchClientDiscoverySignals(tenantId: string, limit: number, companyId?: string) {
+// Exported (H-5 remediation) so its blocked-signal exclusion (both the row
+// filter and the `active_signal_count` sibling-inflation guard) can be
+// regression-tested directly with a SQL-interpreting mock, the same way
+// `prepareCompanies.ts`'s `fetchBestSignal` is — rather than only indirectly
+// via the HTTP route, where a vacuous mock could pass while the exclusion
+// itself silently regresses.
+export async function fetchClientDiscoverySignals(tenantId: string, limit: number, companyId?: string) {
   const params: unknown[] = [tenantId];
   let companyFilter = '';
   if (companyId) {
@@ -448,7 +454,16 @@ async function fetchClientDiscoverySignals(tenantId: string, limit: number, comp
             COALESCE(cardinality(s.matched_candidate_ids), 0)::int AS matched_candidate_count,
             (SELECT COUNT(*)::int
              FROM wizmatch_job_signals s2
-             WHERE s2.tenant_id = s.tenant_id AND s2.company_id = s.company_id AND s2.status NOT IN ('dead', 'placed')) AS active_signal_count,
+             WHERE s2.tenant_id = s.tenant_id AND s2.company_id = s.company_id AND s2.status NOT IN ('dead', 'placed')
+               AND NOT EXISTS (
+                 SELECT 1 FROM wizmatch_company_policies p2
+                  WHERE p2.tenant_id = s2.tenant_id
+                    AND p2.company_id = s2.company_id
+                    AND p2.superseded_at IS NULL
+                    AND p2.scope_type = 'specific_signal'
+                    AND p2.scope_key = 'specific_signal:' || LOWER(s2.id::text)
+                    AND p2.outreach_eligibility = 'blocked'
+               )) AS active_signal_count,
             (SELECT COUNT(*)::int
              FROM wizmatch_job_signals s3
              WHERE s3.tenant_id = s.tenant_id AND s3.company_id = s.company_id AND s3.status = 'replied_positive') AS positive_reply_count,
@@ -471,6 +486,23 @@ async function fetchClientDiscoverySignals(tenantId: string, limit: number, comp
      LEFT JOIN wizmatch_domain_health dh ON dh.tenant_id = s.tenant_id AND dh.domain = c.domain
      WHERE s.tenant_id = $1
        AND s.status NOT IN ('dead', 'placed')
+       -- H-5 (code review, revoked-PR-8B remediation) — PRD-005 section 8.2 L4:
+       -- an ACTIVE 'specific_signal:<id>' blocked policy row excludes that
+       -- signal from client-discovery entirely, mirroring prepareCompanies.ts's
+       -- fetchBestSignal exclusion (the same pattern, same tenant predicate)
+       -- so a blocked signal can never surface, rank or score here either.
+       -- Overridability is deliberately NOT in the predicate -- see that
+       -- file's comment: is_non_overridable governs whether an admin MAY
+       -- supersede the row, not whether the block is in force right now.
+       AND NOT EXISTS (
+         SELECT 1 FROM wizmatch_company_policies p
+          WHERE p.tenant_id = s.tenant_id
+            AND p.company_id = s.company_id
+            AND p.superseded_at IS NULL
+            AND p.scope_type = 'specific_signal'
+            AND p.scope_key = 'specific_signal:' || LOWER(s.id::text)
+            AND p.outreach_eligibility = 'blocked'
+       )
        ${companyFilter}
      ORDER BY COALESCE(s.score, 0) DESC,
               COALESCE(cardinality(s.matched_candidate_ids), 0) DESC,
