@@ -7,6 +7,24 @@
   connected to the production database, and it resolves several of that document's open blockers.
 - **Access owner:** the main session alone. No subagent held Railway, SSH or database access.
 
+> ### SUPERSEDED IN PART — 2026-07-28 (owner decision)
+>
+> The combined **`APPROVE_G1_CLONE_PROVISIONING`** token proposed by this document (§12, §13 and the
+> verdict block below) has been **withdrawn by the owner** and replaced by five separate approval
+> gates. The owner also directed that the clone be **zero-PII synthetic** rather than a copy of
+> production rows, and fixed a mandatory migrate-before-deploy ordering.
+>
+> Wherever this document says `APPROVE_G1_CLONE_PROVISIONING`, read instead the gate sequence in
+> **[`WIZMATCH_G1_BLOCKER_CLEARANCE_PLAN.md`](WIZMATCH_G1_BLOCKER_CLEARANCE_PLAN.md)**:
+> `APPROVE_PRODUCTION_BACKUP_ENABLE` · `APPROVE_ITIKA_ACCOUNT_PROVISIONING` ·
+> `APPROVE_G1_CLONE_CREATE` · `APPROVE_G1_CLONE_LOAD_SYNTHETIC` · `APPROVE_G1_CLONE_DESTROY`.
+>
+> Everything else here — the production evidence, the identity verdict, the journal reconciliation,
+> the lock analysis and the §11.1 cron ordering hazard — **stands unchanged and was re-verified on
+> 2026-07-28.** Two findings were extended by that re-verification: Railway **does** offer PITR on
+> this service (§9 recorded only that no backups existed), and `users` spans **two tenants** with
+> Jatin and Kanishk holding an account in each (§7 recorded only the wizmatch-tenant pair).
+
 > ## VERDICT: **G1 NO-GO**
 >
 > Two hard blockers remain, and one of them is **new and worse than anything the preflight

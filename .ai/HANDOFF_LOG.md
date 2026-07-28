@@ -4983,3 +4983,60 @@ repo-only view and are corrected back to them.
 
 **Verdict unchanged: G1 NO-GO.** No new *blocker* emerged, but the required ordering is now stricter
 (migrate before deploy) and the clone procedure has picked up four operational conditions.
+
+---
+
+## 2026-07-28 — Owner decision: G1 blockers split into Tracks A/B/C behind five gates (Claude, Opus)
+
+**Trigger.** Owner withdrew the combined `APPROVE_G1_CLONE_PROVISIONING` token, mandated a
+zero-PII synthetic clone instead of a production-data clone, fixed a migrate-before-deploy
+ordering, and asked for Tracks A, B and C to be prepared in parallel with no production mutation.
+
+**Produced:** [`docs/go-live/WIZMATCH_G1_BLOCKER_CLEARANCE_PLAN.md`](../docs/go-live/WIZMATCH_G1_BLOCKER_CLEARANCE_PLAN.md).
+Read-only throughout — two `BEGIN READ ONLY` production sessions (rolled back before disconnect),
+plus read-only Railway GraphQL and documentation reads. No secret value printed; env vars were
+tested for presence or equality only.
+
+**Track A — backup.** Re-confirmed zero schedules and zero backups on volume instance
+`144db25d-1d4a-4dbc-abe5-3abd5e132893` (service `Postgres`, volume `postgres-volume`, 189.83 MB of
+500 MB). **Correcting the prior record:** PITR is *available* on this service, not unavailable —
+`volumeInstancePITRRestore` exists and the image is on the required major tag
+(`postgres-ssl:18`); it is simply off (`archive_mode=off`, `wal_level=replica`, no `WAL_ARCHIVE_*`).
+Recommended: manual backup first (no redeploy, 189.83 MB is inside the 50%-of-volume cap), then
+`DAILY`+`WEEKLY` (`volumeInstanceBackupScheduleUpdate`), then PITR. Retention is fixed by Railway
+per kind: daily 6 days, weekly 1 month, monthly 3 months. Restore semantics differ and both are
+documented: PITR spawns a **sibling service** leaving the source untouched; a volume restore mounts
+a new volume as a **staged change** requiring a Deploy click and deletes all newer backups.
+Enabling PITR redeploys `Postgres` — safe for the §1 ordering, because only `web` has a repo
+trigger (`… @ main`) and `Postgres` has none, so it cannot run `dist/scripts/migrate.js`.
+
+**Track B — Itika.** Itika still has **no account** (0 case-insensitive matches, all tenants).
+**New finding:** `users` spans **two** tenants — `wizmatch` (`4b3dd3e2-…`, 3 users) and
+`growth-escalators` (`3ff1e516-…`, 12 users) — and **both Jatin and Kanishk hold an account in
+each**, so "the same tenant as Jatin and Kanishk" is ambiguous on its face. Target resolved to
+`wizmatch` on two independent grounds: production `WIZMATCH_TENANT_ID` equals it (boolean check),
+and the roster's two UUIDs are the wizmatch-tenant pair. Approved path is
+`POST /api/permissions/users` (`src/routes/permissions.ts:173`) — it lowercases the email (`:200`),
+validates `team_lead` against `VALID_ROLES` (`:11`), hashes a generated password, and leaves `id`
+and `is_active` to their DB defaults. **The trap:** it takes `tenantId` from the *caller's session*
+(`:175`), and login falls back to `DEFAULT_TENANT_SLUG` = `growth-escalators` when no slug is
+supplied (`src/routes/auth.ts:36-43`), so an ordinary login would create Itika in the wrong tenant
+with no error.
+
+**Track C — synthetic clone.** Cardinality mapping **derived, not assumed**: 2,813 = `contacts`,
+4,719 = `contact_channels`, 15 = `users`. Captured exact counts, per-index sizes, `pg_stats`
+widths / null fractions / distinct counts, and `NOT NULL`-without-default counts for all seven
+pre-existing tables `0037` touches. Environment facts that simplify the clone: only the `plpgsql`
+extension is installed, and there are **zero triggers** on all seven tables. `pg_stats` has no rows
+at all for `wizmatch_requirements` (4 rows) or `wizmatch_suppression_list` (0 rows). Gate-2
+transport specified as a Railway **reference variable on the disposable service only**
+(`SRC_DATABASE_URL = ${{Postgres.DATABASE_URL}}`), removed immediately after the schema-only load,
+so no dump or credential passes through the workstation and no production variable changes.
+C3's pass/fail thresholds are fixed **in writing before any measurement**.
+
+**Nothing executed.** No backup, no account, no service, no variable, no migration, no backfill,
+no merge, no push, no deploy. Docs-only commit; tree left clean.
+
+**Verdict unchanged: G1 NO-GO.** Awaiting, independently: `APPROVE_PRODUCTION_BACKUP_ENABLE` and
+`APPROVE_ITIKA_ACCOUNT_PROVISIONING`; then `APPROVE_G1_CLONE_CREATE` →
+`APPROVE_G1_CLONE_LOAD_SYNTHETIC` → `APPROVE_G1_CLONE_DESTROY`; `APPROVE_G1_MIGRATION_0037` last.

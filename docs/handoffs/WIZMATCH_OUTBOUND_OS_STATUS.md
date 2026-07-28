@@ -37,9 +37,20 @@ Chat-independent status for the `ge/outbound-0X-*` stacked-PR sequence. Read thi
 > drizzle runs the whole migration in one transaction, so what must be measured is `0037`'s total
 > commit duration, not any single index.
 >
-> **Next safe action:** `APPROVE_G1_CLONE_PROVISIONING` (in-Railway logical `pg_dump | pg_restore`
-> clone — Option A/PITR is unavailable because no backup exists). Recommended in parallel: enable a
-> Railway backup schedule on the production `Postgres` volume.
+> **Next safe action — REVISED 2026-07-28 by owner decision.** The single
+> `APPROVE_G1_CLONE_PROVISIONING` token is **withdrawn**, replaced by five separate gates, and the
+> clone is now specified as **zero-PII synthetic** rather than a copy of production rows. The plan
+> is [`docs/go-live/WIZMATCH_G1_BLOCKER_CLEARANCE_PLAN.md`](../go-live/WIZMATCH_G1_BLOCKER_CLEARANCE_PLAN.md).
+>
+> Awaiting, independently: **`APPROVE_PRODUCTION_BACKUP_ENABLE`** (Track A) and
+> **`APPROVE_ITIKA_ACCOUNT_PROVISIONING`** (Track B), then
+> `APPROVE_G1_CLONE_CREATE` → `APPROVE_G1_CLONE_LOAD_SYNTHETIC` → `APPROVE_G1_CLONE_DESTROY`.
+>
+> Two corrections to the line above, from the 2026-07-28 read-only pass: Railway **does** support
+> PITR on this service (`volumeInstancePITRRestore`; the image is on the required major tag), so
+> PITR is available once enabled — it was never "unavailable", only never switched on. And
+> **`0037` must be applied and verified before the PR 8B code deploys**, because two enabled crons
+> write to a table `0037` creates.
 
 > **Reviewed 2026-07-26 (Opus review lead), then repaired 2026-07-26 (spec-repair pass).** Full report:
 > [`docs/reviews/wizmatch-outbound-overnight-opus-review.md`](../reviews/wizmatch-outbound-overnight-opus-review.md)

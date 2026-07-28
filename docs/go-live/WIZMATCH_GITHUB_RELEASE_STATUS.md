@@ -5,7 +5,21 @@
 - **Final reviewed code commit:** `0d330269`
 - **Purpose:** record the verified GitHub/CI/release state before any production access.
 
-> ### Re-verified 2026-07-28 (read-only, unchanged)
+> ### Re-verified 2026-07-28, second pass (read-only)
+>
+> Unchanged from the first pass except the local docs commits, which have grown. **Owner has
+> directed that these stay local** until the full G1 evidence is ready, then go out as one final
+> docs push plus one final pre-merge CI run.
+>
+> | Item | State |
+> |---|---|
+> | Local HEAD | `6e2b8fcb` → this entry's commit (docs-only, intentionally unpushed) |
+> | Unpushed docs commits on this branch | 5 — `85c9dd09`, `32cf865e`, `319b45a5`, `e5b10be9`, `6e2b8fcb` (+ this one) |
+> | Application code since reviewed `0d330269` | **none** — `git diff --stat 0d330269..HEAD -- src/` is empty |
+> | PR #89 | OPEN · **draft** · base `main` · head `af6d0438` · `MERGEABLE` · `CLEAN` · `mergedAt=null` |
+> | `origin/main` | `1e748125` — unchanged |
+>
+> ### Re-verified 2026-07-28, first pass (read-only, unchanged)
 >
 > | Item | State |
 > |---|---|

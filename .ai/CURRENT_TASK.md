@@ -45,11 +45,28 @@ pending rule — both pre-existing, neither touched by `0037`.
 unset, all eleven Smartlead credential aliases absent, `WIZMATCH_STAFFING_PILOT_ALL_USERS=false`,
 `NODE_ENV=production` (settles PR 8A H-4).
 
-**Exact next action: request `APPROVE_G1_CLONE_PROVISIONING`** — authorises only an in-Railway
-logical `pg_dump | pg_restore` clone (Option A/PITR is unavailable: nothing to restore from) plus
-the production-sized `0037` migration and lock test on that clone. The database is 52 MB, so this
-is a seconds-scale operation. **Recommended in parallel: enable a Railway backup schedule on the
-production `Postgres` volume and take one manual backup** — blocker 7 cannot close otherwise.
+**Exact next action — REVISED 2026-07-28 (owner decision).** `APPROVE_G1_CLONE_PROVISIONING` is
+**withdrawn**. The work is now split into three tracks behind five separate gates, specified in
+[`docs/go-live/WIZMATCH_G1_BLOCKER_CLEARANCE_PLAN.md`](../docs/go-live/WIZMATCH_G1_BLOCKER_CLEARANCE_PLAN.md):
+
+- **Track A** — production backup. Awaiting `APPROVE_PRODUCTION_BACKUP_ENABLE`. Plan: one manual
+  volume backup first (no redeploy), then `DAILY`+`WEEKLY` schedule, then enable PITR. PITR **is**
+  available on this service (`volumeInstancePITRRestore`, image on the required major tag) — the
+  earlier "unavailable" note was wrong; it is simply switched off (`archive_mode=off`).
+- **Track B** — Itika's account. Awaiting `APPROVE_ITIKA_ACCOUNT_PROVISIONING`. Path is
+  `POST /api/permissions/users` (`src/routes/permissions.ts:173`), which takes the tenant from the
+  **caller's session** — so the acting admin must be logged in on the `wizmatch` slug or the account
+  silently lands in `growth-escalators`.
+- **Track C** — a **zero-PII synthetic** production-sized clone (no production rows), behind
+  `APPROVE_G1_CLONE_CREATE` → `APPROVE_G1_CLONE_LOAD_SYNTHETIC` → `APPROVE_G1_CLONE_DESTROY`.
+
+**Mandatory ordering:** `0037` must be applied and verified **before** the PR 8B code deploys —
+two enabled crons write to `wizmatch_company_policies`, which `0037` creates. Exit code 0 from the
+migrate process is not proof of application; only the journal row and post-migration schema are.
+
+**New on 2026-07-28:** `users` spans **two** tenants (`wizmatch` and `growth-escalators`) and both
+Jatin and Kanishk hold an account in each; the pilot roster correctly contains only the two
+wizmatch-tenant UUIDs. Itika has **no** account in any tenant (0 case-insensitive matches).
 
 **Do not** apply `0037`, push, merge, mark PR #89 ready, deploy, run backfill `--apply`, promote
 `enforce`, enable sending/preparation/the adapter, connect Smartlead, change roles or the roster, or

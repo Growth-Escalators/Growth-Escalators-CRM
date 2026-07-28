@@ -7,6 +7,12 @@
 > [`WIZMATCH_G1_RUNTIME_READONLY_EVIDENCE.md`](WIZMATCH_G1_RUNTIME_READONLY_EVIDENCE.md) **first**;
 > where the two disagree, that document wins on anything requiring runtime evidence.
 >
+> **For what happens next, read
+> [`WIZMATCH_G1_BLOCKER_CLEARANCE_PLAN.md`](WIZMATCH_G1_BLOCKER_CLEARANCE_PLAN.md)** (2026-07-28).
+> By owner decision the remaining blockers are cleared through three tracks behind five separate
+> approval gates, the clone is **zero-PII synthetic**, and `0037` must be applied **before** the
+> PR 8B code deploys.
+>
 > **Now resolved by that session:** production Postgres positively identified as the Railway service
 > `Postgres` (`0c31ec38-…`, verified by server major version 18.3 vs `Postgres-K0lx`'s image 17, not
 > by hostname inference) · schema drift reviewed and **clean pre-`0037`** · migration journal reviewed
