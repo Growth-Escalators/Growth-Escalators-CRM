@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   buildWizmatchCommandCenter,
   scoreCandidateIntelligence,
@@ -6,6 +6,22 @@ import {
   scoreRequirement,
 } from '../services/wizmatchCommandCenter';
 import { qualifyCompanyForContactIntelligence } from '../services/wizmatchContactIntelligence';
+
+// This suite is about command-center scoring/aggregation, not the canonical
+// gate (that has its own dedicated tests: wizmatchOutreachGate*.test.ts and
+// the PR5 caller-agreement contract tests). Pass every canonical-policy
+// check through as `allow` here so scoring assertions stay isolated from DB
+// mocking.
+vi.mock('../modules/outreach/legacyEligibilityAdapter', () => ({
+  resolveCanonicalCompanyEligibilityBatch: async (tenantId: string, companyIds: Array<string | null | undefined>) =>
+    new Map(
+      [...new Set(companyIds.filter((id): id is string => !!id))].map((companyId) => [
+        companyId,
+        { tenantId, companyId, decision: 'allow' as const, reasonCode: null, blockerCode: null },
+      ]),
+    ),
+  applyCanonicalEligibilityToPriorityResults: (results: unknown[]) => results,
+}));
 
 describe('Wizmatch Command Center Phase 1', () => {
   it('scores India IT client signals as hot when candidates exist', () => {
@@ -83,7 +99,7 @@ describe('Wizmatch Command Center Phase 1', () => {
     expect(result.reasons).toContain('Urgent requirement.');
   });
 
-  it('builds a unified read-only command queue across modules', () => {
+  it('builds a unified read-only command queue across modules', async () => {
     const contactIntelligence = qualifyCompanyForContactIntelligence({
       company: {
         id: 'company-1',
@@ -108,7 +124,8 @@ describe('Wizmatch Command Center Phase 1', () => {
       ],
     });
 
-    const result = buildWizmatchCommandCenter({
+    const result = await buildWizmatchCommandCenter({
+      tenantId: 'tenant-1',
       generatedAt: '2026-07-06T00:00:00.000Z',
       metrics: {
         activeSignals: 1,

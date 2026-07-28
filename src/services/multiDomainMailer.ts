@@ -11,6 +11,9 @@
 
 import nodemailer from 'nodemailer';
 import { pool } from '../db/index';
+import { WIZMATCH_SYSTEM_CHANNEL } from '../config/constants';
+import { sendSlackMessage } from './slackService';
+import logger from '../utils/logger';
 
 export interface SendResult {
   from: string;
@@ -68,12 +71,35 @@ export async function sendColdEmail(params: SendParams): Promise<SendResult> {
   const healthyDomains = domainsResult.rows.map((r: { domain: string }) => r.domain);
 
   // Filter inboxes by healthy domains
-  let availableInboxes = inboxes.filter((ib) => healthyDomains.includes(ib.domain));
+  const availableInboxes = inboxes.filter((ib) => healthyDomains.includes(ib.domain));
 
-  // If no healthy domains match, use all inboxes
+  // PRD-005 §18.3 — fail closed with no healthy inbox. The prior behaviour
+  // ("use all inboxes") is reversed: it now requires an explicit, alerted
+  // emergency override rather than being the silent default.
   if (availableInboxes.length === 0) {
-    availableInboxes = inboxes;
+    // Read per-call, never cached at import time (mirrors the
+    // AUTOMATED_EMAILS_ENABLED check above) — a flip must take effect without
+    // a restart and must be independently testable per-call.
+    if (process.env.WIZMATCH_MAILER_EMERGENCY_OVERRIDE !== 'true') {
+      throw new Error('cold email suppressed — no healthy sending domain and WIZMATCH_MAILER_EMERGENCY_OVERRIDE is off');
+    }
+    logger.error({ tenantId: params.tenantId }, '[multiDomainMailer] EMERGENCY OVERRIDE in use — sending with no healthy domain');
+    if (WIZMATCH_SYSTEM_CHANNEL) {
+      await sendSlackMessage(
+        WIZMATCH_SYSTEM_CHANNEL,
+        `:rotating_light: WizMatch mailer emergency override in use — no healthy sending domain for tenant ${params.tenantId}, sending anyway.`,
+        undefined,
+        { allowDuringPause: true },
+      ).catch(() => {});
+    }
+    return sendWithInboxes(inboxes, params);
   }
+
+  return sendWithInboxes(availableInboxes, params);
+}
+
+async function sendWithInboxes(availableInboxes: Array<{ user: string; pass: string; domain: string }>, params: SendParams): Promise<SendResult> {
+  const { host, port } = getInboxes();
 
   // Round-robin: pick inbox based on today's count (simplified — in production, track per-inbox daily count)
   // For now, use a hash of the recipient email to distribute evenly
@@ -136,8 +162,18 @@ export async function sendWarmupEmails(tenantId: string, warmupContacts: string[
   const { host, port, inboxes } = getInboxes();
   if (inboxes.length === 0 || warmupContacts.length === 0) return;
 
+  // §8.10.1 row 30 — warm-up is exempt from company outreach policy, but not
+  // from mailbox health: never warm an inbox whose domain is not 'healthy'.
+  const domainsResult = await pool.query(
+    `SELECT domain FROM wizmatch_domain_health WHERE tenant_id = $1 AND status = 'healthy'`,
+    [tenantId],
+  );
+  const healthyDomains = new Set(domainsResult.rows.map((r: { domain: string }) => r.domain));
+  const healthyInboxes = inboxes.filter((ib) => healthyDomains.has(ib.domain));
+  if (healthyInboxes.length === 0) return { sent: 0, total: inboxes.length };
+
   let sent = 0;
-  for (const inbox of inboxes) {
+  for (const inbox of healthyInboxes) {
     // Pick a warmup contact round-robin
     const target = warmupContacts[sent % warmupContacts.length];
     try {

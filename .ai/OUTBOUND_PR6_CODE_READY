@@ -1,0 +1,50 @@
+READY
+branch=ge/outbound-06-decision-workbench
+reviewed_commit=c03bf442
+reviewed_at=2026-07-26T21:37:14Z
+
+# WizMatch Outbound OS — PR 6 (Decision Workbench) independent readiness marker.
+#
+# Created by an independent review session, NOT by the implementing session.
+# Reviewed commit 9b9c2c56 (implementation) plus this review's four fix commits:
+#   e86704b3  C-1 (Critical) — flagged routers no longer 404 the whole /api/wizmatch prefix
+#   c84681f5  H-2 (High)     — decision workbench stays non-blocking in shadow mode
+#   69e68c19  H-7/H-8/H-9    — frontend honesty: off-state, committed-write reporting, malformed data
+#   c03bf442  H-1/H-3/H-4/H-5/H-6/H-10/H-11 — RBAC, root-row preservation, confidence tier,
+#                              null-companyId fail-closed, duplicate precedence, fan-out, silent catch
+# reviewed_commit above is the fix HEAD, before this marker's own docs commit.
+#
+# Verdict: NOT READY as submitted; READY after eleven fixes (1 Critical, 10 High).
+# Zero Critical and zero High findings remain. Full report:
+#   docs/reviews/wizmatch-outbound-pr6-opus-review.md
+#
+# Process note: the lead's first pass found 2 defects and concluded READY. The
+# three subagent reports arrived after that and surfaced 9 more, 4 of them High.
+# A single-pass review would have shipped all 9. One first-pass finding (M-C)
+# was wrong on the merits and is retracted in the report.
+#
+# Gates, all re-run on the post-fix tree:
+#   git diff --check       clean (exit 0)
+#   npm run build          exit 0
+#   npm test               117 files / 1081 tests passed (was 117/1064)
+#   npm run admin:build    clean
+#   npx playwright test --config=playwright.wizmatch-local.config.ts
+#                          99 passed / 15 skipped / 0 failed (was 97/15/0)
+#   (the 15 skips are the pre-existing real-backend specs that skip without
+#    WIZMATCH_E2E_TEST_PASSWORD — the documented no-server reason, no other skip)
+#
+# Largest open gap (Medium, NOT fixed): PRD-005 §13 approval capture is not
+# implemented — `approve_queue` launders a `review` decision into a permanent
+# `eligible` policy row with no approved_by/approved_at. Close before the
+# workbench is used for real decisions. Also open: M-2..M-16, L-1..L-8, two test
+# gaps (nothing exercises fetchCommandCenterRequirements; five of six policy
+# write routes have no role test), plus M-3..M-9, L-1..L-6, U-7, U-9, O-1 and
+# B-1 from the PR 5 re-review. None blocks PR 7.
+#
+# Before this stack reaches `main`: apply migration 0037 (B-1 — the repo
+# auto-deploys on push) and run the §10.11.4 fresh-database checks (G1).
+#
+# Not done, per instruction: nothing pushed, merged or deployed; no Railway or
+# production access; no database mutation; 0037 not applied; backfill --apply
+# not run; WIZMATCH_POLICY_ENFORCEMENT_MODE untouched (shadow); sending, paid
+# discovery and Smartlead untouched; no shared env var changed; PR 7 not started.

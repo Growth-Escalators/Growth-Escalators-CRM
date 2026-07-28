@@ -6,11 +6,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // SQL shape + params rather than hitting a real Postgres instance.
 
 const poolQuery = vi.fn();
+// Transactional callers (e.g. seedProspectCompany's create branch) acquire a
+// dedicated client via pool.connect() rather than pool.query(); route that
+// client's queries through the same poolQuery mock so existing SQL-shape
+// assertions keep working against BEGIN/INSERT/COMMIT alike.
+const connectedClientRelease = vi.fn();
 vi.mock('../db/index', () => ({
   db: {},
   pool: {
     query: (...args: unknown[]) => poolQuery(...args),
-    connect: vi.fn(),
+    connect: vi.fn(async () => ({
+      query: (...args: unknown[]) => poolQuery(...args),
+      release: connectedClientRelease,
+    })),
   },
 }));
 
@@ -338,5 +346,42 @@ describe('seedProspectCompany', () => {
     const calls = poolQuery.mock.calls.map((c) => String(c[0]));
     expect(calls.some((sql) => sql.startsWith('INSERT INTO wizmatch_companies'))).toBe(true);
     expect(calls.some((sql) => sql.startsWith('UPDATE wizmatch_companies'))).toBe(false);
+
+    // §22.2 #16 — the cold-start root policy is written atomically with the
+    // new company row, inside the same BEGIN/COMMIT transaction.
+    const beginIdx = calls.findIndex((sql) => sql === 'BEGIN');
+    const companyInsertIdx = calls.findIndex((sql) => sql.startsWith('INSERT INTO wizmatch_companies'));
+    const policyInsertIdx = calls.findIndex((sql) => sql.includes('INSERT INTO wizmatch_company_policies'));
+    const commitIdx = calls.findIndex((sql) => sql === 'COMMIT');
+    expect(beginIdx).toBeGreaterThanOrEqual(0);
+    expect(policyInsertIdx).toBeGreaterThan(companyInsertIdx);
+    expect(commitIdx).toBeGreaterThan(policyInsertIdx);
+    expect(connectedClientRelease).toHaveBeenCalled();
+
+    const policyCall = poolQuery.mock.calls.find((c) => String(c[0]).includes('INSERT INTO wizmatch_company_policies'));
+    expect(policyCall?.[1]).toEqual([
+      'tenant-1', 'co-new', 'entire_company', 'entire_company',
+      'needs_review', 'unknown', 'new_prospect', 'standard', false, 'deterministic_rule',
+      'policy_unknown_cold_start',
+    ]);
+  });
+
+  it('never writes a root policy on the existing-company (update) branch', async () => {
+    poolQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT id FROM wizmatch_companies')) return { rows: [{ id: 'co-existing' }] };
+      if (sql.startsWith('UPDATE wizmatch_companies')) return { rows: [] };
+      if (sql.includes('INSERT INTO wizmatch_job_signals')) return { rows: [{ id: 'sig-new' }] };
+      if (sql.includes('JOIN latest_signals')) return { rows: [] };
+      return { rows: [] };
+    });
+
+    await seedProspectCompany({
+      tenantId: 'tenant-1', userId: 'user-1', companyName: 'Existing Co', domain: 'existing.com',
+      jobTitle: 'Backend Engineer', jobUrl: null, location: 'Remote', notes: null,
+      targetRegion: 'us', industry: 'Software', employeeCount: 50, linkedinUrl: null, keywords: ['node'],
+    });
+
+    const calls = poolQuery.mock.calls.map((c) => String(c[0]));
+    expect(calls.some((sql) => sql.includes('INSERT INTO wizmatch_company_policies'))).toBe(false);
   });
 });

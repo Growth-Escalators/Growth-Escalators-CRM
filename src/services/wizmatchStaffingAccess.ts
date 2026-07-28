@@ -17,10 +17,15 @@ function enabled(value: string | undefined): boolean {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
 }
 
+// M-4 — no environment-string branch. An unset gate flag now resolves to OFF
+// in every runtime, the same fail-closed posture P8B-3 already gave pilot
+// admission just above. The previous `env.NODE_ENV !== 'production'` fallback
+// admitted every Staffing phase whenever the flag was unconfigured and the
+// runtime was not the literal string 'production' — staging, test, an unset
+// var, or a Nixpacks build-phase-only value all read as "on". An explicit
+// flag is now the only way to enable a phase, locally included.
 function phaseEnabled(phase: 'A' | 'B' | 'C', env: Environment): boolean {
-  const configured = env[`WIZMATCH_STAFFING_GATE_${phase}_ENABLED`];
-  if (configured !== undefined) return enabled(configured);
-  return env.NODE_ENV !== 'production';
+  return enabled(env[`WIZMATCH_STAFFING_GATE_${phase}_ENABLED`]);
 }
 
 function pilotIds(env: Environment): Set<string> {
@@ -41,9 +46,15 @@ export function resolveStaffingAccess(actor: StaffingActor, env: Environment = p
   const configured = allUsers || ids.size > 0;
   const roleEligible = PILOT_ELIGIBLE_ROLES.has(actor.role);
   const pilotAllowed = roleEligible && (allUsers || ids.has(actor.userId));
-  const allowed = env.NODE_ENV === 'production'
-    ? configured && pilotAllowed
-    : roleEligible && (!configured || pilotAllowed);
+  // PR 8B (P8B-3) — pilot admission is fail-closed in EVERY runtime, with no
+  // environment-string branch. The previous `NODE_ENV === 'production'`
+  // ternary admitted every pilot-eligible role whenever the roster was
+  // unconfigured, so anything that was not the literal string 'production' at
+  // runtime (staging, test, an unset var, a Nixpacks build-phase-only value)
+  // was an open deployment. Deleting the branch removes the risk class rather
+  // than hardening around it: an explicit roster is now the only way in,
+  // locally included.
+  const allowed = configured && pilotAllowed;
 
   return {
     allowed,

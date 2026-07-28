@@ -1732,6 +1732,22 @@ if (wizmatchAutomation.masterEnabled) {
     console.log('[cron] Wizmatch ATS results-first poller skipped');
   }
 
+  // PRD-005 PR 7 §14 — zero-cost company preparation. Strictly ₹0: reuses
+  // existing free discovery/scoring only, never calls SearchAPI/Apollo/Snov,
+  // never sends, never enrols. Advisory-locked per tenant via the same
+  // withWizmatchSourceLock helper as the sourcing jobs above.
+  if (wizmatchAutomation.autoPrepEnabled) {
+    cron.schedule('15 2 * * *', () => safeCron('Wizmatch Company Preparation', async () => {
+      const { prepareCompaniesJob } = await import('./modules/outreach/prepareCompanies');
+      const report = await prepareCompaniesJob(process.env.WIZMATCH_TENANT_ID!);
+      if (!report.lockAcquired) { console.log('[CRON] Wizmatch company prep skipped — another run holds the lock'); return; }
+      console.log(`[CRON] Wizmatch company prep: ${report.prepared} prepared, ${report.reviewRequired} review-required, ${report.skipped} skipped, ${report.failed} failed (of ${report.attempted} attempted)`);
+    }), { timezone: 'UTC' });
+    console.log('[cron] Wizmatch company preparation scheduled — 7:45 AM IST daily');
+  } else {
+    console.log('[cron] Wizmatch company preparation skipped (WIZMATCH_AUTO_PREP_ENABLED is off)');
+  }
+
   // Staffing OS reminders — 9:17 AM IST Mon-Sat. Deterministic and $0:
   // creates deduplicated shared tasks only; it never contacts candidates or clients.
   if (wizmatchAutomation.staffingRemindersEnabled) {

@@ -37,6 +37,10 @@ export async function apiFetch(path, options = {}) {
       : raw && typeof raw === 'object' && typeof raw.message === 'string' ? raw.message
       : `Request failed (${res.status})`;
     const error = new Error(msg);
+    // Additive: lets a caller distinguish "this feature is switched off"
+    // (404 from a feature-gated router) from a real failure, instead of
+    // string-matching the message. Nothing else reads this.
+    error.status = res.status;
     if (typeof data?.detail === 'string') error.detail = data.detail;
     if (typeof data?.reasonCode === 'string') error.reasonCode = data.reasonCode;
     throw error;

@@ -2,6 +2,8 @@ import logger from '../utils/logger';
 import { BrevoClient } from '@getbrevo/brevo';
 import { eq, and, sql } from 'drizzle-orm';
 import { db, contacts, contactChannels, messages, emailTemplates } from '../db/index';
+import { resolveWizmatchLinkage } from '../modules/outreach/wizmatchLinkage';
+import { evaluateWizmatchOutreachGate, shouldBlock } from '../modules/outreach/outreachGate';
 
 // ---------------------------------------------------------------------------
 // Email templates — inline content used when BREVO_API_KEY is configured
@@ -152,6 +154,17 @@ export async function sendSequenceEmail(
     console.warn('[emailService] sequence email suppressed — AUTOMATED_EMAILS_ENABLED is off');
     return { success: false, reason: 'automated_emails_disabled' };
   }
+
+  // §8.10.1 row 23 — defense in depth alongside routes/email.ts's tenantId
+  // check, in case this function is called directly by another caller.
+  const linkage = await resolveWizmatchLinkage(tenantId, contactId);
+  if (linkage) {
+    const decision = await evaluateWizmatchOutreachGate({ tenantId, action: 'send', companyId: linkage.companyId, contactId });
+    if (shouldBlock({ tenantId, action: 'send', companyId: linkage.companyId, contactId }, decision)) {
+      return { success: false, reason: `outreach_blocked:${decision.reasonCodes.join(',') || decision.decision}` };
+    }
+  }
+
   // Get contact
   const contactRows = await db
     .select()

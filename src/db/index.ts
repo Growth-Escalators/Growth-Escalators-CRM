@@ -103,4 +103,13 @@ export {
   wizmatchRequirementAssignments,
   wizmatchStaffingEvents,
   wizmatchTaskLinks,
+  // Outbound policy module (PRD-005 / ADR-006 / ADR-007, migration 0037)
+  wizmatchCompanyPolicies,
+  wizmatchCompanyPolicyEvents,
+  wizmatchCompanyDuplicates,
+  wizmatchReplyMailboxes,
+  wizmatchOutreachBatches,
+  wizmatchOutreachEnrolments,
+  wizmatchOutreachEvents,
+  wizmatchSuppressionEvents,
 } from './schema';

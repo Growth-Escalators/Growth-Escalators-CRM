@@ -16,7 +16,6 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import crypto from 'crypto';
 import { db, pool } from '../db/index';
 import { sql } from 'drizzle-orm';
 import {
@@ -37,12 +36,13 @@ import {
   WIZMATCH_LEADS_CHANNEL,
   WIZMATCH_SYSTEM_CHANNEL,
   WIZMATCH_DAILY_CHANNEL,
-  WIZMATCH_UNSUBSCRIBE_HMAC_SECRET,
   WIZMATCH_MEETING_URL,
   WIZMATCH_INDIA_ONLY,
   INDIA_LOCATION_MARKERS,
   US_LOCATION_MARKERS,
 } from '../config/constants';
+import { verifyUnsubscribeTokenV2, verifyLegacyUnsubscribeSignature } from '../modules/outreach/unsubscribeToken';
+import { auditLog } from '../services/auditLogger';
 import multer from 'multer';
 import { parseRequirement, generateRequirementSheet } from '../services/wizmatchRequirementSheet';
 import {
@@ -57,9 +57,8 @@ import {
 } from '../services/wizmatchCommandCenter';
 import {
   CLIENT_DISCOVERY_GUARDRAILS,
-  rankClientDiscoveryQueue,
-  scoreClientDiscoveryOpportunity,
-  selectCompaniesForContactIntelligence,
+  rankClientDiscoveryQueueWithPolicy,
+  selectCompaniesForContactIntelligenceWithPolicy,
   type ClientDiscoveryInput,
 } from '../services/wizmatchClientDiscovery';
 import {
@@ -81,8 +80,8 @@ import {
 } from '../services/wizmatchRoiAnalytics';
 import {
   REQUIREMENT_PRIORITY_GUARDRAILS,
-  rankRequirementPriorityQueue,
-  scoreRequirementPriority,
+  rankRequirementPriorityQueueWithPolicy,
+  scoreRequirementPriorityWithPolicy,
   type RequirementPriorityInput,
 } from '../services/wizmatchRequirementPriority';
 import { buildWizmatchReviewWorkbench, paginateWizmatchReviewWorkbench } from '../services/wizmatchReviewWorkbench';
@@ -138,8 +137,32 @@ import {
   type PersistedContactIntelligence,
 } from '../services/wizmatchContactIntelligenceRepo';
 import { generateSignalDraftEmails, sendSignalDraftEmail } from '../services/wizmatchOutreachService';
+import { evaluateWizmatchOutreachGate, shouldBlock, suppress, isStatedContactPreference } from '../modules/outreach/outreachGate';
 
 const router = Router();
+
+/** §8.10.1 — every signal-scoped route needs the signal's company_id to call the gate. */
+async function getSignalCompanyId(tenantId: string, signalId: string): Promise<string | null> {
+  const result = await pool.query(
+    `SELECT company_id FROM wizmatch_job_signals WHERE id = $1 AND tenant_id = $2`,
+    [signalId, tenantId],
+  );
+  return result.rows[0]?.company_id ?? null;
+}
+
+/**
+ * A preparation-only gate check (used by discovery/enrichment/contact-intake
+ * routes, which are not themselves an outreach send). Per §8.8, free
+ * preparation continues unless the decision's own `preparationAllowed` is
+ * false — a permanent or non-overridable block stops it; an ordinary review
+ * or a cold-email lock does not.
+ */
+async function isPreparationBlocked(tenantId: string, companyId: string | null): Promise<{ blocked: boolean; reasonCodes: string[] }> {
+  if (!companyId) return { blocked: false, reasonCodes: [] };
+  const decision = await evaluateWizmatchOutreachGate({ tenantId, action: 'enrol', companyId });
+  const blocked = !decision.preparationAllowed && shouldBlock({ tenantId, action: 'enrol', companyId }, decision);
+  return { blocked, reasonCodes: decision.reasonCodes };
+}
 
 
 // In-memory upload for requirement JD files (parsed by Claude, then discarded).
@@ -213,6 +236,7 @@ type CandidateIntelligenceRow = {
 type CandidateRequirementRow = {
   id: string;
   title: string;
+  company_id: string | null;
   company_name: string | null;
   required_skills: string[] | null;
   location: string | null;
@@ -327,6 +351,7 @@ async function fetchCommandCenterRequirements(tenantId: string, limit: number): 
   const result = await pool.query(
     `SELECT r.id,
             r.title,
+            r.company_id,
             comp.name AS company_name,
             r.required_skills,
             r.location,
@@ -352,6 +377,7 @@ async function fetchCommandCenterRequirements(tenantId: string, limit: number): 
   return result.rows.map((row) => ({
     id: row.id,
     title: row.title,
+    companyId: row.company_id,
     companyName: row.company_name,
     requiredSkills: row.required_skills ?? [],
     location: row.location,
@@ -393,7 +419,13 @@ function mapClientDiscoveryRow(row: ClientDiscoverySignalRow): ClientDiscoveryIn
   };
 }
 
-async function fetchClientDiscoverySignals(tenantId: string, limit: number, companyId?: string) {
+// Exported (H-5 remediation) so its blocked-signal exclusion (both the row
+// filter and the `active_signal_count` sibling-inflation guard) can be
+// regression-tested directly with a SQL-interpreting mock, the same way
+// `prepareCompanies.ts`'s `fetchBestSignal` is — rather than only indirectly
+// via the HTTP route, where a vacuous mock could pass while the exclusion
+// itself silently regresses.
+export async function fetchClientDiscoverySignals(tenantId: string, limit: number, companyId?: string) {
   const params: unknown[] = [tenantId];
   let companyFilter = '';
   if (companyId) {
@@ -422,7 +454,16 @@ async function fetchClientDiscoverySignals(tenantId: string, limit: number, comp
             COALESCE(cardinality(s.matched_candidate_ids), 0)::int AS matched_candidate_count,
             (SELECT COUNT(*)::int
              FROM wizmatch_job_signals s2
-             WHERE s2.tenant_id = s.tenant_id AND s2.company_id = s.company_id AND s2.status NOT IN ('dead', 'placed')) AS active_signal_count,
+             WHERE s2.tenant_id = s.tenant_id AND s2.company_id = s.company_id AND s2.status NOT IN ('dead', 'placed')
+               AND NOT EXISTS (
+                 SELECT 1 FROM wizmatch_company_policies p2
+                  WHERE p2.tenant_id = s2.tenant_id
+                    AND p2.company_id = s2.company_id
+                    AND p2.superseded_at IS NULL
+                    AND p2.scope_type = 'specific_signal'
+                    AND p2.scope_key = 'specific_signal:' || LOWER(s2.id::text)
+                    AND p2.outreach_eligibility = 'blocked'
+               )) AS active_signal_count,
             (SELECT COUNT(*)::int
              FROM wizmatch_job_signals s3
              WHERE s3.tenant_id = s.tenant_id AND s3.company_id = s.company_id AND s3.status = 'replied_positive') AS positive_reply_count,
@@ -445,6 +486,23 @@ async function fetchClientDiscoverySignals(tenantId: string, limit: number, comp
      LEFT JOIN wizmatch_domain_health dh ON dh.tenant_id = s.tenant_id AND dh.domain = c.domain
      WHERE s.tenant_id = $1
        AND s.status NOT IN ('dead', 'placed')
+       -- H-5 (code review, revoked-PR-8B remediation) — PRD-005 section 8.2 L4:
+       -- an ACTIVE 'specific_signal:<id>' blocked policy row excludes that
+       -- signal from client-discovery entirely, mirroring prepareCompanies.ts's
+       -- fetchBestSignal exclusion (the same pattern, same tenant predicate)
+       -- so a blocked signal can never surface, rank or score here either.
+       -- Overridability is deliberately NOT in the predicate -- see that
+       -- file's comment: is_non_overridable governs whether an admin MAY
+       -- supersede the row, not whether the block is in force right now.
+       AND NOT EXISTS (
+         SELECT 1 FROM wizmatch_company_policies p
+          WHERE p.tenant_id = s.tenant_id
+            AND p.company_id = s.company_id
+            AND p.superseded_at IS NULL
+            AND p.scope_type = 'specific_signal'
+            AND p.scope_key = 'specific_signal:' || LOWER(s.id::text)
+            AND p.outreach_eligibility = 'blocked'
+       )
        ${companyFilter}
      ORDER BY COALESCE(s.score, 0) DESC,
               COALESCE(cardinality(s.matched_candidate_ids), 0) DESC,
@@ -460,6 +518,7 @@ function mapCandidateRequirement(row: CandidateRequirementRow): CandidateRequire
   return {
     id: row.id,
     title: row.title,
+    companyId: row.company_id,
     companyName: row.company_name,
     requiredSkills: row.required_skills ?? [],
     location: row.location,
@@ -528,6 +587,7 @@ async function fetchCandidateIntelligenceRequirements(tenantId: string, limit: n
   const result = await pool.query(
     `SELECT r.id,
             r.title,
+            r.company_id,
             comp.name AS company_name,
             r.required_skills,
             r.location,
@@ -954,8 +1014,8 @@ router.get('/client-discovery/queue', async (req: Request, res: Response) => {
       [tenantId],
     ),
   ]);
-  const items = rankClientDiscoveryQueue(rows);
-  const selected = selectCompaniesForContactIntelligence(items);
+  const items = await rankClientDiscoveryQueueWithPolicy(tenantId, rows);
+  const selected = selectCompaniesForContactIntelligenceWithPolicy(items);
 
   res.json({
     items,
@@ -973,7 +1033,7 @@ router.get('/client-discovery/companies/:companyId', async (req: Request, res: R
     res.status(404).json({ error: 'Client discovery company not found' });
     return;
   }
-  const signals = rankClientDiscoveryQueue(rows);
+  const signals = await rankClientDiscoveryQueueWithPolicy(tenantId, rows);
   res.json({
     companyId: String(req.params.companyId),
     companyName: signals[0]?.companyName,
@@ -991,8 +1051,8 @@ router.post('/client-discovery/companies/:companyId/qualify', async (req: Reques
     res.status(404).json({ error: 'Client discovery company not found' });
     return;
   }
-  const results = rankClientDiscoveryQueue(rows);
-  const selected = selectCompaniesForContactIntelligence(results);
+  const results = await rankClientDiscoveryQueueWithPolicy(tenantId, rows);
+  const selected = selectCompaniesForContactIntelligenceWithPolicy(results);
   res.json({
     qualified: selected.length > 0,
     bestSignal: results[0],
@@ -1009,8 +1069,8 @@ router.post('/client-discovery/companies/:companyId/send-to-contact-intelligence
     res.status(404).json({ error: 'Client discovery company not found' });
     return;
   }
-  const results = rankClientDiscoveryQueue(rows);
-  const selected = selectCompaniesForContactIntelligence(results);
+  const results = await rankClientDiscoveryQueueWithPolicy(tenantId, rows);
+  const selected = selectCompaniesForContactIntelligenceWithPolicy(results);
   if (!selected.some((item) => item.companyId === companyId)) {
     res.status(409).json({
       error: 'Company is not eligible for Contact Intelligence handoff',
@@ -1365,7 +1425,7 @@ router.get('/requirement-priority/queue', async (req: Request, res: Response) =>
       [tenantId],
     ),
   ]);
-  const items = rankRequirementPriorityQueue(inputs);
+  const items = await rankRequirementPriorityQueueWithPolicy(tenantId, inputs);
   res.json({
     items,
     total: numeric(totalResult.rows[0]?.total),
@@ -1383,7 +1443,19 @@ router.post('/requirement-priority/:requirementId/review-plan', async (req: Requ
     res.status(404).json({ error: 'Requirement not found' });
     return;
   }
-  const item = scoreRequirementPriority(inputs[0]);
+  const item = await scoreRequirementPriorityWithPolicy(tenantId, inputs[0]);
+  // Previously enforced only client-side (admin/src/pages/WizmatchOperatingPages.jsx
+  // disabled the button) — no server-side backstop existed. A canonical-policy
+  // DENY now blocks this write server-side too, matching the pattern already
+  // used by the candidate-intelligence review route.
+  if (item.priority === 'blocked') {
+    res.status(409).json({
+      error: 'Blocked requirements cannot have a review plan created until blockers are resolved',
+      item,
+      guardrails: REQUIREMENT_PRIORITY_GUARDRAILS,
+    });
+    return;
+  }
   const plan = await wizmatchStaffingService.createReviewPlan(
     { tenantId, userId: req.user!.id },
     String(req.params.requirementId),
@@ -1447,10 +1519,10 @@ async function buildReviewWorkbenchPayload(tenantId: string) {
   );
 
   return buildWizmatchReviewWorkbench({
-    clientDiscovery: rankClientDiscoveryQueue(clientRows),
+    clientDiscovery: await rankClientDiscoveryQueueWithPolicy(tenantId, clientRows),
     contactIntelligence,
     candidates: rankCandidateIntelligenceQueue(candidateInputs),
-    requirements: rankRequirementPriorityQueue(requirementInputs),
+    requirements: await rankRequirementPriorityQueueWithPolicy(tenantId, requirementInputs),
     metrics: {
       pausedDomains: baseMetrics.pausedDomains,
       suppressedContacts: baseMetrics.suppressedContacts,
@@ -2067,6 +2139,11 @@ router.post('/contact-intelligence/companies/:companyId/discover', async (req: R
   const tenantId = req.user!.tenantId;
   const companyId = String(req.params.companyId);
   const confirmPreview = req.body?.confirmPreview === true;
+  const prep = await isPreparationBlocked(tenantId, companyId);
+  if (prep.blocked) {
+    res.status(403).json({ error: 'outreach_blocked', reasonCodes: prep.reasonCodes });
+    return;
+  }
   const result = await runManualPaidContactDiscovery(tenantId, req.user?.id, companyId, confirmPreview);
   switch (result.kind) {
     case 'not_found':
@@ -2108,6 +2185,12 @@ router.post('/contact-intelligence/companies/:companyId/contacts/manual', async 
   const name = firstString(req.body?.name);
   if (!name) {
     res.status(400).json({ error: 'name is required' });
+    return;
+  }
+
+  const prep = await isPreparationBlocked(tenantId, companyId);
+  if (prep.blocked) {
+    res.status(403).json({ error: 'outreach_blocked', reasonCodes: prep.reasonCodes });
     return;
   }
 
@@ -2182,6 +2265,27 @@ router.post('/contact-intelligence/contacts/:candidateId/review', async (req: Re
     return;
   }
 
+  // §8.10.1 row 12 — the gate must run BEFORE the approval is written, not
+  // after. This route is plain autocommit (no BEGIN/COMMIT), so checking
+  // afterwards left the candidate genuinely `approved` in the database while
+  // the caller was told 403: the block was cosmetic and the very state it
+  // existed to prevent was already committed.
+  const existing = await pool.query(
+    `SELECT company_id FROM wizmatch_contact_candidates WHERE tenant_id = $1 AND id = $2`,
+    [tenantId, candidateId],
+  );
+  if (existing.rows.length === 0) {
+    res.status(404).json({ error: 'Contact candidate not found' });
+    return;
+  }
+  if (transition.nextContactStatus === 'approved') {
+    const prep = await isPreparationBlocked(tenantId, existing.rows[0].company_id);
+    if (prep.blocked) {
+      res.status(403).json({ error: 'outreach_blocked', reasonCodes: prep.reasonCodes });
+      return;
+    }
+  }
+
   const result = await pool.query(
     `UPDATE wizmatch_contact_candidates
      SET status = $1,
@@ -2199,8 +2303,9 @@ router.post('/contact-intelligence/contacts/:candidateId/review', async (req: Re
     res.status(404).json({ error: 'Contact candidate not found' });
     return;
   }
+  const companyId = result.rows[0].company_id;
 
-  const refreshed = await fetchPersistedContactIntelligence(tenantId, result.rows[0].company_id);
+  const refreshed = await fetchPersistedContactIntelligence(tenantId, companyId);
   res.json({ transition, contactCandidates: refreshed.contactCandidates });
 });
 
@@ -2270,6 +2375,12 @@ router.post('/contact-intelligence/contacts/:candidateId/link-crm-contact', asyn
   }
   if (!candidate.email && !candidate.phone && !candidate.linkedin_url) {
     res.status(400).json({ error: 'At least one email, phone, or LinkedIn channel is required to link a CRM contact' });
+    return;
+  }
+
+  const prep = await isPreparationBlocked(tenantId, candidate.company_id);
+  if (prep.blocked) {
+    res.status(403).json({ error: 'outreach_blocked', reasonCodes: prep.reasonCodes });
     return;
   }
 
@@ -2360,7 +2471,8 @@ router.get('/command-center', async (req: Request, res: Response) => {
     blockedCompanies: contactIntelligence.filter((item) => item.hardBlocks.length > 0).length,
   };
 
-  res.json(buildWizmatchCommandCenter({
+  res.json(await buildWizmatchCommandCenter({
+    tenantId,
     metrics,
     contactIntelligence,
     signals,
@@ -2560,7 +2672,17 @@ router.post('/signals/:id/discover-poc/preview', async (req: Request, res: Respo
 });
 
 router.post('/signals/:id/discover-poc', async (req: Request, res: Response) => {
-  try { res.json(await discoverFreePocsForSignal(req.user!.tenantId, String(req.params.id), req.user!.id, req.body?.roles)); }
+  try {
+    const tenantId = req.user!.tenantId;
+    const signalId = String(req.params.id);
+    const companyId = await getSignalCompanyId(tenantId, signalId);
+    const prep = await isPreparationBlocked(tenantId, companyId);
+    if (prep.blocked) {
+      res.status(403).json({ error: 'outreach_blocked', reasonCodes: prep.reasonCodes });
+      return;
+    }
+    res.json(await discoverFreePocsForSignal(tenantId, signalId, req.user!.id, req.body?.roles));
+  }
   catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : 'POC discovery failed' }); }
 });
 
@@ -2807,9 +2929,16 @@ router.post('/signals/:id/score', requireInternalToken, async (req: Request, res
 // here so both the route and the worker cron share the same core logic.
 router.post('/signals/:id/enrich', requireInternalToken, async (req: Request, res: Response) => {
   const tenantId = process.env.WIZMATCH_TENANT_ID!;
+  const signalId = String(req.params.id);
 
   try {
-    const result = await enrichSignalById(tenantId, String(req.params.id));
+    const companyId = await getSignalCompanyId(tenantId, signalId);
+    const prep = await isPreparationBlocked(tenantId, companyId);
+    if (prep.blocked) {
+      res.status(403).json({ error: 'outreach_blocked', reasonCodes: prep.reasonCodes });
+      return;
+    }
+    const result = await enrichSignalById(tenantId, signalId);
     if (result.notFound) {
       res.status(404).json({ error: 'Signal not found' });
       return;
@@ -2847,6 +2976,9 @@ router.post('/signals/:id/draft', async (req: Request, res: Response) => {
       return;
     case 'no_contact':
       res.status(400).json({ error: 'Signal has no enriched contact — run /enrich first' });
+      return;
+    case 'blocked':
+      res.status(403).json({ error: 'outreach_blocked', reasonCodes: result.reasonCodes });
       return;
     case 'failed':
       res.status(500).json({ error: 'draft generation failed', detail: result.detail });
@@ -2887,8 +3019,8 @@ router.post('/signals/:id/send', async (req: Request, res: Response) => {
     case 'no_email_channel':
       res.status(400).json({ error: 'Contact has no email channel' });
       return;
-    case 'suppressed':
-      res.status(400).json({ error: 'Contact is on suppression list' });
+    case 'blocked':
+      res.status(403).json({ error: 'outreach_blocked', reasonCodes: result.reasonCodes });
       return;
     case 'hmac_secret_unset':
       res.status(500).json({ error: 'unsubscribe signing secret not configured' });
@@ -3512,7 +3644,7 @@ router.get('/suppression', async (req: Request, res: Response) => {
 
   if (req.query.email) {
     conditions.push(`email = $${paramIdx++}`);
-    params.push(req.query.email);
+    params.push(String(req.query.email).trim().toLowerCase());
   }
   if (req.query.reason) {
     conditions.push(`reason = $${paramIdx++}`);
@@ -3529,33 +3661,50 @@ router.get('/suppression', async (req: Request, res: Response) => {
   res.json({ items: result.rows });
 });
 
+const VALID_SUPPRESSION_REASONS = ['unsubscribe', 'hard_bounce', 'complaint', 'do_not_contact', 'manual'] as const;
+
 router.post('/suppression', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const { email, reason, source_channel, notes } = req.body as {
     email: string; reason: string; source_channel?: string; notes?: string;
   };
+  if (!(VALID_SUPPRESSION_REASONS as readonly string[]).includes(reason)) {
+    res.status(400).json({ error: `reason must be one of: ${VALID_SUPPRESSION_REASONS.join(', ')}` });
+    return;
+  }
 
   try {
-    const [entry] = await db
-      .insert(wizmatchSuppressionList)
-      .values({
-        tenantId,
-        email: email.toLowerCase().trim(),
-        reason,
-        sourceChannel: source_channel || 'email',
-        notes,
-      })
-      .onConflictDoNothing()
-      .returning();
+    // §8.10.1 rows 25-29 — the sole suppression write path.
+    await suppress({
+      tenantId,
+      email: email.toLowerCase().trim(),
+      reason: reason as typeof VALID_SUPPRESSION_REASONS[number],
+      sourceChannel: source_channel || 'email',
+      notes,
+      source: 'manual_operator',
+      actorUserId: req.user?.id,
+    });
+    const entry = { suppressed: true, email: email.toLowerCase().trim(), reason, notes: notes ?? null };
 
-    // Also set contact_channels email_opt_out if contact exists
-    await pool.query(
-      `UPDATE contacts SET do_not_contact = true, opted_in_email = false
-       WHERE tenant_id = $1 AND id IN (
-         SELECT contact_id FROM contact_channels WHERE channel_type = 'email' AND channel_value = $2
-       )`,
-      [tenantId, email.toLowerCase().trim()],
-    ).catch(() => {});
+    // §8.4 / §8.5 — three grains, three homes. Only a STATED preference
+    // (unsubscribe / do_not_contact / manual) is contact-grain and may flip
+    // `contacts.do_not_contact`. A `hard_bounce` or `complaint` is a
+    // channel-quality fact about one mailbox: flipping do_not_contact for it
+    // would block every other channel and every other reason to reach that
+    // person, which is exactly the grain collapse §8.4 forbids.
+    // LOWER() on the stored column too, not just the input — a channel row
+    // written by any path that bypassed normalizeChannelValue carries mixed
+    // case and would silently never match (the H-3 class of bug).
+    if (isStatedContactPreference(reason as typeof VALID_SUPPRESSION_REASONS[number])) {
+      await pool.query(
+        `UPDATE contacts SET do_not_contact = true, opted_in_email = false, last_activity_at = NOW()
+         WHERE tenant_id = $1 AND id IN (
+           SELECT contact_id FROM contact_channels
+           WHERE tenant_id = $1 AND channel_type = 'email' AND LOWER(channel_value) = $2
+         )`,
+        [tenantId, email.toLowerCase().trim()],
+      ).catch(() => {});
+    }
 
     res.json(entry || { suppressed: true, already_existed: true });
   } catch (e) {
@@ -3608,60 +3757,101 @@ router.get('/env-check', async (req: Request, res: Response) => {
 });
 
 // GET /api/wizmatch/unsubscribe — public, HMAC-verified
+//
+// D-36 (owner-ratified 2026-07-26): new links carry `v=2` plus a token that
+// signs tenant_id + normalised email + expiry — the tenant is READ from the
+// verified token, never looked up. A legacy (no `v`) link is only email+sig;
+// it is still accepted, but ONLY when exactly one tenant's send history
+// resolves for that address — an ambiguous multi-tenant legacy token is
+// rejected, not guessed (U-8's "most recent sender wins" is retired). Every
+// legacy verification, accepted or rejected, is audited.
 router.get('/unsubscribe', async (req: Request, res: Response) => {
-  const email = (req.query.email as string)?.toLowerCase().trim();
-  const sig = req.query.sig as string;
+  const rawEmail = (req.query.email as string)?.trim();
+  const sig = req.query.sig as string | undefined;
 
-  if (!email || !sig) {
+  if (!rawEmail || !sig) {
     res.status(400).type('html').send('<h1>Invalid unsubscribe link</h1>');
     return;
   }
 
-  // Verify HMAC. Fail closed when no secret is configured (never fall back to the
-  // public 'default-secret'), and compare in constant time — never `!==`, which
-  // short-circuits and leaks length/prefix via timing. Mirrors src/middleware/internalAuth.ts.
-  const unsubSecret = WIZMATCH_UNSUBSCRIBE_HMAC_SECRET;
-  if (!unsubSecret) {
-    logger.error('[wizmatch] WIZMATCH_UNSUBSCRIBE_HMAC_SECRET not set — rejecting unsubscribe as invalid');
-    res.status(403).type('html').send('<h1>Invalid signature</h1>');
-    return;
-  }
+  let tenantId: string;
+  let email: string;
 
-  const expectedSig = crypto
-    .createHmac('sha256', unsubSecret)
-    .update(email)
-    .digest('base64url');
+  if (req.query.v === '2') {
+    const verified = verifyUnsubscribeTokenV2({
+      tenantId: req.query.tenantId as string | undefined,
+      email: rawEmail,
+      exp: req.query.exp as string | undefined,
+      sig,
+    });
+    if (!verified.ok) {
+      res.status(403).type('html').send('<h1>Invalid signature</h1>');
+      return;
+    }
+    tenantId = verified.tenantId;
+    email = verified.email;
+  } else {
+    // Legacy (v1) path.
+    email = rawEmail.toLowerCase();
+    if (!verifyLegacyUnsubscribeSignature(email, sig)) {
+      res.status(403).type('html').send('<h1>Invalid signature</h1>');
+      return;
+    }
 
-  const providedBuf = Buffer.from(sig);
-  const expectedBuf = Buffer.from(expectedSig);
-  // Length-guard first because timingSafeEqual throws on unequal-length buffers.
-  if (providedBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(providedBuf, expectedBuf)) {
-    res.status(403).type('html').send('<h1>Invalid signature</h1>');
-    return;
-  }
+    const sendingTenantsResult = await pool.query(
+      `SELECT DISTINCT m.tenant_id
+       FROM contact_channels cc
+       JOIN messages m ON m.contact_id = cc.contact_id AND m.tenant_id = cc.tenant_id
+       WHERE cc.channel_type = 'email' AND LOWER(cc.channel_value) = $1
+         AND m.direction = 'outbound' AND m.channel = 'email'`,
+      [email],
+    ).catch(() => ({ rows: [] as Array<{ tenant_id: string }> }));
+    const distinctTenantIds = sendingTenantsResult.rows.map((r) => r.tenant_id);
 
-  // Get tenant from any wizmatch_suppression matching — fall back to WIZMATCH_TENANT_ID
-  const tenantId = process.env.WIZMATCH_TENANT_ID;
-  if (!tenantId) {
-    res.status(500).type('html').send('<h1>Server misconfigured</h1>');
-    return;
-  }
+    if (distinctTenantIds.length === 0) {
+      // No send history at all (e.g. a pre-emptive unsubscribe) — the only
+      // tenant this route has ever served without WizMatch multi-tenancy.
+      tenantId = process.env.WIZMATCH_TENANT_ID ?? '';
+    } else if (distinctTenantIds.length === 1) {
+      tenantId = distinctTenantIds[0];
+    } else {
+      // D-36: ambiguous — more than one tenant has mailed this address.
+      // Reject rather than guess "most recent sender", which could silently
+      // suppress the wrong tenant's contact.
+      await auditLog({
+        action: 'wizmatch_legacy_unsubscribe_rejected_ambiguous',
+        entityType: 'wizmatch_unsubscribe_token',
+        entityId: email,
+        newValues: { tenantIdsConsidered: distinctTenantIds },
+      }).catch(() => {});
+      res.status(409).type('html').send('<h1>This unsubscribe link is ambiguous and could not be processed automatically. Please contact support.</h1>');
+      return;
+    }
 
-  await db
-    .insert(wizmatchSuppressionList)
-    .values({
+    if (!tenantId) {
+      res.status(500).type('html').send('<h1>Server misconfigured</h1>');
+      return;
+    }
+
+    await auditLog({
       tenantId,
-      email,
-      reason: 'unsubscribe',
-      sourceChannel: 'email',
-    })
-    .onConflictDoNothing();
+      action: 'wizmatch_legacy_unsubscribe_accepted',
+      entityType: 'wizmatch_unsubscribe_token',
+      entityId: email,
+    }).catch(() => {});
+  }
 
-  // Also set do_not_contact on any matching contact
+  await suppress({ tenantId, email, reason: 'unsubscribe', sourceChannel: 'email', source: 'unsubscribe_link' });
+
+  // §8.5 — a personal unsubscribe IS contact-grain, so this write is correct
+  // here. LOWER() on the stored column: `email` is already lowercased above, so
+  // an exact match silently missed every contact whose channel row carries
+  // mixed case, leaving the stated preference recorded at email grain only.
   await pool.query(
-    `UPDATE contacts SET do_not_contact = true, opted_in_email = false
+    `UPDATE contacts SET do_not_contact = true, opted_in_email = false, last_activity_at = NOW()
      WHERE tenant_id = $1 AND id IN (
-       SELECT contact_id FROM contact_channels WHERE channel_type = 'email' AND channel_value = $2
+       SELECT contact_id FROM contact_channels
+       WHERE tenant_id = $1 AND channel_type = 'email' AND LOWER(channel_value) = $2
      )`,
     [tenantId, email],
   ).catch(() => {});
@@ -3739,19 +3929,44 @@ router.post('/classify-reply', requireInternalToken, async (req: Request, res: R
         [signal_id, tenantId],
       );
 
-      // Auto-suppress
-      await db.insert(wizmatchSuppressionList).values({
+      // §8.10.1 rows 25-29 — route the auto-suppress through the gate's sole write path.
+      await suppress({
         tenantId,
         email: contact_email,
         reason: result.category === 'UNSUBSCRIBE' ? 'unsubscribe' : 'do_not_contact',
         sourceChannel: 'email',
-      }).onConflictDoNothing();
-    } else if (result.category === 'NOT_NOW') {
-      // Reschedule — set status back to sent for sequence to handle nurture
+        source: 'classify_reply',
+      });
+      // §8.5 — both UNSUBSCRIBE and NOT_INTERESTED are STATED preferences, so
+      // they are contact-grain as well as email-grain. The other two suppression
+      // write paths (/unsubscribe and POST /suppression) already do this; this
+      // one wrote the email grain only, leaving the person's stated request
+      // unhonoured on any other channel of the same contact.
       await pool.query(
-        `UPDATE wizmatch_job_signals SET status = 'sent' WHERE id = $1 AND tenant_id = $2`,
-        [signal_id, tenantId],
-      );
+        `UPDATE contacts SET do_not_contact = true, opted_in_email = false, last_activity_at = NOW()
+         WHERE tenant_id = $1 AND id IN (
+           SELECT contact_id FROM contact_channels
+           WHERE tenant_id = $1 AND channel_type = 'email' AND LOWER(channel_value) = $2
+         )`,
+        [tenantId, String(contact_email).trim().toLowerCase()],
+      ).catch(() => {});
+    } else if (result.category === 'NOT_NOW') {
+      // §8.10.1 row 10 — a NOT_NOW reset back to 'sent' is a retry decision; gate it.
+      const companyId = await getSignalCompanyId(tenantId, signal_id);
+      const decision = await evaluateWizmatchOutreachGate({
+        tenantId,
+        action: 'retry',
+        companyId: companyId ?? undefined,
+        email: contact_email,
+        outreachMode: 'cold_email',
+      });
+      if (!shouldBlock({ tenantId, action: 'retry', companyId: companyId ?? undefined }, decision)) {
+        // Reschedule — set status back to sent for sequence to handle nurture
+        await pool.query(
+          `UPDATE wizmatch_job_signals SET status = 'sent' WHERE id = $1 AND tenant_id = $2`,
+          [signal_id, tenantId],
+        );
+      }
     }
 
     res.json({ signal_id, classification: result });

@@ -45,7 +45,14 @@ export default {
         },
         success: { 500: '#22c55e', 600: '#16a34a', 700: '#15803d' },
         warning: { 500: '#f59e0b', 600: '#d97706', 700: '#b45309' },
-        danger: { 500: '#ef4444', 600: '#dc2626' },
+        // 700 added for PR 8A hardening: badge-danger's text-600-on-500/10
+        // combination measures ~4.22:1 contrast, just under WCAG AA's 4.5:1
+        // for normal-size text — a pre-existing gap (success/warning already
+        // had a 700 shade; danger did not) that stayed latent until the
+        // Decision Workbench started rendering a `deny` decision with its
+        // correct (non-neutral) tone. Completes the existing 500/600/700
+        // pattern rather than introducing a new one.
+        danger: { 500: '#ef4444', 600: '#dc2626', 700: '#b91c1c' },
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],

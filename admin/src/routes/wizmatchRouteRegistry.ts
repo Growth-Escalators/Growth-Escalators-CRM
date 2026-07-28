@@ -44,7 +44,9 @@ export type WizmatchPermissionFlag =
   | 'canStaffing'
   | 'staffingPhaseA'
   | 'staffingPhaseB'
-  | 'staffingPhaseC';
+  | 'staffingPhaseC'
+  | 'wizmatchCompanyPolicyEnabled'
+  | 'wizmatchDecisionWorkbenchEnabled';
 
 export interface WizmatchRouteDefinition {
   /** Stable id — used by nav, breadcrumbs, tests. Never reuse/rename once shipped. */
@@ -227,6 +229,17 @@ export const WIZMATCH_ROUTES: WizmatchRouteDefinition[] = [
     id: 'more-primes', label: 'Primes', path: '/wizmatch/primes', icon: Users,
     group: 'more.administration', moreSection: 'Administration', permission: 'canWizmatch',
     breadcrumb: { label: 'Primes' }, legacyAliases: [], searchVisible: true,
+  },
+  {
+    // PRD-005 §8.8/§12 — duplicate-company review (Merge / Confirm Separate).
+    // team_lead+ resolves per the API's own RBAC; isAdminTier just controls
+    // nav/search visibility, matching the other Administration entries above.
+    id: 'duplicate-review', label: 'Duplicate Companies', path: '/wizmatch/duplicates', icon: Shield,
+    group: 'more.administration', moreSection: 'Administration',
+    // H-11 / D-38: also requires the company-policy flag — this page and its
+    // API are both no-ops while WIZMATCH_COMPANY_POLICY_ENABLED is off.
+    permission: ['isAdminTier', 'wizmatchCompanyPolicyEnabled'],
+    breadcrumb: { label: 'Duplicate Companies' }, legacyAliases: [], searchVisible: true,
   },
 
   // ── MORE → Finance ───────────────────────────────────────────────────

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock, ListChecks, RefreshCw, Users } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
+import { decisionWorkbenchUiEnabled } from '../lib/decisionWorkbenchFlag.js';
+import TodayDecisionWorkbench from '../components/wizmatch/TodayDecisionWorkbench.jsx';
 
 const BUCKET_META = {
   overdue: { label: 'Overdue', icon: AlertTriangle, tone: 'danger' },
@@ -149,7 +151,27 @@ export default function WizmatchTodayPage() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    // PR 6 — when the decision workbench is enabled, WizmatchTodayPage.jsx
+    // renders it instead of the legacy My Work buckets and never issues the
+    // legacy `/staffing/my-work` + `/dashboard` calls. The route itself stays
+    // reachable either way (`permission: 'always'`) — only the body changes.
+    if (!decisionWorkbenchUiEnabled) load();
+  }, [load]);
+
+  if (decisionWorkbenchUiEnabled) {
+    return (
+      <div className="p-6">
+        <div className="flex items-center justify-between mb-1">
+          <h1 className="text-[20px] font-bold text-neutral-900 tracking-[-0.01em]">Today</h1>
+        </div>
+        <p className="text-[12.5px] text-neutral-500 mt-1 mb-5">
+          Decision queues, derived from the canonical WizMatch outreach policy — decide what needs attention today.
+        </p>
+        <TodayDecisionWorkbench />
+      </div>
+    );
+  }
 
   if (loading) {
     return <div className="p-6"><div className="card p-8 text-center text-neutral-500">Loading Today…</div></div>;

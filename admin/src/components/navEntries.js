@@ -5,6 +5,8 @@ import {
   Briefcase,
 } from 'lucide-react';
 import { WIZMATCH_ROUTES, evaluateWizmatchPermission } from '../routes/wizmatchRouteRegistry.ts';
+import { companyPolicyUiEnabled } from '../lib/companyPolicyFlag.js';
+import { decisionWorkbenchUiEnabled } from '../lib/decisionWorkbenchFlag.js';
 
 // Permission flag bag — derived from user role + per-user permission overrides.
 // Matches the gating that lived inline in Sidebar.jsx pre-refactor.
@@ -72,6 +74,15 @@ export function computeFlags(role, perms = {}, tenantSlug = 'growth-escalators',
     canSEO:        ['admin', 'manager_ops', 'manager_ads'].includes(role),
     canWizmatch:   product === 'wizmatch' && isAdminTier,
     canStaffing:   product === 'wizmatch' && perms.staffingPilotAccess === true && ['admin', 'manager_ops', 'team_lead', 'sales', 'staff'].includes(role),
+    // H-11 / D-38: nav visibility for the Duplicate Companies entry (and any
+    // future company-policy-only nav item) — the same build-time flag that
+    // gates the company-drawer Policy section and the backend API.
+    wizmatchCompanyPolicyEnabled: companyPolicyUiEnabled === true,
+    // PR 6 — gates the re-bucketed Today decision workbench UI. The `/wizmatch/today`
+    // route itself stays `permission: 'always'` (it's the landing page); this flag
+    // instead switches WizmatchTodayPage.jsx between its legacy bucket view and the
+    // new four-queue workbench, so flipping it off can never make Today unreachable.
+    wizmatchDecisionWorkbenchEnabled: decisionWorkbenchUiEnabled === true,
     staffingPhaseA: staffingPhases.A === true,
     staffingPhaseB: staffingPhases.B === true,
     staffingPhaseC: staffingPhases.C === true,

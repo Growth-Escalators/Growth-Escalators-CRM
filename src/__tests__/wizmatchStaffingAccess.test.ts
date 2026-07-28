@@ -14,6 +14,31 @@ describe('Wizmatch staffing pilot access', () => {
     expect(access.configured).toBe(false);
   });
 
+  // P8B-3 contract guard. Behavioural, not a source grep: it exercises the real
+  // outcome across every NODE_ENV string a misconfigured deploy could produce
+  // (including the unset case), for every pilot-eligible role. Reintroducing an
+  // environment-conditional admission branch turns the non-'production' cases
+  // red immediately.
+  it.each(['production', 'staging', 'development', 'test', '', undefined])(
+    'fails closed with NODE_ENV=%s and no roster configured, for every pilot-eligible role',
+    (nodeEnv) => {
+      for (const role of ['admin', 'team_lead', 'manager_ops', 'sales', 'staff']) {
+        const access = resolveStaffingAccess(actor(role), { NODE_ENV: nodeEnv });
+        expect(access.allowed, `role ${role} with NODE_ENV=${String(nodeEnv)}`).toBe(false);
+        expect(access.configured).toBe(false);
+      }
+    },
+  );
+
+  it.each(['production', 'staging', 'development', 'test', '', undefined])(
+    'admits a rostered pilot-eligible user with NODE_ENV=%s — an explicit roster is the only way in',
+    (nodeEnv) => {
+      const env = { NODE_ENV: nodeEnv, WIZMATCH_STAFFING_PILOT_USER_IDS: 'user-1' };
+      expect(resolveStaffingAccess(actor('team_lead', 'user-1'), env).allowed).toBe(true);
+      expect(resolveStaffingAccess(actor('team_lead', 'user-2'), env).allowed).toBe(false);
+    },
+  );
+
   it('allows only named eligible users unless the expansion switch is explicit', () => {
     const env = { NODE_ENV: 'production', WIZMATCH_STAFFING_PILOT_USER_IDS: 'user-1,user-2' };
     expect(resolveStaffingAccess(actor('staff', 'user-1'), env).allowed).toBe(true);

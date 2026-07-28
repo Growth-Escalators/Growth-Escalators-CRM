@@ -12,19 +12,29 @@
  * inline in the `/signals/:id/send` route as a synchronous gate on the route itself.
  */
 
-import crypto from 'crypto';
 import { db, pool } from '../db/index';
 import { messages, sequenceEnrolments } from '../db/schema';
 import { callClaude, parseClaudeJSON, CLAUDE_MODELS } from './claudeService';
 import {
   WIZMATCH_PHYSICAL_ADDRESS,
-  WIZMATCH_UNSUBSCRIBE_HMAC_SECRET,
 } from '../config/constants';
 import logger from '../utils/logger';
+import { evaluateWizmatchOutreachGate, shouldBlock } from '../modules/outreach/outreachGate';
+import { mintUnsubscribeToken } from '../modules/outreach/unsubscribeToken';
+
+/** §8.10.1 rows 1/2/3 — every row needs the signal's company_id to call the gate. */
+async function getSignalCompanyId(tenantId: string, signalId: string): Promise<string | null> {
+  const result = await pool.query(
+    `SELECT company_id FROM wizmatch_job_signals WHERE id = $1 AND tenant_id = $2`,
+    [signalId, tenantId],
+  );
+  return result.rows[0]?.company_id ?? null;
+}
 
 export type DraftResult =
   | { kind: 'not_found' }
   | { kind: 'no_contact' }
+  | { kind: 'blocked'; reasonCodes: string[] }
   | { kind: 'succeeded'; body: { signalId: string; drafts: unknown[] } }
   | { kind: 'failed'; detail: string };
 
@@ -46,6 +56,25 @@ export async function generateSignalDraftEmails(tenantId: string, signalId: stri
   const signal = signalResult.rows[0];
   if (!signal.contact_id) {
     return { kind: 'no_contact' };
+  }
+
+  // §8.10.1 row 4 — the chokepoint applies to queueing (drafting), not only sending.
+  // Gated on `shouldBlock`, never on a hand-written predicate: §8.10 rule 2
+  // forbids a caller deriving its own partial check, and an inline
+  // `decision === 'deny'` would silently let a `review` decision through here
+  // while every other send/queue site blocks it.
+  if (signal.company_id) {
+    const gateCtx = {
+      tenantId,
+      action: 'queue' as const,
+      companyId: signal.company_id,
+      contactId: signal.contact_id,
+      outreachMode: 'cold_email' as const,
+    };
+    const decision = await evaluateWizmatchOutreachGate(gateCtx);
+    if (shouldBlock(gateCtx, decision)) {
+      return { kind: 'blocked', reasonCodes: decision.reasonCodes };
+    }
   }
 
   // Get matched candidates with full detail
@@ -143,7 +172,7 @@ Variant C: Social proof angle — reference similar past placements, then offer 
 export type SendDraftResult =
   | { kind: 'not_found' }
   | { kind: 'no_email_channel' }
-  | { kind: 'suppressed' }
+  | { kind: 'blocked'; reasonCodes: string[] }
   | { kind: 'hmac_secret_unset' }
   | { kind: 'succeeded'; body: { messageId: string; sent: true; from: string; domain: string } }
   | { kind: 'failed'; detail: string };
@@ -177,32 +206,39 @@ export async function sendSignalDraftEmail(tenantId: string, variantMessageId: s
     return { kind: 'no_email_channel' };
   }
 
-  const toEmail = emailResult.rows[0].channel_value;
+  // Normalised once here — minted (below) and verified (routes/wizmatch.ts
+  // /unsubscribe) MUST sign the same string, or every mixed-case recipient
+  // gets a permanently broken unsubscribe link (§8.10.1 row 26).
+  const toEmail = String(emailResult.rows[0].channel_value).trim().toLowerCase();
 
-  // Suppression check
-  const suppressed = await pool.query(
-    `SELECT id FROM wizmatch_suppression_list WHERE tenant_id = $1 AND email = $2`,
-    [tenantId, toEmail],
-  );
-  if (suppressed.rows.length > 0) {
-    return { kind: 'suppressed' };
+  // §8.10.1 rows 1/2/25-29 — the gate's suppression union is the sole check
+  // (replaces the old inline, non-lowercased wizmatch_suppression_list query).
+  const companyId = await getSignalCompanyId(tenantId, draft.metadata.signal_id);
+  const decision = await evaluateWizmatchOutreachGate({
+    tenantId,
+    action: 'send',
+    companyId: companyId ?? undefined,
+    contactId: draft.contact_id,
+    email: toEmail,
+    outreachMode: 'cold_email',
+  });
+  if (shouldBlock({ tenantId, action: 'send', companyId: companyId ?? undefined, contactId: draft.contact_id }, decision)) {
+    return { kind: 'blocked', reasonCodes: decision.reasonCodes };
   }
 
-  // Generate unsubscribe link with HMAC. Fail closed: with no configured secret
-  // we must NOT mint a link signed with a public default (that is forgeable), so
-  // refuse to send rather than embed a bogus-signed / unverifiable link. Mirrors
-  // the fail-closed posture of src/middleware/internalAuth.ts.
-  const unsubSecret = WIZMATCH_UNSUBSCRIBE_HMAC_SECRET;
-  if (!unsubSecret) {
+  // D-36: the unsubscribe link now signs tenant_id + normalised email +
+  // expiry (not email alone), so verification never needs to guess which
+  // tenant sent it. Fail closed: with no configured secret we must NOT mint
+  // a link signed with a public default (that is forgeable), so refuse to
+  // send rather than embed a bogus-signed / unverifiable link. Mirrors the
+  // fail-closed posture of src/middleware/internalAuth.ts.
+  const token = mintUnsubscribeToken(tenantId, toEmail);
+  if (!token) {
     logger.error('[wizmatch] WIZMATCH_UNSUBSCRIBE_HMAC_SECRET not set — refusing to embed a forgeable unsubscribe link');
     return { kind: 'hmac_secret_unset' };
   }
-  const unsubSig = crypto
-    .createHmac('sha256', unsubSecret)
-    .update(toEmail)
-    .digest('base64url');
 
-  const unsubLink = `https://api.growthescalators.com/api/wizmatch/unsubscribe?email=${encodeURIComponent(toEmail)}&sig=${unsubSig}`;
+  const unsubLink = `https://api.growthescalators.com/api/wizmatch/unsubscribe?v=2&tenantId=${encodeURIComponent(token.tenantId)}&email=${encodeURIComponent(token.email)}&exp=${token.exp}&sig=${encodeURIComponent(token.sig)}`;
 
   // Render email body
   const renderedBody = draft.content
@@ -232,22 +268,38 @@ export async function sendSignalDraftEmail(tenantId: string, variantMessageId: s
       [draft.metadata.signal_id, tenantId],
     );
 
-    // Enroll in follow-up sequence (find the Wizmatch sequence)
-    const seqResult = await pool.query(
-      `SELECT id FROM sequences WHERE tenant_id = $1 AND name LIKE '%Wizmatch%' AND is_active = true LIMIT 1`,
-      [tenantId],
-    );
-    if (seqResult.rows.length > 0) {
-      const seqId = seqResult.rows[0].id;
-      const nextStepAt = new Date(Date.now() + 3 * 86400000); // Day 3 follow-up
-      await db.insert(sequenceEnrolments).values({
-        tenantId,
-        contactId: draft.contact_id,
-        sequenceId: seqId,
-        currentStep: 0,
-        status: 'active',
-        nextStepAt,
-      }).onConflictDoNothing();
+    // Enroll in follow-up sequence (find the Wizmatch sequence).
+    // §8.10.1 row 3 — this raw insert previously bypassed enrolContact and
+    // therefore every check of any kind; it now goes through the same gate
+    // as the send above before re-enrolling. Full migration onto
+    // wizmatch_outreach_enrolments (rather than the generic CRM
+    // sequence_enrolments table) is out of scope for this PR — stated, not
+    // hidden, matching PR 2's documented-scope-limit convention.
+    const followUpDecision = await evaluateWizmatchOutreachGate({
+      tenantId,
+      action: 're_enrol',
+      companyId: companyId ?? undefined,
+      contactId: draft.contact_id,
+      email: toEmail,
+      outreachMode: 'cold_email',
+    });
+    if (!shouldBlock({ tenantId, action: 're_enrol', companyId: companyId ?? undefined, contactId: draft.contact_id }, followUpDecision)) {
+      const seqResult = await pool.query(
+        `SELECT id FROM sequences WHERE tenant_id = $1 AND name LIKE '%Wizmatch%' AND is_active = true LIMIT 1`,
+        [tenantId],
+      );
+      if (seqResult.rows.length > 0) {
+        const seqId = seqResult.rows[0].id;
+        const nextStepAt = new Date(Date.now() + 3 * 86400000); // Day 3 follow-up
+        await db.insert(sequenceEnrolments).values({
+          tenantId,
+          contactId: draft.contact_id,
+          sequenceId: seqId,
+          currentStep: 0,
+          status: 'active',
+          nextStepAt,
+        }).onConflictDoNothing();
+      }
     }
 
     return { kind: 'succeeded', body: { messageId: draft.id, sent: true, from: sendResult.from, domain: sendResult.domain } };

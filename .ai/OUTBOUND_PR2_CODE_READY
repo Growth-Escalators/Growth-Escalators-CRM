@@ -1,0 +1,60 @@
+READY
+branch=ge/outbound-02-policy-schema-service
+reviewed_commit=102b657e95b6f0e09d21c1daa28e2c66bc7dd2d0
+reviewed_at=2026-07-26T10:28:05Z
+
+# WizMatch Outbound OS — PR 2 code readiness marker
+#
+# `reviewed_commit` is the implementation HEAD reviewed BEFORE the commit that carries this
+# file, since a file cannot contain its own commit SHA. Verify with:
+#   git log -1 --format=%P -- .ai/OUTBOUND_PR2_CODE_READY
+#
+# Meaning: every acceptance criterion in
+# docs/prd/005-wizmatch-outbound-operating-system.md §22.2 is satisfied at 102b657, with the
+# one documented exception below. Evidence: docs/reviews/wizmatch-outbound-pr2-opus-review.md §16.
+#
+# Gates at 102b657:
+#   git diff --check     clean
+#   npm run build        exit 0
+#   npm test             100 files / 876 tests passed
+#   npm run db:generate  "No schema changes, nothing to migrate."
+#
+# Fixed by this review (commit 102b657) — §22.2 #16 was NOT actually closed by the
+# 2026-07-26 closeout session, which covered two of three company-insert paths:
+#   H-6  scripts/onboarding/wizmatch-seed-ats-boards.ts wrote no root policy at all
+#   H-7  wizmatchSourcing.ts bootstrapped in a second statement, not one transaction
+#   M-8  the persisted root row omitted reason_code='policy_unknown_cold_start'
+#   #17  scope_key was a duplicated literal rather than buildScopeKey() output
+# Neither H finding was a safety hole (both fail closed), but both left companies
+# permanently L0 policy_missing_root denied and unrepairable by re-running.
+#
+# ONE DOCUMENTED EXCEPTION — owner decision requested (review §16.8, M-10):
+#   §22.2 #10's literal text requires the production `information_schema` drift diff to run
+#   with real output in PR 2. It has NOT been run: it needs production read access that this
+#   PR is forbidden to take, and §22.2 #12 places all production interaction in G1. Both
+#   earlier review passes dispositioned it as a G1 step (review §12 step 4) and this review
+#   does the same. If the owner disagrees that this belongs in G1, this marker is premature —
+#   delete it rather than reinterpret it. Recommended: fold M-10 into the U-7 sign-off and
+#   correct §22.2 #10's wording in a later docs-only pass.
+#
+# Still true, and unchanged by this marker:
+#   - migration 0037 has NOT been applied to production or any shared database. Application is G1.
+#     (It was applied only to disposable local databases at 127.0.0.1, since dropped.)
+#   - WIZMATCH_SENDING_ENABLED and AUTOMATED_EMAILS_ENABLED remain off and unmodified
+#   - no paid provider is enabled; Smartlead is not connected
+#   - no caller is wired onto the gate — that is PR 3, not started
+#   - nothing was pushed, merged or deployed
+#
+# Remaining G1 prerequisites (review §16.10):
+#   U-7   owner sign-off on the three additive (tenant_id, id) indexes on the core CRM tables
+#         shared with Growth (users, contacts, contact_channels)
+#   lock  production-sized index-build lock measurement, and CONCURRENTLY-vs-window decision.
+#         This session's timings are on EMPTY disposable databases and prove nothing about
+#         production — do not cite them as a lock measurement.
+#   M-10  production information_schema drift diff (see the exception above)
+#
+# Remaining PR 3 prerequisites: review §16.11.
+#
+# This marker is invalidated by any further edit to PRD-005 §8, §9, §10, §22.2 or §25, or by any
+# new wizmatch_companies insert path. src/__tests__/wizmatchCompanyBootstrapCoverage.test.ts
+# fails when such a path is added without a root-policy write — trust that test, not this file.

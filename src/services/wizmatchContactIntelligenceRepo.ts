@@ -16,13 +16,16 @@
 
 import { pool } from '../db/index';
 import logger from '../utils/logger';
+import {
+  insertWizmatchCompanyRootPolicy,
+  withWizmatchCompanyTransaction,
+} from '../modules/outreach/companyBootstrap';
 import { normalizeChannelValue } from './contactService';
 import { isSafeFetchHost } from '../utils/ssrfGuard';
 import { scoreSignal } from './wizmatchScoring';
 import {
   CONTACT_INTELLIGENCE_PHASE1_CAPS,
   qualifyCompanyForContactIntelligence,
-  type CompanyIntelligenceStatus,
   type CompanyQualificationTier,
   type ContactCandidateStatus,
   type ContactIntelligenceInput,
@@ -43,6 +46,10 @@ import {
   type WizmatchCostGuardEvaluation,
 } from './wizmatchCostGuard';
 import { numeric, isOptionalWizmatchSchemaError, optionalWizmatchValue } from './wizmatchOptionalSchema';
+import {
+  resolveCanonicalCompanyEligibility,
+  applyCanonicalEligibilityToContactIntelligence,
+} from '../modules/outreach/legacyEligibilityAdapter';
 
 export type ContactIntelligenceCompanyRow = {
   company_id: string;
@@ -270,8 +277,21 @@ export async function buildContactIntelligenceResult(
     internalContacts,
   };
 
+  // PRD-005 §11.3 / ADR-006 D-13 — this is one of the five legacy eligibility
+  // computations named in PRD-005 §5.2 C-2. The local, DB-free scoring stays
+  // in wizmatchContactIntelligence.ts (`qualifyCompanyForContactIntelligence`);
+  // this is the single place that folds the canonical resolver's decision on
+  // top, via src/modules/outreach/legacyEligibilityAdapter.ts. A canonical
+  // DENY always forces `companyStatus: 'discovery_blocked'` here regardless
+  // of local qualification, appending a `policy_<reasonCode>` hard block.
+  const canonicalEligibility = await resolveCanonicalCompanyEligibility(tenantId, row.company_id);
+  const qualified = applyCanonicalEligibilityToContactIntelligence(
+    qualifyCompanyForContactIntelligence(input),
+    canonicalEligibility,
+  );
+
   return {
-    ...qualifyCompanyForContactIntelligence(input),
+    ...qualified,
     latestSignal: row.signal_id ? {
       id: row.signal_id,
       jobTitle: row.job_title,
@@ -421,7 +441,13 @@ export async function withPersistedContactIntelligence(
     qualificationTier: (persisted.company.qualification_tier || item.qualificationTier) as CompanyQualificationTier,
     qualificationScore: numeric(persisted.company.qualification_score) || item.qualificationScore,
     targetRegion: (persisted.company.target_region || item.targetRegion) as ContactIntelligenceRegion,
-    companyStatus: (persisted.company.status || item.companyStatus) as CompanyIntelligenceStatus,
+    // ADR-006 D-13 — never let the persisted `wizmatch_company_intelligence.status`
+    // column override the freshly computed, canonical-policy-folded status.
+    // That column is historical display context only; treating it as
+    // authoritative here was the exact "compatibility shim" D-13 rejects —
+    // a company with a stale legacy status='approved' would silently look
+    // approved again on every read, even after policy denies it.
+    companyStatus: item.companyStatus,
     contactCandidates: persisted.contactCandidates.length ? persisted.contactCandidates : item.contactCandidates,
     persisted: {
       id: persisted.company.id,
@@ -723,11 +749,18 @@ export async function persistContactIntelligenceSnapshot(tenantId: string, userI
                    qualification_score = EXCLUDED.qualification_score,
                    target_region = EXCLUDED.target_region,
                    is_it_staffing_fit = EXCLUDED.is_it_staffing_fit,
-                   status = CASE
-                     WHEN wizmatch_company_intelligence.review_status IN ('approved', 'rejected')
-                     THEN wizmatch_company_intelligence.status
-                     ELSE EXCLUDED.status
-                   END,
+                   -- ADR-006 D-13 / H-5: freezing status for BOTH
+                   -- 'approved' and 'rejected' let a stale legacy status
+                   -- silently outlive a fresh policy deny, so 'approved' no
+                   -- longer freezes -- every snapshot writes the freshly
+                   -- computed, canonical-folded value there. 'rejected' is
+                   -- still frozen: it is a terminal human decision
+                   -- (reject_company) with no canonical policy row backing
+                   -- it yet (H-5 open item -- a full fix routes
+                   -- reject_company through the policy write API instead),
+                   -- so an automatic refresh must not silently re-qualify a
+                   -- company a human explicitly rejected.
+                   status = CASE WHEN review_status = 'rejected' THEN status ELSE EXCLUDED.status END,
                    last_qualified_at = NOW(),
                    next_refresh_at = EXCLUDED.next_refresh_at,
                    source_summary = EXCLUDED.source_summary,
@@ -1157,23 +1190,31 @@ export async function seedProspectCompany(input: SeedProspectInput): Promise<See
       ],
     );
   } else {
-    const inserted = await pool.query(
-      `INSERT INTO wizmatch_companies
-         (tenant_id, name, domain, industry, employee_count, country, linkedin_url, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id`,
-      [
-        input.tenantId,
-        input.companyName,
-        input.domain,
-        input.industry,
-        input.employeeCount,
-        country || 'US',
-        input.linkedinUrl,
-        input.notes,
-      ],
-    );
-    companyId = inserted.rows[0].id;
+    // Company creation and its cold-start root policy must be atomic
+    // (§22.2 #16) — this path already has a pool.connect() precedent in this
+    // file (withContactDiscoveryAdvisoryLock), so a dedicated transaction is
+    // used rather than two independent pool.query() calls.
+    companyId = await withWizmatchCompanyTransaction(pool, async (client) => {
+      const inserted = await client.query(
+        `INSERT INTO wizmatch_companies
+           (tenant_id, name, domain, industry, employee_count, country, linkedin_url, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING id`,
+        [
+          input.tenantId,
+          input.companyName,
+          input.domain,
+          input.industry,
+          input.employeeCount,
+          country || 'US',
+          input.linkedinUrl,
+          input.notes,
+        ],
+      );
+      const newCompanyId: string = inserted.rows[0].id;
+      await insertWizmatchCompanyRootPolicy(client, input.tenantId, newCompanyId);
+      return newCompanyId;
+    });
   }
 
   const manualScore = scoreSignal({

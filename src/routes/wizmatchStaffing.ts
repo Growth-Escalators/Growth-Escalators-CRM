@@ -24,11 +24,16 @@ const consentDocumentUpload = multer({
   fileFilter: (_req, file, done) => done(null, ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(file.mimetype)),
 });
 
+// M-4 — mirrors the fix in wizmatchStaffingAccess.ts's phaseEnabled(): no
+// NODE_ENV branch. An unset gate flag defaults OFF in every runtime; only an
+// explicit `WIZMATCH_STAFFING_GATE_<phase>_ENABLED=true` (or 1/yes/on) turns a
+// phase on. The previous `process.env.NODE_ENV !== 'production'` fallback made
+// every non-production runtime (staging, test, an unset var, a Nixpacks
+// build-phase-only value) open by default.
 export function isStaffingPhaseEnabled(phase: 'A' | 'B' | 'C'): boolean {
   const key = `WIZMATCH_STAFFING_GATE_${phase}_ENABLED`;
   const configured = process.env[key];
-  if (configured !== undefined) return ['1', 'true', 'yes', 'on'].includes(configured.toLowerCase());
-  return process.env.NODE_ENV !== 'production';
+  return configured !== undefined && ['1', 'true', 'yes', 'on'].includes(configured.toLowerCase());
 }
 
 function actor(req: Request): StaffingActor {

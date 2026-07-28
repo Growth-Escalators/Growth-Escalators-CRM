@@ -1,0 +1,34 @@
+READY
+commit=b3aaee156a16ca1a97563696efe742aae9167c92
+reviewed_at=2026-07-26T03:40:22Z
+
+# WizMatch Outbound OS — PR 2 specification readiness marker
+#
+# `commit` is the branch tip this marker was reviewed against — the PARENT of the commit
+# that carries this file, since a file cannot contain its own commit SHA. Verify with:
+#   git log -1 --format=%P -- .ai/OUTBOUND_PR2_SPEC_READY
+#
+# Meaning: every CRITICAL and every HIGH finding in
+# docs/reviews/wizmatch-outbound-overnight-opus-review.md is dispositioned in that
+# report's §19, and no open owner decision blocks PR 2.
+#
+# Build PR 2 against docs/prd/005-wizmatch-outbound-operating-system.md §22.2
+# (twenty acceptance criteria). Build PR 3 against §22.3.
+#
+# Owner decisions applied: D-1 … D-8, recorded as PRD-005 §25.1 A-22 … A-30.
+#
+# Open, NEITHER blocking PR 2:
+#   U-6  sanitised Smartlead CSV fixtures            -> blocks PR 9
+#   U-7  sign-off on the three additive (tenant_id, id) unique indexes on the core
+#        CRM tables shared with Growth (users, contacts, contact_channels)
+#                                                    -> blocks G1, not PR 2
+#
+# Still true, and unchanged by this marker:
+#   - migration 0037 does not exist and has NOT been applied
+#   - WIZMATCH_SENDING_ENABLED and AUTOMATED_EMAILS_ENABLED remain off and unmodified
+#   - no paid provider is enabled
+#   - applying 0037 (G1), running the backfill with --apply (G2), and promoting
+#     enforcement to `enforce` (G4) each remain an explicit owner decision
+#
+# This marker is invalidated by any further edit to PRD-005 §8, §9, §10, §22.2 or §25.
+# Re-run the readiness check and rewrite it rather than trusting a stale one.

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import crypto from 'crypto';
 
 // Signal draft/send orchestration extracted from src/routes/wizmatch.ts (finding M26)
@@ -10,20 +10,51 @@ const poolQuery = vi.fn();
 const insertedRows: Array<{ table: unknown; values: unknown }> = [];
 const onConflictDoNothing = vi.fn(async () => undefined);
 
-vi.mock('../db/index', () => ({
-  pool: { query: (...args: unknown[]) => poolQuery(...args) },
-  db: {
-    insert: (table: unknown) => ({
-      values: (values: unknown) => {
-        insertedRows.push({ table, values });
-        return {
-          returning: vi.fn(async () => [{ id: `msg-${insertedRows.length}`, ...(values as object) }]),
-          onConflictDoNothing,
-        };
-      },
-    }),
-  },
+// Root policy row so the gate's L0 check (§8.2) doesn't deny every test with
+// policy_missing_root before it ever reaches suppression — tests that care
+// about a specific ladder rung override `state.policyRows` per case.
+const state = vi.hoisted(() => ({
+  policyRows: [] as any[],
+  suppressionRows: [] as any[],
 }));
+
+vi.mock('../db/index', async () => {
+  const actualSchema = await vi.importActual<typeof import('../db/schema')>('../db/schema');
+  return {
+    ...actualSchema,
+    pool: {
+      query: (...args: unknown[]) => {
+        // getSignalCompanyId's lookup — intercepted globally so individual
+        // tests' poolQuery.mockImplementation don't each need a branch for it.
+        const sqlText = String(args[0] ?? '');
+        if (sqlText.includes('SELECT company_id FROM wizmatch_job_signals')) {
+          return Promise.resolve({ rows: [{ company_id: 'company-1' }] });
+        }
+        return poolQuery(...args);
+      },
+    },
+    db: {
+      select: () => ({
+        from: (table: unknown) => ({
+          where: () => {
+            if (table === actualSchema.wizmatchCompanyPolicies) return Promise.resolve(state.policyRows);
+            if (table === actualSchema.wizmatchSuppressionList) return Promise.resolve(state.suppressionRows);
+            return Promise.resolve([]);
+          },
+        }),
+      }),
+      insert: (table: unknown) => ({
+        values: (values: unknown) => {
+          insertedRows.push({ table, values });
+          return {
+            returning: vi.fn(async () => [{ id: `msg-${insertedRows.length}`, ...(values as object) }]),
+            onConflictDoNothing,
+          };
+        },
+      }),
+    },
+  };
+});
 
 const callClaude = vi.fn();
 const parseClaudeJSON = vi.fn();
@@ -51,6 +82,31 @@ vi.mock('../config/constants', () => ({
 import { generateSignalDraftEmails, sendSignalDraftEmail } from '../services/wizmatchOutreachService';
 import { sequenceEnrolments } from '../db/schema';
 
+function rootPolicyRow(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: 'policy-root-1',
+    companyId: 'company-1',
+    scopeType: 'entire_company',
+    scopeKey: 'entire_company',
+    outreachEligibility: 'eligible',
+    externalHiringPolicy: 'accepts_external_vendors',
+    relationshipType: 'new_prospect',
+    reasonCode: 'policy_accepts_external_vendors',
+    blockClass: 'standard',
+    isNonOverridable: false,
+    isPermanent: false,
+    evidenceKind: 'human_text',
+    evidenceText: 'test',
+    evidenceUrl: null,
+    evidenceRef: null,
+    source: 'human',
+    actorUserId: null,
+    ...overrides,
+  };
+}
+
+const prevEnforcementMode = process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE;
+
 beforeEach(() => {
   poolQuery.mockReset();
   callClaude.mockReset();
@@ -59,6 +115,17 @@ beforeEach(() => {
   onConflictDoNothing.mockClear();
   insertedRows.length = 0;
   unsubscribeHmacSecret = '';
+  // Default: an eligible root policy so gate-wired tests exercise the ladder
+  // rung they intend to, not L0 policy_missing_root. Tests targeting a
+  // specific deny override this.
+  state.policyRows = [rootPolicyRow()];
+  state.suppressionRows = [];
+  delete process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE;
+});
+
+afterEach(() => {
+  if (prevEnforcementMode === undefined) delete process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE;
+  else process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE = prevEnforcementMode;
 });
 
 describe('generateSignalDraftEmails', () => {
@@ -121,6 +188,68 @@ describe('generateSignalDraftEmails', () => {
     const result = await generateSignalDraftEmails('tenant-1', 'sig-1');
     expect(result).toEqual({ kind: 'failed', detail: 'claude timeout' });
   });
+
+  // §8.10 rule 2 — this call site must gate on the canonical `shouldBlock`, whose
+  // predicate is `decision !== 'allow'`. A hand-written `decision === 'deny'`
+  // check here would let a `review` decision queue three AI-written drafts for a
+  // company that policy says needs explicit approval first, while every other
+  // send/queue site in the checklist blocks it. Regression test for that divergence.
+  it('blocks queueing on a REVIEW decision in enforce mode, not only on deny', async () => {
+    process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE = 'enforce';
+    state.policyRows = [rootPolicyRow({ outreachEligibility: 'needs_review' })];
+    poolQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM wizmatch_job_signals s')) {
+        return {
+          rows: [{
+            id: 'sig-1',
+            contact_id: 'contact-1',
+            company_id: 'company-1',
+            company_name: 'Acme Tech',
+            job_title: 'Senior Java Developer',
+            matched_candidate_ids: [],
+          }],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const result = await generateSignalDraftEmails('tenant-1', 'sig-1');
+
+    expect(result.kind).toBe('blocked');
+    // And nothing was queued: no Claude call, no draft rows persisted.
+    expect(callClaude).not.toHaveBeenCalled();
+    expect(insertedRows).toHaveLength(0);
+  });
+
+  it('does NOT block queueing on a REVIEW decision in shadow mode (§16 zero behavioural change)', async () => {
+    delete process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE;
+    state.policyRows = [rootPolicyRow({ outreachEligibility: 'needs_review' })];
+    poolQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM wizmatch_job_signals s')) {
+        return {
+          rows: [{
+            id: 'sig-1',
+            contact_id: 'contact-1',
+            company_id: 'company-1',
+            company_name: 'Acme Tech',
+            job_title: 'Senior Java Developer',
+            matched_candidate_ids: [],
+          }],
+        };
+      }
+      return { rows: [] };
+    });
+    callClaude.mockResolvedValueOnce({ text: '{}' });
+    parseClaudeJSON.mockReturnValueOnce({
+      variant_a: { subject: 'A', body: 'A' },
+      variant_b: { subject: 'B', body: 'B' },
+      variant_c: { subject: 'C', body: 'C' },
+    });
+
+    const result = await generateSignalDraftEmails('tenant-1', 'sig-1');
+    expect(result.kind).toBe('succeeded');
+    expect(insertedRows).toHaveLength(3);
+  });
 });
 
 describe('sendSignalDraftEmail', () => {
@@ -149,15 +278,35 @@ describe('sendSignalDraftEmail', () => {
     expect(result).toEqual({ kind: 'no_email_channel' });
   });
 
-  it('returns suppressed when the contact email is on the suppression list', async () => {
+  it('returns blocked when the contact email is on the suppression list (enforce mode)', async () => {
+    process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE = 'enforce';
+    state.suppressionRows = [{ reason: 'do_not_contact' }];
     poolQuery.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM messages m')) return { rows: [draftRow] };
       if (sql.includes('FROM contact_channels')) return { rows: [{ channel_value: 'jane@acme.com' }] };
-      if (sql.includes('FROM wizmatch_suppression_list')) return { rows: [{ id: 'sup-1' }] };
       return { rows: [] };
     });
     const result = await sendSignalDraftEmail('tenant-1', 'msg-1');
-    expect(result).toEqual({ kind: 'suppressed' });
+    expect(result.kind).toBe('blocked');
+    if (result.kind === 'blocked') {
+      expect(result.reasonCodes).toContain('email_unsubscribed');
+    }
+    expect(sendColdEmail).not.toHaveBeenCalled();
+  });
+
+  it('does NOT block on suppression in shadow mode — proceeds to send (§16 zero-behavioural-change)', async () => {
+    delete process.env.WIZMATCH_POLICY_ENFORCEMENT_MODE;
+    unsubscribeHmacSecret = 'test-secret';
+    state.suppressionRows = [{ reason: 'do_not_contact' }];
+    poolQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM messages m')) return { rows: [draftRow] };
+      if (sql.includes('FROM contact_channels')) return { rows: [{ channel_value: 'jane@acme.com' }] };
+      if (sql.includes('FROM sequences')) return { rows: [] };
+      return { rows: [] };
+    });
+    sendColdEmail.mockResolvedValueOnce({ from: 'archit@wizmatch.com', domain: 'wizmatch.com' });
+    const result = await sendSignalDraftEmail('tenant-1', 'msg-1');
+    expect(result.kind).toBe('succeeded');
   });
 
   it('fails closed instead of embedding a forgeable unsubscribe link when the HMAC secret is unset', async () => {
@@ -200,11 +349,17 @@ describe('sendSignalDraftEmail', () => {
         expect(result.body).toEqual({ messageId: 'msg-1', sent: true, from: 'archit@wizmatch.com', domain: 'wizmatch.com' });
       }
 
-      const expectedSig = crypto.createHmac('sha256', TEST_SECRET).update('jane@acme.com').digest('base64url');
+      // D-36: the link now signs tenant_id + email + expiry, not email alone.
       expect(sendColdEmail).toHaveBeenCalledTimes(1);
       const sentBody = sendColdEmail.mock.calls[0][0].body as string;
-      expect(sentBody).toContain(`sig=${expectedSig}`);
+      expect(sentBody).toContain('v=2');
+      expect(sentBody).toContain('tenantId=tenant-1');
       expect(sentBody).toContain('email=jane%40acme.com');
+      const expMatch = sentBody.match(/exp=(\d+)/);
+      expect(expMatch).toBeTruthy();
+      const exp = expMatch![1];
+      const expectedSig = crypto.createHmac('sha256', TEST_SECRET).update(`2:tenant-1:jane@acme.com:${exp}`).digest('base64url');
+      expect(sentBody).toContain(`sig=${encodeURIComponent(expectedSig)}`);
 
       // Sequence enrollment fires when an active Wizmatch sequence exists.
       expect(insertedRows.some((r) => r.table === sequenceEnrolments)).toBe(true);

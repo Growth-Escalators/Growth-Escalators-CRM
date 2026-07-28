@@ -1,0 +1,110 @@
+IMPLEMENTED
+branch=ge/outbound-04-policy-ui-backfill
+commit=9561c1001b4a34e2ba9caab0c6b8daaf1f2f307e
+implemented_at=2026-07-26T13:29:54Z
+
+# WizMatch Outbound OS — PR 4 implementation marker (self-reported, NOT independently reviewed)
+#
+# Meaning: this session finished an interrupted PR 4 build. Most of the PR 4 code
+# (routes/services/CLI/tests) was already written before this session started; this
+# session read it against AGENTS.md/CLAUDE.md, PRD-005, ADR-006, ADR-007 and the
+# handoff log, fixed three defects found while verifying it, ran the full gate suite,
+# and committed. This marker is NOT a substitute for the same independent-review
+# process PR 2/PR 3 got (three parallel Explore subagents, every finding re-read by
+# hand, control runs) — that has not happened for PR 4 yet.
+#
+# Scope delivered (PRD-005 PR 4):
+#   - Policy read/write API + RBAC: GET/POST /api/wizmatch/companies/:id/policy,
+#     POST .../policy/override (admin), POST .../owner, GET /api/wizmatch/policy/companies,
+#     POST /api/wizmatch/companies/bulk/policy (admin) — src/routes/wizmatchPolicy.ts,
+#     src/modules/outreach/policyService.ts. Supersession-based writes (one row per
+#     scope_key, previous row superseded + an events row, one transaction — mirrors
+#     suppress()'s PR3 guarantee). Service-layer evidence/inheritance validation
+#     mirrors the §10.1 CHECKs (better error message, not a replacement — DB CHECKs
+#     remain the real enforcement). Refuses to supersede a non-overridable predecessor;
+#     writeCompanyPolicyOverride is the only path past that, admin-only, evidence
+#     mandatory regardless of isPermanent/isNonOverridable (ADR-006 D-18).
+#   - Duplicate-company review: GET /api/wizmatch/companies/duplicates,
+#     POST .../duplicates/:id/resolve (team_lead+) — src/modules/outreach/duplicateService.ts.
+#     Detection (populating wizmatch_company_duplicates) is out of scope — nothing in
+#     this repo writes a duplicate row yet. "Merge" resolves the record only; no
+#     cross-entity data migration (disclosed scope limit — needs a schema change PR 4's
+#     guardrails don't authorise).
+#   - Dry-run-first backfill: scripts/onboarding/wizmatch-policy-backfill.ts +
+#     src/modules/outreach/policyBackfill.ts. Safe by default (no write without
+#     --apply); tolerance-deviation abort guard; --apply is idempotent via
+#     insertWizmatchCompanyRootPolicy's ON CONFLICT ... DO NOTHING. --apply was NOT
+#     run this session, per instruction.
+#   - Readiness report/CLI: src/modules/outreach/policyReadiness.ts,
+#     scripts/wizmatch-policy-readiness.ts, GET /api/wizmatch/policy/readiness
+#     (admin). "Shadow would-have-blocked" is an honestly-disclosed LIVE SNAPSHOT
+#     proxy, not a cumulative event count (needs a schema change PR 4 doesn't
+#     authorise — see file header). Export-omissions/policy-resolver-errors/
+#     pending-in-active-pilot-batch are reported unavailable:true, not fabricated.
+#   - Admin UI: CompanyPolicySection.jsx in the company drawer (effective policy per
+#     dimension + supplying scope, scoped rows, history, owner, evidence-gated write/
+#     override forms); a new Duplicate Companies page. Both behind
+#     WIZMATCH_COMPANY_POLICY_ENABLED (default false) — API 404s, UI renders null.
+#
+# Three defects found and fixed while finishing this session (none in the review-grade
+# sense of PR2/PR3 — found by running the verification gates the task required, not by
+# a dedicated adversarial pass):
+#   1. scripts/onboarding/wizmatch-policy-backfill.js — a stray compiled CommonJS
+#      duplicate of the .ts source sitting untracked in the worktree (this repo only
+#      tracks .ts under scripts/, confirmed via git ls-files). Deleted.
+#   2. WizmatchDuplicateReviewPage.jsx existed and admin/src/routes/wizmatchRouteRegistry.ts
+#      linked to /wizmatch/duplicates, but admin/src/App.jsx never lazy-imported the
+#      component or declared the <Route> — clicking the nav entry would 404. Wired in.
+#   3. CompanyPolicySection.jsx dereferenced `effective.rootRow` and destructured
+#      `scoped`/`history` with no guard against a malformed/incomplete API response —
+#      crashed the ENTIRE company drawer (not just the Policy section) whenever the
+#      policy fetch returned an unexpected shape. Surfaced by two failing Playwright
+#      specs (wizmatch-gate-a-local, wizmatch-phase0-local) once the section started
+#      firing unconditionally in dev mode. Fixed: malformed response now sets a
+#      contained error state; scoped/history default to [].
+#
+# Gates at this commit:
+#   git diff --check         clean
+#   npm run build             exit 0
+#   npm test                  107 files / 948 tests passed
+#   npm run admin:build       clean
+#   playwright.wizmatch-local.config.ts (full suite) — 97 passed / 15 skipped
+#     (real-backend specs requiring a live server on :3000, not started this
+#     session — pre-existing skip condition, unrelated to this PR) / 0 failed
+#
+# Explicitly NOT done this session, per instruction:
+#   - migration 0037 still NOT applied to any database
+#   - backfill --apply NOT run (only the pure dry-run logic is unit-tested)
+#   - WIZMATCH_POLICY_ENFORCEMENT_MODE untouched — still 'shadow'
+#   - WIZMATCH_SENDING_ENABLED / AUTOMATED_EMAILS_ENABLED untouched
+#   - no paid discovery provider enabled; Smartlead not connected
+#   - U-13 (resolveWizmatchLinkage's arbitrary-company-on-multi-linkage fail-open),
+#     U-14 (bulk-email/export per-row gating performance), U-10, U-12, L-7…L-13 from
+#     the PR3 review are NOT folded into this PR — no code in this commit touches
+#     wizmatchLinkage.ts or the bulk-gating call sites. CURRENT_TASK.md named these
+#     as PR4-scope; they were not part of the already-started work this session
+#     found in the worktree, and adding them now would be starting new scope this
+#     session was told not to start. Recorded here as still open, not silently
+#     dropped.
+#   - no guardrail file touched (schema.ts, migrations/, auth.ts, rbac.ts,
+#     cashfree.ts, sodEodService.ts); no Growth/SEO/n8n/legacy-outreach/package-lock
+#     change
+#   - nothing pushed, merged, or deployed; no Railway or production access
+#
+# Next: an independent readiness review of this PR (three-subagent method, per
+# PR2/PR3 precedent) before this branch is opened as a stacked draft PR, then owner
+# decisions on U-13/U-14/U-10/U-12/L-7…L-13 (fold into PR4 as a follow-up commit, or
+# explicitly defer to PR 5), then PR 5 (lifecycle consolidation) per the standing
+# 10-PR programme. Stop after PR 5.
+#
+# CORRECTION (2026-07-26, PR 4+5 checkpoint review, H-11/D-38) — this marker's line
+# 46-47 claim was FALSE, not just imprecise: "both behind WIZMATCH_COMPANY_POLICY_ENABLED
+# — API 404s, UI renders null" was true for CompanyPolicySection.jsx but NOT for the
+# Duplicate Companies page — WizmatchDuplicateReviewPage.jsx had no flag import at all,
+# and its nav entry (wizmatchRouteRegistry.ts) and route (App.jsx) were unconditional.
+# Fixed in the checkpoint-fix pass: the page now checks companyPolicyUiEnabled and
+# renders a disabled-state EmptyState when off; the nav entry's permission gained
+# `wizmatchCompanyPolicyEnabled` (a new computeFlags() flag mirroring the same
+# build-time env var) alongside its existing isAdminTier check. Left this original
+# claim above uncorrected in place, per instruction not to delete review findings —
+# this note is the correction, not a rewrite of the original text.

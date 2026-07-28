@@ -74,9 +74,103 @@ test.describe('Wizmatch accessibility scan (complete build)', () => {
       requirements: [{ id: 'r1', title: 'A11y Requirement', company_name: 'A11y Co', stage: 'sourcing', next_action: 'Review candidates', next_action_due_at: new Date(Date.now() - 86400000).toISOString() }],
       tasks: [],
     }));
+    // PR 6 — the admin dev server always runs with `import.meta.env.DEV`
+    // true, which forces `decisionWorkbenchUiEnabled` on (same idiom as
+    // `companyPolicyUiEnabled`), so WizmatchTodayPage.jsx renders the new
+    // decision workbench here, not the legacy My Work buckets. Mock its
+    // real endpoint too so this scan covers populated queue cards, not an
+    // empty-state fallback.
+    await page.route('**/api/wizmatch/today/queues*', (route) => json(route, {
+      readyToContact: [{
+        companyId: 'ready-1', companyName: 'Ready Co', companyDomain: 'ready.example',
+        canonicalDecision: 'allow', canonicalReasonCode: null, canonicalBlockerCode: null,
+        effectiveDecision: 'allow',
+        enforcementMode: 'shadow', requiresExplicitApproval: false, outreachEligibility: 'eligible',
+        contactConfidenceTier: 'high', duplicatePending: false, duplicateId: null, isNonOverridable: false,
+        policyScopeKey: 'entire_company', disabledReason: null,
+        // PR 8B (P8B-2) — real server semantics: `approve_queue` on an
+        // already-`eligible` company is idempotency-refused
+        // (`already_approved`, decisionWorkbenchActions.ts), so the capability
+        // this row would really receive is disabled, not enabled. The a11y
+        // dialog/focus interaction below now targets Review Co instead, whose
+        // approval is a genuinely available action.
+        capabilities: { approve_queue: { enabled: false, reason: 'This company is already eligible; the approval was already recorded.' } },
+      }, {
+        // D-31: canonical resolver would DENY (L6b company cold-email lock) but
+        // enforcement is `shadow`, so the API's behavioural `effectiveDecision`
+        // follows the stored policy row. The row must keep every affordance and
+        // disclose the divergence — shadow may never block through the UI.
+        companyId: 'shadow-diverged-1', companyName: 'Shadow Diverged Co', companyDomain: null,
+        canonicalDecision: 'deny', canonicalReasonCode: 'company_cold_email_lock',
+        canonicalBlockerCode: 'policy_company_cold_email_lock',
+        effectiveDecision: 'allow',
+        enforcementMode: 'shadow', requiresExplicitApproval: false, outreachEligibility: 'eligible',
+        contactConfidenceTier: 'high', duplicatePending: false, duplicateId: null, isNonOverridable: false,
+        policyScopeKey: 'entire_company', disabledReason: null,
+        // Also already-eligible for the same reason as Ready Co above — the
+        // test only asserts this button stays VISIBLE (§16 rule 2: shadow
+        // keeps every affordance a policy-eligible row has), never that it is
+        // enabled, so this reflects real semantics without changing that
+        // assertion.
+        capabilities: { approve_queue: { enabled: false, reason: 'This company is already eligible; the approval was already recorded.' } },
+      }],
+      needsReview: [{
+        companyId: 'review-1', companyName: 'Review Co', companyDomain: null,
+        canonicalDecision: 'review', canonicalReasonCode: 'policy_unknown_cold_start', canonicalBlockerCode: null,
+        effectiveDecision: 'review',
+        enforcementMode: 'shadow', requiresExplicitApproval: true, outreachEligibility: 'needs_review',
+        contactConfidenceTier: 'medium', duplicatePending: false, duplicateId: null, isNonOverridable: false,
+        policyScopeKey: 'entire_company', disabledReason: 'No high- or medium-confidence contact is available yet.',
+        // Not yet eligible, admin role, no non-overridable block — approve_queue
+        // is a genuinely available action here, unlike the two rows above.
+        capabilities: { approve_queue: { enabled: true, reason: null } },
+      }],
+      pausedOrBlocked: [{
+        companyId: 'blocked-1', companyName: 'Blocked Co', companyDomain: null,
+        canonicalDecision: 'deny', canonicalReasonCode: 'company_removal_request', canonicalBlockerCode: 'policy_company_removal_request',
+        effectiveDecision: 'deny',
+        enforcementMode: 'shadow', requiresExplicitApproval: false, outreachEligibility: 'blocked',
+        contactConfidenceTier: null, duplicatePending: false, duplicateId: null, isNonOverridable: true, blockClass: 'compliance',
+        policyScopeKey: 'entire_company', disabledReason: 'This company has a non-overridable block. No override or reclassify action is available at any scope.',
+        capabilities: {
+          approve_queue: { enabled: false, reason: 'This company has a non-overridable block at scope \'entire_company\'. No override, resume or reclassify action is available at any scope.' },
+          resume: { enabled: false, reason: 'This company has a non-overridable block at scope \'entire_company\'. No override, resume or reclassify action is available at any scope.' },
+          skip: { enabled: false, reason: 'This company has a non-overridable block at scope \'entire_company\'. No override, resume or reclassify action is available at any scope.' },
+          pause: { enabled: false, reason: 'This company has a non-overridable block at scope \'entire_company\'. No override, resume or reclassify action is available at any scope.' },
+        },
+      }],
+      repliesNeedingAction: [{ enrolmentId: 'enrol-1', companyId: 'ready-1', companyName: 'Ready Co', contactId: null, state: 'awaiting_action', stateAt: new Date().toISOString() }],
+      counts: { readyToContact: 2, needsReview: 1, repliesNeedingAction: 1, pausedOrBlocked: 1 },
+      partial: { skippedCompanyIds: [], skippedEnrolmentIds: [] },
+    }));
     await page.goto('/wizmatch/today');
     await page.waitForLoadState('networkidle');
     await assertNoSeriousViolations(page, 'Today');
+
+    // Keyboard/focus coverage (PR 6 §9): Approve & Queue on the needs-review
+    // row opens the action dialog, focus moves inside it, and Escape closes
+    // it without leaving focus stranded. Targets Review Co specifically (not
+    // Ready Co) because PR 8B (P8B-2) capability-driven rendering correctly
+    // disables Approve & Queue on an already-`eligible` company — Review Co
+    // is the row where this action is genuinely available.
+    const approveButton = page.getByRole('row').filter({ hasText: 'Review Co' }).getByRole('button', { name: 'Approve & Queue' });
+    await approveButton.focus();
+    await expect(approveButton).toBeFocused();
+    await page.keyboard.press('Enter');
+    const dialog = page.getByRole('dialog', { name: /Approve & Queue/ });
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+
+    // D-31 / §16 rule 2 — the shadow-diverged row (canonical DENY, enforcement
+    // `shadow`) must keep every affordance a policy-eligible row has, and must
+    // disclose the divergence rather than silently acting on it. If the UI ever
+    // keys its actions off `canonicalDecision` again, "Approve & Queue"
+    // disappears here and this fails.
+    const divergedRow = page.getByRole('row').filter({ hasText: 'Shadow Diverged Co' });
+    await expect(divergedRow.getByRole('button', { name: 'Approve & Queue' })).toBeVisible();
+    await expect(divergedRow.getByRole('button', { name: 'Reclassify' })).toHaveCount(0);
+    await expect(divergedRow.getByText('shadow: would deny')).toBeVisible();
   });
 
   test('Companies — list, detail drawer, discover-contacts panel', async ({ page }) => {
