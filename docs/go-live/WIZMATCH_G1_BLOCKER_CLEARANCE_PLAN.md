@@ -242,6 +242,27 @@ What it does, verified line by line:
 | Permissions row | `:230-235` | seeds an empty `user_permissions` row so the user appears in list filters |
 | Response | `:236-241` | returns the new user **and the plaintext temporary password, once** |
 
+#### Alternatives considered and rejected
+
+Eleven code paths in this repo write to `users`. None is a better fit:
+
+| Path | Why not |
+|---|---|
+| `src/scripts/createWizmatchAdmin.ts:28` | The closest precedent — it created the `wizmatch` tenant and its admin accounts. But it **hardcodes `role = 'admin'`** (`:29`, `:33`) and sets **`is_owner = true`** (`:46`, `:51`). Itika is `team_lead`, not an owner. It also upserts the `tenants` row (`:18-22`), which is needless production risk, and its `ON CONFLICT … DO UPDATE` would **rotate the password and bump `token_version`** of an existing account — i.e. it can silently modify Jatin |
+| `src/scripts/seedUsers.ts:37`, `createUsers.ts:60` | Bulk seeders; `seedUsers.ts` sets no `role` at all |
+| `seedKratika.ts:62`, `addSneha.ts:60`, `scripts/onboarding/replace-tushar-with-kanishk.ts:58` | One-off bespoke scripts written for named individuals; not a general path |
+| `seedE2ETestFixtures.ts:47`, `seedContractsE2E.ts:45` | Test fixtures — `seedE2ETestFixtures.ts` refuses to run unless `DATABASE_URL` contains `wizmatch_e2e_test` |
+| `scripts/meta-app-review/seed-reviewer-user.ts:64` | Sets `is_test_account`; built for app review |
+
+Every script alternative also shares one structural drawback: it must be executed against the
+production `DATABASE_URL` from inside a container, whereas the endpoint is a single authenticated
+HTTP call whose tenant and permissions are derived from a real session.
+
+Confirmed sufficient: the endpoint seeds `user_permissions` with `is_owner: false`
+(`src/routes/permissions.ts:230-235`), and `src/services/wizmatchStaffingAccess.ts` gates on role
+plus roster membership only — it never consults `user_permissions` — so no further permission
+grant is needed for `team_lead` pilot access.
+
 > **Credential hygiene.** The endpoint returns a plaintext temporary password in its response body.
 > Per `AGENTS.md`, that value must never be written into any source file, document, screenshot,
 > `.ai/` context or handoff log. Share it with Itika over a secure channel; she can rotate it via
