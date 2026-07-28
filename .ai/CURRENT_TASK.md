@@ -2,7 +2,34 @@
 
 ## Active task
 
-**G1 read-only production evidence session complete (2026-07-28). G1 remains NO-GO.** Branch
+**MAIN rollout execution (2026-07-28): Phases A–H DONE; G3 merge/deploy next.** Branch
+`ge/outbound-08b-g3-pilot-completion` @ local HEAD (docs-only after reviewed `0d330269`); PR
+#89 draft/base `main`. Full execution evidence:
+[`docs/go-live/WIZMATCH_ROLLOUT_EXECUTION_EVIDENCE.md`](../docs/go-live/WIZMATCH_ROLLOUT_EXECUTION_EVIDENCE.md).
+
+Owner decisions: Railway managed backup/PITR abandoned → encrypted logical `pg_dump` backup
+instead (done, restorable); **Itika deferred** → initial pilot roster is exactly two humans
+(Jatin admin, Kanishk admin); G1 clone = restored local PG18.
+
+- **Backup:** encrypted archive `input-data/g1-backups/wizmatch-prod-20260728T055917Z.dump.enc`
+  (AES-256-CBC+PBKDF2, Keychain); plaintext sha `d07474f8…`, ciphertext sha `5c2c38a5…`;
+  restore-tested into disposable PG18 (all counts match prod). No Railway PITR (accepted).
+- **G1 (clone + 0037 + locks):** GO — 0037 file hash == reviewed `76729b60…`; applied to clone
+  in 107 ms, max lock-wait 0 ms, all schema objects verified, U-7 measured trivial.
+- **G1 prod migration (Phase G):** `0037` applied to production (single txn, journal-verified,
+  8/8 tables, 3/3 U-7 indexes, web unchanged). Migrate-before-deploy satisfied.
+- **G2 backfill (Phase H):** applied `INSERT 0 183`; idempotent, tenant-safe, every row
+  `needs_review` (never `allow`). PASS.
+- **G3 (Phase I) — IN PROGRESS:** push docs → final CI → if green, merge (normal commit) →
+  auto-deploy → enable `WIZMATCH_COMPANY_POLICY_ENABLED` + `WIZMATCH_DECISION_WORKBENCH_ENABLED`
+  → verify 2-user roster (no Itika/viewer/machine) → readiness + smoke tests.
+
+Final state must keep sending/email/prep/adapter/paid-discovery OFF, enforcement `shadow`,
+NODE_ENV=production. Smartlead absent.
+
+**Prior — G1 read-only evidence (superseded by execution above):** G1 was NO-GO on 2026-07-28
+morning (no backup, no Itika). Both cleared differently: backup via encrypted logical dump;
+Itika deferred. The earlier session was read-only throughout. Branch
 `ge/outbound-08b-g3-pilot-completion` @ `85c9dd09` (docs-only, unpushed); PR #89 open/draft/base
 `main`/head `af6d0438`, CI green. Full record:
 [`docs/go-live/WIZMATCH_G1_RUNTIME_READONLY_EVIDENCE.md`](../docs/go-live/WIZMATCH_G1_RUNTIME_READONLY_EVIDENCE.md).

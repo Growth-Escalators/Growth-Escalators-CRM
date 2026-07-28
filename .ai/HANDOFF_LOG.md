@@ -5040,3 +5040,30 @@ no merge, no push, no deploy. Docs-only commit; tree left clean.
 **Verdict unchanged: G1 NO-GO.** Awaiting, independently: `APPROVE_PRODUCTION_BACKUP_ENABLE` and
 `APPROVE_ITIKA_ACCOUNT_PROVISIONING`; then `APPROVE_G1_CLONE_CREATE` →
 `APPROVE_G1_CLONE_LOAD_SYNTHETIC` → `APPROVE_G1_CLONE_DESTROY`; `APPROVE_G1_MIGRATION_0037` last.
+
+## 2026-07-28 — MAIN rollout executed (Phases A–H) by lead session
+
+Owner reshaped the plan: Railway managed backup/PITR abandoned (encrypted logical pg_dump
+instead); Itika deferred (2-user pilot); G1 clone = restored local PG18.
+
+- Phase A: local caps OK (FileVault on; installed Homebrew postgresql@18 for PG18 tooling —
+  local was PG16, prod is 18.3). Dump host = Postgres service (pg_dump 18.3, DATABASE_URL
+  in-container; web has no pg_dump; railway ssh = no PTY).
+- Phase B: encrypted logical backup. plaintext sha d07474f8…, ciphertext sha 5c2c38a5…;
+  pg_restore --list 1064 entries, 0 warnings. Freeze held.
+- Phase C: AES-256-CBC + PBKDF2 600k; Keychain passphrase; round-trip verified; plaintext
+  shredded. Manifest written. (CBC not AEAD → SHA-256 digests retained for integrity.)
+- Phase D: restore into disposable PG18 — all counts match prod exactly; collision-clean.
+- Phase E: 0037 applied to clone (single txn, 107 ms, max lock-wait 0 ms); journal 36 ==
+  hash 76729b60…; 8/8 tables, 3/3 U-7 shared indexes, scope_type CHECK, composite tenant
+  FKs, immutability trigger verified; write-path + trigger tested. GO.
+- Phase G: 0037 applied to PRODUCTION (single txn in Postgres container, journal-verified;
+  web unchanged at 1e748125). ATS/TheirStack missing-table hazard cleared.
+- Phase H: G2 backfill INSERT 0 183; idempotent, tenant-safe, all rows needs_review (never
+  allow). PASS.
+- No app-code change after reviewed 0d330269. No secret printed. No Itika account created.
+  Roster remains the two WizMatch admin UUIDs. Sending/prep/adapter/email/paid-discovery off;
+  enforcement shadow.
+
+Next: G3 — push docs, final CI, merge (normal commit) + auto-deploy, enable company-policy +
+decision-workbench, verify 2-user roster, readiness + smoke tests.
