@@ -6,6 +6,80 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-07-29 — WizMatch two-user pilot: independent verification + go-live closeout — Claude
+
+**Verdict: PILOT READY FOR LIMITED INTERNAL USE — TWO USERS · EXPLICIT CONFIG REDEPLOY PENDING.**
+Zero Critical, zero High. Documentation only — no application code, no production change.
+
+**What changed:** three new go-live documents (`WIZMATCH_G3_SMOKE_TEST_RESULT_FINAL.md`,
+`WIZMATCH_PILOT_TEAM_ONBOARDING_FINAL.md`, `WIZMATCH_PILOT_LIVE_STATUS_FINAL.md`) plus updates
+to this log, `.ai/CURRENT_TASK.md` and `docs/handoffs/WIZMATCH_OUTBOUND_OS_STATUS.md`.
+
+**Method.** The prior session's reports were treated as **claims to verify, not evidence to
+trust**. Three narrow read-only lanes (Git/CI, database, runtime) ran in parallel and were
+reconciled; the lead independently re-inspected the most critical evidence rather than accepting
+any lane's conclusion. **Four lane claims were rejected on the evidence** — the readiness
+*reporter* (`wizmatchPilotReadiness.ts:233`) mistaken for the adapter *gate* (the real block is
+`KNOWN_PROVIDERS = ['mock']`); journal `id=37` read as migration `0037` (a serial PK is not a
+migration number — proven by hash instead); a claim that `users` lacks `is_active` (it is at
+`schema.ts:33` and production returns `true`); and staged service config presented as the running
+process. One correction was accepted: `WIZMATCH_STAFFING_PILOT_ALL_USERS` is set to `false`,
+which is the safe state.
+
+**The distinction that mattered most: staged config ≠ running config.** `list_variables` reports
+staged Railway service configuration; `railway ssh` + `printenv` reports what deployment
+`21f4d381` actually has. Four variables are **absent** from the running process and safe only
+through reviewed fail-safe code defaults; the same four are **staged** pending a redeploy that
+failed twice on the builder (`50ce0ec6` FAILED, `6510b15e` REMOVED, both on the same commit).
+The pending redeploy is **behaviourally inert** — proven by running the readiness CLI against
+both the effective and post-redeploy environments for an identical PASS.
+
+**One near-miss worth keeping.** `WIZMATCH_STAFFING_PILOT_ALL_USERS` is the *string* `"false"`,
+and a non-empty string is truthy in JavaScript. Had the gate tested truthiness, the pilot would
+have been open to every eligible role. It does not: `wizmatchStaffingAccess.ts:16-18` parses via
+the allow-list `['1','true','yes','on']`, the **same parser** the readiness CLI uses — so the
+tool structurally cannot disagree with runtime about roster admission. Check the parser, not the
+value.
+
+**Verified:** `0037` applied once, **hash-verified** (prod journal hash == local file SHA-256),
+no `0038` · backfill idempotent + tenant-safe, **183** root policies, **0** missing, **0**
+duplicates, all `needs_review` · PostgreSQL **18.3** · encrypted backup restore-tested, recovery
+point `2026-07-28T05:59:17Z`, Railway managed backup/PITR unavailable · roster exactly two
+`admin` humans, Itika deferred (no account in any tenant), `deck-sync` `viewer` outside the human
+roster · sending/email/prep/adapter/paid-discovery/Google-fallback disabled · enforcement
+`shadow` · unknown scope fails closed.
+
+**Deployment migrations are currently NOT automatic** — the live Railway start command
+(`node dist/index.js`, RAILPACK) **overrides** `railway.json` (`migrate.js && index.js`,
+NIXPACKS). This is also the strongest proof a redeploy cannot reapply `0037` (the second proof
+is drizzle's timestamp rule: the last applied `created_at` exceeds every `folderMillis`).
+
+**How to verify:** `git diff --name-only origin/main...HEAD` shows documentation and `.ai/`
+context files only — no `src/`, no migration, no package file, no backup or `input-data/`
+artifact, no secret.
+
+**NOT verified, stated as such:** the five authenticated behavioural smoke checks (non-pilot
+denial, per-user access, unknown-scope fail-closed, company/signal block, cross-tenant denial)
+require logged-in sessions and belong to the two operators — no plaintext password was requested
+or used, and **no synthetic record was created, so none needed cleanup**. **TheirStack
+post-deployment execution is NOT verifiable yet** (cron `'35 1 * * 1,4'`, next run Thu
+2026-07-30 01:35 UTC) — **no claim is made that it is healthy**. A live `[edge-drainer]` Redis
+error repeats ~every 5 s with an empty message; cause not established.
+
+**Traps recorded:** Railway log queries default to the *latest* deployment, which is the REMOVED
+`6510b15e` — unpinned queries return "No Deploy logs found" and read as an outage, so always pin
+`21f4d381` · `ecom.growthescalators.com/health` is a **false-green** oracle returning Vercel SPA
+HTML with 200, not the API.
+
+**What's next (none blocking):** explicit config redeploy after builder recovery · resolve the
+`railway.json` drift · diagnose the edge-drainer error · verify TheirStack after Thu 01:35 UTC ·
+make `input-data/` fresh-clone-safe (currently ignored only via `.git/info/exclude`).
+
+**Nothing in production was changed:** no variable, user, role, roster, deployment, migration,
+backfill, restore or send.
+
+---
+
 ## 2026-07-27 — WizMatch Outbound OS: PR 8B F-A resolved — CODE READY at `0d330269` — Claude
 
 Owner ratified F-A as a **narrow read-only machine-sync exception**, not a role change. Implemented

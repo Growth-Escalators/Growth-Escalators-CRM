@@ -2,6 +2,53 @@
 
 ## Active task
 
+**TWO-USER PILOT OPERATIONALLY READY (2026-07-29) — independently verified.**
+
+> **PILOT READY FOR LIMITED INTERNAL USE — TWO USERS · EXPLICIT CONFIG REDEPLOY PENDING**
+
+PR #89 is **merged** (`4a8d103a`, head `b35e16c4`); active deployment
+`21f4d381-e7af-4ab5-b81e-6548a57099b2` is SUCCESS on that commit. An independent Opus review
+treated the prior session's reports as claims to verify, not evidence to trust: three read-only
+lanes (Git/CI, database, runtime), reconciled, with the lead re-inspecting the critical evidence
+directly. **Zero Critical, zero High.** Records:
+[`docs/go-live/WIZMATCH_PILOT_LIVE_STATUS_FINAL.md`](../docs/go-live/WIZMATCH_PILOT_LIVE_STATUS_FINAL.md),
+[`WIZMATCH_G3_SMOKE_TEST_RESULT_FINAL.md`](../docs/go-live/WIZMATCH_G3_SMOKE_TEST_RESULT_FINAL.md),
+[`WIZMATCH_PILOT_TEAM_ONBOARDING_FINAL.md`](../docs/go-live/WIZMATCH_PILOT_TEAM_ONBOARDING_FINAL.md).
+
+- **Verified:** `0037` applied once and **hash-verified** (no `0038`) · backfill idempotent and
+  tenant-safe, **183** root policies, **0** missing, **0** duplicates, all `needs_review` ·
+  PostgreSQL **18.3** · encrypted backup restore-tested, recovery point `2026-07-28T05:59:17Z`,
+  Railway managed backup/PITR unavailable · roster exactly two `admin` humans (Itika deferred —
+  no account in any tenant; `deck-sync` `viewer` outside the human roster) ·
+  sending/email/prep/adapter/paid-discovery/Google-fallback disabled · enforcement `shadow`.
+- **Config has three distinct categories:** (A) explicit in the running deployment; (B) four
+  variables **absent** from the running process but effective via reviewed fail-safe code
+  defaults; (C) those same four **staged** in Railway pending a successful redeploy. Both
+  redeploy attempts failed on the builder (`50ce0ec6` FAILED, `6510b15e` REMOVED). The pending
+  redeploy is **behaviourally inert** (identical readiness PASS both ways).
+  `list_variables` = staged config; `railway ssh` + `printenv` = running config. Do not conflate.
+- **Deployment migrations are currently NOT automatic** — the live Railway start command
+  (`node dist/index.js`, RAILPACK) **overrides** `railway.json` (`migrate.js && index.js`,
+  NIXPACKS). Apply any future migration deliberately.
+- **NOT verified, deliberately:** authenticated behavioural smoke checks (non-pilot denial,
+  per-user access, unknown-scope fail-closed, company/signal block, cross-tenant denial) need
+  logged-in sessions and belong to the two operators — no plaintext password requested or used,
+  **no synthetic record created**. **TheirStack post-deployment execution NOT verified** (next
+  run Thu 2026-07-30 01:35 UTC) — no claim is made that it is healthy.
+- **Open follow-ups (none blocking):** explicit config redeploy after builder recovery ·
+  `railway.json` drift · `[edge-drainer]` Redis error ~every 5 s · TheirStack verification ·
+  `input-data/` ignored only via `.git/info/exclude` (not fresh-clone-safe).
+- **Traps:** Railway log queries default to the REMOVED latest deployment — pin `21f4d381` ·
+  `ecom.…/health` is a **false-green** Vercel SPA, not the API · always read UUIDs from the DB.
+
+**Nothing in production was changed by the review.** **Do not** redeploy, change variables, rerun
+`0037`, rerun the backfill, change user accounts or the roster, promote `enforce`, enable
+sending/preparation/the adapter/paid discovery, or connect Smartlead without explicit approval.
+
+---
+
+## Prior entry — MAIN rollout execution (superseded above)
+
 **MAIN rollout execution (2026-07-28): Phases A–H DONE; G3 merge/deploy next.** Branch
 `ge/outbound-08b-g3-pilot-completion` @ local HEAD (docs-only after reviewed `0d330269`); PR
 #89 draft/base `main`. Full execution evidence:
