@@ -3,7 +3,60 @@
 Chat-independent status for the `ge/outbound-0X-*` stacked-PR sequence. Read this before
 `docs/prd/005-wizmatch-outbound-operating-system.md` if you only need "where are we, what's next."
 
-> ## LATEST — 2026-07-28: first read-only production evidence session. **G1 still NO-GO.**
+> ## LATEST — 2026-07-29: **TWO-USER PILOT OPERATIONALLY READY.** Independently verified.
+>
+> > **PILOT READY FOR LIMITED INTERNAL USE — TWO USERS · EXPLICIT CONFIG REDEPLOY PENDING**
+>
+> Full record: [`docs/go-live/WIZMATCH_PILOT_LIVE_STATUS_FINAL.md`](../go-live/WIZMATCH_PILOT_LIVE_STATUS_FINAL.md) ·
+> evidence [`WIZMATCH_G3_SMOKE_TEST_RESULT_FINAL.md`](../go-live/WIZMATCH_G3_SMOKE_TEST_RESULT_FINAL.md) ·
+> onboarding [`WIZMATCH_PILOT_TEAM_ONBOARDING_FINAL.md`](../go-live/WIZMATCH_PILOT_TEAM_ONBOARDING_FINAL.md).
+>
+> An independent Opus review treated the prior session's reports as **claims to verify, not
+> evidence to trust**. Three read-only lanes (Git/CI, database, runtime) were reconciled; the
+> lead re-inspected the critical evidence directly. **Zero Critical, zero High.** Four lane
+> claims were rejected on the evidence (readiness-reporter mistaken for the adapter gate;
+> journal `id=37` mistaken for migration `0037`; a non-existent missing `is_active` column;
+> staged config mistaken for running config) and one correction accepted.
+>
+> **Verified:** PR #89 merged (`4a8d103a`, head `b35e16c4`), app code unchanged after reviewed
+> `0d330269` · active deployment `21f4d381` SUCCESS on the merge commit · `0037` applied once,
+> **hash-verified**, no `0038` · backfill `INSERT 0 183`, idempotent, tenant-safe, **183** root
+> policies, **0** missing, **0** duplicates, **all `needs_review`** · PostgreSQL **18.3** ·
+> encrypted logical backup restore-tested (recovery point `2026-07-28T05:59:17Z`; Railway
+> managed backup/PITR unavailable) · roster exactly two `admin` humans, both active, Itika
+> deferred (no account in any tenant), `deck-sync` `viewer` outside the human roster ·
+> sending/email/prep/adapter/paid-discovery/Google-fallback all disabled · enforcement `shadow`.
+>
+> **Three configuration categories, not interchangeable.** (A) explicit in the running
+> deployment; (B) four variables **absent** from the running process but effective through
+> reviewed fail-safe code defaults; (C) those same four **staged** in Railway pending a
+> successful redeploy. Both redeploy attempts (`50ce0ec6` FAILED, `6510b15e` REMOVED) failed on
+> the builder. The pending redeploy is **behaviourally inert** — the readiness CLI returns an
+> identical PASS against both environments.
+>
+> **Deployment migrations are currently NOT automatic.** The live Railway service start command
+> (`node dist/index.js`, RAILPACK) **overrides** `railway.json`'s declared
+> `node dist/scripts/migrate.js && node dist/index.js` (NIXPACKS). Any future migration must be
+> applied deliberately. This is also the strongest proof a redeploy cannot reapply `0037`.
+>
+> **NOT verified, stated honestly:** authenticated behavioural smoke checks (non-pilot denial,
+> per-user access, unknown-scope fail-closed, company/signal block, cross-tenant denial) require
+> logged-in sessions and belong to the two operators — no plaintext password was requested or
+> used, and **no synthetic record was created**. **TheirStack post-deployment execution is not
+> yet verifiable** (next run Thu 2026-07-30 01:35 UTC) — **no claim is made that it is healthy**.
+> A live `[edge-drainer]` Redis error repeats ~every 5 s, cause not established.
+>
+> **Traps:** Railway log queries default to the REMOVED latest deployment — pin
+> `21f4d381` · `ecom.…/health` is a **false-green** Vercel SPA, not the API · `list_variables`
+> is staged config, not running config.
+>
+> **Nothing in production was changed by the review.** Open follow-ups: explicit config redeploy
+> after builder recovery; `railway.json` drift; edge-drainer error; TheirStack verification;
+> `input-data/` protected only by the local git exclude (not fresh-clone-safe).
+
+---
+
+> ## PRIOR — 2026-07-28: first read-only production evidence session. **G1 still NO-GO.**
 >
 > Full record: [`docs/go-live/WIZMATCH_G1_RUNTIME_READONLY_EVIDENCE.md`](../go-live/WIZMATCH_G1_RUNTIME_READONLY_EVIDENCE.md).
 > Read-only throughout: no migration, no database write, no backfill, no service created or deleted,
