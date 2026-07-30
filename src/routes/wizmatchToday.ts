@@ -22,7 +22,7 @@ import { Router, type Request, type Response } from 'express';
 import { buildTodayQueues, type DecisionWorkbenchCompanyItem } from '../modules/outreach/decisionWorkbench';
 import { runTodayActions, TodayActionValidationError, type TodayActionRequest } from '../modules/outreach/decisionWorkbenchActions';
 import { computeTodayActionCapabilities, computeBulkCapability } from '../modules/outreach/decisionWorkbenchCapabilities';
-import { wizmatchPilotGate } from '../middleware/wizmatchPilotGate';
+import { wizmatchPilotOrMachineSync } from '../middleware/wizmatchMachineSyncLane';
 
 const router = Router();
 
@@ -45,7 +45,15 @@ router.use(featureGate);
 // PR 8A hardening — pilot roster enforcement (§4 "read queues"/"Today
 // actions" are pilot-member surfaces). Applied before the role checks below
 // so a non-pilot user never reaches either route regardless of role.
-router.use(wizmatchPilotGate);
+//
+// QA 2026-07-30 (failure-matrix M-1): `wizmatchPilotOrMachineSync`, not the bare
+// `wizmatchPilotGate` — see the long rationale in `wizmatchPolicy.ts`. In short:
+// unpathed `router.use` matches every path under `/api/wizmatch`, and this
+// router is mounted at `src/index.ts:354` ahead of the machine-sync lane at
+// `:418`, so the bare gate 403'd the Command Deck sync's 8 allowlisted GET paths
+// — none of which this router serves. `/today/queues` and `/today/actions` are
+// not on that allowlist, so both still get the identical roster check.
+router.use(wizmatchPilotOrMachineSync);
 
 function actorFrom(req: Request) {
   // `role` is carried into the action layer because PRD-005 §4 gates "admin

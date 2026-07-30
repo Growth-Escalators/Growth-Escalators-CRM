@@ -17,7 +17,7 @@
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { requireRole } from '../middleware/rbac';
-import { wizmatchPilotGate } from '../middleware/wizmatchPilotGate';
+import { wizmatchPilotOrMachineSync } from '../middleware/wizmatchMachineSyncLane';
 import {
   getCompanyPolicyView,
   writeCompanyPolicy,
@@ -56,7 +56,20 @@ router.use(featureGate);
 // gate (an off flag must still 404-equivalent via next('router'), not 403) and
 // before every role check below, so a non-pilot user never reaches a route
 // this router defines regardless of role.
-router.use(wizmatchPilotGate);
+//
+// QA 2026-07-30 (failure-matrix M-1): this is `wizmatchPilotOrMachineSync`, not
+// the bare `wizmatchPilotGate`. `router.use` with no path matches EVERY path
+// under the shared `/api/wizmatch` prefix — not just the paths this router
+// defines — and this router is mounted at `src/index.ts:353`, ahead of the
+// machine-sync lane at `:418`. With the bare gate, a `viewer` GET for
+// `/dashboard` (a path this router does not serve) was 403'd here and never
+// reached that lane, breaking the Command Deck sync on all 8 of its allowlisted
+// paths whenever WIZMATCH_COMPANY_POLICY_ENABLED was on — i.e. in the live
+// pilot. The wrapper's predicate exact-matches those 8 GET paths for a `viewer`
+// only; none of them is a route in this file, so every request this router
+// actually serves still hits the identical roster check. See
+// `wizmatchMachineSyncLaneMountIntegration.test.ts`.
+router.use(wizmatchPilotOrMachineSync);
 
 const requireTeamLead = requireRole('admin', 'team_lead');
 const requireAdmin = requireRole('admin');
