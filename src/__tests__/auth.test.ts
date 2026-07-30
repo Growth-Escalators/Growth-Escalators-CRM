@@ -183,3 +183,87 @@ describe('requireAuth / verifyAuthToken / requireStrictAuth', () => {
     });
   });
 });
+
+describe('optionalAuth — revocation parity with requireAuth (2026-07-30)', () => {
+  const originalSecret = process.env.JWT_SECRET;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    process.env.JWT_SECRET = TEST_SECRET;
+  });
+
+  afterEach(() => {
+    process.env.JWT_SECRET = originalSecret;
+  });
+
+  it('populates req.user when the token tokenVersion MATCHES the DB', async () => {
+    const { optionalAuth } = await import('../middleware/auth');
+    mockTokenVersionRow(3);
+    const req = makeReq(`Bearer ${signToken({ tokenVersion: 3 })}`);
+    const res = makeRes();
+    const next = vi.fn();
+    await optionalAuth(req, res, next);
+    expect((req as unknown as { user?: { id: string } }).user?.id).toBe('user-1');
+    expect(next).toHaveBeenCalled();
+  });
+
+  // THE REGRESSION GUARD. Before this fix optionalAuth never consulted the DB,
+  // so a revoked session kept authenticating here until natural JWT expiry.
+  it('does NOT populate req.user when the DB tokenVersion has been bumped (revoked session)', async () => {
+    const { optionalAuth } = await import('../middleware/auth');
+    mockTokenVersionRow(9); // token carries 3, DB now says 9 => revoked
+    const req = makeReq(`Bearer ${signToken({ tokenVersion: 3 })}`);
+    const res = makeRes();
+    const next = vi.fn();
+    await optionalAuth(req, res, next);
+    expect((req as unknown as { user?: unknown }).user).toBeUndefined();
+    // Degrades to anonymous, does NOT 401 — optional auth must stay reachable.
+    expect(next).toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('does NOT populate req.user when the user row is gone (lookup returns null)', async () => {
+    const { optionalAuth } = await import('../middleware/auth');
+    mockTokenVersionRow(null);
+    const req = makeReq(`Bearer ${signToken({ tokenVersion: 3 })}`);
+    const res = makeRes();
+    const next = vi.fn();
+    await optionalAuth(req, res, next);
+    expect((req as unknown as { user?: unknown }).user).toBeUndefined();
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('degrades to anonymous (fail closed) when the tokenVersion lookup throws', async () => {
+    const { optionalAuth } = await import('../middleware/auth');
+    mockDbSelect.mockImplementation(() => { throw new Error('db down'); });
+    const req = makeReq(`Bearer ${signToken({ tokenVersion: 3 })}`);
+    const res = makeRes();
+    const next = vi.fn();
+    await optionalAuth(req, res, next);
+    expect((req as unknown as { user?: unknown }).user).toBeUndefined();
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('allows an unauthenticated request through with no req.user', async () => {
+    const { optionalAuth } = await import('../middleware/auth');
+    const req = makeReq(undefined);
+    const res = makeRes();
+    const next = vi.fn();
+    await optionalAuth(req, res, next);
+    expect((req as unknown as { user?: unknown }).user).toBeUndefined();
+    expect(next).toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('still enforces the viewer read-only guard for a non-GET with a VALID token', async () => {
+    const { optionalAuth } = await import('../middleware/auth');
+    mockTokenVersionRow(3);
+    const req = { headers: { authorization: `Bearer ${signToken({ tokenVersion: 3, role: 'viewer' })}` }, method: 'POST' } as unknown as import('express').Request;
+    const res = makeRes();
+    const next = vi.fn();
+    await optionalAuth(req, res, next);
+    expect(res.statusCode).toBe(403);
+    expect(next).not.toHaveBeenCalled();
+  });
+});

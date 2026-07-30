@@ -89,12 +89,19 @@ async function removeVishal() {
   reassignedCount += outreachByIdCount + outreachByNameCount;
   console.log(`[remove-vishal] Reassigned ${outreachByIdCount + outreachByNameCount} outreach_leads (${outreachByIdCount} by id, ${outreachByNameCount} by name)`);
 
-  // Step 4 — Deactivate: bump token_version to -1 (sentinel) AND set role
+  // Step 4 — Deactivate. MUST set is_active=false as well as the token_version
+  // sentinel (fixed 2026-07-30). `token_version = -1` alone only invalidates
+  // EXISTING sessions: `POST /auth/login` gates on `is_active`, NOT on `role`
+  // (src/routes/auth.ts:83), so a user "removed" by the previous version of
+  // this script could log straight back in with a known password and be issued
+  // a fresh, valid token. This now matches the supported API path
+  // (`DELETE /api/permissions/users/:userId`, src/routes/permissions.ts:309),
+  // which has always set both in one statement.
   const deactivateResult = await pool.query(
-    `UPDATE users SET role = 'deactivated', token_version = -1, updated_at = NOW() WHERE id = $1`,
+    `UPDATE users SET role = 'deactivated', is_active = false, token_version = -1, updated_at = NOW() WHERE id = $1`,
     [vishal.id],
   );
-  console.log(`[remove-vishal] Deactivated: ${(deactivateResult as unknown as { rowCount: number }).rowCount} row(s) — token_version set to -1, all sessions invalidated`);
+  console.log(`[remove-vishal] Deactivated: ${(deactivateResult as unknown as { rowCount: number }).rowCount} row(s) — is_active=false + token_version=-1: existing sessions invalidated AND re-login blocked`);
 
   // Step 5 — Audit row (real schema: tenant_id, user_id, action, resource_type, metadata)
   if (tenantId) {

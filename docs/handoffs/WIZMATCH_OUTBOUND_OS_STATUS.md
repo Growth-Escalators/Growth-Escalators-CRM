@@ -34,10 +34,14 @@ Chat-independent status for the `ge/outbound-0X-*` stacked-PR sequence. Read thi
 > the builder. The pending redeploy is **behaviourally inert** — the readiness CLI returns an
 > identical PASS against both environments.
 >
-> **Deployment migrations are currently NOT automatic.** The live Railway service start command
-> (`node dist/index.js`, RAILPACK) **overrides** `railway.json`'s declared
-> `node dist/scripts/migrate.js && node dist/index.js` (NIXPACKS). Any future migration must be
-> applied deliberately. This is also the strongest proof a redeploy cannot reapply `0037`.
+> **~~Deployment migrations are currently NOT automatic.~~ CORRECTED 2026-07-30 — this was WRONG.**
+> Deploy logs for `b26b90ef` show `[migrate] Migration started … Migration complete`; that prefix is
+> emitted only by `src/scripts/migrate.ts`, invoked only by `railway.json`'s `startCommand`. So
+> **`railway.json` IS honoured and migrations DO run at deploy.** `get_service_config` shows only
+> the command's tail segment and a `sh -c "A && B"` shell execs the last command, so PID 1 reading
+> `node dist/index.js` proved nothing. Builder drift (NIXPACKS vs RAILPACK) is real but cosmetic.
+> Do **not** hand-apply a future migration expecting the deploy to skip it. The real proof a
+> redeploy cannot reapply `0037` is drizzle's timestamp rule.
 >
 > **NOT verified, stated honestly:** authenticated behavioural smoke checks (non-pilot denial,
 > per-user access, unknown-scope fail-closed, company/signal block, cross-tenant denial) require
