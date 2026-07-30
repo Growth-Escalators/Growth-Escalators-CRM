@@ -54,6 +54,14 @@ roster · sending/email/prep/adapter/paid-discovery/Google-fallback disabled · 
 NIXPACKS). This is also the strongest proof a redeploy cannot reapply `0037` (the second proof
 is drizzle's timestamp rule: the last applied `created_at` exceeds every `folderMillis`).
 
+> **CORRECTION appended 2026-07-30 (this log is append-only; the paragraph above is left intact as
+> written, but it is WRONG).** Deploy logs for `b26b90ef` show `[migrate] Migration started …
+> Migration complete`. That prefix is emitted only by `src/scripts/migrate.ts`, which is invoked
+> only by `railway.json`'s `startCommand` — so **`railway.json` IS honoured and migrations DO run
+> at deploy.** `get_service_config` reports only the command's tail segment, and a `sh -c "A && B"`
+> shell execs the final command, so PID 1 reading `node dist/index.js` was not the proof I took it
+> for. Only the second proof above (drizzle's timestamp rule) stands.
+
 **How to verify:** `git diff --name-only origin/main...HEAD` shows documentation and `.ai/`
 context files only — no `src/`, no migration, no package file, no backup or `input-data/`
 artifact, no secret.

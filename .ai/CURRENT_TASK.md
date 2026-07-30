@@ -27,9 +27,11 @@ directly. **Zero Critical, zero High.** Records:
   redeploy attempts failed on the builder (`50ce0ec6` FAILED, `6510b15e` REMOVED). The pending
   redeploy is **behaviourally inert** (identical readiness PASS both ways).
   `list_variables` = staged config; `railway ssh` + `printenv` = running config. Do not conflate.
-- **Deployment migrations are currently NOT automatic** — the live Railway start command
-  (`node dist/index.js`, RAILPACK) **overrides** `railway.json` (`migrate.js && index.js`,
-  NIXPACKS). Apply any future migration deliberately.
+- **~~Deployment migrations are NOT automatic~~ — CORRECTED 2026-07-30, this was WRONG.** Deploy
+  logs show `[migrate] Migration started … complete`; that prefix comes only from
+  `src/scripts/migrate.ts`, invoked only by `railway.json`'s startCommand. **Migrations DO run at
+  deploy.** Do not hand-apply a future migration expecting the deploy to skip it. Builder drift
+  (NIXPACKS vs RAILPACK) is real but cosmetic.
 - **NOT verified, deliberately:** authenticated behavioural smoke checks (non-pilot denial,
   per-user access, unknown-scope fail-closed, company/signal block, cross-tenant denial) need
   logged-in sessions and belong to the two operators — no plaintext password requested or used,

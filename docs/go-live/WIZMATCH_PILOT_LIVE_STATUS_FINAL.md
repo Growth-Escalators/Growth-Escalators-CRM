@@ -96,12 +96,19 @@ None of these gates the pilot. All five are recorded for action.
    variables (category C) once the Railway builder is healthy, so the safe values are explicit
    in configuration rather than only implicit in code defaults. Verify afterwards with
    `railway ssh` + `printenv` against the **new** deployment id — not with `list_variables`.
-2. **`railway.json` versus Railway service configuration drift.** The repository declares
-   NIXPACKS and a start command of `node dist/scripts/migrate.js && node dist/index.js`. The
-   live service uses **RAILPACK** and `node dist/index.js`. **Consequence: deployment
-   migrations are currently not automatic.** Any future migration must be applied
-   deliberately; do not assume a deploy will run it. (This is also the strongest proof that a
-   redeploy cannot reapply `0037`.)
+2. **`railway.json` builder drift (corrected 2026-07-30).** The repository declares NIXPACKS; the
+   live service uses **RAILPACK**. Builds are green, so this is cosmetic drift.
+
+   > **CORRECTION.** An earlier revision of this document stated that "deployment migrations are
+   > currently not automatic" and that future migrations must be applied deliberately. **That was
+   > wrong.** Deploy logs for `b26b90ef` show `[migrate] Migration started … Migration complete`,
+   > and the `[migrate]` prefix is emitted only by `src/scripts/migrate.ts`, which is invoked only
+   > by `railway.json`'s `startCommand`. **`railway.json` is honoured and migrations DO run before
+   > the server starts.** `get_service_config` reports only the tail segment of the command, and a
+   > `sh -c "A && B"` shell execs the final command so PID 1 appears as `node dist/index.js` —
+   > neither is conclusive; the log evidence is. Do **not** hand-apply a future migration expecting
+   > the deploy to skip it. (The proof that a redeploy cannot reapply `0037` is drizzle's
+   > timestamp rule, not the start command.)
 3. **Edge-drainer Redis error.** `[edge-drainer] loop error` repeats roughly every five
    seconds on the active deployment with an empty message body. Cause not established;
    unrelated to the WizMatch pilot surface.

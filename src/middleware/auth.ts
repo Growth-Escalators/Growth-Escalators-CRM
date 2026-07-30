@@ -102,8 +102,26 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   next();
 }
 
-// Optional auth — parses JWT if present, but allows requests without it
-export function optionalAuth(req: Request, _res: Response, next: NextFunction): void {
+// Optional auth — parses JWT if present, but allows requests without it.
+//
+// Revocation parity with requireAuth (added 2026-07-30). Previously this
+// checked only that the JWT *carried* a tokenVersion claim, never that it
+// matched the user's current `users.token_version` — so a session revoked by a
+// password reset or an offboarding token bump kept on authenticating here until
+// the JWT expired naturally (up to 7 days). requireAuth has done the DB check
+// since the tokenVersion cache was introduced; this closes the last mount that
+// did not.
+//
+// A stale/revoked token DEGRADES TO ANONYMOUS rather than 401: this is
+// *optional* auth, mounted on a route that legitimately serves unauthenticated
+// callers (`/api/outreach/leads`, which authorises by OUTREACH_INTERNAL_SECRET
+// and reads no `req.user` at all today). Rejecting outright would break that
+// contract for any client holding a stale token; refusing to populate
+// `req.user` removes the privilege without changing the route's reachability.
+// The DB lookup reuses the same 30s-TTL cache as requireAuth, so this adds no
+// per-request query in the warm path, and any lookup failure also degrades to
+// anonymous (fail closed).
+export async function optionalAuth(req: Request, _res: Response, next: NextFunction): Promise<void> {
   const header = req.headers.authorization;
   if (header?.startsWith('Bearer ')) {
     const secret = JWT_SECRET_VALUE || process.env.JWT_SECRET;
@@ -112,9 +130,12 @@ export function optionalAuth(req: Request, _res: Response, next: NextFunction): 
         const payload = jwt.verify(header.slice(7), secret) as AuthPayload;
         // Fail closed for incomplete tokens — never default to admin
         if (payload.role && payload.tokenVersion && payload.id && payload.tenantId) {
-          req.user = payload;
+          const dbTokenVersion = await currentTokenVersion(payload.id);
+          if (dbTokenVersion !== null && dbTokenVersion === payload.tokenVersion) {
+            req.user = payload;
+          }
         }
-      } catch { /* token invalid — continue without user */ }
+      } catch { /* token invalid, or tokenVersion lookup failed — continue without user */ }
     }
   }
   // Same read-only guard for the 'viewer' service role on optional-auth routes.
