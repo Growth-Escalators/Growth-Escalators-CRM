@@ -375,7 +375,7 @@ function RequirementDrawer({ onClose, onSaved }) {
       <div className="bg-white w-[560px] max-w-[95vw] h-full overflow-y-auto shadow-modal" onClick={e => e.stopPropagation()}>
         <div className="sticky top-0 bg-white border-b border-neutral-100 px-6 py-4 flex justify-between items-center z-10">
           <h2 className="text-[18px] font-bold text-neutral-900">New Requirement</h2>
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600"><X className="w-5 h-5" /></button>
+          <button type="button" onClick={onClose} aria-label="Close" className="text-neutral-400 hover:text-neutral-600"><X className="w-5 h-5" aria-hidden="true" /></button>
         </div>
 
         <div className="p-6 space-y-5">
@@ -426,7 +426,7 @@ function RequirementDrawer({ onClose, onSaved }) {
           <div className="border-t border-neutral-100 pt-4 space-y-3">
             <div>
               <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Company *</label>
-              <select value={form.company_id} onChange={e => set('company_id', e.target.value)} className="input w-full mt-1">
+              <select aria-label="Company" value={form.company_id} onChange={e => set('company_id', e.target.value)} className="input w-full mt-1">
                 <option value="">Select the company that supplied this role</option>
                 {companies.map(company => <option value={company.id} key={company.id}>{company.name}</option>)}
               </select>
@@ -434,64 +434,64 @@ function RequirementDrawer({ onClose, onSaved }) {
             </div>
             <div>
               <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Title *</label>
-              <input value={form.title} onChange={e => set('title', e.target.value)} className="input w-full mt-1" placeholder="e.g. Senior Java Developer" />
+              <input aria-label="Requirement title" value={form.title} onChange={e => set('title', e.target.value)} className="input w-full mt-1" placeholder="e.g. Senior Java Developer" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Region</label>
-                <select value={form.region} onChange={e => set('region', e.target.value)} className="input w-full mt-1">
+                <select aria-label="Region" value={form.region} onChange={e => set('region', e.target.value)} className="input w-full mt-1">
                   <option value="india">India</option><option value="us">US</option>
                 </select>
               </div>
               <div>
                 <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Location</label>
-                <input value={form.location} onChange={e => set('location', e.target.value)} className="input w-full mt-1" placeholder="Bangalore" />
+                <input aria-label="Location" value={form.location} onChange={e => set('location', e.target.value)} className="input w-full mt-1" placeholder="Bangalore" />
               </div>
               <div>
                 <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Work Mode</label>
-                <select value={form.work_mode} onChange={e => set('work_mode', e.target.value)} className="input w-full mt-1">
+                <select aria-label="Work mode" value={form.work_mode} onChange={e => set('work_mode', e.target.value)} className="input w-full mt-1">
                   <option value="onsite">Onsite</option><option value="hybrid">Hybrid</option><option value="remote">Remote</option>
                 </select>
               </div>
               <div>
                 <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Employment</label>
-                <select value={form.employment_type} onChange={e => set('employment_type', e.target.value)} className="input w-full mt-1">
+                <select aria-label="Employment type" value={form.employment_type} onChange={e => set('employment_type', e.target.value)} className="input w-full mt-1">
                   <option value="contract">Contract</option><option value="contract_c2c">Contract — C2C</option>
                   <option value="contract_w2">Contract — W2</option><option value="permanent">Permanent</option>
                 </select>
               </div>
               <div>
                 <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Min Exp (yrs)</label>
-                <input type="number" value={form.min_experience} onChange={e => set('min_experience', e.target.value)} className="input w-full mt-1" />
+                <input type="number" aria-label="Minimum experience in years" value={form.min_experience} onChange={e => set('min_experience', e.target.value)} className="input w-full mt-1" />
               </div>
               <div>
                 <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Max Exp (yrs)</label>
-                <input type="number" value={form.max_experience} onChange={e => set('max_experience', e.target.value)} className="input w-full mt-1" />
+                <input type="number" aria-label="Maximum experience in years" value={form.max_experience} onChange={e => set('max_experience', e.target.value)} className="input w-full mt-1" />
               </div>
             </div>
 
             <div className="grid grid-cols-4 gap-3">
               <div className="col-span-1">
                 <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Currency</label>
-                <select value={form.budget_currency} onChange={e => set('budget_currency', e.target.value)} className="input w-full mt-1">
+                <select aria-label="Budget currency" value={form.budget_currency} onChange={e => set('budget_currency', e.target.value)} className="input w-full mt-1">
                   <option value="INR">INR</option><option value="USD">USD</option>
                 </select>
               </div>
-              <div><label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Budget Min</label><input type="number" value={form.budget_min} onChange={e => set('budget_min', e.target.value)} className="input w-full mt-1" /></div>
-              <div><label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Budget Max</label><input type="number" value={form.budget_max} onChange={e => set('budget_max', e.target.value)} className="input w-full mt-1" /></div>
+              <div><label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Budget Min</label><input type="number" aria-label="Budget minimum" value={form.budget_min} onChange={e => set('budget_min', e.target.value)} className="input w-full mt-1" /></div>
+              <div><label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Budget Max</label><input type="number" aria-label="Budget maximum" value={form.budget_max} onChange={e => set('budget_max', e.target.value)} className="input w-full mt-1" /></div>
               <div>
                 <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Per</label>
-                <select value={form.budget_period} onChange={e => set('budget_period', e.target.value)} className="input w-full mt-1">
+                <select aria-label="Budget period" value={form.budget_period} onChange={e => set('budget_period', e.target.value)} className="input w-full mt-1">
                   <option value="monthly">Month</option><option value="hourly">Hour</option><option value="annual">Year</option>
                 </select>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div><label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Positions</label><input type="number" value={form.positions} onChange={e => set('positions', e.target.value)} className="input w-full mt-1" /></div>
+              <div><label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Positions</label><input type="number" aria-label="Number of positions" value={form.positions} onChange={e => set('positions', e.target.value)} className="input w-full mt-1" /></div>
               <div>
                 <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Priority</label>
-                <select value={form.priority} onChange={e => set('priority', e.target.value)} className="input w-full mt-1">
+                <select aria-label="Priority" value={form.priority} onChange={e => set('priority', e.target.value)} className="input w-full mt-1">
                   <option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option>
                 </select>
               </div>
@@ -499,15 +499,15 @@ function RequirementDrawer({ onClose, onSaved }) {
 
             <div>
               <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Must-have Skills (comma-sep)</label>
-              <input value={form.required_skills} onChange={e => set('required_skills', e.target.value)} className="input w-full mt-1" placeholder="Java, Spring Boot, AWS" />
+              <input aria-label="Must-have skills, comma separated" value={form.required_skills} onChange={e => set('required_skills', e.target.value)} className="input w-full mt-1" placeholder="Java, Spring Boot, AWS" />
             </div>
             <div>
               <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Nice-to-have Skills (comma-sep)</label>
-              <input value={form.nice_to_have_skills} onChange={e => set('nice_to_have_skills', e.target.value)} className="input w-full mt-1" placeholder="Kafka, Kubernetes" />
+              <input aria-label="Nice-to-have skills, comma separated" value={form.nice_to_have_skills} onChange={e => set('nice_to_have_skills', e.target.value)} className="input w-full mt-1" placeholder="Kafka, Kubernetes" />
             </div>
             <div>
               <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Notes for Vendors</label>
-              <textarea value={form.vendor_notes} onChange={e => set('vendor_notes', e.target.value)} rows={2} className="input w-full mt-1 resize-y" />
+              <textarea aria-label="Notes for vendors" value={form.vendor_notes} onChange={e => set('vendor_notes', e.target.value)} rows={2} className="input w-full mt-1 resize-y" />
             </div>
             <label className="flex items-center gap-2 text-[12.5px] text-neutral-600">
               <input type="checkbox" checked={form.mask_client} onChange={e => set('mask_client', e.target.checked)} />
@@ -776,73 +776,73 @@ function RequirementDetailDrawer({ requirement, onClose, onSaved, onFindCandidat
           <div className="border-t border-neutral-100 pt-4 space-y-3">
             <div>
               <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Title *</label>
-              <input value={form.title} onChange={e => set('title', e.target.value)} className="input w-full mt-1" />
+              <input aria-label="Requirement title" value={form.title} onChange={e => set('title', e.target.value)} className="input w-full mt-1" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Status</label>
-                <select value={form.status} onChange={e => set('status', e.target.value)} className="input w-full mt-1">
+                <select aria-label="Status" value={form.status} onChange={e => set('status', e.target.value)} className="input w-full mt-1">
                   {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
                 </select>
               </div>
               <div>
                 <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Region</label>
-                <select value={form.region} onChange={e => set('region', e.target.value)} className="input w-full mt-1">
+                <select aria-label="Region" value={form.region} onChange={e => set('region', e.target.value)} className="input w-full mt-1">
                   <option value="india">India</option><option value="us">US</option>
                 </select>
               </div>
               <div>
                 <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Location</label>
-                <input value={form.location} onChange={e => set('location', e.target.value)} className="input w-full mt-1" />
+                <input aria-label="Location" value={form.location} onChange={e => set('location', e.target.value)} className="input w-full mt-1" />
               </div>
               <div>
                 <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Work Mode</label>
-                <select value={form.work_mode} onChange={e => set('work_mode', e.target.value)} className="input w-full mt-1">
+                <select aria-label="Work mode" value={form.work_mode} onChange={e => set('work_mode', e.target.value)} className="input w-full mt-1">
                   <option value="onsite">Onsite</option><option value="hybrid">Hybrid</option><option value="remote">Remote</option>
                 </select>
               </div>
               <div>
                 <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Employment</label>
-                <select value={form.employment_type} onChange={e => set('employment_type', e.target.value)} className="input w-full mt-1">
+                <select aria-label="Employment type" value={form.employment_type} onChange={e => set('employment_type', e.target.value)} className="input w-full mt-1">
                   <option value="contract">Contract</option><option value="contract_c2c">Contract — C2C</option>
                   <option value="contract_w2">Contract — W2</option><option value="permanent">Permanent</option>
                 </select>
               </div>
               <div>
                 <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Priority</label>
-                <select value={form.priority} onChange={e => set('priority', e.target.value)} className="input w-full mt-1">
+                <select aria-label="Priority" value={form.priority} onChange={e => set('priority', e.target.value)} className="input w-full mt-1">
                   <option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option>
                 </select>
               </div>
               <div>
                 <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Min Exp (yrs)</label>
-                <input type="number" value={form.min_experience} onChange={e => set('min_experience', e.target.value)} className="input w-full mt-1" />
+                <input type="number" aria-label="Minimum experience in years" value={form.min_experience} onChange={e => set('min_experience', e.target.value)} className="input w-full mt-1" />
               </div>
               <div>
                 <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Max Exp (yrs)</label>
-                <input type="number" value={form.max_experience} onChange={e => set('max_experience', e.target.value)} className="input w-full mt-1" />
+                <input type="number" aria-label="Maximum experience in years" value={form.max_experience} onChange={e => set('max_experience', e.target.value)} className="input w-full mt-1" />
               </div>
             </div>
 
             <div className="grid grid-cols-4 gap-3">
               <div className="col-span-1">
                 <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Currency</label>
-                <select value={form.budget_currency} onChange={e => set('budget_currency', e.target.value)} className="input w-full mt-1">
+                <select aria-label="Budget currency" value={form.budget_currency} onChange={e => set('budget_currency', e.target.value)} className="input w-full mt-1">
                   <option value="INR">INR</option><option value="USD">USD</option>
                 </select>
               </div>
-              <div><label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Budget Min</label><input type="number" value={form.budget_min} onChange={e => set('budget_min', e.target.value)} className="input w-full mt-1" /></div>
-              <div><label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Budget Max</label><input type="number" value={form.budget_max} onChange={e => set('budget_max', e.target.value)} className="input w-full mt-1" /></div>
+              <div><label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Budget Min</label><input type="number" aria-label="Budget minimum" value={form.budget_min} onChange={e => set('budget_min', e.target.value)} className="input w-full mt-1" /></div>
+              <div><label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Budget Max</label><input type="number" aria-label="Budget maximum" value={form.budget_max} onChange={e => set('budget_max', e.target.value)} className="input w-full mt-1" /></div>
               <div>
                 <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Per</label>
-                <select value={form.budget_period} onChange={e => set('budget_period', e.target.value)} className="input w-full mt-1">
+                <select aria-label="Budget period" value={form.budget_period} onChange={e => set('budget_period', e.target.value)} className="input w-full mt-1">
                   <option value="monthly">Month</option><option value="hourly">Hour</option><option value="annual">Year</option>
                 </select>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div><label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Positions</label><input type="number" value={form.positions} onChange={e => set('positions', e.target.value)} className="input w-full mt-1" /></div>
+              <div><label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Positions</label><input type="number" aria-label="Number of positions" value={form.positions} onChange={e => set('positions', e.target.value)} className="input w-full mt-1" /></div>
               <label className="flex items-center gap-2 text-[12.5px] text-neutral-600 self-end pb-2.5">
                 <input type="checkbox" checked={form.mask_client} onChange={e => set('mask_client', e.target.checked)} />
                 Mask end-client name
@@ -851,19 +851,19 @@ function RequirementDetailDrawer({ requirement, onClose, onSaved, onFindCandidat
 
             <div>
               <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Must-have Skills (comma-sep)</label>
-              <input value={form.required_skills} onChange={e => set('required_skills', e.target.value)} className="input w-full mt-1" placeholder="Java, Spring Boot, AWS" />
+              <input aria-label="Must-have skills, comma separated" value={form.required_skills} onChange={e => set('required_skills', e.target.value)} className="input w-full mt-1" placeholder="Java, Spring Boot, AWS" />
             </div>
             <div>
               <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Nice-to-have Skills (comma-sep)</label>
-              <input value={form.nice_to_have_skills} onChange={e => set('nice_to_have_skills', e.target.value)} className="input w-full mt-1" placeholder="Kafka, Kubernetes" />
+              <input aria-label="Nice-to-have skills, comma separated" value={form.nice_to_have_skills} onChange={e => set('nice_to_have_skills', e.target.value)} className="input w-full mt-1" placeholder="Kafka, Kubernetes" />
             </div>
             <div>
               <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Notes for Vendors</label>
-              <textarea value={form.vendor_notes} onChange={e => set('vendor_notes', e.target.value)} rows={2} className="input w-full mt-1 resize-y" />
+              <textarea aria-label="Notes for vendors" value={form.vendor_notes} onChange={e => set('vendor_notes', e.target.value)} rows={2} className="input w-full mt-1 resize-y" />
             </div>
             <div>
               <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Raw JD</label>
-              <textarea value={form.raw_jd} onChange={e => set('raw_jd', e.target.value)} rows={8} className="input w-full mt-1 resize-y font-mono text-[12px]" />
+              <textarea aria-label="Job description text" value={form.raw_jd} onChange={e => set('raw_jd', e.target.value)} rows={8} className="input w-full mt-1 resize-y font-mono text-[12px]" />
             </div>
           </div>
         </div>
