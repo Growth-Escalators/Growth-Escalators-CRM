@@ -8,7 +8,7 @@ vi.mock('../db/index', () => ({
   db: {
     select: (...args: unknown[]) => mockDbSelect(...args),
   },
-  users: { id: 'id', tokenVersion: 'token_version', tenantId: 'tenant_id' },
+  users: { id: 'id', tokenVersion: 'token_version', tenantId: 'tenant_id', isActive: 'is_active' },
 }));
 
 function makeRes() {
@@ -36,11 +36,15 @@ function signToken(overrides: Record<string, unknown> = {}) {
 // `tenantId` defaults to the value `signToken` puts in the JWT so every
 // pre-existing test keeps exercising the matching-tenant happy path; the H-1
 // tenant-binding tests below pass a differing value explicitly.
-function mockTokenVersionRow(tokenVersion: number | null, tenantId: string | null = 'tenant-1') {
+function mockTokenVersionRow(
+  tokenVersion: number | null,
+  tenantId: string | null = 'tenant-1',
+  isActive: boolean | null = true,
+) {
   mockDbSelect.mockReturnValue({
     from: vi.fn().mockReturnValue({
       where: vi.fn().mockReturnValue({
-        limit: vi.fn().mockResolvedValue(tokenVersion === null ? [] : [{ tokenVersion, tenantId }]),
+        limit: vi.fn().mockResolvedValue(tokenVersion === null ? [] : [{ tokenVersion, tenantId, isActive }]),
       }),
     }),
   });
@@ -412,6 +416,61 @@ describe('optionalAuth — tenant binding (H-1)', () => {
     const next = vi.fn();
     await optionalAuth(req, res, next);
     expect((req as unknown as { user: { tenantId: string } }).user.tenantId).toBe('tenant-1');
+    expect(next).toHaveBeenCalled();
+  });
+});
+
+// QA run 2026-07-30 — deactivation must be a kill switch on its own.
+//
+// Login gates on `is_active` (auth.ts:83), but nothing re-checked it per
+// request, so a token issued BEFORE deactivation kept working for up to its full
+// 7-day expiry. The supported offboarding path (permissions.ts:306-311) bumps
+// `token_version` in the same UPDATE, so this was never exploitable through the
+// API — but it made session death depend on remembering to bump a second column.
+// Any other route to deactivation (direct SQL, a future code path, or that
+// UPDATE partially applying) left live sessions alive.
+describe('requireAuth — deactivated users', () => {
+  const originalSecret = process.env.JWT_SECRET;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    process.env.JWT_SECRET = TEST_SECRET;
+  });
+  afterEach(() => { process.env.JWT_SECRET = originalSecret; });
+
+  it('rejects a deactivated user even when token_version and tenant both still match', async () => {
+    const { requireAuth } = await import('../middleware/auth');
+    mockTokenVersionRow(3, 'tenant-1', false);
+    const req = makeReq(`Bearer ${signToken({ tokenVersion: 3 })}`);
+    const res = makeRes();
+    const next = vi.fn();
+    await requireAuth(req, res, next);
+    expect(res.statusCode).toBe(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  // The column is nullable and login reads `is_active IS NULL OR is_active = true`.
+  // A truthiness test here would log out every user whose row predates the
+  // column's backfill — which is most of them on any pre-0038 database.
+  it('treats a NULL is_active as ACTIVE, matching login semantics', async () => {
+    const { requireAuth } = await import('../middleware/auth');
+    mockTokenVersionRow(3, 'tenant-1', null);
+    const req = makeReq(`Bearer ${signToken({ tokenVersion: 3 })}`);
+    const res = makeRes();
+    const next = vi.fn();
+    await requireAuth(req, res, next);
+    expect(next).toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('does not populate req.user in optionalAuth for a deactivated user', async () => {
+    const { optionalAuth } = await import('../middleware/auth');
+    mockTokenVersionRow(3, 'tenant-1', false);
+    const req = makeReq(`Bearer ${signToken({ tokenVersion: 3 })}`);
+    const res = makeRes();
+    const next = vi.fn();
+    await optionalAuth(req, res, next);
+    expect((req as unknown as { user?: unknown }).user).toBeUndefined();
     expect(next).toHaveBeenCalled();
   });
 });

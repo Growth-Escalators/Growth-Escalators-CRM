@@ -56,7 +56,7 @@ const TOKEN_VERSION_CACHE_TTL_MS = 30_000;
 //
 // Reading `tenant_id` costs nothing extra — it is added to the SAME single-row
 // select and cached under the same TTL, so the warm path still issues no query.
-type CachedIdentity = { tokenVersion: number; tenantId: string | null };
+type CachedIdentity = { tokenVersion: number; tenantId: string | null; isActive: boolean | null };
 const identityCache = new Map<string, { identity: CachedIdentity; expiresAt: number }>();
 
 async function currentIdentity(userId: string): Promise<CachedIdentity | null> {
@@ -64,7 +64,7 @@ async function currentIdentity(userId: string): Promise<CachedIdentity | null> {
   const now = Date.now();
   if (cached && cached.expiresAt > now) return cached.identity;
   const [user] = await db
-    .select({ tokenVersion: users.tokenVersion, tenantId: users.tenantId })
+    .select({ tokenVersion: users.tokenVersion, tenantId: users.tenantId, isActive: users.isActive })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
@@ -72,6 +72,7 @@ async function currentIdentity(userId: string): Promise<CachedIdentity | null> {
   const identity: CachedIdentity = {
     tokenVersion: user.tokenVersion || 1,
     tenantId: user.tenantId ?? null,
+    isActive: user.isActive ?? null,
   };
   identityCache.set(userId, { identity, expiresAt: now + TOKEN_VERSION_CACHE_TTL_MS });
   return identity;
@@ -82,6 +83,22 @@ async function currentIdentity(userId: string): Promise<CachedIdentity | null> {
 // Returns null when the identity is acceptable, or a reason string when it is not.
 function identityMismatch(identity: CachedIdentity | null, payload: AuthPayload): string | null {
   if (identity === null) return 'user no longer exists';
+  // Deactivation must be a kill switch on its own (QA 2026-07-30).
+  //
+  // Login gates on `is_active` (`src/routes/auth.ts:83`), but nothing re-checked
+  // it per request, so a token issued BEFORE deactivation kept working for up to
+  // its full 7-day expiry. The supported offboarding path
+  // (`permissions.ts:306-311`) bumps `token_version` in the same UPDATE, so it
+  // was never exploitable through the API — but that made session death depend
+  // on remembering to bump a second column. Any other route to deactivation (a
+  // direct SQL fix, a future code path, or that UPDATE partially applying) left
+  // live sessions alive. Checking it here makes `is_active` authoritative by
+  // itself, bounded by the same 30s cache TTL as revocation.
+  //
+  // `=== false` deliberately, NOT falsy: the column is nullable and login treats
+  // NULL as active (`is_active IS NULL OR is_active = true`). A truthiness test
+  // would log out every user whose row predates the column's backfill.
+  if (identity.isActive === false) return 'user is deactivated';
   if (identity.tokenVersion !== payload.tokenVersion) return 'token_version revoked';
   // Also fails closed when the user row's tenant_id is NULL: both callers
   // already reject a token whose `tenantId` claim is falsy before reaching here,
