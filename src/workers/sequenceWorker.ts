@@ -63,6 +63,28 @@ async function processSequenceSteps(): Promise<void> {
     // cancel on DENY rather than dispatching unconditionally.
     const linkage = await resolveWizmatchLinkage(enrolment.tenantId, enrolment.contactId);
     if (linkage) {
+      // QA 2026-07-30 — master send-flag re-check on dispatch.
+      //
+      // The policy gate below defaults to SHADOW (`outreachGate.ts:181` —
+      // anything other than the literal 'enforce' is log-only), so before this
+      // check the only thing standing between an already-enrolled WizMatch
+      // sequence and continued dispatch was a gate that never blocks by default.
+      // Enrolment passes `WIZMATCH_SENDING_ENABLED` once, at enrolment time;
+      // nothing re-read it afterwards, so flipping sending OFF did not halt
+      // sequences already in flight — they kept enqueuing `sequence_step` jobs.
+      //
+      // Deliberately scoped to WizMatch-LINKED enrolments only. This loop serves
+      // every tenant's sequences, and `WIZMATCH_SENDING_ENABLED` is a WizMatch
+      // switch — gating the whole worker on it would halt the Growth tenant's
+      // unrelated sequences, which is not what this flag means.
+      //
+      // Skips without advancing the enrolment: the step stays due, so re-enabling
+      // the flag resumes the sequence exactly where it paused rather than
+      // silently skipping a step.
+      if (process.env.WIZMATCH_SENDING_ENABLED !== 'true') {
+        console.log(`[sequenceWorker] Held WizMatch-linked enrolment ${enrolment.id} — WIZMATCH_SENDING_ENABLED is not 'true'`);
+        continue;
+      }
       const decision = await evaluateWizmatchOutreachGate({
         tenantId: enrolment.tenantId,
         action: 'follow_up',
