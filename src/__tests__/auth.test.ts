@@ -8,7 +8,7 @@ vi.mock('../db/index', () => ({
   db: {
     select: (...args: unknown[]) => mockDbSelect(...args),
   },
-  users: { id: 'id', tokenVersion: 'token_version' },
+  users: { id: 'id', tokenVersion: 'token_version', tenantId: 'tenant_id' },
 }));
 
 function makeRes() {
@@ -32,11 +32,15 @@ function signToken(overrides: Record<string, unknown> = {}) {
   );
 }
 
-function mockTokenVersionRow(tokenVersion: number | null) {
+// The identity row `currentIdentity` (formerly `currentTokenVersion`) reads.
+// `tenantId` defaults to the value `signToken` puts in the JWT so every
+// pre-existing test keeps exercising the matching-tenant happy path; the H-1
+// tenant-binding tests below pass a differing value explicitly.
+function mockTokenVersionRow(tokenVersion: number | null, tenantId: string | null = 'tenant-1') {
   mockDbSelect.mockReturnValue({
     from: vi.fn().mockReturnValue({
       where: vi.fn().mockReturnValue({
-        limit: vi.fn().mockResolvedValue(tokenVersion === null ? [] : [{ tokenVersion }]),
+        limit: vi.fn().mockResolvedValue(tokenVersion === null ? [] : [{ tokenVersion, tenantId }]),
       }),
     }),
   });
@@ -265,5 +269,149 @@ describe('optionalAuth — revocation parity with requireAuth (2026-07-30)', () 
     await optionalAuth(req, res, next);
     expect(res.statusCode).toBe(403);
     expect(next).not.toHaveBeenCalled();
+  });
+});
+
+// QA run 2026-07-30 — regression guard for failure-matrix finding H-1
+// ("cross-tenant read via unverified `tenantId` claim").
+//
+// The defect: `requireAuth` validated the JWT signature and the DB
+// `token_version`, but NEVER compared the token's `tenantId` claim against the
+// user's actual `users.tenant_id`. Route handlers then scope their queries by
+// `req.user.tenantId` — a value taken verbatim from the token. Anyone able to
+// mint a token (the practical bar being Railway project read access, since
+// `list_variables` returns `JWT_SECRET` in plaintext — finding M-11, NOT a
+// full secret compromise) could re-sign their own otherwise-valid claims with a
+// different `tenantId` and read another tenant's rows with HTTP 200.
+//
+// `token_version` did not contain this: it is keyed on `users.id`, so the
+// attacker's OWN id and OWN current token_version are used, and both match.
+// The tenant is the only tampered claim, and nothing checked it.
+//
+// This matters more than usual here: both pilot operators hold accounts in TWO
+// tenants, so correct tenant binding is load-bearing rather than theoretical.
+describe('requireAuth — tenant binding (H-1)', () => {
+  const originalSecret = process.env.JWT_SECRET;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    process.env.JWT_SECRET = TEST_SECRET;
+  });
+
+  afterEach(() => {
+    process.env.JWT_SECRET = originalSecret;
+  });
+
+  it('rejects a validly-signed token whose tenantId does not match the user row', async () => {
+    const { requireAuth } = await import('../middleware/auth');
+    // token_version MATCHES (3 === 3) — only the tenant is forged, which is
+    // exactly the attack the token_version check cannot see.
+    mockTokenVersionRow(3, 'tenant-1');
+    const req = makeReq(`Bearer ${signToken({ tokenVersion: 3, tenantId: 'tenant-VICTIM' })}`);
+    const res = makeRes();
+    const next = vi.fn();
+    await requireAuth(req, res, next);
+    expect(res.statusCode).toBe(401);
+    expect(next).not.toHaveBeenCalled();
+    expect((req as unknown as { user?: unknown }).user).toBeUndefined();
+  });
+
+  it('does not leak which tenant the user really belongs to in the error body', async () => {
+    const { requireAuth } = await import('../middleware/auth');
+    mockTokenVersionRow(3, 'tenant-1');
+    const req = makeReq(`Bearer ${signToken({ tokenVersion: 3, tenantId: 'tenant-VICTIM' })}`);
+    const res = makeRes();
+    await requireAuth(req, res, vi.fn());
+    expect(JSON.stringify(res.body)).not.toContain('tenant-1');
+  });
+
+  it('admits a token whose tenantId matches the user row (happy path unchanged)', async () => {
+    const { requireAuth } = await import('../middleware/auth');
+    mockTokenVersionRow(3, 'tenant-1');
+    const req = makeReq(`Bearer ${signToken({ tokenVersion: 3, tenantId: 'tenant-1' })}`);
+    const res = makeRes();
+    const next = vi.fn();
+    await requireAuth(req, res, next);
+    expect(next).toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+    expect((req as unknown as { user: { tenantId: string } }).user.tenantId).toBe('tenant-1');
+  });
+
+  it('fails closed (401) when the user row carries a NULL tenant_id', async () => {
+    const { requireAuth } = await import('../middleware/auth');
+    mockTokenVersionRow(3, null);
+    const req = makeReq(`Bearer ${signToken({ tokenVersion: 3, tenantId: 'tenant-1' })}`);
+    const res = makeRes();
+    const next = vi.fn();
+    await requireAuth(req, res, next);
+    expect(res.statusCode).toBe(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  // The tenant must be re-checked on a CACHE HIT too, not only on the cold
+  // lookup — otherwise the binding is bypassable by simply issuing a legitimate
+  // request first to warm the cache, then a forged one within the 30s TTL.
+  it('still rejects a forged tenant on a warm cache hit (second request, no new DB read)', async () => {
+    const { requireAuth } = await import('../middleware/auth');
+    mockTokenVersionRow(3, 'tenant-1');
+
+    // Request 1 — legitimate, warms the cache for user-1.
+    const good = makeReq(`Bearer ${signToken({ tokenVersion: 3, tenantId: 'tenant-1' })}`);
+    const goodNext = vi.fn();
+    await requireAuth(good, makeRes(), goodNext);
+    expect(goodNext).toHaveBeenCalled();
+    const callsAfterFirst = mockDbSelect.mock.calls.length;
+
+    // Request 2 — same user, forged tenant, inside the TTL.
+    const forged = makeReq(`Bearer ${signToken({ tokenVersion: 3, tenantId: 'tenant-VICTIM' })}`);
+    const forgedRes = makeRes();
+    const forgedNext = vi.fn();
+    await requireAuth(forged, forgedRes, forgedNext);
+    expect(forgedRes.statusCode).toBe(401);
+    expect(forgedNext).not.toHaveBeenCalled();
+    // Proves it was served from cache — the binding is not relying on a re-read.
+    expect(mockDbSelect.mock.calls.length).toBe(callsAfterFirst);
+  });
+});
+
+// optionalAuth must not become the soft underbelly of the H-1 fix: it shares
+// the same identity cache, so a forged tenant must fail to populate req.user
+// there too (degrading to anonymous, matching that route's public-by-secret
+// contract rather than 401ing).
+describe('optionalAuth — tenant binding (H-1)', () => {
+  const originalSecret = process.env.JWT_SECRET;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    process.env.JWT_SECRET = TEST_SECRET;
+  });
+
+  afterEach(() => {
+    process.env.JWT_SECRET = originalSecret;
+  });
+
+  it('does NOT populate req.user when the tenantId claim does not match the user row', async () => {
+    const { optionalAuth } = await import('../middleware/auth');
+    mockTokenVersionRow(3, 'tenant-1');
+    const req = makeReq(`Bearer ${signToken({ tokenVersion: 3, tenantId: 'tenant-VICTIM' })}`);
+    const res = makeRes();
+    const next = vi.fn();
+    await optionalAuth(req, res, next);
+    expect((req as unknown as { user?: unknown }).user).toBeUndefined();
+    expect(next).toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('populates req.user when the tenantId claim matches (happy path unchanged)', async () => {
+    const { optionalAuth } = await import('../middleware/auth');
+    mockTokenVersionRow(3, 'tenant-1');
+    const req = makeReq(`Bearer ${signToken({ tokenVersion: 3, tenantId: 'tenant-1' })}`);
+    const res = makeRes();
+    const next = vi.fn();
+    await optionalAuth(req, res, next);
+    expect((req as unknown as { user: { tenantId: string } }).user.tenantId).toBe('tenant-1');
+    expect(next).toHaveBeenCalled();
   });
 });

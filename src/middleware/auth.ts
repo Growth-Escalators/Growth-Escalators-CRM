@@ -36,17 +36,62 @@ const JWT_SECRET_VALUE = process.env.JWT_SECRET;
 // bounds "how long can a revoked token still work" to the TTL instead of the
 // full token lifetime, while keeping the common case cache-hit-cheap.
 const TOKEN_VERSION_CACHE_TTL_MS = 30_000;
-const tokenVersionCache = new Map<string, { tokenVersion: number; expiresAt: number }>();
 
-async function currentTokenVersion(userId: string): Promise<number | null> {
-  const cached = tokenVersionCache.get(userId);
+// H-1 (QA 2026-07-30) — this cache carries the user's `tenant_id` alongside
+// `token_version` because BOTH are now verified against the database.
+//
+// The defect it closes: `requireAuth` verified the JWT signature and the DB
+// `token_version`, but never compared the token's `tenantId` CLAIM against the
+// user's actual `users.tenant_id`. Handlers scope their queries by
+// `req.user.tenantId`, taken verbatim from the token — so anyone able to mint a
+// token could re-sign their own otherwise-valid claims with a different
+// `tenantId` and read another tenant's rows with HTTP 200. The `token_version`
+// check could not contain this: it is keyed on `users.id`, so the attacker's own
+// id and own current version match, and the tenant was the only tampered claim.
+//
+// The practical bar was Railway project read access rather than a secret
+// compromise, because `list_variables` returns `JWT_SECRET` in plaintext
+// (finding M-11). Two tenants matter here: both pilot operators hold accounts in
+// two of them, so tenant binding is load-bearing, not theoretical.
+//
+// Reading `tenant_id` costs nothing extra — it is added to the SAME single-row
+// select and cached under the same TTL, so the warm path still issues no query.
+type CachedIdentity = { tokenVersion: number; tenantId: string | null };
+const identityCache = new Map<string, { identity: CachedIdentity; expiresAt: number }>();
+
+async function currentIdentity(userId: string): Promise<CachedIdentity | null> {
+  const cached = identityCache.get(userId);
   const now = Date.now();
-  if (cached && cached.expiresAt > now) return cached.tokenVersion;
-  const [user] = await db.select({ tokenVersion: users.tokenVersion }).from(users).where(eq(users.id, userId)).limit(1);
+  if (cached && cached.expiresAt > now) return cached.identity;
+  const [user] = await db
+    .select({ tokenVersion: users.tokenVersion, tenantId: users.tenantId })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
   if (!user) return null;
-  const tokenVersion = user.tokenVersion || 1;
-  tokenVersionCache.set(userId, { tokenVersion, expiresAt: now + TOKEN_VERSION_CACHE_TTL_MS });
-  return tokenVersion;
+  const identity: CachedIdentity = {
+    tokenVersion: user.tokenVersion || 1,
+    tenantId: user.tenantId ?? null,
+  };
+  identityCache.set(userId, { identity, expiresAt: now + TOKEN_VERSION_CACHE_TTL_MS });
+  return identity;
+}
+
+// Both checks live here so `requireAuth` and `optionalAuth` cannot drift apart
+// again — H-4 was exactly that drift for the token_version half.
+// Returns null when the identity is acceptable, or a reason string when it is not.
+function identityMismatch(identity: CachedIdentity | null, payload: AuthPayload): string | null {
+  if (identity === null) return 'user no longer exists';
+  if (identity.tokenVersion !== payload.tokenVersion) return 'token_version revoked';
+  // Also fails closed when the user row's tenant_id is NULL: both callers
+  // already reject a token whose `tenantId` claim is falsy before reaching here,
+  // so a NULL on the DB side can only ever be unequal to a non-empty claim. A
+  // separate `!identity.tenantId` branch would be unreachable — deliberately not
+  // added, because a guard no test can turn red is indistinguishable from a
+  // vacuous one. `fails closed (401) when the user row carries a NULL tenant_id`
+  // in auth.test.ts pins this behaviour through this comparison.
+  if (identity.tenantId !== payload.tenantId) return 'tenant mismatch';
+  return null;
 }
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -77,8 +122,13 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   }
 
   try {
-    const dbTokenVersion = await currentTokenVersion(payload.id);
-    if (dbTokenVersion === null || dbTokenVersion !== payload.tokenVersion) {
+    const mismatch = identityMismatch(await currentIdentity(payload.id), payload);
+    if (mismatch) {
+      // Deliberately one opaque message for every mismatch reason. Telling a
+      // caller "tenant mismatch" (or echoing the real tenant) would confirm
+      // which claim was rejected and leak the user's true tenant; the reason is
+      // logged server-side instead.
+      console.warn(`[auth] requireAuth rejected token for user ${payload.id}: ${mismatch}`);
       res.status(401).json({ error: 'session expired — please log in again' });
       return;
     }
@@ -130,8 +180,10 @@ export async function optionalAuth(req: Request, _res: Response, next: NextFunct
         const payload = jwt.verify(header.slice(7), secret) as AuthPayload;
         // Fail closed for incomplete tokens — never default to admin
         if (payload.role && payload.tokenVersion && payload.id && payload.tenantId) {
-          const dbTokenVersion = await currentTokenVersion(payload.id);
-          if (dbTokenVersion !== null && dbTokenVersion === payload.tokenVersion) {
+          // Same identity check as requireAuth (token_version AND tenant
+          // binding) — see identityMismatch. A failure here leaves req.user
+          // unset, degrading to anonymous rather than 401ing.
+          if (!identityMismatch(await currentIdentity(payload.id), payload)) {
             req.user = payload;
           }
         }
