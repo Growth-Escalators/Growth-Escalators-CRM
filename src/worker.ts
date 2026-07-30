@@ -10,6 +10,7 @@ import { startStaleWizmatchSourceRunWorker } from './workers/staleWizmatchSource
 import { startSequenceWorker } from './workers/sequenceWorker';
 import { startSocialPostWorker } from './workers/socialPostWorker';
 import { startEdgeQueueDrainer, stopEdgeQueueDrainer } from './services/edgeQueueDrainer';
+import { startJobDrainer, stopJobDrainer } from './services/jobDrainer';
 import { checkAndAlertBlockers } from './services/blockerAlertService';
 import { generateMonthlyDraftInvoices } from './services/recurringInvoiceService';
 import { sendSODDigest, sendEODSummary, sendSakhamSOD } from './services/sodEodService';
@@ -96,6 +97,11 @@ startSocialPostWorker();
 // Drain landing-page events queued by Vercel edge functions when Railway was
 // unreachable. No-op if UPSTASH_REDIS_REST_URL/TOKEN are unset.
 startEdgeQueueDrainer().catch(e => console.error('[worker] edge drainer failed to start:', e));
+// Internal `jobs` queue drainer (form_submit only). The queue's only consumer
+// was the HTTP endpoint n8n polled; n8n is gone from production, so nothing had
+// drained it since 2026-03 -- 178 real website leads were sitting unprocessed.
+// Fail-closed: does nothing unless JOB_DRAINER_ENABLED is explicitly set.
+startJobDrainer();
 
 // ---------------------------------------------------------------------------
 // safeCron — wraps cron handlers with error catch, logging, overlap protection
@@ -1777,6 +1783,7 @@ export async function stopBackgroundJobs(): Promise<void> {
   console.log(`[scheduler-shutdown] cleared ${_intervals.length} interval timer(s)`);
 
   stopEdgeQueueDrainer();
+  stopJobDrainer();
 
   const runningJobs = [..._cronRunning.entries()].filter(([, v]) => v).map(([k]) => k);
   if (runningJobs.length > 0) {
