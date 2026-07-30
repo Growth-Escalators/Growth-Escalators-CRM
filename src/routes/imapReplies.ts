@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import logger from '../utils/logger';
 import { fetchProspectReplies } from '../services/imapService';
+import { timingSafeSecretMatch } from '../middleware/internalAuth';
 
 const router = Router();
 
@@ -15,8 +16,9 @@ function checkInternalSecret(req: Request, res: Response): boolean {
     res.status(401).json({ error: 'internal secret not configured' });
     return false;
   }
-  const provided = req.headers['x-internal-secret'];
-  if (provided !== secret) {
+  // Constant-time compare — never `!==`, which short-circuits at the first
+  // differing byte and leaks length/prefix through timing (QA 2026-07-30, A2).
+  if (!timingSafeSecretMatch(req.headers['x-internal-secret'], secret)) {
     res.status(401).json({ error: 'Unauthorized' });
     return false;
   }

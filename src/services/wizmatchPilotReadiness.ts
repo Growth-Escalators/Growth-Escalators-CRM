@@ -357,13 +357,25 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
     const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as { entries: Array<{ idx: number; tag: string }> };
     const latest = journal.entries[journal.entries.length - 1];
     const sqlFiles = readdirSync(join(repoRoot, 'src', 'db', 'migrations')).filter((f) => f.endsWith('.sql'));
-    const has0038 = sqlFiles.some((f) => f.startsWith('0038'));
+    // The sentinel was previously a bare "does 0038 exist" check, because at the
+    // time no migration beyond 0037 was authorised. 0038 (`users.is_active`,
+    // failure-matrix M-3) is now authorised and merged, so the high-water mark
+    // moves with it rather than the check being deleted: anything ABOVE the mark
+    // is still surfaced for authorisation confirmation. Keeping this as a moving
+    // mark rather than removing it preserves the original protection — an
+    // unreviewed migration appearing in a hardening pass is still reported.
+    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 38;
+    const unauthorised = sqlFiles
+      .map((f) => ({ file: f, idx: parseInt(f.slice(0, 4), 10) }))
+      .filter((m) => Number.isFinite(m.idx) && m.idx > AUTHORISED_MIGRATION_HIGH_WATER_MARK)
+      .map((m) => m.file)
+      .sort();
     push(
       'migration:status',
-      has0038 ? 'warning' : 'ok',
-      has0038
-        ? 'A 0038 migration file exists — task instructions forbid creating one in this hardening pass; confirm it was authorised separately.'
-        : `Migration status (reported only, not changed): latest generated migration is ${latest?.tag ?? 'unknown'} (idx ${latest?.idx ?? '?'}). Whether 0037 is APPLIED to any database is not checkable without a DB connection — see the runbook's G1 gate.`,
+      unauthorised.length ? 'warning' : 'ok',
+      unauthorised.length
+        ? `Migration file(s) beyond the authorised high-water mark (00${AUTHORISED_MIGRATION_HIGH_WATER_MARK}) exist: ${unauthorised.join(', ')} — confirm each was authorised separately.`
+        : `Migration status (reported only, not changed): latest generated migration is ${latest?.tag ?? 'unknown'} (idx ${latest?.idx ?? '?'}). Whether it is APPLIED to any database is not checkable without a DB connection — see the runbook's G1 gate.`,
     );
   } catch (error) {
     push('migration:status', 'warning', `Could not read migration journal: ${error instanceof Error ? error.message : String(error)}`);

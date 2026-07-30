@@ -9,6 +9,31 @@ import type { Request, Response, NextFunction } from 'express';
 import { timingSafeEqual } from 'crypto';
 import logger from '../utils/logger';
 
+/**
+ * Constant-time comparison of a caller-supplied header value against a secret.
+ *
+ * QA 2026-07-30 (security-lane finding A2): this logic lived only inside
+ * `requireInternalToken`, while `outreachLeads.ts` and `imapReplies.ts` — which
+ * guard the SAME `OUTREACH_INTERNAL_SECRET` — used a plain `!==`. `!==` on
+ * strings short-circuits at the first differing byte, leaking length and prefix
+ * information through timing. One of those endpoints also gates a
+ * Google-Places-cost-incurring path, so a recovered secret costs money as well
+ * as access. Shared here so the three call sites cannot drift again.
+ *
+ * Returns false for a missing value, and for the `string[]` shape Express
+ * produces on a repeated header (taking the first entry rather than trusting a
+ * whole array to compare).
+ */
+export function timingSafeSecretMatch(provided: string | string[] | undefined, expected: string): boolean {
+  const value = Array.isArray(provided) ? provided[0] : provided;
+  if (!value) return false;
+  const a = Buffer.from(value);
+  const b = Buffer.from(expected);
+  // Length-guard first: timingSafeEqual throws on unequal lengths. Length is
+  // already observable from the header itself, so this leaks nothing new.
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 export function requireInternalToken(req: Request, res: Response, next: NextFunction): void {
   const token = process.env.WIZMATCH_INTERNAL_TOKEN || process.env.OUTREACH_INTERNAL_SECRET;
   if (!token) {
@@ -16,17 +41,7 @@ export function requireInternalToken(req: Request, res: Response, next: NextFunc
     res.status(401).json({ error: 'internal token not configured' });
     return;
   }
-  const rawProvided = req.headers['x-internal-secret'];
-  const provided = Array.isArray(rawProvided) ? rawProvided[0] : rawProvided;
-  if (!provided) {
-    res.status(401).json({ error: 'Unauthorized' });
-    return;
-  }
-  // Constant-time compare (never `!==`, which short-circuits and leaks length/prefix
-  // via timing). Length-guard first because timingSafeEqual throws on unequal lengths.
-  const a = Buffer.from(provided);
-  const b = Buffer.from(token);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) {
+  if (!timingSafeSecretMatch(req.headers['x-internal-secret'], token)) {
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }

@@ -1,0 +1,22 @@
+-- QA 2026-07-30 (failure-matrix M-3) — model `users.is_active` in migrations.
+--
+-- `IF NOT EXISTS` is a DELIBERATE hand-edit to drizzle's generated statement,
+-- which was a bare `ADD COLUMN`. It is required for correctness, not tidiness:
+-- every existing database ALREADY has this column, created by the
+-- fire-and-forget runtime ALTER at `src/routes/permissions.ts:21`. A bare
+-- `ADD COLUMN` would therefore raise `column "is_active" of relation "users"
+-- already exists` on the first deploy that runs it — and because migrations run
+-- from the API service's startCommand, a failing migration means the API does
+-- not start. This form applies cleanly both to production (no-op, column
+-- already present) and to a database built from migrations alone (creates it).
+--
+-- Shape matches the runtime ALTER exactly (`boolean DEFAULT true`, nullable) so
+-- the migration path and the ensure-hook path cannot disagree. Nullable is
+-- intentional: login reads `is_active IS NULL OR is_active = true`
+-- (`src/routes/auth.ts:83`).
+--
+-- The ensure hook in `permissions.ts` is deliberately LEFT IN PLACE — it is an
+-- idempotent `ADD COLUMN IF NOT EXISTS` and is harmless once this has run.
+-- Removing it is a follow-up once production has the column via this path, per
+-- the ge-add-migration skill.
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "is_active" boolean DEFAULT true;

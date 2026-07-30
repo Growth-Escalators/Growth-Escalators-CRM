@@ -1,7 +1,40 @@
-import { eq, and, lte, lt, asc } from 'drizzle-orm';
+import { eq, and, or, isNull, lte, lt, asc } from 'drizzle-orm';
 import { db, jobs } from '../db/index';
 
 type Job = typeof jobs.$inferSelect;
+
+/**
+ * Tenant scope for a job-queue operation (S1, QA 2026-07-30).
+ *
+ * OPTIONAL BY DESIGN. Omitting it leaves the query unscoped, which is correct
+ * and required for internal system callers — `stuckJobWorker.ts` sweeps stuck
+ * jobs across every tenant. Only the HTTP layer (`src/routes/jobs.ts`, mounted
+ * with `requireAuth` and reachable by any authenticated user of any role) passes
+ * a scope, derived from `req.user.tenantId`.
+ *
+ * Before this existed, all four operations below filtered by `id`/`status` only
+ * and never by `tenant_id`, so any authenticated user could read every tenant's
+ * job payloads and claim/complete/dead-letter their jobs by GUID.
+ */
+export type JobTenantScope = { tenantId: string };
+
+/**
+ * Own tenant OR NULL — deliberately not a strict equality.
+ *
+ * Webhook-originated jobs are inserted with an explicit `null` tenant
+ * (`webhooks.ts` inbound_wa / booking_failed / form_submit / chatwoot_event):
+ * system-level work not yet attributed to a tenant. A strict
+ * `tenant_id = caller` filter would hide every one of them from every caller and
+ * silently stop inbound processing.
+ *
+ * Residual gap, documented not hidden: NULL-tenant jobs stay visible to every
+ * authenticated tenant. Closing that needs webhook jobs attributed to a tenant
+ * at ingestion — a product change, tracked in the QA roadmap doc.
+ */
+function tenantPredicate(scope?: JobTenantScope) {
+  if (!scope) return undefined;
+  return or(eq(jobs.tenantId, scope.tenantId), isNull(jobs.tenantId));
+}
 
 // ---------------------------------------------------------------------------
 // insertJob — enqueue a new job, skip silently if idempotencyKey already exists
@@ -53,11 +86,11 @@ export async function insertJob(
 // ---------------------------------------------------------------------------
 // claimJob — mark a job as processing
 // ---------------------------------------------------------------------------
-export async function claimJob(jobId: string): Promise<Job | undefined> {
+export async function claimJob(jobId: string, scope?: JobTenantScope): Promise<Job | undefined> {
   const updated = await db
     .update(jobs)
     .set({ status: 'processing', processingStartedAt: new Date() })
-    .where(eq(jobs.id, jobId))
+    .where(and(eq(jobs.id, jobId), tenantPredicate(scope)))
     .returning();
   return updated[0];
 }
@@ -65,18 +98,18 @@ export async function claimJob(jobId: string): Promise<Job | undefined> {
 // ---------------------------------------------------------------------------
 // completeJob — mark a job as completed
 // ---------------------------------------------------------------------------
-export async function completeJob(jobId: string): Promise<void> {
+export async function completeJob(jobId: string, scope?: JobTenantScope): Promise<void> {
   await db
     .update(jobs)
     .set({ status: 'completed', completedAt: new Date() })
-    .where(eq(jobs.id, jobId));
+    .where(and(eq(jobs.id, jobId), tenantPredicate(scope)));
 }
 
 // ---------------------------------------------------------------------------
 // failJob — increment attempts; exponential backoff or dead_letter
 // ---------------------------------------------------------------------------
-export async function failJob(jobId: string, error: string): Promise<void> {
-  const current = await db.select().from(jobs).where(eq(jobs.id, jobId)).limit(1);
+export async function failJob(jobId: string, error: string, scope?: JobTenantScope): Promise<void> {
+  const current = await db.select().from(jobs).where(and(eq(jobs.id, jobId), tenantPredicate(scope))).limit(1);
   if (current.length === 0) return;
 
   const job = current[0];
@@ -101,9 +134,11 @@ export async function failJob(jobId: string, error: string): Promise<void> {
 // ---------------------------------------------------------------------------
 // getPendingJobs — fetch jobs ready to be processed
 // ---------------------------------------------------------------------------
-export async function getPendingJobs(jobType?: string, limit = 10): Promise<Job[]> {
+export async function getPendingJobs(jobType?: string, limit = 10, scope?: JobTenantScope): Promise<Job[]> {
   const conditions = [eq(jobs.status, 'pending'), lte(jobs.processAfter, new Date())];
   if (jobType) conditions.push(eq(jobs.jobType, jobType));
+  const tenant = tenantPredicate(scope);
+  if (tenant) conditions.push(tenant);
 
   return db
     .select()

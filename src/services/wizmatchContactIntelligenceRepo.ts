@@ -760,7 +760,24 @@ export async function persistContactIntelligenceSnapshot(tenantId: string, userI
                    -- reject_company through the policy write API instead),
                    -- so an automatic refresh must not silently re-qualify a
                    -- company a human explicitly rejected.
-                   status = CASE WHEN review_status = 'rejected' THEN status ELSE EXCLUDED.status END,
+                   -- QA 2026-07-30: both target-table references MUST stay
+                   -- table-qualified. wizmatch_company_intelligence has both a
+                   -- "status" and a "review_status" column, and inside
+                   -- ON CONFLICT DO UPDATE an unqualified name is ambiguous
+                   -- between the target row and "excluded". Postgres rejects
+                   -- that at PARSE time, so the previous unqualified form did
+                   -- not fail only on conflict -- it made this statement, and
+                   -- with it the whole discovery-preview/discover path, 500 on
+                   -- EVERY call for every company. Reproduced live, then
+                   -- minimally against PostgreSQL 18.4:
+                   --   ERROR: column reference "review_status" is ambiguous
+                   -- Qualifying preserves the freeze semantics above exactly
+                   -- (verified: a rejected row keeps its old status; any other
+                   -- row takes EXCLUDED.status).
+                   -- NOTE: no backticks in this comment on purpose -- the whole
+                   -- query is a JS template literal, so a backtick here would
+                   -- terminate the string.
+                   status = CASE WHEN wizmatch_company_intelligence.review_status = 'rejected' THEN wizmatch_company_intelligence.status ELSE EXCLUDED.status END,
                    last_qualified_at = NOW(),
                    next_refresh_at = EXCLUDED.next_refresh_at,
                    source_summary = EXCLUDED.source_summary,

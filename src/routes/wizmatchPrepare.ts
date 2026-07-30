@@ -17,7 +17,7 @@
 import { Router, type Request, type Response } from 'express';
 import { prepareSingleCompany, getPrepStatus } from '../modules/outreach/prepareCompanies';
 import { isWizmatchFlagEnabled } from '../services/wizmatchAutomation';
-import { wizmatchPilotGate } from '../middleware/wizmatchPilotGate';
+import { wizmatchPilotOrMachineSync } from '../middleware/wizmatchMachineSyncLane';
 
 const router = Router();
 
@@ -34,7 +34,16 @@ function featureGate(_req: Request, _res: Response, next: (route?: string) => vo
 router.use(featureGate);
 // PR 8A hardening — pilot roster enforcement (§4 preparation is a
 // preparation-trigger route; same pilot-member tier as reading policy/queues).
-router.use(wizmatchPilotGate);
+//
+// QA 2026-07-30 (failure-matrix M-1): `wizmatchPilotOrMachineSync`, not the bare
+// `wizmatchPilotGate` — see the long rationale in `wizmatchPolicy.ts`. Unpathed
+// `router.use` matches every path under `/api/wizmatch`, and this router is
+// mounted at `src/index.ts:358` ahead of the machine-sync lane at `:418`. Both
+// routes here are under `/companies/:id/prepare`, which is not on the 8-path
+// GET allowlist, so preparation keeps the identical roster check — and the
+// allowlist is GET-only, so the POST trigger is unreachable through the lane by
+// construction.
+router.use(wizmatchPilotOrMachineSync);
 
 router.post('/companies/:id/prepare', async (req: Request, res: Response) => {
   try {

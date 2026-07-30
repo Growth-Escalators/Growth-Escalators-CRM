@@ -177,13 +177,62 @@ describe('PR 8B scope boundary — PR 9/10 must not have started', () => {
   // lane in this same remediation session amends 0037_unknown_siren.sql's
   // CHECK constraint in place (same filename, same number), which this
   // assertion is intentionally blind to.
-  it('no migration numbered higher than 0037 exists', () => {
+  // This began as a bare `max(prefix) === 37`. That number was a PROXY for this
+  // file's actual mandate — "PR 9 (Smartlead CSV adapter) and PR 10 (reply
+  // ingestion) must not have started" — chosen when 0037 happened to be the tip.
+  //
+  // 0038 (`users.is_active`, failure-matrix M-3, owner-approved 2026-07-30) is
+  // authentication remediation with no relationship to PR 9/10, so it violates
+  // the proxy while leaving the mandate untouched. Rather than bump the constant
+  // to 38 — which erodes the guard a little every time, and would let genuine
+  // PR 9/10 schema work in as 0039 with the same one-character edit — each
+  // migration past 0037 must now be named in a reviewed allowlist AND be proven
+  // not to create Smartlead/reply-ingestion surfaces. That is strictly stronger
+  // than the original for anything added from here on.
+  const MIGRATIONS_REVIEWED_AS_OUT_OF_PR9_10_SCOPE: Record<number, string> = {
+    38: 'users.is_active — auth/offboarding column, failure-matrix M-3. Touches only the shared `users` table.',
+  };
+
+  it('every migration past 0037 is in the reviewed out-of-scope allowlist', () => {
     const migrationsDir = join(REPO_ROOT, 'src', 'db', 'migrations');
-    const prefixes = readdirSync(migrationsDir)
+    const beyond = readdirSync(migrationsDir)
       .filter((e) => e.endsWith('.sql'))
-      .map((e) => parseInt(e.slice(0, 4), 10))
-      .filter((n) => Number.isFinite(n));
-    expect(Math.max(...prefixes)).toBe(37);
+      .map((e) => ({ file: e, idx: parseInt(e.slice(0, 4), 10) }))
+      .filter((m) => Number.isFinite(m.idx) && m.idx > 37);
+    for (const { file, idx } of beyond) {
+      expect(
+        MIGRATIONS_REVIEWED_AS_OUT_OF_PR9_10_SCOPE[idx],
+        `migration ${file} is past the PR 8B boundary and is not in the reviewed allowlist — if it is PR 9/PR 10 work it must not be on this branch; if it is unrelated, add it with a justification`,
+      ).toBeTruthy();
+    }
+  });
+
+  it('no migration past 0037 creates a Smartlead or reply-ingestion surface', () => {
+    const migrationsDir = join(REPO_ROOT, 'src', 'db', 'migrations');
+    // The mandate itself, asserted against SQL rather than against a file number.
+    const forbidden = /smartlead|reply_(?:ingest|classification|message)|inbound_repl/i;
+    const beyond = readdirSync(migrationsDir)
+      .filter((e) => e.endsWith('.sql'))
+      .filter((e) => {
+        const idx = parseInt(e.slice(0, 4), 10);
+        return Number.isFinite(idx) && idx > 37;
+      });
+    for (const file of beyond) {
+      const sql = readFileSync(join(migrationsDir, file), 'utf8');
+      // Comments are stripped first — this file's own convention, so a
+      // rationale comment mentioning "Smartlead" cannot trip the guard.
+      const bare = sql.replace(/--.*$/gm, '');
+      expect(bare, `migration ${file} creates a Smartlead/reply-ingestion surface — PR 9/10 must not start on this branch`)
+        .not.toMatch(forbidden);
+    }
+  });
+
+  it('control — the allowlist guard actually fails for an unreviewed migration number', () => {
+    // Mutation control, per this file's standing rule that a guard is assumed
+    // vacuous until watched to fail. Proves the assertion above is load-bearing
+    // rather than trivially satisfied by an empty `beyond` list.
+    expect(MIGRATIONS_REVIEWED_AS_OUT_OF_PR9_10_SCOPE[9999]).toBeFalsy();
+    expect(Object.keys(MIGRATIONS_REVIEWED_AS_OUT_OF_PR9_10_SCOPE)).toContain('38');
   });
 
   it('control — the comment-stripping actually strips comments (mutation-proof for this guard itself)', () => {

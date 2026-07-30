@@ -81,7 +81,7 @@ import teamRouter from './routes/team';
 import contractsRouter from './modules/esign/esign.routes';
 import contractsPublicRouter from './modules/esign/esign.public.routes';
 import contractsWebhookRouter from './modules/esign/esign.webhook.routes';
-import { requireAuth, requireStrictAuth, optionalAuth, verifyAuthToken } from './middleware/auth';
+import { requireAuth, requireStrictAuth, optionalAuth, verifyAuthTokenForHandshake } from './middleware/auth';
 import { contactBelongsToTenant } from './services/socketAuth';
 import { requireRole } from './middleware/rbac';
 import { validateEnv } from './config/env';
@@ -591,13 +591,26 @@ async function startServer() {
   // InboxPage.jsx) — same token, same verification rules as every HTTP
   // route. A connection without a valid token is rejected before
   // 'connection' ever fires.
+  //
+  // QA 2026-07-30: this uses `verifyAuthTokenForHandshake`, NOT the claims-only
+  // `verifyAuthToken`. The comment above claimed "same verification rules as
+  // every HTTP route", and that stopped being true once requireAuth gained the
+  // DB token_version check — a revoked or offboarded user holding a still-valid
+  // JWT could open a live, tenant-scoped inbox stream and keep it for up to the
+  // token's full 7-day life. The handshake now runs the same identity check as
+  // requireAuth (revocation, tenant binding, deactivation) through the same 30s
+  // cache. It applies at HANDSHAKE only — an established connection is not
+  // re-checked mid-stream.
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token as string | undefined;
     if (!token) return next(new Error('unauthorized'));
-    const user = verifyAuthToken(token);
-    if (!user) return next(new Error('unauthorized'));
-    socket.data.user = user;
-    next();
+    void verifyAuthTokenForHandshake(token)
+      .then((user) => {
+        if (!user) return next(new Error('unauthorized'));
+        socket.data.user = user;
+        next();
+      })
+      .catch(() => next(new Error('unauthorized')));
   });
 
   // Socket.io: clients join room by contactId for real-time inbox
