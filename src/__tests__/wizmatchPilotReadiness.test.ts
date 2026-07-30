@@ -6,7 +6,7 @@
 // access only, no network, no DB.
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   assessWizmatchPilotReadiness,
@@ -446,7 +446,31 @@ describe('assessWizmatchPilotReadiness — safety properties', () => {
   it('reports migration status as informational, never asserts anything about production application', () => {
     const report = assessWizmatchPilotReadiness({ env: baseEnv(), repoRoot });
     const migrationFinding = report.findings.find((f) => f.code === 'migration:status');
+    // 0038 (users.is_active, failure-matrix M-3) is authorised and at the
+    // high-water mark, so the sentinel stays quiet and the informational message
+    // is reported. The point of this test is unchanged: whatever it says, it must
+    // describe the filesystem and explicitly decline to claim anything about
+    // whether a migration is APPLIED to a database.
+    expect(migrationFinding?.severity).toBe('ok');
     expect(migrationFinding?.message).toMatch(/not checkable without a DB connection/);
+  });
+
+  it('warns when a migration ABOVE the authorised high-water mark appears', () => {
+    // The sentinel must still catch an unreviewed migration — moving the mark to
+    // 0038 must not have turned it off. Uses a temporary 0039 file so the
+    // assertion exercises the real filesystem branch rather than a stub.
+    const migrationsDir = join(repoRoot, 'src', 'db', 'migrations');
+    const probe = join(migrationsDir, '0039__readiness_sentinel_probe.sql');
+    writeFileSync(probe, '-- temporary probe written and removed by wizmatchPilotReadiness.test.ts\n');
+    try {
+      const report = assessWizmatchPilotReadiness({ env: baseEnv(), repoRoot });
+      const migrationFinding = report.findings.find((f) => f.code === 'migration:status');
+      expect(migrationFinding?.severity).toBe('warning');
+      expect(migrationFinding?.message).toMatch(/beyond the authorised high-water mark/);
+      expect(migrationFinding?.message).toContain('0039__readiness_sentinel_probe.sql');
+    } finally {
+      rmSync(probe, { force: true });
+    }
   });
 
   it('reports backfill status as informational, never asserts anything about whether it was applied', () => {
