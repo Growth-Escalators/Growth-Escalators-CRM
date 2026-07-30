@@ -163,6 +163,32 @@ describe('machine-sync lane reachability through the real /api/wizmatch mount ch
     );
   });
 
+  // HONESTY GUARD (added after the Playwright lane tested this against the REAL
+  // router). The test above proves the MOUNT CHAIN admits all 8 paths — but it
+  // mounts a stub downstream router, so it cannot see gates inside the real
+  // `wizmatchRouter`. Against the real router only 7 of 8 actually return 200:
+  // `GET /placements` has its own `['admin','team_lead']` check at
+  // `wizmatch.ts:3352`, downstream of the gate this fix repaired, so a `viewer`
+  // is still 403'd there. That is failure-matrix L-2 — pre-existing, deliberate,
+  // and feeding no cockpit tile.
+  //
+  // This test exists so the 8/8 assertion above can never be read as "the sync
+  // fully works". It pins the real router's own role check, so if L-2 is ever
+  // resolved this goes red and the claim gets updated deliberately rather than
+  // drifting.
+  it('documents that /placements is still 403 for a viewer via its OWN role check (L-2)', () => {
+    const fs = require('node:fs') as typeof import('node:fs');
+    const path = require('node:path') as typeof import('node:path');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'routes', 'wizmatch.ts'), 'utf8');
+    const bare = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    const placements = bare.indexOf("router.get('/placements'");
+    expect(placements, "the /placements route moved — re-verify the machine-sync lane's real coverage").toBeGreaterThan(-1);
+    const handler = bare.slice(placements, placements + 400);
+    // A viewer is not in this list, hence 403 despite the lane admitting it.
+    expect(handler).toMatch(/\['admin',\s*'team_lead'\]\.includes\(req\.user!\.role\)/);
+    expect(handler).toMatch(/commercial_access_requires_lead/);
+  });
+
   it('serves those paths from the downstream wizmatchRouter, not from a flagged router', async () => {
     const baseUrl = await startRealMountChain(VIEWER);
     const res = await fetch(`${baseUrl}/api/wizmatch/dashboard`);

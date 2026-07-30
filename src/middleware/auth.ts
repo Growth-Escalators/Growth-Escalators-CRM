@@ -237,3 +237,35 @@ export function verifyAuthToken(token: string): AuthPayload | null {
     return null;
   }
 }
+
+/**
+ * Socket.io handshake verification with the SAME identity checks as requireAuth
+ * (QA 2026-07-30).
+ *
+ * `verifyAuthToken` above is claims-only — it never touches the database. The
+ * Socket.io handshake (`src/index.ts`) used it, so its own comment's claim of
+ * "same verification rules as every HTTP route" stopped being true the moment
+ * requireAuth gained the DB token_version check: a revoked or offboarded user
+ * holding a still-valid JWT could open a live, tenant-scoped inbox stream and
+ * keep it until the token expired naturally, up to 7 days.
+ *
+ * This reuses `currentIdentity` and `identityMismatch`, so the socket lane gets
+ * revocation, tenant binding and the deactivation kill switch on exactly the
+ * same terms as HTTP, through the same 30s cache.
+ *
+ * KNOWN LIMITATION, stated rather than implied: this runs at HANDSHAKE only.
+ * An already-established connection is not re-checked, so revocation takes
+ * effect for the socket lane on the next connection attempt, not mid-stream.
+ * Closing that needs a periodic re-validation sweep over live sockets.
+ */
+export async function verifyAuthTokenForHandshake(token: string): Promise<AuthPayload | null> {
+  const payload = verifyAuthToken(token);
+  if (!payload) return null;
+  try {
+    if (identityMismatch(await currentIdentity(payload.id), payload)) return null;
+    return payload;
+  } catch {
+    // Fail closed, matching requireAuth's posture on a lookup error.
+    return null;
+  }
+}

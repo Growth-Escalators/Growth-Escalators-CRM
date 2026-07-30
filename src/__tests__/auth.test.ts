@@ -474,3 +474,75 @@ describe('requireAuth — deactivated users', () => {
     expect(next).toHaveBeenCalled();
   });
 });
+
+// QA run 2026-07-30 — Socket.io handshake parity (security-lane finding A1).
+//
+// `verifyAuthToken` is claims-only and never touches the database. The
+// Socket.io handshake used it, so its own comment's claim of "same verification
+// rules as every HTTP route" stopped being true the moment requireAuth gained
+// the DB token_version check: a revoked or offboarded user holding a
+// still-valid JWT could open a live, tenant-scoped inbox stream and keep it
+// until the token expired naturally, up to 7 days.
+//
+// `verifyAuthTokenForHandshake` reuses the same identity check, so the socket
+// lane gets revocation, tenant binding and the deactivation kill switch on
+// exactly the same terms as HTTP.
+describe('verifyAuthTokenForHandshake — socket lane parity (A1)', () => {
+  const originalSecret = process.env.JWT_SECRET;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    process.env.JWT_SECRET = TEST_SECRET;
+  });
+  afterEach(() => { process.env.JWT_SECRET = originalSecret; });
+
+  it('accepts a token whose identity fully matches', async () => {
+    const { verifyAuthTokenForHandshake } = await import('../middleware/auth');
+    mockTokenVersionRow(3, 'tenant-1', true);
+    expect((await verifyAuthTokenForHandshake(signToken({ tokenVersion: 3 })))?.id).toBe('user-1');
+  });
+
+  it('refuses a revoked session (DB token_version bumped)', async () => {
+    const { verifyAuthTokenForHandshake } = await import('../middleware/auth');
+    mockTokenVersionRow(4, 'tenant-1', true);
+    expect(await verifyAuthTokenForHandshake(signToken({ tokenVersion: 3 }))).toBeNull();
+  });
+
+  it('refuses a forged tenant claim', async () => {
+    const { verifyAuthTokenForHandshake } = await import('../middleware/auth');
+    mockTokenVersionRow(3, 'tenant-1', true);
+    expect(await verifyAuthTokenForHandshake(signToken({ tokenVersion: 3, tenantId: 'tenant-VICTIM' }))).toBeNull();
+  });
+
+  it('refuses a deactivated user', async () => {
+    const { verifyAuthTokenForHandshake } = await import('../middleware/auth');
+    mockTokenVersionRow(3, 'tenant-1', false);
+    expect(await verifyAuthTokenForHandshake(signToken({ tokenVersion: 3 }))).toBeNull();
+  });
+
+  it('refuses a user whose row is gone', async () => {
+    const { verifyAuthTokenForHandshake } = await import('../middleware/auth');
+    mockTokenVersionRow(null);
+    expect(await verifyAuthTokenForHandshake(signToken({ tokenVersion: 3 }))).toBeNull();
+  });
+
+  it('fails closed when the identity lookup throws', async () => {
+    const { verifyAuthTokenForHandshake } = await import('../middleware/auth');
+    mockDbSelect.mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({ limit: vi.fn().mockRejectedValue(new Error('connection reset')) }),
+      }),
+    });
+    expect(await verifyAuthTokenForHandshake(signToken({ tokenVersion: 3 }))).toBeNull();
+  });
+
+  it('the socket handshake in index.ts uses the DB-checked verifier, not the claims-only one', () => {
+    const fs = require('node:fs') as typeof import('node:fs');
+    const path = require('node:path') as typeof import('node:path');
+    const src = fs.readFileSync(path.join(__dirname, '..', 'index.ts'), 'utf8');
+    const bare = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    expect(bare).toMatch(/verifyAuthTokenForHandshake\(token\)/);
+    // The claims-only function must not be wired into the handshake.
+    expect(bare).not.toMatch(/const user = verifyAuthToken\(token\)/);
+  });
+});
