@@ -466,6 +466,20 @@ export const users = pgTable(
     passwordHash: text('password_hash').notNull(),
     role: text('role').default('staff'), // admin | manager_ops | manager_ads | team_lead | sales | staff | creative_assistant | viewer (read-only)
     tokenVersion: integer('token_version').default(1),
+    // QA 2026-07-30 (failure-matrix M-3) — this column is LOAD-BEARING for
+    // authentication (`src/routes/auth.ts:83`, `:169`, `:258` all gate login on
+    // it, and it is how `DELETE /api/permissions/users/:userId` deactivates a
+    // departed employee) but existed in no migration and no schema. It was
+    // created only by a fire-and-forget, error-swallowing runtime ALTER at
+    // `src/routes/permissions.ts:21`. A database built from migrations alone —
+    // a DR restore, or any new environment — therefore came up WITHOUT it, and
+    // because login references it in raw SQL, login fails outright there until
+    // that unawaited ALTER happens to land. Modelled here and backed by
+    // migration 0038 so the column exists by migration, matching the shape the
+    // runtime ALTER used (`boolean DEFAULT true`, nullable) so the two agree on
+    // every existing database. Nullable is deliberate: login reads
+    // `is_active IS NULL OR is_active = true`.
+    isActive: boolean('is_active').default(true),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (t) => ({
