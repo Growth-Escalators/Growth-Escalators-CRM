@@ -111,7 +111,9 @@ not just the new state.
 Where a mixed selection contains any row the user may not act on, the action is disabled.
 
 **Fixed this run:** the read-only machine account used by the Command Deck sync was being refused on
-all 8 of its endpoints. See register QA-1. Human operators were never affected.
+all 8 of its endpoints; **7 of the 8 now work.** `/placements` still refuses it via that route's own
+role check (a separate, pre-existing limitation). See register QA-1. Human operators were never
+affected.
 
 **Not verified this run:** the queue flows themselves through the browser. The workbench's
 queue-construction logic has unit coverage; its UI behaviour does not have executed end-to-end
@@ -136,6 +138,10 @@ confidence tier.
 **Cost control:** paid discovery providers (Apollo, Snov) and the Google fallback are **flag-gated
 and off**. The free-first cascade is what runs. Every paid path fails closed when its flag is unset
 — verified statically this run.
+
+**Fixed this run:** `discovery-preview` was returning **500 for every company on every call** — an
+ambiguous SQL column reference that failed at parse time. The whole discovery path was
+non-functional. See register QA-17.
 
 **Not verified this run:** the confidence-tier transitions end to end.
 
@@ -254,11 +260,14 @@ roster. Both must pass.
 
 Six fixes, each reproduced before being written and mutation-tested after:
 
-1. The Command Deck sync's read-only account can reach its 8 endpoints again.
+1. The Command Deck sync's read-only account can reach 7 of its 8 endpoints again (`/placements`
+   remains blocked by its own pre-existing role check).
 2. A token's tenant claim is now bound to the user's real tenant.
 3. `users.is_active` is backed by a real migration, so a rebuilt database can log in.
 4. The job queue is scoped by tenant — this was a cross-tenant data exposure.
 5. Sequences re-check the master send flag on every dispatch.
 6. Deactivating a user now kills their live session on its own.
+7. Contact discovery preview worked at all — it was returning 500 for every company, on every call.
+8. The Socket.io inbox stream now honours session revocation at handshake.
 
 **Nothing about sending, spending, or provider invocation was enabled.** All of it remains off.

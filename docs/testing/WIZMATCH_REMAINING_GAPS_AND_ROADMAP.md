@@ -115,8 +115,10 @@ performed**.
 | Migration journal hash drift (M-4) | MEDIUM | Pre-existing. Replay is internally consistent and applies clean on PG18 |
 | `list_variables` returns secrets in plaintext (M-11) | MEDIUM | Unchanged. **This is the precondition QA-2 defends against.** Do not use that tool |
 | NULL-tenant jobs shared across tenants (QA-4 residual) | MEDIUM | Deliberate. Closing it requires attributing webhook jobs to a tenant at ingestion — a product change |
-| 30-second revocation window (L-1) | LOW | Deliberate, documented, fail-closed. QA-2 and QA-6 inherit the same bound |
-| `viewer` refused on `/placements` (L-2) | LOW | Pre-existing, by its own role check |
+| Socket.io revocation applies at HANDSHAKE only (QA-18 residual) | MEDIUM | An already-established socket is not re-checked, so revocation lands on the next connection rather than mid-stream. Closing it needs a periodic re-validation sweep over live sockets |
+| 30-second revocation window (L-1) | LOW | Deliberate, documented, fail-closed. QA-2, QA-6 and QA-18 inherit the same bound |
+| `viewer` refused on `/placements` (L-2) | LOW | Pre-existing, by that route's own role check at `wizmatch.ts:3352`. **This is why the QA-1 fix restores 7 of 8 machine-sync paths, not 8.** Now pinned by an honesty guard so the distinction cannot drift |
+| QA tenants cannot log in with a real password | MEDIUM (test-environment limitation) | `normaliseTenantSlug()` in `src/routes/auth.ts` collapses any non-canonical slug to one of two hardcoded buckets, so the synthetic `wizmatch-test` / `growth-escalators-test` tenants can never be joined by `/auth/login`. The Playwright lane worked around it by minting JWTs directly (which bypasses nothing — `requireAuth` still re-checks identity against the DB per request). **Worth confirming this is intended product behaviour and not a latent multi-tenant onboarding bug** |
 
 ---
 

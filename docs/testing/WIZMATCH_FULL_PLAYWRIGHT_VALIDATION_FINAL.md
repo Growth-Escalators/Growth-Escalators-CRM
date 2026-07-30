@@ -14,8 +14,9 @@ Companion documents:
 
 > ## LIMITED PILOT READY — REMAINING GAPS DOCUMENTED
 
-The two-user internal pilot can continue. Six defects were confirmed and fixed, including one
-**CRITICAL cross-tenant data exposure that no previous run had found**. Every sending, spending and
+The two-user internal pilot can continue. **Nine defects were confirmed and fixed**, including a
+**CRITICAL cross-tenant data exposure** and a **HIGH that made contact discovery return 500 on every
+call** — neither found by any previous run. Every sending, spending and
 provider gate was confirmed fail-closed. Nothing was enabled, deployed, or sent.
 
 It is **not** FULL PLATFORM READY, and the reason is coverage rather than a known blocking defect:
@@ -35,7 +36,7 @@ this repo and does not touch the WizMatch pilot surface.
 |---|---|
 | Branch | `qa/wizmatch-full-playwright-flow-remediation` |
 | Base | `origin/main` at **`f8036120`** |
-| Commits added | 9 |
+| Commits added | 11 |
 
 **The brief's expected base commit was `4678d505`. It was stale** — `origin/main` had advanced to
 `f8036120` (PR #91, which merged the previous QA run's auth fixes and its failure matrix). The brief
@@ -158,8 +159,10 @@ defects rather than shallow passes everywhere. **No untested journey is reported
 
 ## 13. Security results
 
-**Confirmed and fixed:** one CRITICAL (cross-tenant job-queue IDOR, QA-4), one HIGH (tenant-claim
-binding, QA-2), two MEDIUM (deactivation kill switch QA-6, sequence send-gate QA-5).
+**Confirmed and fixed:** one CRITICAL (cross-tenant job-queue IDOR, QA-4), two HIGH (tenant-claim
+binding QA-2; `discovery-preview` 500-on-every-call QA-17), four MEDIUM (deactivation kill switch
+QA-6, sequence send-gate QA-5, socket-handshake revocation QA-18, timing-unsafe secret compare
+QA-19).
 
 **Confirmed and deliberately not fixed:** health-endpoint false-green (QA-8, needs an ops decision
 on restart behaviour), `input-data/` gitignore exposure (QA-9, blocked by an unrelated dirty file).
@@ -167,6 +170,10 @@ on restart behaviour), `input-data/` gitignore exposure (QA-9, blocked by an unr
 **Reported but NOT confirmed by me:** six further IDOR/tenant-tampering candidates (QA-16). These are
 stated as unverified, not as findings. They are the top follow-up precisely because they are the same
 class as QA-4, which was real.
+
+**Re-adjudicated as NOT a defect:** `OUTREACH_PROVIDER` unset defaults to the *name* `smartlead_csv`,
+which the security lane flagged as worth confirming. Verified safe — `KNOWN_PROVIDERS` holds only
+`mock`, so it throws `unknown_provider`. Fails closed.
 
 **Verified sound:** RBAC fails closed on an unknown permission name; `requireRole` defaults to the
 *least*-privileged role; the login rate limiter works; no module-scope SMTP transport exists;
@@ -201,21 +208,33 @@ Full detail in the [register](WIZMATCH_BREAKAGE_AND_FIX_REGISTER.md). Summary:
 
 | ID | Severity | Fixed | Tests | Mutation-proven |
 |---|---|---|---|---|
-| QA-1 machine-sync lane unreachable | MEDIUM | ✅ | 8 | 8 paths were 403 before |
+| QA-1 machine-sync lane unreachable | MEDIUM | ✅ (7 of 8) | 9 | 8 paths were 403 before |
 | QA-2 cross-tenant `tenantId` claim | HIGH | ✅ | 7 | delete check → 4 red |
 | QA-3 `users.is_active` unmigrated | MEDIUM | ✅ | 5 | strip `IF NOT EXISTS` → 1 red |
 | QA-4 **job-queue cross-tenant IDOR** | **CRITICAL** | ✅ | 6 | neuter predicate → 4 red |
 | QA-5 no send-flag re-check on dispatch | MEDIUM | ✅ | 6 | remove → 5 red |
 | QA-6 deactivation not a kill switch | MEDIUM | ✅ | 3 | remove → 2 red |
 | QA-7 real-backend specs unskippable | MEDIUM | ✅ (harness) | runner | — |
+| QA-17 **`discovery-preview` 500s on every call** | **HIGH** | ✅ | 3 | revert qualification → red |
+| QA-18 socket handshake skipped revocation | MEDIUM | ✅ | 7 | revert wiring → red |
+| QA-19 timing-unsafe secret compare | MEDIUM | ✅ | 9 | revert to `!==` → red |
 
-**Before:** 132 files / 1557 tests. **After:** 136 files / **1595 tests**. All passing, 0 skipped,
+**Before:** 132 files / 1557 tests. **After:** 138 files / **1615 tests**. All passing, 0 skipped,
 0 flaky. Build and admin:build exit 0.
 
-**Every fix was reproduced before it was written and mutation-tested after.** Two mutations produced
+**Every fix was reproduced before it was written and mutation-tested after.** Four mutations produced
 genuinely useful results rather than confirmation: one showed a defensive branch in the auth fix was
-unreachable dead code (it was removed rather than shipped as an untestable guard), and one caught a
-NULL-handling trap in QA-6 that would have logged out every user on a pre-0038 database.
+unreachable dead code (it was removed rather than shipped as an untestable guard); one caught a
+NULL-handling trap in QA-6 that would have logged out every user on a pre-0038 database; and two
+caught the QA-17 guard being **vacuous** — its first two versions passed while the known defect was
+mutated back in, because of comment-stripping ordering bugs. Without mutation testing, that guard
+would have shipped protecting nothing.
+
+**One correction to a claim made earlier in this run:** the QA-1 fix restores **7 of 8** machine-sync
+paths, not 8. `GET /placements` carries its own role check downstream of the repaired gate
+(failure-matrix L-2, pre-existing). The integration test necessarily mounts a stub downstream router,
+so it could not see that; the Playwright lane testing the real router did. An honesty guard now pins
+it.
 
 ---
 

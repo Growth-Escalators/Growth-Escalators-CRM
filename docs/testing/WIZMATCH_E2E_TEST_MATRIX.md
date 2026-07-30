@@ -29,8 +29,8 @@ test skips**, and refuses any database whose name lacks `test`/`qa`/`e2e` (exit 
 
 | | Count |
 |---|---|
-| Test files | **136** (baseline 132) |
-| Tests passed | **1595** (baseline 1557) |
+| Test files | **138** (baseline 132) |
+| Tests passed | **1615** (baseline 1557) |
 | Failed | **0** |
 | Skipped | **0** |
 | Flaky / retried | **0** |
@@ -41,7 +41,7 @@ test skips**, and refuses any database whose name lacks `test`/`qa`/`e2e` (exit 
 | Line coverage | 51.25% |
 | Duration | ~9s |
 
-**+38 tests added by this run**, all tied to a specific confirmed defect and all mutation-verified.
+**+58 tests added by this run**, all tied to a specific confirmed defect and all mutation-verified.
 
 ---
 
@@ -49,7 +49,10 @@ test skips**, and refuses any database whose name lacks `test`/`qa`/`e2e` (exit 
 
 | File | Tests | Defect | Mutation proof |
 |---|---|---|---|
-| `wizmatchMachineSyncLaneMountIntegration.test.ts` | 8 | QA-1 | 8 paths returned 403 before the fix |
+| `wizmatchMachineSyncLaneMountIntegration.test.ts` | 9 | QA-1 | 8 paths returned 403 before the fix |
+| `onConflictAmbiguousColumnGuard.test.ts` | 3 | QA-17 | revert qualification → red (guard itself was vacuous twice — see register) |
+| `auth.test.ts` (socket handshake) | 7 | QA-18 | revert wiring → red |
+| `timingSafeSecretMatch.test.ts` | 9 | QA-19 | revert one site to `!==` → red |
 | `auth.test.ts` (tenant binding) | 7 | QA-2 | delete the tenant comparison → 4 red |
 | `auth.test.ts` (deactivation) | 3 | QA-6 | remove check → 2 red; `=== false`→`!` → 1 red |
 | `usersIsActiveMigrationGuard.test.ts` | 5 | QA-3 | strip `IF NOT EXISTS` → 1 red |

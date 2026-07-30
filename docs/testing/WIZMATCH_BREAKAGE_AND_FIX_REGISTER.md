@@ -55,7 +55,21 @@ a machine viewer, plus 5 fail-closed guards (non-allowlisted path, non-GET metho
 surfaces themselves, a non-roster admin on an allowlisted path, a non-roster admin on the flagged
 surfaces) so the fix cannot be widened by accident, plus one documenting the flags-off case.
 
-**Current result.** 8/8 green. **Production follow-up:** none required — code-only.
+**Current result.** 8/8 green in the mount-chain test.
+
+**CORRECTION — the fix restores 7 of 8, not 8 of 8.** The Playwright lane tested this against the
+REAL `wizmatchRouter` and found `GET /placements` still 403s for a `viewer`: it carries its own
+`['admin','team_lead']` check at `wizmatch.ts:3352`, downstream of the gate this fix repaired. My
+integration test could not see that, because it mounts a *stub* downstream router by necessity —
+importing the real one boots a Postgres pool. The 8/8 assertion is true of the mount chain and not
+of the end-to-end result.
+
+That remaining path is failure-matrix **L-2** — pre-existing, deliberate, and feeding no cockpit
+tile. An honesty guard (`documents that /placements is still 403 ... (L-2)`) now pins the real
+router's own role check, so the 8/8 assertion can never be re-read as "the sync fully works", and
+resolving L-2 will turn it red rather than letting the claim drift.
+
+**Production follow-up:** none required — code-only.
 
 ---
 
@@ -289,3 +303,109 @@ send/spend/provider flag is pinned off explicitly.
 | **QA-14** | 22 high-severity dependency advisories (`nodemailer` CRLF, `form-data` CRLF, `axios` ReDoS, `multer` DoS). | MEDIUM | Out of scope for a behavioural QA pass; `nodemailer`/`form-data` must be upgraded **before** email is ever enabled. |
 | **QA-15** | Startup makes external PageSpeed calls despite `DISABLE_BACKGROUND_JOBS=true` (failure-matrix M-6). | MEDIUM | Verified still present. Not fixed — sits outside the WizMatch surface this run remediated, and gating it changes startup behaviour for the whole CRM. |
 | **QA-16** | Additional IDOR / tenant-tampering candidates reported by the security lane: bookings detail, `messages`/`sequences` taking `tenantId` from `req.body`, growthOS GET routes with no permission check and no `tenant_id` column. | HIGH (if confirmed) | **PLAUSIBLE, not verified by me.** Reported by a lane and not independently reproduced in the time available. Listed as the **top follow-up** — see roadmap. I do not assert these as confirmed defects. |
+
+
+---
+
+## QA-17 — `discovery-preview` 500s on every call · **HIGH** · **FIXED**
+
+**New this run.** Live-reproduced by the Playwright lane against the real backend, then confirmed
+minimally by me against PostgreSQL 18.4.
+
+| | |
+|---|---|
+| **Feature** | Contact Intelligence — discovery preview / discover |
+| **User impact** | `POST /api/wizmatch/contact-intelligence/companies/:id/discovery-preview` returned 500 for **every company, on every call**. The whole discovery-preview/discover path was non-functional. |
+| **Expected** | 200 with a discovery preview. |
+| **Actual** | 500. |
+
+**Root cause.** `src/services/wizmatchContactIntelligenceRepo.ts:763` wrote, inside an
+`ON CONFLICT ... DO UPDATE` on `wizmatch_company_intelligence`:
+
+```sql
+status = CASE WHEN review_status = 'rejected' THEN status ELSE EXCLUDED.status END
+```
+
+That table has **both** `status` and `review_status`. Inside `DO UPDATE`, an unqualified column name
+is ambiguous between the target row and `excluded`, and PostgreSQL rejects it **at parse time**:
+
+```
+ERROR:  column reference "review_status" is ambiguous
+```
+
+Parse time, not conflict time — so it was not an edge case. Reproduced minimally:
+
+| Form | Result |
+|---|---|
+| unqualified (as shipped) | `ERROR: column reference "review_status" is ambiguous` |
+| table-qualified (the fix) | applies cleanly |
+
+**Fix.** Qualify both target-table references. Verified against PostgreSQL 18.4 that this
+**preserves the intended freeze semantics exactly** (ADR-006 D-13 / H-5): a row whose
+`review_status` is `rejected` keeps its old status, and any other row takes `EXCLUDED.status`.
+
+**Tests added.** A **generic** guard (`onConflictAmbiguousColumnGuard.test.ts`) rather than a
+single assertion, because this repo has hit this bug class before: it scans every
+`ON CONFLICT DO UPDATE` block in `src/` and requires each right-hand-side column reference to be
+qualified. A unit suite cannot catch this by executing the query, and type-checking cannot see
+inside a template string — a source scan is the only mechanism that sees it at all.
+
+**Note on the guard itself.** Its first two versions were **vacuous** — they passed while the known
+defect was mutated back in. Both failures were ordering bugs in comment-stripping: stripping after
+splitting on commas let a comment containing a comma swallow the assignment, and stripping after
+locating the end delimiter let a comment containing a **backtick** truncate the block. Only mutation
+testing caught this. Fixed and re-proven: reverting the defect now turns the guard red.
+
+---
+
+## QA-18 — Socket.io handshake skipped session revocation · MEDIUM · **FIXED**
+
+**Where:** `src/middleware/auth.ts` `verifyAuthToken` (claims-only), used by the Socket.io handshake
+at `src/index.ts:594`.
+
+The handshake's own comment claimed "same token, same verification rules as every HTTP route". That
+**stopped being true** when `requireAuth` gained the DB `token_version` check. A revoked or
+offboarded user holding a still-valid JWT could open a live, tenant-scoped inbox stream — a
+real-time feed of a contact's messages — and keep it until the token expired naturally, up to 7 days.
+
+**Fix.** New `verifyAuthTokenForHandshake` reuses `currentIdentity` + `identityMismatch`, so the
+socket lane gets revocation, tenant binding and the deactivation kill switch on the same terms as
+HTTP, through the same 30s cache. Fails closed on lookup error.
+
+**Known limitation, stated rather than implied:** this applies at **handshake only**. An
+already-established connection is not re-checked, so revocation takes effect for the socket lane on
+the next connection attempt, not mid-stream. Closing that needs a periodic re-validation sweep over
+live sockets — recorded in the roadmap.
+
+**Tests added.** 7, including one pinning that the handshake uses the DB-checked verifier and not
+the claims-only one. Mutation-tested: reverting the wiring turns it red.
+
+---
+
+## QA-19 — Timing-unsafe internal-secret comparison · MEDIUM · **FIXED**
+
+**Where:** `src/routes/outreachLeads.ts:40` and `src/routes/imapReplies.ts:17` used
+`provided !== secret`, while `src/middleware/internalAuth.ts` — guarding the **same**
+`OUTREACH_INTERNAL_SECRET` — already did a constant-time compare.
+
+String `!==` short-circuits at the first differing byte, leaking length and prefix through timing.
+One of those endpoints also gates a Google-Places-cost-incurring path, so a recovered secret costs
+money as well as access.
+
+**Fix.** The comparison is extracted to a shared `timingSafeSecretMatch` helper used by all three
+call sites, so they cannot drift apart again — three sites drifting is exactly what caused this. The
+helper handles the `string[]` shape Express produces for a repeated header and does not throw on a
+length mismatch (`timingSafeEqual` would).
+
+**Tests added.** 9, including the correct-prefix case a short-circuiting compare leaks, and a
+per-file assertion that every call site uses the helper. Mutation-tested: reverting one site to
+`!==` turns it red.
+
+---
+
+## Re-adjudicated — NOT a defect
+
+**`OUTREACH_PROVIDER` unset defaults to `'smartlead_csv'`, a real provider name.** Flagged by the
+security lane as worth confirming. **Verified safe:** `KNOWN_PROVIDERS` contains only `'mock'`, so
+`isKnownProvider('smartlead_csv')` is false and `getOutreachProvider()` throws `unknown_provider`.
+It fails closed. The claim that only the mock provider can be constructed stands.
