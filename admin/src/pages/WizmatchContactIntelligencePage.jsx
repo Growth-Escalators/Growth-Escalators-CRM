@@ -171,7 +171,33 @@ function formatMinorCurrency(value, currency = 'INR') {
   }
 }
 
+// The backend produces TWO independent scores that answer different questions,
+// and conflating them is the single easiest way to email the wrong person:
+//
+//   rankingScore    (0-100) "SHOULD we contact them?" -- role fit, company tier,
+//                           signal relevance, region, relationship, confidence.
+//   confidenceScore (0-10)  "CAN we reach them?"      -- 2 base, +4 an email
+//                           exists, +4 it verified. Do-not-contact forces 0.
+//
+// Only the confidence TIER derived from confidenceScore gates outreach
+// readiness (see deriveConfidenceTier in wizmatchContactIntelligenceRepo.ts), so
+// a deliverable address for entirely the wrong person still reads "high". The
+// card previously showed rankingScore as a bare, unlabelled number and did not
+// show confidence at all, which made that distinction invisible at exactly the
+// moment an operator decides. Both are now labelled and shown side by side.
+//
+// Thresholds mirror deriveConfidenceTier exactly (>=8 high, >=6 medium, else
+// low). Kept in lockstep deliberately -- if they drift, the badge lies about
+// what the backend will actually allow.
+function confidenceTierOf(confidenceScore) {
+  if (typeof confidenceScore !== 'number') return null;
+  if (confidenceScore >= 8) return { tier: 'high', label: 'Verified email', className: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+  if (confidenceScore >= 6) return { tier: 'medium', label: 'Email unverified', className: 'bg-amber-50 text-amber-700 border-amber-200' };
+  return { tier: 'low', label: 'No usable email', className: 'bg-neutral-100 text-neutral-600 border-neutral-200' };
+}
+
 function CandidateCard({ candidate, disabled, onReview, onLinkCrm }) {
+  const confidence = confidenceTierOf(candidate.confidenceScore);
   return (
     <div className="border border-neutral-200 rounded-lg p-3 bg-white">
       <div className="flex items-start justify-between gap-3">
@@ -179,10 +205,29 @@ function CandidateCard({ candidate, disabled, onReview, onLinkCrm }) {
           <p className="font-semibold text-neutral-900">{candidate.name}</p>
           <p className="text-[12.5px] text-neutral-500">{candidate.title || 'Title needs review'}</p>
         </div>
-        <span className="inline-flex items-center justify-center w-9 h-9 rounded-md bg-primary-50 text-primary-700 font-bold border border-primary-100">
-          {candidate.rankingScore}
-        </span>
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <span
+            className="inline-flex items-center justify-center min-w-9 h-9 px-1.5 rounded-md bg-primary-50 text-primary-700 font-bold border border-primary-100"
+            title={`Relevance ${candidate.rankingScore} of 100 — how well this person fits the role, company and signal`}
+            aria-label={`Relevance score ${candidate.rankingScore} out of 100`}
+          >
+            {candidate.rankingScore}
+          </span>
+          <span className="text-[10px] uppercase tracking-wide text-neutral-400" aria-hidden="true">Relevance</span>
+        </div>
       </div>
+      {confidence && (
+        // Status is carried by TEXT, not colour alone — the colour is
+        // reinforcement, so this stays readable for colour-blind operators.
+        <p className="mt-2">
+          <span
+            className={`inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border ${confidence.className}`}
+            title={`Deliverability ${candidate.confidenceScore} of 10. This is what gates outreach readiness — it says nothing about whether this is the right person.`}
+          >
+            {confidence.label} ({candidate.confidenceScore}/10)
+          </span>
+        </p>
+      )}
       <div className="mt-2 text-[12px] text-neutral-500 space-y-1">
         <p>{candidate.email || 'No email'}{candidate.phone ? ` · ${candidate.phone}` : ''}</p>
         <p className="capitalize">{candidate.source?.replace(/_/g, ' ') || 'internal crm'}</p>
