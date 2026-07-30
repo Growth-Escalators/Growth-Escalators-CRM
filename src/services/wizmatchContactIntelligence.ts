@@ -245,9 +245,56 @@ function clamp(score: number, max: number) {
   return Math.max(0, Math.min(max, Math.round(score)));
 }
 
-function textIncludesAny(value: string, terms: string[]) {
-  const lower = value.toLowerCase();
-  return terms.some((term) => lower.includes(term));
+// Word-boundary term matching (2026-07-30).
+//
+// This was a naive substring test (`lower.includes(term)`), and it drives four
+// real decisions below: region detection, the NON_TECH **hard block**,
+// decision-maker role fit, and signal relevance. Substring matching produced
+// false matches that cost leads rather than merely skewing a score:
+//
+//   "Head of Retail Banking Technology" -> "retail"  => HARD-BLOCKED as non-tech
+//   "Doctor" / "Doctoral Researcher"    -> "cto"     => scored a decision-maker
+//   "Email Marketing Manager"           -> "ai"      => scored IT/tech-relevant
+//   "Maintenance Supervisor"            -> "ai"      => scored IT/tech-relevant
+//   "JavaScript Developer"              -> "java"    => Java/JavaScript conflation
+//
+// Separators are normalised first so "full-stack", "full_stack" and
+// "full stack" all match the term "full stack" — substring matching handled
+// none of those, so this is strictly more permissive on real variants while
+// being stricter on accidental ones. Terms are regex-escaped so a future term
+// containing a metacharacter (".net") cannot silently become a wildcard.
+//
+// Patterns are cached: this runs per candidate per term, and recompiling a
+// regex each time would be needless work on the hot path.
+const termPatternCache = new Map<string, RegExp>();
+
+function termPattern(term: string): RegExp {
+  let pattern = termPatternCache.get(term);
+  if (!pattern) {
+    const escaped = term.trim().toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Bounded by "not a letter or digit" rather than \b, so a term that begins
+    // or ends with a non-word character (".net") still anchors correctly — \b
+    // would be in the wrong place for those.
+    pattern = new RegExp(`(?:^|[^a-z0-9])${escaped}(?:[^a-z0-9]|$)`, 'i');
+    termPatternCache.set(term, pattern);
+  }
+  return pattern;
+}
+
+/** Lowercased, with separators and punctuation collapsed to single spaces. */
+function normaliseForMatch(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+export function textIncludesAny(value: string, terms: string[]) {
+  if (!value || terms.length === 0) return false;
+  const haystack = normaliseForMatch(value);
+  if (!haystack) return false;
+  return terms.some((term) => {
+    const needle = normaliseForMatch(term);
+    if (!needle) return false;
+    return termPattern(needle).test(haystack);
+  });
 }
 
 export function detectContactIntelligenceRegion(input: ContactIntelligenceInput): ContactIntelligenceRegion {
