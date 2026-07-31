@@ -162,11 +162,11 @@ export default function LoginPage() {
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500" />
             </div>
             <button type="submit" disabled={loading}
-              className="w-full bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white font-semibold rounded-lg px-4 py-2.5 text-sm transition-colors">
+              className="w-full bg-sky-700 hover:bg-sky-800 disabled:opacity-50 text-white font-semibold rounded-lg px-4 py-2.5 text-sm transition-colors">
               {loading ? 'Signing in…' : 'Sign in'}
             </button>
             <button type="button" onClick={() => { setMode('forgot'); setError(''); setMessage(''); }}
-              className="w-full text-sm text-sky-600 hover:text-sky-700 transition-colors">
+              className="w-full text-sm text-sky-700 hover:text-sky-800 transition-colors">
               Forgot password?
             </button>
           </form>
@@ -198,7 +198,7 @@ export default function LoginPage() {
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500" />
             </div>
             <button type="submit" disabled={loading}
-              className="w-full bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white font-semibold rounded-lg px-4 py-2.5 text-sm transition-colors">
+              className="w-full bg-sky-700 hover:bg-sky-800 disabled:opacity-50 text-white font-semibold rounded-lg px-4 py-2.5 text-sm transition-colors">
               {loading ? 'Sending…' : 'Send Reset Code'}
             </button>
             <button type="button" onClick={() => { setMode('login'); setError(''); setMessage(''); }}
@@ -224,7 +224,7 @@ export default function LoginPage() {
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500" />
             </div>
             <button type="submit" disabled={loading}
-              className="w-full bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white font-semibold rounded-lg px-4 py-2.5 text-sm transition-colors">
+              className="w-full bg-sky-700 hover:bg-sky-800 disabled:opacity-50 text-white font-semibold rounded-lg px-4 py-2.5 text-sm transition-colors">
               {loading ? 'Resetting…' : 'Reset Password'}
             </button>
             <button type="button" onClick={() => { setMode('login'); setError(''); setMessage(''); }}

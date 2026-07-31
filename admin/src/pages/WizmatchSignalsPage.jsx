@@ -30,8 +30,13 @@ const STATUS_BADGE = {
   placed: 'badge-success',
 };
 
+// All four branches use the 700 shade on a 500/10 tint. The >= 8 branch used
+// text-success-600, which measures ~3.3:1 against that tint — the badge is
+// 14px bold, i.e. normal-size text under WCAG, so it needs 4.5:1 and failed.
+// The 7 and 5 branches had already been moved to 700 for exactly this reason
+// (see the danger-700 note in tailwind.config.js); this one was missed.
 const scoreColor = (score) => {
-  if (score >= 8) return 'bg-success-500/10 text-success-600 border-success-500/20';
+  if (score >= 8) return 'bg-success-500/10 text-success-700 border-success-500/20';
   if (score >= 7) return 'bg-warning-500/10 text-warning-700 border-warning-500/20';
   if (score >= 5) return 'bg-primary-500/10 text-primary-700 border-primary-500/20';
   return 'bg-neutral-200 text-neutral-500 border-neutral-300';
