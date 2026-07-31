@@ -140,7 +140,11 @@ export function getWizmatchProviderEnvStatus(
     if (!snovClientId) missing.push('SNOV_CLIENT_ID');
     if (!snovClientSecret) missing.push('SNOV_CLIENT_SECRET');
   }
-  if (!env.REACHER_BASE_URL) missing.push('REACHER_BASE_URL');
+  // Either self-hosted Reacher OR MillionVerifier satisfies email verification —
+  // requiring REACHER_BASE_URL unconditionally would block discovery once a
+  // deployment has switched fully to MillionVerifier. See
+  // wizmatchEmailVerificationHealth.ts / wizmatchContactDiscoveryProviders.ts.
+  if (!env.REACHER_BASE_URL && !env.MILLIONVERIFIER_API_KEY) missing.push('REACHER_BASE_URL_or_MILLIONVERIFIER_API_KEY');
   if (opts.googleFallbackEnabled && !env.SERPER_API_KEY) missing.push('SERPER_API_KEY');
   return { missing };
 }

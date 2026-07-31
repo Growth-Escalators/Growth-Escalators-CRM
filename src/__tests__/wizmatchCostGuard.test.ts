@@ -110,6 +110,23 @@ describe('Wizmatch cost guard', () => {
     expect(providerEnv.missing).toHaveLength(0);
   });
 
+  it('is satisfied by MillionVerifier alone — REACHER_BASE_URL is not required once MillionVerifier is configured', () => {
+    const providerEnv = getWizmatchProviderEnvStatus(
+      { MILLIONVERIFIER_API_KEY: 'test-key' } as NodeJS.ProcessEnv,
+      { googleFallbackEnabled: false, enableApollo: false, enableSnov: false },
+    );
+    expect(providerEnv.missing).toHaveLength(0);
+  });
+
+  it('blocks with provider_config_missing when NEITHER Reacher nor MillionVerifier is configured', () => {
+    const providerEnv = getWizmatchProviderEnvStatus(
+      {} as NodeJS.ProcessEnv,
+      { googleFallbackEnabled: false, enableApollo: false, enableSnov: false },
+    );
+    expect(providerEnv.missing.length).toBeGreaterThan(0);
+    expect(evaluate({ providerEnv }).blockCode).toBe('provider_config_missing');
+  });
+
   it('returns zero usage when the optional discovery-runs table is missing', async () => {
     const pool = {
       query: async () => {

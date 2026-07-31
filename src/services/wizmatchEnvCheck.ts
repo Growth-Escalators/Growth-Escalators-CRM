@@ -76,7 +76,13 @@ export const WIZMATCH_ENV_CHECKS: WizmatchEnvCheckDefinition[] = [
     key: 'REACHER_BASE_URL',
     requirement: 'recommended',
     group: 'Contact discovery',
-    note: 'Email verification endpoint.',
+    note: 'Self-hosted email verification endpoint. Falls back to MILLIONVERIFIER_API_KEY automatically if unset or failing.',
+  },
+  {
+    key: 'MILLIONVERIFIER_API_KEY',
+    requirement: 'recommended',
+    group: 'Contact discovery',
+    note: 'Hosted email-verification provider — the fallback/replacement for a decommissioned or failing Reacher instance.',
   },
   {
     key: 'SERPER_API_KEY',
