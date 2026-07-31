@@ -184,9 +184,22 @@ export const WIZMATCH_ROUTES: WizmatchRouteDefinition[] = [
     breadcrumb: { label: 'Tasks' }, legacyAliases: [], searchVisible: true,
   },
   {
-    id: 'more-discovery', label: 'Lead Discovery', path: '/wizmatch/discover', icon: MapPin,
+    // UX audit 2026-07-31 (top-10 finding #2) — this label used to read
+    // "Lead Discovery", which every Wizmatch operator reasonably reads as
+    // "find more hiring companies/signals". It is not: `/wizmatch/discover`
+    // renders the SAME `LeadDiscoveryPage.jsx` the Growth CRM tenant mounts
+    // at plain `/discover` (see navEntries.js `id: 'discover'`) — a Google
+    // Places local-business search (defaults to "United Kingdom") built for
+    // Growth's outbound sales prospecting, with zero connection to Wizmatch
+    // job signals, companies, or candidates, and a visually distinct dark
+    // theme that breaks continuity with the rest of the Wizmatch admin. A
+    // Wizmatch operator who clicks this looking for "more companies to
+    // pursue" lands somewhere irrelevant. Same trap already called out for
+    // `more-outreach` above; renamed honestly rather than repeating it.
+    // Wizmatch's own company/signal sourcing lives on the Job Leads page.
+    id: 'more-discovery', label: 'Local Business Finder (Growth CRM tool)', path: '/wizmatch/discover', icon: MapPin,
     group: 'more.crmUtilities', moreSection: 'CRM Utilities', permission: 'canDiscovery',
-    breadcrumb: { label: 'Lead Discovery' }, legacyAliases: [], searchVisible: true,
+    breadcrumb: { label: 'Local Business Finder' }, legacyAliases: [], searchVisible: true,
   },
   {
     id: 'find-contact', label: 'Find Contact', path: '/wizmatch/find-contact', icon: Search,

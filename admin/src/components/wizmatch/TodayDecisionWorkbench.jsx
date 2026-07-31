@@ -75,36 +75,29 @@ function primaryActionFor(item) {
 // admin/src/lib/todayActionCapabilities.js. An action we cannot prove the user
 // may take is not shown as available.
 
-// Renders one contextual action. When disabled, the reason is BOTH visible
-// text and the button's `aria-describedby` target — the same pattern the "No
-// action available" affordance below uses. Each action carries its own id
-// because two actions on one card can be disabled for different reasons at
-// the same time.
-function ActionButton({ item, action, label, className, onAction }) {
-  const { enabled, reason } = capabilityFor(item, action);
-  const reasonId = `action-reason-${item.companyId}-${action}`;
+// Renders one fully-resolved contextual action. `enabled`/`reasonId` are
+// computed by the caller (CompanyCard) rather than here — see the note below
+// on why disabled-reason TEXT is deduplicated and rendered once per row
+// instead of once per button, while every disabled button still keeps its
+// own `aria-describedby` link (pointing at a SHARED id when the reason is
+// identical, so the a11y association survives the dedup).
+function ActionButton({ label, className, enabled, reasonId, onClick }) {
   if (enabled) {
     return (
-      <button type="button" onClick={() => onAction(action, item)} className={className}>
+      <button type="button" onClick={onClick} className={className}>
         {label}
       </button>
     );
   }
   return (
-    <span className="inline-flex flex-wrap items-center gap-1">
-      <button
-        type="button"
-        disabled
-        aria-describedby={reasonId}
-        className={`${className} disabled:opacity-40 disabled:cursor-not-allowed`}
-      >
-        {label}
-      </button>
-      <span id={reasonId} className="text-[11px] text-neutral-500">
-        <AlertTriangle className="inline w-3 h-3 mr-0.5 -mt-0.5" aria-hidden="true" />
-        {reason}
-      </span>
-    </span>
+    <button
+      type="button"
+      disabled
+      aria-describedby={reasonId}
+      className={`${className} disabled:opacity-40 disabled:cursor-not-allowed`}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -119,6 +112,40 @@ function CompanyCard({ item, onAction, isStale }) {
   const disabledReason = item.disabledReason
     || 'No action is available for this company in its current state. Open the company drawer for the full policy history.';
   const disabledReasonId = `disabled-reason-${item.companyId}`;
+
+  // UX audit 2026-07-31 (top-10 finding #1) — this is the single most-viewed
+  // screen in the product (Today is the landing page) and every disabled
+  // action used to print its OWN copy of the same sentence next to its own
+  // button. A row can attempt up to 6 actions (primary + confirm_separate +
+  // assign_owner + set_review_date + pause/block/skip); when the backend
+  // omits/malforms `item.capabilities` (fails closed, by design — see
+  // todayActionCapabilities.js), ALL of them fall back to the identical
+  // "Unable to determine permissions…" text, so one row could print that
+  // exact sentence 6 times. `attemptedActions` mirrors the SAME conditions as
+  // the JSX below (must stay in sync) so every button gets its capability
+  // resolved exactly once, and identical reason text is deduped to a single
+  // visible line shared via `aria-describedby` by every button that has it.
+  const attemptedActions = [];
+  if (primary) attemptedActions.push({ key: 'primary', action: primary.action, label: primary.label, className: 'btn-primary btn-compact' });
+  if (item.duplicatePending) attemptedActions.push({ key: 'confirm_separate', action: 'confirm_separate', label: 'Confirm Separate', className: 'btn-standard btn-compact' });
+  attemptedActions.push({ key: 'assign_owner', action: 'assign_owner', label: 'Assign Owner', className: 'btn-standard btn-compact' });
+  attemptedActions.push({ key: 'set_review_date', action: 'set_review_date', label: 'Set Review Date', className: 'btn-standard btn-compact' });
+  if (effectiveDecisionOf(item) !== 'deny') {
+    attemptedActions.push({ key: 'pause', action: 'pause', label: 'Pause', className: 'btn-standard btn-compact' });
+    attemptedActions.push({ key: 'block', action: 'block', label: 'Block', className: 'btn-standard btn-compact' });
+    attemptedActions.push({ key: 'skip', action: 'skip', label: 'Skip for Now', className: 'btn-standard btn-compact' });
+  }
+  const reasonIdByText = new Map();
+  const resolvedActions = attemptedActions.map((a) => {
+    const { enabled, reason } = capabilityFor(item, a.action);
+    if (enabled) return { ...a, enabled: true, reasonId: null };
+    if (!reasonIdByText.has(reason)) {
+      reasonIdByText.set(reason, `action-reason-${item.companyId}-${reasonIdByText.size}`);
+    }
+    return { ...a, enabled: false, reasonId: reasonIdByText.get(reason) };
+  });
+  const distinctReasons = [...reasonIdByText.entries()]; // [[reasonText, sharedId], ...] in first-seen order
+
   return (
     <div className="space-y-1.5">
       <div className="flex flex-wrap items-center gap-2">
@@ -165,33 +192,23 @@ function CompanyCard({ item, onAction, isStale }) {
         <p className="text-[11.5px] text-warning-700">Requires explicit approval before queueing or export.</p>
       )}
       <div className="flex flex-wrap items-center gap-2 pt-1">
-        {primary ? (
+        {resolvedActions.map((a) => (
           <ActionButton
-            item={item}
-            action={primary.action}
-            label={primary.label}
-            className="btn-primary btn-compact"
-            onAction={onAction}
+            key={a.key}
+            label={a.label}
+            className={a.className}
+            enabled={a.enabled}
+            reasonId={a.reasonId}
+            onClick={() => onAction(a.action, item)}
           />
-        ) : (
+        ))}
+        {!primary && (
           <span
             className="text-[11.5px] text-neutral-500"
             aria-describedby={disabledReasonId}
           >
             No action available
           </span>
-        )}
-        {item.duplicatePending && (
-          <ActionButton item={item} action="confirm_separate" label="Confirm Separate" className="btn-standard btn-compact" onAction={onAction} />
-        )}
-        <ActionButton item={item} action="assign_owner" label="Assign Owner" className="btn-standard btn-compact" onAction={onAction} />
-        <ActionButton item={item} action="set_review_date" label="Set Review Date" className="btn-standard btn-compact" onAction={onAction} />
-        {effectiveDecisionOf(item) !== 'deny' && (
-          <>
-            <ActionButton item={item} action="pause" label="Pause" className="btn-standard btn-compact" onAction={onAction} />
-            <ActionButton item={item} action="block" label="Block" className="btn-standard btn-compact" onAction={onAction} />
-            <ActionButton item={item} action="skip" label="Skip for Now" className="btn-standard btn-compact" onAction={onAction} />
-          </>
         )}
         {(item.disabledReason || !primary) && (
           <span id={disabledReasonId} className="text-[11px] text-neutral-500" aria-label={`Disabled: ${disabledReason}`}>
@@ -200,6 +217,20 @@ function CompanyCard({ item, onAction, isStale }) {
           </span>
         )}
       </div>
+      {/* Deduped disabled-reason text — every disabled button above still
+          links here via aria-describedby (sharing an id when the reason is
+          identical), but the SENTENCE itself is printed once per distinct
+          reason instead of once per button. */}
+      {distinctReasons.length > 0 && (
+        <div className="flex flex-col gap-0.5">
+          {distinctReasons.map(([text, id]) => (
+            <span key={id} id={id} className="text-[11px] text-neutral-500">
+              <AlertTriangle className="inline w-3 h-3 mr-0.5 -mt-0.5" aria-hidden="true" />
+              {text}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
