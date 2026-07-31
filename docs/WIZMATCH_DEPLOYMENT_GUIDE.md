@@ -114,7 +114,8 @@ The command prints only presence/absence and source key names. It never prints s
 | `SEARCHAPI_API_KEY` | SearchAPI.io requirement-first X-Ray and named-POC public research. |
 | `APOLLO_API_KEY` | Approved primary paid contact discovery provider. |
 | `SNOV_CLIENT_ID` / `SNOV_CLIENT_SECRET` | Approved secondary contact discovery provider. Legacy aliases are supported by code. |
-| `REACHER_BASE_URL` | Email verification endpoint. |
+| `REACHER_BASE_URL` | Self-hosted email verification endpoint. Falls back to `MILLIONVERIFIER_API_KEY` automatically if unset or failing. |
+| `MILLIONVERIFIER_API_KEY` | Hosted email-verification fallback/replacement for Reacher. |
 | `PURELYMAIL_SMTP_HOST` / `PURELYMAIL_SMTP_PORT` | Purelymail SMTP settings. |
 | `PURELYMAIL_SMTP_USER_1..6` / `PURELYMAIL_SMTP_PASS_1..6` | Sender inbox credentials. |
 | `WIZMATCH_PHYSICAL_ADDRESS` | Required for compliant email footers before any outreach is sent. |

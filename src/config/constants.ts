@@ -55,6 +55,12 @@ export const WIZMATCH_PHYSICAL_ADDRESS = process.env.WIZMATCH_PHYSICAL_ADDRESS ?
 export const WIZMATCH_UNSUBSCRIBE_HMAC_SECRET = process.env.WIZMATCH_UNSUBSCRIBE_HMAC_SECRET ?? '';
 export const WIZMATCH_MEETING_URL = process.env.WIZMATCH_MEETING_URL ?? 'https://cal.com/wizmatch/intro';
 
+// Email verification provider (Reacher / MillionVerifier) failed silently for an
+// unknown period — this cooldown throttles the loud-failure Slack alert to once
+// per window rather than once per failed verification call. See
+// wizmatchEmailVerificationHealth.ts.
+export const WIZMATCH_EMAIL_VERIFY_ALERT_COOLDOWN_MINUTES = Number(process.env.WIZMATCH_EMAIL_VERIFY_ALERT_COOLDOWN_MINUTES ?? '60');
+
 // Branding for generated documents (RTR, requirement sheets). Override per-env.
 export const WIZMATCH_BRAND_NAME = process.env.WIZMATCH_BRAND_NAME ?? 'Wizmatch';
 export const WIZMATCH_BRAND_TAGLINE = process.env.WIZMATCH_BRAND_TAGLINE ?? 'IT Staffing & Consulting — US & India';

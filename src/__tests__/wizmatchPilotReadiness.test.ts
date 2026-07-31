@@ -479,3 +479,34 @@ describe('assessWizmatchPilotReadiness — safety properties', () => {
     expect(backfillFinding?.message).toMatch(/not checkable without a DB connection/);
   });
 });
+
+describe('assessWizmatchPilotReadiness — email verification provider (warning, not danger)', () => {
+  it('warns (never dangers) when neither Reacher nor MillionVerifier is configured', () => {
+    const report = assessWizmatchPilotReadiness({ env: baseEnv(), repoRoot });
+    const finding = report.findings.find((f) => f.code === 'email-verification:provider');
+    expect(finding?.severity).toBe('warning');
+    expect(finding?.message).toMatch(/both unset/);
+    // A missing verifier degrades quality, it does not threaten pilot safety.
+    expect(report.dangerous).toBe(false);
+  });
+
+  it('is ok when REACHER_BASE_URL is configured', () => {
+    const report = assessWizmatchPilotReadiness({ env: baseEnv({ REACHER_BASE_URL: 'https://reacher.example' }), repoRoot });
+    const finding = report.findings.find((f) => f.code === 'email-verification:provider');
+    expect(finding?.severity).toBe('ok');
+    expect(finding?.message).toContain('REACHER_BASE_URL');
+  });
+
+  it('is ok when only MILLIONVERIFIER_API_KEY is configured', () => {
+    const report = assessWizmatchPilotReadiness({ env: baseEnv({ MILLIONVERIFIER_API_KEY: 'test-key' }), repoRoot });
+    const finding = report.findings.find((f) => f.code === 'email-verification:provider');
+    expect(finding?.severity).toBe('ok');
+    expect(finding?.message).toContain('MILLIONVERIFIER_API_KEY');
+  });
+
+  it('never prints the MillionVerifier key value', () => {
+    const report = assessWizmatchPilotReadiness({ env: baseEnv({ MILLIONVERIFIER_API_KEY: 'sk-super-secret-mv-key' }), repoRoot });
+    const joined = report.findings.map((f) => f.message).join('\n');
+    expect(joined).not.toContain('sk-super-secret-mv-key');
+  });
+});

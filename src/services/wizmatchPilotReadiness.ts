@@ -223,6 +223,23 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
       : 'Paid-discovery flags remain disabled.',
   );
 
+  // 8b. Email verification provider — presence only, warning (not danger): a
+  //     missing verifier doesn't threaten pilot safety, it silently degrades
+  //     quality. Neither REACHER_BASE_URL nor MILLIONVERIFIER_API_KEY being set
+  //     caps every discovered contact's confidenceScore at 6 ("medium" tier),
+  //     so contacts stay stuck in Needs Review and never reach Ready to
+  //     Contact — see wizmatchEmailVerificationHealth.ts for the runtime
+  //     loud-failure side of this same incident class.
+  const hasReacher = Boolean(env.REACHER_BASE_URL);
+  const hasMillionVerifier = Boolean(env.MILLIONVERIFIER_API_KEY);
+  push(
+    'email-verification:provider',
+    hasReacher || hasMillionVerifier ? 'ok' : 'warning',
+    hasReacher || hasMillionVerifier
+      ? `Email verification provider configured (${[hasReacher && 'REACHER_BASE_URL', hasMillionVerifier && 'MILLIONVERIFIER_API_KEY'].filter(Boolean).join(', ')}).`
+      : 'No email verification provider configured (REACHER_BASE_URL / MILLIONVERIFIER_API_KEY both unset) — every discovered contact will be capped at confidence tier "medium".',
+  );
+
   // 9. Provider selection. The pilot's configuration contract says "no
   //    provider is selected", so an UNRECOGNISED non-empty `OUTREACH_PROVIDER`
   //    is dangerous on its own — not only when the adapter flag happens to be

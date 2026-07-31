@@ -2,6 +2,10 @@ import { promises as dns } from 'dns';
 import logger from '../utils/logger';
 import { collectWebsiteEmails, guessEmailCandidates } from './emailExtractorService';
 import { isSafeFetchUrl } from '../utils/ssrfGuard';
+import {
+  recordEmailVerificationFailure,
+  recordEmailVerificationSuccess,
+} from './wizmatchEmailVerificationHealth';
 
 export type WizmatchDiscoveryProviderSource =
   | 'apollo'
@@ -83,17 +87,36 @@ export async function classifyMxProvider(domain: string): Promise<WizmatchMxProv
   }
 }
 
+/** Which email verification provider(s) are configured, in try-order. Reacher
+ * (free, self-hosted) is preferred when configured; MillionVerifier (hosted,
+ * paid-per-check) is the fallback / replacement — this is the only provider
+ * left standing now that Reacher's self-hosted Railway instance has been
+ * decommissioned. Exported so callers (detectCatchAll below, cost-guard env
+ * checks, readiness reporting) can all ask "is verification possible at all"
+ * without hardcoding REACHER_BASE_URL. */
+export type WizmatchEmailVerificationProvider = 'reacher' | 'millionverifier';
+
+export function getConfiguredEmailVerificationProviders(
+  env: NodeJS.ProcessEnv = process.env,
+): WizmatchEmailVerificationProvider[] {
+  const order: WizmatchEmailVerificationProvider[] = [];
+  if (env.REACHER_BASE_URL) order.push('reacher');
+  if (env.MILLIONVERIFIER_API_KEY) order.push('millionverifier');
+  return order;
+}
+
 /**
- * Detects a catch-all domain by asking Reacher to verify a random non-existent
- * address. If that "passes", the domain accepts everything, so a "verified" guess
- * is meaningless — the caller downgrades such contacts to low confidence.
- * Returns null when we cannot determine (no Reacher configured / error).
+ * Detects a catch-all domain by asking the configured verifier to check a
+ * random non-existent address. If that "passes", the domain accepts
+ * everything, so a "verified" guess is meaningless — the caller downgrades
+ * such contacts to low confidence. Returns null when we cannot determine (no
+ * verification provider configured / error).
  */
 export async function detectCatchAll(
   domain: string,
   reacherVerify: (email: string) => Promise<'verified' | 'invalid' | 'unknown'>,
 ): Promise<boolean | null> {
-  if (!process.env.REACHER_BASE_URL) return null;
+  if (getConfiguredEmailVerificationProviders().length === 0) return null;
   const probe = `wm-no-such-user-${Date.now().toString(36)}@${domain}`;
   const result = await reacherVerify(probe).catch(() => 'unknown' as const);
   if (result === 'verified') return true;
@@ -163,6 +186,88 @@ function titleScore(title: string | null) {
 function intEnv(value: string | undefined, defaultValue: number) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : defaultValue;
+}
+
+interface EmailVerificationAttempt {
+  status: 'verified' | 'invalid' | 'unknown';
+  // false ONLY when the call itself failed (unreachable, non-2xx, timeout, or
+  // an unparseable/error response) — never when the provider legitimately
+  // reports an ambiguous result (e.g. catch_all). The dispatcher uses this to
+  // decide whether to fall through to the next configured provider and to
+  // fire the loud-failure path; `status` alone must never be trusted to mean
+  // "this call succeeded".
+  ok: boolean;
+  detail?: string;
+}
+
+async function attemptReacherVerify(email: string): Promise<EmailVerificationAttempt> {
+  const baseUrl = process.env.REACHER_BASE_URL;
+  if (!baseUrl) return { status: 'unknown', ok: true };
+  try {
+    const res = await fetch(`${baseUrl.replace(/\/$/, '')}/v0/check_email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to_email: email }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      return { status: 'unknown', ok: false, detail: `Reacher HTTP ${res.status}: ${body.slice(0, 200)}` };
+    }
+    const data = await res.json() as { is_reachable?: string };
+    if (data.is_reachable === 'safe' || data.is_reachable === 'risky') return { status: 'verified', ok: true };
+    if (data.is_reachable === 'invalid') return { status: 'invalid', ok: true };
+    return { status: 'unknown', ok: true };
+  } catch (error) {
+    return { status: 'unknown', ok: false, detail: error instanceof Error ? error.message : 'Reacher request failed' };
+  }
+}
+
+const MILLIONVERIFIER_BASE_URL = process.env.MILLIONVERIFIER_BASE_URL || 'https://api.millionverifier.com/api/v3/';
+
+/**
+ * MillionVerifier real-time single-email verification.
+ *
+ * Contract verified 31 Jul 2026 against the official docs
+ * (https://developer.millionverifier.com/) and the sample-code repo's result
+ * table (https://github.com/hubuco/millionverifier-real-time-api-v3):
+ *
+ *   GET https://api.millionverifier.com/api/v3/?api=<KEY>&email=<EMAIL>&timeout=<2-60>
+ *   -> 200 JSON: { email, result, resultcode, quality, subresult, free, role,
+ *                  didyoumean, credits, executiontime, error, livemode }
+ *   result:  'ok' | 'catch_all' | 'unknown' | 'error' | 'disposable' | 'invalid'
+ *            (resultcode 1-6 respectively)
+ *   quality: 'good' | 'risky' | 'bad'
+ *
+ * Mapping is deliberately conservative (fail closed — see rule 3 in the task
+ * that added this): only `result === 'ok'` with quality either absent or
+ * 'good' counts as verified. `invalid` and `disposable` map to invalid (a
+ * disposable/temp-mail inbox is never a legitimate hiring contact). Every
+ * other value — `catch_all`, `unknown`, `error`, an `error` field on an
+ * otherwise-200 response, or anything we don't recognise — maps to unknown,
+ * NEVER verified.
+ */
+async function attemptMillionVerifierVerify(email: string): Promise<EmailVerificationAttempt> {
+  const apiKey = process.env.MILLIONVERIFIER_API_KEY;
+  if (!apiKey) return { status: 'unknown', ok: true };
+  try {
+    const url = `${MILLIONVERIFIER_BASE_URL}?api=${encodeURIComponent(apiKey)}&email=${encodeURIComponent(email)}&timeout=15`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      return { status: 'unknown', ok: false, detail: `MillionVerifier HTTP ${res.status}: ${body.slice(0, 200)}` };
+    }
+    const data = await res.json() as { result?: string; quality?: string; error?: string };
+    if (data.error) {
+      return { status: 'unknown', ok: false, detail: `MillionVerifier error: ${data.error}` };
+    }
+    if (data.result === 'invalid' || data.result === 'disposable') return { status: 'invalid', ok: true };
+    if (data.result === 'ok' && (!data.quality || data.quality === 'good')) return { status: 'verified', ok: true };
+    // catch_all / unknown / an unrecognised result value — fail closed to unknown.
+    return { status: 'unknown', ok: true };
+  } catch (error) {
+    return { status: 'unknown', ok: false, detail: error instanceof Error ? error.message : 'MillionVerifier request failed' };
+  }
 }
 
 function candidateFromRaw(
@@ -331,24 +436,35 @@ export function createDefaultWizmatchContactDiscoveryProviders(): WizmatchContac
     },
 
     async reacherVerify(email) {
-      const baseUrl = process.env.REACHER_BASE_URL;
-      if (!baseUrl) return 'unknown';
-      try {
-        const res = await fetch(`${baseUrl.replace(/\/$/, '')}/v0/check_email`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ to_email: email }),
-          signal: AbortSignal.timeout(15000),
-        });
-        if (!res.ok) return 'unknown';
-        const data = await res.json() as { is_reachable?: string };
-        if (data.is_reachable === 'safe' || data.is_reachable === 'risky') return 'verified';
-        if (data.is_reachable === 'invalid') return 'invalid';
-        return 'unknown';
-      } catch (error) {
-        logger.warn({ err: error, email }, '[wizmatch-contact-discovery] Reacher failed');
+      // Despite the name (kept so the discovery cascade and its callers never
+      // needed restructuring — see wizmatchContactDiscovery.ts's verifyCandidates
+      // and detectCatchAll above), this now dispatches across whichever email
+      // verification provider(s) are configured. Reacher is tried first when
+      // configured; MillionVerifier is tried next — either as the sole
+      // provider, or as an automatic fallback if Reacher is configured but
+      // currently broken (the exact incident this file was hardened for: a
+      // decommissioned self-hosted Reacher returning a 404 for every request).
+      const order = getConfiguredEmailVerificationProviders();
+      if (order.length === 0) {
+        await recordEmailVerificationFailure(
+          'unconfigured',
+          'No email verification provider configured (REACHER_BASE_URL / MILLIONVERIFIER_API_KEY both unset).',
+        );
         return 'unknown';
       }
+      for (const provider of order) {
+        const attempt = provider === 'reacher'
+          ? await attemptReacherVerify(email)
+          : await attemptMillionVerifierVerify(email);
+        if (attempt.ok) {
+          recordEmailVerificationSuccess(provider);
+          return attempt.status;
+        }
+        await recordEmailVerificationFailure(provider, attempt.detail || `${provider} verification failed`);
+        // Fall through to the next configured provider rather than handing the
+        // caller a silent 'unknown' for a single dead verifier.
+      }
+      return 'unknown';
     },
 
     async googleFallbackSearch(input) {

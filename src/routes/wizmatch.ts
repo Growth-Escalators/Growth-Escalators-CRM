@@ -95,6 +95,7 @@ import {
   isWizmatchXrayCandidateSourcingEnabled,
 } from '../services/wizmatchContactDiscovery';
 import { getWizmatchAutomationStatus } from '../services/wizmatchAutomation';
+import { getWizmatchEmailVerificationHealthSnapshot } from '../services/wizmatchEmailVerificationHealth';
 import logger from '../utils/logger';
 import { mineGithubCandidates } from '../services/wizmatchGithubMiner';
 import { runRequirementXray, runXrayScrape } from '../services/wizmatchXrayScraper';
@@ -1575,7 +1576,12 @@ router.get('/readiness', async (req: Request, res: Response) => {
     getWizmatchReadiness(pool, tenantId),
     buildContactDiscoveryCostControls(tenantId, req.user?.id),
   ]);
-  res.json({ ...readiness, costControls, automation: getWizmatchAutomationStatus() });
+  res.json({
+    ...readiness,
+    costControls,
+    automation: getWizmatchAutomationStatus(),
+    emailVerification: getWizmatchEmailVerificationHealthSnapshot(),
+  });
 });
 
 /**
