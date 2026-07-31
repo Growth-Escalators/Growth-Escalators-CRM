@@ -14,6 +14,7 @@ import logger from '../utils/logger';
 import { upsertSaleshandyStats } from './outreachFunnelMetrics';
 import { sendSlackDM } from './slackService';
 import { SLACK_JATIN } from '../config/constants';
+import { slackDigestEnabled } from '../utils/slackDigestFlag';
 
 const BOUNCE_ALERT_THRESHOLD = 0.05; // 5% — alert if bounces / sent exceeds this
 
@@ -88,6 +89,16 @@ export async function pollSaleshandyStats(): Promise<{ ok: boolean; stats?: Sale
 
   // Deliverability alert — fires once per daily cron run if bounce rate breaches
   // 5% OR nothing was sent today (either signal is worth waking Jatin for).
+  //
+  // 2026-07-31 — owner asked for this DM off. Gated HERE rather than at the
+  // cron, because the upsertSaleshandyStats above is what snapshotTodaysFunnel
+  // reads 30 minutes later; gating the cron would silently break the funnel
+  // numbers. Default OFF, same fail-closed parser as the worker's cron gates.
+  if (!slackDigestEnabled('SALESHANDY_ALERT_SLACK_ENABLED')) {
+    logger.info({ stats }, '[saleshandy-stats] poll complete (Slack alert disabled)');
+    return { ok: true, stats };
+  }
+
   if (stats.sent > 0) {
     const bounceRate = stats.bounces / stats.sent;
     if (bounceRate >= BOUNCE_ALERT_THRESHOLD) {

@@ -21,6 +21,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { slackDigestEnabled } from '../utils/slackDigestFlag';
 
 const source = readFileSync(join(__dirname, '..', 'worker.ts'), 'utf8');
 
@@ -41,6 +42,15 @@ const GATED_SOD_EOD = [
   "safeCron('Evening Summary'",
   "safeCron('Team SOD Prompt', sendTeamSODPrompt)",
   "safeCron('Team EOD Prompt', sendTeamEODPrompt)",
+];
+
+// 2026-07-31 second pass — the rest of the recurring Growth Escalators Slack
+// traffic. Each entry: the cron job, and the flag that must gate it.
+const GATED_GE_DIGESTS: Array<[needle: string, flag: string]> = [
+  ["safeCron('Morning Briefing'", 'MORNING_BRIEFING_SLACK_ENABLED'],
+  ["safeCron('Social Media Prompt', sendSocialMediaPrompt)", 'SOCIAL_PROMPT_SLACK_ENABLED'],
+  ["safeCron('Weekly Outreach Summary'", 'OUTREACH_SUMMARY_SLACK_ENABLED'],
+  ["safeCron('SEO Weekly Digest'", 'SEO_DIGEST_SLACK_ENABLED'],
 ];
 
 /** The cron.schedule(...) statement that registers a given job. */
@@ -71,24 +81,90 @@ describe('SOD/EOD Slack digests are gated OFF by default', () => {
   });
 });
 
-describe('slackDigestEnabled fails closed', () => {
-  // Mirrors the helper in worker.ts exactly. If that implementation is loosened
-  // (e.g. to `!== 'false'`), these cases are the ones that break.
-  const enabled = (v: string | undefined) =>
-    ['1', 'true', 'yes', 'on'].includes(String(v || '').trim().toLowerCase());
+describe('the remaining Growth Escalators Slack digests are gated OFF by default', () => {
+  it.each(GATED_GE_DIGESTS)('%s is registered only when %s', (needle, flag) => {
+    expect(schedulerLineFor(needle)).toContain(`if (${flag})`);
+  });
 
+  it.each(GATED_GE_DIGESTS)('%s reads %s from the environment', (_needle, flag) => {
+    expect(bare).toMatch(new RegExp(`const ${flag} = slackDigestEnabled\\('${flag}'\\)`));
+    expect(bare).not.toMatch(new RegExp(`const ${flag} = true`));
+  });
+});
+
+describe('Saleshandy: the DM is gated but the funnel data write is NOT', () => {
+  // pollSaleshandyStats does two things: upsertSaleshandyStats (which
+  // snapshotTodaysFunnel reads 30 min later) and a deliverability DM. Gating
+  // the CRON would have silently broken the funnel numbers. This pins the
+  // split so a later "simplification" cannot collapse them.
+  const svc = readFileSync(join(__dirname, '..', 'services', 'saleshandyStatsService.ts'), 'utf8');
+  const svcBare = svc
+    .split('\n')
+    .filter((l) => {
+      const t = l.trim();
+      return !t.startsWith('//') && !t.startsWith('*') && !t.startsWith('/*');
+    })
+    .join('\n');
+
+  it('the Saleshandy cron itself is still registered unconditionally', () => {
+    expect(schedulerLineFor("safeCron('Saleshandy Stats Poll'")).not.toContain('if (');
+  });
+
+  it('the stats upsert runs before any gate returns', () => {
+    const upsertAt = svcBare.indexOf('await upsertSaleshandyStats(stats)');
+    const gateAt = svcBare.indexOf("slackDigestEnabled('SALESHANDY_ALERT_SLACK_ENABLED')");
+    expect(upsertAt, 'upsertSaleshandyStats call not found').toBeGreaterThan(-1);
+    expect(gateAt, 'SALESHANDY_ALERT_SLACK_ENABLED gate not found').toBeGreaterThan(-1);
+    expect(upsertAt).toBeLessThan(gateAt);
+  });
+
+  it('every sendSlackDM in the service sits behind the gate', () => {
+    const gateAt = svcBare.indexOf("slackDigestEnabled('SALESHANDY_ALERT_SLACK_ENABLED')");
+    const dmPositions: number[] = [];
+    for (let i = svcBare.indexOf('sendSlackDM('); i > -1; i = svcBare.indexOf('sendSlackDM(', i + 1)) {
+      if (svcBare.slice(0, i).includes('import')) dmPositions.push(i);
+    }
+    const callSites = dmPositions.filter((p) => !svcBare.slice(p - 60, p).includes('import'));
+    expect(callSites.length, 'expected at least one sendSlackDM call site').toBeGreaterThan(0);
+    for (const p of callSites) expect(p).toBeGreaterThan(gateAt);
+  });
+
+  it('the gate returns ok:true so callers do not treat a silenced run as a failure', () => {
+    const gateAt = svcBare.indexOf("if (!slackDigestEnabled('SALESHANDY_ALERT_SLACK_ENABLED'))");
+    expect(gateAt).toBeGreaterThan(-1);
+    expect(svcBare.slice(gateAt, gateAt + 320)).toContain('return { ok: true, stats }');
+  });
+});
+
+describe('slackDigestEnabled fails closed', () => {
+  // The REAL exported helper, not a mirror of it. It moved out of worker.ts
+  // into utils/ so the cron gates and the in-service Saleshandy gate share one
+  // parser; importing it here means these cases test the shipped code path.
   it.each([undefined, '', ' ', 'false', 'no', 'off', '0', 'TRUEISH', 'disabled'])(
-    'treats %j as OFF', (v) => expect(enabled(v)).toBe(false));
+    'treats %j as OFF', (v) => expect(slackDigestEnabled('F', { F: v })).toBe(false));
 
   it.each(['true', 'TRUE', ' true ', '1', 'yes', 'on'])(
-    'treats %j as ON', (v) => expect(enabled(v)).toBe(true));
+    'treats %j as ON', (v) => expect(slackDigestEnabled('F', { F: v })).toBe(true));
 
-  it('the real helper uses the same allow-list (not a !== "false" test)', () => {
-    const m = bare.match(/function slackDigestEnabled[\s\S]{0,220}?\n\}/);
-    expect(m, 'slackDigestEnabled not found').toBeTruthy();
-    expect(m![0]).toContain("['1', 'true', 'yes', 'on']");
-    // An unset var must not read as enabled.
-    expect(m![0]).not.toMatch(/!==\s*'false'/);
+  it('an entirely absent variable is OFF', () => {
+    expect(slackDigestEnabled('NEVER_SET_ANYWHERE', {})).toBe(false);
+  });
+
+  it('is not a !== "false" test (that would make a typo mean ON)', () => {
+    // Comments stripped first: the file's own header *describes* the
+    // `!== 'false'` anti-pattern, and matching that prose would fail the
+    // assertion against correct code.
+    const util = readFileSync(join(__dirname, '..', 'utils', 'slackDigestFlag.ts'), 'utf8')
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('//'))
+      .join('\n');
+    expect(util).toContain("['1', 'true', 'yes', 'on']");
+    expect(util).not.toMatch(/!==\s*'false'/);
+  });
+
+  it('worker.ts uses the shared helper rather than redefining it', () => {
+    expect(bare).toMatch(/import \{ slackDigestEnabled \} from '\.\/utils\/slackDigestFlag'/);
+    expect(bare).not.toMatch(/function slackDigestEnabled/);
   });
 });
 

@@ -11,6 +11,7 @@ import { startSequenceWorker } from './workers/sequenceWorker';
 import { startSocialPostWorker } from './workers/socialPostWorker';
 import { startEdgeQueueDrainer, stopEdgeQueueDrainer } from './services/edgeQueueDrainer';
 import { startJobDrainer, stopJobDrainer } from './services/jobDrainer';
+import { slackDigestEnabled } from './utils/slackDigestFlag';
 import { checkAndAlertBlockers } from './services/blockerAlertService';
 import { generateMonthlyDraftInvoices } from './services/recurringInvoiceService';
 import { sendSODDigest, sendEODSummary, sendSakhamSOD } from './services/sodEodService';
@@ -231,18 +232,40 @@ console.log('[cron] blocker alerts — disabled (folded into morning briefing)')
 // plain sight. A flag cannot go stale — the runtime value is the truth, and it
 // can be flipped back from Railway without a code change or a deploy.
 //
-// Both default OFF (fail-closed, matching this repo's flag convention).
-//   SOD_EOD_SLACK_ENABLED=true         -> SOD/EOD digests + team prompts
-//   META_ADS_REPORT_SLACK_ENABLED=true -> Meta Ads daily "ad account overview"
-function slackDigestEnabled(name: string): boolean {
-  return ['1', 'true', 'yes', 'on'].includes(String(process.env[name] || '').trim().toLowerCase());
-}
+// All default OFF (fail-closed, matching this repo's flag convention). Parsing
+// lives in utils/slackDigestFlag so the service-level gate in
+// saleshandyStatsService cannot drift from the cron-level gates here.
+//
+//   SOD_EOD_SLACK_ENABLED=true            -> SOD/EOD digests + team prompts
+//   META_ADS_REPORT_SLACK_ENABLED=true    -> Meta Ads daily "ad account overview"
+//
+// 2026-07-31 (second pass) — the owner asked for the rest of the recurring
+// Growth Escalators Slack traffic off too. These five were ungated and, apart
+// from Saleshandy, unconditional:
+//   MORNING_BRIEFING_SLACK_ENABLED=true   -> Mon-Sat 09:30 IST DM x3
+//   SOCIAL_PROMPT_SLACK_ENABLED=true      -> Mon-Sat 09:30 IST #social-media-posting
+//   OUTREACH_SUMMARY_SLACK_ENABLED=true   -> Monday 08:00 IST DM
+//   SEO_DIGEST_SLACK_ENABLED=true         -> Friday 17:00 IST #seo, one post per client
+//   SALESHANDY_ALERT_SLACK_ENABLED=true   -> nightly deliverability DM (see below)
+//
+// NOTE on Saleshandy: its cron is NOT gated, because pollSaleshandyStats also
+// writes today's sent/open/bounce/click that snapshotTodaysFunnel reads 30
+// minutes later. Gating the cron would silently break the funnel numbers, so
+// only the two sendSlackDM calls inside the service are gated.
 const SOD_EOD_SLACK_ENABLED = slackDigestEnabled('SOD_EOD_SLACK_ENABLED');
 const META_ADS_REPORT_SLACK_ENABLED = slackDigestEnabled('META_ADS_REPORT_SLACK_ENABLED');
+const MORNING_BRIEFING_SLACK_ENABLED = slackDigestEnabled('MORNING_BRIEFING_SLACK_ENABLED');
+const SOCIAL_PROMPT_SLACK_ENABLED = slackDigestEnabled('SOCIAL_PROMPT_SLACK_ENABLED');
+const OUTREACH_SUMMARY_SLACK_ENABLED = slackDigestEnabled('OUTREACH_SUMMARY_SLACK_ENABLED');
+const SEO_DIGEST_SLACK_ENABLED = slackDigestEnabled('SEO_DIGEST_SLACK_ENABLED');
 if (!SOD_EOD_SLACK_ENABLED) console.log('[cron] SOD/EOD Slack digests DISABLED (set SOD_EOD_SLACK_ENABLED=true to re-enable)');
 if (!META_ADS_REPORT_SLACK_ENABLED) console.log('[cron] Meta Ads daily report DISABLED (set META_ADS_REPORT_SLACK_ENABLED=true to re-enable)');
+if (!MORNING_BRIEFING_SLACK_ENABLED) console.log('[cron] Morning briefing DMs DISABLED (set MORNING_BRIEFING_SLACK_ENABLED=true to re-enable)');
+if (!SOCIAL_PROMPT_SLACK_ENABLED) console.log('[cron] Social media prompt DISABLED (set SOCIAL_PROMPT_SLACK_ENABLED=true to re-enable)');
+if (!OUTREACH_SUMMARY_SLACK_ENABLED) console.log('[cron] Weekly outreach summary DM DISABLED (set OUTREACH_SUMMARY_SLACK_ENABLED=true to re-enable)');
+if (!SEO_DIGEST_SLACK_ENABLED) console.log('[cron] SEO weekly digest DISABLED (set SEO_DIGEST_SLACK_ENABLED=true to re-enable)');
 
-cron.schedule('0 4 * * 1-6', () => safeCron('Morning Briefing', async () => {
+if (MORNING_BRIEFING_SLACK_ENABLED) cron.schedule('0 4 * * 1-6', () => safeCron('Morning Briefing', async () => {
   const { sendMorningBriefings } = await import('./services/morningBriefingService');
   const result = await sendMorningBriefings();
   console.log(`[CRON] Morning Briefing: ${result.sent} sent, ${result.errors.length} errors`);
@@ -295,7 +318,10 @@ console.log('[cron] team EOD prompt scheduled — 7:00 PM IST Mon-Sat');
 
 // Social media posting prompt — 9:30 AM IST (04:00 UTC) in #social-media-posting,
 // tags Kratika & Sneha so they list which brands need posting today.
-cron.schedule('0 4 * * 1-6', () => safeCron('Social Media Prompt', sendSocialMediaPrompt), { timezone: 'UTC' });
+// Gated by SOCIAL_PROMPT_SLACK_ENABLED (default OFF). Worth noting why the
+// code gate is the only option here: sendSocialMediaPrompt posts with
+// { allowDuringPause: true }, so SLACK_NOTIFICATIONS_PAUSED does NOT stop it.
+if (SOCIAL_PROMPT_SLACK_ENABLED) cron.schedule('0 4 * * 1-6', () => safeCron('Social Media Prompt', sendSocialMediaPrompt), { timezone: 'UTC' });
 console.log('[cron] social media prompt scheduled — 9:30 AM IST Mon-Sat');
 
 // Spend alert check — DISABLED (folded into Morning Briefing)
@@ -1148,7 +1174,10 @@ console.log('[cron] GE SEO pull scheduled — Mondays 8:15 AM IST (2:45 UTC)');
 // Task 7: Weekly Outreach Performance Summary — Monday 8:00 AM IST (2:30 UTC)
 // Posts pipeline stats + reply activity to Jatin's Slack DM
 // ---------------------------------------------------------------------------
-cron.schedule('30 2 * * 1', () => safeCron('Weekly Outreach Summary', async () => {
+// Gated by OUTREACH_SUMMARY_SLACK_ENABLED (default OFF). Pure Slack — the
+// summary is computed for the message and nothing else, so gating the whole
+// cron loses no data.
+if (OUTREACH_SUMMARY_SLACK_ENABLED) cron.schedule('30 2 * * 1', () => safeCron('Weekly Outreach Summary', async () => {
   const { sendWeeklyOutreachSummary } = await import('./services/outreachAlertService');
   await sendWeeklyOutreachSummary();
 }), { timezone: 'UTC' });
@@ -1274,7 +1303,10 @@ cron.schedule('30 3 * * 1', () => safeCron('SEO Content Decay', async () => {
 console.log('[cron] SEO content decay scheduled — Every Monday 9:00 AM IST (backend-native)');
 
 // SEO Weekly Opportunity Digest — Friday 5 PM IST (11:30 UTC) — sends via Slack directly
-cron.schedule('30 11 * * 5', () => safeCron('SEO Weekly Digest', async () => {
+// Gated by SEO_DIGEST_SLACK_ENABLED (default OFF). sendWeeklyOpportunityDigest
+// only reads — every write it does (logSeoWorkflowRun) exists to record that the
+// digest was sent, so gating the cron loses nothing but the message itself.
+if (SEO_DIGEST_SLACK_ENABLED) cron.schedule('30 11 * * 5', () => safeCron('SEO Weekly Digest', async () => {
   if (isPaused('seo')) return;
   const startedAt = new Date();
   const { sendWeeklyOpportunityDigest } = await import('./services/seoDigestService');
