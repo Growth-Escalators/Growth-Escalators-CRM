@@ -231,6 +231,14 @@ export function createWizmatchStaffingService(dbPool: TransactionPool = pool) {
       return result.rows;
     },
 
+    // Cross-company aggregate of hiring contacts in a single query. This is the
+    // bulk backend counterpart to listCompanyContacts(tenantId, companyId): the
+    // admin "Linked hiring contacts" tab used to fan out one
+    // listCompanyContacts call per company from the companies list (183
+    // companies in prod => 183 parallel requests => tripped the API rate
+    // limiter with 429s). All contacts are returned regardless of
+    // relationship_stage (not just 'active') since the admin tab still needs
+    // to filter/show inactive and do_not_contact rows client-side.
     async listHiringContacts(tenantId: string, search = '') {
       const result = await (dbPool as unknown as Queryable).query(
         `SELECT cc.id,cc.company_id,cc.contact_id,cc.relationship_stage,cc.owner_user_id,cc.source_type,
@@ -245,7 +253,7 @@ export function createWizmatchStaffingService(dbPool: TransactionPool = pool) {
                   WHEN EXISTS(SELECT 1 FROM contact_channels ch WHERE ch.tenant_id=cc.tenant_id AND ch.contact_id=p.id AND ch.channel_type IN ('email','phone','whatsapp','linkedin')) THEN 'identified_channel_pending'
                   ELSE 'pending_research'
                 END AS verification_state,
-                COUNT(DISTINCT rc.requirement_id) FILTER (WHERE rc.active)::int AS requirement_count,
+                COUNT(DISTINCT rc.requirement_id) FILTER (WHERE rc.active)::int AS active_requirement_count,
                 COUNT(DISTINCT req.id) FILTER (WHERE rc.active AND req.stage NOT IN ('filled','closed_lost','cancelled'))::int AS open_requirement_count
          FROM wizmatch_company_contacts cc
          JOIN wizmatch_companies comp ON comp.id=cc.company_id AND comp.tenant_id=cc.tenant_id
@@ -254,11 +262,11 @@ export function createWizmatchStaffingService(dbPool: TransactionPool = pool) {
          LEFT JOIN wizmatch_company_contact_roles ccr ON ccr.company_contact_id=cc.id AND ccr.tenant_id=cc.tenant_id
          LEFT JOIN wizmatch_requirement_contacts rc ON rc.company_contact_id=cc.id AND rc.tenant_id=cc.tenant_id
          LEFT JOIN wizmatch_requirements req ON req.id=rc.requirement_id AND req.tenant_id=rc.tenant_id
-         WHERE cc.tenant_id=$1 AND cc.relationship_stage='active'
+         WHERE cc.tenant_id=$1
            AND ($2='' OR concat_ws(' ',p.first_name,p.last_name,comp.name) ILIKE '%' || $2 || '%'
              OR EXISTS(SELECT 1 FROM contact_channels ch WHERE ch.tenant_id=$1 AND ch.contact_id=p.id AND ch.channel_value ILIKE '%' || $2 || '%'))
          GROUP BY cc.id,comp.id,p.id,owner.id
-         ORDER BY cc.last_activity_at DESC NULLS LAST,p.first_name LIMIT 200`,
+         ORDER BY cc.last_activity_at DESC NULLS LAST,p.first_name LIMIT 1000`,
         [tenantId, search.trim()],
       );
       return result.rows;

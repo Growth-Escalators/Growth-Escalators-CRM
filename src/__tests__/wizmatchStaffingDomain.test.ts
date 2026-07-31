@@ -14,6 +14,19 @@ function fakePool(responder: (sql: string, params: unknown[]) => { rows?: any[];
   return { pool: { connect: vi.fn(async () => client) } as any, client, calls };
 }
 
+// Read-only listX() methods call dbPool.query(...) directly (no transaction),
+// unlike the write paths above which go through pool.connect(). This fake
+// exposes .query on the pool itself.
+function fakeQueryPool(responder: (sql: string, params: unknown[]) => { rows?: any[]; rowCount?: number } = () => ({ rows: [], rowCount: 0 })) {
+  const calls: Array<{ sql: string; params: unknown[] }> = [];
+  const query = vi.fn(async (sql: string, params: unknown[] = []) => {
+    calls.push({ sql, params });
+    const result = responder(sql, params);
+    return { rows: result.rows ?? [], rowCount: result.rowCount ?? result.rows?.length ?? 0 };
+  });
+  return { pool: { query } as any, calls };
+}
+
 describe('Wizmatch staffing domain', () => {
   it('enforces the explicit requirement state machine', () => {
     expect(() => assertStageTransition('draft', 'qualifying')).not.toThrow();
@@ -172,5 +185,47 @@ describe('Wizmatch staffing domain', () => {
     const event = fake.calls.find(call => call.sql.includes('INSERT INTO wizmatch_staffing_events'));
     expect(event?.params).toEqual(expect.arrayContaining(['company_contact.deleted']));
     expect(fake.calls.at(-1)?.sql).toBe('COMMIT');
+  });
+
+  // Regression for the admin "Linked hiring contacts" tab N+1: it used to fan
+  // out one listCompanyContacts call per company (183 companies in prod =>
+  // 183 parallel requests => 429s from the rate limiter). Fixed by wiring the
+  // page to this single cross-company aggregate query instead. Guards two
+  // things a future edit could silently reintroduce or regress: (1) the query
+  // stays a single tenant-scoped statement (not a per-company loop), and (2)
+  // it returns every relationship_stage, not just 'active', since the admin
+  // tab's Relationship filter still offers inactive / do_not_contact.
+  it('lists hiring contacts across all companies in a single tenant-scoped query, all relationship stages included', async () => {
+    const rows = [
+      { id: 'poc-a', company_id: 'company-a', company_name: 'Acme', first_name: 'Asha', last_name: 'Rao', relationship_stage: 'active', active_requirement_count: 2 },
+      { id: 'poc-b', company_id: 'company-b', company_name: 'Beta', first_name: 'Ravi', last_name: 'Iyer', relationship_stage: 'inactive', active_requirement_count: 0 },
+    ];
+    const fake = fakeQueryPool(() => ({ rows }));
+    const service = createWizmatchStaffingService(fake.pool);
+
+    const result = await service.listHiringContacts('tenant-a');
+
+    // Exactly one query call total — not one per company.
+    expect(fake.calls).toHaveLength(1);
+    expect(fake.calls[0].params[0]).toBe('tenant-a');
+    expect(fake.calls[0].sql).toContain('FROM wizmatch_company_contacts cc');
+    expect(fake.calls[0].sql).toContain('WHERE cc.tenant_id=$1');
+    // Must not restrict to active-only relationships (that filter is applied
+    // client-side by the admin table so inactive/do_not_contact stay visible).
+    expect(fake.calls[0].sql).not.toContain(`cc.relationship_stage='active'`);
+    expect(fake.calls[0].sql).toContain('active_requirement_count');
+    expect(result).toEqual(rows);
+  });
+
+  it('scopes listHiringContacts to the caller tenant and never accepts a tenant id from the query string', async () => {
+    const fake = fakeQueryPool(() => ({ rows: [] }));
+    const service = createWizmatchStaffingService(fake.pool);
+
+    await service.listHiringContacts('tenant-a', 'anything');
+
+    expect(fake.calls[0].params[0]).toBe('tenant-a');
+    // The signature only accepts (tenantId, search) — there is no code path
+    // for a caller-supplied tenant id to reach the query.
+    expect(fake.calls[0].params).toHaveLength(2);
   });
 });

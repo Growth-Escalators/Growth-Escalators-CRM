@@ -85,8 +85,13 @@ export default function WizmatchHiringContactsPage() {
 
 // ============================================================
 // Linked hiring contacts — wizmatch_company_contacts, aggregated across
-// companies (there is no single cross-company list endpoint, so this fans
-// out one request per company from the companies list).
+// companies via a single bulk endpoint (GET /api/wizmatch/staffing/hiring-contacts).
+// This used to fan out one GET /api/wizmatch/companies/:id/contacts request
+// per company from the companies list — with 183 companies in prod that was
+// 183 parallel requests per page load, tripping the API rate limiter (429s)
+// and making the page unusable. Fixed by switching to the bulk
+// wizmatchStaffingService.listHiringContacts query, which already existed on
+// the backend but had no caller.
 // ============================================================
 
 function LinkedContactsTab() {
@@ -100,18 +105,8 @@ function LinkedContactsTab() {
     setLoading(true);
     setError(null);
     try {
-      const companies = await apiFetch('/api/wizmatch/staffing/companies');
-      const perCompany = await Promise.all(
-        (companies.items || []).map(async (company) => {
-          try {
-            const data = await apiFetch(`/api/wizmatch/companies/${company.id}/contacts`);
-            return (data.items || []).map(c => ({ ...c, company_name: company.name }));
-          } catch {
-            return [];
-          }
-        }),
-      );
-      setRows(perCompany.flat());
+      const data = await apiFetch('/api/wizmatch/staffing/hiring-contacts');
+      setRows(data.items || []);
     } catch (e) {
       setError(e.message || 'Failed to load hiring contacts');
     } finally {
