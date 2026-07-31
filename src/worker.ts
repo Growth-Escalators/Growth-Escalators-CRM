@@ -219,6 +219,29 @@ async function safeCron(name: string, fn: () => Promise<unknown>, useAdvisoryLoc
 console.log('[cron] blocker alerts — disabled (folded into morning briefing)');
 
 // Morning Briefing — 9:30 AM IST (04:00 UTC), Mon-Sat — personalized DM per team member
+// ---------------------------------------------------------------------------
+// Daily Slack digest gating (2026-07-31, owner-requested)
+//
+// SOD/EOD digests and the Meta Ads daily report DM real people on a schedule.
+// The owner asked for them off. They are gated by env flag rather than
+// commented out, deliberately: the block below previously carried
+// "PAUSED 2026-05-03 — re-enable by uncommenting" comments while the crons
+// underneath were LIVE and had been re-enabled at some point. Stale comments
+// that contradict running code are how a scheduled DM to real humans hides in
+// plain sight. A flag cannot go stale — the runtime value is the truth, and it
+// can be flipped back from Railway without a code change or a deploy.
+//
+// Both default OFF (fail-closed, matching this repo's flag convention).
+//   SOD_EOD_SLACK_ENABLED=true         -> SOD/EOD digests + team prompts
+//   META_ADS_REPORT_SLACK_ENABLED=true -> Meta Ads daily "ad account overview"
+function slackDigestEnabled(name: string): boolean {
+  return ['1', 'true', 'yes', 'on'].includes(String(process.env[name] || '').trim().toLowerCase());
+}
+const SOD_EOD_SLACK_ENABLED = slackDigestEnabled('SOD_EOD_SLACK_ENABLED');
+const META_ADS_REPORT_SLACK_ENABLED = slackDigestEnabled('META_ADS_REPORT_SLACK_ENABLED');
+if (!SOD_EOD_SLACK_ENABLED) console.log('[cron] SOD/EOD Slack digests DISABLED (set SOD_EOD_SLACK_ENABLED=true to re-enable)');
+if (!META_ADS_REPORT_SLACK_ENABLED) console.log('[cron] Meta Ads daily report DISABLED (set META_ADS_REPORT_SLACK_ENABLED=true to re-enable)');
+
 cron.schedule('0 4 * * 1-6', () => safeCron('Morning Briefing', async () => {
   const { sendMorningBriefings } = await import('./services/morningBriefingService');
   const result = await sendMorningBriefings();
@@ -226,9 +249,11 @@ cron.schedule('0 4 * * 1-6', () => safeCron('Morning Briefing', async () => {
 }), { timezone: 'UTC' });
 console.log('[cron] morning briefing scheduled — 9:30 AM IST Mon-Sat');
 
-// PAUSED 2026-05-03 — SOD Digest + Sakcham Priority SOD. Re-enable by uncommenting.
+// Gated by SOD_EOD_SLACK_ENABLED (default OFF). The previous
+// "PAUSED 2026-05-03 / re-enable by uncommenting" note was STALE — this cron
+// was live and DMing people daily when the owner asked for it to be turned off.
 /*
-cron.schedule('45 4 * * 1-6', async () => {
+if (SOD_EOD_SLACK_ENABLED) cron.schedule('45 4 * * 1-6', async () => {
   await safeCron('SOD Digest', sendSODDigest);
   await safeCron('Sakcham Priority SOD', sendSakhamSOD);
 }, { timezone: 'UTC' });
@@ -236,15 +261,15 @@ console.log('[cron] SOD digest scheduled — 10:15 AM IST Mon-Sat');
 */
 console.log('[cron] SOD digest — PAUSED 2026-05-03');
 
-// PAUSED 2026-05-03 — EOD Summary. Re-enable by uncommenting.
+// Gated by SOD_EOD_SLACK_ENABLED (default OFF). Previous PAUSED note was stale.
 /*
-cron.schedule('45 13 * * 1-6', () => safeCron('EOD Summary', sendEODSummary), { timezone: 'UTC' });
+if (SOD_EOD_SLACK_ENABLED) cron.schedule('45 13 * * 1-6', () => safeCron('EOD Summary', sendEODSummary), { timezone: 'UTC' });
 console.log('[cron] EOD summary scheduled — 7:15 PM IST Mon-Sat');
 */
 console.log('[cron] EOD summary — PAUSED 2026-05-03');
 
 // Evening Summary — 7:15 PM IST (13:45 UTC), Mon-Sat — personalized DM per team member
-cron.schedule('45 13 * * 1-6', () => safeCron('Evening Summary', async () => {
+if (SOD_EOD_SLACK_ENABLED) cron.schedule('45 13 * * 1-6', () => safeCron('Evening Summary', async () => {
   const { sendEveningSummaries } = await import('./services/eveningSummaryService');
   const result = await sendEveningSummaries();
   console.log(`[CRON] Evening Summary: ${result.sent} sent, ${result.errors.length} errors`);
@@ -257,11 +282,11 @@ console.log('[cron] evening summary scheduled — 7:15 PM IST Mon-Sat');
 // convention in this file (cron-utils helper added IST offset comments).
 
 // SOD prompt — 10:15 AM IST (04:45 UTC) in #sod-eod, tags Kanishk/Kratika/Sneha
-cron.schedule('45 4 * * 1-6', () => safeCron('Team SOD Prompt', sendTeamSODPrompt), { timezone: 'UTC' });
+if (SOD_EOD_SLACK_ENABLED) cron.schedule('45 4 * * 1-6', () => safeCron('Team SOD Prompt', sendTeamSODPrompt), { timezone: 'UTC' });
 console.log('[cron] team SOD prompt scheduled — 10:15 AM IST Mon-Sat');
 
 // EOD prompt — 7:00 PM IST (13:30 UTC) in #sod-eod, tags Kanishk/Kratika/Sneha
-cron.schedule('30 13 * * 1-6', () => safeCron('Team EOD Prompt', sendTeamEODPrompt), { timezone: 'UTC' });
+if (SOD_EOD_SLACK_ENABLED) cron.schedule('30 13 * * 1-6', () => safeCron('Team EOD Prompt', sendTeamEODPrompt), { timezone: 'UTC' });
 
 // Contracts / e-signature — daily expiry sweep then signing reminders (see src/modules/esign/esign.jobs.ts)
 cron.schedule('20 4 * * *', () => safeCron('Contract Expiry Sweep', async () => { await expireOverdueContracts(); }), { timezone: 'UTC' });
@@ -463,7 +488,7 @@ console.log('[cron] Growth OS health scores scheduled — daily 8:00 AM IST');
 // ---------------------------------------------------------------------------
 import('./services/metaAdsService').then(m => m.ensureAdAccountsTable()).catch(() => {});
 import('./services/metaAdsService').then(m => m.ensureMarketingAccountsNotifySlackColumn()).catch(() => {});
-cron.schedule('0 4 * * 1-6', () => safeCron('Meta Ads Daily Report', async () => {
+if (META_ADS_REPORT_SLACK_ENABLED) cron.schedule('0 4 * * 1-6', () => safeCron('Meta Ads Daily Report', async () => {
   const { sendSlackMessage } = await import('./services/slackService');
   const { fetchAccountInsights, buildAccountReport, sortAccountsForReport } = await import('./services/metaAdsService');
 
