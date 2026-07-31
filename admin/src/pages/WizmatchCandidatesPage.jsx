@@ -123,7 +123,15 @@ export default function WizmatchCandidatesPage() {
         rowKey="id"
         onRowClick={setSelected}
         loading={loading}
-        emptyText="No candidates match these filters"
+        // UX audit 2026-07-31 (top-10 finding #4) — this used to say "No
+        // candidates match these filters" even with zero filters set, on a
+        // pool that has never had a single candidate. That reads as "your
+        // filters are broken" when the honest state is "nothing has ever
+        // been added here yet" — same true-empty/filtered-empty split
+        // WizmatchCompaniesPage.jsx already gets right.
+        emptyText={total === 0 && ctl.activeChips.length === 0
+          ? 'No candidates yet — add one above, or they will appear once a sourcing run finds a match.'
+          : 'No candidates match these filters.'}
         sort={ctl.sort}
         onSort={ctl.setSort}
       />
