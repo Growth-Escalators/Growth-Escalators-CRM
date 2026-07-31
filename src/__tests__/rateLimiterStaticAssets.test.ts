@@ -93,3 +93,42 @@ describe('general rate limiter — static asset exemption', () => {
     expect(staticAssetPattern().test('/api/report.css.php')).toBe(false);
   });
 });
+
+// 2026-07-31 — limiter ceilings. The general limit was raised from 100 to 600
+// because 100/min made the product unusable for a legitimate operator (the SPA
+// issues many calls per page, and one page issued one request per row). That is
+// HEADROOM while the request fan-out is removed, not a fix for it.
+//
+// The point of this block is that raising the GENERAL limit must never quietly
+// raise the AUTH limit — /auth is the brute-force and credential-stuffing guard,
+// and it is the one that actually matters for security.
+describe('rate limiter ceilings', () => {
+  function maxFor(varName: string): number {
+    const idx = bare.indexOf(`const ${varName} = rateLimit({`);
+    expect(idx, `${varName} not found in index.ts`).toBeGreaterThan(-1);
+    const block = bare.slice(idx, idx + 900);
+    const m = block.match(/max:\s*(\d+)/);
+    expect(m, `${varName} has no max`).toBeTruthy();
+    return Number(m![1]);
+  }
+
+  it('keeps the auth limiter strict — this is the brute-force guard', () => {
+    // Deliberately pinned low. If someone raises this to "fix" a lockout, it
+    // should require changing this test and thinking about it.
+    expect(maxFor('authLimiter')).toBeLessThanOrEqual(20);
+  });
+
+  it('gives the general limiter enough headroom for a real SPA page load', () => {
+    expect(maxFor('generalLimiter')).toBeGreaterThanOrEqual(300);
+  });
+
+  it('never lets the general limiter be looser than the webhook limiter by more than 4x', () => {
+    // A sanity bound so "raise it until the errors stop" cannot end with an
+    // effectively unlimited API.
+    expect(maxFor('generalLimiter')).toBeLessThanOrEqual(maxFor('webhookLimiter') * 4);
+  });
+
+  it('keeps auth strictly stricter than general', () => {
+    expect(maxFor('authLimiter')).toBeLessThan(maxFor('generalLimiter'));
+  });
+});
