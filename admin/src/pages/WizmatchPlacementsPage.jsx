@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Download, Plus, X } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
 import { Modal, Button } from '../components/ui/index.js';
@@ -47,17 +47,60 @@ const NEW_CARD_BORDER = {
   lost: 'border-[#fecaca] text-[#b91c1c]',
 };
 
+// First-load placeholder for the Kanban. Keeps the column shapes so the board
+// does not jump when the real cards arrive, and so the page never collapses to
+// a single line of text.
+function BoardSkeleton() {
+  return (
+    <div className="flex-1 overflow-x-auto" aria-busy="true" aria-label="Loading placements">
+      <div className="flex gap-3 pt-[18px] px-6 pb-6 items-start min-w-max">
+        {STAGES.map((stage, col) => (
+          <div key={stage} className={`flex-shrink-0 w-64 rounded-lg border overflow-hidden ${COLUMN_BG[stage]}`}>
+            <span className="h-[3px] block" style={{ backgroundColor: STAGE_COLORS[stage] }} />
+            <div className="flex items-center gap-2 px-3 pt-2.5 pb-2">
+              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: STAGE_COLORS[stage] }} />
+              <h2 className={`text-[12.5px] font-semibold flex-1 truncate ${HEADER_TEXT[stage] || 'text-neutral-700'}`}>
+                {STAGE_LABELS[stage]}
+              </h2>
+            </div>
+            <div className="px-2.5 pb-2.5 space-y-2">
+              {Array.from({ length: 2 - (col % 2) }).map((_, i) => (
+                <div key={i} className="bg-white rounded-lg shadow-card p-3 space-y-2">
+                  <div className="h-3 w-3/4 rounded bg-neutral-200/70 animate-pulse" />
+                  <div className="h-2.5 w-1/2 rounded bg-neutral-200/70 animate-pulse" />
+                  <div className="h-2.5 w-2/3 rounded bg-neutral-200/70 animate-pulse" />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function WizmatchPlacementsPage() {
+  const { showSuccess, showError } = useToast();
   const [placements, setPlacements] = useState([]);
+  // GET /api/wizmatch/placements caps `limit` at 200 and returns the real row
+  // count. The board asks for the maximum and used to discard `total`, so a
+  // tenant past 200 placements silently lost the oldest ones off the board.
+  const [total, setTotal] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [capabilities, setCapabilities] = useState({});
   const [draggedId, setDraggedId] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [detailPlacement, setDetailPlacement] = useState(null);
+  // Only the very first load has nothing to show. Every later load (a drag
+  // between columns, a drawer edit) keeps the board mounted and dims it — the
+  // page used to replace itself, filters and header included, with the word
+  // "Loading…" on every single refetch.
+  const loadedOnce = useRef(false);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    if (loadedOnce.current) setRefreshing(true); else setLoading(true);
     setLoadError('');
     try {
       const [data, access] = await Promise.all([
@@ -65,20 +108,31 @@ export default function WizmatchPlacementsPage() {
         apiFetch('/api/wizmatch/staffing/access').catch(() => ({ capabilities: {} })),
       ]);
       setPlacements(data.items || []);
+      setTotal(data.total ?? null);
       setCapabilities(access.capabilities || {});
     } catch (e) {
-      setPlacements([]);
+      // Deliberately keeps whatever was already on the board: a failed refetch
+      // that empties the columns reads as "all your placements are gone".
+      // First-load failures still land on ErrorRetry, since there is nothing
+      // to keep in that case.
       setLoadError(e.message || 'Placements could not be loaded.');
     } finally {
+      loadedOnce.current = true;
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
   const updateStatus = async (id, status) => {
-    try { await apiFetch(`/api/wizmatch/placements/${id}`, { method: 'PUT', body: JSON.stringify({ status }) }); load(); }
-    catch (e) { alert(e.message); }
+    try {
+      await apiFetch(`/api/wizmatch/placements/${id}`, { method: 'PUT', body: JSON.stringify({ status }) });
+      showSuccess(`Placement moved to ${STAGE_LABELS[status] || status}`);
+      load();
+    } catch (e) {
+      showError(e.message || 'The placement could not be moved.');
+    }
   };
 
   const onDrop = (e, status) => {
@@ -102,17 +156,23 @@ export default function WizmatchPlacementsPage() {
   const filteredPlacements = ctl.applyClient(placements);
   const commercialSummary = summarizePlacementCommercials(filteredPlacements);
 
-  if (loading) return <div className="p-6"><p className="text-neutral-500">Loading...</p></div>;
-  if (loadError && placements.length === 0) return <div className="p-6"><ErrorRetry message={loadError} onRetry={load} /></div>;
-
   return (
     <div className="flex flex-col h-full">
       {/* Command bar */}
       <div className="bg-white border-b border-neutral-200 px-6 py-3.5 space-y-3">
         <div className="flex items-center gap-3">
           <span className="text-[12.5px] font-semibold text-primary-700 bg-primary-500/10 border border-primary-500/20 px-2.5 py-0.5 rounded-full">
-            {filteredPlacements.length} placements · {commercialSummary}
+            {loading
+              ? 'Loading placements…'
+              : `${filteredPlacements.length === placements.length
+                  ? `${placements.length} placements`
+                  : `${filteredPlacements.length} of ${placements.length} placements`} · ${commercialSummary}`}
           </span>
+          {!loading && total != null && total > placements.length && (
+            <span role="status" className="text-[12px] font-medium text-warning-700 bg-warning-500/10 border border-warning-300 px-2.5 py-0.5 rounded-full">
+              Showing the {placements.length} most recent of {total} — older placements are not on this board
+            </span>
+          )}
           <div className="flex-1" />
           <button onClick={() => exportRowsToCsv(filteredPlacements, PLACEMENT_EXPORT_COLUMNS, 'placements.csv')} className="btn-standard">
             <Download className="w-3.5 h-3.5" /> Export
@@ -140,12 +200,27 @@ export default function WizmatchPlacementsPage() {
         />
       </div>
 
-      {placements.length === 0 ? (
+      {/* A refetch that failed still has the previous board behind it — say so
+          without throwing the columns away. */}
+      {loadError && placements.length > 0 && (
+        <div role="alert" className="mx-6 mt-3 flex items-center gap-2 rounded-md border border-danger-500/30 bg-danger-500/10 px-3 py-2 text-[12px] text-danger-700">
+          <span>{loadError} Showing the last board that loaded successfully.</span>
+          <button onClick={load} disabled={refreshing} className="btn-standard btn-compact ml-auto">
+            {refreshing ? 'Retrying…' : 'Retry'}
+          </button>
+        </div>
+      )}
+
+      {loading ? (
+        <BoardSkeleton />
+      ) : loadError && placements.length === 0 ? (
+        <div className="p-6"><ErrorRetry message={loadError} onRetry={load} retrying={refreshing} /></div>
+      ) : placements.length === 0 ? (
         <EmptyState title="No placements yet" description="Placements are created from an accepted offer on the Submissions & Delivery board, or via the legacy Add Placement button." />
       ) : (
       <>
       {/* Kanban */}
-      <div className="flex-1 overflow-x-auto">
+      <div className={`flex-1 overflow-x-auto transition-opacity ${refreshing ? 'opacity-60' : ''}`} aria-busy={refreshing}>
         <div className="flex gap-3 pt-[18px] px-6 pb-6 items-start min-w-max">
           {STAGES.map(stage => {
             const stageDeals = filteredPlacements.filter(p => p.status === stage);
@@ -228,6 +303,7 @@ export default function WizmatchPlacementsPage() {
 // functional as-is; not extended further since new placement creation should go
 // through the Submissions & Delivery board instead.
 function AddPlacementModal({ onClose, onDone }) {
+  const { showSuccess, showError } = useToast();
   const [candidates, setCandidates] = useState([]);
   const [signals, setSignals] = useState([]);
   const [form, setForm] = useState({ candidate_id: '', job_signal_id: '', placement_type: 'contract_c2c', bill_rate_hourly: '', pay_rate_hourly: '' });
@@ -254,8 +330,11 @@ function AddPlacementModal({ onClose, onDone }) {
           pay_rate_hourly: form.pay_rate_hourly ? Number(form.pay_rate_hourly) : undefined,
         }),
       });
+      showSuccess('Placement added');
       onDone();
-    } catch (e) { alert('Failed: ' + e.message); } finally { setSaving(false); }
+    } catch (err) {
+      showError(err.message || 'The placement could not be added.');
+    } finally { setSaving(false); }
   };
 
   return (

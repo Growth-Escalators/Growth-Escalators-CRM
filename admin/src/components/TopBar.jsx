@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Bell, MessageSquarePlus, X, Send, Bug, Lightbulb, HelpCircle, CheckCircle } from 'lucide-react';
+import { Search, MessageSquarePlus, X, Send, Bug, Lightbulb, HelpCircle, CheckCircle } from 'lucide-react';
 import Breadcrumbs from './Breadcrumbs.jsx';
 import { getUser, apiFetch } from '../lib/api.js';
 
@@ -146,13 +146,16 @@ export default function TopBar({ onSearchOpen }) {
         <Breadcrumbs />
       </div>
 
-      {/* Center: search trigger */}
+      {/* Center: search trigger.
+          Clicking this and pressing ⌘K now open the SAME surface — the
+          unified CommandPalette (records + "Go to" + actions). They used to
+          open two different components behind this one label. */}
       <button
         onClick={onSearchOpen}
         className="hidden sm:flex items-center gap-2 w-[420px] max-w-full px-3 py-1.5 bg-neutral-100 border border-neutral-200 rounded-md text-sm text-neutral-600 hover:bg-neutral-200 transition-colors"
       >
         <Search className="w-4 h-4 flex-shrink-0" />
-        <span className="flex-1 text-left truncate">Search contacts, deals, signals…</span>
+        <span className="flex-1 text-left truncate">Search records or jump to a page…</span>
         <kbd className="inline-flex px-1.5 py-0.5 text-xs bg-white rounded border border-neutral-200 font-mono">
           ⌘K
         </kbd>
@@ -165,12 +168,13 @@ export default function TopBar({ onSearchOpen }) {
         <Search className="w-4 h-4" />
       </button>
 
-      {/* Right: feedback + notifications + user */}
+      {/* Right: feedback + user.
+          A notifications bell used to sit here with an aria-label, hover
+          styles and no onClick — there is no notifications feature anywhere
+          in the admin or the API, so it was a button that could never do
+          anything. Removed rather than left as a decoy. */}
       <div className="flex items-center gap-2">
         <FeedbackWidget />
-        <button aria-label="Notifications" className="w-9 h-9 flex items-center justify-center text-neutral-400 hover:text-neutral-600 rounded-md hover:bg-neutral-100 transition-colors relative">
-          <Bell className="w-4.5 h-4.5" />
-        </button>
         <div className="flex items-center gap-2">
           <div className="w-[30px] h-[30px] rounded-full bg-primary-500 flex items-center justify-center text-white text-xs font-bold uppercase">
             {user?.name?.[0] || '?'}

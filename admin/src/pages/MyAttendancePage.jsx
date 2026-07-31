@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import TopBar from '../components/TopBar.jsx';
 import { apiFetch, logout } from '../lib/api.js';
+import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import { Clock, LogIn, LogOut, AlertTriangle, CheckCircle2, Calendar, Home, Building2, X, Plus } from 'lucide-react';
 
 function StatBadge({ label, value, color = 'slate' }) {
@@ -46,6 +47,8 @@ export default function MyAttendancePage() {
   const [myLeaves, setMyLeaves] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actioning, setActioning] = useState(false);
+  const [confirmCheckOut, setConfirmCheckOut] = useState(false);
+  const [checkOutErr, setCheckOutErr] = useState(null);
   const [error, setError] = useState('');
   const [banner, setBanner] = useState(null); // { kind: 'success' | 'late' | 'error', text: string }
   const [workLocation, setWorkLocation] = useState('office'); // 'office' | 'home'
@@ -110,16 +113,19 @@ export default function MyAttendancePage() {
   }
 
   async function handleCheckOut() {
-    if (!confirm('Check out and sign out of the CRM?')) return;
     setActioning(true);
     setBanner(null);
+    setCheckOutErr(null);
     try {
       const res = await apiFetch('/api/self-service/check-out', { method: 'POST' });
+      setConfirmCheckOut(false);
       // Show a brief banner before logout, then sign out per the user's
-      // explicit "log them out from the CRM" requirement.
+      // explicit "log them out from the CRM" requirement. Deliberately no
+      // toast here — the toast would unmount with the page on logout.
       setBanner({ kind: 'success', text: `Checked out at ${res.time}. Signing out…` });
       setTimeout(() => logout(), 1200);
     } catch (e) {
+      setCheckOutErr(e.message || 'Check-out failed');
       setBanner({ kind: 'error', text: e.message || 'Check-out failed' });
       setActioning(false);
     }
@@ -285,7 +291,7 @@ export default function MyAttendancePage() {
                   )}
                   {today.checkedIn && !today.checkedOut && (
                     <button
-                      onClick={handleCheckOut}
+                      onClick={() => { setCheckOutErr(null); setConfirmCheckOut(true); }}
                       disabled={actioning}
                       className="flex items-center justify-center gap-2 px-5 py-3 bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold rounded-xl shadow-sm disabled:opacity-50 transition-colors"
                     >
@@ -534,6 +540,18 @@ export default function MyAttendancePage() {
             )}
           </div>
         </div>
+
+        <ConfirmDialog
+          open={confirmCheckOut}
+          title="Check out for the day?"
+          impactSummary="Your check-out time will be recorded and you will be signed out of the CRM immediately after."
+          confirmLabel="Check out and sign out"
+          danger
+          loading={actioning}
+          error={checkOutErr}
+          onConfirm={handleCheckOut}
+          onCancel={() => { setConfirmCheckOut(false); setCheckOutErr(null); }}
+        />
       </main>
     </div>
   );

@@ -165,6 +165,87 @@ async function isPreparationBlocked(tenantId: string, companyId: string | null):
   return { blocked, reasonCodes: decision.reasonCodes };
 }
 
+// ---------------------------------------------------------------------------
+// Bulk-action plumbing — shared by POST /signals/bulk-action and
+// POST /contact-intelligence/contacts/bulk-review.
+//
+// The envelope is fixed by the admin-SPA contract and is deliberately NOT the
+// usual "one status for the whole request": a bulk selection routinely mixes
+// ids the operator may still act on with ids that raced (already rejected,
+// deleted, or belonging to another tenant). Reporting that as a blanket 200 or
+// a blanket 500 either hides real failures or throws away real work, so a
+// mixed outcome is a 200 carrying per-id truth and the caller renders it.
+// ---------------------------------------------------------------------------
+const BULK_MAX_IDS = 200;
+
+type BulkItemResult = { id: string; ok: boolean; error?: string };
+type BulkEnvelope = { results: BulkItemResult[]; succeeded: number; failed: number };
+
+/** Validates the shared `ids` field. Returns request-order, de-duplicated ids or a 400 message. */
+function parseBulkIds(raw: unknown): { ids: string[] } | { error: string } {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return { error: 'ids must be a non-empty array of ids.' };
+  }
+  if (raw.length > BULK_MAX_IDS) {
+    return {
+      error: `ids is capped at ${BULK_MAX_IDS} per request (received ${raw.length}). Chunk the selection client-side.`,
+    };
+  }
+  const ids: string[] = [];
+  for (const value of raw) {
+    const id = firstString(value);
+    if (!id) return { error: 'Every entry in ids must be a non-empty string.' };
+    // De-duplicated: a repeated id would otherwise be applied twice and counted
+    // twice in `succeeded`, overstating what actually happened to the data.
+    if (!ids.includes(id)) ids.push(id);
+  }
+  return { ids };
+}
+
+/**
+ * Same role split the reference bulk surface uses (POST /today/actions,
+ * src/routes/wizmatchToday.ts:102-116): a multi-target request IS a "bulk
+ * action" and is admin-only per PRD-005 §4 regardless of which action it
+ * names, while a single-target request keeps the team_lead+ tier the per-item
+ * routes already carry. Responds 403 itself and returns false when out of role.
+ */
+function allowBulkRole(req: Request, res: Response, idCount: number): boolean {
+  const role = req.user?.role || 'staff';
+  const isBulk = idCount > 1;
+  const allowedRoles = isBulk ? ['admin'] : ['admin', 'team_lead'];
+  if (allowedRoles.includes(role)) return true;
+  res.status(403).json({
+    error: 'forbidden',
+    message: isBulk
+      ? 'Bulk actions (more than one id) require admin.'
+      : 'This action requires team_lead or admin.',
+  });
+  return false;
+}
+
+/**
+ * Per-item isolation is the entire point of these endpoints: one failure must
+ * not abort the remaining ids and must not undo the ids that already
+ * committed. Items therefore run SEQUENTIALLY — never Promise.all, because the
+ * per-item work opens its own `pool.connect()` transaction and 200 of those in
+ * parallel would exhaust the pool — and each one is caught on its own.
+ */
+async function runBulk(ids: string[], apply: (id: string) => Promise<unknown>): Promise<BulkEnvelope> {
+  const results: BulkItemResult[] = [];
+  for (const id of ids) {
+    try {
+      await apply(id);
+      results.push({ id, ok: true });
+    } catch (error) {
+      results.push({ id, ok: false, error: error instanceof Error ? error.message : 'Action failed' });
+    }
+  }
+  return {
+    results,
+    succeeded: results.filter((result) => result.ok).length,
+    failed: results.filter((result) => !result.ok).length,
+  };
+}
 
 // In-memory upload for requirement JD files (parsed by Claude, then discarded).
 const requirementUpload = multer({
@@ -2255,40 +2336,73 @@ router.post('/contact-intelligence/companies/:companyId/contacts/manual', async 
   res.status(201).json({ id: inserted.rows[0].id, contactCandidates: refreshed.contactCandidates });
 });
 
-// POST /api/wizmatch/contact-intelligence/contacts/:candidateId/review
-router.post('/contact-intelligence/contacts/:candidateId/review', async (req: Request, res: Response) => {
-  const tenantId = req.user!.tenantId;
-  const candidateId = String(req.params.candidateId);
-  const action = firstString(req.body?.action) || 'reject_contact';
-  const rejectionReason = firstString(req.body?.rejectionReason);
+/**
+ * Carries the exact status + body the single-item review route has always
+ * responded with for that failure, so extracting the logic below could not
+ * change any existing response.
+ */
+class ContactCandidateReviewError extends Error {
+  status: number;
+  body: Record<string, unknown>;
+  constructor(status: number, body: Record<string, unknown>, message: string) {
+    super(message);
+    this.name = 'ContactCandidateReviewError';
+    this.status = status;
+    this.body = body;
+  }
+}
+
+/**
+ * "Review one contact candidate", extracted so the single-item route and the
+ * bulk route below run byte-identical logic — same transition resolution, same
+ * gate-before-write ordering, same columns written, same tenant scoping —
+ * rather than one drifting from the other.
+ */
+async function applyContactCandidateReview(input: {
+  tenantId: string;
+  userId: string | null;
+  candidateId: string;
+  action: string;
+  rejectionReason: string | null;
+}): Promise<{ transition: ReturnType<typeof resolveContactIntelligenceReviewAction>; companyId: string }> {
+  const { tenantId, userId, candidateId, action, rejectionReason } = input;
   const transition = resolveContactIntelligenceReviewAction({
     entity: 'contact_candidate',
     action: action as any,
     currentContactStatus: 'needs_review',
   });
   if (!transition.nextContactStatus) {
-    res.status(400).json({ error: 'Unsupported contact review action', transition });
-    return;
+    throw new ContactCandidateReviewError(
+      400,
+      { error: 'Unsupported contact review action', transition },
+      'Unsupported contact review action',
+    );
   }
 
   // §8.10.1 row 12 — the gate must run BEFORE the approval is written, not
-  // after. This route is plain autocommit (no BEGIN/COMMIT), so checking
+  // after. This path is plain autocommit (no BEGIN/COMMIT), so checking
   // afterwards left the candidate genuinely `approved` in the database while
   // the caller was told 403: the block was cosmetic and the very state it
   // existed to prevent was already committed.
+  //
+  // This SELECT is also the tenant boundary: a candidate belonging to another
+  // tenant misses `tenant_id = $1` and is reported exactly like an id that
+  // never existed, so neither route can be used to probe for existence.
   const existing = await pool.query(
     `SELECT company_id FROM wizmatch_contact_candidates WHERE tenant_id = $1 AND id = $2`,
     [tenantId, candidateId],
   );
   if (existing.rows.length === 0) {
-    res.status(404).json({ error: 'Contact candidate not found' });
-    return;
+    throw new ContactCandidateReviewError(404, { error: 'Contact candidate not found' }, 'Contact candidate not found');
   }
   if (transition.nextContactStatus === 'approved') {
     const prep = await isPreparationBlocked(tenantId, existing.rows[0].company_id);
     if (prep.blocked) {
-      res.status(403).json({ error: 'outreach_blocked', reasonCodes: prep.reasonCodes });
-      return;
+      throw new ContactCandidateReviewError(
+        403,
+        { error: 'outreach_blocked', reasonCodes: prep.reasonCodes },
+        `outreach_blocked: ${prep.reasonCodes.join(', ') || 'blocked'}`,
+      );
     }
   }
 
@@ -2303,16 +2417,79 @@ router.post('/contact-intelligence/contacts/:candidateId/review', async (req: Re
          updated_at = NOW()
      WHERE tenant_id = $4 AND id = $5
      RETURNING company_id`,
-    [transition.nextContactStatus, req.user?.id || null, rejectionReason, tenantId, candidateId],
+    [transition.nextContactStatus, userId, rejectionReason, tenantId, candidateId],
   );
   if (result.rows.length === 0) {
-    res.status(404).json({ error: 'Contact candidate not found' });
+    throw new ContactCandidateReviewError(404, { error: 'Contact candidate not found' }, 'Contact candidate not found');
+  }
+  return { transition, companyId: result.rows[0].company_id };
+}
+
+// POST /api/wizmatch/contact-intelligence/contacts/bulk-review
+// The bulk form of the per-candidate review route below. MUST stay above
+// `/contact-intelligence/contacts/:candidateId/...`: Express matches layers in
+// registration order and `:candidateId` swallows any single segment, so a
+// literal path registered after a parameterised sibling is the classic way
+// these routers lose a route (see the same note on /companies/bulk/policy in
+// wizmatchPolicy.ts).
+const CONTACT_BULK_REVIEW_ACTIONS: Record<string, string> = {
+  approve: 'approve_contact',
+  reject: 'reject_contact',
+};
+
+router.post('/contact-intelligence/contacts/bulk-review', async (req: Request, res: Response) => {
+  const parsed = parseBulkIds(req.body?.ids);
+  if ('error' in parsed) {
+    res.status(400).json({ error: parsed.error });
     return;
   }
-  const companyId = result.rows[0].company_id;
+  if (!allowBulkRole(req, res, parsed.ids.length)) return;
 
-  const refreshed = await fetchPersistedContactIntelligence(tenantId, companyId);
-  res.json({ transition, contactCandidates: refreshed.contactCandidates });
+  const decision = firstString(req.body?.decision) || '';
+  const action = CONTACT_BULK_REVIEW_ACTIONS[decision];
+  if (!action) {
+    res.status(400).json({
+      error: `decision must be one of: ${Object.keys(CONTACT_BULK_REVIEW_ACTIONS).join(', ')}.`,
+    });
+    return;
+  }
+
+  const tenantId = req.user!.tenantId;
+  const userId = req.user?.id || null;
+  const rejectionReason = firstString(req.body?.reason);
+  // Deliberately does NOT return the refreshed contactCandidates the
+  // single-item route returns: that is one extra read per id, and the envelope
+  // the SPA codes against is fixed to { results, succeeded, failed }. The page
+  // reloads after a bulk action anyway.
+  res.json(await runBulk(parsed.ids, (candidateId) => applyContactCandidateReview({
+    tenantId,
+    userId,
+    candidateId,
+    action,
+    rejectionReason,
+  })));
+});
+
+// POST /api/wizmatch/contact-intelligence/contacts/:candidateId/review
+router.post('/contact-intelligence/contacts/:candidateId/review', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  try {
+    const { transition, companyId } = await applyContactCandidateReview({
+      tenantId,
+      userId: req.user?.id || null,
+      candidateId: String(req.params.candidateId),
+      action: firstString(req.body?.action) || 'reject_contact',
+      rejectionReason: firstString(req.body?.rejectionReason),
+    });
+    const refreshed = await fetchPersistedContactIntelligence(tenantId, companyId);
+    res.json({ transition, contactCandidates: refreshed.contactCandidates });
+  } catch (error) {
+    if (error instanceof ContactCandidateReviewError) {
+      res.status(error.status).json(error.body);
+      return;
+    }
+    throw error;
+  }
 });
 
 // DELETE /api/wizmatch/contact-intelligence/contacts/:candidateId — permanent
@@ -2600,6 +2777,41 @@ router.post('/companies/:id/ats', async (req: Request, res: Response) => {
   );
   if (!updated.rows[0]) { res.status(404).json({ error: 'Company not found' }); return; }
   res.json({ company: updated.rows[0], confirmed: true });
+});
+
+// POST /api/wizmatch/signals/bulk-action — the bulk form of the two per-signal
+// routes below. Registered ahead of them for the same registration-order
+// reason as /contact-intelligence/contacts/bulk-review.
+const SIGNAL_BULK_ACTIONS = ['qualify', 'reject'] as const;
+
+router.post('/signals/bulk-action', async (req: Request, res: Response) => {
+  const parsed = parseBulkIds(req.body?.ids);
+  if ('error' in parsed) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+  if (!allowBulkRole(req, res, parsed.ids.length)) return;
+
+  const action = firstString(req.body?.action) || '';
+  if (!(SIGNAL_BULK_ACTIONS as readonly string[]).includes(action)) {
+    res.status(400).json({ error: `action must be one of: ${SIGNAL_BULK_ACTIONS.join(', ')}.` });
+    return;
+  }
+
+  const tenantId = req.user!.tenantId;
+  const userId = req.user!.id;
+  const reason = firstString(req.body?.reason) || undefined;
+  // The SAME service functions the single-item routes call, so the status
+  // transition, the POC-task creation and the wizmatch_staffing_events row
+  // cannot drift between the two surfaces. Both scope on `tenant_id`
+  // internally, so a signal belonging to another tenant is reported exactly
+  // like an id that never existed ("Signal not found ...") — the bulk response
+  // never reveals which of the two it was.
+  res.json(await runBulk(parsed.ids, (signalId) => (
+    action === 'qualify'
+      ? qualifySignalAndCreatePocTask(tenantId, signalId, userId)
+      : rejectSignal(tenantId, signalId, userId, reason)
+  )));
 });
 
 router.post('/signals/:id/qualify', async (req: Request, res: Response) => {

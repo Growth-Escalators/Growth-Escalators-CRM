@@ -2,6 +2,8 @@ import React, { useEffect, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import StatCard from '../components/StatCard.jsx';
 import { apiFetch } from '../lib/api.js';
+import { useToast } from '../components/wizmatch/Toast.jsx';
+import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import {
   Zap, Plus, Trash2, RefreshCw, Edit2, X, Save, Eye, EyeOff,
   FileText, Link, GitBranch, Bell, Package, DollarSign,
@@ -545,16 +547,19 @@ function FunnelForm({ config, onSaved, onCancel }) {
 }
 
 export default function FunnelManagementPage() {
+  const { showSuccess } = useToast();
   const [configs, setConfigs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState('list'); // 'list' | 'form'
   const [editingConfig, setEditingConfig] = useState(null);
   const [formTab, setFormTab] = useState('edit'); // 'edit' | 'performance'
-  const [toast, setToast] = useState('');
+  const [confirmDeleteConfig, setConfirmDeleteConfig] = useState(null); // funnel config | null
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteErr, setDeleteErr] = useState(null);
 
   const loadConfigs = useCallback(async (toastMsg) => {
     setLoading(true);
-    if (toastMsg) setToast(toastMsg);
+    if (toastMsg) showSuccess(toastMsg);
     try {
       const res = await apiFetch('/api/funnel-configs');
       setConfigs(res?.configs ?? []);
@@ -566,12 +571,6 @@ export default function FunnelManagementPage() {
   }, []);
 
   useEffect(() => { loadConfigs(); }, [loadConfigs]);
-  useEffect(() => {
-    if (toast) {
-      const t = setTimeout(() => setToast(''), 3000);
-      return () => clearTimeout(t);
-    }
-  }, [toast]);
 
   function handleCreate() {
     setEditingConfig(null);
@@ -590,13 +589,19 @@ export default function FunnelManagementPage() {
     setView('form');
   }
 
-  async function handleDelete(config) {
-    if (!window.confirm(`Delete funnel "${config.name}"? This cannot be undone.`)) return;
+  async function runDelete() {
+    setDeleteBusy(true);
+    setDeleteErr(null);
     try {
-      await apiFetch(`/api/funnel-configs/${config.id}`, { method: 'DELETE' });
+      await apiFetch(`/api/funnel-configs/${confirmDeleteConfig.id}`, { method: 'DELETE' });
+      setConfirmDeleteConfig(null);
       loadConfigs('Funnel deleted');
     } catch (err) {
-      setToast(err.message || 'Failed to delete funnel');
+      // Keep the dialog open on failure — closing it would lose the user's
+      // place and hide why nothing happened.
+      setDeleteErr(err.message || 'Failed to delete funnel');
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -711,7 +716,7 @@ export default function FunnelManagementPage() {
                             className="text-slate-400 hover:text-amber-600 p-1" title="Edit">
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
-                          <button onClick={() => handleDelete(c)}
+                          <button onClick={() => setConfirmDeleteConfig(c)}
                             className="text-slate-400 hover:text-red-600 p-1" title="Delete">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -763,11 +768,17 @@ export default function FunnelManagementPage() {
           )}
         </div>
 
-        {toast && (
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-sm font-medium px-5 py-3 rounded-2xl shadow-2xl">
-            {toast}
-          </div>
-        )}
+        <ConfirmDialog
+          open={confirmDeleteConfig !== null}
+          title={`Delete funnel "${confirmDeleteConfig?.name}"?`}
+          impactSummary="The funnel and its stage configuration will be permanently deleted. This cannot be undone."
+          confirmLabel="Delete funnel"
+          danger
+          loading={deleteBusy}
+          error={deleteErr}
+          onConfirm={() => runDelete()}
+          onCancel={() => { setConfirmDeleteConfig(null); setDeleteErr(null); }}
+        />
       </main>
     </div>
   );

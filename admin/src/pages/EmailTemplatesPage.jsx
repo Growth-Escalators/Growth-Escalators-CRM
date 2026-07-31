@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { apiFetch } from '../lib/api.js';
+import { useToast } from '../components/wizmatch/Toast.jsx';
+import ConfirmDialog from '../components/ConfirmDialog.jsx';
 
 const TYPE_META = {
   sequence: { label: 'Sequence', color: '#16a34a', bg: '#dcfce7' },
@@ -216,11 +218,15 @@ function SendTestModal({ template, onClose }) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function EmailTemplatesPage() {
+  const { showSuccess } = useToast();
   const [templates, setTemplates] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [showTest, setShowTest] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteErr, setDeleteErr] = useState(null);
 
   // Editor state
   const [form, setForm] = useState(null);
@@ -311,13 +317,24 @@ export default function EmailTemplatesPage() {
     }
   }
 
-  async function handleDelete() {
+  async function runDelete() {
     if (!selected) return;
-    if (!window.confirm(`Delete template "${selected.name}"? This cannot be undone.`)) return;
-    await apiFetch(`/api/email-templates/${selected.id}`, { method: 'DELETE' });
-    setSelected(null);
-    setForm(null);
-    load();
+    setDeleteBusy(true);
+    setDeleteErr(null);
+    try {
+      await apiFetch(`/api/email-templates/${selected.id}`, { method: 'DELETE' });
+      setConfirmDelete(false);
+      setSelected(null);
+      setForm(null);
+      showSuccess('Template deleted');
+      load();
+    } catch (e) {
+      // Keep the dialog open on failure — closing it would lose the user's
+      // place and hide why nothing happened.
+      setDeleteErr(e.message || 'Failed to delete template');
+    } finally {
+      setDeleteBusy(false);
+    }
   }
 
   // Stats
@@ -449,7 +466,7 @@ export default function EmailTemplatesPage() {
                       <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> Saving…</>
                     ) : 'Save + sync to Brevo'}
                   </button>
-                  <button onClick={handleDelete} className="p-2 text-slate-400 hover:text-red-500 rounded-lg hover:bg-red-50">
+                  <button onClick={() => setConfirmDelete(true)} className="p-2 text-slate-400 hover:text-red-500 rounded-lg hover:bg-red-50">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                   </button>
                 </div>
@@ -566,6 +583,17 @@ export default function EmailTemplatesPage() {
       {showTest && selected && (
         <SendTestModal template={{ ...selected, ...form }} onClose={() => setShowTest(false)} />
       )}
+      <ConfirmDialog
+        open={confirmDelete}
+        title={`Delete template "${selected?.name}"?`}
+        impactSummary="The template will be permanently deleted and can no longer be picked for sends or pipeline stage automations. This cannot be undone."
+        confirmLabel="Delete template"
+        danger
+        loading={deleteBusy}
+        error={deleteErr}
+        onConfirm={() => runDelete()}
+        onCancel={() => { setConfirmDelete(false); setDeleteErr(null); }}
+      />
     </div>
   );
 }

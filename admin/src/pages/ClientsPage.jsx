@@ -3,9 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar.jsx';
 import { apiFetch } from '../lib/api.js';
 import { safeLower } from '../lib/safe.js';
+import { useToast } from '../components/wizmatch/Toast.jsx';
 import {
   Briefcase, Search, Plus, AlertTriangle, TrendingUp, Trophy,
-  Loader2, Building2,
+  Building2,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -165,12 +166,12 @@ function CardSkeleton() {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function ClientsPage() {
   const navigate = useNavigate();
+  const { showError } = useToast();
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [toast, setToast] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -204,11 +205,6 @@ export default function ClientsPage() {
     navigate(`/client/${id}`);
   }
 
-  function showToast(msg) {
-    setToast(msg);
-    setTimeout(() => setToast(''), 2500);
-  }
-
   return (
     <div className="flex h-screen bg-slate-50">
       <Sidebar />
@@ -225,7 +221,7 @@ export default function ClientsPage() {
             </div>
             <button
               type="button"
-              onClick={() => showToast('TODO: Add client flow — for now, win a deal in Pipeline to auto-create a client.')}
+              onClick={() => showError('Add client flow not built yet — win a deal in Pipeline to auto-create a client.')}
               className="ml-auto inline-flex items-center gap-1.5 px-3 py-2 bg-sky-600 text-white text-sm font-semibold rounded-lg hover:bg-sky-700 transition-colors"
             >
               <Plus className="w-4 h-4" /> Add Client
@@ -309,14 +305,6 @@ export default function ClientsPage() {
             </div>
           )}
         </div>
-
-        {/* Toast */}
-        {toast && (
-          <div className="fixed bottom-6 right-6 bg-slate-900 text-white text-sm px-4 py-3 rounded-lg shadow-lg max-w-sm z-50 flex items-start gap-2">
-            <Loader2 className="w-4 h-4 mt-0.5 shrink-0 opacity-70" />
-            <span>{toast}</span>
-          </div>
-        )}
       </main>
     </div>
   );

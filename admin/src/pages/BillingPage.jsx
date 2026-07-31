@@ -3,6 +3,9 @@ import Sidebar from '../components/Sidebar.jsx';
 import { apiFetch } from '../lib/api.js';
 import { getAuthToken } from '../lib/auth.js';
 import { safeLower } from '../lib/safe.js';
+import { useToast } from '../components/wizmatch/Toast.jsx';
+import ConfirmDialog from '../components/ConfirmDialog.jsx';
+import { SkeletonTable, SkeletonCard } from '../components/SkeletonLoader.jsx';
 
 function safeISOString(date) {
   if (!(date instanceof Date) || isNaN(date.getTime())) return '1970-01-01T00:00:00.000Z';
@@ -874,7 +877,7 @@ function CollectionTab() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="text-center py-12 text-neutral-400">Loading collection tracker...</div>;
+  if (loading) return <SkeletonTable rows={5} cols={4} />;
   if (error) return <div className="text-center py-12 text-danger-500">Error: {error}</div>;
   if (!tracker || !tracker.months || tracker.months.length === 0) {
     return (
@@ -979,6 +982,11 @@ function RetainersTab() {
   const [retainers, setRetainers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState('');
+  // Generating an invoice is consequential but not destructive (it only creates
+  // a draft), so this confirm is not `danger`.
+  const [confirmGenerate, setConfirmGenerate] = useState(null); // { id, name } | null
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [confirmErr, setConfirmErr] = useState(null);
 
   useEffect(() => {
     apiFetch('/api/billing/retainers')
@@ -987,15 +995,27 @@ function RetainersTab() {
       .finally(() => setLoading(false));
   }, []);
 
-  async function handleGenerate(id, name) {
-    if (!confirm(`Generate invoice for ${name}?`)) return;
+  async function runGenerate() {
+    setConfirmBusy(true); setConfirmErr(null);
     try {
-      const r = await apiFetch(`/api/billing/retainers/${id}/generate-invoice`, { method: 'POST' });
-      setMsg(`Invoice generated for ${name} (ID: ${r.invoiceId})`);
-    } catch (e) { setMsg(`Error: ${e.message}`); }
+      const r = await apiFetch(`/api/billing/retainers/${confirmGenerate.id}/generate-invoice`, { method: 'POST' });
+      setMsg(`Invoice generated for ${confirmGenerate.name} (ID: ${r.invoiceId})`);
+      setConfirmGenerate(null);
+    } catch (e) {
+      // Keep the dialog open on failure — closing it would hide why nothing happened.
+      setConfirmErr(e.message || `Failed to generate invoice for ${confirmGenerate.name}`);
+    } finally {
+      setConfirmBusy(false);
+    }
   }
 
-  if (loading) return <div className="text-center py-12 text-neutral-400">Loading retainers...</div>;
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <SkeletonCard /><SkeletonCard /><SkeletonCard /><SkeletonCard />
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -1029,7 +1049,7 @@ function RetainersTab() {
                   <div className="flex justify-between"><span>Tax type</span><span>{r.tax_type === 'igst' ? 'IGST 18%' : r.tax_type === 'cgst_sgst' ? 'CGST+SGST' : 'No Tax'}</span></div>
                 </div>
                 {r.status === 'active' && (
-                  <button onClick={() => handleGenerate(r.id, r.client_name)}
+                  <button onClick={() => setConfirmGenerate({ id: r.id, name: r.client_name })}
                     className="w-full text-center text-xs font-medium px-3 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700">
                     Generate Invoice
                   </button>
@@ -1039,12 +1059,24 @@ function RetainersTab() {
           })}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmGenerate !== null}
+        title={`Generate invoice for ${confirmGenerate?.name}?`}
+        impactSummary="A new draft invoice will be created for this client from their retainer line items."
+        confirmLabel="Generate invoice"
+        loading={confirmBusy}
+        error={confirmErr}
+        onConfirm={() => runGenerate()}
+        onCancel={() => setConfirmGenerate(null)}
+      />
     </div>
   );
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function BillingPage() {
+  const { showSuccess, showError } = useToast();
   const [tab, setTab] = useState('invoices');
   const [invoicesList, setInvoicesList] = useState([]);
   const [clients, setClients] = useState([]);
@@ -1061,6 +1093,15 @@ export default function BillingPage() {
   const [statusInvoice, setStatusInvoice] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [msg, setMsg] = useState('');
+  const [confirmCancelId, setConfirmCancelId] = useState(null); // invoice id | null
+  const [confirmCancelBusy, setConfirmCancelBusy] = useState(false);
+  const [confirmCancelErr, setConfirmCancelErr] = useState(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null); // invoice id | null
+  const [confirmDeleteBusy, setConfirmDeleteBusy] = useState(false);
+  const [confirmDeleteErr, setConfirmDeleteErr] = useState(null);
+  const [confirmDeactivateId, setConfirmDeactivateId] = useState(null); // client id | null
+  const [confirmDeactivateBusy, setConfirmDeactivateBusy] = useState(false);
+  const [confirmDeactivateErr, setConfirmDeactivateErr] = useState(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -1098,32 +1139,52 @@ export default function BillingPage() {
   async function handleMarkSent(id) {
     try {
       await apiFetch(`/api/billing/invoices/${id}/send`, { method: 'POST' });
+      showSuccess('Invoice marked as sent');
       fetchData();
-    } catch (e) { alert(e.message); }
+    } catch (e) { showError(e.message || 'Failed to mark invoice as sent'); }
   }
 
-  async function handleCancel(id) {
-    if (!confirm('Cancel this invoice?')) return;
+  async function runCancelInvoice() {
+    setConfirmCancelBusy(true); setConfirmCancelErr(null);
     try {
-      await apiFetch(`/api/billing/invoices/${id}`, { method: 'DELETE' });
+      await apiFetch(`/api/billing/invoices/${confirmCancelId}`, { method: 'DELETE' });
+      setConfirmCancelId(null);
+      showSuccess('Invoice cancelled');
       fetchData();
-    } catch (e) { alert(e.message); }
+    } catch (e) {
+      // Keep the dialog open on failure — closing it would hide why nothing happened.
+      setConfirmCancelErr(e.message || 'Failed to cancel invoice');
+    } finally {
+      setConfirmCancelBusy(false);
+    }
   }
 
-  async function handleDelete(id) {
-    if (!confirm('Permanently delete this cancelled invoice? Any recorded payments against it will also be removed and cannot be recovered.')) return;
+  async function runDeleteInvoice() {
+    setConfirmDeleteBusy(true); setConfirmDeleteErr(null);
     try {
-      await apiFetch(`/api/billing/invoices/${id}`, { method: 'DELETE' });
+      await apiFetch(`/api/billing/invoices/${confirmDeleteId}`, { method: 'DELETE' });
+      setConfirmDeleteId(null);
+      showSuccess('Invoice deleted');
       fetchData();
-    } catch (e) { alert('Could not delete invoice: ' + e.message); }
+    } catch (e) {
+      setConfirmDeleteErr(e.message || 'Could not delete invoice');
+    } finally {
+      setConfirmDeleteBusy(false);
+    }
   }
 
-  async function handleDeleteClient(id) {
-    if (!confirm('Deactivate this client?')) return;
+  async function runDeactivateClient() {
+    setConfirmDeactivateBusy(true); setConfirmDeactivateErr(null);
     try {
-      await apiFetch(`/api/billing/clients/${id}`, { method: 'DELETE' });
+      await apiFetch(`/api/billing/clients/${confirmDeactivateId}`, { method: 'DELETE' });
+      setConfirmDeactivateId(null);
+      showSuccess('Client deactivated');
       fetchData();
-    } catch (e) { alert(e.message); }
+    } catch (e) {
+      setConfirmDeactivateErr(e.message || 'Failed to deactivate client');
+    } finally {
+      setConfirmDeactivateBusy(false);
+    }
   }
 
   function handleDownloadPDF(id, invoiceNumber) {
@@ -1142,7 +1203,7 @@ export default function BillingPage() {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
       })
-      .catch(e => alert('PDF error: ' + e.message));
+      .catch(e => showError('PDF error: ' + (e.message || 'download failed')));
   }
 
   // Filtered invoices
@@ -1214,7 +1275,7 @@ export default function BillingPage() {
         </div>
 
         {loading ? (
-          <div className="text-center py-16 text-neutral-400">Loading…</div>
+          <SkeletonTable rows={6} cols={8} />
         ) : (
           <>
             {/* ── INVOICES TAB ── */}
@@ -1335,14 +1396,14 @@ export default function BillingPage() {
                                 </button>
                               )}
                               {inv.status === 'cancelled' ? (
-                                <button onClick={() => handleDelete(inv.id)}
+                                <button onClick={() => setConfirmDeleteId(inv.id)}
                                   className="p-1.5 text-neutral-400 hover:text-danger-500 hover:bg-danger-500/10 rounded" title="Delete permanently">
                                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                   </svg>
                                 </button>
                               ) : inv.status !== 'paid' ? (
-                                <button onClick={() => handleCancel(inv.id)}
+                                <button onClick={() => setConfirmCancelId(inv.id)}
                                   className="p-1.5 text-neutral-400 hover:text-danger-500 hover:bg-danger-500/10 rounded" title="Cancel">
                                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1421,7 +1482,7 @@ export default function BillingPage() {
                               <button onClick={() => { setEditClient(c); setShowClientModal(true); }}
                                 className="text-xs text-primary-600 hover:underline">Edit</button>
                               {c.isActive && (
-                                <button onClick={() => handleDeleteClient(c.id)}
+                                <button onClick={() => setConfirmDeactivateId(c.id)}
                                   className="text-xs text-danger-500 hover:text-danger-600 hover:underline">Deactivate</button>
                               )}
                             </div>
@@ -1503,6 +1564,40 @@ export default function BillingPage() {
           onSaved={() => { setStatusInvoice(null); fetchData(); }}
         />
       )}
+
+      <ConfirmDialog
+        open={confirmCancelId !== null}
+        title="Cancel this invoice?"
+        impactSummary="The invoice will be marked cancelled. It stays in the invoices list and can be permanently deleted afterward."
+        confirmLabel="Cancel invoice"
+        danger
+        loading={confirmCancelBusy}
+        error={confirmCancelErr}
+        onConfirm={() => runCancelInvoice()}
+        onCancel={() => setConfirmCancelId(null)}
+      />
+      <ConfirmDialog
+        open={confirmDeleteId !== null}
+        title="Permanently delete this cancelled invoice?"
+        impactSummary="Any recorded payments against it will also be removed and cannot be recovered."
+        confirmLabel="Delete invoice"
+        danger
+        loading={confirmDeleteBusy}
+        error={confirmDeleteErr}
+        onConfirm={() => runDeleteInvoice()}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
+      <ConfirmDialog
+        open={confirmDeactivateId !== null}
+        title="Deactivate this client?"
+        impactSummary="The client will be marked inactive. Its invoices, payments and other billing data are kept."
+        confirmLabel="Deactivate client"
+        danger
+        loading={confirmDeactivateBusy}
+        error={confirmDeactivateErr}
+        onConfirm={() => runDeactivateClient()}
+        onCancel={() => setConfirmDeactivateId(null)}
+      />
     </div>
   );
 }

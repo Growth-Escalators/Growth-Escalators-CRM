@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../lib/api.js';
+import { SkeletonCard, SkeletonTable } from '../components/SkeletonLoader.jsx';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -135,7 +136,12 @@ function OverviewTab({ clients, selectedClient, setSelectedClient }) {
         </button>
       </div>
 
-      {loading && <p className="text-slate-400 text-sm text-center py-8">Loading…</p>}
+      {loading && (
+        // Matches the loaded shape below: a score grid (ScoreCircle + 5 sub-score cards).
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {[1, 2, 3, 4, 5].map(i => <SkeletonCard key={i} tone="dark" />)}
+        </div>
+      )}
 
       {!loading && latest && (
         <>
@@ -251,7 +257,12 @@ function MoneyTab({ clients, selectedClient }) {
         </button>
       </div>
 
-      {loading && <p className="text-slate-400 text-sm text-center py-8">Loading…</p>}
+      {loading && (
+        // Matches the loaded shape below: a stack of opportunity cards (5 rows).
+        <div className="space-y-3">
+          {[1, 2, 3, 4, 5].map(i => <SkeletonCard key={i} tone="dark" />)}
+        </div>
+      )}
 
       {!loading && report && (
         <>
@@ -334,7 +345,7 @@ function CreativesTab({ clients, selectedClient }) {
         </button>
       </div>
 
-      {loading && <p className="text-slate-400 text-sm text-center py-8">Loading…</p>}
+      {loading && <SkeletonTable rows={5} cols={6} tone="dark" />}
 
       {!loading && creatives.length > 0 && (
         <div className="space-y-2">
@@ -434,7 +445,18 @@ function CompetitorTab({ clients, selectedClient }) {
         </button>
       </div>
 
-      {loading && <p className="text-slate-400 text-sm text-center py-8">Loading…</p>}
+      {loading && (
+        // Matches the loaded shape below: two stat cards up top, then a
+        // couple of full-width insight cards (trending/offers/recs).
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <SkeletonCard tone="dark" />
+            <SkeletonCard tone="dark" />
+          </div>
+          <SkeletonCard tone="dark" />
+          <SkeletonCard tone="dark" />
+        </div>
+      )}
 
       {!loading && latest && (
         <div className="space-y-4">
@@ -528,7 +550,14 @@ function CopilotTab({ selectedClient }) {
         &nbsp;from your founder WhatsApp to trigger the Co-Pilot.
       </div>
 
-      {loading && <p className="text-slate-400 text-sm text-center py-8">Loading…</p>}
+      {loading && (
+        // Neither primitive is a great fit for a chat transcript — this is
+        // the closest approximation (a few stacked blocks) without inventing
+        // a new skeleton shape outside the two provided.
+        <div className="space-y-3">
+          {[1, 2, 3].map(i => <SkeletonCard key={i} tone="dark" />)}
+        </div>
+      )}
 
       {!loading && convs.length > 0 && (
         <div className="space-y-4 max-h-[520px] overflow-y-auto pr-1">

@@ -1,12 +1,21 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw, X, Trash2, ArrowRight } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
+import { getAuthUser } from '../lib/auth.js';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import DataTable from '../components/ui/DataTable.jsx';
+import BulkActionBar from '../components/ui/BulkActionBar.jsx';
+import { useRowSelection } from '../components/ui/useRowSelection.js';
+import ErrorRetry from '../components/wizmatch/ErrorRetry.jsx';
+import { useToast } from '../components/wizmatch/Toast.jsx';
 import FilterBar from '../components/wizmatch/filters/FilterBar.jsx';
 import { useTableControls } from '../components/wizmatch/filters/useTableControls.js';
 import { exportRowsToCsv } from '../components/wizmatch/filters/exportCsv.js';
+
+const PAGE_SIZE = 50;
+// Shared bulk-endpoint contract: `ids` is capped at 200 per request.
+const BULK_CHUNK = 200;
 
 const STATUS_BADGE = {
   new: 'badge-info',
@@ -151,39 +160,80 @@ function PocSearchPreview({ signal, enabled, onRan }) {
 
 export default function WizmatchSignalsPage() {
   const navigate = useNavigate();
+  const { showSuccess, showError } = useToast();
   const [signals, setSignals] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
   const ctl = useTableControls({ pageId: 'wizmatch-signals', spec: SIGNAL_FILTERS, columns: SIGNAL_COLUMNS, defaults: SIGNAL_DEFAULTS });
   const { toQueryParams, page, setPage } = ctl;
   const [selectedSignal, setSelectedSignal] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [sourcing, setSourcing] = useState(null);
+  const [sourcingError, setSourcingError] = useState('');
   const [feedback, setFeedback] = useState('');
   const [promotedRequirementId, setPromotedRequirementId] = useState(null);
   const [actionBusy, setActionBusy] = useState('');
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [confirmBulkReject, setConfirmBulkReject] = useState(false);
+  const [bulkRejectError, setBulkRejectError] = useState(null);
+
+  // Server page: the backend applies the global ORDER BY (sort=<col>:<dir>), so
+  // render rows in server order. rowAriaLabel is what DataTable announces on
+  // the row checkbox — without it every row reads out as a raw UUID.
+  const rows = signals.map((s) => ({
+    ...s,
+    rowAriaLabel: `${s.job_title}${s.company_name ? ` at ${s.company_name}` : ''}`,
+  }));
+  const sel = useRowSelection(rows, 'id');
+  const clearSelection = sel.clear;
+
+  // The Toast context value is a fresh object on every provider render, so it
+  // must not appear in loadSignals()'s dependency list — otherwise showing a
+  // toast re-creates the callback and the effect below refetches the list.
+  const toastRef = useRef({ showSuccess, showError });
+  toastRef.current = { showSuccess, showError };
+
+  const loadedOnce = useRef(false);
 
   const loadSignals = useCallback(async () => {
-    setLoading(true);
+    // First load -> skeletons. Every later refetch (filter change, 30s poll,
+    // post-action reload) -> `refreshing`, so the rows stay on screen instead
+    // of the whole table blanking every 30 seconds.
+    if (loadedOnce.current) setRefreshing(true); else setLoading(true);
+    setError(null);
+    // Mandatory: selection must not survive a reload, or a bulk action fires
+    // against rows the user can no longer see.
+    clearSelection();
     try {
-      const params = toQueryParams({ limit: 50, offset: page * 50 });
+      const params = toQueryParams({ limit: PAGE_SIZE, offset: page * PAGE_SIZE });
       const data = await apiFetch(`/api/wizmatch/signals?${params}`);
       setSignals(data.items || []);
       setTotal(data.total || 0);
     } catch (e) {
-      console.error('Failed to load signals:', e);
+      const msg = e.message || 'Failed to load job leads';
+      // A failed load used to be swallowed by console.error, so a 500 looked
+      // identical to "no signals match these filters".
+      if (loadedOnce.current) toastRef.current.showError(msg);
+      else setError(msg);
     } finally {
+      loadedOnce.current = true;
       setLoading(false);
+      setRefreshing(false);
     }
-  }, [toQueryParams, page]);
+  }, [toQueryParams, page, clearSelection]);
 
   useEffect(() => { loadSignals(); }, [loadSignals]);
   const loadSourcing = useCallback(async () => {
+    setSourcingError('');
     try { setSourcing(await apiFetch('/api/wizmatch/sourcing/status')); }
-    catch (e) { setFeedback(e.message || 'Sourcing status could not be loaded.'); }
+    // Not a toast: with no status the provider cards below silently render as
+    // "off / No run recorded", which is indistinguishable from real state.
+    catch (e) { setSourcingError(e.message || 'Sourcing status could not be loaded — the provider cards below are not live.'); }
   }, []);
   useEffect(() => { loadSourcing(); }, [loadSourcing]);
 
@@ -194,13 +244,17 @@ export default function WizmatchSignalsPage() {
       setFeedback(`${label} completed.`); await loadSignals(); await loadSourcing();
       if (selectedSignal) await openDetail(selectedSignal);
       return result;
-    } catch (e) { setFeedback(e.message || `${label} failed.`); }
+    } catch (e) { toastRef.current.showError(e.message || `${label} failed.`); }
     finally { setActionBusy(''); }
   }
 
-  // Poll for new signals every 30s
+  // Poll for new signals every 30s — but not while rows are selected. The poll
+  // goes through loadSignals(), which clears the selection by design, so an
+  // unconditional poll would wipe a half-built selection mid-review.
+  const selectionCountRef = useRef(0);
+  selectionCountRef.current = sel.count;
   useEffect(() => {
-    const interval = setInterval(loadSignals, 30000);
+    const interval = setInterval(() => { if (selectionCountRef.current === 0) loadSignals(); }, 30000);
     return () => clearInterval(interval);
   }, [loadSignals]);
 
@@ -211,9 +265,63 @@ export default function WizmatchSignalsPage() {
       const detail = await apiFetch(`/api/wizmatch/signals/${signal.id}`);
       setSelectedSignal(detail);
     } catch (e) {
-      console.error('Failed to load detail:', e);
+      // The drawer keeps the list row's fields; say the detail failed rather
+      // than leaving a half-populated drawer that looks complete.
+      toastRef.current.showError(e.message || 'Failed to load this job lead');
     } finally {
       setDetailLoading(false);
+    }
+  };
+
+  // POST /signals/bulk-action gates on role by SELECTION SIZE, not by action:
+  // more than one id is admin-only, a single id keeps the team_lead+ tier the
+  // per-signal routes carry (src/routes/wizmatch.ts allowBulkRole). Mirror that
+  // exactly so the bar explains the block instead of 403-ing on click.
+  const role = getAuthUser()?.role;
+  const bulkRoleReason = role === 'admin'
+    ? undefined
+    : sel.count > 1
+      ? 'Admin only — acting on more than one lead at a time requires the admin role'
+      : role === 'team_lead'
+        ? undefined
+        : 'Requires team_lead or admin';
+
+  // Bulk qualify / reject. POST /api/wizmatch/signals/bulk-action returns
+  // { results: [{ id, ok, error? }], succeeded, failed } — partial success is
+  // reported as partial, never as a blanket success.
+  const runBulkAction = async (action, reason) => {
+    const ids = sel.selectedVisible;
+    if (ids.length === 0) return;
+    setBulkBusy(true);
+    setBulkRejectError(null);
+    let succeeded = 0;
+    let failed = 0;
+    let firstError = null;
+    try {
+      for (let i = 0; i < ids.length; i += BULK_CHUNK) {
+        const result = await apiFetch('/api/wizmatch/signals/bulk-action', {
+          method: 'POST',
+          body: JSON.stringify({ ids: ids.slice(i, i + BULK_CHUNK), action, reason: reason || undefined }),
+        });
+        succeeded += result?.succeeded || 0;
+        failed += result?.failed || 0;
+        if (!firstError) firstError = (result?.results || []).find((r) => !r.ok)?.error || null;
+      }
+      setConfirmBulkReject(false);
+      const verb = action === 'qualify' ? 'Qualified' : 'Rejected';
+      const noun = succeeded === 1 ? 'job lead' : 'job leads';
+      if (failed === 0) toastRef.current.showSuccess(`${verb} ${succeeded} ${noun}`);
+      else toastRef.current.showError(`${succeeded} succeeded, ${failed} failed — ${firstError || 'open a lead to see why'}`);
+      await loadSignals();
+    } catch (e) {
+      const base = e.status === 404
+        ? 'Bulk actions are not available on this API build yet.'
+        : (e.message || `Bulk ${action} failed.`);
+      const msg = succeeded > 0 ? `${base} (${succeeded} leads were already ${action === 'qualify' ? 'qualified' : 'rejected'} before this failure.)` : base;
+      if (action === 'reject') setBulkRejectError(msg);
+      else toastRef.current.showError(msg);
+    } finally {
+      setBulkBusy(false);
     }
   };
 
@@ -236,24 +344,47 @@ export default function WizmatchSignalsPage() {
     }
   };
 
-  // Server page: the backend applies the global ORDER BY (sort=<col>:<dir>), so
-  // render rows in server order.
-  const rows = signals;
   // Export the full filtered set (not just this page) — re-fetch current
   // filters/sort at the backend max limit; visible columns only.
   const exportCsv = async () => {
     try {
       const data = await apiFetch(`/api/wizmatch/signals?${toQueryParams({ limit: 1000 })}`);
-      exportRowsToCsv(data.items || [], ctl.visibleColumns, 'job-signals.csv');
-    } catch (e) { console.error(e); }
+      const items = data.items || [];
+      exportRowsToCsv(items, ctl.visibleColumns, 'job-signals.csv');
+      // The backend clamps `limit` to 200 (routes/wizmatch.ts), so a filtered
+      // set larger than that exports short. Say so instead of handing over a
+      // silently truncated CSV.
+      if ((data.total || 0) > items.length) {
+        toastRef.current.showError(`Exported the first ${items.length} of ${data.total} job leads — narrow the filters to export the rest.`);
+      }
+    } catch (e) { toastRef.current.showError(e.message || 'Export failed'); }
   };
+
+  // Server-paginated: `total` is a full COUNT(*) over the same WHERE clause, so
+  // this range is exact rather than a count of what happens to be loaded.
+  const firstIndex = total === 0 ? 0 : page * PAGE_SIZE + 1;
+  const lastIndex = page * PAGE_SIZE + rows.length;
 
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h1 className="text-[20px] font-bold text-neutral-900">Job Signals</h1>
-        <p className="text-[12.5px] text-neutral-500 mt-1">{total} total signals · auto-refreshes every 30s</p>
+        {/* "Job Leads", not "Job Signals": the canonical route is id `job-leads`
+            at /wizmatch/job-leads and /wizmatch/signals is only a legacyAlias —
+            the product migrated signals -> job leads and this heading was the
+            last place still using the old word. Nav, breadcrumb, bulk bar and
+            toasts all say "job lead(s)". */}
+        <h1 className="text-[20px] font-bold text-neutral-900">Job Leads</h1>
+        <p className="text-[12.5px] text-neutral-500 mt-1">
+          {total} total signals · {sel.count > 0 ? 'auto-refresh paused while rows are selected' : 'auto-refreshes every 30s'}
+        </p>
       </div>
+
+      {sourcingError && (
+        <div role="alert" className="mb-4 rounded-md border border-danger-500/30 bg-danger-500/10 px-3 py-2 text-[12.5px] text-danger-600 flex items-center justify-between gap-3">
+          <span>{sourcingError}</span>
+          <button onClick={loadSourcing} className="btn-standard btn-compact shrink-0">Retry</button>
+        </div>
+      )}
 
       {feedback && (
         <div role="status" className="mb-4 rounded-md border border-info-200 bg-info-50 p-3 text-sm text-info-800 flex items-center justify-between gap-3">
@@ -299,23 +430,51 @@ export default function WizmatchSignalsPage() {
         rightSlot={<button onClick={loadSignals} className="btn-standard btn-compact"><RefreshCw className="w-3.5 h-3.5" /> Refresh</button>}
       />
 
-      <DataTable
-        columns={ctl.visibleColumns}
-        rows={rows}
-        rowKey="id"
-        onRowClick={openDetail}
-        loading={loading}
-        emptyText="No signals match these filters"
-        sort={ctl.sort}
-        onSort={ctl.setSort}
-      />
+      {error ? (
+        <ErrorRetry message={error} onRetry={loadSignals} retrying={loading} />
+      ) : (
+        <>
+          <DataTable
+            columns={ctl.visibleColumns}
+            rows={rows}
+            rowKey="id"
+            onRowClick={openDetail}
+            loading={loading}
+            refreshing={refreshing}
+            emptyText="No signals match these filters"
+            sort={ctl.sort}
+            onSort={ctl.setSort}
+            selectedIds={sel.selectedIds}
+            onToggleRow={sel.toggleRow}
+            onToggleAll={sel.toggleAll}
+          />
+          <BulkActionBar
+            count={sel.count}
+            entityLabel="job lead"
+            entityLabelPlural="job leads"
+            busy={bulkBusy}
+            actions={[
+              { key: 'qualify', label: 'Qualify', disabled: Boolean(bulkRoleReason), reason: bulkRoleReason },
+              { key: 'reject', label: 'Reject', danger: true, disabled: Boolean(bulkRoleReason), reason: bulkRoleReason },
+            ]}
+            onAction={(key) => {
+              if (key === 'reject') { setBulkRejectError(null); setConfirmBulkReject(true); }
+              else runBulkAction('qualify');
+            }}
+            onClear={sel.clear}
+          />
 
-      {total > 50 && (
-        <div className="mt-4 flex justify-between items-center">
-          <button disabled={page === 0} onClick={() => setPage(page - 1)} className="btn-standard btn-compact disabled:opacity-50">Previous</button>
-          <span className="text-sm text-neutral-500">Page {page + 1} of {Math.ceil(total / 50)}</span>
-          <button disabled={(page + 1) * 50 >= total} onClick={() => setPage(page + 1)} className="btn-standard btn-compact disabled:opacity-50">Next</button>
-        </div>
+          {rows.length > 0 && (
+            <div className="mt-4 flex justify-between items-center gap-3">
+              <button disabled={page === 0} onClick={() => setPage(page - 1)} className="btn-standard btn-compact disabled:opacity-50">Previous</button>
+              <span className="text-sm text-neutral-500">
+                Showing {firstIndex}–{lastIndex} of {total} job leads
+                {total > PAGE_SIZE ? ` · page ${page + 1} of ${Math.ceil(total / PAGE_SIZE)}` : ''}
+              </span>
+              <button disabled={(page + 1) * PAGE_SIZE >= total} onClick={() => setPage(page + 1)} className="btn-standard btn-compact disabled:opacity-50">Next</button>
+            </div>
+          )}
+        </>
       )}
 
       {/* Detail Drawer */}
@@ -423,12 +582,22 @@ export default function WizmatchSignalsPage() {
                     <button disabled={actionBusy} onClick={async ()=>{ const r = await runAction('Create requirement draft',`/api/wizmatch/signals/${selectedSignal.id}/promote-to-requirement`); if (r?.requirement?.id) setPromotedRequirementId(r.requirement.id); }} className="btn-standard">Create requirement draft</button>
                     <button disabled={actionBusy} onClick={()=>runAction('Reject signal',`/api/wizmatch/signals/${selectedSignal.id}/reject`,{reason:'Not a workable staffing requirement'})} className="btn-standard text-danger-700">Reject</button>
                     <button
+                      disabled={!!actionBusy}
                       onClick={async () => {
+                        setActionBusy('Generate drafts');
                         try {
                           await apiFetch(`/api/wizmatch/signals/${selectedSignal.id}/draft`, { method: 'POST' });
-                          alert('Drafts generated! Refresh to see them.');
-                          openDetail(selectedSignal);
-                        } catch (e) { alert('Failed: ' + e.message); }
+                          // Reload rather than telling the user to refresh:
+                          // openDetail repopulates the drawer's Drafts section
+                          // and the list row's status moves to `drafted`.
+                          await openDetail(selectedSignal);
+                          await loadSignals();
+                          toastRef.current.showSuccess('Drafts generated');
+                        } catch (e) {
+                          toastRef.current.showError(e.message || 'Failed to generate drafts');
+                        } finally {
+                          setActionBusy('');
+                        }
                       }}
                       className="btn-primary"
                     >Generate Drafts</button>
@@ -456,6 +625,19 @@ export default function WizmatchSignalsPage() {
         error={deleteError}
         onConfirm={deleteSignal}
         onCancel={() => { setShowDeleteDialog(false); setDeleteError(null); }}
+      />
+
+      <ConfirmDialog
+        open={confirmBulkReject}
+        title={`Reject ${sel.count} ${sel.count === 1 ? 'job lead' : 'job leads'}?`}
+        impactSummary="They leave the active queue and stop being matched or drafted against. Nothing is deleted — each one can be re-opened individually from its detail drawer."
+        confirmLabel={`Reject ${sel.count}`}
+        danger
+        requireReason
+        loading={bulkBusy}
+        error={bulkRejectError}
+        onConfirm={(reason) => runBulkAction('reject', reason)}
+        onCancel={() => { setConfirmBulkReject(false); setBulkRejectError(null); }}
       />
     </div>
   );

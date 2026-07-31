@@ -2,6 +2,8 @@ import React, { useEffect, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import { apiFetch } from '../lib/api.js';
 import { getAuthToken } from '../lib/auth.js';
+import { useToast } from '../components/wizmatch/Toast.jsx';
+import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import { Share2, Globe, Camera, Plus, Trash2, AlertCircle, Image, Film, Search, ExternalLink } from 'lucide-react';
 
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -368,10 +370,14 @@ function CalendarTab() {
 
 // Library tab
 function LibraryTab({ onUseInPost }) {
+  const { showSuccess } = useToast();
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
+  const [confirmDeleteKey, setConfirmDeleteKey] = useState(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteErr, setDeleteErr] = useState(null);
 
   useEffect(() => {
     setLoading(true);
@@ -384,12 +390,21 @@ function LibraryTab({ onUseInPost }) {
       .finally(() => setLoading(false));
   }, [filter, search]);
 
-  async function handleDelete(key) {
-    if (!confirm('Delete this file permanently?')) return;
+  async function runDelete() {
+    setDeleteBusy(true);
+    setDeleteErr(null);
     try {
-      await apiFetch(`/api/social/library/${encodeURIComponent(key)}`, { method: 'DELETE' });
-      setFiles(prev => prev.filter(f => f.key !== key));
-    } catch {}
+      await apiFetch(`/api/social/library/${encodeURIComponent(confirmDeleteKey)}`, { method: 'DELETE' });
+      setFiles(prev => prev.filter(f => f.key !== confirmDeleteKey));
+      setConfirmDeleteKey(null);
+      showSuccess('File deleted');
+    } catch (e) {
+      // Keep the dialog open on failure — closing it would lose the user's
+      // place and hide why nothing happened.
+      setDeleteErr(e.message || 'Failed to delete file');
+    } finally {
+      setDeleteBusy(false);
+    }
   }
 
   function formatSize(bytes) {
@@ -445,12 +460,24 @@ function LibraryTab({ onUseInPost }) {
               </div>
               <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                 <button onClick={() => onUseInPost(f.url)} className="px-2 py-1 bg-sky-600 text-white rounded text-xs font-medium">Use</button>
-                <button onClick={() => handleDelete(f.key)} className="px-2 py-1 bg-red-600 text-white rounded text-xs font-medium">Delete</button>
+                <button onClick={() => setConfirmDeleteKey(f.key)} className="px-2 py-1 bg-red-600 text-white rounded text-xs font-medium">Delete</button>
               </div>
             </div>
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmDeleteKey !== null}
+        title="Delete this file permanently?"
+        impactSummary="It will be permanently removed from the media library. This cannot be undone."
+        confirmLabel="Delete file"
+        danger
+        loading={deleteBusy}
+        error={deleteErr}
+        onConfirm={() => runDelete()}
+        onCancel={() => { setConfirmDeleteKey(null); setDeleteErr(null); }}
+      />
     </div>
   );
 }
@@ -610,12 +637,35 @@ function FacebookLeadFormsPanel({ accounts }) {
 
 // Accounts tab
 function AccountsTab({ accounts, onDelete, onAdd }) {
+  const { showSuccess } = useToast();
   const [showManual, setShowManual] = useState(false);
   const [manualPageId, setManualPageId] = useState('');
   const [manualToken, setManualToken] = useState('');
   const [manualName, setManualName] = useState('');
   const [manualSaving, setManualSaving] = useState(false);
   const [manualError, setManualError] = useState('');
+  const [confirmDisconnectId, setConfirmDisconnectId] = useState(null);
+  const [disconnectBusy, setDisconnectBusy] = useState(false);
+  const [disconnectErr, setDisconnectErr] = useState(null);
+
+  const disconnectTarget = accounts.find(a => a.id === confirmDisconnectId);
+
+  async function runDisconnect() {
+    setDisconnectBusy(true);
+    setDisconnectErr(null);
+    try {
+      await onDelete(confirmDisconnectId);
+      const name = disconnectTarget?.accountName || 'Account';
+      setConfirmDisconnectId(null);
+      showSuccess(`${name} disconnected`);
+    } catch (e) {
+      // Keep the dialog open on failure — closing it would lose the user's
+      // place and hide why nothing happened.
+      setDisconnectErr(e.message || 'Failed to disconnect account');
+    } finally {
+      setDisconnectBusy(false);
+    }
+  }
 
   async function handleManualConnect(e) {
     e.preventDefault();
@@ -735,7 +785,7 @@ function AccountsTab({ accounts, onDelete, onAdd }) {
                 </p>
               </div>
               <button
-                onClick={() => { if (confirm(`Disconnect ${acct.accountName}?`)) onDelete(acct.id); }}
+                onClick={() => setConfirmDisconnectId(acct.id)}
                 className="px-3 py-1.5 text-xs text-slate-500 border border-slate-200 rounded-lg hover:border-red-300 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
               >
                 Disconnect
@@ -750,6 +800,18 @@ function AccountsTab({ accounts, onDelete, onAdd }) {
         To link: Go to your Facebook Page → Settings → Linked Accounts → Instagram.
         Your Instagram must be a Business or Creator account.
       </p>
+
+      <ConfirmDialog
+        open={confirmDisconnectId !== null}
+        title={`Disconnect ${disconnectTarget?.accountName || 'this account'}?`}
+        impactSummary="It will stop posting from this CRM. Reconnect any time from the Accounts tab."
+        confirmLabel="Disconnect"
+        danger
+        loading={disconnectBusy}
+        error={disconnectErr}
+        onConfirm={() => runDisconnect()}
+        onCancel={() => { setConfirmDisconnectId(null); setDisconnectErr(null); }}
+      />
     </div>
   );
 }
@@ -766,10 +828,11 @@ export default function SocialPage() {
   }, [refreshKey]);
 
   async function deleteAccount(id) {
-    try {
-      await apiFetch(`/api/social/accounts/${id}`, { method: 'DELETE' });
-      setRefreshKey(k => k + 1);
-    } catch {}
+    // Let this throw — AccountsTab's ConfirmDialog needs the rejection to
+    // show a real error and keep the dialog open instead of silently
+    // no-oping on failure.
+    await apiFetch(`/api/social/accounts/${id}`, { method: 'DELETE' });
+    setRefreshKey(k => k + 1);
   }
 
   const TABS = [

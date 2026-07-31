@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import { getAuthToken } from '../lib/auth.js';
+import { SkeletonCard } from '../components/SkeletonLoader.jsx';
 
 async function fetchOutreach(path) {
   const token = getAuthToken();
@@ -107,7 +108,20 @@ export default function OutreachDashboard() {
         </div>
 
         {loading ? (
-          <div className="text-center py-16 text-slate-400">Loading...</div>
+          // Same two 5-across tile rows + 3-column panel row as the loaded
+          // dashboard, so the header does not sit above a jumping layout.
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
+              {[0, 1, 2, 3, 4].map(i => <SkeletonCard key={i} />)}
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
+              {[0, 1, 2, 3, 4].map(i => <SkeletonCard key={i} />)}
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-5">
+              <SkeletonCard className="lg:col-span-2 h-64" />
+              <SkeletonCard className="h-64" />
+            </div>
+          </>
         ) : !data ? (
           <div className="text-center py-16 text-red-500 text-sm">Failed to load outreach data</div>
         ) : (

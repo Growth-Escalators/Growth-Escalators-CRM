@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import { apiFetch } from '../lib/api.js';
+import { useToast } from '../components/wizmatch/Toast.jsx';
+import { SkeletonTable } from '../components/SkeletonLoader.jsx';
 import { BarChart2, RefreshCw, TrendingUp, TrendingDown, ChevronDown, ChevronRight, AlertCircle, Settings, Bell, Plus, Trash2, MessageSquare, Send, CheckCircle, Clock, Zap } from 'lucide-react';
 
 const FALLBACK_ACCOUNTS = [
@@ -79,6 +81,7 @@ function TokenMissingBanner({ onDismiss }) {
 }
 
 function CampaignRow({ campaign, insights, accountId, dateQS, onStatusChange }) {
+  const { showError } = useToast();
   const [expanded, setExpanded] = useState(false);
   const [adsets, setAdsets] = useState([]);
   const [loadingAdsets, setLoadingAdsets] = useState(false);
@@ -105,7 +108,7 @@ function CampaignRow({ campaign, insights, accountId, dateQS, onStatusChange }) 
       });
       if (onStatusChange) onStatusChange();
     } catch (err) {
-      alert(err?.message || 'Failed to update campaign status');
+      showError(err?.message || 'Failed to update campaign status');
     } finally {
       setToggling(false);
     }
@@ -489,8 +492,8 @@ function SlackAutomationTab({ adAccounts, insights, dateRange, customSince, cust
     }
     return { dateRange };
   }
+  const { showSuccess, showError } = useToast();
   const [sending, setSending] = useState(false);
-  const [toast, setToast] = useState('');
   const [automations, setAutomations] = useState({});
 
   useEffect(() => {
@@ -520,9 +523,10 @@ function SlackAutomationTab({ adAccounts, insights, dateRange, customSince, cust
         method: 'POST',
         body: JSON.stringify(rangePayload()),
       });
-      setToast(data?.sent ? 'Digest sent to Slack!' : (data?.error || 'Failed to send'));
+      if (data?.sent) showSuccess('Digest sent to Slack!');
+      else showError(data?.error || 'Failed to send');
     } catch (e) {
-      setToast('Failed: ' + e.message);
+      showError('Failed: ' + e.message);
     }
     setSending(false);
   }
@@ -534,18 +538,13 @@ function SlackAutomationTab({ adAccounts, insights, dateRange, customSince, cust
         method: 'POST',
         body: JSON.stringify({ type, ...rangePayload() }),
       });
-      setToast(data?.sent ? `${type} alert sent!` : (data?.error || 'Failed'));
+      if (data?.sent) showSuccess(`${type} alert sent!`);
+      else showError(data?.error || 'Failed');
     } catch (e) {
-      setToast('Failed: ' + e.message);
+      showError('Failed: ' + e.message);
     }
     setSending(false);
   }
-
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(''), 4000);
-    return () => clearTimeout(t);
-  }, [toast]);
 
   const AUTOMATION_PRESETS = [
     { key: 'daily_digest', label: 'Daily Performance Digest', desc: 'Auto-send spend, ROAS, purchases summary to Slack at 10 AM', icon: Clock },
@@ -656,12 +655,6 @@ function SlackAutomationTab({ adAccounts, insights, dateRange, customSince, cust
           <span className="text-xs text-slate-400 ml-auto">Digests go to #performance-marketing, alerts DM to Jatin</span>
         </div>
       </div>
-
-      {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-sm font-medium px-5 py-3 rounded-2xl shadow-2xl">
-          {toast}
-        </div>
-      )}
     </div>
   );
 }
@@ -856,7 +849,7 @@ function SlackDailyReportTab() {
       )}
 
       {loading ? (
-        <div className="text-sm text-slate-500 py-8 text-center">Loading…</div>
+        <SkeletonTable rows={4} cols={5} />
       ) : rows.length === 0 ? (
         <div className="text-sm text-slate-500 py-8 text-center">No accounts yet — add one above.</div>
       ) : (

@@ -3,6 +3,9 @@ import Sidebar from '../components/Sidebar.jsx';
 import StatCard from '../components/StatCard.jsx';
 import { apiFetch } from '../lib/api.js';
 import { getAuthToken } from '../lib/auth.js';
+import ConfirmDialog from '../components/ConfirmDialog.jsx';
+import { SkeletonCard, SkeletonText } from '../components/SkeletonLoader.jsx';
+import { useToast } from '../components/wizmatch/Toast.jsx';
 import {
   Upload, RefreshCw, Filter, X, Target, AlertCircle, CheckCircle2,
   Mail, Link2, Building2, ShieldQuestion, Briefcase, TrendingUp, UserPlus,
@@ -56,6 +59,7 @@ function fmt(date) {
 // lets the operator change status or log a reply.
 // ---------------------------------------------------------------------------
 function ProspectDrawer({ id, onClose, onMutated }) {
+  const { showSuccess, showError } = useToast();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
@@ -124,18 +128,24 @@ function ProspectDrawer({ id, onClose, onMutated }) {
   };
 
   const [converting, setConverting] = useState(false);
+  const [confirmConvert, setConfirmConvert] = useState(false);
+  const [convertErr, setConvertErr] = useState(null);
   const convertToCrm = async () => {
-    if (!confirm('Create a CRM contact + deal from this prospect?')) return;
-    setConverting(true);
+    setConverting(true); setConvertErr(null);
     try {
       const r = await apiFetch(`/api/outbound/prospects/${id}/convert`, {
         method: 'POST',
         body: JSON.stringify({ note: 'manual convert via admin UI' }),
       });
+      setConfirmConvert(false);
       await load();
       onMutated?.();
-      alert(`Created CRM contact ${r.crm_contact_id} + deal ${r.crm_deal_id}.`);
+      showSuccess(`Created CRM contact ${r.crm_contact_id} + deal ${r.crm_deal_id}.`);
     } catch (e) {
+      // Convert is not idempotent from the operator's point of view, so keep
+      // the dialog open and show why rather than dropping them back to the
+      // drawer with no explanation.
+      setConvertErr(e.message);
       setErr(e.message);
     } finally {
       setConverting(false);
@@ -150,7 +160,13 @@ function ProspectDrawer({ id, onClose, onMutated }) {
         <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5" /></button>
       </div>
 
-      {loading && <div className="p-6 text-sm text-slate-500">Loading…</div>}
+      {loading && (
+        <div className="p-5 space-y-4">
+          <SkeletonText lines={2} />
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
+      )}
       {err && (
         <div className="m-5 flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
           <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" /><span>{err}</span>
@@ -225,7 +241,7 @@ function ProspectDrawer({ id, onClose, onMutated }) {
                 </div>
               ) : (
                 <button
-                  onClick={convertToCrm}
+                  onClick={() => setConfirmConvert(true)}
                   disabled={converting}
                   className="mt-1 inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-600 text-white text-xs rounded hover:bg-emerald-700 disabled:opacity-50"
                 >
@@ -308,6 +324,17 @@ function ProspectDrawer({ id, onClose, onMutated }) {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmConvert}
+        title="Convert this prospect to the CRM?"
+        impactSummary="A CRM contact and an open deal will be created from this prospect, and the prospect will be linked to both."
+        confirmLabel="Create contact + deal"
+        loading={converting}
+        error={convertErr}
+        onConfirm={convertToCrm}
+        onCancel={() => { setConfirmConvert(false); setConvertErr(null); }}
+      />
     </div>
   );
 }

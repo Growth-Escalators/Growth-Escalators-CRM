@@ -9,6 +9,8 @@ import { apiFetch } from '../lib/api.js';
 import { productPath } from '../lib/auth.js';
 import { isAbandonedOutcome, isLostOutcome, isTerminalOutcome, isWonOutcome } from '../lib/pipelineStageOutcomes.js';
 import { safeInitial, safeLower, safeText } from '../lib/safe.js';
+import { useToast } from '../components/wizmatch/Toast.jsx';
+import ConfirmDialog from '../components/ConfirmDialog.jsx';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -430,6 +432,7 @@ function AddDealModal({ pipelineId, stageName, onAdded, onClose }) {
 // Main PipelinePage
 // ---------------------------------------------------------------------------
 export default function PipelinePage() {
+  const { showSuccess, showError } = useToast();
   const [pipelinesList, setPipelinesList] = useState([]);
   const [activePipelineId, setActivePipelineId] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
@@ -448,6 +451,8 @@ export default function PipelinePage() {
   // Bulk-selection state — Set of deal ids currently checked. Empty Set = selection mode off.
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  // Bulk archive confirm — split from the old synchronous window.confirm().
+  const [confirmArchive, setConfirmArchive] = useState(false);
 
   const loadPipelines = useCallback(async () => {
     setLoading(true);
@@ -503,10 +508,13 @@ export default function PipelinePage() {
     });
   }
 
-  async function bulkArchive() {
+  function bulkArchive() {
+    if (selectedIds.size === 0) return;
+    setConfirmArchive(true);
+  }
+
+  async function runBulkArchive() {
     const ids = Array.from(selectedIds);
-    if (ids.length === 0) return;
-    if (!window.confirm(`Archive ${ids.length} deal${ids.length === 1 ? '' : 's'}? They'll disappear from the board.`)) return;
     setBulkBusy(true);
     try {
       const res = await apiFetch('/api/deals/bulk-update', {
@@ -522,8 +530,11 @@ export default function PipelinePage() {
         loadDeals();
       }
       setSelectedIds(new Set());
+      setConfirmArchive(false);
+      showSuccess(`Archived ${ids.length} deal${ids.length === 1 ? '' : 's'}`);
     } catch (err) {
-      window.alert('Failed to archive deals. Reloading the board.');
+      setConfirmArchive(false);
+      showError('Failed to archive deals. Reloading the board.');
       loadDeals();
     } finally {
       setBulkBusy(false);
@@ -958,6 +969,17 @@ export default function PipelinePage() {
           onUpdated={() => { loadDeals(); setSelectedContact(null); }}
         />
       )}
+
+      <ConfirmDialog
+        open={confirmArchive}
+        title={`Archive ${selectedIds.size} deal${selectedIds.size === 1 ? '' : 's'}?`}
+        impactSummary="They'll disappear from the board. You can still see them with the “Show archived” toggle."
+        confirmLabel={`Archive ${selectedIds.size} deal${selectedIds.size === 1 ? '' : 's'}`}
+        danger
+        loading={bulkBusy}
+        onConfirm={runBulkArchive}
+        onCancel={() => setConfirmArchive(false)}
+      />
     </div>
   );
 }

@@ -1,10 +1,14 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { FileText, Upload, Sparkles, X, Download, Users, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import MatchExplanation from '../components/wizmatch/MatchExplanation.jsx';
+import ErrorRetry from '../components/wizmatch/ErrorRetry.jsx';
+import { useToast } from '../components/wizmatch/Toast.jsx';
 import DataTable from '../components/ui/DataTable.jsx';
+import BulkActionBar from '../components/ui/BulkActionBar.jsx';
+import { useRowSelection } from '../components/ui/useRowSelection.js';
 import FilterBar from '../components/wizmatch/filters/FilterBar.jsx';
 import { useTableControls } from '../components/wizmatch/filters/useTableControls.js';
 import { exportRowsToCsv } from '../components/wizmatch/filters/exportCsv.js';
@@ -26,33 +30,49 @@ const REQ_STAGES = ['draft', 'qualifying', 'accepted', 'sourcing', 'covered', 's
 // map to backend query params via serverKey/serverMinKey/etc). Enum sources of
 // truth: wizmatch_requirements status/stage/priority/work_mode/employment_type/
 // region/attribution_status + company_intelligence.qualification_tier.
+//
+// Placement: 17 controls rendered flat pushed the table below the fold, so
+// FilterBar folds everything marked `advanced` into "More filters". The five
+// kept up front are the axes the delivery loop actually runs on — find the
+// requirement (title / company), find the ones needing a given skill, and slice
+// by operating stage, which is the pipeline this page exists to move things
+// through. Region stays visible because REQ_DEFAULTS applies `india` on load:
+// a default that hides US rows must be one click from being seen and changed.
+// Legacy sheet `status`, priority, work mode, employment type, attribution,
+// tier, experience, budget, has-matches and created-date are all narrowing
+// passes on an already-chosen stage, so they live in the popover.
 const REQ_FILTERS = [
-  { key: 'q', label: 'Title', type: 'search', placeholder: 'Search title…' },
-  { key: 'company', label: 'Company', type: 'search', placeholder: 'Company…' },
-  { key: 'skill', label: 'Skill', type: 'search', placeholder: 'Skill…' },
-  { key: 'location', label: 'Location', type: 'search', placeholder: 'Location…' },
-  { key: 'source_contact', label: 'Source person', type: 'search', placeholder: 'Source person…' },
-  { key: 'status', label: 'Status', type: 'multiselect', options: optsR(['draft', 'sheet_ready', 'shared', 'closed']) },
-  { key: 'stage', label: 'Stage', type: 'multiselect', options: REQ_STAGES.map((v) => ({ value: v, label: v.replace(/_/g, ' ') })) },
-  { key: 'priority', label: 'Priority', type: 'multiselect', options: optsR(['low', 'normal', 'high', 'urgent']) },
-  { key: 'work_mode', label: 'Work mode', type: 'multiselect', options: optsR(['onsite', 'hybrid', 'remote']) },
-  { key: 'employment_type', label: 'Employment', type: 'multiselect', options: [
+  { key: 'q', label: 'Title', type: 'search', placeholder: 'Search title…', primary: true },
+  { key: 'company', label: 'Company', type: 'search', placeholder: 'Company…', primary: true },
+  { key: 'skill', label: 'Skill', type: 'search', placeholder: 'Skill…', primary: true },
+  { key: 'location', label: 'Location', type: 'search', placeholder: 'Location…', advanced: true },
+  { key: 'source_contact', label: 'Source person', type: 'search', placeholder: 'Source person…', advanced: true },
+  { key: 'status', label: 'Status', type: 'multiselect', advanced: true, options: optsR(['draft', 'sheet_ready', 'shared', 'closed']) },
+  { key: 'stage', label: 'Stage', type: 'multiselect', primary: true, options: REQ_STAGES.map((v) => ({ value: v, label: v.replace(/_/g, ' ') })) },
+  { key: 'priority', label: 'Priority', type: 'multiselect', advanced: true, options: optsR(['low', 'normal', 'high', 'urgent']) },
+  { key: 'work_mode', label: 'Work mode', type: 'multiselect', advanced: true, options: optsR(['onsite', 'hybrid', 'remote']) },
+  { key: 'employment_type', label: 'Employment', type: 'multiselect', advanced: true, options: [
     { value: 'contract', label: 'Contract' }, { value: 'contract_c2c', label: 'Contract — C2C' },
     { value: 'contract_w2', label: 'Contract — W2' }, { value: 'permanent', label: 'Permanent' }] },
-  { key: 'attribution_status', label: 'Attribution', type: 'multiselect', options: [
+  { key: 'attribution_status', label: 'Attribution', type: 'multiselect', advanced: true, options: [
     { value: 'needs_attribution', label: 'Needs attribution' }, { value: 'attributed', label: 'Attributed' }] },
-  { key: 'tier', label: 'Tier', type: 'multiselect', options: optsR(['A', 'B', 'C', 'Reject']) },
-  { key: 'region', label: 'Region', type: 'select', options: [{ value: 'india', label: 'India' }, { value: 'us', label: 'US' }], placeholder: 'Any region' },
-  { key: 'experience', label: 'Experience (yrs)', type: 'numberRange', serverMinKey: 'min_experience', serverMaxKey: 'experience_max' },
-  { key: 'budget', label: 'Budget', type: 'numberRange', serverMinKey: 'budget_min', serverMaxKey: 'budget_max' },
-  { key: 'has_matches', label: 'Has matches', type: 'toggle', serverKey: 'has_matches' },
-  { key: 'created', label: 'Created', type: 'dateRange', serverFromKey: 'created_from', serverToKey: 'created_to' },
+  { key: 'tier', label: 'Tier', type: 'multiselect', advanced: true, options: optsR(['A', 'B', 'C', 'Reject']) },
+  { key: 'region', label: 'Region', type: 'select', primary: true, options: [{ value: 'india', label: 'India' }, { value: 'us', label: 'US' }], placeholder: 'Any region' },
+  { key: 'experience', label: 'Experience (yrs)', type: 'numberRange', advanced: true, serverMinKey: 'min_experience', serverMaxKey: 'experience_max' },
+  { key: 'budget', label: 'Budget', type: 'numberRange', advanced: true, serverMinKey: 'budget_min', serverMaxKey: 'budget_max' },
+  { key: 'has_matches', label: 'Has matches', type: 'toggle', advanced: true, serverKey: 'has_matches' },
+  { key: 'created', label: 'Created', type: 'dateRange', advanced: true, serverFromKey: 'created_from', serverToKey: 'created_to' },
 ];
 
 // India-only sourcing: default the list to India (US requirements stay reachable
 // via Region → US, or clear the chip for Any). Module-level for stable identity.
 const REQ_DEFAULTS = { region: 'india' };
 const REQ_PAGE_SIZE = 50;
+// GET /requirements clamps limit to 200 (src/routes/wizmatch.ts:4521), so the
+// old `limit: 1000` here was never honoured — the "export everything" button
+// has always exported at most 200 rows. Ask for what we can actually get, and
+// tell the user when the filtered set is bigger than that.
+const REQ_EXPORT_LIMIT = 200;
 
 function fmtBudget(r) {
   if (r.budget_min == null && r.budget_max == null) return '—';
@@ -75,9 +95,12 @@ async function parseRequirementApi({ text, file }) {
 }
 
 export default function WizmatchRequirementsPage() {
+  const { showSuccess, showError } = useToast();
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState(null);
   const [showDrawer, setShowDrawer] = useState(false);
   const [selected, setSelected] = useState(null);
   const [matchesFor, setMatchesFor] = useState(null);
@@ -151,15 +174,41 @@ export default function WizmatchRequirementsPage() {
 
   const ctl = useTableControls({ pageId: 'wizmatch-requirements', spec: REQ_FILTERS, columns, defaults: REQ_DEFAULTS });
 
+  // Server page: the backend applies the global ORDER BY (sort=<col>:<dir>), so
+  // render rows in server order. `rowAriaLabel` is what the per-row checkbox is
+  // announced as — without it screen readers read the uuid.
+  const rows = useMemo(() => items.map((r) => ({
+    ...r,
+    rowAriaLabel: r.company_name ? `${r.title} at ${r.company_name}` : r.title,
+  })), [items]);
+
+  const sel = useRowSelection(rows, 'id');
+  const { clear: clearSelection } = sel;
+
+  // First load shows skeletons; every later load keeps the previous rows on
+  // screen (dimmed) so a filter change doesn't blank the table.
+  const loadedOnce = useRef(false);
   const load = useCallback(async () => {
-    setLoading(true);
+    if (loadedOnce.current) setRefreshing(true); else setLoading(true);
+    setLoadError(null);
+    clearSelection(); // a selection must never outlive the rows it was made on
     try {
       const params = ctl.toQueryParams({ limit: REQ_PAGE_SIZE, offset: ctl.page * REQ_PAGE_SIZE });
       const data = await apiFetch(`/api/wizmatch/requirements?${params}`);
       setItems(data.items || []);
       setTotal(data.total || 0);
-    } catch (e) { console.error(e); } finally { setLoading(false); }
-  }, [ctl.toQueryParams, ctl.page, reloadKey]);
+    } catch (e) {
+      // Was a swallowed console.error, so a failed list read looked exactly
+      // like "no requirements match these filters".
+      setLoadError(e.message || 'Could not load requirements.');
+      setItems([]);
+      setTotal(0);
+    } finally {
+      loadedOnce.current = true;
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [ctl.toQueryParams, ctl.page, reloadKey, clearSelection]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -184,17 +233,31 @@ export default function WizmatchRequirementsPage() {
     setSearchParams((prev) => { const next = new URLSearchParams(prev); next.delete('id'); return next; }, { replace: true });
   };
 
-  // Server page: the backend applies the global ORDER BY (sort=<col>:<dir>), so
-  // render rows in server order.
-  const rows = items;
   // Export the full filtered set (not just this page) — re-fetch current
   // filters/sort at the backend max limit; visible columns only.
   const exportCsv = async () => {
     try {
-      const data = await apiFetch(`/api/wizmatch/requirements?${ctl.toQueryParams({ limit: 1000 })}`);
-      exportRowsToCsv(data.items || [], ctl.visibleColumns, 'requirements.csv');
-    } catch (e) { console.error(e); }
+      const data = await apiFetch(`/api/wizmatch/requirements?${ctl.toQueryParams({ limit: REQ_EXPORT_LIMIT })}`);
+      const exported = data.items || [];
+      exportRowsToCsv(exported, ctl.visibleColumns, 'requirements.csv');
+      if ((data.total || 0) > exported.length) {
+        showError(`Exported the first ${exported.length} of ${data.total} requirements — narrow the filters to export the rest.`);
+      } else {
+        showSuccess(`Exported ${exported.length} ${exported.length === 1 ? 'requirement' : 'requirements'} to CSV`);
+      }
+    } catch (e) { showError(e.message || 'Export failed.'); }
   };
+
+  // Selection export needs no request at all — the chosen rows are already in
+  // memory, so this is exact by construction (no re-fetch, no 1000-row cap).
+  const exportSelected = () => {
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const chosen = sel.selectedVisible.map((id) => byId.get(id)).filter(Boolean);
+    if (chosen.length === 0) { showError('Those rows are no longer on screen — reselect and try again.'); return; }
+    exportRowsToCsv(chosen, ctl.visibleColumns, 'requirements-selection.csv');
+    showSuccess(`Exported ${chosen.length} selected ${chosen.length === 1 ? 'requirement' : 'requirements'} to CSV`);
+  };
+
   const rangeStart = total === 0 ? 0 : ctl.page * REQ_PAGE_SIZE + 1;
   const rangeEnd = Math.min((ctl.page + 1) * REQ_PAGE_SIZE, total);
   const hasPrev = ctl.page > 0;
@@ -241,23 +304,49 @@ export default function WizmatchRequirementsPage() {
         deletePreset={ctl.deletePreset}
       />
 
-      <DataTable
-        columns={ctl.visibleColumns}
-        rows={rows}
-        rowKey="id"
-        onRowClick={setSelected}
-        loading={loading}
-        emptyText="No requirements match these filters."
-        sort={ctl.sort}
-        onSort={ctl.setSort}
-      />
-      <div className="flex items-center justify-between px-1 py-3">
-        <p className="text-[12.5px] text-neutral-500">Showing {rangeStart}–{rangeEnd} of {total} requirements</p>
-        <div className="flex gap-2">
-          <button disabled={!hasPrev} onClick={() => ctl.setPage(Math.max(0, ctl.page - 1))} className={`text-[12.5px] font-semibold px-3.5 py-1.5 border border-neutral-200 rounded-md ${hasPrev ? 'bg-neutral-100 text-neutral-700' : 'bg-neutral-100 text-neutral-500 opacity-60'}`}>← Prev</button>
-          <button disabled={!hasNext} onClick={() => ctl.setPage(ctl.page + 1)} className={`text-[12.5px] font-semibold px-3.5 py-1.5 border border-neutral-200 rounded-md ${hasNext ? 'bg-neutral-100 text-neutral-700' : 'bg-neutral-100 text-neutral-500 opacity-60'}`}>Next →</button>
-        </div>
-      </div>
+      {loadError ? (
+        <ErrorRetry message={loadError} onRetry={load} retrying={loading || refreshing} />
+      ) : (
+        <>
+          <DataTable
+            columns={ctl.visibleColumns}
+            rows={rows}
+            rowKey="id"
+            onRowClick={setSelected}
+            loading={loading}
+            refreshing={refreshing}
+            selectedIds={sel.selectedIds}
+            onToggleRow={sel.toggleRow}
+            onToggleAll={sel.toggleAll}
+            emptyText={total === 0 && ctl.activeChips.length === 0
+              ? 'No requirements yet — create one from a client JD above.'
+              : 'No requirements match these filters.'}
+            sort={ctl.sort}
+            onSort={ctl.setSort}
+          />
+          {/* Only CSV here. Stage moves would be the obvious second action, but
+              the API has no bulk transition — only POST /requirements/:id/transition,
+              which validates acceptance gates and writes a timeline event per
+              requirement. Looping it from the browser is the N+1 pattern this
+              work is removing, and a half-failed loop would leave the pipeline
+              in a state nobody can see. It needs a real bulk endpoint first. */}
+          <BulkActionBar
+            count={sel.count}
+            entityLabel="requirement"
+            entityLabelPlural="requirements"
+            actions={[{ key: 'export', label: 'Export selected to CSV' }]}
+            onAction={(key) => { if (key === 'export') exportSelected(); }}
+            onClear={sel.clear}
+          />
+          <div className="flex items-center justify-between px-1 py-3">
+            <p className="text-[12.5px] text-neutral-500">Showing {rangeStart}–{rangeEnd} of {total} requirements</p>
+            <div className="flex gap-2">
+              <button disabled={!hasPrev} onClick={() => ctl.setPage(Math.max(0, ctl.page - 1))} className={`text-[12.5px] font-semibold px-3.5 py-1.5 border border-neutral-200 rounded-md ${hasPrev ? 'bg-neutral-100 text-neutral-700' : 'bg-neutral-100 text-neutral-500 opacity-60'}`}>← Prev</button>
+              <button disabled={!hasNext} onClick={() => ctl.setPage(ctl.page + 1)} className={`text-[12.5px] font-semibold px-3.5 py-1.5 border border-neutral-200 rounded-md ${hasNext ? 'bg-neutral-100 text-neutral-700' : 'bg-neutral-100 text-neutral-500 opacity-60'}`}>Next →</button>
+            </div>
+          </div>
+        </>
+      )}
 
       {showDrawer && (
         <RequirementDrawer

@@ -2,6 +2,8 @@ import React, { Fragment, useEffect, useMemo, useState, useCallback } from 'reac
 import Sidebar from '../components/Sidebar.jsx';
 import { apiFetch } from '../lib/api.js';
 import { getAuthToken } from '../lib/auth.js';
+import { useToast } from '../components/wizmatch/Toast.jsx';
+import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import {
   DollarSign, TrendingUp, TrendingDown, Receipt, Plus, Trash2,
   RefreshCw, ChevronLeft, ChevronRight, Users, Settings, Calendar,
@@ -371,6 +373,7 @@ function DailyAttendanceGrid({ team, attendance, month, onCellClick }) {
 }
 
 export default function FinancePage() {
+  const { showSuccess, showError } = useToast();
   const [activeTab, setActiveTab] = useState('overview');
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [loading, setLoading] = useState(true);
@@ -382,11 +385,22 @@ export default function FinancePage() {
   const [pnlHistory, setPnlHistory] = useState([]);
   const [attendance, setAttendance] = useState({ team: [], attendance: [], summary: [] });
   const [leaves, setLeaves] = useState([]);
-  const [toast, setToast] = useState('');
   const [vendors, setVendors] = useState([]);
   const [editingExpense, setEditingExpense] = useState(null);
   const [editingIncome, setEditingIncome] = useState(null);
   const [editingMember, setEditingMember] = useState(null);
+  const [confirmDeleteExpense, setConfirmDeleteExpense] = useState(null); // expense id | null
+  const [confirmDeleteExpenseBusy, setConfirmDeleteExpenseBusy] = useState(false);
+  const [confirmDeleteExpenseErr, setConfirmDeleteExpenseErr] = useState(null);
+  const [confirmDeleteIncome, setConfirmDeleteIncome] = useState(null); // income id | null
+  const [confirmDeleteIncomeBusy, setConfirmDeleteIncomeBusy] = useState(false);
+  const [confirmDeleteIncomeErr, setConfirmDeleteIncomeErr] = useState(null);
+  const [confirmRemoveMember, setConfirmRemoveMember] = useState(null); // { id, name } | null
+  const [confirmRemoveMemberBusy, setConfirmRemoveMemberBusy] = useState(false);
+  const [confirmRemoveMemberErr, setConfirmRemoveMemberErr] = useState(null);
+  const [confirmDeleteCategory, setConfirmDeleteCategory] = useState(null); // { id, name } | null
+  const [confirmDeleteCategoryBusy, setConfirmDeleteCategoryBusy] = useState(false);
+  const [confirmDeleteCategoryErr, setConfirmDeleteCategoryErr] = useState(null);
 
   // New team member form
   const [newMember, setNewMember] = useState({
@@ -407,7 +421,7 @@ export default function FinancePage() {
 
   const loadData = useCallback(async (toastMsg) => {
     setLoading(true);
-    if (toastMsg) setToast(toastMsg);
+    if (toastMsg) showSuccess(toastMsg);
     const [dashR, expR, catR, teamR, incR, pnlR, attR, leaveR, vendorR] = await Promise.all([
       apiFetch(`/api/finance/dashboard?month=${month}`).catch(() => null),
       apiFetch(`/api/finance/expenses?month=${month}`).catch(() => ({ expenses: [] })),
@@ -432,7 +446,6 @@ export default function FinancePage() {
   }, [month]);
 
   useEffect(() => { loadData(); }, [loadData]);
-  useEffect(() => { if (toast) { const t = setTimeout(() => setToast(''), 3000); return () => clearTimeout(t); } }, [toast]);
 
   function prevMonth() {
     const [y, m] = month.split('-').map(Number);
@@ -446,27 +459,66 @@ export default function FinancePage() {
   }
   const monthLabel = new Date(month + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 
-  async function deleteExpense(id) {
-    if (!window.confirm('Delete this expense? This cannot be undone.')) return;
-    await apiFetch(`/api/finance/expenses/${id}`, { method: 'DELETE' });
-    loadData();
+  async function runDeleteExpense() {
+    setConfirmDeleteExpenseBusy(true); setConfirmDeleteExpenseErr(null);
+    try {
+      await apiFetch(`/api/finance/expenses/${confirmDeleteExpense}`, { method: 'DELETE' });
+      setConfirmDeleteExpense(null);
+      showSuccess('Expense deleted');
+      loadData();
+    } catch (e) {
+      // Keep the dialog open on failure — closing it would hide why nothing happened.
+      setConfirmDeleteExpenseErr(e.message || 'Failed to delete expense');
+    } finally {
+      setConfirmDeleteExpenseBusy(false);
+    }
   }
 
-  async function deleteIncome(id) {
-    if (!window.confirm('Delete this income entry?')) return;
-    await apiFetch(`/api/finance/income/${id}`, { method: 'DELETE' });
-    loadData();
+  async function runDeleteIncome() {
+    setConfirmDeleteIncomeBusy(true); setConfirmDeleteIncomeErr(null);
+    try {
+      await apiFetch(`/api/finance/income/${confirmDeleteIncome}`, { method: 'DELETE' });
+      setConfirmDeleteIncome(null);
+      showSuccess('Income entry deleted');
+      loadData();
+    } catch (e) {
+      setConfirmDeleteIncomeErr(e.message || 'Failed to delete income entry');
+    } finally {
+      setConfirmDeleteIncomeBusy(false);
+    }
   }
 
-  async function deleteTeamMember(id, name) {
-    if (!window.confirm(`Remove ${name} from payroll? Their existing salary expenses will remain.`)) return;
-    await apiFetch(`/api/finance/team-payroll/${id}`, { method: 'DELETE' });
-    loadData();
+  async function runRemoveTeamMember() {
+    setConfirmRemoveMemberBusy(true); setConfirmRemoveMemberErr(null);
+    try {
+      await apiFetch(`/api/finance/team-payroll/${confirmRemoveMember.id}`, { method: 'DELETE' });
+      setConfirmRemoveMember(null);
+      showSuccess(`${confirmRemoveMember.name} removed from payroll`);
+      loadData();
+    } catch (e) {
+      setConfirmRemoveMemberErr(e.message || `Failed to remove ${confirmRemoveMember.name} from payroll`);
+    } finally {
+      setConfirmRemoveMemberBusy(false);
+    }
+  }
+
+  async function runDeleteCategory() {
+    setConfirmDeleteCategoryBusy(true); setConfirmDeleteCategoryErr(null);
+    try {
+      await apiFetch(`/api/finance/categories/${confirmDeleteCategory.id}`, { method: 'DELETE' });
+      setConfirmDeleteCategory(null);
+      showSuccess(`"${confirmDeleteCategory.name}" category deleted`);
+      loadData();
+    } catch (e) {
+      setConfirmDeleteCategoryErr(e.message || `Failed to delete "${confirmDeleteCategory.name}" category`);
+    } finally {
+      setConfirmDeleteCategoryBusy(false);
+    }
   }
 
   async function generateMonthly() {
     const r = await apiFetch('/api/finance/generate-monthly', { method: 'POST', body: JSON.stringify({ month }) });
-    setToast(`Generated ${r?.generated ?? 0} expenses`);
+    showSuccess(`Generated ${r?.generated ?? 0} expenses`);
     loadData();
   }
 
@@ -482,9 +534,9 @@ export default function FinancePage() {
         link.download = `expenses-${month}.csv`;
         link.click();
         URL.revokeObjectURL(blobUrl);
-        setToast('CSV exported');
+        showSuccess('CSV exported');
       })
-      .catch(() => setToast('Export failed'));
+      .catch(() => showError('Export failed'));
   }
 
   async function addTeamMember(e) {
@@ -685,7 +737,7 @@ export default function FinancePage() {
                           <td className="px-4 py-2.5 text-right">
                             <div className="flex items-center gap-1 justify-end">
                               <button onClick={() => setEditingExpense(e)} className="text-slate-400 hover:text-amber-600 p-1" title="Edit"><Edit2 className="w-3.5 h-3.5" /></button>
-                              <button onClick={() => deleteExpense(e.id)} className="text-slate-400 hover:text-red-600 p-1" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+                              <button onClick={() => setConfirmDeleteExpense(e.id)} className="text-slate-400 hover:text-red-600 p-1" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                             </div>
                           </td>
                         </tr>
@@ -733,7 +785,7 @@ export default function FinancePage() {
                             {i.category !== 'invoice' && (
                               <div className="flex items-center gap-1 justify-end">
                                 <button onClick={() => setEditingIncome(i)} className="text-slate-400 hover:text-amber-600 p-1" title="Edit"><Edit2 className="w-3.5 h-3.5" /></button>
-                                <button onClick={() => deleteIncome(i.id)} className="text-slate-400 hover:text-red-600 p-1" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+                                <button onClick={() => setConfirmDeleteIncome(i.id)} className="text-slate-400 hover:text-red-600 p-1" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                               </div>
                             )}
                           </td>
@@ -789,7 +841,7 @@ export default function FinancePage() {
                               sickLeaveBalance: String(m.sick_leave_balance ?? 6),
                               earnedLeaveBalance: String(m.earned_leave_balance ?? 15),
                             })} className="text-slate-400 hover:text-sky-600 p-1" title="Edit"><Edit2 className="w-3.5 h-3.5" /></button>
-                            <button onClick={() => deleteTeamMember(m.id, m.name)} className="text-red-400 hover:text-red-600 p-1" title="Remove"><Trash2 className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => setConfirmRemoveMember({ id: m.id, name: m.name })} className="text-red-400 hover:text-red-600 p-1" title="Remove"><Trash2 className="w-3.5 h-3.5" /></button>
                           </div>
                         </td>
                       </tr>
@@ -891,7 +943,7 @@ export default function FinancePage() {
                             method: 'POST',
                             body: JSON.stringify({ memberId: m.id, date: attDate, status: attStatus }),
                           });
-                          setToast(`${m.name} marked ${attStatus}`);
+                          showSuccess(`${m.name} marked ${attStatus}`);
                           loadData();
                         }}
                         className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm text-left transition-colors ${
@@ -915,7 +967,7 @@ export default function FinancePage() {
                         method: 'POST',
                         body: JSON.stringify({ memberIds: ids, date: attDate, status: attStatus }),
                       });
-                      setToast(`All team marked ${attStatus}`);
+                      showSuccess(`All team marked ${attStatus}`);
                       loadData();
                     }}
                     className="mt-3 flex items-center gap-2 px-4 py-2 bg-sky-600 text-white rounded-lg text-sm font-medium hover:bg-sky-700"
@@ -946,7 +998,7 @@ export default function FinancePage() {
                         method: 'POST',
                         body: JSON.stringify({ memberId: member.id, date: dStr, status: next }),
                       });
-                      setToast(`${member.name} • ${dStr} → ${next.replace('_', ' ')}`);
+                      showSuccess(`${member.name} • ${dStr} → ${next.replace('_', ' ')}`);
                       loadData();
                     }}
                   />
@@ -1112,7 +1164,7 @@ export default function FinancePage() {
                     <div key={c.id} className="px-6 py-3 flex items-center gap-3">
                       <span className="w-4 h-4 rounded-full flex-shrink-0" style={{ background: c.color }} />
                       <p className="text-sm font-medium text-slate-800 flex-1">{c.name}</p>
-                      <button onClick={async () => { if (!window.confirm(`Delete "${c.name}" category? Existing expenses will show as uncategorized.`)) return; await apiFetch(`/api/finance/categories/${c.id}`, { method: 'DELETE' }); loadData(); }}
+                      <button onClick={() => setConfirmDeleteCategory({ id: c.id, name: c.name })}
                         className="text-red-400 hover:text-red-600 p-1"><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
                   ))}
@@ -1212,9 +1264,50 @@ export default function FinancePage() {
           </div>
         )}
 
-        {toast && (
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-sm font-medium px-5 py-3 rounded-2xl shadow-2xl">{toast}</div>
-        )}
+        <ConfirmDialog
+          open={confirmDeleteExpense !== null}
+          title="Delete this expense?"
+          impactSummary="The expense will be permanently deleted and will drop out of every finance total and report. This cannot be undone."
+          confirmLabel="Delete expense"
+          danger
+          loading={confirmDeleteExpenseBusy}
+          error={confirmDeleteExpenseErr}
+          onConfirm={() => runDeleteExpense()}
+          onCancel={() => setConfirmDeleteExpense(null)}
+        />
+        <ConfirmDialog
+          open={confirmDeleteIncome !== null}
+          title="Delete this income entry?"
+          impactSummary="This permanently deletes the income entry and cannot be undone."
+          confirmLabel="Delete entry"
+          danger
+          loading={confirmDeleteIncomeBusy}
+          error={confirmDeleteIncomeErr}
+          onConfirm={() => runDeleteIncome()}
+          onCancel={() => setConfirmDeleteIncome(null)}
+        />
+        <ConfirmDialog
+          open={confirmRemoveMember !== null}
+          title={`Remove ${confirmRemoveMember?.name} from payroll?`}
+          impactSummary="Their existing salary expenses will remain."
+          confirmLabel="Remove from payroll"
+          danger
+          loading={confirmRemoveMemberBusy}
+          error={confirmRemoveMemberErr}
+          onConfirm={() => runRemoveTeamMember()}
+          onCancel={() => setConfirmRemoveMember(null)}
+        />
+        <ConfirmDialog
+          open={confirmDeleteCategory !== null}
+          title={`Delete "${confirmDeleteCategory?.name}" category?`}
+          impactSummary="Existing expenses will show as uncategorized."
+          confirmLabel="Delete category"
+          danger
+          loading={confirmDeleteCategoryBusy}
+          error={confirmDeleteCategoryErr}
+          onConfirm={() => runDeleteCategory()}
+          onCancel={() => setConfirmDeleteCategory(null)}
+        />
       </main>
     </div>
   );
