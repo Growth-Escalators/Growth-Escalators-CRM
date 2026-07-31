@@ -195,12 +195,29 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // ---------------------------------------------------------------------------
 // Rate limiting
 // ---------------------------------------------------------------------------
+// Immutable, content-hashed build output. The admin SPA ships ~140 lazily
+// loaded JS chunks, so ONE page load can issue well over 100 requests — which
+// meant a single refresh could exhaust a 100/min budget and then 429 the page
+// itself. Observed in production on 2026-07-31:
+//   GET /assets/ErrorRetry-DGnrOkaB.js  429
+//   GET /wizmatch/today                 429   <- the SPA shell, blocked
+//   GET /favicon.ico                    429
+//   GET /api/inbox/unread-count         429
+// These are static files served from disk; they are not the abuse surface the
+// limiter exists to protect, and letting them consume the same budget as API
+// calls made the limiter fire on ordinary use.
+const STATIC_ASSET_PATH = /^\/assets\/|\.(?:js|mjs|css|map|ico|png|jpe?g|gif|svg|webp|avif|woff2?|ttf|eot)$/i;
+
 const generalLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'too many requests' },
+  // Static assets are exempt. Everything else — /api, SPA document routes, and
+  // the unmatched paths vulnerability scanners probe (/.env, /wp-config.php.bak,
+  // which this limiter is correctly 429ing today) — stays rate limited.
+  skip: (req) => STATIC_ASSET_PATH.test(req.path),
 });
 
 const webhookLimiter = rateLimit({
