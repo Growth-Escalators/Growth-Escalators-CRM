@@ -210,7 +210,20 @@ const STATIC_ASSET_PATH = /^\/assets\/|\.(?:js|mjs|css|map|ico|png|jpe?g|gif|svg
 
 const generalLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 100,
+  // 100/min was far too low for an authenticated single-page app and made the
+  // product unusable: the admin SPA issues many API calls per page, and one
+  // page was found issuing ONE REQUEST PER ROW (183 companies -> 183 parallel
+  // requests), which tripped this instantly and returned
+  // {"error":"too many requests"} in place of the UI. Observed in production:
+  //   GET /api/wizmatch/companies/<uuid>/contacts 429   (x183, same millisecond)
+  //   GET /api/wizmatch/staffing/access           429
+  //
+  // This is HEADROOM, not the fix. The request fan-out is being removed
+  // separately; this raises the ceiling so a legitimate operator is not locked
+  // out of their own CRM in the meantime. 600/min still bounds real abuse, and
+  // the security-critical limiter is untouched: /auth stays at 10/min, which is
+  // the brute-force / credential-stuffing guard that actually matters.
+  max: 600,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'too many requests' },
