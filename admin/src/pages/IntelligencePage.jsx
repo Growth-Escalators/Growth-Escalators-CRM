@@ -2,6 +2,7 @@ import React, { Fragment, useEffect, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import { apiFetch, getUser } from '../lib/api.js';
 import IntelligenceChatPanel from './IntelligenceChatPanel.jsx';
+import { SkeletonCard, SkeletonTable } from '../components/SkeletonLoader.jsx';
 import {
   Brain, Sparkles, RefreshCw, TrendingUp, AlertTriangle,
   CheckCircle, ChevronDown, ChevronRight, Eye, EyeOff,
@@ -488,7 +489,19 @@ function SystemHealthTab() {
 
   useEffect(() => { load(); const id = setInterval(load, 5 * 60_000); return () => clearInterval(id); }, [load]);
 
-  if (loading) return <div className="text-center py-12 text-slate-400">Checking systems...</div>;
+  if (loading) {
+    // This tab's own header/tabs chrome is owned by the parent IntelligencePage
+    // (mounted above regardless of activeTab), so a content-only skeleton is
+    // enough here — no need to keep any chrome mounted ourselves.
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[1, 2, 3, 4].map(i => <SkeletonCard key={i} />)}
+        </div>
+        <SkeletonTable rows={5} cols={6} />
+      </div>
+    );
+  }
   if (!health) return <div className="text-center py-12 text-red-500 text-sm">Health check failed</div>;
 
   const scoreColor = health.overallScore >= 80 ? 'text-green-600' : health.overallScore >= 50 ? 'text-amber-600' : 'text-red-600';
@@ -633,7 +646,15 @@ function AutomationsEmbed() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="py-12 text-center text-slate-400">Loading automations...</div>;
+  if (loading) {
+    // Same as SystemHealthTab: parent owns the header/tabs chrome, this
+    // component is only ever rendered as the tab's content region.
+    return (
+      <div className="space-y-3 p-4">
+        {[1, 2, 3].map(i => <SkeletonCard key={i} />)}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

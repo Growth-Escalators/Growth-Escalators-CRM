@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import { apiFetch } from '../lib/api.js';
+import ConfirmDialog from '../components/ConfirmDialog.jsx';
+import { SkeletonCard } from '../components/SkeletonLoader.jsx';
+import { useToast } from '../components/wizmatch/Toast.jsx';
 
 const PERMISSION_GROUPS = [
   {
@@ -236,6 +239,7 @@ function CredsModal({ creds, onClose }) {
 }
 
 export default function PermissionsPage() {
+  const { showSuccess, showError } = useToast();
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [perms, setPerms] = useState({});
@@ -247,6 +251,11 @@ export default function PermissionsPage() {
   const [error, setError] = useState('');
   const [showAddUser, setShowAddUser] = useState(false);
   const [createdCreds, setCreatedCreds] = useState(null); // { user, temporaryPassword }
+  // Removing a user revokes every permission they have, so it gets a typed-name
+  // gate rather than a one-click confirm.
+  const [confirmRemove, setConfirmRemove] = useState(null); // user object | null
+  const [removing, setRemoving] = useState(false);
+  const [removeErr, setRemoveErr] = useState(null);
 
   function loadUsers() {
     return apiFetch('/api/permissions/users')
@@ -257,6 +266,24 @@ export default function PermissionsPage() {
   useEffect(() => {
     loadUsers().finally(() => setLoading(false));
   }, []);
+
+  async function runRemoveUser() {
+    setRemoving(true); setRemoveErr(null);
+    try {
+      await apiFetch(`/api/permissions/users/${confirmRemove.id}`, { method: 'DELETE' });
+      setUsers(prev => prev.filter(u => u.id !== confirmRemove.id));
+      showSuccess(`${confirmRemove.name} removed from the team`);
+      setConfirmRemove(null);
+      setSelectedUser(null);
+    } catch (e) {
+      // Keep the dialog open — the old code dropped the user back to the
+      // detail panel with only a small inline "Failed to remove user".
+      setRemoveErr(e.message || 'Failed to remove user');
+      showError(e.message || 'Failed to remove user');
+    } finally {
+      setRemoving(false);
+    }
+  }
 
   async function selectUser(user) {
     setSelectedUser(user);
@@ -345,7 +372,18 @@ export default function PermissionsPage() {
         )}
 
         {loading ? (
-          <div className="text-center py-16 text-slate-400">Loading…</div>
+          // Mirrors the real layout below (64-wide user list beside the detail
+          // panel) so the page does not jump when the users land.
+          <div className="flex gap-6">
+            <div className="w-64 flex-shrink-0 space-y-2">
+              {[0, 1, 2, 3, 4].map(i => <SkeletonCard key={i} />)}
+            </div>
+            <div className="flex-1 space-y-3">
+              <SkeletonCard />
+              <SkeletonCard />
+              <SkeletonCard />
+            </div>
+          </div>
         ) : error && !users.length ? (
           <div className="text-center py-16 text-red-500">{error}</div>
         ) : (
@@ -420,14 +458,7 @@ export default function PermissionsPage() {
                       {!isOwnerUser && (
                         <>
                           <button
-                            onClick={async () => {
-                              if (!confirm(`Remove ${selectedUser.name} from the team? This will revoke all their access.`)) return;
-                              try {
-                                await apiFetch(`/api/permissions/users/${selectedUser.id}`, { method: 'DELETE' });
-                                setUsers(prev => prev.filter(u => u.id !== selectedUser.id));
-                                setSelectedUser(null);
-                              } catch { setError('Failed to remove user'); }
-                            }}
+                            onClick={() => { setRemoveErr(null); setConfirmRemove(selectedUser); }}
                             className="px-3 py-2 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
                           >
                             Remove
@@ -539,6 +570,19 @@ export default function PermissionsPage() {
             </div>
           </div>
         )}
+
+        <ConfirmDialog
+          open={confirmRemove !== null}
+          title={`Remove ${confirmRemove?.name ?? ''} from the team?`}
+          impactSummary="This will revoke all their access. They will be signed out and will no longer be able to log in to the CRM."
+          confirmLabel="Remove from team"
+          danger
+          requireTypedName={confirmRemove?.name}
+          loading={removing}
+          error={removeErr}
+          onConfirm={runRemoveUser}
+          onCancel={() => { setConfirmRemove(null); setRemoveErr(null); }}
+        />
       </main>
     </div>
   );

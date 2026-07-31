@@ -91,6 +91,14 @@ export const WIZMATCH_ROUTES: WizmatchRouteDefinition[] = [
     searchVisible: true,
   },
   {
+    // "Job Leads" is the CURRENT name and stays. `/wizmatch/signals` sits in
+    // legacyAliases below precisely because the product migrated
+    // signals → job-leads; "Job Signals" is the retired term. So when
+    // WizmatchSignalsPage.jsx's own <h1> disagrees with this label, the page
+    // is the stale artefact and the page is what moves — do not "fix" the
+    // mismatch by dragging this label back to the legacy wording.
+    // src/__tests__/wizmatchRouteRegistry.test.js pins the approved 9 primary
+    // labels and will fail if it is changed.
     id: 'job-leads', label: 'Job Leads', path: '/wizmatch/job-leads', icon: Zap,
     group: 'primary', permission: 'canWizmatch',
     breadcrumb: { label: 'Job Leads' }, legacyAliases: ['/wizmatch/signals'],
@@ -169,9 +177,14 @@ export const WIZMATCH_ROUTES: WizmatchRouteDefinition[] = [
 
   // ── MORE → CRM Utilities ─────────────────────────────────────────────
   {
-    id: 'more-contacts', label: 'Generic Contacts', path: '/wizmatch/contacts', icon: Users,
+    // "Generic Contacts" described nothing a user could act on. This route
+    // mounts the Growth CRM's own ContactsPage (<h1>Contacts</h1>) — the
+    // whole shared contact book, not a Wizmatch-specific list — so the label
+    // now says which system it belongs to and reads as the sibling of
+    // "Hiring Contacts" that it is.
+    id: 'more-contacts', label: 'CRM Contacts (all)', path: '/wizmatch/contacts', icon: Users,
     group: 'more.crmUtilities', moreSection: 'CRM Utilities', permission: 'canCRM',
-    breadcrumb: { label: 'Generic Contacts' }, legacyAliases: [], searchVisible: true,
+    breadcrumb: { label: 'CRM Contacts' }, legacyAliases: [], searchVisible: true,
   },
   {
     id: 'more-pipeline', label: 'Pipeline', path: '/wizmatch/pipeline', icon: Kanban,
@@ -214,6 +227,13 @@ export const WIZMATCH_ROUTES: WizmatchRouteDefinition[] = [
     breadcrumb: { label: 'System' }, legacyAliases: [], searchVisible: true,
   },
   {
+    // Deliberate deep link into a tab of the System page above, kept because
+    // "where did my sourcing run go" is a destination operators look for by
+    // name. Both rows therefore resolve to the same pathname, which used to
+    // light BOTH up at once — React Router's NavLink isActive ignores the
+    // query string. Sidebar.jsx now matches on path + query (isEntryActive),
+    // so exactly one of the two is highlighted at a time. Any future
+    // `?tab=`-style nav entry inherits that behaviour for free.
     id: 'more-provider-runs', label: 'Provider Runs', path: '/wizmatch/system?tab=sourcing', icon: Zap,
     group: 'more.administration', moreSection: 'Administration', permission: 'canWizmatch',
     breadcrumb: { label: 'Provider Runs' }, legacyAliases: [], searchVisible: true,
@@ -229,9 +249,13 @@ export const WIZMATCH_ROUTES: WizmatchRouteDefinition[] = [
     breadcrumb: { label: 'Audit' }, legacyAliases: [], searchVisible: true,
   },
   {
-    id: 'more-configuration', label: 'Configuration', path: '/wizmatch/pipelines/settings', icon: Settings,
+    // Was "Configuration", which promised a general settings page. The route
+    // renders PipelineManagerPage (<h1>Pipeline Manager</h1>) — a deal-pipeline
+    // stage editor and nothing else. Growth CRM already calls the same page
+    // "Pipeline Manager" in its own nav; matching that ends the divergence.
+    id: 'more-configuration', label: 'Pipeline Manager', path: '/wizmatch/pipelines/settings', icon: Settings,
     group: 'more.administration', moreSection: 'Administration', permission: 'isAdmin',
-    breadcrumb: { label: 'Configuration' }, legacyAliases: [], searchVisible: true,
+    breadcrumb: { label: 'Pipeline Manager' }, legacyAliases: [], searchVisible: true,
   },
   {
     id: 'more-intelligence', label: 'AI Intelligence', path: '/wizmatch/intelligence', icon: Brain,

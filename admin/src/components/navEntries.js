@@ -2,7 +2,7 @@ import {
   Calendar, Home, Users, Kanban, CheckSquare, MessageSquare, TrendingUp,
   Megaphone, Share2, Target, Search, FileText, Brain, MapPin, Zap, Mail,
   Link as LinkIcon, CreditCard, Receipt, Shield, ShieldCheck, ClipboardList, Settings,
-  Briefcase,
+  Briefcase, Building2,
 } from 'lucide-react';
 import { WIZMATCH_ROUTES, evaluateWizmatchPermission } from '../routes/wizmatchRouteRegistry.ts';
 import { companyPolicyUiEnabled } from '../lib/companyPolicyFlag.js';
@@ -118,6 +118,15 @@ export const NAV_ENTRIES = [
   {
     id: 'contacts', label: 'Contacts', to: '/contacts',
     icon: Users, section: 'CRM', group: null,
+    visible: f => f.canCRM,
+  },
+  {
+    // UX audit 2026-07-31 — /clients (ClientsPage, ~400 lines) and its
+    // /client/:clientId detail page shipped with no nav entry anywhere, so the
+    // only way in was typing the URL. The detail route is reached from this
+    // list, which is why only the list gets a row.
+    id: 'clients', label: 'Clients', to: '/clients',
+    icon: Building2, section: 'CRM', group: null,
     visible: f => f.canCRM,
   },
   {
@@ -274,11 +283,16 @@ export const GROUP_LABELS = {
 // Used by Sidebar's auto-expand-on-route logic.
 export function groupForPath(pathname, role, perms, tenantSlug, staffingPhases) {
   const entries = getVisibleEntries(role, perms, tenantSlug, staffingPhases);
-  // Match longest "to" first so /settings/permissions wins over /settings.
-  const sorted = [...entries].sort((a, b) => (b.to?.length || 0) - (a.to?.length || 0));
-  for (const e of sorted) {
-    if (!e.to || !e.group) continue;
-    if (pathname === e.to || pathname.startsWith(e.to + '/')) return e.group;
+  // Compare pathnames only. Some entries deep-link to a tab
+  // (`/wizmatch/system?tab=sourcing`); a raw `pathname === e.to` can never
+  // match one of those, so the group holding them never auto-expanded.
+  const withPath = entries
+    .filter((e) => e.to && e.group)
+    .map((e) => ({ group: e.group, path: e.to.split('?')[0] }));
+  // Match longest path first so /settings/permissions wins over /settings.
+  withPath.sort((a, b) => b.path.length - a.path.length);
+  for (const e of withPath) {
+    if (pathname === e.path || pathname.startsWith(e.path + '/')) return e.group;
   }
   return null;
 }

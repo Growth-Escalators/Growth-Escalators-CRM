@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar.jsx';
 import { apiFetch } from '../lib/api.js';
+import { useToast } from '../components/wizmatch/Toast.jsx';
 import { createPipelineStageFromName, normalizePipelineStages, serializePipelineStages } from '../lib/pipelineStages.js';
 import { safeLower } from '../lib/safe.js';
 
@@ -513,12 +514,12 @@ function DeleteModal({ pipeline, onConfirm, onCancel }) {
 }
 
 export default function PipelineManagerPage() {
+  const { showSuccess, showError } = useToast();
   const [pipelinesList, setPipelinesList] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showNewModal, setShowNewModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
-  const [toast, setToast] = useState(null);
   const [openMenuId, setOpenMenuId] = useState(null);
   const [stageConfigModal, setStageConfigModal] = useState(null); // { stageId, stageName, pipelineId }
   const [stageConfigs, setStageConfigs] = useState({}); // { [stageId]: { probability, automation } }
@@ -527,8 +528,8 @@ export default function PipelineManagerPage() {
   const dragOverPipeline = useRef(null);
 
   function showToast(msg, type = 'success') {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 3000);
+    if (type === 'error') showError(msg);
+    else showSuccess(msg);
   }
 
   const load = useCallback(async () => {
@@ -792,14 +793,6 @@ export default function PipelineManagerPage() {
         />
       )}
 
-      {/* Toast */}
-      {toast && (
-        <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl shadow-lg text-sm font-medium text-white transition-all ${
-          toast.type === 'error' ? 'bg-red-600' : 'bg-slate-800'
-        }`}>
-          {toast.msg}
-        </div>
-      )}
     </div>
   );
 }

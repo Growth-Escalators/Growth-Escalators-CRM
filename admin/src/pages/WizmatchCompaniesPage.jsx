@@ -1,16 +1,27 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Building2, X, UserPlus, Trash2, Radar } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Building2, X, UserPlus, Trash2, Radar, ShieldCheck } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
+import { getAuthUser } from '../lib/auth.js';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import EmptyState from '../components/wizmatch/EmptyState.jsx';
 import ErrorRetry from '../components/wizmatch/ErrorRetry.jsx';
 import StatusBadge from '../components/wizmatch/StatusBadge.jsx';
 import { useToast } from '../components/wizmatch/Toast.jsx';
 import DataTable from '../components/ui/DataTable.jsx';
+import BulkActionBar from '../components/ui/BulkActionBar.jsx';
+import { useRowSelection } from '../components/ui/useRowSelection.js';
 import FilterBar from '../components/wizmatch/filters/FilterBar.jsx';
 import { useTableControls } from '../components/wizmatch/filters/useTableControls.js';
 import { exportRowsToCsv } from '../components/wizmatch/filters/exportCsv.js';
 import CompanyPolicySection from '../components/wizmatch/CompanyPolicySection.jsx';
+import { companyPolicyUiEnabled } from '../lib/companyPolicyFlag.js';
+// The ONE cross-boundary import in the admin SPA, and a deliberate one: the §9
+// reason-code taxonomy is the same frozen list the server validates every
+// policy write against (policyService rejects anything not in it), so a
+// hand-copied picker here would drift silently and produce per-company
+// `unknown_reason_code` failures. The module is pure data + pure functions with
+// no imports of its own, so nothing server-side is pulled into the bundle.
+import { WIZMATCH_REASON_CODES, getReasonCodeMeta } from '../../../src/config/wizmatchReasonCodes.ts';
 
 const TIER_BADGE = { A: 'badge-success', B: 'badge-warning', C: 'badge-muted', Reject: 'badge-danger' };
 const REGION_BADGE = { india: 'badge-warning', us: 'badge-info' };
@@ -53,6 +64,40 @@ const COMPANY_CONTACT_ROLES = [
   'interviewer', 'procurement', 'vendor_manager', 'source', 'other',
 ];
 
+// listCompanies() is `... ORDER BY c.name LIMIT 500` with no OFFSET, no total
+// count and no pagination (src/services/wizmatchStaffingDomain.ts). Once the
+// response hits the cap, `items.length` is a truncated denominator — the page
+// must say so rather than render "N of 500" as if 500 were the tenant total.
+const COMPANY_LIST_CAP = 500;
+
+// The shared bulk-endpoint contract caps a request at 200 ids. The existing
+// /companies/bulk/policy route does not enforce a cap, but a 500-row
+// select-all in one request is exactly the shape that times out, so chunk.
+const BULK_CHUNK = 200;
+
+// Duplicated from CompanyPolicySection.jsx, which owns the single-company form
+// and is another lane's file. Both are hand-mirrors of the enums validated in
+// src/modules/outreach/policyService.ts — that service is the source of truth
+// and rejects anything not in it, so a stale copy here fails loudly, not
+// silently.
+const ELIGIBILITY_OPTIONS = ['eligible', 'needs_review', 'paused', 'blocked'];
+const HIRING_POLICY_OPTIONS = [
+  'accepts_external_vendors', 'fte_vendors_only', 'contract_vendors_only', 'preferred_vendors_only',
+  'msp_vms_only', 'direct_hiring_only', 'no_external_agencies', 'unknown',
+];
+const RELATIONSHIP_OPTIONS = [
+  'new_prospect', 'existing_prospect', 'existing_client', 'vendor_partner',
+  'prime_partner', 'former_client', 'competitor', 'irrelevant',
+];
+const EVIDENCE_KIND_OPTIONS = ['human_text', 'source_url', 'email_reply_ref', 'provider_event_ref', 'legal_document_ref', 'automated_detection'];
+
+// Grouped straight off the taxonomy array — categories are derived, not listed,
+// so a new §9 category shows up in the picker without a change here.
+const REASON_CODES_BY_CATEGORY = WIZMATCH_REASON_CODES.reduce((acc, meta) => {
+  (acc[meta.category] ||= []).push(meta.code);
+  return acc;
+}, {});
+
 function formatMinorCurrency(value, currency = 'INR') {
   const amount = Number(value || 0) / 100;
   try {
@@ -63,30 +108,110 @@ function formatMinorCurrency(value, currency = 'INR') {
 }
 
 export default function WizmatchCompaniesPage() {
+  const { showSuccess, showError } = useToast();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
+  const [showBulkPolicy, setShowBulkPolicy] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkError, setBulkError] = useState(null);
 
   const ctl = useTableControls({ pageId: 'wizmatch-companies', spec: COMPANY_FILTERS, columns: COMPANY_COLUMNS });
 
+  // rowAriaLabel is what DataTable announces on the per-row checkbox; without
+  // it a screen reader reads "Select row 7f3a-…" for every row.
+  const rows = ctl.applyClient(items).map((c) => ({ ...c, rowAriaLabel: c.name || c.domain || 'Unnamed company' }));
+  const sel = useRowSelection(rows, 'id');
+  const clearSelection = sel.clear;
+
+  // The Toast context value is a fresh object on every provider render (each
+  // toast shown or dismissed re-renders it), so it can never sit in load()'s
+  // dependency list — load() would be re-created and the effect below would
+  // refetch on every toast. Read the toast fns through a ref instead.
+  const toastRef = useRef({ showSuccess, showError });
+  toastRef.current = { showSuccess, showError };
+
+  const loadedOnce = useRef(false);
+
   // One capped load; all filtering/sorting happens client-side over these rows.
   const load = useCallback(async () => {
-    setLoading(true);
+    if (loadedOnce.current) setRefreshing(true); else setLoading(true);
     setError(null);
+    // Mandatory: a selection that survives a reload would fire a bulk action
+    // against rows the user can no longer see.
+    clearSelection();
     try {
       const data = await apiFetch('/api/wizmatch/staffing/companies');
       setItems(data.items || []);
     } catch (e) {
-      setError(e.message || 'Failed to load companies');
+      const msg = e.message || 'Failed to load companies';
+      // First load has nothing to fall back on -> full ErrorRetry. A failed
+      // REFRESH keeps the rows already on screen and reports the failure in a
+      // toast instead of throwing a good list away.
+      if (loadedOnce.current) toastRef.current.showError(msg);
+      else setError(msg);
     } finally {
+      loadedOnce.current = true;
       setLoading(false);
+      setRefreshing(false);
     }
-  }, []);
+  }, [clearSelection]);
 
   useEffect(() => { load(); }, [load]);
 
-  const rows = ctl.applyClient(items);
+  const atCap = items.length >= COMPANY_LIST_CAP;
+
+  // POST /api/wizmatch/companies/bulk/policy is requireAdmin server-side, and
+  // the whole policy router next('router')s into a 404 when
+  // WIZMATCH_COMPANY_POLICY_ENABLED is off. Surface both as a disabled action
+  // with a reason rather than letting someone click into a 403/404.
+  const role = getAuthUser()?.role;
+  const bulkPolicyDisabledReason = !companyPolicyUiEnabled
+    ? 'Company policy is switched off in this environment'
+    : role !== 'admin'
+      ? 'Admin only — bulk policy writes are gated to the admin role'
+      : undefined;
+
+  const runBulkPolicy = async (input) => {
+    const ids = sel.selectedVisible;
+    if (ids.length === 0) return;
+    setBulkBusy(true);
+    setBulkError(null);
+    // Declared outside the try so a mid-chunk failure can still report the
+    // companies that were already written — silently dropping that would make
+    // a partial write look like a total no-op.
+    let succeeded = 0;
+    let failed = 0;
+    let firstError = null;
+    try {
+      for (let i = 0; i < ids.length; i += BULK_CHUNK) {
+        const result = await apiFetch('/api/wizmatch/companies/bulk/policy', {
+          method: 'POST',
+          body: JSON.stringify({ companyIds: ids.slice(i, i + BULK_CHUNK), ...input }),
+        });
+        succeeded += result?.succeeded || 0;
+        failed += result?.failed || 0;
+        // Per-company results key on `companyId`, not `id` (policyService.ts).
+        if (!firstError) firstError = (result?.results || []).find((r) => !r.ok)?.error || null;
+      }
+      setShowBulkPolicy(false);
+      if (failed === 0) {
+        toastRef.current.showSuccess(`Policy written on ${succeeded} ${succeeded === 1 ? 'company' : 'companies'}`);
+      } else {
+        toastRef.current.showError(`${succeeded} succeeded, ${failed} failed — ${firstError || 'open a company to see why'}`);
+      }
+      await load();
+    } catch (e) {
+      const base = e.status === 404
+        ? 'The company-policy API is not enabled on this server.'
+        : (e.message || 'Bulk policy write failed.');
+      setBulkError(succeeded > 0 ? `${base} (${succeeded} companies were already written before this failure.)` : base);
+    } finally {
+      setBulkBusy(false);
+    }
+  };
 
   return (
     <div className="p-6">
@@ -94,13 +219,21 @@ export default function WizmatchCompaniesPage() {
         <div className="flex items-center gap-2.5">
           <h1 className="text-[20px] font-bold text-neutral-900 tracking-[-0.01em]">Companies</h1>
           <span className="text-[12.5px] font-semibold text-primary-700 bg-primary-500/10 border border-primary-500/20 px-2.5 py-0.5 rounded-full">
-            {rows.length}{rows.length !== items.length ? ` of ${items.length}` : ''} companies
+            {rows.length}{rows.length !== items.length ? ` of ${items.length}` : ''}{atCap ? '+' : ''} companies
           </span>
         </div>
       </div>
-      <p className="text-[12.5px] text-neutral-500 mt-1 mb-5">
+      <p className="text-[12.5px] text-neutral-500 mt-1 mb-3">
         Client companies in the staffing pipeline — hiring contacts, open requirements and delivery activity. Filters and sort are shareable via the URL and savable as presets.
       </p>
+
+      {atCap && (
+        <div role="status" className="mb-4 rounded-md border border-warning-500/30 bg-warning-500/10 px-3 py-2 text-[12px] text-warning-700">
+          Showing the first {COMPANY_LIST_CAP} companies, ordered by name. The API caps this list at {COMPANY_LIST_CAP} rows
+          and has no pagination, so any company past the cap is not loaded at all — the filters below narrow what is already
+          here, they cannot reach further. Narrow by name or industry to be sure you are seeing the company you want.
+        </div>
+      )}
 
       {error ? (
         <ErrorRetry message={error} onRetry={load} retrying={loading} />
@@ -128,11 +261,39 @@ export default function WizmatchCompaniesPage() {
             rowKey="id"
             onRowClick={(c) => setSelectedId(c.id)}
             loading={loading}
+            refreshing={refreshing}
             emptyText={items.length === 0 ? 'No companies yet — they appear once they enter the staffing pipeline.' : 'No companies match these filters.'}
             sort={ctl.sort}
             onSort={ctl.setSort}
+            selectedIds={sel.selectedIds}
+            onToggleRow={sel.toggleRow}
+            onToggleAll={sel.toggleAll}
+          />
+          <BulkActionBar
+            count={sel.count}
+            entityLabel="company"
+            entityLabelPlural="companies"
+            busy={bulkBusy}
+            actions={[{
+              key: 'policy',
+              label: 'Set policy…',
+              disabled: Boolean(bulkPolicyDisabledReason),
+              reason: bulkPolicyDisabledReason,
+            }]}
+            onAction={() => { setBulkError(null); setShowBulkPolicy(true); }}
+            onClear={sel.clear}
           />
         </>
+      )}
+
+      {showBulkPolicy && (
+        <BulkPolicyDialog
+          count={sel.count}
+          busy={bulkBusy}
+          error={bulkError}
+          onSubmit={runBulkPolicy}
+          onCancel={() => { setShowBulkPolicy(false); setBulkError(null); }}
+        />
       )}
 
       {selectedId && (
@@ -143,6 +304,120 @@ export default function WizmatchCompaniesPage() {
           onChanged={load}
         />
       )}
+    </div>
+  );
+}
+
+// Bulk policy write — a form, not a ConfirmDialog, because the endpoint needs a
+// scope plus a §9 reason code and ConfirmDialog only collects free text.
+//
+// scopeType is pinned to `entire_company`: every other scope type keys off a
+// per-company value (a region/business-unit/location label, or a specific
+// signal/requirement id), none of which can mean the same thing across an
+// arbitrary multi-company selection. That choice is what forces all three
+// dimensions to be filled — policyService rejects an `entire_company` row that
+// leaves any of them unset (`root_requires_all_dimensions`), so the fields are
+// validated here rather than sent to fail.
+function BulkPolicyDialog({ count, busy, error, onSubmit, onCancel }) {
+  const [outreachEligibility, setOutreachEligibility] = useState('');
+  const [externalHiringPolicy, setExternalHiringPolicy] = useState('');
+  const [relationshipType, setRelationshipType] = useState('');
+  const [reasonCode, setReasonCode] = useState('');
+  const [reason, setReason] = useState('');
+  const [reviewDate, setReviewDate] = useState('');
+  const [evidenceKind, setEvidenceKind] = useState('human_text');
+  const [evidenceText, setEvidenceText] = useState('');
+
+  // Mirrors the server's `paused_requires_review_date` rule.
+  const needsReviewDate = outreachEligibility === 'paused';
+  const evidenceExpected = reasonCode ? getReasonCodeMeta(reasonCode)?.evidence === 'required' : false;
+  const canSubmit = !busy
+    && Boolean(outreachEligibility && externalHiringPolicy && relationshipType)
+    && reasonCode.length > 0
+    && (!needsReviewDate || Boolean(reviewDate));
+
+  const submit = () => onSubmit({
+    scopeType: 'entire_company',
+    outreachEligibility,
+    externalHiringPolicy,
+    relationshipType,
+    reasonCode,
+    reason: reason.trim() || undefined,
+    reviewDate: reviewDate || undefined,
+    evidenceKind: evidenceText.trim() ? evidenceKind : undefined,
+    evidenceText: evidenceText.trim() || undefined,
+  });
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" role="presentation">
+      <div role="dialog" aria-modal="true" aria-labelledby="bulk-policy-title" className="w-[440px] max-w-full bg-white rounded-xl shadow-modal border border-neutral-200 max-h-[90vh] overflow-y-auto">
+        <div className="p-5 space-y-3">
+          <h2 id="bulk-policy-title" className="text-[15px] font-bold text-neutral-900 flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-primary-600" />
+            Set policy on {count} {count === 1 ? 'company' : 'companies'}
+          </h2>
+          <p className="text-[12.5px] text-neutral-600 leading-relaxed">
+            Writes one <code>entire_company</code> policy row per selected company, superseding whatever root policy each one
+            has now. Every write is recorded in that company's policy history and can be superseded again, but not un-done in
+            bulk.
+          </p>
+          {error && (
+            <div role="alert" className="text-[12.5px] text-danger-600 bg-danger-500/10 border border-danger-500/30 rounded-md px-2.5 py-1.5">
+              {error}
+            </div>
+          )}
+          <select value={outreachEligibility} onChange={(e) => setOutreachEligibility(e.target.value)} className="input w-full">
+            <option value="">Outreach eligibility — required</option>
+            {ELIGIBILITY_OPTIONS.map((o) => <option key={o} value={o}>{o.replaceAll('_', ' ')}</option>)}
+          </select>
+          <select value={externalHiringPolicy} onChange={(e) => setExternalHiringPolicy(e.target.value)} className="input w-full">
+            <option value="">Hiring policy — required</option>
+            {HIRING_POLICY_OPTIONS.map((o) => <option key={o} value={o}>{o.replaceAll('_', ' ')}</option>)}
+          </select>
+          <select value={relationshipType} onChange={(e) => setRelationshipType(e.target.value)} className="input w-full">
+            <option value="">Relationship — required</option>
+            {RELATIONSHIP_OPTIONS.map((o) => <option key={o} value={o}>{o.replaceAll('_', ' ')}</option>)}
+          </select>
+          {needsReviewDate && (
+            <label className="block">
+              <span className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Review date (required while paused)</span>
+              <input type="date" value={reviewDate} onChange={(e) => setReviewDate(e.target.value)} className="input w-full mt-1" />
+            </label>
+          )}
+          <select value={reasonCode} onChange={(e) => setReasonCode(e.target.value)} className="input w-full">
+            <option value="">Reason code — required (§9 taxonomy)</option>
+            {Object.entries(REASON_CODES_BY_CATEGORY).map(([category, codes]) => (
+              <optgroup key={category} label={category.replaceAll('_', ' ')}>
+                {codes.map((code) => <option key={code} value={code}>{code.replaceAll('_', ' ')}</option>)}
+              </optgroup>
+            ))}
+          </select>
+          {evidenceExpected && (
+            <p className="text-[11px] text-warning-700">
+              The §9 entry for this code expects evidence. It is not enforced for an overridable row, but a block written
+              without it is not reviewable later — add evidence text below.
+            </p>
+          )}
+          <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} placeholder="Reason (optional free text)" className="input w-full resize-y" />
+          <div className="grid grid-cols-2 gap-2">
+            <select value={evidenceKind} onChange={(e) => setEvidenceKind(e.target.value)} className="input">
+              {EVIDENCE_KIND_OPTIONS.map((o) => <option key={o} value={o}>{o.replaceAll('_', ' ')}</option>)}
+            </select>
+            <input value={evidenceText} onChange={(e) => setEvidenceText(e.target.value)} placeholder="Evidence text (optional)" className="input" />
+          </div>
+          <p className="text-[10.5px] text-neutral-400">
+            The reason code must be in the ratified §9 taxonomy — the server rejects anything else, per company, and the
+            failures are reported back individually. Permanent and non-overridable blocks are deliberately not offered in
+            bulk; set those one company at a time from the company drawer.
+          </p>
+        </div>
+        <div className="border-t border-neutral-100 px-5 py-3 flex justify-end gap-2">
+          <button type="button" onClick={onCancel} disabled={busy} className="btn-standard">Cancel</button>
+          <button type="button" onClick={submit} disabled={!canSubmit} className="btn-primary disabled:opacity-50">
+            {busy ? 'Working…' : `Write policy on ${count}`}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

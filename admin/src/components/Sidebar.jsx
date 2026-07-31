@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { logout, getUser, getPermissions, apiFetch } from '../lib/api.js';
 import { getTenantConfig, getTenantSlug } from '../lib/auth.js';
 import { ChevronRight, Menu, X, Wrench, Receipt, Settings as SettingsIcon, MoreHorizontal } from 'lucide-react';
-import { NAV_ENTRIES, GROUP_LABELS, getVisibleEntries, groupForPath } from './navEntries.js';
+import { GROUP_LABELS, getVisibleEntries, groupForPath } from './navEntries.js';
 import CommandPalette from './CommandPalette.jsx';
 import { closedStaffingPhases, normalizeStaffingAccess } from '../lib/staffingAccess.js';
 
@@ -58,7 +58,35 @@ function ExternalChevron() {
   );
 }
 
-function NavEntry({ entry, unreadCount, pendingLeavesCount, nested = false }) {
+// Is `entry` the row the current URL belongs to?
+//
+// This replaces NavLink's built-in isActive, which compares pathname ONLY.
+// Two Administration rows point at the same page with different tabs —
+// System (`/wizmatch/system`) and Provider Runs (`/wizmatch/system?tab=sourcing`)
+// — so NavLink highlighted BOTH at once, on either URL. Rules:
+//   • a row carrying query params is active only when every one of them
+//     matches the current URL;
+//   • a bare row loses to a sibling query row that matches, so landing on
+//     ?tab=sourcing lights up Provider Runs and not System.
+function isEntryActive(entry, location, siblings) {
+  if (!entry.to || entry.external || entry.newTab) return false;
+  const [toPath, toQuery = ''] = entry.to.split('?');
+  const onPath = location.pathname === toPath || location.pathname.startsWith(`${toPath}/`);
+  if (!onPath) return false;
+
+  const current = new URLSearchParams(location.search);
+  if (toQuery) {
+    return [...new URLSearchParams(toQuery)].every(([k, v]) => current.get(k) === v);
+  }
+  // Bare row: yield to any query-bearing sibling on the same path that matches.
+  return !siblings.some((s) => (
+    s !== entry
+    && s.to?.startsWith(`${toPath}?`)
+    && [...new URLSearchParams(s.to.split('?')[1] || '')].every(([k, v]) => current.get(k) === v)
+  ));
+}
+
+function NavEntry({ entry, unreadCount, pendingLeavesCount, nested = false, active = false }) {
   const Icon = entry.icon;
   const basePad = nested ? 'pl-5 pr-3' : 'px-3';
 
@@ -74,36 +102,31 @@ function NavEntry({ entry, unreadCount, pendingLeavesCount, nested = false }) {
   }
 
   return (
-    <NavLink
+    <Link
       to={entry.to}
+      aria-current={active ? 'page' : undefined}
       {...(entry.newTab ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-      className={({ isActive }) =>
-        `relative flex items-center gap-3 ${basePad} py-2 rounded-md text-[13.5px] font-medium transition-all duration-150 ${
-          isActive ? 'bg-white/10 text-white font-semibold' : 'text-[rgba(219,234,254,0.78)] hover:bg-white/5 hover:text-white'
-        }`
-      }
+      className={`relative flex items-center gap-3 ${basePad} py-2 rounded-md text-[13.5px] font-medium transition-all duration-150 ${
+        active ? 'bg-white/10 text-white font-semibold' : 'text-[rgba(219,234,254,0.78)] hover:bg-white/5 hover:text-white'
+      }`}
     >
-      {({ isActive }) => (
-        <>
-          {isActive && (
-            <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[18px] rounded-[2px] bg-primary-400" />
-          )}
-          <Icon className="w-4 h-4" />
-          <span className="flex-1">{entry.label}</span>
-          {entry.badge === 'inbox-unread' && unreadCount > 0 && (
-            <span className="bg-accent-500 text-white text-[11px] rounded-full px-1.5 py-0.5 min-w-5 text-center font-semibold leading-none">
-              {unreadCount > 99 ? '99+' : unreadCount}
-            </span>
-          )}
-          {entry.badge === 'pending-leaves' && pendingLeavesCount > 0 && (
-            <span className="bg-accent-500 text-white text-[11px] rounded-full px-1.5 py-0.5 min-w-5 text-center font-semibold leading-none">
-              {pendingLeavesCount > 99 ? '99+' : pendingLeavesCount}
-            </span>
-          )}
-          {entry.newTab && <ExternalChevron />}
-        </>
+      {active && (
+        <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[18px] rounded-[2px] bg-primary-400" />
       )}
-    </NavLink>
+      <Icon className="w-4 h-4" />
+      <span className="flex-1">{entry.label}</span>
+      {entry.badge === 'inbox-unread' && unreadCount > 0 && (
+        <span className="bg-accent-500 text-white text-[11px] rounded-full px-1.5 py-0.5 min-w-5 text-center font-semibold leading-none">
+          {unreadCount > 99 ? '99+' : unreadCount}
+        </span>
+      )}
+      {entry.badge === 'pending-leaves' && pendingLeavesCount > 0 && (
+        <span className="bg-accent-500 text-white text-[11px] rounded-full px-1.5 py-0.5 min-w-5 text-center font-semibold leading-none">
+          {pendingLeavesCount > 99 ? '99+' : pendingLeavesCount}
+        </span>
+      )}
+      {entry.newTab && <ExternalChevron />}
+    </Link>
   );
 }
 
@@ -225,6 +248,14 @@ export default function Sidebar() {
     [role, perms, tenantSlug, staffingPhases],
   );
 
+  // Query-aware active state — see isEntryActive above for why NavLink's own
+  // isActive isn't enough. `visible` is passed so a bare row can defer to a
+  // query-bearing sibling on the same path.
+  const isActive = useCallback(
+    (entry) => isEntryActive(entry, location, visible),
+    [location, visible],
+  );
+
   // Bucket visible entries: flat sections (group=null) keep their own label;
   // collapsibles get bucketed by group.
   const flatSections = useMemo(() => {
@@ -321,7 +352,7 @@ export default function Sidebar() {
               <React.Fragment key={section}>
                 <SectionLabel>{section}</SectionLabel>
                 {entries.map(e => (
-                  <NavEntry key={e.id} entry={e} unreadCount={unreadCount} pendingLeavesCount={pendingLeavesCount} />
+                  <NavEntry key={e.id} entry={e} unreadCount={unreadCount} pendingLeavesCount={pendingLeavesCount} active={isActive(e)} />
                 ))}
               </React.Fragment>
             );
@@ -333,7 +364,7 @@ export default function Sidebar() {
               <div className="pt-3" />
               <GroupHeader id="tools" label={GROUP_LABELS.tools} isOpen={openGroups.tools} onToggle={() => toggleGroup('tools')} />
               {openGroups.tools && grouped.tools.map(e => (
-                <NavEntry key={e.id} entry={e} unreadCount={unreadCount} pendingLeavesCount={pendingLeavesCount} nested />
+                <NavEntry key={e.id} entry={e} unreadCount={unreadCount} pendingLeavesCount={pendingLeavesCount} nested active={isActive(e)} />
               ))}
             </>
           )}
@@ -344,7 +375,7 @@ export default function Sidebar() {
               <div className="pt-2" />
               <GroupHeader id="finance" label={GROUP_LABELS.finance} isOpen={openGroups.finance} onToggle={() => toggleGroup('finance')} />
               {openGroups.finance && grouped.finance.map(e => (
-                <NavEntry key={e.id} entry={e} unreadCount={unreadCount} pendingLeavesCount={pendingLeavesCount} nested />
+                <NavEntry key={e.id} entry={e} unreadCount={unreadCount} pendingLeavesCount={pendingLeavesCount} nested active={isActive(e)} />
               ))}
             </>
           )}
@@ -354,7 +385,7 @@ export default function Sidebar() {
             <div className="mt-auto pt-2">
               <GroupHeader id="settings" label={GROUP_LABELS.settings} isOpen={openGroups.settings} onToggle={() => toggleGroup('settings')} />
               {openGroups.settings && grouped.settings.map(e => (
-                <NavEntry key={e.id} entry={e} unreadCount={unreadCount} pendingLeavesCount={pendingLeavesCount} nested />
+                <NavEntry key={e.id} entry={e} unreadCount={unreadCount} pendingLeavesCount={pendingLeavesCount} nested active={isActive(e)} />
               ))}
             </div>
           )}
@@ -368,7 +399,7 @@ export default function Sidebar() {
                   <React.Fragment key={section}>
                     <p className="pl-5 pr-3 pt-2 pb-1 text-[10px] font-semibold text-primary-300/70 uppercase tracking-[0.08em]">{section}</p>
                     {moreByCategory[section].map(e => (
-                      <NavEntry key={e.id} entry={e} unreadCount={unreadCount} pendingLeavesCount={pendingLeavesCount} nested />
+                      <NavEntry key={e.id} entry={e} unreadCount={unreadCount} pendingLeavesCount={pendingLeavesCount} nested active={isActive(e)} />
                     ))}
                   </React.Fragment>
                 )
@@ -391,7 +422,7 @@ export default function Sidebar() {
               </div>
             </div>
           </div>
-          <p className="inline-flex items-center border border-white/[0.08] bg-white/[0.08] rounded px-1.5 py-0.5 text-[10px] text-primary-300/70 mb-2">⌘K to search</p>
+          <p className="inline-flex items-center border border-white/[0.08] bg-white/[0.08] rounded px-1.5 py-0.5 text-[10px] text-primary-300/70 mb-2">⌘K to search or jump</p>
           <button
             onClick={logout}
             className="w-full text-left text-xs text-[rgba(219,234,254,0.6)] hover:text-white transition-colors px-1"

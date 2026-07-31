@@ -5,6 +5,9 @@ import AddUpdateOpportunityModal from '../components/AddUpdateOpportunityModal.j
 import { apiFetch } from '../lib/api.js';
 import { Modal, Button } from '../components/ui/index.js';
 import { getAuthToken } from '../lib/auth.js';
+import { useToast } from '../components/wizmatch/Toast.jsx';
+import ConfirmDialog from '../components/ConfirmDialog.jsx';
+import { SkeletonTable } from '../components/SkeletonLoader.jsx';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -282,15 +285,15 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
   const [showAssignPanel, setShowAssignPanel] = useState(false);
   const [assignTo, setAssignTo] = useState('jatin');
   const [showMoreMenu, setShowMoreMenu] = useState(false);
-  const [toast, setToast] = useState('');
   const [busy, setBusy] = useState(false);
   const moreRef = useRef(null);
+  const { showSuccess, showError } = useToast();
 
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(''), 3000);
-    return () => clearTimeout(t);
-  }, [toast]);
+  // Bulk delete confirm — split from the old synchronous window.confirm() so
+  // the dialog can stay open and show an error if the delete call fails.
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteErr, setDeleteErr] = useState(null);
 
   // Close more menu on outside click
   useEffect(() => {
@@ -324,7 +327,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
       a.download = 'contacts.csv';
       a.click();
       URL.revokeObjectURL(url);
-      setToast(`Exported ${count} contacts`);
+      showSuccess(`Exported ${count} contacts`);
     }
     setBusy(false);
   }
@@ -343,10 +346,10 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
           method: 'POST',
           body: JSON.stringify({ csv: csvText }),
         });
-        setToast(`Imported ${data.imported} contact${data.imported !== 1 ? 's' : ''}${data.errors?.length ? ` (${data.errors.length} errors)` : ''}`);
+        showSuccess(`Imported ${data.imported} contact${data.imported !== 1 ? 's' : ''}${data.errors?.length ? ` (${data.errors.length} errors)` : ''}`);
         load();
       } catch (err) {
-        setToast(`Import failed: ${err.message}`);
+        showError(`Import failed: ${err.message}`);
       }
       setBusy(false);
     };
@@ -367,7 +370,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
     setTagInput('');
     setSelectedTags(new Set());
     setShowTagPanel(false);
-    setToast(`Tags ${tagMode === 'add' ? 'added to' : 'removed from'} ${count} contacts`);
+    showSuccess(`Tags ${tagMode === 'add' ? 'added to' : 'removed from'} ${count} contacts`);
     onDone?.();
   }
 
@@ -380,28 +383,36 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
         body: JSON.stringify({ contactIds: [...selectedIds], templateId: selectedTemplateId }),
       });
       if (result?.sent !== undefined) {
-        setToast(`Sent to ${result.sent} contacts${result.skipped ? ` (${result.skipped} without email)` : ''}${result.failed ? ` — ${result.failed} failed` : ''}`);
+        showSuccess(`Sent to ${result.sent} contacts${result.skipped ? ` (${result.skipped} without email)` : ''}${result.failed ? ` — ${result.failed} failed` : ''}`);
       } else {
-        setToast(result?.error ?? 'Email send failed');
+        showError(result?.error ?? 'Email send failed');
       }
     } catch (err) {
-      setToast(`Email failed: ${err.message}`);
+      showError(`Email failed: ${err.message}`);
     }
     setBusy(false);
     setShowEmailPanel(false);
     setSelectedTemplateId('');
   }
 
-  async function handleBulkDelete() {
-    if (!window.confirm(`Delete ${count} contact${count > 1 ? 's' : ''}? This will mark them as deleted.`)) return;
-    setBusy(true);
-    await apiFetch('/api/contacts/bulk-delete', {
-      method: 'POST',
-      body: JSON.stringify({ contactIds: [...selectedIds] }),
-    });
-    setBusy(false);
-    setToast(`${count} contact${count > 1 ? 's' : ''} deleted`);
-    onDone?.();
+  async function runBulkDelete() {
+    setDeleteBusy(true);
+    setDeleteErr(null);
+    try {
+      await apiFetch('/api/contacts/bulk-delete', {
+        method: 'POST',
+        body: JSON.stringify({ contactIds: [...selectedIds] }),
+      });
+      setConfirmDelete(false);
+      showSuccess(`${count} contact${count > 1 ? 's' : ''} deleted`);
+      onDone?.();
+    } catch (err) {
+      // Keep the dialog open on failure — closing it would lose the user's
+      // place and hide why nothing happened.
+      setDeleteErr(err.message || 'Failed to delete contacts');
+    } finally {
+      setDeleteBusy(false);
+    }
   }
 
   async function handleAssign() {
@@ -413,7 +424,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
     setBusy(false);
     setShowAssignPanel(false);
     closeAllPanels();
-    setToast(`Assigned ${count} contacts to ${assignTo}`);
+    showSuccess(`Assigned ${count} contacts to ${assignTo}`);
     onDone?.();
   }
 
@@ -553,7 +564,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
           }} className={`${btnBase} bg-primary-700 hover:bg-primary-600 text-white`}>
             Add tags
           </button>
-          <button onClick={handleBulkDelete} disabled={busy} className={`${btnBase} bg-danger-700 hover:bg-danger-600 text-white`}>
+          <button onClick={() => setConfirmDelete(true)} disabled={busy} className={`${btnBase} bg-danger-700 hover:bg-danger-600 text-white`}>
             Delete
           </button>
 
@@ -566,7 +577,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
             </button>
             {showMoreMenu && (
               <div className="absolute top-full left-0 mt-1 bg-white border border-neutral-200 rounded-xl shadow-xl py-1 min-w-[200px] z-50">
-                <button onClick={() => { setToast('WhatsApp blast via Meta API — use Automations for bulk sends'); setShowMoreMenu(false); }}
+                <button onClick={() => { showSuccess('WhatsApp blast via Meta API — use Automations for bulk sends'); setShowMoreMenu(false); }}
                   className="w-full text-left px-4 py-2.5 text-sm text-neutral-700 hover:bg-neutral-50 flex items-center gap-2">
                   <svg className="w-4 h-4 text-success-600" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M11.5 2C6.262 2 2 6.262 2 11.5c0 1.827.497 3.538 1.362 5.005L2 22l5.638-1.356A9.46 9.46 0 0011.5 21C16.738 21 21 16.738 21 11.5S16.738 2 11.5 2z"/></svg>
                   Send WhatsApp
@@ -595,12 +606,22 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
         </div>
       </div>
 
-      {/* Toast */}
-      {toast && (
-        <div className="pointer-events-auto fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-neutral-900 text-white text-sm font-medium px-5 py-3 rounded-2xl shadow-2xl">
-          {toast}
-        </div>
-      )}
+      {/* Wrapped in pointer-events-auto — the outer bar is pointer-events-none
+          so page content behind it stays clickable, which would otherwise
+          swallow clicks on the dialog's own buttons. */}
+      <div className="pointer-events-auto">
+        <ConfirmDialog
+          open={confirmDelete}
+          title={`Delete ${count} contact${count > 1 ? 's' : ''}?`}
+          impactSummary="They will be marked as deleted and will no longer appear in the contact list."
+          confirmLabel={`Delete ${count} contact${count > 1 ? 's' : ''}`}
+          danger
+          loading={deleteBusy}
+          error={deleteErr}
+          onConfirm={runBulkDelete}
+          onCancel={() => setConfirmDelete(false)}
+        />
+      </div>
     </div>
   );
 }
@@ -609,6 +630,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
 // Main Contacts Page
 // ─────────────────────────────────────────────────────────────────────────────
 export default function ContactsPage() {
+  const { showSuccess, showError } = useToast();
   const [contacts, setContacts] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -736,10 +758,10 @@ export default function ContactsPage() {
                       method: 'POST',
                       body: JSON.stringify({ csv: csvText }),
                     });
-                    alert(`Imported ${data.imported} contact${data.imported !== 1 ? 's' : ''}${data.errors?.length ? ` (${data.errors.length} errors)` : ''}`);
+                    showSuccess(`Imported ${data.imported} contact${data.imported !== 1 ? 's' : ''}${data.errors?.length ? ` (${data.errors.length} errors)` : ''}`);
                     load();
                   } catch (err) {
-                    alert(`Import failed: ${err.message}`);
+                    showError(`Import failed: ${err.message}`);
                   }
                 };
                 input.click();
@@ -853,6 +875,9 @@ export default function ContactsPage() {
 
         {/* Table */}
         <div className="flex-1 px-8 py-5">
+          {loading ? (
+            <SkeletonTable rows={8} cols={7} />
+          ) : (
           <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden shadow-sm">
             <div className="flex items-center justify-end px-3 py-1.5 border-b border-neutral-100 bg-neutral-50/60">
               <button onClick={resetColWidths} className="text-[10px] text-neutral-400 hover:text-neutral-700 font-medium">
@@ -906,11 +931,6 @@ export default function ContactsPage() {
                   <tr><td colSpan={7} className="px-4 py-12 text-center">
                     <p className="text-danger-600 text-sm mb-2">Could not load contacts.</p>
                     <button onClick={load} className="text-sm text-primary-600 hover:underline">Retry</button>
-                  </td></tr>
-                ) : loading ? (
-                  <tr><td colSpan={7} className="px-4 py-12 text-center">
-                    <div className="inline-block w-6 h-6 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
-                    <p className="text-neutral-400 text-sm mt-2">Loading contacts…</p>
                   </td></tr>
                 ) : contacts.length === 0 ? (
                   <tr><td colSpan={7} className="px-4 py-12 text-center text-neutral-400 text-sm">No contacts found</td></tr>
@@ -1030,6 +1050,7 @@ export default function ContactsPage() {
               </div>
             </div>
           </div>
+          )}
         </div>
       </main>
 

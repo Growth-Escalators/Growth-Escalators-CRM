@@ -1,8 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { UserPlus, X } from 'lucide-react';
 import { apiFetch } from '../lib/api.js';
 import { Modal, Button } from '../components/ui/index.js';
 import DataTable from '../components/ui/DataTable.jsx';
+import BulkActionBar from '../components/ui/BulkActionBar.jsx';
+import { useRowSelection } from '../components/ui/useRowSelection.js';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import EmptyState from '../components/wizmatch/EmptyState.jsx';
 import ErrorRetry from '../components/wizmatch/ErrorRetry.jsx';
@@ -17,16 +19,23 @@ const VISA_BADGE = { H1B: 'badge-info', GC: 'badge-success', USC: 'badge-info', 
 const AVAIL_BADGE = { available: 'badge-success', submitted: 'badge-info', interviewing: 'badge-warning', placed: 'badge-success', benched: 'badge-muted' };
 const opts = (arr) => arr.map((v) => ({ value: v, label: v }));
 
+// Filter placement: FilterBar folds anything marked `advanced` into the "More
+// filters" popover. The five kept up front are the ones a recruiter touches
+// while working a live requirement — who they are, what they can build, can
+// they legally take the role, are they free right now, and are they senior
+// enough. Location, rate, source and the certified flag are second-pass
+// refinements applied after that first cut, and location in particular is
+// mostly noise on remote/hybrid roles, so they live in the popover.
 const CANDIDATE_FILTERS = [
-  { key: 'q', label: 'Name', type: 'search', placeholder: 'Search name…' },
-  { key: 'skill', label: 'Skill', type: 'search', placeholder: 'Skill…' },
-  { key: 'location', label: 'Location', type: 'search', placeholder: 'Location…' },
-  { key: 'visa_status', label: 'Visa', type: 'multiselect', options: opts(['H1B', 'GC', 'USC', 'OPT', 'TN', 'H4EAD', 'unknown']) },
-  { key: 'availability_status', label: 'Availability', type: 'multiselect', options: opts(['available', 'submitted', 'interviewing', 'placed', 'benched']) },
-  { key: 'source', label: 'Source', type: 'multiselect', options: opts(['xray', 'github', 'naukri', 'bench_network', 'referral', 'manual']) },
-  { key: 'experience', label: 'Experience (yrs)', type: 'numberRange', serverMinKey: 'min_experience', serverMaxKey: 'experience_max' },
-  { key: 'rate', label: 'Rate/hr', type: 'numberRange', serverMinKey: 'rate_min', serverMaxKey: 'rate_max' },
-  { key: 'certified', label: 'Certified', type: 'toggle' },
+  { key: 'q', label: 'Name', type: 'search', placeholder: 'Search name…', primary: true },
+  { key: 'skill', label: 'Skill', type: 'search', placeholder: 'Skill…', primary: true },
+  { key: 'location', label: 'Location', type: 'search', placeholder: 'Location…', advanced: true },
+  { key: 'visa_status', label: 'Visa', type: 'multiselect', primary: true, options: opts(['H1B', 'GC', 'USC', 'OPT', 'TN', 'H4EAD', 'unknown']) },
+  { key: 'availability_status', label: 'Availability', type: 'multiselect', primary: true, options: opts(['available', 'submitted', 'interviewing', 'placed', 'benched']) },
+  { key: 'source', label: 'Source', type: 'multiselect', advanced: true, options: opts(['xray', 'github', 'naukri', 'bench_network', 'referral', 'manual']) },
+  { key: 'experience', label: 'Experience (yrs)', type: 'numberRange', primary: true, serverMinKey: 'min_experience', serverMaxKey: 'experience_max' },
+  { key: 'rate', label: 'Rate/hr', type: 'numberRange', advanced: true, serverMinKey: 'rate_min', serverMaxKey: 'rate_max' },
+  { key: 'certified', label: 'Certified', type: 'toggle', advanced: true },
 ];
 
 const CANDIDATE_COLUMNS = [
@@ -40,40 +49,88 @@ const CANDIDATE_COLUMNS = [
   { key: 'source', label: 'Source', sortable: true, render: (r) => <span className="text-neutral-500 text-[12.5px]">{r.source}</span> },
 ];
 const PAGE_SIZE = 50;
+// GET /candidates clamps limit to 200 (src/routes/wizmatch.ts:3261), so the
+// old `limit: 1000` here was never honoured — the "export everything" button
+// has always exported at most 200 rows. Ask for what we can actually get, and
+// tell the user when the filtered set is bigger than that.
+const EXPORT_LIMIT = 200;
 
 export default function WizmatchCandidatesPage() {
+  const { showSuccess, showError } = useToast();
   const [candidates, setCandidates] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [selected, setSelected] = useState(null);
 
   const ctl = useTableControls({ pageId: 'wizmatch-candidates', spec: CANDIDATE_FILTERS, columns: CANDIDATE_COLUMNS });
   const { toQueryParams, page, setPage } = ctl;
 
+  // Server page: the backend applies the global ORDER BY (sort=<col>:<dir>), so
+  // render rows in server order. `rowAriaLabel` is what the per-row checkbox is
+  // announced as — without it screen readers read the uuid.
+  const rows = useMemo(() => candidates.map((c) => ({
+    ...c,
+    rowAriaLabel: [c.first_name, c.last_name].filter(Boolean).join(' ') || 'Unnamed candidate',
+  })), [candidates]);
+
+  const sel = useRowSelection(rows, 'id');
+  const { clear: clearSelection } = sel;
+
+  // First load shows skeletons; every later load keeps the previous rows on
+  // screen (dimmed) so a filter change doesn't blank the table.
+  const loadedOnce = useRef(false);
   const load = useCallback(async () => {
-    setLoading(true);
+    if (loadedOnce.current) setRefreshing(true); else setLoading(true);
+    setError(null);
+    clearSelection(); // a selection must never outlive the rows it was made on
     try {
       const params = toQueryParams({ limit: PAGE_SIZE, offset: page * PAGE_SIZE });
       const data = await apiFetch(`/api/wizmatch/candidates?${params}`);
       setCandidates(data.items || []);
       setTotal(data.total || 0);
-    } catch (e) { console.error(e); } finally { setLoading(false); }
-  }, [toQueryParams, page]);
+    } catch (e) {
+      // This used to be `catch (e) { console.error(e) }`, so a 500 rendered as
+      // "no candidates yet" — an empty pool and a broken API looked identical.
+      setError(e.message || 'Could not load the candidate pool.');
+      setCandidates([]);
+      setTotal(0);
+    } finally {
+      loadedOnce.current = true;
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [toQueryParams, page, clearSelection]);
 
   useEffect(() => { load(); }, [load]);
 
-  // Server page: the backend applies the global ORDER BY (sort=<col>:<dir>), so
-  // render rows in server order.
-  const rows = candidates;
   // Export the full filtered set (not just this page) — re-fetch the current
   // filters/sort at the backend max limit; visible columns only.
   const exportCsv = async () => {
     try {
-      const data = await apiFetch(`/api/wizmatch/candidates?${toQueryParams({ limit: 1000 })}`);
-      exportRowsToCsv(data.items || [], ctl.visibleColumns, 'candidates.csv');
-    } catch (e) { console.error(e); }
+      const data = await apiFetch(`/api/wizmatch/candidates?${toQueryParams({ limit: EXPORT_LIMIT })}`);
+      const items = data.items || [];
+      exportRowsToCsv(items, ctl.visibleColumns, 'candidates.csv');
+      if ((data.total || 0) > items.length) {
+        showError(`Exported the first ${items.length} of ${data.total} candidates — narrow the filters to export the rest.`);
+      } else {
+        showSuccess(`Exported ${items.length} ${items.length === 1 ? 'candidate' : 'candidates'} to CSV`);
+      }
+    } catch (e) { showError(e.message || 'Export failed.'); }
   };
+
+  // Selection export needs no request at all — the chosen rows are already in
+  // memory, so this is exact by construction (no re-fetch, no 1000-row cap).
+  const exportSelected = () => {
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const chosen = sel.selectedVisible.map((id) => byId.get(id)).filter(Boolean);
+    if (chosen.length === 0) { showError('Those rows are no longer on screen — reselect and try again.'); return; }
+    exportRowsToCsv(chosen, ctl.visibleColumns, 'candidates-selection.csv');
+    showSuccess(`Exported ${chosen.length} selected ${chosen.length === 1 ? 'candidate' : 'candidates'} to CSV`);
+  };
+
   const rangeStart = total === 0 ? 0 : page * PAGE_SIZE + 1;
   const rangeEnd = Math.min((page + 1) * PAGE_SIZE, total);
   const hasPrev = page > 0;
@@ -117,31 +174,49 @@ export default function WizmatchCandidatesPage() {
         deletePreset={ctl.deletePreset}
       />
 
-      <DataTable
-        columns={ctl.visibleColumns}
-        rows={rows}
-        rowKey="id"
-        onRowClick={setSelected}
-        loading={loading}
-        // UX audit 2026-07-31 (top-10 finding #4) — this used to say "No
-        // candidates match these filters" even with zero filters set, on a
-        // pool that has never had a single candidate. That reads as "your
-        // filters are broken" when the honest state is "nothing has ever
-        // been added here yet" — same true-empty/filtered-empty split
-        // WizmatchCompaniesPage.jsx already gets right.
-        emptyText={total === 0 && ctl.activeChips.length === 0
-          ? 'No candidates yet — add one above, or they will appear once a sourcing run finds a match.'
-          : 'No candidates match these filters.'}
-        sort={ctl.sort}
-        onSort={ctl.setSort}
-      />
-      <div className="flex items-center justify-between px-1 py-3">
-        <p className="text-[12.5px] text-neutral-500">Showing {rangeStart}–{rangeEnd} of {total} candidates</p>
-        <div className="flex gap-2">
-          <button disabled={!hasPrev} onClick={() => setPage(Math.max(0, page - 1))} className={`text-[12.5px] font-semibold px-3.5 py-1.5 border border-neutral-200 rounded-md ${hasPrev ? 'bg-neutral-100 text-neutral-700' : 'bg-neutral-100 text-neutral-500 opacity-60'}`}>← Prev</button>
-          <button disabled={!hasNext} onClick={() => setPage(page + 1)} className={`text-[12.5px] font-semibold px-3.5 py-1.5 border border-neutral-200 rounded-md ${hasNext ? 'bg-neutral-100 text-neutral-700' : 'bg-neutral-100 text-neutral-500 opacity-60'}`}>Next →</button>
-        </div>
-      </div>
+      {error ? (
+        <ErrorRetry message={error} onRetry={load} retrying={loading || refreshing} />
+      ) : (
+        <>
+          <DataTable
+            columns={ctl.visibleColumns}
+            rows={rows}
+            rowKey="id"
+            onRowClick={setSelected}
+            loading={loading}
+            refreshing={refreshing}
+            selectedIds={sel.selectedIds}
+            onToggleRow={sel.toggleRow}
+            onToggleAll={sel.toggleAll}
+            // UX audit 2026-07-31 (top-10 finding #4) — this used to say "No
+            // candidates match these filters" even with zero filters set, on a
+            // pool that has never had a single candidate. That reads as "your
+            // filters are broken" when the honest state is "nothing has ever
+            // been added here yet" — same true-empty/filtered-empty split
+            // WizmatchCompaniesPage.jsx already gets right.
+            emptyText={total === 0 && ctl.activeChips.length === 0
+              ? 'No candidates yet — add one above, or they will appear once a sourcing run finds a match.'
+              : 'No candidates match these filters.'}
+            sort={ctl.sort}
+            onSort={ctl.setSort}
+          />
+          <BulkActionBar
+            count={sel.count}
+            entityLabel="candidate"
+            entityLabelPlural="candidates"
+            actions={[{ key: 'export', label: 'Export selected to CSV' }]}
+            onAction={(key) => { if (key === 'export') exportSelected(); }}
+            onClear={sel.clear}
+          />
+          <div className="flex items-center justify-between px-1 py-3">
+            <p className="text-[12.5px] text-neutral-500">Showing {rangeStart}–{rangeEnd} of {total} candidates</p>
+            <div className="flex gap-2">
+              <button disabled={!hasPrev} onClick={() => setPage(Math.max(0, page - 1))} className={`text-[12.5px] font-semibold px-3.5 py-1.5 border border-neutral-200 rounded-md ${hasPrev ? 'bg-neutral-100 text-neutral-700' : 'bg-neutral-100 text-neutral-500 opacity-60'}`}>← Prev</button>
+              <button disabled={!hasNext} onClick={() => setPage(page + 1)} className={`text-[12.5px] font-semibold px-3.5 py-1.5 border border-neutral-200 rounded-md ${hasNext ? 'bg-neutral-100 text-neutral-700' : 'bg-neutral-100 text-neutral-500 opacity-60'}`}>Next →</button>
+            </div>
+          </div>
+        </>
+      )}
 
       {selected && (
         <CandidateDetailDrawer
@@ -157,10 +232,15 @@ export default function WizmatchCandidatesPage() {
 function AddCandidateForm({ onClose, onDone }) {
   const [form, setForm] = useState({ name: '', email: '', skills: '', location: '', visa_status: 'unknown', experience_years: '', rate_hourly: '', source: 'manual' });
   const [saving, setSaving] = useState(false);
+  // Was `alert('Failed: ' + e.message)` — a modal alert stacked on top of a
+  // modal form, which loses the typed values behind an OS dialog. The error
+  // now stays next to the fields that caused it.
+  const [saveError, setSaveError] = useState(null);
 
   const submit = async (e) => {
     e.preventDefault();
     setSaving(true);
+    setSaveError(null);
     try {
       await apiFetch('/api/wizmatch/candidates', {
         method: 'POST',
@@ -172,7 +252,7 @@ function AddCandidateForm({ onClose, onDone }) {
         }),
       });
       onDone();
-    } catch (e) { alert('Failed: ' + e.message); } finally { setSaving(false); }
+    } catch (e) { setSaveError(e.message || 'Could not add the candidate.'); } finally { setSaving(false); }
   };
 
   return (
@@ -190,6 +270,11 @@ function AddCandidateForm({ onClose, onDone }) {
       }
     >
       <form id="add-candidate-form" onSubmit={submit} className="grid grid-cols-2 gap-3">
+        {saveError && (
+          <div role="alert" className="col-span-2 text-[12.5px] text-danger-600 bg-danger-500/10 border border-danger-500/30 rounded-md px-2.5 py-1.5">
+            {saveError}
+          </div>
+        )}
         <input required placeholder="Full Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="input col-span-2" />
         <input required type="email" placeholder="Email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} className="input col-span-2" />
         <input required placeholder="Skills (comma-sep)" value={form.skills} onChange={e => setForm({...form, skills: e.target.value})} className="input col-span-2" />

@@ -35,7 +35,7 @@ function DimensionRow({ label, dimension }) {
     return (
       <div className="flex items-center justify-between text-[12px] py-1">
         <span className="text-neutral-500">{label}</span>
-        <span className="text-neutral-400">—</span>
+        <span className="text-neutral-500">—</span>
       </div>
     );
   }
@@ -44,7 +44,7 @@ function DimensionRow({ label, dimension }) {
       <span className="text-neutral-500">{label}</span>
       <div className="text-right">
         <StatusBadge status={dimension.value} />
-        <div className="text-[10.5px] text-neutral-400 mt-0.5">from {scopeLabel(dimension.scopeKey)}</div>
+        <div className="text-[10.5px] text-neutral-500 mt-0.5">from {scopeLabel(dimension.scopeKey)}</div>
       </div>
     </div>
   );
@@ -351,7 +351,7 @@ function PolicyWriteForm({ companyId, asOverride, submitting, setSubmitting, onD
         </select>
         <input value={evidenceText} onChange={(e) => setEvidenceText(e.target.value)} placeholder="Evidence text" className="input-standard" />
       </div>
-      <p className="text-[10.5px] text-neutral-400">
+      <p className="text-[10.5px] text-neutral-500">
         A permanent or non-overridable row requires evidence — the server rejects the write otherwise (PRD-005 §10.1 D-7).
       </p>
       <button onClick={submit} disabled={submitting || (!asOverride && !reasonCode)} className="btn-primary btn-compact">

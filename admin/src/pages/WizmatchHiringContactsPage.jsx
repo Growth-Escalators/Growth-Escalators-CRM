@@ -1,16 +1,38 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Users, X, Trash2, CheckCircle2, XCircle, Link2 } from 'lucide-react';
-import { apiFetch } from '../lib/api.js';
+import { apiFetch, getUser } from '../lib/api.js';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import EmptyState from '../components/wizmatch/EmptyState.jsx';
 import ErrorRetry from '../components/wizmatch/ErrorRetry.jsx';
 import StatusBadge from '../components/wizmatch/StatusBadge.jsx';
 import { useToast } from '../components/wizmatch/Toast.jsx';
 import DataTable from '../components/ui/DataTable.jsx';
+import BulkActionBar from '../components/ui/BulkActionBar.jsx';
+import { useRowSelection } from '../components/ui/useRowSelection.js';
 import FilterBar from '../components/wizmatch/filters/FilterBar.jsx';
 import { useTableControls } from '../components/wizmatch/filters/useTableControls.js';
 import { exportRowsToCsv } from '../components/wizmatch/filters/exportCsv.js';
+
+const contactLabel = (c) => [c.first_name, c.last_name].filter(Boolean).join(' ') || 'Unnamed contact';
+
+// Truncation constants — both endpoints silently cut the list off, so the UI has
+// to say so out loud (house rule: never hide truncation).
+//
+// Linked tab: wizmatchStaffingDomain.listHiringContacts() ends in a hard
+// `LIMIT 1000` and the route returns no `total`, so "we got exactly the cap
+// back" is the ONLY truncation signal available. There is no paging parameter
+// to raise, which is why the banner tells the user to expect missing rows
+// rather than offering a bigger page.
+const LINKED_SERVER_CAP = 1000;
+// Queue tab: GET /contact-intelligence/queue does `Math.min(limit, 100)` and
+// returns `{ total, returned }`. Both count COMPANIES (distinct company_id on
+// wizmatch_job_signals), not candidates — the response is company-shaped and
+// this page flattens it into candidate rows.
+const QUEUE_SERVER_MAX_LIMIT = 100;
+const QUEUE_LIMIT_OPTIONS = [25, 50, 100];
+// Server rejects >200 ids per bulk request (parseBulkIds in src/routes/wizmatch.ts).
+const BULK_REVIEW_CHUNK = 200;
 
 const RELATIONSHIP_STAGES = ['active', 'inactive', 'do_not_contact'];
 const HC_ROLES = ['talent_acquisition', 'hiring_manager', 'coordinator', 'approver', 'interviewer', 'procurement', 'vendor_manager', 'source', 'other'];
@@ -46,6 +68,18 @@ const TABS = [
   { id: 'linked', label: 'Linked hiring contacts' },
   { id: 'queue', label: 'Discovery queue' },
 ];
+
+// Rows dropped by the client-side filters are the other half of the truncation
+// story: with no count, a filtered list is indistinguishable from a short one.
+function ResultCount({ shown, total, noun }) {
+  if (!total) return null;
+  const plural = `${noun}${total === 1 ? '' : 's'}`;
+  return (
+    <p className="mb-2 text-[11.5px] text-neutral-500">
+      {shown === total ? `${total} ${plural} loaded` : `Showing ${shown} of ${total} loaded ${plural} — filters applied`}
+    </p>
+  );
+}
 
 export default function WizmatchHiringContactsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -95,33 +129,51 @@ export default function WizmatchHiringContactsPage() {
 // ============================================================
 
 function LinkedContactsTab() {
+  const { showSuccess } = useToast();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [selected, setSelected] = useState(null);
+  // First load shows skeleton rows; every later load keeps the rows on screen
+  // and only dims them, so saving a drawer edit no longer blanks the table.
+  const loadedOnce = useRef(false);
   const ctl = useTableControls({ pageId: 'wizmatch-hiring-linked', spec: LINKED_FILTERS, columns: LINKED_COLUMNS });
 
+  const filtered = useMemo(
+    () => ctl.applyClient(rows).map((c) => ({ ...c, rowAriaLabel: `${contactLabel(c)} at ${c.company_name || 'unknown company'}` })),
+    [ctl.applyClient, rows],
+  );
+  const sel = useRowSelection(filtered, 'id');
+
   const load = useCallback(async () => {
-    setLoading(true);
+    if (loadedOnce.current) setRefreshing(true); else setLoading(true);
     setError(null);
+    sel.clear();
     try {
       const data = await apiFetch('/api/wizmatch/staffing/hiring-contacts');
       setRows(data.items || []);
     } catch (e) {
       setError(e.message || 'Failed to load hiring contacts');
     } finally {
+      loadedOnce.current = true;
       setLoading(false);
+      setRefreshing(false);
     }
-  }, []);
+  }, [sel.clear]);
 
   useEffect(() => { load(); }, [load]);
 
-  const filtered = ctl.applyClient(rows);
+  const exportSelected = () => {
+    const chosen = filtered.filter((r) => sel.selectedIds.has(r.id));
+    exportRowsToCsv(chosen, ctl.visibleColumns, 'hiring-contacts-selected.csv');
+    showSuccess(`Exported ${chosen.length} hiring contact${chosen.length === 1 ? '' : 's'} to CSV`);
+  };
 
   return (
     <div>
       {error ? (
-        <ErrorRetry message={error} onRetry={load} retrying={loading} />
+        <ErrorRetry message={error} onRetry={load} retrying={loading || refreshing} />
       ) : (
         <>
           <FilterBar
@@ -140,15 +192,35 @@ function LinkedContactsTab() {
             applyPreset={ctl.applyPreset}
             deletePreset={ctl.deletePreset}
           />
+          {rows.length >= LINKED_SERVER_CAP && (
+            <div role="status" className="mb-2 rounded-md border border-warning-300 bg-warning-500/10 px-3 py-2 text-[12px] text-warning-700">
+              Showing the first {LINKED_SERVER_CAP.toLocaleString()} hiring contacts — the API caps this list and reports no
+              total, so there may be more that this screen cannot reach. The filters above only narrow rows that are
+              already loaded.
+            </div>
+          )}
+          <ResultCount shown={filtered.length} total={rows.length} noun="hiring contact" />
           <DataTable
             columns={ctl.visibleColumns}
             rows={filtered}
             rowKey="id"
             onRowClick={setSelected}
             loading={loading}
+            refreshing={refreshing}
             emptyText={rows.length === 0 ? 'No hiring contacts linked yet — link a CRM contact from the Companies page, or approve a discovery candidate.' : 'No hiring contacts match these filters.'}
             sort={ctl.sort}
             onSort={ctl.setSort}
+            selectedIds={sel.selectedIds}
+            onToggleRow={sel.toggleRow}
+            onToggleAll={sel.toggleAll}
+          />
+          <BulkActionBar
+            count={sel.count}
+            entityLabel="hiring contact"
+            entityLabelPlural="hiring contacts"
+            actions={[{ key: 'export', label: 'Export selected to CSV' }]}
+            onAction={exportSelected}
+            onClear={sel.clear}
           />
         </>
       )}
@@ -458,19 +530,33 @@ const isPersisted = (c) => c.deliverabilityStatus !== undefined;
 function DiscoveryQueueTab() {
   const { showSuccess, showError } = useToast();
   const [items, setItems] = useState([]);
+  // { total, returned } — companies, not candidates. See QUEUE_SERVER_MAX_LIMIT.
+  const [meta, setMeta] = useState(null);
+  const [limit, setLimit] = useState(50);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [selected, setSelected] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectError, setRejectError] = useState(null);
+  const loadedOnce = useRef(false);
+  // useRowSelection needs the filtered rows → which come from the columns →
+  // which are built from the row handlers → which call load(). load() therefore
+  // cannot close over `sel` without a dependency cycle, so the contract-mandated
+  // "clear the selection on every load" goes through this ref instead.
+  const clearSelection = useRef(() => {});
 
   const load = useCallback(async () => {
-    setLoading(true);
+    if (loadedOnce.current) setRefreshing(true); else setLoading(true);
     setError(null);
+    clearSelection.current();
     try {
-      const data = await apiFetch('/api/wizmatch/contact-intelligence/queue?limit=50');
+      const data = await apiFetch(`/api/wizmatch/contact-intelligence/queue?limit=${limit}`);
       const flattened = (data.items || []).flatMap(company =>
         (company.contactCandidates || []).map(candidate => ({
           ...candidate,
@@ -479,12 +565,15 @@ function DiscoveryQueueTab() {
         })),
       );
       setItems(flattened);
+      setMeta({ total: data.total ?? null, returned: data.returned ?? (data.items || []).length });
     } catch (e) {
       setError(e.message || 'Failed to load the discovery queue');
     } finally {
+      loadedOnce.current = true;
       setLoading(false);
+      setRefreshing(false);
     }
-  }, []);
+  }, [limit]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -580,12 +669,98 @@ function DiscoveryQueueTab() {
   ], [busyId, review, linkAndAttach]);
 
   const ctl = useTableControls({ pageId: 'wizmatch-hiring-queue', spec: QUEUE_FILTERS, columns });
-  const filtered = ctl.applyClient(items);
+  const filtered = useMemo(
+    () => ctl.applyClient(items).map((c) => ({ ...c, rowAriaLabel: `${c.name || 'Unnamed candidate'} at ${c.companyName || 'unknown company'}` })),
+    [ctl.applyClient, items],
+  );
+  const sel = useRowSelection(filtered, 'id');
+  clearSelection.current = sel.clear;
+
+  // Only a persisted candidate that is still awaiting review can be approved or
+  // rejected — the same gate the per-row buttons use. Selecting a linked or
+  // already-reviewed row must not silently expand what the bulk call touches,
+  // so those ids are dropped here and the count is spelled out on the button.
+  const selectedRows = useMemo(() => filtered.filter((r) => sel.selectedIds.has(r.id)), [filtered, sel.selectedIds]);
+  const reviewableIds = useMemo(
+    () => selectedRows.filter((r) => isPersisted(r) && r.status === 'needs_review').map((r) => r.id),
+    [selectedRows],
+  );
+  const skipped = selectedRows.length - reviewableIds.length;
+  // Server-side rule (allowBulkRole in src/routes/wizmatch.ts): a multi-id bulk
+  // request is admin-only, a single id stays team_lead+. Mirrored here so the
+  // bar explains the 403 instead of firing it — and that 403 is a plain error
+  // body, not the per-id results envelope, so it cannot be reported per row.
+  const role = getUser()?.role;
+  const roleBlocked = reviewableIds.length > 1 ? role !== 'admin' : !['admin', 'team_lead'].includes(role);
+  const roleReason = reviewableIds.length > 1
+    ? 'Reviewing more than one candidate at a time requires admin'
+    : 'Reviewing a candidate requires team lead or admin';
+
+  const applyBulkReview = async (decision, reason) => {
+    setBulkBusy(true);
+    setRejectError(null);
+    let succeeded = 0;
+    let failed = 0;
+    let firstError = null;
+    for (let i = 0; i < reviewableIds.length; i += BULK_REVIEW_CHUNK) {
+      const chunk = reviewableIds.slice(i, i + BULK_REVIEW_CHUNK);
+      try {
+        const r = await apiFetch('/api/wizmatch/contact-intelligence/contacts/bulk-review', {
+          method: 'POST',
+          body: JSON.stringify({ ids: chunk, decision, reason: reason || undefined }),
+        });
+        succeeded += r.succeeded ?? 0;
+        failed += r.failed ?? 0;
+        if (!firstError) firstError = (r.results || []).find((x) => !x.ok)?.error || null;
+      } catch (e) {
+        // A chunk that never reached the server still failed for its rows.
+        // Counting it keeps a partly-applied run from being reported as clean.
+        failed += chunk.length;
+        if (!firstError) firstError = e.message || 'Request failed';
+      }
+    }
+    setBulkBusy(false);
+
+    const verb = decision === 'approve' ? 'Approved' : 'Rejected';
+    if (failed > 0 && succeeded === 0) {
+      const message = `Could not ${decision} ${failed} candidate${failed === 1 ? '' : 's'} — ${firstError || 'see the console for details'}`;
+      // Nothing changed, so keep the reject dialog open with the reason intact.
+      if (decision === 'reject') { setRejectError(message); return; }
+      showError(message);
+      return;
+    }
+    if (failed === 0) showSuccess(`${verb} ${succeeded} candidate${succeeded === 1 ? '' : 's'}`);
+    else showError(`${succeeded} succeeded, ${failed} failed — ${firstError || 'see the console for details'}`);
+    setRejectOpen(false);
+    await load();
+  };
+
+  const bulkActions = [
+    {
+      key: 'approve',
+      label: skipped > 0 ? `Approve ${reviewableIds.length} of ${selectedRows.length}` : 'Approve',
+      disabled: reviewableIds.length === 0 || roleBlocked,
+      reason: reviewableIds.length === 0
+        ? 'None of the selected rows are still awaiting review'
+        : roleBlocked ? roleReason : undefined,
+    },
+    {
+      key: 'reject',
+      label: skipped > 0 ? `Reject ${reviewableIds.length} of ${selectedRows.length}` : 'Reject',
+      danger: true,
+      disabled: reviewableIds.length === 0 || roleBlocked,
+      reason: reviewableIds.length === 0
+        ? 'None of the selected rows are still awaiting review'
+        : roleBlocked ? roleReason : undefined,
+    },
+  ];
+
+  const truncated = meta && meta.total != null && meta.returned != null && meta.total > meta.returned;
 
   return (
     <div>
       {error ? (
-        <ErrorRetry message={error} onRetry={load} retrying={loading} />
+        <ErrorRetry message={error} onRetry={load} retrying={loading || refreshing} />
       ) : (
         <>
           <FilterBar
@@ -604,15 +779,49 @@ function DiscoveryQueueTab() {
             applyPreset={ctl.applyPreset}
             deletePreset={ctl.deletePreset}
           />
+          {truncated && (
+            <div role="status" className="mb-2 flex flex-wrap items-center gap-2 rounded-md border border-warning-300 bg-warning-500/10 px-3 py-2 text-[12px] text-warning-700">
+              <span>
+                Showing candidates from {meta.returned} of {meta.total} companies with job signals — candidates at the
+                other {meta.total - meta.returned} companies are not on this screen at all.
+                {limit >= QUEUE_SERVER_MAX_LIMIT && ' The API caps this at 100 companies per request.'}
+              </span>
+              <label className="ml-auto flex items-center gap-1.5 whitespace-nowrap font-medium">
+                Companies per load
+                <select
+                  value={limit}
+                  onChange={(e) => setLimit(Number(e.target.value))}
+                  disabled={refreshing}
+                  className="input py-0.5 text-[12px]"
+                >
+                  {QUEUE_LIMIT_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </label>
+            </div>
+          )}
+          <ResultCount shown={filtered.length} total={items.length} noun="candidate" />
           <DataTable
             columns={ctl.visibleColumns}
             rows={filtered}
             rowKey="id"
             onRowClick={setSelected}
             loading={loading}
+            refreshing={refreshing}
             emptyText={items.length === 0 ? 'Discovery queue is empty — candidates appear once a company enters contact discovery.' : 'No candidates match these filters.'}
             sort={ctl.sort}
             onSort={ctl.setSort}
+            selectedIds={sel.selectedIds}
+            onToggleRow={sel.toggleRow}
+            onToggleAll={sel.toggleAll}
+          />
+          <BulkActionBar
+            count={sel.count}
+            entityLabel="candidate"
+            entityLabelPlural="candidates"
+            busy={bulkBusy}
+            actions={bulkActions}
+            onAction={(key) => { if (key === 'approve') applyBulkReview('approve', ''); else { setRejectError(null); setRejectOpen(true); } }}
+            onClear={sel.clear}
           />
         </>
       )}
@@ -683,6 +892,19 @@ function DiscoveryQueueTab() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={rejectOpen}
+        title={`Reject ${reviewableIds.length} candidate${reviewableIds.length === 1 ? '' : 's'}?`}
+        impactSummary={`They leave the review queue and stop being offered for linking to their company.${skipped > 0 ? ` ${skipped} selected row${skipped === 1 ? ' is' : 's are'} already reviewed or not yet reviewable and will be left untouched.` : ''} The queue offers no way to move a rejected candidate back to review — only delete.`}
+        confirmLabel={`Reject ${reviewableIds.length}`}
+        danger
+        requireReason
+        loading={bulkBusy}
+        error={rejectError}
+        onConfirm={(reason) => applyBulkReview('reject', reason)}
+        onCancel={() => { setRejectOpen(false); setRejectError(null); }}
+      />
 
       <ConfirmDialog
         open={!!deleteTarget}

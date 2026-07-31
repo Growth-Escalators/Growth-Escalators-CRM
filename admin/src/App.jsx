@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import { getAuthPermissions, getAuthToken, getAuthUser, getProductHome, getTenantSlug, normalizeTenantSlug, WIZMATCH_SHARED_ROUTE_MAP } from './lib/auth.js';
 import { apiFetch } from './lib/api.js';
 import { normalizeStaffingAccess } from './lib/staffingAccess.js';
+import { ToastProvider } from './components/wizmatch/Toast.jsx';
 
 const LoginPage = lazy(() => import('./pages/LoginPage.jsx'));
 const ContactsPage = lazy(() => import('./pages/ContactsPage.jsx'));
@@ -21,7 +22,6 @@ const MetaAssetsPage = lazy(() => import('./pages/MetaAssetsPage.jsx'));
 const SocialPage = lazy(() => import('./pages/SocialPage.jsx'));
 const InboxPage = lazy(() => import('./pages/InboxPage.jsx'));
 const LeadDiscoveryPage = lazy(() => import('./pages/LeadDiscoveryPage.jsx'));
-const MarketingPage = lazy(() => import('./pages/MarketingPage.jsx'));
 const AuditPage = lazy(() => import('./pages/AuditPage.jsx'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage.jsx'));
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage.jsx'));
@@ -42,7 +42,9 @@ const WizmatchClientDiscoveryNewPage = lazy(() => import('./pages/WizmatchNewPag
 const WizmatchClientDiscoveryPage = lazy(() => import('./pages/WizmatchClientDiscoveryPage.jsx'));
 const WizmatchRequirementsPage = lazy(() => import('./pages/WizmatchRequirementsPage.jsx'));
 const WizmatchMyWorkPage = lazy(() => import('./pages/WizmatchMyWorkPage.jsx'));
-const WizmatchRelationshipsPage = lazy(() => import('./pages/WizmatchRelationshipsPage.jsx'));
+// WizmatchRelationshipsPage.jsx is no longer imported: /wizmatch/relationships
+// redirects to /wizmatch/companies, so nothing mounted it. File left on disk —
+// see the WizmatchContactIntelligencePage note below for why.
 const WizmatchCompaniesPage = lazy(() => import('./pages/WizmatchCompaniesPage.jsx'));
 const WizmatchHiringContactsPage = lazy(() => import('./pages/WizmatchHiringContactsPage.jsx'));
 const WizmatchFindContactPage = lazy(() => import('./pages/WizmatchFindContactPage.jsx'));
@@ -54,13 +56,18 @@ const WizmatchCandidateIntelligencePage = lazy(() => import('./pages/WizmatchCan
 const WizmatchCandidatesPage = lazy(() => import('./pages/WizmatchCandidatesPage.jsx'));
 const WizmatchSourceCandidatesPage = lazy(() => import('./pages/WizmatchSourceCandidatesPage.jsx'));
 const WizmatchContactIntelligenceNewPage = lazy(() => import('./pages/WizmatchNewPages.jsx').then((module) => ({ default: module.WizmatchContactIntelligenceNewPage })));
-const WizmatchContactIntelligencePage = lazy(() => import('./pages/WizmatchContactIntelligencePage.jsx'));
+// WizmatchContactIntelligencePage.jsx is no longer imported: both routes that
+// once rendered it (/wizmatch/contact-intelligence and .../-new) redirect to
+// /wizmatch/hiring-contacts, so the lazy() chunk was built and shipped for a
+// component nothing could mount. The file is left on disk — a concurrent lane
+// owns admin/src/pages/Wizmatch*.jsx and may still be lifting logic out of it.
 const WizmatchPlacementsPage = lazy(() => import('./pages/WizmatchPlacementsPage.jsx'));
 const WizmatchPrimesPage = lazy(() => import('./pages/WizmatchPrimesPage.jsx'));
 const WizmatchAnalyticsNewPage = lazy(() => import('./pages/WizmatchNewPages.jsx').then((module) => ({ default: module.WizmatchAnalyticsNewPage })));
 const WizmatchAnalyticsPage = lazy(() => import('./pages/WizmatchAnalyticsPage.jsx'));
 const WizmatchReviewWorkbenchPage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchReviewWorkbenchPage })));
-const WizmatchDashboardPage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchDashboardPage })));
+// WizmatchDashboardPage (a named export of WizmatchOperatingPages.jsx) is no
+// longer imported: /wizmatch/dashboard redirects to /wizmatch/today.
 const WizmatchTodayPage = lazy(() => import('./pages/WizmatchTodayPage.jsx'));
 const WizmatchIntelligencePage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchIntelligencePage })));
 const WizmatchRequirementPriorityPage = lazy(() => import('./pages/WizmatchOperatingPages.jsx').then((module) => ({ default: module.WizmatchRequirementPriorityPage })));
@@ -116,6 +123,28 @@ class ErrorBoundary extends React.Component {
     }
     return this.props.children;
   }
+}
+
+// Route-transition fallback. Every lazy route used to flash an unstyled
+// centred "Loading..." across a full white 100vh viewport, so moving between
+// pages read as the app blanking out. This keeps the app chrome's background
+// and shows a skeleton page instead of a blank one.
+function RouteFallback() {
+  return (
+    <div className="flex h-screen bg-neutral-50" role="status" aria-live="polite" aria-busy="true">
+      <div className="w-60 shrink-0 border-r border-neutral-200 bg-white/60" />
+      <div className="flex-1 p-6 space-y-4">
+        <div className="h-6 w-56 rounded bg-neutral-200/70 animate-pulse" />
+        <div className="h-9 w-full max-w-3xl rounded bg-neutral-200/50 animate-pulse" />
+        <div className="rounded-lg border border-neutral-200 bg-white p-4 space-y-3">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <div key={i} className="h-3 rounded bg-neutral-200/70 animate-pulse" style={{ width: `${90 - i * 6}%` }} />
+          ))}
+        </div>
+      </div>
+      <span className="sr-only">Loading page…</span>
+    </div>
+  );
 }
 
 function RouteErrorBoundary({ children }) {
@@ -216,8 +245,13 @@ function QueryBoundaryQaPage() {
 export default function App() {
   return (
     <BrowserRouter>
+      {/* ToastProvider wraps ALL routes, not just the ones inside AppLayout.
+          27 pages render their own bare <Sidebar/> shell; while the provider
+          lived in AppLayout, useToast fell through to its no-op fallback on
+          every one of them and their notifications vanished silently. */}
+      <ToastProvider>
       <RouteErrorBoundary>
-        <Suspense fallback={<div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh'}}><p>Loading...</p></div>}>
+        <Suspense fallback={<RouteFallback />}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             {/* Public signing page — external signers have no CRM login; the token in the URL is the authorization */}
@@ -255,7 +289,11 @@ export default function App() {
             <Route path="/client/:clientId" element={<PrivateRoute><ClientDetailPage /></PrivateRoute>} />
             <Route path="/funnels" element={<PrivateRoute><FunnelManagementPage /></PrivateRoute>} />
             <Route path="/tasks" element={<PrivateRoute><TasksBoardPage /></PrivateRoute>} />
-            <Route path="/tasks/v2" element={<PrivateRoute><TasksBoardPage /></PrivateRoute>} />
+            {/* /tasks/v2 mounted the exact same TasksBoardPage as /tasks — two
+                URLs for one board, so bookmarks and shared links disagreed on
+                which was canonical. Kept as a redirect (WIZMATCH_SHARED_ROUTE_MAP
+                in lib/auth.js still maps it) rather than deleted outright. */}
+            <Route path="/tasks/v2" element={<Navigate to="/tasks" replace />} />
             <Route path="/my-attendance" element={<PrivateRoute><MyAttendancePage /></PrivateRoute>} />
             {import.meta.env.DEV && <Route path="/wizmatch-demo" element={<WizmatchReviewWorkbenchPage demoMode />} />}
             <Route path="/wizmatch" element={<Navigate to="/wizmatch/today" replace />} />
@@ -328,13 +366,18 @@ export default function App() {
             <Route path="/wizmatch/analytics" element={<Navigate to="/wizmatch/reports" replace />} />
             <Route path="/wizmatch/reports" element={<PrivateRoute><AppLayout><WizmatchAnalyticsPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/analytics-new" element={<Navigate to="/wizmatch/reports" replace />} />
+            {/* Both local-demo-flow routes are DEV-only. The non-`-demo` one used
+                to be a live, auth-gated production route with no nav entry and no
+                entry in wizmatchRouteRegistry.ts — a demo surface reachable in prod
+                by anyone who guessed the URL. Now gated like every other demo page. */}
             {import.meta.env.DEV && <Route path="/wizmatch/local-demo-flow-demo" element={<WizmatchLocalDemoFlowPage demoMode />} />}
-            <Route path="/wizmatch/local-demo-flow" element={<PrivateRoute><AppLayout><WizmatchLocalDemoFlowPage /></AppLayout></PrivateRoute>} />
+            {import.meta.env.DEV && <Route path="/wizmatch/local-demo-flow" element={<PrivateRoute><AppLayout><WizmatchLocalDemoFlowPage /></AppLayout></PrivateRoute>} />}
             <Route path="/" element={<HomeRedirect />} />
             <Route path="*" element={<HomeRedirect />} />
           </Routes>
         </Suspense>
       </RouteErrorBoundary>
+      </ToastProvider>
     </BrowserRouter>
   );
 }

@@ -13,10 +13,18 @@ import { useEffect, useRef, useState } from 'react';
 import { User, ChevronDown, Trash2 } from 'lucide-react';
 import { apiFetch } from '../../lib/api.js';
 import { COLUMNS } from './lib/tokens.js';
+import { useToast } from '../../components/wizmatch/Toast.jsx';
+import ConfirmDialog from '../../components/ConfirmDialog.jsx';
 
 export default function BulkToolbar({ selectedIds, team, onClear, onApplied, onDeleted }) {
   const [showAssignee, setShowAssignee] = useState(false);
   const ref = useRef(null);
+  const { showSuccess, showError } = useToast();
+
+  // Bulk delete confirm — split from the old synchronous confirm().
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteErr, setDeleteErr] = useState(null);
 
   useEffect(() => {
     if (!showAssignee) return;
@@ -35,20 +43,32 @@ export default function BulkToolbar({ selectedIds, team, onClear, onApplied, onD
       });
       onApplied(data.tasks || [], patch);
     } catch (e) {
-      alert(`Bulk update failed: ${e.message}`);
+      showError(`Bulk update failed: ${e.message}`);
     }
   }
 
-  async function bulkDelete() {
-    if (!confirm(`Delete ${selectedIds.length} task${selectedIds.length === 1 ? '' : 's'}?`)) return;
+  function bulkDelete() {
+    setConfirmDelete(true);
+  }
+
+  async function runBulkDelete() {
+    setDeleteBusy(true);
+    setDeleteErr(null);
     try {
       await apiFetch('/api/tasks/bulk-delete', {
         method: 'POST',
         body: JSON.stringify({ ids: selectedIds }),
       });
+      setConfirmDelete(false);
+      showSuccess(`${selectedIds.length} task${selectedIds.length === 1 ? '' : 's'} deleted`);
       onDeleted(selectedIds);
     } catch (e) {
-      alert(`Bulk delete failed: ${e.message}`);
+      // Keep the dialog open — the selection is still intact, so the operator
+      // can retry without re-picking the rows.
+      setDeleteErr(`Bulk delete failed: ${e.message}`);
+      showError(`Bulk delete failed: ${e.message}`);
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -118,6 +138,18 @@ export default function BulkToolbar({ selectedIds, team, onClear, onApplied, onD
 
       <span className="w-px h-5 bg-slate-700" />
       <button onClick={onClear} className="text-xs text-slate-300 hover:text-white">Clear selection</button>
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title={`Delete ${selectedIds.length} task${selectedIds.length === 1 ? '' : 's'}?`}
+        impactSummary="They will be permanently deleted — this cannot be undone."
+        confirmLabel={`Delete ${selectedIds.length} task${selectedIds.length === 1 ? '' : 's'}`}
+        danger
+        loading={deleteBusy}
+        error={deleteErr}
+        onConfirm={runBulkDelete}
+        onCancel={() => { setConfirmDelete(false); setDeleteErr(null); }}
+      />
     </div>
   );
 }

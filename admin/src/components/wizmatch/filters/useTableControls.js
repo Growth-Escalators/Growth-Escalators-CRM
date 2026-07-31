@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { applyClientPipeline } from './filterPipeline.js';
 
@@ -99,6 +99,18 @@ const NO_DEFAULTS = {};
 export function useTableControls({ pageId, spec, columns, defaults = NO_DEFAULTS }) {
   const [searchParams, setSearchParams] = useSearchParams();
 
+  // Three states, not two — this is the whole reason a default filter can be
+  // cleared at all:
+  //   param ABSENT  -> the page's default applies (e.g. Requirements opens on
+  //                    region=india)
+  //   param EMPTY   -> the user explicitly cleared it; the default must NOT
+  //                    come back
+  //   param SET     -> that value
+  //
+  // Previously "cleared" and "absent" were the same thing, so on Requirements
+  // choosing "Any region", clearing the chip, and "Clear all" all deleted the
+  // param — and the memo below immediately reapplied `india`. India and US were
+  // reachable; "any region" was not, by any route through the UI.
   const filters = useMemo(() => {
     const out = {};
     for (const def of spec) {
@@ -108,6 +120,13 @@ export function useTableControls({ pageId, spec, columns, defaults = NO_DEFAULTS
     }
     return out;
   }, [searchParams, spec, defaults]);
+
+  // Clearing a filter that HAS a default must write an explicit empty param
+  // rather than deleting the key, or the default silently returns.
+  const clearKey = useCallback((p, key) => {
+    if (defaults[key] != null) p.set(key, '');
+    else p.delete(key);
+  }, [defaults]);
 
   const sort = useMemo(() => {
     const raw = searchParams.get('sort');
@@ -123,21 +142,30 @@ export function useTableControls({ pageId, spec, columns, defaults = NO_DEFAULTS
 
   const page = Number(searchParams.get('page') || 0);
 
-  const mutate = useCallback((fn) => {
-    setSearchParams((prev) => { const next = new URLSearchParams(prev); fn(next); return next; }, { replace: true });
+  // `push` decides whether this change becomes a browser history entry.
+  //
+  // Filters, sort and paging PUSH: Back then means "undo my last filter", which
+  // is what every user expects. Previously everything replaced, so Back from a
+  // filtered list exited the page entirely and lost the whole view.
+  //
+  // Column visibility REPLACES: showing/hiding a column is a display preference,
+  // not a navigation step, and pushing it would bury the real filter history
+  // under a pile of column toggles.
+  const mutate = useCallback((fn, { push = false } = {}) => {
+    setSearchParams((prev) => { const next = new URLSearchParams(prev); fn(next); return next; }, { replace: !push });
   }, [setSearchParams]);
 
   const setFilter = useCallback((key, value) => {
     const def = spec.find((d) => d.key === key);
     const enc = def ? encodeValue(def, value) : (value ? String(value) : null);
-    mutate((p) => { if (enc == null) p.delete(key); else p.set(key, enc); p.set('page', '0'); });
-  }, [spec, mutate]);
+    mutate((p) => { if (enc == null) clearKey(p, key); else p.set(key, enc); p.set('page', '0'); }, { push: true });
+  }, [spec, mutate, clearKey]);
 
-  const clearFilter = useCallback((key) => mutate((p) => { p.delete(key); p.set('page', '0'); }), [mutate]);
+  const clearFilter = useCallback((key) => mutate((p) => { clearKey(p, key); p.set('page', '0'); }, { push: true }), [mutate, clearKey]);
 
   const clearAll = useCallback(() => {
-    mutate((p) => { for (const def of spec) p.delete(def.key); p.delete('page'); });
-  }, [mutate, spec]);
+    mutate((p) => { for (const def of spec) clearKey(p, def.key); p.delete('page'); }, { push: true });
+  }, [mutate, spec, clearKey]);
 
   const setSort = useCallback((key) => {
     mutate((p) => {
@@ -145,7 +173,7 @@ export function useTableControls({ pageId, spec, columns, defaults = NO_DEFAULTS
       const dir = curKey === key && curDir === 'asc' ? 'desc' : 'asc';
       p.set('sort', `${key}:${dir}`);
       p.set('page', '0'); // server pages sort globally — jump to the first page
-    });
+    }, { push: true });
   }, [mutate]);
 
   const toggleColumn = useCallback((key) => {
@@ -159,7 +187,7 @@ export function useTableControls({ pageId, spec, columns, defaults = NO_DEFAULTS
     });
   }, [mutate, columns]);
 
-  const setPage = useCallback((n) => mutate((p) => p.set('page', String(n))), [mutate]);
+  const setPage = useCallback((n) => mutate((p) => p.set('page', String(n)), { push: true }), [mutate]);
 
   const toQueryParams = useCallback((extra = {}) => {
     const qp = new URLSearchParams();
@@ -178,18 +206,29 @@ export function useTableControls({ pageId, spec, columns, defaults = NO_DEFAULTS
 
   const visibleColumns = useMemo(() => (columns || []).filter((c) => !hiddenColumns.has(c.key)), [columns, hiddenColumns]);
 
-  // ── presets (localStorage) ──────────────────────────────────────────────────
-  const presets = useMemo(() => readPresets(pageId), [pageId, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ── presets (localStorage, mirrored in React state) ─────────────────────────
+  // The list is held in state, not derived with useMemo. It used to be
+  // `useMemo(() => readPresets(pageId), [pageId, searchParams])` while
+  // savePreset wrote only to localStorage — so saving changed no state and no
+  // search param, no re-render happened, and the panel kept saying "No saved
+  // presets" until an unrelated filter was touched. The feature worked; it just
+  // never redrew, which made it look broken.
+  const [presets, setPresets] = useState(() => readPresets(pageId));
+  useEffect(() => { setPresets(readPresets(pageId)); }, [pageId]);
+
   const savePreset = useCallback((name) => {
     const list = readPresets(pageId).filter((p) => p.name !== name);
     list.push({ name, query: searchParams.toString() });
     localStorage.setItem(presetsKey(pageId), JSON.stringify(list));
+    setPresets(list);
   }, [pageId, searchParams]);
   const applyPreset = useCallback((preset) => {
-    setSearchParams(new URLSearchParams(preset.query), { replace: true });
+    setSearchParams(new URLSearchParams(preset.query), { replace: false });
   }, [setSearchParams]);
   const deletePreset = useCallback((name) => {
-    localStorage.setItem(presetsKey(pageId), JSON.stringify(readPresets(pageId).filter((p) => p.name !== name)));
+    const list = readPresets(pageId).filter((p) => p.name !== name);
+    localStorage.setItem(presetsKey(pageId), JSON.stringify(list));
+    setPresets(list);
   }, [pageId]);
 
   return {

@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import ContactSlideIn from '../components/ContactSlideIn.jsx';
+import { useToast } from '../components/wizmatch/Toast.jsx';
 import { apiFetch } from '../lib/api.js';
 import { getAuthToken } from '../lib/auth.js';
 import { safeLower, safeText } from '../lib/safe.js';
@@ -79,6 +80,7 @@ function TemplateSelector({ templates, onSelect, onClose }) {
 }
 
 export default function InboxPage() {
+  const { showSuccess, showError } = useToast();
   const [conversations, setConversations] = useState([]);
   const [selectedConv, setSelectedConv] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -90,7 +92,6 @@ export default function InboxPage() {
   const [loading, setLoading] = useState(true);
   const [msgLoading, setMsgLoading] = useState(false);
   const [editContactId, setEditContactId] = useState(null);
-  const [toast, setToast] = useState('');
   const messagesEndRef = useRef(null);
   const socketRef = useRef(null);
   const selectedConvRef = useRef(null);
@@ -185,13 +186,6 @@ export default function InboxPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Toast auto-dismiss
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(''), 3000);
-    return () => clearTimeout(t);
-  }, [toast]);
-
   async function sendMessage() {
     if (!newMsg.trim() || !selectedConv || sending) return;
     setSending(true);
@@ -202,8 +196,10 @@ export default function InboxPage() {
       });
       setMessages(prev => [...prev, data.message]);
       setNewMsg('');
-      setToast('Message sent successfully');
-    } catch { /* send failed */ } finally {
+      showSuccess('Message sent successfully');
+    } catch (e) {
+      showError(e.message || 'Failed to send message');
+    } finally {
       setSending(false);
     }
   }
@@ -216,8 +212,10 @@ export default function InboxPage() {
         body: JSON.stringify({ templateName: template.templateName, languageCode: template.language || 'en' }),
       });
       setMessages(prev => [...prev, data.message]);
-      setToast('Template sent successfully');
-    } catch { /* template send failed */ }
+      showSuccess('Template sent successfully');
+    } catch (e) {
+      showError(e.message || 'Failed to send template');
+    }
   }
 
   const filtered = conversations.filter(c => {
@@ -405,12 +403,6 @@ export default function InboxPage() {
           </>
         )}
       </div>
-
-      {toast && (
-        <div className="pointer-events-auto fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-neutral-900 text-white text-sm font-medium px-5 py-3 rounded-2xl shadow-2xl">
-          {toast}
-        </div>
-      )}
 
       {editContactId && (
         <ContactSlideIn
