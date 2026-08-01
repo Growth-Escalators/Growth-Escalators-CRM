@@ -210,9 +210,18 @@ export const WIZMATCH_ROUTES: WizmatchRouteDefinition[] = [
     // pursue" lands somewhere irrelevant. Same trap already called out for
     // `more-outreach` above; renamed honestly rather than repeating it.
     // Wizmatch's own company/signal sourcing lives on the Job Leads page.
+    //
+    // 2026-08-01 — renaming it honestly was the half-measure. A row whose own
+    // label has to disclaim itself does not belong in the nav of a product it
+    // has nothing to do with, and it costs a slot in a menu whose problem is
+    // that it has too many. Given the same treatment `more-outreach` already
+    // has: no `group` (out of the sidebar), `searchVisible: false` (out of
+    // Cmd+K), still routed and still reachable by direct URL for anyone who
+    // genuinely wants Growth's tool. This is a correctness call, not a
+    // popularity one — it needs no usage data.
     id: 'more-discovery', label: 'Local Business Finder (Growth CRM tool)', path: '/wizmatch/discover', icon: MapPin,
-    group: 'more.crmUtilities', moreSection: 'CRM Utilities', permission: 'canDiscovery',
-    breadcrumb: { label: 'Local Business Finder' }, legacyAliases: [], searchVisible: true,
+    permission: 'canDiscovery',
+    breadcrumb: { label: 'Local Business Finder' }, legacyAliases: [], searchVisible: false,
   },
   {
     id: 'find-contact', label: 'Find Contact', path: '/wizmatch/find-contact', icon: Search,

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { AlertTriangle, Ban, CheckCircle2, Clock, Lock, MessageSquareWarning, RefreshCw, Route as RouteIcon } from 'lucide-react';
 import { apiFetch } from '../../lib/api.js';
 import { useToast } from './Toast.jsx';
@@ -273,12 +274,21 @@ function QueueSection({ queueKey, items, selectedIds, onToggleRow, onToggleAll, 
   );
 }
 
+// The link used to point at `/wizmatch/companies?id=<companyId>`. That page
+// reads NO search params at all, so every reply row landed on an unfiltered
+// company list — an affordance that looked like a deep link and wasn't.
+//
+// Hiring Contacts is the right destination (it is where you act on a reply) AND
+// it is genuinely deep-linkable: its `q` filter is URL-backed via
+// useTableControls, and since that filter went server-side the search reaches
+// the whole tenant rather than a loaded page. Keyed on company NAME because the
+// server search matches concat_ws(first, last, company).
+//
+// With no company name there is nowhere honest to send the user, so the row
+// renders as plain text. A link to nowhere is worse than no link.
 function ReplyRow({ item }) {
-  return (
-    <a
-      href={item.companyId ? `/wizmatch/companies?id=${item.companyId}` : '/wizmatch/companies'}
-      className="flex items-center justify-between gap-3 rounded-md border border-neutral-100 bg-white px-3 py-2.5 hover:border-primary-300 transition"
-    >
+  const body = (
+    <>
       <div className="min-w-0">
         <span className="font-medium text-neutral-900 truncate">{item.companyName || 'Unknown company'}</span>
         <p className="text-[12px] text-neutral-500 truncate">State: {item.state.replaceAll('_', ' ')}</p>
@@ -286,7 +296,21 @@ function ReplyRow({ item }) {
       <div className="text-right shrink-0 text-[11px] text-neutral-500">
         {item.stateAt ? new Date(item.stateAt).toLocaleString() : ''}
       </div>
-    </a>
+    </>
+  );
+  const className = 'flex items-center justify-between gap-3 rounded-md border border-neutral-100 bg-white px-3 py-2.5';
+
+  if (!item.companyName) {
+    return <div className={className}>{body}</div>;
+  }
+  return (
+    // Link, not <a>: an anchor forces a full document reload out of the SPA.
+    <Link
+      to={`/wizmatch/hiring-contacts?q=${encodeURIComponent(item.companyName)}`}
+      className={`${className} hover:border-primary-300 transition`}
+    >
+      {body}
+    </Link>
   );
 }
 
