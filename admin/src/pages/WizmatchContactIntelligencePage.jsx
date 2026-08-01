@@ -694,6 +694,8 @@ export default function WizmatchContactIntelligencePage({ demoMode = false }) {
         onExport={() => exportRowsToCsv(filteredItems, CI_EXPORT_COLUMNS, 'contact-intelligence.csv')}
         presets={ctl.presets}
         savePreset={ctl.savePreset}
+            setPresetShared={ctl.setPresetShared}
+            presetsError={ctl.presetsError}
         applyPreset={ctl.applyPreset}
         deletePreset={ctl.deletePreset}
       />

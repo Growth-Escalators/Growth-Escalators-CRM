@@ -252,6 +252,8 @@ export default function WizmatchCompaniesPage() {
             onExport={() => exportRowsToCsv(rows, ctl.visibleColumns, 'companies.csv')}
             presets={ctl.presets}
             savePreset={ctl.savePreset}
+            setPresetShared={ctl.setPresetShared}
+            presetsError={ctl.presetsError}
             applyPreset={ctl.applyPreset}
             deletePreset={ctl.deletePreset}
           />

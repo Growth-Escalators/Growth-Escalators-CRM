@@ -79,6 +79,8 @@ export default function WizmatchTalentMatchingPage() {
       onExport={() => exportRowsToCsv(filtered, TM_EXPORT_COLUMNS, 'talent-matches.csv')}
       presets={ctl.presets}
       savePreset={ctl.savePreset}
+            setPresetShared={ctl.setPresetShared}
+            presetsError={ctl.presetsError}
       applyPreset={ctl.applyPreset}
       deletePreset={ctl.deletePreset}
       rightSlot={<button className="btn-standard btn-compact" onClick={load}><RefreshCw className="w-3.5 h-3.5"/> Refresh</button>}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { X, SlidersHorizontal, Columns3, Download, Bookmark, Filter } from 'lucide-react';
+import { X, SlidersHorizontal, Columns3, Download, Bookmark, Filter, Users, Lock } from 'lucide-react';
 
 // Declarative filter toolbar for the Wizmatch filter/table system. Renders the
 // `spec` as controls, an active-filter chip row (remove per chip + Clear all),
@@ -159,10 +159,12 @@ function FilterControl({ def, value, setFilter }) {
 export default function FilterBar({
   spec, filters, setFilter, activeChips, clearFilter, clearAll,
   columns, hiddenColumns, toggleColumn,
-  onExport, presets, savePreset, applyPreset, deletePreset,
+  onExport, presets, savePreset, applyPreset, deletePreset, setPresetShared, presetsError,
   rightSlot,
 }) {
   const [presetName, setPresetName] = useState('');
+  const [shareNew, setShareNew] = useState(false);
+  const [saving, setSaving] = useState(false);
   const { primary, advanced } = splitSpec(spec);
   const advancedActiveCount = advanced.filter((d) => activeChips.some((c) => c.key === d.key)).length;
 
@@ -203,18 +205,63 @@ export default function FilterBar({
           )}
           {presets && (
             <details className="relative">
-              <summary className="btn-standard btn-compact cursor-pointer list-none inline-flex items-center gap-1"><Bookmark className="w-3.5 h-3.5" /> Presets</summary>
-              <div className="absolute right-0 z-30 mt-1 bg-white border border-neutral-200 rounded-md shadow-modal p-2 min-w-[220px]">
-                {presets.length === 0 && <p className="text-[11.5px] text-neutral-400 px-1 pb-1">No saved presets</p>}
+              <summary className="btn-standard btn-compact cursor-pointer list-none inline-flex items-center gap-1"><Bookmark className="w-3.5 h-3.5" /> Views</summary>
+              <div className="absolute right-0 z-30 mt-1 bg-white border border-neutral-200 rounded-md shadow-modal p-2 min-w-[280px]">
+                {presetsError && (
+                  <p role="alert" className="text-[11.5px] text-danger-700 bg-danger-500/10 border border-danger-500/20 rounded px-1.5 py-1 mb-1.5">
+                    {presetsError}. Showing the last list loaded on this device.
+                  </p>
+                )}
+                {presets.length === 0 && !presetsError && <p className="text-[11.5px] text-neutral-500 px-1 pb-1">No saved views yet</p>}
                 {presets.map((p) => (
-                  <div key={p.name} className="flex items-center justify-between gap-2 text-[12.5px] py-0.5 px-1 hover:bg-neutral-50 rounded">
-                    <button type="button" onClick={() => applyPreset(p)} className="flex-1 text-left truncate">{p.name}</button>
-                    <button type="button" onClick={() => deletePreset(p.name)} aria-label={`Delete preset ${p.name}`} className="text-neutral-400 hover:text-danger-600"><X className="w-3.5 h-3.5" /></button>
+                  <div key={p.id || p.name} className="flex items-center justify-between gap-2 text-[12.5px] py-0.5 px-1 hover:bg-neutral-50 rounded">
+                    <button type="button" onClick={() => applyPreset(p)} className="flex-1 text-left truncate">
+                      {p.name}
+                      {/* A shared view made by someone else is labelled with its
+                          owner — otherwise a teammate's view is indistinguishable
+                          from your own and deleting it looks like a bug. */}
+                      {p.isShared && !p.isOwner && p.ownerName && (
+                        <span className="text-neutral-500"> — {p.ownerName}</span>
+                      )}
+                    </button>
+                    {p.isOwner ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setPresetShared?.(p, !p.isShared)}
+                          aria-label={p.isShared ? `Make ${p.name} private` : `Share ${p.name} with the team`}
+                          title={p.isShared ? 'Shared with the team — click to make private' : 'Private to you — click to share'}
+                          className={`shrink-0 rounded px-1 ${p.isShared ? 'text-primary-700' : 'text-neutral-500 hover:text-neutral-700'}`}
+                        >
+                          {p.isShared ? <Users className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                        </button>
+                        <button type="button" onClick={() => deletePreset(p)} aria-label={`Delete view ${p.name}`} className="shrink-0 text-neutral-500 hover:text-danger-600"><X className="w-3.5 h-3.5" /></button>
+                      </>
+                    ) : (
+                      // Someone else's shared view: usable, not editable. No
+                      // delete button rather than a button that 403s.
+                      <Users className="w-3.5 h-3.5 shrink-0 text-neutral-400" aria-label="Shared by a teammate" />
+                    )}
                   </div>
                 ))}
-                <div className="mt-2 flex items-center gap-1 border-t border-neutral-100 pt-2">
-                  <input value={presetName} onChange={(e) => setPresetName(e.target.value)} placeholder="Save current as…" className="input w-full text-[12px]" />
-                  <button type="button" disabled={!presetName.trim()} onClick={() => { savePreset(presetName.trim()); setPresetName(''); }} className="btn-standard btn-compact disabled:opacity-50">Save</button>
+                <div className="mt-2 border-t border-neutral-100 pt-2 space-y-1.5">
+                  <input value={presetName} onChange={(e) => setPresetName(e.target.value)} placeholder="Save current view as…" className="input w-full text-[12px]" />
+                  <label className="flex items-center gap-1.5 text-[11.5px] text-neutral-600 px-0.5 cursor-pointer">
+                    <input type="checkbox" checked={shareNew} onChange={(e) => setShareNew(e.target.checked)} />
+                    Share with the team
+                  </label>
+                  <button
+                    type="button"
+                    disabled={!presetName.trim() || saving}
+                    onClick={async () => {
+                      setSaving(true);
+                      try { await savePreset(presetName.trim(), { isShared: shareNew }); setPresetName(''); setShareNew(false); }
+                      finally { setSaving(false); }
+                    }}
+                    className="btn-standard btn-compact w-full disabled:opacity-50"
+                  >
+                    {saving ? 'Saving…' : 'Save view'}
+                  </button>
                 </div>
               </div>
             </details>

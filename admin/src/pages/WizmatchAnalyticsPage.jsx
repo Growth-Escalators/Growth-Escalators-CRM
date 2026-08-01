@@ -473,6 +473,8 @@ export default function WizmatchAnalyticsPage({ demoMode = false }) {
           onExport={() => exportRowsToCsv(requirementsSummary?.items || [], REPORTS_EXPORT_COLUMNS, 'requirements-report.csv')}
           presets={ctl.presets}
           savePreset={ctl.savePreset}
+            setPresetShared={ctl.setPresetShared}
+            presetsError={ctl.presetsError}
           applyPreset={ctl.applyPreset}
           deletePreset={ctl.deletePreset}
         />

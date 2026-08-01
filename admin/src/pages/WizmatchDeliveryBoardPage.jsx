@@ -277,6 +277,8 @@ export default function WizmatchDeliveryBoardPage() {
             onExport={() => exportRowsToCsv(filtered, DELIVERY_EXPORT_COLUMNS, 'delivery.csv')}
             presets={ctl.presets}
             savePreset={ctl.savePreset}
+            setPresetShared={ctl.setPresetShared}
+            presetsError={ctl.presetsError}
             applyPreset={ctl.applyPreset}
             deletePreset={ctl.deletePreset}
           />

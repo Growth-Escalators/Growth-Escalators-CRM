@@ -300,6 +300,8 @@ export default function WizmatchRequirementsPage() {
         onExport={exportCsv}
         presets={ctl.presets}
         savePreset={ctl.savePreset}
+            setPresetShared={ctl.setPresetShared}
+            presetsError={ctl.presetsError}
         applyPreset={ctl.applyPreset}
         deletePreset={ctl.deletePreset}
       />

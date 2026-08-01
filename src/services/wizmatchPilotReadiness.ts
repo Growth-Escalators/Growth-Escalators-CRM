@@ -381,7 +381,12 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
     // is still surfaced for authorisation confirmation. Keeping this as a moving
     // mark rather than removing it preserves the original protection — an
     // unreviewed migration appearing in a hardening pass is still reported.
-    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 38;
+    // 39 = saved_views (admin filter presets), authorised by the owner
+    // 2026-08-01. Additive CREATE TABLE only, no ALTER of any existing table.
+    // Bump this ONLY alongside an explicit authorisation for the migration in
+    // question — the point of the mark is that an unreviewed migration showing
+    // up in a hardening pass still gets surfaced.
+    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 39;
     const unauthorised = sqlFiles
       .map((f) => ({ file: f, idx: parseInt(f.slice(0, 4), 10) }))
       .filter((m) => Number.isFinite(m.idx) && m.idx > AUTHORISED_MIGRATION_HIGH_WATER_MARK)

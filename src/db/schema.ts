@@ -3049,3 +3049,51 @@ export const wizmatchSuppressionEvents = pgTable(
     ),
   }),
 );
+
+// ---------------------------------------------------------------------------
+// Saved views — named filter/sort/column presets for the admin list pages.
+//
+// These lived in localStorage (`wizmatch:presets:<pageId>`), which meant a view
+// died with the browser that made it and could never be shared. The whole point
+// of a saved view in a staffing tool is that "Hot ATS leads" means the same
+// thing to everyone on the team, so it has to be tenant-scoped storage, not
+// per-device storage.
+//
+// `query` is the URL query string the page already round-trips through
+// useTableControls (e.g. "score=8..&status=scored&sort=score:desc"). Storing the
+// query string rather than a parsed structure keeps this table agnostic to each
+// page's filter spec — a page can add or rename a filter without a migration,
+// and an unknown key simply doesn't match anything.
+//
+// `isShared=false` is a private view: visible only to its owner. `true` makes it
+// visible to the whole tenant. Deliberately not a per-user ACL — that is a
+// permissions system, and nobody has asked for one.
+// ---------------------------------------------------------------------------
+export const savedViews = pgTable(
+  'saved_views',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    ownerUserId: uuid('owner_user_id').notNull().references(() => users.id),
+    // Matches useTableControls' `pageId` (e.g. 'wizmatch-requirements').
+    pageId: text('page_id').notNull(),
+    name: text('name').notNull(),
+    query: text('query').notNull(),
+    isShared: boolean('is_shared').notNull().default(false),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    // The read path is always "views for this tenant, on this page".
+    tenantPageIdx: index('saved_views_tenant_page_idx').on(t.tenantId, t.pageId),
+    ownerIdx: index('saved_views_owner_idx').on(t.tenantId, t.ownerUserId),
+    // One name per person per page — saving over your own view updates it
+    // rather than silently creating a second row with the same name, which is
+    // what the localStorage version did (it filtered by name before pushing).
+    // Scoped to the owner, not the tenant, so my "Hot leads" does not collide
+    // with yours.
+    ownerPageNameUniq: uniqueIndex('saved_views_owner_page_name_uniq').on(
+      t.tenantId, t.ownerUserId, t.pageId, t.name,
+    ),
+  }),
+);
