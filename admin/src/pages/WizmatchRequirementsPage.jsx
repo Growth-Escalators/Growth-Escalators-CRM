@@ -156,7 +156,7 @@ export default function WizmatchRequirementsPage() {
           {r.sheet_url ? (
             <>
               <a href={r.sheet_url} target="_blank" rel="noreferrer" className="text-[12.5px] font-semibold text-primary-700 inline-flex items-center gap-1"><Download className="w-3.5 h-3.5" /> PDF</a>
-              <button onClick={() => generateSheet(r.id)} className="text-[12.5px] text-neutral-400 hover:text-neutral-600">Regenerate</button>
+              <button onClick={() => generateSheet(r.id)} className="text-[12.5px] text-neutral-500 hover:text-neutral-600">Regenerate</button>
             </>
           ) : (
             <button onClick={() => generateSheet(r.id)} className="btn-standard btn-compact">Generate</button>
@@ -1068,11 +1068,11 @@ function CandidateMatchesModal({ requirement, onClose }) {
         </div>
         <div className="p-6 space-y-3">
           {loading ? (
-            <p className="text-center text-neutral-400 py-8">Loading candidate matches...</p>
+            <p className="text-center text-neutral-500 py-8">Loading candidate matches...</p>
           ) : error ? (
             <p className="text-center text-danger-600 py-8">{error}</p>
           ) : matches.length === 0 ? (
-            <p className="text-center text-neutral-400 py-8">No candidate matches found yet.</p>
+            <p className="text-center text-neutral-500 py-8">No candidate matches found yet.</p>
           ) : matches.map(m => (
             <div key={m.candidateId} className="rounded-lg border border-neutral-200 p-3">
               <div className="flex items-start justify-between gap-3">

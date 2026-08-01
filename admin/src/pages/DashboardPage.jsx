@@ -282,7 +282,7 @@ export default function DashboardPage() {
             </div>
             <div className="flex items-center gap-3">
               {lastUpdated && (
-                <span className="text-xs text-neutral-400">
+                <span className="text-xs text-neutral-500">
                   {secondsAgo < 10 ? 'Just now' : `${secondsAgo}s ago`}
                 </span>
               )}
@@ -314,7 +314,7 @@ export default function DashboardPage() {
           {/* ── YOUR PRIORITY ACTIONS (personalized) ── */}
           {myActions.length > 0 && (
             <section>
-              <h2 className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+              <h2 className="text-xs font-bold text-neutral-500 uppercase tracking-wider mb-3 flex items-center gap-2">
                 <AlertCircle className="w-3.5 h-3.5 text-warning-500" />
                 Your Priority Actions Today
               </h2>
@@ -329,7 +329,7 @@ export default function DashboardPage() {
           {/* ── AI INTELLIGENCE SCORE + COACHING ── */}
           {isAdmin && coachingScore && (
             <section>
-              <h2 className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+              <h2 className="text-xs font-bold text-neutral-500 uppercase tracking-wider mb-3 flex items-center gap-2">
                 <Brain className="w-3.5 h-3.5 text-primary-500" />
                 AI Coaching Score
               </h2>
@@ -342,7 +342,7 @@ export default function DashboardPage() {
                     >
                       <div className="w-[60px] h-[60px] rounded-full bg-white flex flex-col items-center justify-center">
                         <p className="text-xl font-bold text-neutral-900 leading-none">{intelScore ?? '—'}</p>
-                        <p className="text-[9px] text-neutral-400 mt-0.5">Overall</p>
+                        <p className="text-[9px] text-neutral-500 mt-0.5">Overall</p>
                       </div>
                     </div>
                     <div className="flex-1 grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -383,7 +383,7 @@ export default function DashboardPage() {
           {/* ── HIGHLIGHTS: Wins + Anomalies ── */}
           {isAdmin && (wins.length > 0 || anomalies.length > 0) && (
             <section>
-              <h2 className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+              <h2 className="text-xs font-bold text-neutral-500 uppercase tracking-wider mb-3 flex items-center gap-2">
                 <Sparkles className="w-3.5 h-3.5 text-success-500" />
                 Today's Highlights
               </h2>
@@ -408,7 +408,7 @@ export default function DashboardPage() {
 
           {/* ── CORE METRICS ── */}
           <section>
-            <h2 className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-3">Core Metrics</h2>
+            <h2 className="text-xs font-bold text-neutral-500 uppercase tracking-wider mb-3">Core Metrics</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {loading ? (
                 [1, 2, 3, 4].map(i => <div key={i} className="h-24 bg-white rounded-lg border border-neutral-200 animate-pulse" />)
@@ -425,7 +425,7 @@ export default function DashboardPage() {
 
           {/* ── PIPELINE & OUTREACH ── */}
           <section>
-            <h2 className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-3">Pipeline & Growth</h2>
+            <h2 className="text-xs font-bold text-neutral-500 uppercase tracking-wider mb-3">Pipeline & Growth</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <KpiTile label="Pipeline Value" value={fmtINR(pipelineValue)} onClick={() => window.location.href = '/pipeline'} />
               {isAdmin && (
@@ -440,7 +440,7 @@ export default function DashboardPage() {
           {/* ── ALL TEAM ACTIONS (admin can see everyone's) ── */}
           {isAdmin && allActions.length > myActions.length && (
             <section>
-              <h2 className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-3">All Team Actions</h2>
+              <h2 className="text-xs font-bold text-neutral-500 uppercase tracking-wider mb-3">All Team Actions</h2>
               <div className="space-y-2">
                 {allActions.filter(a => !myActions.includes(a)).slice(0, 5).map((a, i) => (
                   <ActionItem key={i} action={a} />
@@ -451,7 +451,7 @@ export default function DashboardPage() {
 
           {/* ── QUICK ACCESS ── */}
           <section>
-            <h2 className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-3">Quick Access</h2>
+            <h2 className="text-xs font-bold text-neutral-500 uppercase tracking-wider mb-3">Quick Access</h2>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
               {[
                 { icon: Users, label: 'Contacts', path: '/contacts', roles: ['admin', 'manager_ops', 'sales', 'staff'] },

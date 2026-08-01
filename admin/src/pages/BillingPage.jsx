@@ -36,7 +36,7 @@ const STATUS_BADGE = {
   paid:            'bg-success-500/10 text-success-700',
   partially_paid:  'bg-primary-500/10 text-primary-700',
   overdue:         'bg-danger-500/10 text-danger-600',
-  cancelled:       'bg-neutral-100 text-neutral-400 line-through',
+  cancelled:       'bg-neutral-100 text-neutral-500 line-through',
 };
 
 const INDIAN_STATES = [
@@ -129,7 +129,7 @@ function ServicesPicker({ value = [], onChange }) {
           className="px-3 py-1.5 text-xs font-medium bg-neutral-100 hover:bg-neutral-200 text-neutral-700 rounded-lg"
         >Add</button>
       </div>
-      <p className="text-[10px] text-neutral-400 mt-1">Shown as chips on the Clients list. Used for retainer analytics and invoice line-item prefill.</p>
+      <p className="text-[10px] text-neutral-500 mt-1">Shown as chips on the Clients list. Used for retainer analytics and invoice line-item prefill.</p>
     </div>
   );
 }
@@ -216,7 +216,7 @@ function ClientModal({ client, onClose, onSaved }) {
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b">
           <h2 className="text-lg font-semibold text-neutral-900">{client ? 'Edit Client' : 'Add Billing Client'}</h2>
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600">✕</button>
+          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-600">✕</button>
         </div>
         <div className="p-5 space-y-4">
           {error && <div className="text-sm text-danger-600 bg-danger-500/10 p-3 rounded-lg">{error}</div>}
@@ -476,7 +476,7 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b">
           <h2 className="text-lg font-semibold text-neutral-900">{isEdit ? 'Edit Invoice' : 'New Invoice'}</h2>
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600">✕</button>
+          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-600">✕</button>
         </div>
         <div className="p-5 space-y-5">
           {error && <div className="text-sm text-danger-600 bg-danger-500/10 p-3 rounded-lg">{error}</div>}
@@ -530,13 +530,13 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
           {/* Line Items */}
           <div>
             <label className="block text-xs font-medium text-neutral-700 mb-1">
-              Invoice Description <span className="text-neutral-400 font-normal">(optional)</span>
+              Invoice Description <span className="text-neutral-500 font-normal">(optional)</span>
             </label>
             <input className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               placeholder="e.g. Retainer — Performance Marketing · April 2026"
               value={form.serviceDescription}
               onChange={e => setForm(f => ({ ...f, serviceDescription: e.target.value }))} />
-            <p className="text-[10px] text-neutral-400 mt-1">Short summary shown above line items on the invoice PDF and on the invoices list.</p>
+            <p className="text-[10px] text-neutral-500 mt-1">Short summary shown above line items on the invoice PDF and on the invoices list.</p>
           </div>
 
           <div>
@@ -598,12 +598,12 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
           {/* Discount */}
           <div className="border border-neutral-200 rounded-lg p-3">
             <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-medium text-neutral-700">Discount <span className="text-neutral-400 font-normal">(optional)</span></label>
+              <label className="text-xs font-medium text-neutral-700">Discount <span className="text-neutral-500 font-normal">(optional)</span></label>
               {form.discountType && (
                 <button
                   type="button"
                   onClick={() => setForm(f => ({ ...f, discountType: '', discountValue: '', discountLabel: '' }))}
-                  className="text-[11px] text-neutral-400 hover:text-danger-500"
+                  className="text-[11px] text-neutral-500 hover:text-danger-500"
                 >Remove discount</button>
               )}
             </div>
@@ -742,7 +742,7 @@ function PaymentModal({ invoice, onClose, onSaved }) {
             <h2 className="text-lg font-semibold text-neutral-900">Record Payment</h2>
             <p className="text-sm text-neutral-500 mt-0.5">{invoice.invoice_number} · Due: {fmt(invoice.amount_due)}</p>
           </div>
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600">✕</button>
+          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-600">✕</button>
         </div>
         <div className="p-5 space-y-4">
           {error && <div className="text-sm text-danger-600 bg-danger-500/10 p-3 rounded-lg">{error}</div>}
@@ -822,7 +822,7 @@ function StatusUpdateModal({ invoice, onClose, onSaved }) {
             <h2 className="text-lg font-semibold text-neutral-900">Update Status</h2>
             <p className="text-sm text-neutral-500 mt-0.5">{invoice.invoice_number} &middot; {invoice.client_name}</p>
           </div>
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600">&#10005;</button>
+          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-600">&#10005;</button>
         </div>
         <div className="p-5 space-y-4">
           {error && <div className="text-sm text-danger-600 bg-danger-500/10 p-3 rounded-lg">{error}</div>}
@@ -842,12 +842,12 @@ function StatusUpdateModal({ invoice, onClose, onSaved }) {
             </select>
           </div>
           <div>
-            <label className="block text-xs font-medium text-neutral-700 mb-1">Amount Paid (&#8377;) <span className="text-neutral-400 font-normal">optional</span></label>
+            <label className="block text-xs font-medium text-neutral-700 mb-1">Amount Paid (&#8377;) <span className="text-neutral-500 font-normal">optional</span></label>
             <input type="number" className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               placeholder="0" value={form.amountPaid} onChange={e => setForm(f => ({ ...f, amountPaid: e.target.value }))} />
           </div>
           <div>
-            <label className="block text-xs font-medium text-neutral-700 mb-1">Notes <span className="text-neutral-400 font-normal">optional</span></label>
+            <label className="block text-xs font-medium text-neutral-700 mb-1">Notes <span className="text-neutral-500 font-normal">optional</span></label>
             <textarea rows={2} className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
           </div>
@@ -881,7 +881,7 @@ function CollectionTab() {
   if (error) return <div className="text-center py-12 text-danger-500">Error: {error}</div>;
   if (!tracker || !tracker.months || tracker.months.length === 0) {
     return (
-      <div className="text-center py-16 text-neutral-400">
+      <div className="text-center py-16 text-neutral-500">
         <p className="mb-2">No collection data available</p>
         <p className="text-xs">Generate invoices first to see the collection tracker</p>
       </div>
@@ -943,14 +943,14 @@ function CollectionTab() {
         </thead>
         <tbody className="divide-y divide-neutral-100">
           {clients.length === 0 && (
-            <tr><td colSpan={months.length + 1} className="text-center py-12 text-neutral-400">No clients with invoices</td></tr>
+            <tr><td colSpan={months.length + 1} className="text-center py-12 text-neutral-500">No clients with invoices</td></tr>
           )}
           {clients.map((c, ci) => (
             <tr key={ci} className="hover:bg-neutral-50 transition-colors">
               <td className="px-4 py-3">
                 <div className="text-sm font-medium text-neutral-800">{c.client_name}</div>
                 {c.retainer_amount ? (
-                  <div className="text-xs text-neutral-400">{fmt(c.retainer_amount)}/mo</div>
+                  <div className="text-xs text-neutral-500">{fmt(c.retainer_amount)}/mo</div>
                 ) : null}
               </td>
               {months.map((m, mi) => (
@@ -1021,7 +1021,7 @@ function RetainersTab() {
     <div>
       {msg && <div className="mb-4 bg-primary-50 border border-primary-200 rounded-xl p-3 text-sm text-primary-700">{msg}</div>}
       {retainers.length === 0 ? (
-        <div className="text-center py-16 text-neutral-400">
+        <div className="text-center py-16 text-neutral-500">
           <p className="mb-2">No retainers yet</p>
           <p className="text-xs">Create a retainer to auto-generate monthly invoices</p>
         </div>
@@ -1035,12 +1035,12 @@ function RetainersTab() {
                 <div className="flex items-start justify-between mb-3">
                   <div>
                     <h3 className="font-semibold text-neutral-800">{r.client_name}</h3>
-                    <p className="text-xs text-neutral-400 font-mono">{r.retainer_number}</p>
+                    <p className="text-xs text-neutral-500 font-mono">{r.retainer_number}</p>
                   </div>
                   <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
                     r.status === 'active' ? 'bg-success-500/10 text-success-700' :
                     r.status === 'paused' ? 'bg-warning-500/10 text-warning-700' :
-                    'bg-neutral-100 text-neutral-400'
+                    'bg-neutral-100 text-neutral-500'
                   }`}>{r.status}</span>
                 </div>
                 <div className="text-sm text-neutral-600 space-y-1 mb-3">
@@ -1256,7 +1256,7 @@ export default function BillingPage() {
                 <span className={`absolute top-0 inset-x-0 h-[3px] ${card.bar}`} />
                 <p className="text-[12.5px] text-neutral-500 font-medium">{card.label}</p>
                 <p className={`text-[28px] leading-none font-bold mt-1.5 ${card.color}`}>{card.value}</p>
-                <p className="text-xs text-neutral-400 mt-2">{card.sub}</p>
+                <p className="text-xs text-neutral-500 mt-2">{card.sub}</p>
               </div>
             ))}
           </div>
@@ -1310,7 +1310,7 @@ export default function BillingPage() {
                     </thead>
                     <tbody className="divide-y divide-neutral-100">
                       {filtered.length === 0 && (
-                        <tr><td colSpan={8} className="text-center py-12 text-neutral-400">No invoices found</td></tr>
+                        <tr><td colSpan={8} className="text-center py-12 text-neutral-500">No invoices found</td></tr>
                       )}
                       {filtered.map(inv => (
                         <tr key={inv.id} className="hover:bg-neutral-50 transition-colors">
@@ -1324,7 +1324,7 @@ export default function BillingPage() {
                           </td>
                           <td className="px-4 py-3">
                             <div className="text-sm font-medium text-neutral-800">{inv.client_name}</div>
-                            {inv.client_contact_person && <div className="text-xs text-neutral-400">{inv.client_contact_person}</div>}
+                            {inv.client_contact_person && <div className="text-xs text-neutral-500">{inv.client_contact_person}</div>}
                           </td>
                           <td className="px-4 py-3 text-sm text-neutral-600">{fmtDate(inv.invoice_date)}</td>
                           <td className="px-4 py-3 text-sm text-neutral-600">
@@ -1360,20 +1360,20 @@ export default function BillingPage() {
                                 } catch { setEditInvoice({ ...inv }); }
                                 setShowInvoiceModal(true);
                               }}
-                                className="p-1.5 text-neutral-400 hover:text-primary-600 hover:bg-primary-50 rounded" title="Edit">
+                                className="p-1.5 text-neutral-500 hover:text-primary-600 hover:bg-primary-50 rounded" title="Edit">
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                 </svg>
                               </button>
                               <button onClick={() => handleDownloadPDF(inv.id, inv.invoice_number)}
-                                className="p-1.5 text-neutral-400 hover:text-accent-600 hover:bg-accent-50 rounded" title="Download PDF">
+                                className="p-1.5 text-neutral-500 hover:text-accent-600 hover:bg-accent-50 rounded" title="Download PDF">
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                 </svg>
                               </button>
                               {['draft', 'overdue'].includes(inv.status) && (
                                 <button onClick={() => handleMarkSent(inv.id)}
-                                  className="p-1.5 text-neutral-400 hover:text-primary-600 hover:bg-primary-50 rounded" title="Mark Sent">
+                                  className="p-1.5 text-neutral-500 hover:text-primary-600 hover:bg-primary-50 rounded" title="Mark Sent">
                                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                                   </svg>
@@ -1381,7 +1381,7 @@ export default function BillingPage() {
                               )}
                               {['sent', 'partially_paid', 'overdue'].includes(inv.status) && (
                                 <button onClick={() => setPaymentInvoice(inv)}
-                                  className="p-1.5 text-neutral-400 hover:text-success-600 hover:bg-success-500/10 rounded" title="Record Payment">
+                                  className="p-1.5 text-neutral-500 hover:text-success-600 hover:bg-success-500/10 rounded" title="Record Payment">
                                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                                   </svg>
@@ -1389,7 +1389,7 @@ export default function BillingPage() {
                               )}
                               {inv.status !== 'cancelled' && (
                                 <button onClick={() => setStatusInvoice(inv)}
-                                  className="p-1.5 text-neutral-400 hover:text-primary-600 hover:bg-primary-50 rounded" title="Update Status">
+                                  className="p-1.5 text-neutral-500 hover:text-primary-600 hover:bg-primary-50 rounded" title="Update Status">
                                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                                   </svg>
@@ -1397,14 +1397,14 @@ export default function BillingPage() {
                               )}
                               {inv.status === 'cancelled' ? (
                                 <button onClick={() => setConfirmDeleteId(inv.id)}
-                                  className="p-1.5 text-neutral-400 hover:text-danger-500 hover:bg-danger-500/10 rounded" title="Delete permanently">
+                                  className="p-1.5 text-neutral-500 hover:text-danger-500 hover:bg-danger-500/10 rounded" title="Delete permanently">
                                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                   </svg>
                                 </button>
                               ) : inv.status !== 'paid' ? (
                                 <button onClick={() => setConfirmCancelId(inv.id)}
-                                  className="p-1.5 text-neutral-400 hover:text-danger-500 hover:bg-danger-500/10 rounded" title="Cancel">
+                                  className="p-1.5 text-neutral-500 hover:text-danger-500 hover:bg-danger-500/10 rounded" title="Cancel">
                                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                   </svg>
@@ -1433,7 +1433,7 @@ export default function BillingPage() {
                   </thead>
                   <tbody className="divide-y divide-neutral-100">
                     {clients.length === 0 && (
-                      <tr><td colSpan={8} className="text-center py-12 text-neutral-400">No clients yet</td></tr>
+                      <tr><td colSpan={8} className="text-center py-12 text-neutral-500">No clients yet</td></tr>
                     )}
                     {clients.map(c => {
                       const serviceChips = Array.isArray(c.services) && c.services.length > 0
@@ -1446,15 +1446,15 @@ export default function BillingPage() {
                         <tr key={c.id} className="hover:bg-neutral-50">
                           <td className="px-4 py-3">
                             <div className="text-sm font-medium text-neutral-800">{c.name}</div>
-                            {c.gstin && <div className="text-xs text-neutral-400 font-mono">{c.gstin}</div>}
+                            {c.gstin && <div className="text-xs text-neutral-500 font-mono">{c.gstin}</div>}
                           </td>
                           <td className="px-4 py-3">
                             <div className="text-sm text-neutral-600">{c.contactPerson || '—'}</div>
-                            {c.email && <div className="text-xs text-neutral-400">{c.email}</div>}
+                            {c.email && <div className="text-xs text-neutral-500">{c.email}</div>}
                           </td>
                           <td className="px-4 py-3">
                             {serviceChips.length === 0 ? (
-                              <span className="text-xs text-neutral-400">—</span>
+                              <span className="text-xs text-neutral-500">—</span>
                             ) : (
                               <div className="flex flex-wrap gap-1 max-w-[220px]">
                                 {serviceChips.map((s, i) => (
@@ -1473,7 +1473,7 @@ export default function BillingPage() {
                           </td>
                           <td className="px-4 py-3 text-sm text-neutral-600">{c.invoiceDayOfMonth || 1}st</td>
                           <td className="px-4 py-3">
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.isActive ? 'bg-success-500/10 text-success-700' : 'bg-neutral-100 text-neutral-400'}`}>
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.isActive ? 'bg-success-500/10 text-success-700' : 'bg-neutral-100 text-neutral-500'}`}>
                               {c.isActive ? 'Active' : 'Inactive'}
                             </span>
                           </td>
@@ -1511,7 +1511,7 @@ export default function BillingPage() {
                   </thead>
                   <tbody className="divide-y divide-neutral-100">
                     {paymentsList.length === 0 && (
-                      <tr><td colSpan={6} className="text-center py-12 text-neutral-400">No payments recorded</td></tr>
+                      <tr><td colSpan={6} className="text-center py-12 text-neutral-500">No payments recorded</td></tr>
                     )}
                     {paymentsList.map(p => (
                       <tr key={p.id} className="hover:bg-neutral-50">

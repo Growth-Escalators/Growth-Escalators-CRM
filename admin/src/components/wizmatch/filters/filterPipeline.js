@@ -18,6 +18,16 @@ function isEmpty(v) {
 }
 
 function matchOne(row, def, v) {
+  // `serverOnly` filters are applied by the backend; re-applying them here would
+  // silently drop rows the server already matched. Concretely: the Hiring
+  // Contacts search matches `concat_ws(' ', first_name, last_name, company_name)`
+  // server-side, while the client below tests each field INDIVIDUALLY — so
+  // "jane acme" matches on the server and then gets filtered out here, leaving an
+  // empty list for a query that found rows.
+  //
+  // Must be checked before the toggle branch, or a serverOnly toggle would still
+  // be evaluated client-side.
+  if (def.serverOnly) return true;
   // A toggle is only a filter when ON; false/undefined means "don't filter".
   if (def.type === 'toggle') return v ? (def.predicate ? def.predicate(row) : Boolean(getVal(row, def))) : true;
   if (isEmpty(v)) return true;

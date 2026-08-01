@@ -297,7 +297,7 @@ export default function WizmatchDeliveryBoardPage() {
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan="7" className="px-4 py-8 text-center text-neutral-400">No submissions match these filters.</td></tr>
+                <tr><td colSpan="7" className="px-4 py-8 text-center text-neutral-500">No submissions match these filters.</td></tr>
               ) : filtered.map((item) => {
                 const consentGranted = item.consent_status === 'granted';
                 const isTerminal = TERMINAL.includes(item.status);

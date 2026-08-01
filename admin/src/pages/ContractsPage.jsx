@@ -275,8 +275,8 @@ export default function ContractsPage() {
               </tr>
             </thead>
             <tbody>
-              {loading && <tr><td colSpan={5} className="px-4 py-6 text-center text-neutral-400">Loading…</td></tr>}
-              {!loading && contracts.length === 0 && <tr><td colSpan={5} className="px-4 py-6 text-center text-neutral-400">No contracts yet.</td></tr>}
+              {loading && <tr><td colSpan={5} className="px-4 py-6 text-center text-neutral-500">Loading…</td></tr>}
+              {!loading && contracts.length === 0 && <tr><td colSpan={5} className="px-4 py-6 text-center text-neutral-500">No contracts yet.</td></tr>}
               {contracts.map((c) => (
                 <tr key={c.id} className="border-t border-neutral-100 hover:bg-neutral-50">
                   <td className="px-4 py-2 font-mono text-xs text-neutral-600 cursor-pointer" onClick={() => openDetail(c.id)}>{c.referenceNumber}</td>
@@ -331,7 +331,7 @@ export default function ContractsPage() {
                 <button type="button" className="rounded bg-neutral-100 px-2 py-0.5 text-xs text-neutral-700" onClick={addExtraRecipient}>+ Add recipient</button>
               </div>
               {form.extraRecipients.length === 0 && (
-                <p className="text-xs text-neutral-400">Optional: add an approver (must approve before completion), or CC / viewer recipients (receive a copy, don't sign).</p>
+                <p className="text-xs text-neutral-500">Optional: add an approver (must approve before completion), or CC / viewer recipients (receive a copy, don't sign).</p>
               )}
               {form.extraRecipients.map((r, i) => (
                 <div key={i} className="mb-2 grid grid-cols-[1fr_1fr_auto_auto] gap-2">
@@ -340,7 +340,7 @@ export default function ContractsPage() {
                   <select className="rounded border border-neutral-300 px-2 py-1 text-sm" value={r.role} onChange={(e) => updateExtraRecipient(i, { role: e.target.value })}>
                     {RECIPIENT_ROLES.map((role) => <option key={role.value} value={role.value}>{role.label}</option>)}
                   </select>
-                  <button type="button" className="rounded px-2 text-sm text-neutral-400 hover:text-red-600" onClick={() => removeExtraRecipient(i)} title="Remove">✕</button>
+                  <button type="button" className="rounded px-2 text-sm text-neutral-500 hover:text-red-600" onClick={() => removeExtraRecipient(i)} title="Remove">✕</button>
                 </div>
               ))}
             </div>
@@ -380,7 +380,7 @@ export default function ContractsPage() {
                 return (
                   <li key={r.id} className="rounded border border-neutral-100 px-2 py-1">
                     <div className="flex items-center justify-between">
-                      <span>{r.name} <span className="text-neutral-400">({r.signingRole?.replace(/_/g, ' ')})</span></span>
+                      <span>{r.name} <span className="text-neutral-500">({r.signingRole?.replace(/_/g, ' ')})</span></span>
                       <span className="flex items-center gap-2">
                         <span className="text-xs text-neutral-500">{r.status}</span>
                         {canLink && (
@@ -408,7 +408,7 @@ export default function ContractsPage() {
               {detail.events.map((ev) => (
                 <li key={ev.id} className="flex justify-between border-b border-neutral-100 py-1">
                   <span>{ev.eventType}</span>
-                  <span className="text-neutral-400">{ev.occurredAt ? new Date(ev.occurredAt).toLocaleString() : ''}</span>
+                  <span className="text-neutral-500">{ev.occurredAt ? new Date(ev.occurredAt).toLocaleString() : ''}</span>
                 </li>
               ))}
             </ul>
@@ -480,13 +480,13 @@ function TemplatesManager({ registered, onClose, onChanged }) {
 
         <h3 className="mb-2 text-sm font-semibold text-neutral-700">Registered</h3>
         {registered.length === 0 ? (
-          <p className="mb-4 text-xs text-neutral-400">No templates registered yet.</p>
+          <p className="mb-4 text-xs text-neutral-500">No templates registered yet.</p>
         ) : (
           <ul className="mb-4 space-y-1 text-sm">
             {registered.map((t) => (
               <li key={t.id} className="flex justify-between rounded border border-neutral-100 px-2 py-1">
-                <span>{t.name}{t.category ? <span className="text-neutral-400"> · {t.category}</span> : null}</span>
-                <span className="font-mono text-xs text-neutral-400">#{t.documensoTemplateId}</span>
+                <span>{t.name}{t.category ? <span className="text-neutral-500"> · {t.category}</span> : null}</span>
+                <span className="font-mono text-xs text-neutral-500">#{t.documensoTemplateId}</span>
               </li>
             ))}
           </ul>
@@ -498,7 +498,7 @@ function TemplatesManager({ registered, onClose, onChanged }) {
             {busy ? 'Loading…' : 'Load Documenso templates'}
           </button>
         ) : docTemplates.length === 0 ? (
-          <p className="mb-2 text-xs text-neutral-400">No templates found in Documenso. Create one in the Documenso console first.</p>
+          <p className="mb-2 text-xs text-neutral-500">No templates found in Documenso. Create one in the Documenso console first.</p>
         ) : (
           <form className="space-y-2" onSubmit={register}>
             <select required className="w-full rounded border border-neutral-300 px-3 py-2 text-sm" value={reg.documensoTemplateId} onChange={(e) => setReg({ ...reg, documensoTemplateId: e.target.value })}>

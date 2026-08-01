@@ -137,6 +137,7 @@ import {
   type ContactIntelligenceCompanyRow,
   type PersistedContactIntelligence,
 } from '../services/wizmatchContactIntelligenceRepo';
+import { resolveCanonicalCompanyEligibilityBatch } from '../modules/outreach/legacyEligibilityAdapter';
 import { generateSignalDraftEmails, sendSignalDraftEmail } from '../services/wizmatchOutreachService';
 import { evaluateWizmatchOutreachGate, shouldBlock, suppress, isStatedContactPreference } from '../modules/outreach/outreachGate';
 
@@ -1087,7 +1088,7 @@ router.post(
 
 router.get('/client-discovery/queue', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const limit = Math.min(Number(req.query.limit) || 50, 100);
+  const limit = clampListLimit(req.query.limit, 50, 100);
   const [rows, totalResult] = await Promise.all([
     fetchClientDiscoverySignals(tenantId, limit),
     pool.query(
@@ -1371,7 +1372,7 @@ router.post('/candidate-intelligence/intake', async (req: Request, res: Response
 
 router.get('/candidate-intelligence/queue', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const limit = Math.min(Number(req.query.limit) || 50, 100);
+  const limit = clampListLimit(req.query.limit, 50, 100);
   const [inputs, totalResult] = await Promise.all([
     fetchCandidateIntelligenceInputs(tenantId, limit),
     pool.query(`SELECT COUNT(*)::int AS total FROM wizmatch_candidates wc WHERE tenant_id = $1
@@ -1403,7 +1404,7 @@ router.get('/candidate-intelligence/requirements/:requirementId/matches', async 
   const tenantId = req.user!.tenantId;
   const [requirements, candidates] = await Promise.all([
     fetchCandidateIntelligenceRequirements(tenantId, 1, String(req.params.requirementId)),
-    fetchCandidateIntelligenceInputs(tenantId, Math.min(Number(req.query.limit) || 50, 100)),
+    fetchCandidateIntelligenceInputs(tenantId, clampListLimit(req.query.limit, 50, 100)),
   ]);
   if (requirements.length === 0) {
     res.status(404).json({ error: 'Requirement not found' });
@@ -1497,7 +1498,7 @@ async function buildRequirementPriorityInputs(
 
 router.get('/requirement-priority/queue', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const limit = Math.min(Number(req.query.limit) || 50, 100);
+  const limit = clampListLimit(req.query.limit, 50, 100);
   const [inputs, totalResult] = await Promise.all([
     buildRequirementPriorityInputs(tenantId, limit),
     pool.query(
@@ -1561,7 +1562,65 @@ router.post('/requirement-priority/:requirementId/review-plan', async (req: Requ
 // SECTION -1B — UNIFIED REVIEW WORKBENCH / SAFETY CENTER ROUTES
 // ============================================================
 
+// Query-param clamps for paged list routes.
+//
+// `Number(req.query.limit) || 25` alone is not enough: Postgres errors on
+// `LIMIT -5` and equally on `LIMIT 2.7`, so a negative OR fractional value in a
+// URL is a 500, not a bad page. Truncation matters as much as the floor.
+// Exported so the clamping is unit-testable without instantiating the router.
+//
+// Declared ABOVE buildBatchedContactIntelligence deliberately: the Phase-1
+// source-text test slices that function's body up to the next top-level
+// `async function`, so a declaration immediately after it would truncate the
+// slice and fail two unrelated assertions.
+export function clampListLimit(raw: unknown, fallback: number, max: number): number {
+  return Math.max(1, Math.min(Math.trunc(Number(raw)) || fallback, max));
+}
+
+export function clampListOffset(raw: unknown): number {
+  return Math.max(0, Math.trunc(Number(raw)) || 0);
+}
+
 const REVIEW_WORKBENCH_SOURCE_LIMIT = 75;
+
+/**
+ * Build the contact-intelligence items for a page of companies using a FIXED
+ * number of set-based queries, instead of one fan-out per company.
+ *
+ * Unbatched, each company costs 1 internal-contacts query + 3 persisted queries.
+ * At the queue's max page of 100 that is ~400 round trips, fired as one
+ * unbounded Promise.all burst against a pool with max: 20. Batched it is 4.
+ *
+ * This existed inline in GET /command-center only. The queue route and the
+ * review workbench were never switched over — which is precisely the drift a
+ * copy-pasted block invites, so it now lives in one place and all three callers
+ * share it. The builders' override parameters are unchanged and still optional,
+ * so behaviour is identical: the batch helpers return the same rows the
+ * per-company queries would have.
+ *
+ * Read-only. Neither builder writes, so batching has no ordering constraint.
+ */
+async function buildBatchedContactIntelligence(
+  tenantId: string,
+  rows: ContactIntelligenceCompanyRow[],
+) {
+  if (rows.length === 0) return [];
+
+  const companyIds = rows.map((row) => row.company_id);
+  const [internalContactsByCompany, persistedByCompany, canonicalByCompany] = await Promise.all([
+    fetchInternalContactCandidatesBatch(tenantId, rows),
+    fetchPersistedContactIntelligenceBatch(tenantId, companyIds),
+    resolveCanonicalCompanyEligibilityBatch(tenantId, companyIds),
+  ]);
+  const emptyPersisted: PersistedContactIntelligence = { company: null, contactCandidates: [], discoveryRuns: [] };
+
+  const computed = await Promise.all(
+    rows.map((row) => buildContactIntelligenceResult(tenantId, row, internalContactsByCompany.get(row.company_id) ?? [], canonicalByCompany.get(row.company_id))),
+  );
+  return Promise.all(
+    computed.map((item) => withPersistedContactIntelligence(tenantId, item, persistedByCompany.get(item.companyId) ?? emptyPersisted)),
+  );
+}
 
 async function buildReviewWorkbenchPayload(tenantId: string) {
   const [
@@ -1593,12 +1652,7 @@ async function buildReviewWorkbenchPayload(tenantId: string) {
     fetchOptionalContactIntelligenceRoiStats(tenantId),
   ]);
 
-  const computedContactIntelligence = await Promise.all(
-    contactRows.map((row) => buildContactIntelligenceResult(tenantId, row)),
-  );
-  const contactIntelligence = await Promise.all(
-    computedContactIntelligence.map((item) => withPersistedContactIntelligence(tenantId, item)),
-  );
+  const contactIntelligence = await buildBatchedContactIntelligence(tenantId, contactRows);
 
   return buildWizmatchReviewWorkbench({
     clientDiscovery: await rankClientDiscoveryQueueWithPolicy(tenantId, clientRows),
@@ -1615,7 +1669,10 @@ async function buildReviewWorkbenchPayload(tenantId: string) {
 
 router.get('/review-workbench', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const responseLimit = Number(req.query.limit) || 30;
+  // In-memory slice, not SQL, so a bad value here does not reach Postgres —
+  // but a negative slice length still misbehaves. Max is deliberately generous
+  // (the workbench's own source cap is 75) so clamping changes no valid request.
+  const responseLimit = clampListLimit(req.query.limit, 30, 200);
   const [workbench, readiness, costControls] = await Promise.all([
     buildReviewWorkbenchPayload(tenantId),
     getWizmatchReadiness(pool, tenantId),
@@ -2071,22 +2128,41 @@ ${compactSnapshot.slice(0, 40_000)}`;
 // GET /api/wizmatch/contact-intelligence/queue — read-only Phase 1 queue
 router.get('/contact-intelligence/queue', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const limit = Math.min(Number(req.query.limit) || 25, 100);
+  const limit = clampListLimit(req.query.limit, 25, 100);
+  const offset = clampListOffset(req.query.offset);
   const [rows, totalResult] = await Promise.all([
-    fetchContactIntelligenceCompanyRows(tenantId, limit),
+    fetchContactIntelligenceCompanyRows(tenantId, limit, { offset }),
+    // Counts COMPANIES reachable by this query — which is not what the old count
+    // measured. It was COUNT(DISTINCT company_id) over wizmatch_job_signals with
+    // no join back to wizmatch_companies, and the FK on company_id is
+    // single-column (no tenant), so a signal in tenant A referencing a company in
+    // tenant B was counted even though its company can never appear in `items`.
+    // With a pager that inflation stops being a cosmetic wrong number and becomes
+    // a dead Next button: "51-75 of 80" that returns nothing and never advances.
+    //
+    // This EXISTS is the row population exactly: latest_signals filters only on
+    // tenant + company_id IS NOT NULL (no status/date/score filter), the join key
+    // is unique in the CTE, and neither LEFT JOIN can fan out.
     pool.query(
-      `SELECT COUNT(DISTINCT company_id)::int AS total
-       FROM wizmatch_job_signals WHERE tenant_id = $1 AND company_id IS NOT NULL`,
+      `SELECT COUNT(*)::int AS total
+       FROM wizmatch_companies c
+       WHERE c.tenant_id = $1
+         AND EXISTS (
+           SELECT 1 FROM wizmatch_job_signals s
+           WHERE s.tenant_id = $1 AND s.company_id = c.id
+         )`,
       [tenantId],
     ),
   ]);
-  const computed = await Promise.all(rows.map((row) => buildContactIntelligenceResult(tenantId, row)));
-  const items = await Promise.all(computed.map((item) => withPersistedContactIntelligence(tenantId, item)));
+  const items = await buildBatchedContactIntelligence(tenantId, rows);
 
   res.json({
     items,
     total: numeric(totalResult.rows[0]?.total),
     returned: items.length,
+    // Echo the server's clamped view so the client never recomputes what it asked for.
+    limit,
+    offset,
     phase: 'phase_3_preview_first_manual_paid_discovery',
     costControls: await buildContactDiscoveryCostControls(tenantId, req.user?.id),
   });
@@ -2095,7 +2171,7 @@ router.get('/contact-intelligence/queue', async (req: Request, res: Response) =>
 // GET /api/wizmatch/contact-intelligence/companies/:companyId — read-only detail
 router.get('/contact-intelligence/companies/:companyId', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const rows = await fetchContactIntelligenceCompanyRows(tenantId, 1, String(req.params.companyId));
+  const rows = await fetchContactIntelligenceCompanyRows(tenantId, 1, { companyId: String(req.params.companyId) });
   if (rows.length === 0) {
     res.status(404).json({ error: 'Company intelligence not found' });
     return;
@@ -2456,7 +2532,13 @@ router.post('/contact-intelligence/contacts/bulk-review', async (req: Request, r
 
   const tenantId = req.user!.tenantId;
   const userId = req.user?.id || null;
-  const rejectionReason = firstString(req.body?.reason);
+  // Accept BOTH field names on both review routes. The single-item route has
+  // always read `rejectionReason` while this bulk one reads `reason`, so a
+  // client that sent the wrong one had its reason silently dropped — the
+  // rejection was recorded with no explanation and the detail pane rendered
+  // an empty "Rejection reason:" block. Aliasing here makes the field name a
+  // non-issue for callers instead of a trap.
+  const rejectionReason = firstString(req.body?.rejectionReason ?? req.body?.reason);
   // Deliberately does NOT return the refreshed contactCandidates the
   // single-item route returns: that is one extra read per id, and the envelope
   // the SPA codes against is fixed to { results, succeeded, failed }. The page
@@ -2479,7 +2561,7 @@ router.post('/contact-intelligence/contacts/:candidateId/review', async (req: Re
       userId: req.user?.id || null,
       candidateId: String(req.params.candidateId),
       action: firstString(req.body?.action) || 'reject_contact',
-      rejectionReason: firstString(req.body?.rejectionReason),
+      rejectionReason: firstString(req.body?.rejectionReason ?? req.body?.reason),
     });
     const refreshed = await fetchPersistedContactIntelligence(tenantId, companyId);
     res.json({ transition, contactCandidates: refreshed.contactCandidates });
@@ -2615,7 +2697,7 @@ router.post('/contact-intelligence/contacts/:candidateId/link-crm-contact', asyn
 // GET /api/wizmatch/command-center — read-only intelligence operating layer
 router.get('/command-center', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const limit = Math.min(Number(req.query.limit) || 25, 75);
+  const limit = clampListLimit(req.query.limit, 25, 75);
 
   const [contactRows, signals, candidates, requirements, baseMetrics] = await Promise.all([
     fetchContactIntelligenceCompanyRows(tenantId, limit),
@@ -2625,27 +2707,8 @@ router.get('/command-center', async (req: Request, res: Response) => {
     fetchCommandCenterMetrics(tenantId),
   ]);
 
-  // Batch the two per-company fan-outs into a fixed number of set-based queries so a page
-  // of up to 25 companies costs 2 queries here instead of ~100 (1 + 3 per company) fired in
-  // 75-wide bursts against the 20-connection pool. Results are grouped in JS and fed into the
-  // unchanged builder helpers, so the response JSON is identical.
-  const companyIds = contactRows.map((row) => row.company_id);
-  const [internalContactsByCompany, persistedByCompany] = await Promise.all([
-    fetchInternalContactCandidatesBatch(tenantId, contactRows),
-    fetchPersistedContactIntelligenceBatch(tenantId, companyIds),
-  ]);
-  const emptyPersisted: PersistedContactIntelligence = { company: null, contactCandidates: [], discoveryRuns: [] };
+  const contactIntelligence = await buildBatchedContactIntelligence(tenantId, contactRows);
 
-  const computedContactIntelligence = await Promise.all(
-    contactRows.map((row) =>
-      buildContactIntelligenceResult(tenantId, row, internalContactsByCompany.get(row.company_id) ?? []),
-    ),
-  );
-  const contactIntelligence = await Promise.all(
-    computedContactIntelligence.map((item) =>
-      withPersistedContactIntelligence(tenantId, item, persistedByCompany.get(item.companyId) ?? emptyPersisted),
-    ),
-  );
   const metrics: CommandCenterMetricsInput = {
     ...baseMetrics,
     reviewReadyCompanies: contactIntelligence.filter((item) =>
@@ -2704,7 +2767,7 @@ router.get('/sourcing/status', async (req: Request, res: Response) => {
 });
 
 router.get('/sourcing/runs', async (req: Request, res: Response) => {
-  const limit = Math.min(Number(req.query.limit) || 50, 200);
+  const limit = clampListLimit(req.query.limit, 50, 200);
   const result = await pool.query(
     `SELECT * FROM wizmatch_source_runs WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT $2`,
     [req.user!.tenantId, limit],
@@ -2937,8 +3000,8 @@ function wizmatchOrderBy(sortRaw: unknown, allow: Record<string, string>, fallba
 // GET /api/wizmatch/signals — list with filters
 router.get('/signals', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const limit = Math.min(Number(req.query.limit) || 50, 200);
-  const offset = Number(req.query.offset) || 0;
+  const limit = clampListLimit(req.query.limit, 50, 200);
+  const offset = clampListOffset(req.query.offset);
 
   // Columns are qualified with the `s` alias: the data query below joins
   // `contacts` and `wizmatch_companies`, which also have tenant_id/status/
@@ -3258,8 +3321,8 @@ router.post('/signals/:id/send', async (req: Request, res: Response) => {
 
 router.get('/candidates', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const limit = Math.min(Number(req.query.limit) || 50, 200);
-  const offset = Number(req.query.offset) || 0;
+  const limit = clampListLimit(req.query.limit, 50, 200);
+  const offset = clampListOffset(req.query.offset);
 
   const conditions: string[] = ['wc.tenant_id = $1'];
   const params: unknown[] = [tenantId];
@@ -3572,16 +3635,39 @@ router.get('/placements', async (req: Request, res: Response) => {
     return;
   }
   const tenantId = req.user!.tenantId;
-  const limit = Math.min(Number(req.query.limit) || 50, 200);
-  const offset = Number(req.query.offset) || 0;
+  const limit = clampListLimit(req.query.limit, 50, 200);
+  const offset = clampListOffset(req.query.offset);
 
   const conditions: string[] = ['wp.tenant_id = $1'];
   const params: unknown[] = [tenantId];
   let paramIdx = 2;
 
   if (req.query.status) {
-    conditions.push(`wp.status = $${paramIdx++}`);
-    params.push(req.query.status);
+    // Accepts one status OR a comma-separated list. The Kanban needs several
+    // stages at once ("active" = submitted|interviewing|offered|started), and
+    // with a single-value filter the board had to issue ONE REQUEST PER STAGE —
+    // six per load, on a screen where load() fires after every drag. A list
+    // collapses that back to one request.
+    //
+    // Values are validated against WIZMATCH_PLACEMENT_STAGES rather than
+    // interpolated: they are bound as params, but an unknown status would
+    // silently match nothing and look like an empty pipeline.
+    const requested = String(req.query.status).split(',').map((v) => v.trim()).filter(Boolean);
+    const statuses = requested.filter((v) => (WIZMATCH_PLACEMENT_STAGES as readonly string[]).includes(v));
+    if (statuses.length !== requested.length) {
+      res.status(400).json({
+        error: 'invalid_status',
+        message: `Unknown placement status. Valid values: ${WIZMATCH_PLACEMENT_STAGES.join(', ')}.`,
+      });
+      return;
+    }
+    if (statuses.length === 1) {
+      conditions.push(`wp.status = $${paramIdx++}`);
+      params.push(statuses[0]);
+    } else if (statuses.length > 1) {
+      conditions.push(`wp.status = ANY($${paramIdx++}::text[])`);
+      params.push(statuses);
+    }
   }
   if (req.query.candidate_id) {
     conditions.push(`wp.candidate_id = $${paramIdx++}`);
@@ -3853,8 +3939,8 @@ router.post('/domains/:id/resume', async (req: Request, res: Response) => {
 
 router.get('/suppression', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const limit = Math.min(Number(req.query.limit) || 50, 200);
-  const offset = Number(req.query.offset) || 0;
+  const limit = clampListLimit(req.query.limit, 50, 200);
+  const offset = clampListOffset(req.query.offset);
 
   const conditions: string[] = ['tenant_id = $1'];
   const params: unknown[] = [tenantId];
@@ -4518,8 +4604,8 @@ router.post('/requirements/parse', requirementUpload.single('file'), async (req:
 // GET /requirements — list
 router.get('/requirements', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const limit = Math.min(Number(req.query.limit) || 50, 200);
-  const offset = Number(req.query.offset) || 0;
+  const limit = clampListLimit(req.query.limit, 50, 200);
+  const offset = clampListOffset(req.query.offset);
 
   const conditions: string[] = ['r.tenant_id = $1'];
   const params: unknown[] = [tenantId];

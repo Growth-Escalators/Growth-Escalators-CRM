@@ -415,7 +415,7 @@ function Metric({ icon: Icon, label, value, helper, tone = 'primary' }) {
         <div>
           <p className="text-[12px] font-semibold uppercase tracking-wider text-neutral-500">{label}</p>
           <p className="mt-2 text-[26px] font-bold leading-none tracking-tight text-neutral-900">{value}</p>
-          {helper && <p className="mt-2 text-[12px] text-neutral-400">{helper}</p>}
+          {helper && <p className="mt-2 text-[12px] text-neutral-500">{helper}</p>}
         </div>
         <span className={`inline-flex h-9 w-9 items-center justify-center rounded-md ${toneClass}`}>
           <Icon className="h-4 w-4" />
@@ -1289,7 +1289,7 @@ export function WizmatchContactIntelligenceNewPage({ demoMode = false }) {
                         {(candidate.reasons || []).slice(0, 2).map((reason) => <span key={reason} className="badge-muted">{reason}</span>)}
                       </div>
                       {candidate.confidenceTier && CONFIDENCE_TIER_HELP[candidate.confidenceTier] && (
-                        <p className="mt-1.5 text-[11.5px] text-neutral-400">{CONFIDENCE_TIER_HELP[candidate.confidenceTier]}</p>
+                        <p className="mt-1.5 text-[11.5px] text-neutral-500">{CONFIDENCE_TIER_HELP[candidate.confidenceTier]}</p>
                       )}
                     </div>
                   )) : (

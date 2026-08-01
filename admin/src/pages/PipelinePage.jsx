@@ -83,7 +83,7 @@ function DealCard({ deal, index, onClick, onArchive, onUnarchive, selected = fal
     ? 'bg-warning-500/10 text-warning-700'
     : deal.score > 0
     ? 'bg-danger-500/10 text-danger-600'
-    : 'bg-neutral-100 text-neutral-400';
+    : 'bg-neutral-100 text-neutral-500';
 
   return (
     <Draggable draggableId={deal.id} index={index}>
@@ -145,7 +145,7 @@ function DealCard({ deal, index, onClick, onArchive, onUnarchive, selected = fal
 
           {/* Company */}
           {deal.companyName && (
-            <p className="text-xs text-neutral-400 mb-1.5 line-clamp-1">{deal.companyName}</p>
+            <p className="text-xs text-neutral-500 mb-1.5 line-clamp-1">{deal.companyName}</p>
           )}
 
           {/* Bottom row */}
@@ -156,7 +156,7 @@ function DealCard({ deal, index, onClick, onArchive, onUnarchive, selected = fal
               )}
             </div>
             <div className="flex items-center gap-1">
-              <span className={`text-[10px] text-neutral-400 ${days > 3 ? 'text-danger-500' : ''}`}>{days}d</span>
+              <span className={`text-[10px] text-neutral-500 ${days > 3 ? 'text-danger-500' : ''}`}>{days}d</span>
               {assignedTo ? (
                 <span
                   className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold uppercase"
@@ -245,7 +245,7 @@ function WonLostModal({ stageName, stageOutcome, contactName, onConfirm, onCance
 
           <div className="mt-4">
             <label className="block text-sm font-medium text-neutral-700 mb-1.5">
-              {won ? 'Notes about this win?' : 'Additional notes'} <span className="text-neutral-400 font-normal">(optional)</span>
+              {won ? 'Notes about this win?' : 'Additional notes'} <span className="text-neutral-500 font-normal">(optional)</span>
             </label>
             <textarea
               value={notes}
@@ -328,9 +328,9 @@ function AddDealModal({ pipelineId, stageName, onAdded, onClose }) {
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-neutral-100">
           <div>
             <h2 className="text-lg font-bold text-neutral-900">Add Deal</h2>
-            <p className="text-sm text-neutral-400 mt-0.5">Stage: <span className="font-medium text-neutral-600">{stageName}</span></p>
+            <p className="text-sm text-neutral-500 mt-0.5">Stage: <span className="font-medium text-neutral-600">{stageName}</span></p>
           </div>
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600 p-1 rounded-lg hover:bg-neutral-100">
+          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-600 p-1 rounded-lg hover:bg-neutral-100">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
         </div>
@@ -353,7 +353,7 @@ function AddDealModal({ pipelineId, stageName, onAdded, onClose }) {
                 />
                 {(searching || contacts.length > 0) && (
                   <div className="absolute top-full mt-1 w-full bg-white border border-neutral-200 rounded-xl shadow-lg z-10 max-h-48 overflow-y-auto">
-                    {searching && <p className="px-3 py-2 text-sm text-neutral-400">Searching…</p>}
+                    {searching && <p className="px-3 py-2 text-sm text-neutral-500">Searching…</p>}
                     {contacts.map((c) => (
                       <button
                         key={c.id}
@@ -361,7 +361,7 @@ function AddDealModal({ pipelineId, stageName, onAdded, onClose }) {
                         className="w-full text-left px-3 py-2.5 text-sm text-neutral-700 hover:bg-neutral-50 flex items-center gap-2"
                       >
                         <span className="font-medium">{c.firstName} {c.lastName ?? ''}</span>
-                        {c.phone && <span className="text-neutral-400 text-xs">{c.phone}</span>}
+                        {c.phone && <span className="text-neutral-500 text-xs">{c.phone}</span>}
                       </button>
                     ))}
                   </div>
@@ -370,9 +370,9 @@ function AddDealModal({ pipelineId, stageName, onAdded, onClose }) {
             )}
           </div>
           <div>
-            <label className="block text-sm font-medium text-neutral-700 mb-1.5">Deal Value (&#8377;) <span className="text-neutral-400 font-normal">(optional)</span></label>
+            <label className="block text-sm font-medium text-neutral-700 mb-1.5">Deal Value (&#8377;) <span className="text-neutral-500 font-normal">(optional)</span></label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 text-sm">&#8377;</span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 text-sm">&#8377;</span>
               <input
                 type="number"
                 min="0"
@@ -396,7 +396,7 @@ function AddDealModal({ pipelineId, stageName, onAdded, onClose }) {
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-neutral-700 mb-1.5">Source <span className="text-neutral-400 font-normal">(optional)</span></label>
+            <label className="block text-sm font-medium text-neutral-700 mb-1.5">Source <span className="text-neutral-500 font-normal">(optional)</span></label>
             <select
               value={source}
               onChange={(e) => setSource(e.target.value)}
@@ -679,14 +679,14 @@ export default function PipelinePage() {
                 </div>
               </div>
               {totalDeals > 0 && (
-                <span className="text-xs text-neutral-400 bg-neutral-100 px-2.5 py-1 rounded-full font-medium">
+                <span className="text-xs text-neutral-500 bg-neutral-100 px-2.5 py-1 rounded-full font-medium">
                   {totalDeals} deal{totalDeals !== 1 ? 's' : ''}
                   {totalValue > 0 && ` · ${fmtInr(totalValue)}`}
                 </span>
               )}
               <Link
                 to={productPath('/pipelines/settings')}
-                className="p-2 rounded-lg hover:bg-neutral-100 text-neutral-400 hover:text-neutral-600 transition-colors"
+                className="p-2 rounded-lg hover:bg-neutral-100 text-neutral-500 hover:text-neutral-600 transition-colors"
                 title="Pipeline Settings"
               >
                 <Settings className="w-4 h-4" />
@@ -767,7 +767,7 @@ export default function PipelinePage() {
                 { label: 'Open Deals', value: `${analytics.openCount}`, color: 'text-neutral-700' },
               ].map(kpi => (
                 <div key={kpi.label} className="bg-neutral-50 rounded-xl px-4 py-3 border border-neutral-100">
-                  <p className="text-[10px] uppercase tracking-wide text-neutral-400 mb-1">{kpi.label}</p>
+                  <p className="text-[10px] uppercase tracking-wide text-neutral-500 mb-1">{kpi.label}</p>
                   <p className={`text-lg font-bold ${kpi.color}`}>{kpi.value}</p>
                 </div>
               ))}
@@ -777,7 +777,7 @@ export default function PipelinePage() {
                 {analytics.byStage.map(s => (
                   <div key={s.stage} className="shrink-0 bg-neutral-50 rounded-lg px-3 py-1.5 border border-neutral-100 text-xs">
                     <span className="font-medium text-neutral-700">{s.stage}</span>
-                    <span className="text-neutral-400 ml-2">{s.count} deals</span>
+                    <span className="text-neutral-500 ml-2">{s.count} deals</span>
                     {s.value > 0 && <span className="text-success-600 ml-2">{fmtInr(s.value)}</span>}
                     <span className="text-warning-500 ml-2">{s.avg_age_days}d avg</span>
                   </div>
@@ -894,7 +894,7 @@ export default function PipelinePage() {
                     <div className="px-2 pb-2 shrink-0">
                       <button
                         onClick={() => setAddDealModal({ pipelineId: activePipelineId, stageName: stageData.stageName })}
-                        className="w-full text-xs text-neutral-400 hover:text-neutral-600 hover:bg-white border border-dashed border-neutral-200 hover:border-neutral-300 rounded-lg py-1.5 transition-colors"
+                        className="w-full text-xs text-neutral-500 hover:text-neutral-600 hover:bg-white border border-dashed border-neutral-200 hover:border-neutral-300 rounded-lg py-1.5 transition-colors"
                       >
                         + Add Deal
                       </button>

@@ -121,8 +121,8 @@ export default function WizmatchDomainsPage() {
                           renders NaN%, so an unused domain looked like a broken one. */}
                       <div><span className="font-medium text-neutral-700">Reply rate:</span> {d.reply_rate_7d == null ? '—' : `${(d.reply_rate_7d * 100).toFixed(1)}%`}</div>
                     </div>
-                    <div className="text-xs text-neutral-400 mb-2">Last check: {d.last_check_at ? new Date(d.last_check_at).toLocaleString() : 'Never'}</div>
-                    <div className="text-xs text-neutral-400 mb-3">Inboxes: {d.inbox_addresses?.length ? d.inbox_addresses.join(', ') : '—'}</div>
+                    <div className="text-xs text-neutral-500 mb-2">Last check: {d.last_check_at ? new Date(d.last_check_at).toLocaleString() : 'Never'}</div>
+                    <div className="text-xs text-neutral-500 mb-3">Inboxes: {d.inbox_addresses?.length ? d.inbox_addresses.join(', ') : '—'}</div>
                     <div className="flex gap-2">
                       {d.status === 'healthy' ? (
                         <button onClick={() => { setPauseError(null); setPauseTarget(d); }} className="btn-accent btn-compact">Pause</button>

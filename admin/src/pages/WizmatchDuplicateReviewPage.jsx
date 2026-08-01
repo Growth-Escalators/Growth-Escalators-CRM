@@ -170,7 +170,7 @@ function WizmatchDuplicateReviewPageContent() {
                 <CompanyCard company={d.companyB} />
               </div>
               {d.resolution !== 'pending' && d.resolvedAt && (
-                <p className="text-[11px] text-neutral-400 mt-2">
+                <p className="text-[11px] text-neutral-500 mt-2">
                   Resolved {new Date(d.resolvedAt).toLocaleString()}
                 </p>
               )}

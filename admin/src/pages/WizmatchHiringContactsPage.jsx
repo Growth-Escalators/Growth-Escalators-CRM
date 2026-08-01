@@ -16,21 +16,24 @@ import { exportRowsToCsv } from '../components/wizmatch/filters/exportCsv.js';
 
 const contactLabel = (c) => [c.first_name, c.last_name].filter(Boolean).join(' ') || 'Unnamed contact';
 
-// Truncation constants — both endpoints silently cut the list off, so the UI has
-// to say so out loud (house rule: never hide truncation).
+// Truncation constants — one endpoint pages, the other caps, and the UI has to
+// say which is which out loud (house rule: never hide truncation).
 //
-// Linked tab: wizmatchStaffingDomain.listHiringContacts() ends in a hard
-// `LIMIT 1000` and the route returns no `total`, so "we got exactly the cap
-// back" is the ONLY truncation signal available. There is no paging parameter
-// to raise, which is why the banner tells the user to expect missing rows
-// rather than offering a bigger page.
+// Linked tab: wizmatchStaffingDomain.listHiringContacts() still ends in a hard
+// `LIMIT 1000`, but the route now returns `{ items, total }` and accepts
+// `?search=`. So the banner can name the real total instead of inferring "we got
+// exactly the cap back", and it can point at the lever that reaches past the cap:
+// narrowing the search SERVER-side. (This comment used to say there was no paging
+// parameter to raise — there is still no page/offset param here, but search is no
+// longer client-side-only, so "those rows are unreachable" is no longer true.)
 const LINKED_SERVER_CAP = 1000;
-// Queue tab: GET /contact-intelligence/queue does `Math.min(limit, 100)` and
-// returns `{ total, returned }`. Both count COMPANIES (distinct company_id on
-// wizmatch_job_signals), not candidates — the response is company-shaped and
-// this page flattens it into candidate rows.
+// Queue tab: GET /contact-intelligence/queue does `Math.min(limit, 100)`, takes
+// `?offset=`, and returns `{ total, returned }`. All three count COMPANIES
+// (distinct company_id on wizmatch_job_signals), not candidates — the response is
+// company-shaped and this page flattens it into candidate rows at no fixed ratio.
+// That is why the pager below is labelled, and counted, in companies.
 const QUEUE_SERVER_MAX_LIMIT = 100;
-const QUEUE_LIMIT_OPTIONS = [25, 50, 100];
+const QUEUE_LIMIT_OPTIONS = [25, 50, 100].filter((n) => n <= QUEUE_SERVER_MAX_LIMIT);
 // Server rejects >200 ids per bulk request (parseBulkIds in src/routes/wizmatch.ts).
 const BULK_REVIEW_CHUNK = 200;
 
@@ -40,7 +43,12 @@ const QUEUE_STATUSES = ['needs_review', 'approved', 'rejected', 'linked_to_crm']
 const optsHC = (arr) => arr.map((v) => ({ value: v, label: v.replaceAll('_', ' ') }));
 
 const LINKED_FILTERS = [
-  { key: 'q', label: 'Search', type: 'search', placeholder: 'Name, company, email…', fields: ['first_name', 'last_name', 'company_name', 'email', 'phone'] },
+  // Search runs on the SERVER (`?search=`), not over the loaded rows: the route
+  // matches concat_ws(' ', first_name, last_name, company_name) across the whole
+  // table, so it reaches rows past the LIMIT 1000 cap and "jane acme" matches.
+  // `serverOnly` stops filterPipeline re-applying a narrower per-field contains()
+  // on top, which would drop rows the server had already matched.
+  { key: 'q', label: 'Search', type: 'search', placeholder: 'Name, company, email…', serverOnly: true, serverKey: 'search' },
   { key: 'relationship_stage', label: 'Relationship', type: 'multiselect', options: optsHC(RELATIONSHIP_STAGES) },
   { key: 'roles', label: 'Role', type: 'multiselect', options: optsHC(HC_ROLES) },
   { key: 'active_reqs', label: 'Active reqs', type: 'numberRange', accessor: (r) => r.active_requirement_count },
@@ -71,12 +79,22 @@ const TABS = [
 
 // Rows dropped by the client-side filters are the other half of the truncation
 // story: with no count, a filtered list is indistinguishable from a short one.
-function ResultCount({ shown, total, noun }) {
+//
+// `scopeLabel` names WHAT the count is out of. It defaults to the original
+// "loaded" so the Linked tab's copy is unchanged; the queue tab passes
+// "on this page", because there its denominator is one server page, not the
+// whole list. The two orders below are deliberate: "loaded" reads as an
+// adjective ("50 loaded candidates") while a phrase has to trail the noun
+// ("50 candidates on this page").
+function ResultCount({ shown, total, noun, scopeLabel = 'loaded' }) {
   if (!total) return null;
   const plural = `${noun}${total === 1 ? '' : 's'}`;
+  const filteredText = scopeLabel === 'loaded'
+    ? `Showing ${shown} of ${total} loaded ${plural} — filters applied`
+    : `Showing ${shown} of ${total} ${plural} ${scopeLabel} — filters applied`;
   return (
     <p className="mb-2 text-[11.5px] text-neutral-500">
-      {shown === total ? `${total} ${plural} loaded` : `Showing ${shown} of ${total} loaded ${plural} — filters applied`}
+      {shown === total ? `${total} ${plural} ${scopeLabel}` : filteredText}
     </p>
   );
 }
@@ -131,6 +149,9 @@ export default function WizmatchHiringContactsPage() {
 function LinkedContactsTab() {
   const { showSuccess } = useToast();
   const [rows, setRows] = useState([]);
+  // Server-reported match count for the current search, BEFORE the LIMIT 1000 cap.
+  // null when the route didn't send one (older stubs), which the banner handles.
+  const [total, setTotal] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
@@ -146,13 +167,25 @@ function LinkedContactsTab() {
   );
   const sel = useRowSelection(filtered, 'id');
 
+  // The search box is a server filter, so a new query means a new request rather
+  // than a client-side re-filter. FilterBar debounces the input (300ms) before it
+  // reaches ctl.filters, so this does not fire per keystroke.
+  const search = (ctl.filters.q || '').trim();
+
   const load = useCallback(async () => {
     if (loadedOnce.current) setRefreshing(true); else setLoading(true);
     setError(null);
+    // Selection is cleared on every load by contract. Now that search is
+    // server-side that also happens while the user types — intentional and
+    // correct (the row set changed, so ids picked against the old result set must
+    // not survive into a bulk action over the new one), but it IS user-visible:
+    // ticking rows and then editing the search loses the ticks.
     sel.clear();
     try {
-      const data = await apiFetch('/api/wizmatch/staffing/hiring-contacts');
+      const qs = search ? `?search=${encodeURIComponent(search)}` : '';
+      const data = await apiFetch(`/api/wizmatch/staffing/hiring-contacts${qs}`);
       setRows(data.items || []);
+      setTotal(data.total ?? null);
     } catch (e) {
       setError(e.message || 'Failed to load hiring contacts');
     } finally {
@@ -160,7 +193,7 @@ function LinkedContactsTab() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [sel.clear]);
+  }, [sel.clear, search]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -194,11 +227,12 @@ function LinkedContactsTab() {
             applyPreset={ctl.applyPreset}
             deletePreset={ctl.deletePreset}
           />
-          {rows.length >= LINKED_SERVER_CAP && (
+          {(total != null ? rows.length < total : rows.length >= LINKED_SERVER_CAP) && (
             <div role="status" className="mb-2 rounded-md border border-warning-300 bg-warning-500/10 px-3 py-2 text-[12px] text-warning-700">
-              Showing the first {LINKED_SERVER_CAP.toLocaleString()} hiring contacts — the API caps this list and reports no
-              total, so there may be more that this screen cannot reach. The filters above only narrow rows that are
-              already loaded.
+              {total != null
+                ? `Showing the first ${rows.length.toLocaleString()} of ${total.toLocaleString()} matching hiring contacts — narrow the search to see the rest.`
+                : `Showing the first ${LINKED_SERVER_CAP.toLocaleString()} hiring contacts — the API caps this list and reported no total, so there may be more than this screen can reach.`}
+              {' '}Search runs across every hiring contact; the other filters only narrow the rows already loaded.
             </div>
           )}
           <ResultCount shown={filtered.length} total={rows.length} noun="hiring contact" />
@@ -209,7 +243,10 @@ function LinkedContactsTab() {
             onRowClick={setSelected}
             loading={loading}
             refreshing={refreshing}
-            emptyText={rows.length === 0 ? 'No hiring contacts linked yet — link a CRM contact from the Companies page, or approve a discovery candidate.' : 'No hiring contacts match these filters.'}
+            // With a search term the server can legitimately return zero rows, which
+            // is "nothing matched", not "nothing exists" — don't tell someone with an
+            // active query that they have never linked a hiring contact.
+            emptyText={rows.length === 0 && !search ? 'No hiring contacts linked yet — link a CRM contact from the Companies page, or approve a discovery candidate.' : 'No hiring contacts match these filters.'}
             sort={ctl.sort}
             onSort={ctl.setSort}
             selectedIds={sel.selectedIds}
@@ -531,6 +568,30 @@ const isPersisted = (c) => c.deliverabilityStatus !== undefined;
 
 function DiscoveryQueueTab() {
   const { showSuccess, showError } = useToast();
+  // ── Paging state, read straight off the URL, ABOVE `load`. Both parts of that
+  // sentence are load-bearing:
+  //
+  // 1. It must be read HERE, not from `ctl`. `ctl` (useTableControls) is declared
+  //    ~120 lines below `load`, because it needs `columns`, which are built from
+  //    the row handlers, which call `load()`. Putting `ctl.page` in `load`'s deps
+  //    therefore throws "Cannot access 'ctl' before initialization" at render —
+  //    it is not a lint nit, the tab does not render at all. Reading the query
+  //    string directly sits outside that cycle.
+  // 2. The param name is `page` ON PURPOSE — the same key useTableControls uses.
+  //    setFilter/clearFilter/setSort already write page=0, so changing a filter or
+  //    sort snaps back to the first server page for free. Renaming this to its own
+  //    param (`qpage` or similar) would compile, look tidier, and silently lose
+  //    that reset — leaving a freshly-filtered view stuck on offset 150.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rawPage = Number(searchParams.get('page'));
+  const page = Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 0;
+  const goToPage = useCallback((n, { replace = false } = {}) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('page', String(Math.max(0, n)));
+      return next;
+    }, { replace });
+  }, [setSearchParams]);
   const [items, setItems] = useState([]);
   // { total, returned } — companies, not candidates. See QUEUE_SERVER_MAX_LIMIT.
   const [meta, setMeta] = useState(null);
@@ -558,7 +619,7 @@ function DiscoveryQueueTab() {
     setError(null);
     clearSelection.current();
     try {
-      const data = await apiFetch(`/api/wizmatch/contact-intelligence/queue?limit=${limit}`);
+      const data = await apiFetch(`/api/wizmatch/contact-intelligence/queue?limit=${limit}&offset=${page * limit}`);
       const flattened = (data.items || []).flatMap(company =>
         (company.contactCandidates || []).map(candidate => ({
           ...candidate,
@@ -575,9 +636,52 @@ function DiscoveryQueueTab() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [limit]);
+  }, [limit, page]);
 
   useEffect(() => { load(); }, [load]);
+
+  // ── Pager arithmetic, all in COMPANIES (see QUEUE_SERVER_MAX_LIMIT) ──────────
+  const busy = loading || refreshing;
+  const totalCompanies = meta?.total ?? null;
+  const returnedCompanies = meta?.returned ?? 0;
+  const rangeStart = page * limit + 1;
+  // `returned` is what the server actually sent, so a short last page reads
+  // "151–183", not the "151–200" that Math.min((page + 1) * limit, total) would
+  // produce the moment limit and total stop dividing evenly.
+  const rangeEnd = page * limit + returnedCompanies;
+  const lastPage = totalCompanies ? Math.max(0, Math.ceil(totalCompanies / limit) - 1) : 0;
+  const hasNextPage = totalCompanies != null && rangeEnd < totalCompanies;
+
+  // Changing the page size must also reset the page, or `offset = page * limit`
+  // lands somewhere arbitrary (page 3 at 25/page = offset 75; switch to 100/page
+  // and the same page 3 jumps to offset 300). Both setters run inside one event
+  // handler, so React batches them: `load` changes identity once and exactly ONE
+  // request goes out, not one for the new size and another for the page reset.
+  const changePageSize = useCallback((n) => {
+    setLimit(n);
+    goToPage(0, { replace: true });
+  }, [goToPage]);
+
+  // Out-of-range snap-back. The page the URL asks for can stop existing under the
+  // user: a saved view from when the queue was bigger, or the ordinary case —
+  // reviewing the last few candidates on the final page drops `total` below the
+  // current offset and the next reload comes back empty.
+  //
+  // Gated on a SETTLED load and on the server having sent paging info. Firing on
+  // the initial empty state would put a second request on the wire during mount,
+  // which blows the "<10 requests" budget three e2e specs assert.
+  useEffect(() => {
+    if (busy || !loadedOnce.current || error) return;
+    if (totalCompanies == null || totalCompanies <= 0) return;
+    if (page === 0) return;
+    // Zero companies came back for a non-first page — that is "past the end".
+    // Checking `returned` and not just the flattened rows matters: a valid page of
+    // companies that simply have no candidates yet also renders an empty table,
+    // and snapping away from it would hide a real page.
+    if (returnedCompanies > 0 || items.length > 0) return;
+    if (lastPage === page) return; // guard: only act when it actually changes `page`
+    goToPage(lastPage, { replace: true });
+  }, [busy, error, page, lastPage, totalCompanies, returnedCompanies, items.length, goToPage]);
 
   const review = useCallback(async (candidate, action) => {
     setBusyId(candidate.id);
@@ -757,8 +861,6 @@ function DiscoveryQueueTab() {
     },
   ];
 
-  const truncated = meta && meta.total != null && meta.returned != null && meta.total > meta.returned;
-
   return (
     <div>
       {error ? (
@@ -783,27 +885,66 @@ function DiscoveryQueueTab() {
             applyPreset={ctl.applyPreset}
             deletePreset={ctl.deletePreset}
           />
-          {truncated && (
-            <div role="status" className="mb-2 flex flex-wrap items-center gap-2 rounded-md border border-warning-300 bg-warning-500/10 px-3 py-2 text-[12px] text-warning-700">
+          {/* Pager, in COMPANIES — the unit mismatch is the whole point and has to
+              stay on screen. The API pages companies; this table lists their
+              candidates; the ratio is whatever discovery happened to find, so
+              "51–100 of 183" without the word "Companies" would read as candidates
+              and be wrong by an order of magnitude.
+              Gated on meta.total: responses without paging info (older stubs) get
+              no pager rather than a pager full of nulls. */}
+          {meta?.total != null && (
+            <div className="mb-2 flex flex-wrap items-center gap-2 rounded-md border border-neutral-200 px-3 py-2 text-[12px] text-neutral-600">
               <span>
-                Showing candidates from {meta.returned} of {meta.total} companies with job signals — candidates at the
-                other {meta.total - meta.returned} companies are not on this screen at all.
-                {limit >= QUEUE_SERVER_MAX_LIMIT && ' The API caps this at 100 companies per request.'}
+                Companies <span className="font-semibold tabular-nums text-neutral-900">{rangeStart}–{rangeEnd}</span> of{' '}
+                <span className="font-semibold tabular-nums text-neutral-900">{totalCompanies}</span>
+                {' · '}candidates from {returnedCompanies} compan{returnedCompanies === 1 ? 'y' : 'ies'} on this page
               </span>
+              {/* This selector lives in the pager, NOT in a truncation banner. It
+                  used to render inside `{truncated && …}`, which goes false on the
+                  last page — so the control (and any pager sharing that block)
+                  would disappear exactly when the user needs Prev. */}
               <label className="ml-auto flex items-center gap-1.5 whitespace-nowrap font-medium">
-                Companies per load
+                Companies per page
                 <select
                   value={limit}
-                  onChange={(e) => setLimit(Number(e.target.value))}
-                  disabled={refreshing}
+                  onChange={(e) => changePageSize(Number(e.target.value))}
+                  disabled={busy}
                   className="input py-0.5 text-[12px]"
                 >
                   {QUEUE_LIMIT_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
                 </select>
               </label>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => goToPage(page - 1)}
+                  disabled={busy || page === 0}
+                  className="btn-standard btn-compact disabled:opacity-40"
+                >
+                  Prev
+                </button>
+                <button
+                  type="button"
+                  onClick={() => goToPage(page + 1)}
+                  disabled={busy || !hasNextPage}
+                  className="btn-standard btn-compact disabled:opacity-40"
+                >
+                  Next
+                </button>
+              </div>
             </div>
           )}
-          <ResultCount shown={filtered.length} total={items.length} noun="candidate" />
+          {/* Mandatory alongside the pager: all five queue filters are client-side
+              over the rows of the CURRENT page. Filtering to needs_review and
+              seeing 3 rows otherwise implies 3 are left in the whole queue when
+              there may be 300 on later pages — which would just trade the old
+              truncation lie for a new one. */}
+          {ctl.activeChips.length > 0 && (
+            <p role="status" className="mb-2 text-[11.5px] font-medium text-warning-700">
+              Filters apply to the companies on this page only.
+            </p>
+          )}
+          <ResultCount shown={filtered.length} total={items.length} noun="candidate" scopeLabel="on this page" />
           <DataTable
             columns={ctl.visibleColumns}
             rows={filtered}
@@ -811,7 +952,15 @@ function DiscoveryQueueTab() {
             onRowClick={setSelected}
             loading={loading}
             refreshing={refreshing}
-            emptyText={items.length === 0 ? 'Discovery queue is empty — candidates appear once a company enters contact discovery.' : 'No candidates match these filters.'}
+            emptyText={
+              // Three cases, not two. On page > 0 a genuinely valid page of
+              // companies can flatten to zero candidate rows, and telling the
+              // user the queue is EMPTY there is false — the queue has content,
+              // this slice of it just has no candidates yet.
+              items.length > 0 ? 'No candidates match these filters.'
+                : page > 0 ? 'No candidates on this page — these companies have not produced contact candidates yet. Try another page.'
+                : 'Discovery queue is empty — candidates appear once a company enters contact discovery.'
+            }
             sort={ctl.sort}
             onSort={ctl.setSort}
             selectedIds={sel.selectedIds}

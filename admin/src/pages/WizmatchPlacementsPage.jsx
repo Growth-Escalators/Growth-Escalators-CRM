@@ -25,6 +25,31 @@ const PLACEMENT_EXPORT_COLUMNS = [
 
 const STAGES = ['submitted', 'interviewing', 'offered', 'started', 'ended', 'lost'];
 const STAGE_LABELS = { submitted: 'Submitted', interviewing: 'Interviewing', offered: 'Offered', started: 'Started', ended: 'Ended', lost: 'Lost' };
+
+// Server-side scope for the board. The status values are the ones the column
+// actually stores (src/db/schema.ts, wizmatch_placements.status:
+// submitted | interviewing | offered | started | ended | lost) and the
+// active/closed split mirrors the backend's own definition of "active"
+// (`status IN ('submitted','interviewing','offered','started')`, used in
+// src/routes/wizmatch.ts at the candidate, company and dashboard rollups).
+//
+// GET /api/wizmatch/placements takes `status` as a comma-separated list and
+// builds `wp.status = ANY($n::text[])`, so a whole scope is ONE request. It has
+// to stay one: load() re-runs after every drag, every drawer edit and every
+// modal save, so anything fan-shaped here is a request amplifier on an
+// interactive board.
+//
+// Paging is deliberately NOT used — a global offset across six columns yields
+// six half-filled columns, and drag-drop could move a card onto another page.
+// Narrowing the scope is the mitigation instead: it spends the whole 200-row
+// budget on the stages you are actually working in.
+const VIEWS = [
+  { key: 'active', label: 'Active', stages: ['submitted', 'interviewing', 'offered', 'started'], noun: 'active placements' },
+  { key: 'closed', label: 'Closed & archived', stages: ['ended', 'lost'], noun: 'closed & archived placements' },
+  { key: 'all', label: 'All', stages: STAGES, noun: 'placements' },
+];
+const VIEW_BY_KEY = Object.fromEntries(VIEWS.map((v) => [v.key, v]));
+const LIST_LIMIT = 200;
 const STAGE_COLORS = { submitted: '#3b82f6', interviewing: '#f59e0b', offered: '#8b5cf6', started: '#22c55e', ended: '#94a3b8', lost: '#ef4444' };
 // Neutral columns match tokens exactly (neutral-100/neutral-200); started/lost use
 // the spec's exact tints, which aren't in the token scale.
@@ -83,9 +108,16 @@ export default function WizmatchPlacementsPage() {
   const { showSuccess, showError } = useToast();
   const [placements, setPlacements] = useState([]);
   // GET /api/wizmatch/placements caps `limit` at 200 and returns the real row
-  // count. The board asks for the maximum and used to discard `total`, so a
-  // tenant past 200 placements silently lost the oldest ones off the board.
+  // count for the same WHERE clause it selected on — so `total` is the count for
+  // the current scope, not the whole table. It is one scope-wide number: the
+  // response carries no per-stage breakdown, so nothing on this page may claim
+  // to know how many rows are missing from any individual column.
   const [total, setTotal] = useState(null);
+  // Server-side scope. Deliberately plain local state and NOT derived from
+  // `ctl`: `placementFilters` is faceted from the loaded rows, so anything
+  // ctl-derived changes identity on every load and would turn `load`'s dep
+  // array into an unbounded refetch loop. `view` is the only thing in there.
+  const [view, setView] = useState('all');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState('');
@@ -98,37 +130,66 @@ export default function WizmatchPlacementsPage() {
   // page used to replace itself, filters and header included, with the word
   // "Loading…" on every single refetch.
   const loadedOnce = useRef(false);
+  // One request per load makes overlapping loads rarer, not impossible — a drag
+  // fires updateStatus → load() while an in-flight load may still be pending.
+  // Only the newest load is allowed to write state.
+  const loadSeq = useRef(0);
 
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     if (loadedOnce.current) setRefreshing(true); else setLoading(true);
     setLoadError('');
     try {
-      const [data, access] = await Promise.all([
-        apiFetch('/api/wizmatch/placements?limit=200'),
-        apiFetch('/api/wizmatch/staffing/access').catch(() => ({ capabilities: {} })),
-      ]);
+      const stages = (VIEW_BY_KEY[view] || VIEW_BY_KEY.all).stages;
+      // One request for the whole scope. The status list is sent even for "All"
+      // rather than omitting the param: it pins `total` to exactly the rows this
+      // board can render, so "showing X of Y" can't be skewed by a row with a
+      // NULL or off-list status that no column would ever draw.
+      const data = await apiFetch(`/api/wizmatch/placements?limit=${LIST_LIMIT}&status=${encodeURIComponent(stages.join(','))}`);
+      if (seq !== loadSeq.current) return;
       setPlacements(data.items || []);
       setTotal(data.total ?? null);
-      setCapabilities(access.capabilities || {});
     } catch (e) {
       // Deliberately keeps whatever was already on the board: a failed refetch
       // that empties the columns reads as "all your placements are gone".
       // First-load failures still land on ErrorRetry, since there is nothing
       // to keep in that case.
-      setLoadError(e.message || 'Placements could not be loaded.');
+      if (seq === loadSeq.current) setLoadError(e.message || 'Placements could not be loaded.');
     } finally {
-      loadedOnce.current = true;
-      setLoading(false);
-      setRefreshing(false);
+      if (seq === loadSeq.current) {
+        loadedOnce.current = true;
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
-  }, []);
+  }, [view]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Capabilities gate the drawer's finance actions and don't change within a
+  // session, so they are fetched once instead of riding along on every load —
+  // that is what keeps a refetch at exactly one request. Failure is swallowed
+  // as before: no capabilities means the finance actions stay hidden, and it
+  // must never be able to fail the board.
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch('/api/wizmatch/staffing/access')
+      .then((access) => { if (!cancelled) setCapabilities(access.capabilities || {}); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const viewStages = (VIEW_BY_KEY[view] || VIEW_BY_KEY.all).stages;
+  const viewNoun = (VIEW_BY_KEY[view] || VIEW_BY_KEY.all).noun;
 
   const updateStatus = async (id, status) => {
     try {
       await apiFetch(`/api/wizmatch/placements/${id}`, { method: 'PUT', body: JSON.stringify({ status }) });
-      showSuccess(`Placement moved to ${STAGE_LABELS[status] || status}`);
+      // Moving a card into a stage the current scope doesn't load makes it
+      // vanish on the next refetch. Say so rather than letting it look lost.
+      showSuccess(viewStages.includes(status)
+        ? `Placement moved to ${STAGE_LABELS[status] || status}`
+        : `Placement moved to ${STAGE_LABELS[status] || status} — not shown in the ${(VIEW_BY_KEY[view] || VIEW_BY_KEY.all).label} view`);
       load();
     } catch (e) {
       showError(e.message || 'The placement could not be moved.');
@@ -156,21 +217,57 @@ export default function WizmatchPlacementsPage() {
   const filteredPlacements = ctl.applyClient(placements);
   const commercialSummary = summarizePlacementCommercials(filteredPlacements);
 
+  // `total` is one scope-wide server count and the 200-row cap is one global
+  // LIMIT over that scope, ordered created_at DESC. The rows it drops are the
+  // oldest across the whole scope and cannot be attributed to any one column,
+  // so this page deliberately carries no per-column "N older hidden" hint — it
+  // would be a number we cannot actually compute. The cap is stated at board
+  // level instead.
+  const isTruncated = total != null && total > placements.length;
+  // The commercial figures are summed over the cards on the board, which is not
+  // the whole pipeline as soon as a scope, a client filter, or the 200-row cap
+  // is in play. Say so instead of letting it read as a pipeline total.
+  const commercialsArePartial = view !== 'all' || isTruncated || filteredPlacements.length !== placements.length;
+
   return (
     <div className="flex flex-col h-full">
       {/* Command bar */}
       <div className="bg-white border-b border-neutral-200 px-6 py-3.5 space-y-3">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Server-side scope — one refetch with a `status` list, not a
+              client-side filter. Intentionally kept out of the FilterBar/`ctl`
+              so it can be a `load` dependency safely. */}
+          <div role="group" aria-label="Placement scope" className="flex items-center rounded-md border border-neutral-200 overflow-hidden">
+            {VIEWS.map((v) => (
+              <button
+                key={v.key}
+                type="button"
+                aria-pressed={view === v.key}
+                onClick={() => setView(v.key)}
+                className={`text-[12px] font-semibold px-2.5 py-1 border-r border-neutral-200 last:border-r-0 transition-colors ${
+                  view === v.key ? 'bg-primary-500/10 text-primary-700' : 'bg-white text-neutral-600 hover:bg-neutral-100'
+                }`}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
           <span className="text-[12.5px] font-semibold text-primary-700 bg-primary-500/10 border border-primary-500/20 px-2.5 py-0.5 rounded-full">
             {loading
               ? 'Loading placements…'
               : `${filteredPlacements.length === placements.length
-                  ? `${placements.length} placements`
-                  : `${filteredPlacements.length} of ${placements.length} placements`} · ${commercialSummary}`}
+                  ? `${placements.length} ${viewNoun}`
+                  : `${filteredPlacements.length} of ${placements.length} ${viewNoun}`} · ${commercialSummary}`}
           </span>
-          {!loading && total != null && total > placements.length && (
+          {!loading && commercialsArePartial && (
+            <span className="text-[11.5px] text-neutral-500">
+              Totals cover the {filteredPlacements.length} card{filteredPlacements.length === 1 ? '' : 's'} on this board, not the whole pipeline
+            </span>
+          )}
+          {!loading && isTruncated && (
             <span role="status" className="text-[12px] font-medium text-warning-700 bg-warning-500/10 border border-warning-300 px-2.5 py-0.5 rounded-full">
-              Showing the {placements.length} most recent of {total} — older placements are not on this board
+              Showing the {placements.length} most recent of {total} {viewNoun} — older ones are not on this board.
+              {view === 'all' ? ' Narrow the scope to fit more of the stages you need.' : ''}
             </span>
           )}
           <div className="flex-1" />
@@ -218,19 +315,30 @@ export default function WizmatchPlacementsPage() {
       ) : loadError && placements.length === 0 ? (
         <div className="p-6"><ErrorRetry message={loadError} onRetry={load} retrying={refreshing} /></div>
       ) : placements.length === 0 ? (
-        <EmptyState title="No placements yet" description="Placements are created from an accepted offer on the Submissions & Delivery board, or via the legacy Add Placement button." />
+        view === 'all' ? (
+          <EmptyState title="No placements yet" description="Placements are created from an accepted offer on the Submissions & Delivery board, or via the legacy Add Placement button." />
+        ) : (
+          <EmptyState
+            title={`No ${viewNoun}`}
+            description={`Nothing is in ${viewStages.map((s) => STAGE_LABELS[s]).join(', ')} right now. Switch the scope to All to see every placement.`}
+          />
+        )
       ) : (
       <>
       {/* Kanban */}
       <div className={`flex-1 overflow-x-auto transition-opacity ${refreshing ? 'opacity-60' : ''}`} aria-busy={refreshing}>
         <div className="flex gap-3 pt-[18px] px-6 pb-6 items-start min-w-max">
           {STAGES.map(stage => {
-            const stageDeals = filteredPlacements.filter(p => p.status === stage);
+            // A stage outside the current scope was never fetched. Its column
+            // stays mounted so it remains a valid drop target, but it must not
+            // render "0" — there may well be hundreds of rows behind it.
+            const inScope = viewStages.includes(stage);
+            const stageDeals = inScope ? filteredPlacements.filter(p => p.status === stage) : [];
             const stageCommercialSummary = summarizePlacementCommercials(stageDeals);
             return (
               <div
                 key={stage}
-                className={`flex-shrink-0 w-64 rounded-lg border overflow-hidden ${COLUMN_BG[stage]}`}
+                className={`flex-shrink-0 w-64 rounded-lg border overflow-hidden ${COLUMN_BG[stage]} ${inScope ? '' : 'opacity-60'}`}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => onDrop(e, stage)}
               >
@@ -240,10 +348,18 @@ export default function WizmatchPlacementsPage() {
                   <h2 className={`text-[12.5px] font-semibold flex-1 truncate ${HEADER_TEXT[stage] || 'text-neutral-700'}`}>
                     {STAGE_LABELS[stage]}
                   </h2>
-                  <span className={`text-[11px] font-semibold px-1.5 py-px rounded-full border ${COUNT_PILL[stage] || 'bg-white border-neutral-200 text-neutral-500'}`}>
-                    {stageDeals.length}
-                  </span>
+                  {inScope && (
+                    <span className={`text-[11px] font-semibold px-1.5 py-px rounded-full border ${COUNT_PILL[stage] || 'bg-white border-neutral-200 text-neutral-500'}`}>
+                      {stageDeals.length}
+                    </span>
+                  )}
                 </div>
+                {!inScope ? (
+                  <p className="px-3 pb-3 text-[11px] font-medium text-neutral-500">
+                    Not loaded in this scope — switch to All to see these. Cards can still be dropped here.
+                  </p>
+                ) : (
+                <>
                 <p className={`px-3 pb-2 text-[11px] font-medium ${SUBTOTAL_TEXT[stage] || 'text-neutral-600'}`}>
                   {stageCommercialSummary}
                 </p>
@@ -277,6 +393,8 @@ export default function WizmatchPlacementsPage() {
                     + New
                   </button>
                 </div>
+                </>
+                )}
               </div>
             );
           })}

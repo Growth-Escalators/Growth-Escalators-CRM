@@ -112,7 +112,7 @@ function handle(error: unknown, res: Response) {
 }
 
 router.get('/staffing/companies', async (req, res) => {
-  try { const current = requireRelationshipRole(req); return res.json({ items: await wizmatchStaffingService.listCompanies(current.tenantId, String(req.query.search ?? '')) }); }
+  try { const current = requireRelationshipRole(req); return res.json(await wizmatchStaffingService.listCompanies(current.tenantId, String(req.query.search ?? ''))); }
   catch (error) { return handle(error, res); }
 });
 
@@ -127,7 +127,7 @@ router.get('/staffing/contacts', async (req, res) => {
 });
 
 router.get('/staffing/hiring-contacts', async (req, res) => {
-  try { const current = requireRelationshipRole(req); return res.json({ items: await wizmatchStaffingService.listHiringContacts(current.tenantId, String(req.query.search ?? '')) }); }
+  try { const current = requireRelationshipRole(req); return res.json(await wizmatchStaffingService.listHiringContacts(current.tenantId, String(req.query.search ?? ''))); }
   catch (error) { return handle(error, res); }
 });
 

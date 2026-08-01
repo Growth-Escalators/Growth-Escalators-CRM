@@ -254,7 +254,7 @@ function AddContactModal({ onClose, onCreated }) {
           </div>
         </div>
         <div>
-          <label className="block text-xs font-medium text-neutral-600 mb-1">Tags <span className="text-neutral-400 font-normal">(comma-separated)</span></label>
+          <label className="block text-xs font-medium text-neutral-600 mb-1">Tags <span className="text-neutral-500 font-normal">(comma-separated)</span></label>
           <input
             type="text"
             value={form.tags}
@@ -476,7 +476,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
                 className="bg-primary-600 hover:bg-primary-700 text-white text-sm px-4 py-1.5 rounded-lg disabled:opacity-50">
                 Apply
               </button>
-              <button onClick={() => { setShowTagPanel(false); setSelectedTags(new Set()); }} className="text-neutral-400 hover:text-neutral-600 text-sm">Cancel</button>
+              <button onClick={() => { setShowTagPanel(false); setSelectedTags(new Set()); }} className="text-neutral-500 hover:text-neutral-600 text-sm">Cancel</button>
             </div>
           </div>
         )}
@@ -499,7 +499,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
               className="bg-primary-600 hover:bg-primary-700 text-white text-sm px-4 py-1.5 rounded-lg disabled:opacity-50">
               Send to {count} contact{count > 1 ? 's' : ''}
             </button>
-            <button onClick={() => setShowEmailPanel(false)} className="text-neutral-400 hover:text-neutral-600 text-sm">Cancel</button>
+            <button onClick={() => setShowEmailPanel(false)} className="text-neutral-500 hover:text-neutral-600 text-sm">Cancel</button>
           </div>
         )}
 
@@ -516,7 +516,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
               className="bg-primary-600 hover:bg-primary-700 text-white text-sm px-4 py-1.5 rounded-lg disabled:opacity-50">
               Assign
             </button>
-            <button onClick={() => setShowAssignPanel(false)} className="text-neutral-400 hover:text-neutral-600 text-sm">Cancel</button>
+            <button onClick={() => setShowAssignPanel(false)} className="text-neutral-500 hover:text-neutral-600 text-sm">Cancel</button>
           </div>
         )}
       </div>
@@ -778,7 +778,7 @@ export default function ContactsPage() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
               Add Contact
             </button>
-            <button className="p-2 text-neutral-400 hover:text-neutral-600 border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors" title="Settings">
+            <button className="p-2 text-neutral-500 hover:text-neutral-600 border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors" title="Settings">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
             </button>
           </div>
@@ -880,7 +880,7 @@ export default function ContactsPage() {
           ) : (
           <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden shadow-sm">
             <div className="flex items-center justify-end px-3 py-1.5 border-b border-neutral-100 bg-neutral-50/60">
-              <button onClick={resetColWidths} className="text-[10px] text-neutral-400 hover:text-neutral-700 font-medium">
+              <button onClick={resetColWidths} className="text-[10px] text-neutral-500 hover:text-neutral-700 font-medium">
                 Reset column widths
               </button>
             </div>
@@ -933,7 +933,7 @@ export default function ContactsPage() {
                     <button onClick={load} className="text-sm text-primary-600 hover:underline">Retry</button>
                   </td></tr>
                 ) : contacts.length === 0 ? (
-                  <tr><td colSpan={7} className="px-4 py-12 text-center text-neutral-400 text-sm">No contacts found</td></tr>
+                  <tr><td colSpan={7} className="px-4 py-12 text-center text-neutral-500 text-sm">No contacts found</td></tr>
                 ) : contacts.map((c) => {
                   const isSelected = selectedIds.has(c.id);
                   const initials = getInitials(c.firstName, c.lastName ?? '');
@@ -962,7 +962,7 @@ export default function ContactsPage() {
                               {c.firstName} {c.lastName ?? ''}
                             </p>
                             {(c.doNotContact || c.assignedTo) && (
-                              <p className="text-[10px] text-neutral-400 truncate leading-tight">
+                              <p className="text-[10px] text-neutral-500 truncate leading-tight">
                                 {c.doNotContact && <span className="text-danger-500 font-medium">DNC </span>}
                                 {c.assignedTo}
                               </p>
@@ -1011,7 +1011,7 @@ export default function ContactsPage() {
                             </span>
                           ))}
                           {(c.tags?.length ?? 0) > 2 && (
-                            <span className="text-[10px] text-neutral-400">+{c.tags.length - 2}</span>
+                            <span className="text-[10px] text-neutral-500">+{c.tags.length - 2}</span>
                           )}
                           {c.activeDeal && (
                             <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-accent-50 text-accent-700 font-medium border border-accent-200 truncate max-w-[120px]">

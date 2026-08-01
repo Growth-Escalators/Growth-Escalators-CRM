@@ -31,8 +31,8 @@ export default function WizmatchPrimesPage() {
             </tr>
           </thead>
           <tbody>
-            {loading ? <tr><td colSpan="6" className="px-4 py-8 text-center text-neutral-400">Loading...</td></tr>
-            : primes.length === 0 ? <tr><td colSpan="6" className="px-4 py-8 text-center text-neutral-400">No prime companies yet</td></tr>
+            {loading ? <tr><td colSpan="6" className="px-4 py-8 text-center text-neutral-500">Loading...</td></tr>
+            : primes.length === 0 ? <tr><td colSpan="6" className="px-4 py-8 text-center text-neutral-500">No prime companies yet</td></tr>
             : primes.map(p => (
               <tr key={p.id}>
                 <td className="font-medium text-neutral-900">{p.name}</td>

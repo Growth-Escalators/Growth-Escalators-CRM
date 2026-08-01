@@ -29,6 +29,12 @@ import { normalizeDomain } from '../../services/wizmatchContactIntelligenceRepo'
 import { buildScopeKey } from './scopeKey';
 import { resolveEffectivePolicy, type EffectivePolicy } from './policyResolver';
 import { getReasonCodeMeta } from '../../config/wizmatchReasonCodes';
+import {
+  ELIGIBILITY_OPTIONS,
+  HIRING_POLICY_OPTIONS,
+  RELATIONSHIP_OPTIONS,
+  EVIDENCE_KIND_OPTIONS,
+} from '../../config/wizmatchPolicyEnums';
 import { SCOPE_TYPES } from './policyTypes';
 import type {
   BlockClass,
@@ -49,36 +55,27 @@ import type {
 // it is a bare literal check with no `else -> deny`. Validating all five
 // dimensions here closes that asymmetry once and for all, at the one write
 // chokepoint, rather than patching each gate comparison individually.
-const OUTREACH_ELIGIBILITY_VALUES: OutreachEligibility[] = ['eligible', 'needs_review', 'paused', 'blocked'];
-const EXTERNAL_HIRING_POLICY_VALUES: ExternalHiringPolicy[] = [
-  'accepts_external_vendors',
-  'fte_vendors_only',
-  'contract_vendors_only',
-  'preferred_vendors_only',
-  'msp_vms_only',
-  'direct_hiring_only',
-  'no_external_agencies',
-  'unknown',
-];
-const RELATIONSHIP_TYPE_VALUES: RelationshipType[] = [
-  'new_prospect',
-  'existing_prospect',
-  'existing_client',
-  'vendor_partner',
-  'prime_partner',
-  'former_client',
-  'competitor',
-  'irrelevant',
-];
+//
+// These four arrays used to be written out here by hand, and again in each of
+// the two admin policy forms — three hand-mirrors of one vocabulary, with only
+// a runtime rejection to catch a drift. They now come from
+// `src/config/wizmatchPolicyEnums.ts`, the pure-data module the admin SPA
+// imports directly (a `<select>` cannot render a type-space union, which is why
+// `policyTypes.ts` alone could never have been the shared source).
+//
+// The explicit union annotations below are load-bearing and must stay: they are
+// what makes `tsc` prove that the browser-facing option lists and the canonical
+// `policyTypes.ts` unions agree. A stray value added to the config module fails
+// the build here, at the write chokepoint, instead of reaching a picker.
+// The spread copies the readonly `as const` tuples into the mutable array type
+// these `.includes()` checks are declared with; values, order and behaviour are
+// unchanged. `BLOCK_CLASS_VALUES` stays local — no policy form renders it as a
+// list, so it has no second copy to de-duplicate.
+const OUTREACH_ELIGIBILITY_VALUES: OutreachEligibility[] = [...ELIGIBILITY_OPTIONS];
+const EXTERNAL_HIRING_POLICY_VALUES: ExternalHiringPolicy[] = [...HIRING_POLICY_OPTIONS];
+const RELATIONSHIP_TYPE_VALUES: RelationshipType[] = [...RELATIONSHIP_OPTIONS];
 const BLOCK_CLASS_VALUES: BlockClass[] = ['standard', 'compliance', 'legal'];
-const EVIDENCE_KIND_VALUES: EvidenceKind[] = [
-  'human_text',
-  'source_url',
-  'email_reply_ref',
-  'provider_event_ref',
-  'legal_document_ref',
-  'automated_detection',
-];
+const EVIDENCE_KIND_VALUES: EvidenceKind[] = [...EVIDENCE_KIND_OPTIONS];
 
 export class PolicyValidationError extends Error {
   readonly code: string;

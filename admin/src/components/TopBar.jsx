@@ -74,7 +74,7 @@ function FeedbackWidget() {
                 {/* Header */}
                 <div className="px-4 py-3 border-b border-neutral-100 flex items-center justify-between">
                   <h3 className="text-sm font-bold text-neutral-800">Send Feedback</h3>
-                  <button type="button" onClick={() => setOpen(false)} className="text-neutral-400 hover:text-neutral-600">
+                  <button type="button" onClick={() => setOpen(false)} className="text-neutral-500 hover:text-neutral-600">
                     <X className="w-4 h-4" />
                   </button>
                 </div>
@@ -111,7 +111,7 @@ function FeedbackWidget() {
                     autoFocus
                     required
                   />
-                  <p className="text-[10px] text-neutral-400 mt-1.5">
+                  <p className="text-[10px] text-neutral-500 mt-1.5">
                     From: {user?.name || 'Unknown'} ({user?.email || 'no email'}) &middot; Page: {window.location.pathname}
                   </p>
                 </div>

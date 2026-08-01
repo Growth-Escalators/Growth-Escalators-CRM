@@ -197,6 +197,16 @@ test.describe('Wizmatch accessibility scan (complete build)', () => {
     await page.route('**/api/wizmatch/staffing/companies*', (route) => json(route, {
       items: [{ id: 'c1', name: 'A11y Company' }],
     }));
+    // The Linked tab reads the BULK cross-company endpoint. It used to fan out
+    // one /companies/:id/contacts request per company; that was removed, so a
+    // spec mocking only the fan-out renders zero rows and times out on the row
+    // click below — which is exactly what was happening here.
+    await page.route('**/api/wizmatch/staffing/hiring-contacts*', (route) => json(route, {
+      items: [{ id: 'cc1', company_id: 'c1', company_name: 'A11y Company', first_name: 'Jane', last_name: 'Doe', roles: ['hiring_manager'], email: 'jane@a11y.test', active_requirement_count: 1, relationship_stage: 'active' }],
+      total: 1,
+    }));
+    // Kept as a tripwire: if the fan-out ever comes back, this fulfils it and the
+    // request-count spec catches it rather than this one hanging.
     await page.route('**/api/wizmatch/companies/c1/contacts', (route) => json(route, {
       items: [{ id: 'cc1', first_name: 'Jane', last_name: 'Doe', roles: ['hiring_manager'], email: 'jane@a11y.test', active_requirement_count: 1, relationship_stage: 'active' }],
     }));
@@ -206,6 +216,9 @@ test.describe('Wizmatch accessibility scan (complete build)', () => {
     }));
     await page.route('**/api/wizmatch/contact-intelligence/queue?**', (route) => json(route, {
       items: [{ companyId: 'c1', companyName: 'A11y Company', contactCandidates: [{ id: 'cand1', name: 'Discovered Person', title: 'HR Lead', status: 'needs_review', deliverabilityStatus: null }] }],
+      // total/returned present so the pager renders and is included in the scan.
+      total: 1,
+      returned: 1,
     }));
 
     await page.goto('/wizmatch/hiring-contacts');

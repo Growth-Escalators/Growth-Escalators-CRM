@@ -96,7 +96,7 @@ export default function SignContractPage() {
             <button type="submit" disabled={!allChecked || submitting} className="mt-5 w-full rounded bg-neutral-900 py-2.5 text-sm font-medium text-white disabled:opacity-40">
               {submitting ? 'Preparing…' : 'Agree & continue to sign'}
             </button>
-            <p className="mt-3 text-xs text-neutral-400">
+            <p className="mt-3 text-xs text-neutral-500">
               This is a generic electronic-signature workflow for ordinary commercial documents. It is not a
               government-prescribed digital signature (DSC / Aadhaar eSign) and must not be used for documents
               requiring notarisation, registration, or a witnessed signature.

@@ -49,6 +49,7 @@ import { numeric, isOptionalWizmatchSchemaError, optionalWizmatchValue } from '.
 import {
   resolveCanonicalCompanyEligibility,
   applyCanonicalEligibilityToContactIntelligence,
+  type CanonicalCompanyEligibility,
 } from '../modules/outreach/legacyEligibilityAdapter';
 
 export type ContactIntelligenceCompanyRow = {
@@ -226,6 +227,15 @@ export async function buildContactIntelligenceResult(
   // companies (see fetchInternalContactCandidatesBatch), it passes them in to avoid
   // a per-company query. Omitted → this fetches its own, preserving old behavior.
   internalContactsOverride?: Awaited<ReturnType<typeof fetchInternalContactCandidates>>,
+  // Same idea for the canonical policy decision, which costs 2-3 queries per
+  // company. Batched via resolveCanonicalCompanyEligibilityBatch, which is a
+  // CONCURRENCY LIMITER rather than a query batcher — it does not reduce the
+  // per-company query count, it stops a 100-company page firing ~300 of them at
+  // once against a pool with max: 20. A true set-based batch would mean
+  // reimplementing evaluateWizmatchOutreachGate's scope resolution in SQL, i.e.
+  // changing the canonical policy gate itself. Not worth it. Omitted → this
+  // resolves its own, preserving old behavior.
+  canonicalEligibilityOverride?: CanonicalCompanyEligibility,
 ) {
   const signalContactIds = row.signal_contact_ids?.filter(Boolean) ?? [];
   const internalContacts = internalContactsOverride ?? await fetchInternalContactCandidates(
@@ -284,7 +294,7 @@ export async function buildContactIntelligenceResult(
   // top, via src/modules/outreach/legacyEligibilityAdapter.ts. A canonical
   // DENY always forces `companyStatus: 'discovery_blocked'` here regardless
   // of local qualification, appending a `policy_<reasonCode>` hard block.
-  const canonicalEligibility = await resolveCanonicalCompanyEligibility(tenantId, row.company_id);
+  const canonicalEligibility = canonicalEligibilityOverride ?? await resolveCanonicalCompanyEligibility(tenantId, row.company_id);
   const qualified = applyCanonicalEligibilityToContactIntelligence(
     qualifyCompanyForContactIntelligence(input),
     canonicalEligibility,
@@ -712,7 +722,7 @@ export async function fetchPersistedContactIntelligenceBatch(
 }
 
 export async function persistContactIntelligenceSnapshot(tenantId: string, userId: string | undefined, companyId: string) {
-  const rows = await fetchContactIntelligenceCompanyRows(tenantId, 1, companyId);
+  const rows = await fetchContactIntelligenceCompanyRows(tenantId, 1, { companyId });
   if (rows.length === 0) return null;
 
   const computed = await buildContactIntelligenceResult(tenantId, rows[0]);
@@ -1046,14 +1056,42 @@ export async function withContactDiscoveryAdvisoryLock<T>(
   }
 }
 
-export async function fetchContactIntelligenceCompanyRows(tenantId: string, limit: number, companyId?: string) {
+/**
+ * One row per company that has at least one job signal for this tenant.
+ *
+ * `opts` is an object rather than trailing positionals on purpose. As
+ * `(tenantId, limit, companyId?, offset?)` a caller writing
+ * `fetch(tenantId, 25, 50)` would silently filter on `companyId: '50'` and get
+ * zero rows back — a positional collision that reads as "the queue is empty".
+ * With an options object TypeScript rejects it outright.
+ */
+export async function fetchContactIntelligenceCompanyRows(
+  tenantId: string,
+  limit: number,
+  opts: { companyId?: string; offset?: number } = {},
+) {
+  const { companyId } = opts;
+  // Clamp at the SQL boundary as well as at the route. Postgres errors on
+  // `LIMIT -5` AND on `LIMIT 2.7`, so the truncation matters as much as the
+  // floor, and this function has five callers — not all of them routes.
+  const safeLimit = Math.max(1, Math.trunc(Number(limit)) || 1);
+  const safeOffset = Math.max(0, Math.trunc(Number(opts.offset)) || 0);
+
   const params: unknown[] = [tenantId];
   let companyFilter = '';
   if (companyId) {
     params.push(companyId);
     companyFilter = `AND c.id = $${params.length}`;
   }
-  params.push(limit);
+  // Capture each placeholder index AT PUSH TIME. Interpolating `params.length`
+  // for both (as the single-param version did) yields `LIMIT $n OFFSET $n`,
+  // which with offset 0 becomes `LIMIT 0` — an empty queue on the happy path.
+  // Deriving one index from the other is equally fragile the moment a third
+  // trailing param is appended.
+  params.push(safeLimit);
+  const limitIdx = params.length;
+  params.push(safeOffset);
+  const offsetIdx = params.length;
 
   const result = await pool.query(
     `WITH latest_signals AS (
@@ -1122,8 +1160,11 @@ export async function fetchContactIntelligenceCompanyRows(tenantId: string, limi
      WHERE c.tenant_id = $1 ${companyFilter}
      GROUP BY c.id, ls.signal_id, ls.job_title, ls.keywords, ls.location, ls.source, ls.signal_score,
               ls.days_open, ls.signal_status, ls.matched_candidate_ids, dh.status
-     ORDER BY COALESCE(ls.signal_score, 0) DESC, active_signal_count DESC, c.updated_at DESC
-     LIMIT $${params.length}`,
+     ORDER BY COALESCE(ls.signal_score, 0) DESC,
+              active_signal_count DESC,
+              c.updated_at DESC NULLS LAST,
+              c.id DESC
+     LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
     params,
   );
 

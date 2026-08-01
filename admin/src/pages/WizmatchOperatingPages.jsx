@@ -390,7 +390,7 @@ function Page({ eyebrow, title, description, demoMode, loading, error, onRefresh
             ['Logic mode', 'Deterministic first'],
           ].map(([label, value]) => (
             <div key={label} className="rounded-md border border-neutral-200 bg-white px-3 py-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-400">{label}</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500">{label}</p>
               <p className="mt-0.5 text-[12.5px] font-semibold text-neutral-800">{value}</p>
             </div>
           ))}
@@ -434,7 +434,7 @@ function SectionHeader({ icon: Icon = ClipboardList, title, description, action 
 function FilterBar({ label, options, value, onChange }) {
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-lg border border-neutral-200 bg-white p-2">
-      <div className="mr-1 flex items-center gap-1.5 px-2 text-[12px] font-semibold uppercase tracking-wider text-neutral-400">
+      <div className="mr-1 flex items-center gap-1.5 px-2 text-[12px] font-semibold uppercase tracking-wider text-neutral-500">
         <Filter className="h-3.5 w-3.5" />
         {label}
       </div>
@@ -599,7 +599,7 @@ function TableReadinessRow({ table }) {
     <div className="grid gap-3 rounded-md border border-neutral-100 bg-white px-3 py-3 text-[12.5px] md:grid-cols-[1.3fr_0.8fr_0.7fr_1fr_2fr]">
       <div>
         <p className="font-semibold text-neutral-900">{table.label}</p>
-        <p className="mt-0.5 font-mono text-[11px] text-neutral-400">{table.table}</p>
+        <p className="mt-0.5 font-mono text-[11px] text-neutral-500">{table.table}</p>
       </div>
       <div><StatusPill status={table.status} /></div>
       <div className="font-semibold text-neutral-800">{table.exists ? table.count ?? 0 : 'Missing'}</div>
@@ -628,7 +628,7 @@ function ModuleReadinessCard({ module }) {
       <div className="mt-4 grid grid-cols-2 gap-2">
         {Object.entries(module.counts || {}).slice(0, 4).map(([key, value]) => (
           <div key={key} className="rounded-md bg-neutral-50 px-3 py-2">
-            <p className="text-[10.5px] font-semibold uppercase tracking-wider text-neutral-400">{text(key)}</p>
+            <p className="text-[10.5px] font-semibold uppercase tracking-wider text-neutral-500">{text(key)}</p>
             <p className="mt-1 text-sm font-bold text-neutral-900">{value}</p>
           </div>
         ))}
@@ -709,7 +709,7 @@ function ActionCard({ action, onRun, running, result }) {
           </div>
           <div className="text-right">
             <p className="text-2xl font-bold text-neutral-950">{action.score}</p>
-            <p className="text-[11px] uppercase tracking-wider text-neutral-400">score</p>
+            <p className="text-[11px] uppercase tracking-wider text-neutral-500">score</p>
           </div>
         </div>
         {/* What this is / what running it does */}
@@ -718,7 +718,7 @@ function ActionCard({ action, onRun, running, result }) {
         {/* Why it's here — the full reason list */}
         {(action.reasons || []).length > 0 && (
           <div className="mt-3">
-            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-neutral-400">Why it&apos;s here</p>
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">Why it&apos;s here</p>
             <ul className="space-y-1">
               {(action.reasons || []).map((reason, i) => (
                 <li key={`${reason}-${i}`} className="flex gap-1.5 text-[12.5px] text-neutral-600">
@@ -866,7 +866,7 @@ export function WizmatchDashboardPage({ demoMode = false }) {
                 <Icon className="h-4 w-4" />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Step {step}</span>
+                <span className="block text-[11px] font-semibold uppercase tracking-wide text-neutral-500">Step {step}</span>
                 <span className="block text-sm font-semibold text-neutral-900 group-hover:text-primary-700">{label}</span>
                 <span className="block text-[12px] text-neutral-500">{description}</span>
               </span>
@@ -1249,7 +1249,7 @@ export function WizmatchRequirementPriorityPage({ demoMode = false }) {
                 ['Blockers', selected.blockers?.length || 0],
               ].map(([label, value]) => (
                 <div key={label} className="rounded-md border border-neutral-100 bg-neutral-50 px-3 py-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-400">{label}</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500">{label}</p>
                   <p className="mt-1 text-sm font-bold text-neutral-900">{value}</p>
                 </div>
               ))}
