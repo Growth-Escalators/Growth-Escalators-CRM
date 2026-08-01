@@ -22,6 +22,8 @@
 //    was counted, even though its company can never appear in `items`.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const poolQuery = vi.fn();
 vi.mock('../db/index', () => ({
@@ -132,5 +134,40 @@ describe('clamps keep Postgres from ever seeing an invalid LIMIT/OFFSET', () => 
     // of defence.
     const { params } = await captureQuery('tenant-1', -5 as number, { offset: -3 });
     expect(params).toEqual(['tenant-1', 1, 0]);
+  });
+});
+
+describe('every paged route in wizmatch.ts clamps BOTH limit and offset', () => {
+  // The first pass at this clamped `offset` on 7 routes but `limit` on only 2,
+  // leaving 11 routes where ?limit=-5 still reached Postgres as `LIMIT -5` and
+  // 500'd — the exact bug the helper was introduced to prevent. A per-route
+  // audit is the only thing that catches a partially-applied sweep.
+  const routeSrc = readFileSync(join(__dirname, '..', 'routes', 'wizmatch.ts'), 'utf8');
+  const bare = routeSrc
+    .split('\n')
+    .filter((l) => {
+      const t = l.trim();
+      return !t.startsWith('//') && !t.startsWith('*') && !t.startsWith('/*');
+    })
+    .join('\n');
+
+  it('no route still builds a limit with a bare Math.min(Number(...))', () => {
+    expect(bare).not.toMatch(/Math\.min\(Number\(req\.query\.limit\)/);
+  });
+
+  it('no route still builds an offset with a bare Number(...) || 0', () => {
+    expect(bare).not.toMatch(/Number\(req\.query\.offset\)\s*\|\|\s*0/);
+  });
+
+  it('every req.query.limit read goes through the clamp', () => {
+    const reads = bare.match(/req\.query\.limit/g) ?? [];
+    const clamped = bare.match(/clampListLimit\(req\.query\.limit/g) ?? [];
+    expect(clamped.length).toBe(reads.length);
+  });
+
+  it('every req.query.offset read goes through the clamp', () => {
+    const reads = bare.match(/req\.query\.offset/g) ?? [];
+    const clamped = bare.match(/clampListOffset\(req\.query\.offset/g) ?? [];
+    expect(clamped.length).toBe(reads.length);
   });
 });

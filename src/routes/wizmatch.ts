@@ -1088,7 +1088,7 @@ router.post(
 
 router.get('/client-discovery/queue', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const limit = Math.min(Number(req.query.limit) || 50, 100);
+  const limit = clampListLimit(req.query.limit, 50, 100);
   const [rows, totalResult] = await Promise.all([
     fetchClientDiscoverySignals(tenantId, limit),
     pool.query(
@@ -1372,7 +1372,7 @@ router.post('/candidate-intelligence/intake', async (req: Request, res: Response
 
 router.get('/candidate-intelligence/queue', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const limit = Math.min(Number(req.query.limit) || 50, 100);
+  const limit = clampListLimit(req.query.limit, 50, 100);
   const [inputs, totalResult] = await Promise.all([
     fetchCandidateIntelligenceInputs(tenantId, limit),
     pool.query(`SELECT COUNT(*)::int AS total FROM wizmatch_candidates wc WHERE tenant_id = $1
@@ -1404,7 +1404,7 @@ router.get('/candidate-intelligence/requirements/:requirementId/matches', async 
   const tenantId = req.user!.tenantId;
   const [requirements, candidates] = await Promise.all([
     fetchCandidateIntelligenceRequirements(tenantId, 1, String(req.params.requirementId)),
-    fetchCandidateIntelligenceInputs(tenantId, Math.min(Number(req.query.limit) || 50, 100)),
+    fetchCandidateIntelligenceInputs(tenantId, clampListLimit(req.query.limit, 50, 100)),
   ]);
   if (requirements.length === 0) {
     res.status(404).json({ error: 'Requirement not found' });
@@ -1498,7 +1498,7 @@ async function buildRequirementPriorityInputs(
 
 router.get('/requirement-priority/queue', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const limit = Math.min(Number(req.query.limit) || 50, 100);
+  const limit = clampListLimit(req.query.limit, 50, 100);
   const [inputs, totalResult] = await Promise.all([
     buildRequirementPriorityInputs(tenantId, limit),
     pool.query(
@@ -1669,7 +1669,10 @@ async function buildReviewWorkbenchPayload(tenantId: string) {
 
 router.get('/review-workbench', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const responseLimit = Number(req.query.limit) || 30;
+  // In-memory slice, not SQL, so a bad value here does not reach Postgres —
+  // but a negative slice length still misbehaves. Max is deliberately generous
+  // (the workbench's own source cap is 75) so clamping changes no valid request.
+  const responseLimit = clampListLimit(req.query.limit, 30, 200);
   const [workbench, readiness, costControls] = await Promise.all([
     buildReviewWorkbenchPayload(tenantId),
     getWizmatchReadiness(pool, tenantId),
@@ -2694,7 +2697,7 @@ router.post('/contact-intelligence/contacts/:candidateId/link-crm-contact', asyn
 // GET /api/wizmatch/command-center — read-only intelligence operating layer
 router.get('/command-center', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const limit = Math.min(Number(req.query.limit) || 25, 75);
+  const limit = clampListLimit(req.query.limit, 25, 75);
 
   const [contactRows, signals, candidates, requirements, baseMetrics] = await Promise.all([
     fetchContactIntelligenceCompanyRows(tenantId, limit),
@@ -2764,7 +2767,7 @@ router.get('/sourcing/status', async (req: Request, res: Response) => {
 });
 
 router.get('/sourcing/runs', async (req: Request, res: Response) => {
-  const limit = Math.min(Number(req.query.limit) || 50, 200);
+  const limit = clampListLimit(req.query.limit, 50, 200);
   const result = await pool.query(
     `SELECT * FROM wizmatch_source_runs WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT $2`,
     [req.user!.tenantId, limit],
@@ -2997,7 +3000,7 @@ function wizmatchOrderBy(sortRaw: unknown, allow: Record<string, string>, fallba
 // GET /api/wizmatch/signals — list with filters
 router.get('/signals', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const limit = Math.min(Number(req.query.limit) || 50, 200);
+  const limit = clampListLimit(req.query.limit, 50, 200);
   const offset = clampListOffset(req.query.offset);
 
   // Columns are qualified with the `s` alias: the data query below joins
@@ -3318,7 +3321,7 @@ router.post('/signals/:id/send', async (req: Request, res: Response) => {
 
 router.get('/candidates', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const limit = Math.min(Number(req.query.limit) || 50, 200);
+  const limit = clampListLimit(req.query.limit, 50, 200);
   const offset = clampListOffset(req.query.offset);
 
   const conditions: string[] = ['wc.tenant_id = $1'];
@@ -3632,7 +3635,7 @@ router.get('/placements', async (req: Request, res: Response) => {
     return;
   }
   const tenantId = req.user!.tenantId;
-  const limit = Math.min(Number(req.query.limit) || 50, 200);
+  const limit = clampListLimit(req.query.limit, 50, 200);
   const offset = clampListOffset(req.query.offset);
 
   const conditions: string[] = ['wp.tenant_id = $1'];
@@ -3913,7 +3916,7 @@ router.post('/domains/:id/resume', async (req: Request, res: Response) => {
 
 router.get('/suppression', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const limit = Math.min(Number(req.query.limit) || 50, 200);
+  const limit = clampListLimit(req.query.limit, 50, 200);
   const offset = clampListOffset(req.query.offset);
 
   const conditions: string[] = ['tenant_id = $1'];
@@ -4578,7 +4581,7 @@ router.post('/requirements/parse', requirementUpload.single('file'), async (req:
 // GET /requirements — list
 router.get('/requirements', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const limit = Math.min(Number(req.query.limit) || 50, 200);
+  const limit = clampListLimit(req.query.limit, 50, 200);
   const offset = clampListOffset(req.query.offset);
 
   const conditions: string[] = ['r.tenant_id = $1'];
