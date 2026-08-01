@@ -132,7 +132,9 @@ body {
            placeholder:text-neutral-400;
   }
   .input-label { @apply block text-[13px] font-semibold text-neutral-700 mb-1; }
-  .input-help  { @apply text-xs text-neutral-400 mt-1; }
+  /* neutral-500, not 400: 400 on white is 2.56:1 and this class is body-sized
+     helper text, so it needs WCAG AA's 4.5:1. 500 measures 4.76:1. */
+  .input-help  { @apply text-xs text-neutral-500 mt-1; }
 
   .table-fluent { @apply w-full text-sm; }
   .table-fluent thead th {

@@ -2456,7 +2456,13 @@ router.post('/contact-intelligence/contacts/bulk-review', async (req: Request, r
 
   const tenantId = req.user!.tenantId;
   const userId = req.user?.id || null;
-  const rejectionReason = firstString(req.body?.reason);
+  // Accept BOTH field names on both review routes. The single-item route has
+  // always read `rejectionReason` while this bulk one reads `reason`, so a
+  // client that sent the wrong one had its reason silently dropped — the
+  // rejection was recorded with no explanation and the detail pane rendered
+  // an empty "Rejection reason:" block. Aliasing here makes the field name a
+  // non-issue for callers instead of a trap.
+  const rejectionReason = firstString(req.body?.rejectionReason ?? req.body?.reason);
   // Deliberately does NOT return the refreshed contactCandidates the
   // single-item route returns: that is one extra read per id, and the envelope
   // the SPA codes against is fixed to { results, succeeded, failed }. The page
@@ -2479,7 +2485,7 @@ router.post('/contact-intelligence/contacts/:candidateId/review', async (req: Re
       userId: req.user?.id || null,
       candidateId: String(req.params.candidateId),
       action: firstString(req.body?.action) || 'reject_contact',
-      rejectionReason: firstString(req.body?.rejectionReason),
+      rejectionReason: firstString(req.body?.rejectionReason ?? req.body?.reason),
     });
     const refreshed = await fetchPersistedContactIntelligence(tenantId, companyId);
     res.json({ transition, contactCandidates: refreshed.contactCandidates });

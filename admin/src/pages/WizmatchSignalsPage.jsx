@@ -14,6 +14,9 @@ import { useTableControls } from '../components/wizmatch/filters/useTableControl
 import { exportRowsToCsv } from '../components/wizmatch/filters/exportCsv.js';
 
 const PAGE_SIZE = 50;
+// GET /signals clamps limit to 200 (src/routes/wizmatch.ts), matching the
+// EXPORT_LIMIT constants on Candidates and Requirements.
+const SIGNAL_EXPORT_LIMIT = 200;
 // Shared bulk-endpoint contract: `ids` is capped at 200 per request.
 const BULK_CHUNK = 200;
 
@@ -353,7 +356,11 @@ export default function WizmatchSignalsPage() {
   // filters/sort at the backend max limit; visible columns only.
   const exportCsv = async () => {
     try {
-      const data = await apiFetch(`/api/wizmatch/signals?${toQueryParams({ limit: 1000 })}`);
+      // Ask for what the server will actually give: GET /signals clamps limit to
+      // 200 (src/routes/wizmatch.ts), so `limit: 1000` was never honoured and the
+      // truncation toast below reasoned about a number that could not occur.
+      // Candidates and Requirements already ask for their real cap; this did not.
+      const data = await apiFetch(`/api/wizmatch/signals?${toQueryParams({ limit: SIGNAL_EXPORT_LIMIT })}`);
       const items = data.items || [];
       exportRowsToCsv(items, ctl.visibleColumns, 'job-signals.csv');
       // The backend clamps `limit` to 200 (routes/wizmatch.ts), so a filtered

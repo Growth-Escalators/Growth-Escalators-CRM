@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 
 /**
@@ -33,6 +33,17 @@ export default function ConfirmDialog({
   onConfirm,
   onCancel,
 }) {
+  // Ids are per-instance, not literals. Three dialogs used the fixed strings
+  // `confirm-dialog-title` / `-reason` / `-typed-name`, so two simultaneously
+  // OPEN dialogs would emit duplicate ids and every aria-labelledby/htmlFor
+  // would resolve to whichever rendered first. `if (!open) return null` below
+  // means that is latent today — no page can currently reach a two-open state —
+  // but the invariant was unenforced across 32 render sites, and useId costs
+  // nothing and fixes all of them without touching a single call site.
+  const baseId = useId();
+  const titleId = `${baseId}-title`;
+  const reasonId = `${baseId}-reason`;
+  const typedNameId = `${baseId}-typed-name`;
   const [typedName, setTypedName] = useState('');
   const [reason, setReason] = useState('');
   const dialogRef = useRef(null);
@@ -89,13 +100,13 @@ export default function ConfirmDialog({
         ref={dialogRef}
         role="alertdialog"
         aria-modal="true"
-        aria-labelledby="confirm-dialog-title"
+        aria-labelledby={titleId}
         className="w-[440px] max-w-full bg-white rounded-xl shadow-modal border border-neutral-200 overflow-hidden"
       >
         <div className="p-5 space-y-3">
           <div className="flex items-start gap-3">
             {danger && <AlertTriangle className="w-5 h-5 text-danger-600 mt-0.5 flex-shrink-0" />}
-            <h2 id="confirm-dialog-title" className="text-[15px] font-bold text-neutral-900">{title}</h2>
+            <h2 id={titleId} className="text-[15px] font-bold text-neutral-900">{title}</h2>
           </div>
           {impactSummary && (
             <div className="text-[12.5px] text-neutral-600 leading-relaxed">{impactSummary}</div>
@@ -107,11 +118,11 @@ export default function ConfirmDialog({
           )}
           {requireReason && (
             <div>
-              <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider" htmlFor="confirm-dialog-reason">
+              <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider" htmlFor={reasonId}>
                 Reason (required)
               </label>
               <textarea
-                id="confirm-dialog-reason"
+                id={reasonId}
                 ref={requireTypedName ? undefined : firstFieldRef}
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
@@ -123,11 +134,11 @@ export default function ConfirmDialog({
           )}
           {requireTypedName && (
             <div>
-              <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider" htmlFor="confirm-dialog-typed-name">
+              <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider" htmlFor={typedNameId}>
                 Type <span className="font-mono text-neutral-800">{requireTypedName}</span> to confirm
               </label>
               <input
-                id="confirm-dialog-typed-name"
+                id={typedNameId}
                 ref={firstFieldRef}
                 value={typedName}
                 onChange={(e) => setTypedName(e.target.value)}
