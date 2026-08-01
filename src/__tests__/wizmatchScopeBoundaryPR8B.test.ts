@@ -191,6 +191,10 @@ describe('PR 8B scope boundary — PR 9/10 must not have started', () => {
   // than the original for anything added from here on.
   const MIGRATIONS_REVIEWED_AS_OUT_OF_PR9_10_SCOPE: Record<number, string> = {
     38: 'users.is_active — auth/offboarding column, failure-matrix M-3. Touches only the shared `users` table.',
+    39: 'saved_views — admin-UI filter presets (name + URL query string), owner-approved 2026-08-01. '
+      + 'Additive CREATE TABLE only; no ALTER of any existing table. Stores no outreach, sequence, '
+      + 'reply or provider data — `query` is a URL query string for a list page, not a payload. '
+      + 'Unrelated to PR 9/10 (Smartlead / reply ingestion).',
   };
 
   it('every migration past 0037 is in the reviewed out-of-scope allowlist', () => {

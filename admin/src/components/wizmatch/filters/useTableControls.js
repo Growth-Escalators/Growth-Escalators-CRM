@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { applyClientPipeline } from './filterPipeline.js';
+import { apiFetch } from '../../../lib/api.js';
 
 // One hook that owns a page's filter/sort/column/page state and keeps it in the
 // URL query string, so a filtered view is shareable + survives refresh. Also
@@ -87,9 +88,23 @@ function isActive(def, v) {
   return v !== '';
 }
 
+// ── saved views ─────────────────────────────────────────────────────────────
+// Views live in the database (GET/POST/PATCH/DELETE /api/saved-views) so they
+// are tenant-scoped and can be shared with the team. They used to live in
+// localStorage, which meant a view died with the browser that made it and
+// "Hot ATS leads" meant something different to every person who built it.
+//
+// localStorage is kept ONLY as a read-through fallback for when the API is
+// unreachable: losing your saved views because a request failed would be worse
+// than showing a slightly stale list. Every successful fetch refreshes the
+// cache, so the fallback is never far behind.
 const presetsKey = (pageId) => `wizmatch:presets:${pageId}`;
-function readPresets(pageId) {
+
+function readCachedPresets(pageId) {
   try { return JSON.parse(localStorage.getItem(presetsKey(pageId)) || '[]'); } catch { return []; }
+}
+function writeCachedPresets(pageId, list) {
+  try { localStorage.setItem(presetsKey(pageId), JSON.stringify(list)); } catch { /* quota / private mode */ }
 }
 
 // Stable identity so a caller that omits `defaults` doesn't get a new object each
@@ -213,23 +228,53 @@ export function useTableControls({ pageId, spec, columns, defaults = NO_DEFAULTS
   // search param, no re-render happened, and the panel kept saying "No saved
   // presets" until an unrelated filter was touched. The feature worked; it just
   // never redrew, which made it look broken.
-  const [presets, setPresets] = useState(() => readPresets(pageId));
-  useEffect(() => { setPresets(readPresets(pageId)); }, [pageId]);
+  const [presets, setPresets] = useState(() => readCachedPresets(pageId));
+  const [presetsError, setPresetsError] = useState(null);
 
-  const savePreset = useCallback((name) => {
-    const list = readPresets(pageId).filter((p) => p.name !== name);
-    list.push({ name, query: searchParams.toString() });
-    localStorage.setItem(presetsKey(pageId), JSON.stringify(list));
-    setPresets(list);
-  }, [pageId, searchParams]);
+  const refreshPresets = useCallback(async () => {
+    try {
+      const data = await apiFetch(`/api/saved-views?pageId=${encodeURIComponent(pageId)}`);
+      const list = data.items || [];
+      setPresets(list);
+      writeCachedPresets(pageId, list);
+      setPresetsError(null);
+    } catch (e) {
+      // Keep whatever is on screen (cache or previous fetch) and say so, rather
+      // than blanking the list — an empty panel reads as "you have no views".
+      setPresetsError(e.message || 'Could not load saved views');
+    }
+  }, [pageId]);
+
+  useEffect(() => { refreshPresets(); }, [refreshPresets]);
+
+  const savePreset = useCallback(async (name, { isShared = false } = {}) => {
+    // POST upserts on (tenant, owner, pageId, name), so saving twice under the
+    // same name updates your view instead of creating a duplicate.
+    await apiFetch('/api/saved-views', {
+      method: 'POST',
+      body: JSON.stringify({ pageId, name, query: searchParams.toString(), isShared }),
+    });
+    await refreshPresets();
+  }, [pageId, searchParams, refreshPresets]);
+
   const applyPreset = useCallback((preset) => {
     setSearchParams(new URLSearchParams(preset.query), { replace: false });
   }, [setSearchParams]);
-  const deletePreset = useCallback((name) => {
-    const list = readPresets(pageId).filter((p) => p.name !== name);
-    localStorage.setItem(presetsKey(pageId), JSON.stringify(list));
-    setPresets(list);
-  }, [pageId]);
+
+  const deletePreset = useCallback(async (preset) => {
+    // Takes the view object, not a name: names are only unique per owner, so a
+    // name is not enough to identify a shared view from someone else.
+    await apiFetch(`/api/saved-views/${preset.id}`, { method: 'DELETE' });
+    await refreshPresets();
+  }, [refreshPresets]);
+
+  const setPresetShared = useCallback(async (preset, isShared) => {
+    await apiFetch(`/api/saved-views/${preset.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ isShared }),
+    });
+    await refreshPresets();
+  }, [refreshPresets]);
 
   return {
     filters, setFilter, clearFilter, clearAll,
@@ -237,6 +282,6 @@ export function useTableControls({ pageId, spec, columns, defaults = NO_DEFAULTS
     hiddenColumns, toggleColumn, visibleColumns,
     page, setPage,
     toQueryParams, applyClient, activeChips,
-    presets, savePreset, applyPreset, deletePreset,
+    presets, savePreset, applyPreset, deletePreset, setPresetShared, presetsError,
   };
 }

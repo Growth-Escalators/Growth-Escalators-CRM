@@ -195,6 +195,8 @@ export default function WizmatchPlacementsPage() {
           clearAll={ctl.clearAll}
           presets={ctl.presets}
           savePreset={ctl.savePreset}
+            setPresetShared={ctl.setPresetShared}
+            presetsError={ctl.presetsError}
           applyPreset={ctl.applyPreset}
           deletePreset={ctl.deletePreset}
         />

@@ -189,6 +189,8 @@ function LinkedContactsTab() {
             onExport={() => exportRowsToCsv(filtered, ctl.visibleColumns, 'hiring-contacts.csv')}
             presets={ctl.presets}
             savePreset={ctl.savePreset}
+            setPresetShared={ctl.setPresetShared}
+            presetsError={ctl.presetsError}
             applyPreset={ctl.applyPreset}
             deletePreset={ctl.deletePreset}
           />
@@ -776,6 +778,8 @@ function DiscoveryQueueTab() {
             onExport={() => exportRowsToCsv(filtered, ctl.visibleColumns, 'discovery-queue.csv')}
             presets={ctl.presets}
             savePreset={ctl.savePreset}
+            setPresetShared={ctl.setPresetShared}
+            presetsError={ctl.presetsError}
             applyPreset={ctl.applyPreset}
             deletePreset={ctl.deletePreset}
           />
