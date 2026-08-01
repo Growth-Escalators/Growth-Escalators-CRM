@@ -112,7 +112,7 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
                 </h2>
                 {deal?.stage && <Badge type="info">{deal.stage}</Badge>}
               </div>
-              {deal?.company_name && <p className="text-sm text-neutral-400 mb-1">{deal.company_name}</p>}
+              {deal?.company_name && <p className="text-sm text-neutral-500 mb-1">{deal.company_name}</p>}
               {fmtInr(deal?.deal_value) && (
                 <p className="text-[22px] leading-none font-bold text-success-600">{fmtInr(deal.deal_value)}</p>
               )}
@@ -128,7 +128,7 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
               View Contact
             </button>
           )}
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600 p-1 rounded-lg hover:bg-neutral-100">
+          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-600 p-1 rounded-lg hover:bg-neutral-100">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
             </svg>
@@ -143,17 +143,17 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
       ) : loadError ? (
         <div className="flex-1 flex flex-col items-center justify-center p-6 gap-2 text-center">
           <p className="text-danger-600 text-sm font-medium">Could not load deal</p>
-          <p className="text-neutral-400 text-xs">{loadError}</p>
+          <p className="text-neutral-500 text-xs">{loadError}</p>
           <p className="text-neutral-300 text-[10px] font-mono break-all">id: {dealId}</p>
         </div>
       ) : !deal ? (
-        <div className="flex-1 flex items-center justify-center text-neutral-400 text-sm">Deal not found</div>
+        <div className="flex-1 flex items-center justify-center text-neutral-500 text-sm">Deal not found</div>
       ) : (
         <div className="flex-1 overflow-y-auto">
           {/* Deal stats grid */}
           <div className="px-5 py-4 border-b border-neutral-100 bg-neutral-50">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-[10px] uppercase tracking-wide text-neutral-400 font-semibold">Deal Info</p>
+              <p className="text-[10px] uppercase tracking-wide text-neutral-500 font-semibold">Deal Info</p>
               {editValues === null && (
                 <button onClick={startEdit} className="text-xs text-primary-600 hover:text-primary-800 font-medium">Edit</button>
               )}
@@ -161,51 +161,51 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
             {editValues === null ? (
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <p className="text-[10px] uppercase tracking-wide text-neutral-400 mb-0.5">Value</p>
+                  <p className="text-[10px] uppercase tracking-wide text-neutral-500 mb-0.5">Value</p>
                   <p className="text-lg font-bold text-success-600">{fmtInr(deal.deal_value) || '—'}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-wide text-neutral-400 mb-0.5">Stage</p>
+                  <p className="text-[10px] uppercase tracking-wide text-neutral-500 mb-0.5">Stage</p>
                   <span className="text-xs font-semibold text-neutral-700 bg-white border border-neutral-200 px-2 py-0.5 rounded-lg">{deal.stage}</span>
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-wide text-neutral-400 mb-0.5">Source</p>
+                  <p className="text-[10px] uppercase tracking-wide text-neutral-500 mb-0.5">Source</p>
                   <p className="text-sm text-neutral-600">{SOURCE_LABELS[deal.source] ?? deal.source ?? '—'}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-wide text-neutral-400 mb-0.5">Assigned To</p>
+                  <p className="text-[10px] uppercase tracking-wide text-neutral-500 mb-0.5">Assigned To</p>
                   <p className="text-sm text-neutral-600">{deal.assigned_to ?? '—'}</p>
                 </div>
                 {deal.probability != null && (
                   <div>
-                    <p className="text-[10px] uppercase tracking-wide text-neutral-400 mb-0.5">Probability</p>
+                    <p className="text-[10px] uppercase tracking-wide text-neutral-500 mb-0.5">Probability</p>
                     <p className="text-sm font-semibold text-primary-600">{deal.probability}%</p>
                   </div>
                 )}
                 {deal.expected_close_date && (
                   <div>
-                    <p className="text-[10px] uppercase tracking-wide text-neutral-400 mb-0.5">Expected Close</p>
+                    <p className="text-[10px] uppercase tracking-wide text-neutral-500 mb-0.5">Expected Close</p>
                     <p className="text-sm text-neutral-600">{new Date(deal.expected_close_date).toLocaleDateString('en-IN')}</p>
                   </div>
                 )}
                 <div>
-                  <p className="text-[10px] uppercase tracking-wide text-neutral-400 mb-0.5">Pipeline</p>
+                  <p className="text-[10px] uppercase tracking-wide text-neutral-500 mb-0.5">Pipeline</p>
                   <p className="text-sm text-neutral-600">{deal.pipeline_name ?? '—'}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-wide text-neutral-400 mb-0.5">Created</p>
+                  <p className="text-[10px] uppercase tracking-wide text-neutral-500 mb-0.5">Created</p>
                   <p className="text-sm text-neutral-600">{new Date(deal.created_at).toLocaleDateString('en-IN')}</p>
                 </div>
               </div>
             ) : (
               <div className="space-y-3">
                 <div>
-                  <label className="text-[10px] uppercase text-neutral-400">Value (₹)</label>
+                  <label className="text-[10px] uppercase text-neutral-500">Value (₹)</label>
                   <input type="number" value={editValues.deal_value} onChange={e => setEditValues({...editValues, deal_value: e.target.value})}
                     className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 mt-0.5" />
                 </div>
                 <div>
-                  <label className="text-[10px] uppercase text-neutral-400">Assigned To</label>
+                  <label className="text-[10px] uppercase text-neutral-500">Assigned To</label>
                   <select value={editValues.assigned_to} onChange={e => setEditValues({...editValues, assigned_to: e.target.value})}
                     className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 mt-0.5 bg-white">
                     <option value="">Unassigned</option>
@@ -214,7 +214,7 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] uppercase text-neutral-400">Source</label>
+                  <label className="text-[10px] uppercase text-neutral-500">Source</label>
                   <select value={editValues.source} onChange={e => setEditValues({...editValues, source: e.target.value})}
                     className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 mt-0.5 bg-white">
                     <option value="">Unknown</option>
@@ -227,17 +227,17 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] uppercase text-neutral-400">Probability (%)</label>
+                  <label className="text-[10px] uppercase text-neutral-500">Probability (%)</label>
                   <input type="number" min="0" max="100" value={editValues.probability} onChange={e => setEditValues({...editValues, probability: e.target.value})}
                     className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 mt-0.5" />
                 </div>
                 <div>
-                  <label className="text-[10px] uppercase text-neutral-400">Expected Close</label>
+                  <label className="text-[10px] uppercase text-neutral-500">Expected Close</label>
                   <input type="date" value={editValues.expected_close_date} onChange={e => setEditValues({...editValues, expected_close_date: e.target.value})}
                     className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 mt-0.5" />
                 </div>
                 <div>
-                  <label className="text-[10px] uppercase text-neutral-400">Notes</label>
+                  <label className="text-[10px] uppercase text-neutral-500">Notes</label>
                   <textarea rows={3} value={editValues.notes} onChange={e => setEditValues({...editValues, notes: e.target.value})}
                     className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary-400 mt-0.5" />
                 </div>
@@ -258,7 +258,7 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
           {/* Notes */}
           {deal.notes && (
             <div className="px-5 py-3 border-b border-neutral-100">
-              <p className="text-[10px] uppercase tracking-wide text-neutral-400 mb-1.5">Deal Notes</p>
+              <p className="text-[10px] uppercase tracking-wide text-neutral-500 mb-1.5">Deal Notes</p>
               <p className="text-sm text-neutral-600">{deal.notes}</p>
             </div>
           )}
@@ -271,9 +271,9 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
 
           {/* Activity Timeline */}
           <div className="px-5 py-4">
-            <p className="text-[10px] uppercase tracking-wide text-neutral-400 mb-3 font-semibold">Activity Timeline</p>
+            <p className="text-[10px] uppercase tracking-wide text-neutral-500 mb-3 font-semibold">Activity Timeline</p>
             {activities.length === 0 ? (
-              <p className="text-sm text-neutral-400 text-center py-6">No activity yet</p>
+              <p className="text-sm text-neutral-500 text-center py-6">No activity yet</p>
             ) : (
               <div className="relative">
                 <div className="absolute left-2.5 top-0 bottom-0 w-px bg-neutral-200"/>
@@ -302,7 +302,7 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
                         ) : (
                           <p className="text-sm text-neutral-700">{a.note}</p>
                         )}
-                        <p className="text-[11px] text-neutral-400 mt-0.5">{fmtDate(a.created_at)}</p>
+                        <p className="text-[11px] text-neutral-500 mt-0.5">{fmtDate(a.created_at)}</p>
                       </div>
                     </div>
                   ))}

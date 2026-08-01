@@ -63,15 +63,15 @@ function EnvCheckPanel() {
 
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="card p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-400">Required missing</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500">Required missing</p>
           <p className={`mt-1 text-xl font-bold ${requiredMissing ? 'text-danger-600' : 'text-success-600'}`}>{requiredMissing}</p>
         </div>
         <div className="card p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-400">Recommended missing</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500">Recommended missing</p>
           <p className={`mt-1 text-xl font-bold ${recommendedMissing ? 'text-warning-600' : 'text-success-600'}`}>{recommendedMissing}</p>
         </div>
         <div className="card p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-400">Checked at</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500">Checked at</p>
           <p className="mt-1 text-[12.5px] text-neutral-700">
             {report?.generatedAt ? new Date(report.generatedAt).toLocaleString() : loading ? 'Loading...' : '—'}
           </p>
@@ -80,7 +80,7 @@ function EnvCheckPanel() {
 
       {report && (
         <div className="card p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-400">Staffing OS release gates</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500">Staffing OS release gates</p>
           <div className="mt-2 flex flex-wrap gap-2 text-xs">
             {Object.entries(report.staffingPhases || {}).map(([gate, enabled]) => (
               <span key={gate} className={enabled ? 'badge-success' : 'badge-muted'}>{gate}: {enabled ? 'enabled' : 'off'}</span>
@@ -112,7 +112,7 @@ function EnvCheckPanel() {
         </div>
       )}
 
-      {loading && !report && <p className="text-sm text-neutral-400">Loading environment checks...</p>}
+      {loading && !report && <p className="text-sm text-neutral-500">Loading environment checks...</p>}
 
       {groups.map(group => (
         <div key={group} className="card overflow-hidden">
@@ -134,7 +134,7 @@ function EnvCheckPanel() {
                 <tr key={c.key}>
                   <td className="font-medium text-neutral-900">
                     {c.key}
-                    {c.aliases?.length ? <span className="text-neutral-400"> / {c.aliases.join(' / ')}</span> : null}
+                    {c.aliases?.length ? <span className="text-neutral-500"> / {c.aliases.join(' / ')}</span> : null}
                   </td>
                   <td className="text-neutral-500">{c.requirement}</td>
                   <td>

@@ -37,7 +37,7 @@ export default function Input({
       {error ? (
         <p className="text-xs text-danger-600 mt-1">{error}</p>
       ) : help ? (
-        <p className="text-xs text-neutral-400 mt-1">{help}</p>
+        <p className="text-xs text-neutral-500 mt-1">{help}</p>
       ) : null}
     </div>
   );

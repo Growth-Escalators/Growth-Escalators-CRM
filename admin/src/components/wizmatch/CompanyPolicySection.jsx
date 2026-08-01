@@ -5,6 +5,18 @@ import { getAuthUser } from '../../lib/auth.js';
 import StatusBadge from './StatusBadge.jsx';
 import { useToast } from './Toast.jsx';
 import { companyPolicyUiEnabled } from '../../lib/companyPolicyFlag.js';
+// Cross-boundary import, on the same deliberate terms as
+// src/config/wizmatchReasonCodes.ts: these are the runtime option lists the
+// server's own write-time validation is derived from, so a hand-copied set here
+// would drift into per-write `unknown_*` rejections. The module is pure data
+// with no imports of its own — see its header before adding anything to it.
+import {
+  ELIGIBILITY_OPTIONS,
+  HIRING_POLICY_OPTIONS,
+  RELATIONSHIP_OPTIONS,
+  UI_SCOPE_TYPE_OPTIONS,
+  EVIDENCE_KIND_OPTIONS,
+} from '../../../../src/config/wizmatchPolicyEnums.ts';
 
 // PRD-005 §13 — the company drawer Policy section: effective policy per
 // dimension with the supplying scope, all scoped rows, evidence, full
@@ -12,18 +24,6 @@ import { companyPolicyUiEnabled } from '../../lib/companyPolicyFlag.js';
 // contextual and disabled with an inline reason rather than hidden — the
 // PRD explicitly forbids silently hiding a disabled action (§13, resolves
 // review H-10 for the analogous Today-page case).
-
-const ELIGIBILITY_OPTIONS = ['eligible', 'needs_review', 'paused', 'blocked'];
-const HIRING_POLICY_OPTIONS = [
-  'accepts_external_vendors', 'fte_vendors_only', 'contract_vendors_only', 'preferred_vendors_only',
-  'msp_vms_only', 'direct_hiring_only', 'no_external_agencies', 'unknown',
-];
-const RELATIONSHIP_OPTIONS = [
-  'new_prospect', 'existing_prospect', 'existing_client', 'vendor_partner',
-  'prime_partner', 'former_client', 'competitor', 'irrelevant',
-];
-const SCOPE_TYPE_OPTIONS = ['entire_company', 'region', 'business_unit', 'location'];
-const EVIDENCE_KIND_OPTIONS = ['human_text', 'source_url', 'email_reply_ref', 'provider_event_ref', 'legal_document_ref', 'automated_detection'];
 
 function scopeLabel(scopeKey) {
   if (!scopeKey || scopeKey === 'entire_company') return 'Entire company';
@@ -304,7 +304,7 @@ function PolicyWriteForm({ companyId, asOverride, submitting, setSubmitting, onD
     <div className="mt-2 rounded-lg border border-neutral-200 p-3 space-y-2">
       {!asOverride && (
         <select value={scopeType} onChange={(e) => setScopeType(e.target.value)} className="input-standard w-full">
-          {SCOPE_TYPE_OPTIONS.map((s) => <option key={s} value={s}>{s.replaceAll('_', ' ')}</option>)}
+          {UI_SCOPE_TYPE_OPTIONS.map((s) => <option key={s} value={s}>{s.replaceAll('_', ' ')}</option>)}
         </select>
       )}
       {!asOverride && ['region', 'business_unit', 'location'].includes(scopeType) && (

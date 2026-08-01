@@ -519,9 +519,9 @@ export default function WizmatchClientDiscoveryPage({ demoMode = false }) {
       <div className="grid grid-cols-1 xl:grid-cols-[420px_1fr] gap-5">
         <div className="space-y-3">
           {loading ? (
-            <div className="card p-6 text-center text-neutral-400">Loading...</div>
+            <div className="card p-6 text-center text-neutral-500">Loading...</div>
           ) : items.length === 0 ? (
-            <div className="card p-6 text-center text-neutral-400">No client discovery signals found</div>
+            <div className="card p-6 text-center text-neutral-500">No client discovery signals found</div>
           ) : items.map((item) => (
             <SignalCard key={item.id} item={item} selected={selected?.id === item.id} onSelect={setSelected} />
           ))}
@@ -601,7 +601,7 @@ export default function WizmatchClientDiscoveryPage({ demoMode = false }) {
               </div>
             </>
           ) : (
-            <div className="h-full flex flex-col items-center justify-center text-neutral-400">
+            <div className="h-full flex flex-col items-center justify-center text-neutral-500">
               <Target className="w-8 h-8 mb-2" />
               <p>Select a client signal</p>
             </div>

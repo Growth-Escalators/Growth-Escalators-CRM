@@ -171,3 +171,38 @@ describe('every paged route in wizmatch.ts clamps BOTH limit and offset', () => 
     expect(clamped.length).toBe(reads.length);
   });
 });
+
+describe('placements accepts a status LIST, not just one value', () => {
+  // The Kanban needs several stages at once ("active" spans four). With a
+  // single-value filter the board issued one request PER STAGE — six per load,
+  // on a screen where load() fires after every drag. That is the same fan-out
+  // pattern this workstream exists to remove, so the route takes a list.
+  const routeSrc = readFileSync(join(__dirname, '..', 'routes', 'wizmatch.ts'), 'utf8');
+  const bare = routeSrc
+    .split('\n')
+    .filter((l) => {
+      const t = l.trim();
+      return !t.startsWith('//') && !t.startsWith('*') && !t.startsWith('/*');
+    })
+    .join('\n');
+
+  it('builds an ANY(...) predicate for multiple statuses', () => {
+    expect(bare).toMatch(/wp\.status = ANY\(\$\$\{paramIdx\+\+\}::text\[\]\)/);
+  });
+
+  it('keeps the single-value form (a one-item list must not become ANY of one)', () => {
+    expect(bare).toMatch(/wp\.status = \$\$\{paramIdx\+\+\}/);
+  });
+
+  it('validates against the stage vocabulary rather than trusting input', () => {
+    // The values are bound as params, so this is not an injection guard — an
+    // unknown status would simply match nothing and render as an empty
+    // pipeline, which is indistinguishable from "you have no placements".
+    expect(bare).toMatch(/WIZMATCH_PLACEMENT_STAGES as readonly string\[\]\)\.includes/);
+    expect(bare).toMatch(/invalid_status/);
+  });
+
+  it('the stage vocabulary itself is unchanged', () => {
+    expect(bare).toMatch(/const WIZMATCH_PLACEMENT_STAGES = \['submitted', 'interviewing', 'offered', 'started', 'ended', 'lost'\]/);
+  });
+});

@@ -3643,8 +3643,31 @@ router.get('/placements', async (req: Request, res: Response) => {
   let paramIdx = 2;
 
   if (req.query.status) {
-    conditions.push(`wp.status = $${paramIdx++}`);
-    params.push(req.query.status);
+    // Accepts one status OR a comma-separated list. The Kanban needs several
+    // stages at once ("active" = submitted|interviewing|offered|started), and
+    // with a single-value filter the board had to issue ONE REQUEST PER STAGE —
+    // six per load, on a screen where load() fires after every drag. A list
+    // collapses that back to one request.
+    //
+    // Values are validated against WIZMATCH_PLACEMENT_STAGES rather than
+    // interpolated: they are bound as params, but an unknown status would
+    // silently match nothing and look like an empty pipeline.
+    const requested = String(req.query.status).split(',').map((v) => v.trim()).filter(Boolean);
+    const statuses = requested.filter((v) => (WIZMATCH_PLACEMENT_STAGES as readonly string[]).includes(v));
+    if (statuses.length !== requested.length) {
+      res.status(400).json({
+        error: 'invalid_status',
+        message: `Unknown placement status. Valid values: ${WIZMATCH_PLACEMENT_STAGES.join(', ')}.`,
+      });
+      return;
+    }
+    if (statuses.length === 1) {
+      conditions.push(`wp.status = $${paramIdx++}`);
+      params.push(statuses[0]);
+    } else if (statuses.length > 1) {
+      conditions.push(`wp.status = ANY($${paramIdx++}::text[])`);
+      params.push(statuses);
+    }
   }
   if (req.query.candidate_id) {
     conditions.push(`wp.candidate_id = $${paramIdx++}`);

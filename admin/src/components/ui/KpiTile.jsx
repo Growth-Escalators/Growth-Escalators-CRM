@@ -28,7 +28,7 @@ export default function KpiTile({
       <p className="text-[28px] leading-none font-bold text-neutral-900 tracking-tight">{value}</p>
       {(trend != null || sub) && (
         <p className={`mt-2 text-xs font-semibold flex items-center gap-1
-          ${trend == null ? 'text-neutral-400 font-normal' : up ? 'text-success-600' : 'text-danger-600'}`}
+          ${trend == null ? 'text-neutral-500 font-normal' : up ? 'text-success-600' : 'text-danger-600'}`}
         >
           {trend != null && (
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -38,7 +38,7 @@ export default function KpiTile({
             </svg>
           )}
           {trend != null ? `${up ? '+' : ''}${trend}%` : null}
-          <span className="text-neutral-400 font-normal">{trendLabel || sub}</span>
+          <span className="text-neutral-500 font-normal">{trendLabel || sub}</span>
         </p>
       )}
     </div>

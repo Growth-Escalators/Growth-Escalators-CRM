@@ -22,16 +22,40 @@ import { companyPolicyUiEnabled } from '../lib/companyPolicyFlag.js';
 // `unknown_reason_code` failures. The module is pure data + pure functions with
 // no imports of its own, so nothing server-side is pulled into the bundle.
 import { WIZMATCH_REASON_CODES, getReasonCodeMeta } from '../../../src/config/wizmatchReasonCodes.ts';
+// Same deliberate cross-boundary import, same reason: these option lists are the
+// runtime source the server's write-time validation is derived from. See the
+// header of that module for the pure-data rule that keeps the import safe.
+import {
+  ELIGIBILITY_OPTIONS,
+  HIRING_POLICY_OPTIONS,
+  RELATIONSHIP_OPTIONS,
+  EVIDENCE_KIND_OPTIONS,
+  REGION_SCOPE_LABELS,
+} from '../../../src/config/wizmatchPolicyEnums.ts';
 
 const TIER_BADGE = { A: 'badge-success', B: 'badge-warning', C: 'badge-muted', Reject: 'badge-danger' };
 const REGION_BADGE = { india: 'badge-warning', us: 'badge-info' };
 
-// Declarative filter spec + columns for the Companies list. This page is filtered
-// entirely client-side: listCompanies returns up to 500 rows (with CI tier/region
-// + prime/ats/employee/counts) in one call, since Hiring Contacts fans out over
-// the full list, so it isn't server-paginated.
+// The name/domain search is the ONE server-side filter on this page; every other
+// def below narrows the rows already loaded. `serverKey` is the route's param
+// name (`search`, not `q` — listCompanies(tenantId, search)), declared once here
+// and read back by load() so the two can't drift. `serverOnly` makes
+// filterPipeline skip it client-side: the server matches
+// `name ILIKE %q% OR domain ILIKE %q%`, and re-running a per-field client test
+// over the result would drop rows the server deliberately matched.
+const COMPANY_SEARCH_DEF = {
+  key: 'q',
+  label: 'Name / domain',
+  type: 'search',
+  placeholder: 'Search name or domain…',
+  serverOnly: true,
+  serverKey: 'search',
+};
+
+// Declarative filter spec + columns for the Companies list. Everything except
+// the search above is applied client-side over one capped load.
 const COMPANY_FILTERS = [
-  { key: 'q', label: 'Name / domain', type: 'search', placeholder: 'Search name or domain…', fields: ['name', 'domain'] },
+  COMPANY_SEARCH_DEF,
   { key: 'industry', label: 'Industry', type: 'search', placeholder: 'Industry…', fields: ['industry'] },
   { key: 'country', label: 'Country', type: 'search', placeholder: 'Country…', fields: ['country'] },
   { key: 'ats_type', label: 'ATS', type: 'search', placeholder: 'ATS…', fields: ['ats_type'] },
@@ -64,32 +88,10 @@ const COMPANY_CONTACT_ROLES = [
   'interviewer', 'procurement', 'vendor_manager', 'source', 'other',
 ];
 
-// listCompanies() is `... ORDER BY c.name LIMIT 500` with no OFFSET, no total
-// count and no pagination (src/services/wizmatchStaffingDomain.ts). Once the
-// response hits the cap, `items.length` is a truncated denominator — the page
-// must say so rather than render "N of 500" as if 500 were the tenant total.
-const COMPANY_LIST_CAP = 500;
-
 // The shared bulk-endpoint contract caps a request at 200 ids. The existing
 // /companies/bulk/policy route does not enforce a cap, but a 500-row
 // select-all in one request is exactly the shape that times out, so chunk.
 const BULK_CHUNK = 200;
-
-// Duplicated from CompanyPolicySection.jsx, which owns the single-company form
-// and is another lane's file. Both are hand-mirrors of the enums validated in
-// src/modules/outreach/policyService.ts — that service is the source of truth
-// and rejects anything not in it, so a stale copy here fails loudly, not
-// silently.
-const ELIGIBILITY_OPTIONS = ['eligible', 'needs_review', 'paused', 'blocked'];
-const HIRING_POLICY_OPTIONS = [
-  'accepts_external_vendors', 'fte_vendors_only', 'contract_vendors_only', 'preferred_vendors_only',
-  'msp_vms_only', 'direct_hiring_only', 'no_external_agencies', 'unknown',
-];
-const RELATIONSHIP_OPTIONS = [
-  'new_prospect', 'existing_prospect', 'existing_client', 'vendor_partner',
-  'prime_partner', 'former_client', 'competitor', 'irrelevant',
-];
-const EVIDENCE_KIND_OPTIONS = ['human_text', 'source_url', 'email_reply_ref', 'provider_event_ref', 'legal_document_ref', 'automated_detection'];
 
 // Grouped straight off the taxonomy array — categories are derived, not listed,
 // so a new §9 category shows up in the picker without a change here.
@@ -110,6 +112,7 @@ function formatMinorCurrency(value, currency = 'INR') {
 export default function WizmatchCompaniesPage() {
   const { showSuccess, showError } = useToast();
   const [items, setItems] = useState([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
@@ -135,16 +138,35 @@ export default function WizmatchCompaniesPage() {
 
   const loadedOnce = useRef(false);
 
-  // One capped load; all filtering/sorting happens client-side over these rows.
+  // The one server-side filter. FilterBar debounces the input by 300ms before it
+  // reaches the URL, so this value changes at most ~3x/second while typing and
+  // each change is one request.
+  const searchQuery = ctl.filters[COMPANY_SEARCH_DEF.key] || '';
+
+  // One capped load per search term; every other filter and the sort are applied
+  // client-side over the rows it returns.
   const load = useCallback(async () => {
     if (loadedOnce.current) setRefreshing(true); else setLoading(true);
     setError(null);
     // Mandatory: a selection that survives a reload would fire a bulk action
-    // against rows the user can no longer see.
+    // against rows the user can no longer see. INTENTIONAL and user-visible on
+    // this page — typing in search re-runs load(), so it clears the selection
+    // mid-flow. That is the correct trade: this page's only bulk action is an
+    // admin policy WRITE, and carrying a selection across a changed result set
+    // would let it land on companies the user can no longer see. Losing a
+    // selection is cheap; a mis-targeted policy write is not.
     clearSelection();
     try {
-      const data = await apiFetch('/api/wizmatch/staffing/companies');
+      const params = new URLSearchParams();
+      // Read the param name off the def rather than re-typing 'search' here.
+      if (searchQuery.trim()) params.set(COMPANY_SEARCH_DEF.serverKey, searchQuery.trim());
+      const qs = params.toString();
+      const data = await apiFetch(`/api/wizmatch/staffing/companies${qs ? `?${qs}` : ''}`);
       setItems(data.items || []);
+      // The route returns { items, total }; it used to return a bare array, so
+      // fall back to the page length rather than rendering "of 0" against an
+      // older server.
+      setTotal(Number.isFinite(data.total) ? data.total : (data.items || []).length);
     } catch (e) {
       const msg = e.message || 'Failed to load companies';
       // First load has nothing to fall back on -> full ErrorRetry. A failed
@@ -157,11 +179,18 @@ export default function WizmatchCompaniesPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [clearSelection]);
+  }, [clearSelection, searchQuery]);
 
   useEffect(() => { load(); }, [load]);
 
-  const atCap = items.length >= COMPANY_LIST_CAP;
+  // listCompanies() is `... WHERE <search predicate> ORDER BY c.name LIMIT 500`
+  // with no OFFSET (src/services/wizmatchStaffingDomain.ts), and returns `total`
+  // = COUNT(*) over that SAME predicate. So "truncated" is `total > items.length`
+  // — the server matched more than it was willing to return — never a hardcoded
+  // `items.length >= 500`, which would accuse a tenant of exactly 500 matches of
+  // hiding something. The search runs BEFORE the LIMIT, so narrowing reaches the
+  // whole tenant: the cap bounds one page, not what is findable.
+  const truncated = total > items.length;
 
   // POST /api/wizmatch/companies/bulk/policy is requireAdmin server-side, and
   // the whole policy router next('router')s into a 404 when
@@ -219,7 +248,7 @@ export default function WizmatchCompaniesPage() {
         <div className="flex items-center gap-2.5">
           <h1 className="text-[20px] font-bold text-neutral-900 tracking-[-0.01em]">Companies</h1>
           <span className="text-[12.5px] font-semibold text-primary-700 bg-primary-500/10 border border-primary-500/20 px-2.5 py-0.5 rounded-full">
-            {rows.length}{rows.length !== items.length ? ` of ${items.length}` : ''}{atCap ? '+' : ''} companies
+            {rows.length}{rows.length !== total ? ` of ${total}` : ''} companies
           </span>
         </div>
       </div>
@@ -227,11 +256,11 @@ export default function WizmatchCompaniesPage() {
         Client companies in the staffing pipeline — hiring contacts, open requirements and delivery activity. Filters and sort are shareable via the URL and savable as presets.
       </p>
 
-      {atCap && (
+      {truncated && (
         <div role="status" className="mb-4 rounded-md border border-warning-500/30 bg-warning-500/10 px-3 py-2 text-[12px] text-warning-700">
-          Showing the first {COMPANY_LIST_CAP} companies, ordered by name. The API caps this list at {COMPANY_LIST_CAP} rows
-          and has no pagination, so any company past the cap is not loaded at all — the filters below narrow what is already
-          here, they cannot reach further. Narrow by name or industry to be sure you are seeing the company you want.
+          Showing the first {items.length.toLocaleString()} of {total.toLocaleString()}{searchQuery.trim() ? ' matching' : ''} companies
+          — narrow with search to see the rest. Name/domain search runs on the server across the whole tenant; every other
+          filter here only narrows the {items.length.toLocaleString()} rows already loaded.
         </div>
       )}
 
@@ -264,7 +293,14 @@ export default function WizmatchCompaniesPage() {
             onRowClick={(c) => setSelectedId(c.id)}
             loading={loading}
             refreshing={refreshing}
-            emptyText={items.length === 0 ? 'No companies yet — they appear once they enter the staffing pipeline.' : 'No companies match these filters.'}
+            emptyText={
+              // "No companies yet" is only true with no search term — with one
+              // active, zero rows means the SERVER matched nothing, which is a
+              // different thing and a different fix.
+              items.length > 0 ? 'No companies match these filters.'
+                : searchQuery.trim() ? 'No companies match this search.'
+                  : 'No companies yet — they appear once they enter the staffing pipeline.'
+            }
             sort={ctl.sort}
             onSort={ctl.setSort}
             selectedIds={sel.selectedIds}
@@ -313,14 +349,52 @@ export default function WizmatchCompaniesPage() {
 // Bulk policy write — a form, not a ConfirmDialog, because the endpoint needs a
 // scope plus a §9 reason code and ConfirmDialog only collects free text.
 //
-// scopeType is pinned to `entire_company`: every other scope type keys off a
-// per-company value (a region/business-unit/location label, or a specific
-// signal/requirement id), none of which can mean the same thing across an
-// arbitrary multi-company selection. That choice is what forces all three
-// dimensions to be filled — policyService rejects an `entire_company` row that
-// leaves any of them unset (`root_requires_all_dimensions`), so the fields are
-// validated here rather than sent to fail.
+// TWO scopes are offered, and the split is a correctness constraint, not a
+// convenience:
+//
+//   `entire_company` (Set full policy) forces all three dimensions.
+//   policyService rejects an `entire_company` row that leaves any of them unset
+//   (`root_requires_all_dimensions`, policyService.ts:215-221, mirroring
+//   migration 0037's `..._root_defines_all_chk`), so they are validated here
+//   rather than sent to fail. Consequence: it is impossible to "just pause" at
+//   the root — a root pause also restates hiring policy and relationship type.
+//
+//   `region` (Pause outreach only) needs exactly ONE dimension
+//   (`scoped_requires_one_dimension`, policyService.ts:222-223 / 0037's
+//   `..._scoped_overrides_one_chk`), so it can carry an eligibility change with
+//   nothing else attached.
+//
+// An earlier version of this comment claimed every non-`entire_company` scope
+// "keys off a per-company value" and used that to rule out any other scope in
+// bulk. That is true of `business_unit` and `location`, whose `scope_ref_label`
+// is free text, and of `specific_signal`/`specific_requirement`, which need a
+// row id. It is NOT true of `region`: migration 0037's
+// `wizmatch_company_policies_region_label_chk` pins a region row's
+// `scope_ref_label` to exactly `'india'|'us'` — a closed, tenant-independent
+// vocabulary that means the same thing for every company in a selection. Region
+// is the one non-root scope that is legitimately bulk-able.
+//
+// One property worth knowing before using it: a region row is STRICTER than it
+// looks, never looser. While an active `region:*` row exists on a company, any
+// gate call whose context cannot resolve a region label denies outright with
+// `scope_unresolvable` (policyResolver.ts:193-205 -> outreachGate.ts:416-417),
+// rather than skipping the row. A region-scoped pause therefore cannot silently
+// fail open — the failure mode is over-blocking, which is the safe direction for
+// a pause. The dialog says so.
+const BULK_SCOPES = {
+  entire_company: {
+    label: 'Set full policy',
+    hint: 'All three dimensions, at the company root.',
+  },
+  region: {
+    label: 'Pause outreach only',
+    hint: 'One region, eligibility only — hiring policy and relationship are left untouched.',
+  },
+};
+
 function BulkPolicyDialog({ count, busy, error, onSubmit, onCancel }) {
+  const [scopeType, setScopeType] = useState('entire_company');
+  const [scopeRefLabel, setScopeRefLabel] = useState('');
   const [outreachEligibility, setOutreachEligibility] = useState('');
   const [externalHiringPolicy, setExternalHiringPolicy] = useState('');
   const [relationshipType, setRelationshipType] = useState('');
@@ -330,25 +404,46 @@ function BulkPolicyDialog({ count, busy, error, onSubmit, onCancel }) {
   const [evidenceKind, setEvidenceKind] = useState('human_text');
   const [evidenceText, setEvidenceText] = useState('');
 
-  // Mirrors the server's `paused_requires_review_date` rule.
-  const needsReviewDate = outreachEligibility === 'paused';
+  const pauseOnly = scopeType === 'region';
+  // In pause mode eligibility is pinned, not chosen — the whole point of the
+  // preset is that it writes one dimension and no others.
+  const effectiveEligibility = pauseOnly ? 'paused' : outreachEligibility;
+  // Mirrors the server's `paused_requires_review_date` rule
+  // (policyService.ts:212-214 / 0037 `..._paused_review_date_chk`). Always true
+  // in pause mode, since eligibility is pinned to `paused`.
+  const needsReviewDate = effectiveEligibility === 'paused';
   const evidenceExpected = reasonCode ? getReasonCodeMeta(reasonCode)?.evidence === 'required' : false;
   const canSubmit = !busy
-    && Boolean(outreachEligibility && externalHiringPolicy && relationshipType)
     && reasonCode.length > 0
-    && (!needsReviewDate || Boolean(reviewDate));
+    && (!needsReviewDate || Boolean(reviewDate))
+    && (pauseOnly
+      ? Boolean(scopeRefLabel)
+      : Boolean(outreachEligibility && externalHiringPolicy && relationshipType));
 
-  const submit = () => onSubmit({
-    scopeType: 'entire_company',
-    outreachEligibility,
-    externalHiringPolicy,
-    relationshipType,
-    reasonCode,
-    reason: reason.trim() || undefined,
-    reviewDate: reviewDate || undefined,
-    evidenceKind: evidenceText.trim() ? evidenceKind : undefined,
-    evidenceText: evidenceText.trim() || undefined,
-  });
+  // Built per-mode rather than by nulling fields, so a value typed in one mode
+  // and hidden by switching to the other can never reach the server.
+  const submit = () => onSubmit(pauseOnly
+    ? {
+      scopeType: 'region',
+      scopeRefLabel,
+      outreachEligibility: 'paused',
+      reasonCode,
+      reason: reason.trim() || undefined,
+      reviewDate,
+      evidenceKind: evidenceText.trim() ? evidenceKind : undefined,
+      evidenceText: evidenceText.trim() || undefined,
+    }
+    : {
+      scopeType: 'entire_company',
+      outreachEligibility,
+      externalHiringPolicy,
+      relationshipType,
+      reasonCode,
+      reason: reason.trim() || undefined,
+      reviewDate: reviewDate || undefined,
+      evidenceKind: evidenceText.trim() ? evidenceKind : undefined,
+      evidenceText: evidenceText.trim() || undefined,
+    });
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" role="presentation">
@@ -358,28 +453,70 @@ function BulkPolicyDialog({ count, busy, error, onSubmit, onCancel }) {
             <ShieldCheck className="w-4 h-4 text-primary-600" />
             Set policy on {count} {count === 1 ? 'company' : 'companies'}
           </h2>
-          <p className="text-[12.5px] text-neutral-600 leading-relaxed">
-            Writes one <code>entire_company</code> policy row per selected company, superseding whatever root policy each one
-            has now. Every write is recorded in that company's policy history and can be superseded again, but not un-done in
-            bulk.
-          </p>
+          <div role="radiogroup" aria-label="What to write" className="flex gap-1.5">
+            {Object.entries(BULK_SCOPES).map(([key, meta]) => (
+              <button
+                key={key}
+                type="button"
+                role="radio"
+                aria-checked={scopeType === key}
+                onClick={() => setScopeType(key)}
+                title={meta.hint}
+                className={`flex-1 text-[12px] font-semibold px-2.5 py-1.5 rounded-md border ${scopeType === key ? 'border-primary-500 text-primary-700 bg-primary-50' : 'border-neutral-200 text-neutral-500 hover:bg-neutral-50'}`}
+              >
+                {meta.label}
+              </button>
+            ))}
+          </div>
+
+          {pauseOnly ? (
+            <p className="text-[12.5px] text-neutral-600 leading-relaxed">
+              Writes one <code>region</code> policy row per selected company, setting outreach eligibility to
+              {' '}<b>paused</b> for that region only. Hiring policy and relationship type are not written and keep inheriting
+              from each company's root. While a region row is active, an action whose context has no resolvable region is
+              denied outright (<code>scope_unresolvable</code>) rather than ignoring the row — the pause cannot fail open, but
+              it is stricter than it looks.
+            </p>
+          ) : (
+            <p className="text-[12.5px] text-neutral-600 leading-relaxed">
+              Writes one <code>entire_company</code> policy row per selected company, superseding whatever root policy each one
+              has now. A root row must define all three dimensions, so this restates hiring policy and relationship type even
+              if you only meant to change eligibility — use <b>Pause outreach only</b> for that. Every write is recorded in that
+              company's policy history and can be superseded again, but not un-done in bulk.
+            </p>
+          )}
           {error && (
             <div role="alert" className="text-[12.5px] text-danger-600 bg-danger-500/10 border border-danger-500/30 rounded-md px-2.5 py-1.5">
               {error}
             </div>
           )}
-          <select value={outreachEligibility} onChange={(e) => setOutreachEligibility(e.target.value)} className="input w-full">
-            <option value="">Outreach eligibility — required</option>
-            {ELIGIBILITY_OPTIONS.map((o) => <option key={o} value={o}>{o.replaceAll('_', ' ')}</option>)}
-          </select>
-          <select value={externalHiringPolicy} onChange={(e) => setExternalHiringPolicy(e.target.value)} className="input w-full">
-            <option value="">Hiring policy — required</option>
-            {HIRING_POLICY_OPTIONS.map((o) => <option key={o} value={o}>{o.replaceAll('_', ' ')}</option>)}
-          </select>
-          <select value={relationshipType} onChange={(e) => setRelationshipType(e.target.value)} className="input w-full">
-            <option value="">Relationship — required</option>
-            {RELATIONSHIP_OPTIONS.map((o) => <option key={o} value={o}>{o.replaceAll('_', ' ')}</option>)}
-          </select>
+          {pauseOnly ? (
+            /* Not free text: migration 0037 pins a region row's scope_ref_label
+               to exactly these values, so a typo here would be a per-company
+               CHECK violation across the whole selection. */
+            <label className="block">
+              <span className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Region to pause — required</span>
+              <select value={scopeRefLabel} onChange={(e) => setScopeRefLabel(e.target.value)} className="input w-full mt-1">
+                <option value="">Select a region…</option>
+                {REGION_SCOPE_LABELS.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </label>
+          ) : (
+            <>
+              <select value={outreachEligibility} onChange={(e) => setOutreachEligibility(e.target.value)} className="input w-full">
+                <option value="">Outreach eligibility — required</option>
+                {ELIGIBILITY_OPTIONS.map((o) => <option key={o} value={o}>{o.replaceAll('_', ' ')}</option>)}
+              </select>
+              <select value={externalHiringPolicy} onChange={(e) => setExternalHiringPolicy(e.target.value)} className="input w-full">
+                <option value="">Hiring policy — required</option>
+                {HIRING_POLICY_OPTIONS.map((o) => <option key={o} value={o}>{o.replaceAll('_', ' ')}</option>)}
+              </select>
+              <select value={relationshipType} onChange={(e) => setRelationshipType(e.target.value)} className="input w-full">
+                <option value="">Relationship — required</option>
+                {RELATIONSHIP_OPTIONS.map((o) => <option key={o} value={o}>{o.replaceAll('_', ' ')}</option>)}
+              </select>
+            </>
+          )}
           {needsReviewDate && (
             <label className="block">
               <span className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Review date (required while paused)</span>
@@ -416,7 +553,7 @@ function BulkPolicyDialog({ count, busy, error, onSubmit, onCancel }) {
         <div className="border-t border-neutral-100 px-5 py-3 flex justify-end gap-2">
           <button type="button" onClick={onCancel} disabled={busy} className="btn-standard">Cancel</button>
           <button type="button" onClick={submit} disabled={!canSubmit} className="btn-primary disabled:opacity-50">
-            {busy ? 'Working…' : `Write policy on ${count}`}
+            {busy ? 'Working…' : pauseOnly ? `Pause ${scopeRefLabel || 'region'} on ${count}` : `Write policy on ${count}`}
           </button>
         </div>
       </div>

@@ -346,9 +346,9 @@ export default function WizmatchCandidateIntelligencePage({ demoMode = false }) 
       <div className="grid grid-cols-1 xl:grid-cols-[420px_1fr] gap-5">
         <div className="space-y-3">
           {loading ? (
-            <div className="card p-6 text-center text-neutral-400">Loading...</div>
+            <div className="card p-6 text-center text-neutral-500">Loading...</div>
           ) : items.length === 0 ? (
-            <div className="card p-6 text-center text-neutral-400">No candidate intelligence records found</div>
+            <div className="card p-6 text-center text-neutral-500">No candidate intelligence records found</div>
           ) : items.map((item) => (
             <CandidateCard key={item.id} item={item} selected={selected?.id === item.id} onSelect={setSelected} />
           ))}
@@ -453,7 +453,7 @@ export default function WizmatchCandidateIntelligencePage({ demoMode = false }) 
               </div>
             </>
           ) : (
-            <div className="h-full flex flex-col items-center justify-center text-neutral-400">
+            <div className="h-full flex flex-col items-center justify-center text-neutral-500">
               <UserCheck className="w-8 h-8 mb-2" />
               <p>Select a candidate</p>
             </div>

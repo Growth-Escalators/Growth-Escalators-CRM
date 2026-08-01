@@ -155,7 +155,12 @@ export function useTableControls({ pageId, spec, columns, defaults = NO_DEFAULTS
     return new Set((columns || []).filter((c) => c.defaultHidden).map((c) => c.key));
   }, [searchParams, columns]);
 
-  const page = Number(searchParams.get('page') || 0);
+  // Guarded, not just coerced: `Number('abc')` is NaN, and a server-paged caller
+  // computing `offset = page * limit` would then send `offset=NaN`. Harmless for
+  // client-paged callers, which is why it survived — but the queue tab now uses
+  // this param for a real offset.
+  const rawPage = Number(searchParams.get('page') || 0);
+  const page = Number.isFinite(rawPage) ? Math.max(0, Math.trunc(rawPage)) : 0;
 
   // `push` decides whether this change becomes a browser history entry.
   //

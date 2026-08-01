@@ -133,23 +133,64 @@ test.describe('shared admin table + filter primitives', () => {
     await expect(firstRow).toHaveAttribute('tabindex', '0');
   });
 
-  test('saving a filter preset shows it immediately, without touching anything else', async ({ page }) => {
+  test('saving a view shows it immediately, without touching anything else', async ({ page }) => {
     await page.route('**/api/wizmatch/candidates**', (route) => route.fulfill({ json: fakeCandidates(8) }));
+
+    // Saved views moved from localStorage to the database so they can be shared
+    // with the team, so this now needs the API stubbed. The property under test
+    // is unchanged and is the original bug: saving used to write storage but
+    // change no React state, so the panel kept reading "no saved views" until an
+    // unrelated filter was touched — a working feature that looked broken.
+    let saved: Array<Record<string, unknown>> = [];
+    await page.route('**/api/saved-views**', async (route) => {
+      const req = route.request();
+      if (req.method() === 'POST') {
+        const body = JSON.parse(req.postData() || '{}');
+        saved = [{
+          id: 'v1', pageId: body.pageId, name: body.name, query: body.query,
+          isShared: Boolean(body.isShared), ownerUserId: 'user-1', ownerName: 'Test Admin',
+          isOwner: true, createdAt: null, updatedAt: null,
+        }];
+        return route.fulfill({ status: 201, json: { item: saved[0] } });
+      }
+      return route.fulfill({ json: { items: saved } });
+    });
 
     await page.goto(CANDIDATES);
     await page.waitForLoadState('networkidle');
 
-    const presetsToggle = page.getByText('Presets', { exact: true }).first();
-    await presetsToggle.click();
-    await expect(page.getByText('No saved presets')).toBeVisible();
+    await page.getByText('Views', { exact: true }).first().click();
+    await expect(page.getByText('No saved views yet')).toBeVisible();
 
-    await page.getByPlaceholder('Save current as…').fill('My view');
-    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await page.getByPlaceholder('Save current view as…').fill('Hot ATS leads');
+    await page.getByRole('button', { name: 'Save view', exact: true }).click();
 
-    // The bug: this used to still read "No saved presets" until an unrelated
-    // filter was touched, because savePreset changed no React state.
-    await expect(page.getByText('My view')).toBeVisible();
-    await expect(page.getByText('No saved presets')).toHaveCount(0);
+    await expect(page.getByText('Hot ATS leads')).toBeVisible();
+    await expect(page.getByText('No saved views yet')).toHaveCount(0);
+  });
+
+  test('a view can be shared with the team at save time', async ({ page }) => {
+    await page.route('**/api/wizmatch/candidates**', (route) => route.fulfill({ json: fakeCandidates(8) }));
+
+    let posted: Record<string, unknown> | null = null;
+    await page.route('**/api/saved-views**', async (route) => {
+      const req = route.request();
+      if (req.method() === 'POST') {
+        posted = JSON.parse(req.postData() || '{}');
+        return route.fulfill({ status: 201, json: { item: { id: 'v1', ...posted, isOwner: true } } });
+      }
+      return route.fulfill({ json: { items: [] } });
+    });
+
+    await page.goto(CANDIDATES);
+    await page.waitForLoadState('networkidle');
+
+    await page.getByText('Views', { exact: true }).first().click();
+    await page.getByPlaceholder('Save current view as…').fill('Team view');
+    await page.getByLabel('Share with the team').check();
+    await page.getByRole('button', { name: 'Save view', exact: true }).click();
+
+    await expect.poll(() => posted?.isShared).toBe(true);
   });
 
   test('Back undoes the last filter instead of leaving the page', async ({ page }) => {

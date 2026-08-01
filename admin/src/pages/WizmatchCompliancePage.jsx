@@ -120,7 +120,7 @@ export default function WizmatchCompliancePage() {
             </tr>
           </thead>
           <tbody>
-            {loading ? <tr><td colSpan="4" className="px-4 py-8 text-center text-neutral-400">Loading...</td></tr>
+            {loading ? <tr><td colSpan="4" className="px-4 py-8 text-center text-neutral-500">Loading...</td></tr>
             : suppressions.map(s => (
               <tr key={s.id}>
                 <td className="font-medium text-neutral-900">{s.email}</td>

@@ -26,10 +26,10 @@ export default function WizmatchMyWorkPage() {
       <button className="btn-standard btn-compact" onClick={load}><RefreshCw className="w-3.5 h-3.5"/> Refresh</button>
     </div>
     {error && <div role="alert" className="border border-danger-200 bg-danger-50 text-danger-700 rounded-md p-3">{error} <button className="underline font-semibold ml-2" onClick={load}>Retry</button></div>}
-    {loading ? <div className="card p-8 text-center text-neutral-400">Loading your work…</div> : <>
+    {loading ? <div className="card p-8 text-center text-neutral-500">Loading your work…</div> : <>
       <section><h2 className="text-[14px] font-bold text-neutral-800 mb-2 flex items-center gap-2"><Briefcase className="w-4 h-4"/> Assigned requirements ({data.requirements?.length || 0})</h2>
         <div className="card overflow-hidden"><table className="table-fluent"><thead><tr><th>Requirement</th><th>Source</th><th>My role</th><th>Stage</th><th>Next action</th></tr></thead><tbody>
-          {!data.requirements?.length ? <tr><td colSpan="5" className="text-center py-8 text-neutral-400">No active requirements are assigned to you.</td></tr> : data.requirements.map(r => <tr key={r.id}>
+          {!data.requirements?.length ? <tr><td colSpan="5" className="text-center py-8 text-neutral-500">No active requirements are assigned to you.</td></tr> : data.requirements.map(r => <tr key={r.id}>
             <td><div className="font-semibold text-neutral-900">{r.title}</div><div className="text-[11.5px] text-neutral-500">{r.company_name || 'Unknown company'}</div></td>
             <td>{[r.source_first_name,r.source_last_name].filter(Boolean).join(' ') || <span className="text-warning-700">Needs attribution</span>}</td>
             <td>{(r.my_roles || []).map(role => <span key={role} className="badge-info mr-1">{role.replaceAll('_',' ')}</span>)}</td>

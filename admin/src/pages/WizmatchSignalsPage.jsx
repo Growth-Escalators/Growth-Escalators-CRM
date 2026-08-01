@@ -500,14 +500,14 @@ export default function WizmatchSignalsPage() {
                 <h2 className="text-[18px] font-bold text-neutral-900">{selectedSignal.job_title}</h2>
                 <p className="text-[12.5px] text-neutral-500">{selectedSignal.company_name || 'Unknown'} · {selectedSignal.location || '—'}</p>
               </div>
-              <button onClick={() => setSelectedSignal(null)} className="text-neutral-400 hover:text-neutral-600">
+              <button onClick={() => setSelectedSignal(null)} className="text-neutral-500 hover:text-neutral-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="p-6">
               {detailLoading ? (
-                <p className="text-neutral-400">Loading details...</p>
+                <p className="text-neutral-500">Loading details...</p>
               ) : (
                 <>
                   <div className="grid grid-cols-3 gap-4 mb-6">
@@ -581,7 +581,7 @@ export default function WizmatchSignalsPage() {
                         <div key={i} className="card p-3 mb-2">
                           <div className="flex justify-between items-center mb-1">
                             <span className="font-medium text-sm text-neutral-900">{d.metadata?.subject || '(no subject)'}</span>
-                            <span className="text-xs text-neutral-400">{d.metadata?.variant}</span>
+                            <span className="text-xs text-neutral-500">{d.metadata?.variant}</span>
                           </div>
                           <pre className="text-xs text-neutral-600 whitespace-pre-wrap font-mono">{d.content?.slice(0, 200)}...</pre>
                         </div>

@@ -98,9 +98,9 @@ function ConversationItem({ item }) {
               <p className="text-white text-sm whitespace-pre-wrap">{item.content}</p>
             </div>
             {item.templateName && (
-              <p className="text-xs text-neutral-400 mt-0.5 text-right">{item.templateName}</p>
+              <p className="text-xs text-neutral-500 mt-0.5 text-right">{item.templateName}</p>
             )}
-            <p className="text-xs text-neutral-400 mt-0.5 text-right">{relativeTime(item.created_at)}</p>
+            <p className="text-xs text-neutral-500 mt-0.5 text-right">{relativeTime(item.created_at)}</p>
           </div>
         </div>
       );
@@ -112,7 +112,7 @@ function ConversationItem({ item }) {
             <div className="rounded-2xl rounded-tl-sm px-4 py-2.5 bg-white border border-neutral-200">
               <p className="text-neutral-900 text-sm whitespace-pre-wrap">{item.content}</p>
             </div>
-            <p className="text-xs text-neutral-400 mt-0.5">{relativeTime(item.created_at)}</p>
+            <p className="text-xs text-neutral-500 mt-0.5">{relativeTime(item.created_at)}</p>
           </div>
         </div>
       );
@@ -121,7 +121,7 @@ function ConversationItem({ item }) {
       <div className="mb-3 border-l-4 border-primary-400 bg-primary-50 rounded-r-xl px-4 py-3">
         <div className="flex items-center justify-between mb-1">
           <span className="text-xs font-semibold text-primary-700 uppercase tracking-wide">Email sent</span>
-          <span className="text-xs text-neutral-400">{relativeTime(item.created_at)}</span>
+          <span className="text-xs text-neutral-500">{relativeTime(item.created_at)}</span>
         </div>
         {item.templateName && <p className="text-xs text-neutral-500 mb-1">{item.templateName}</p>}
         {item.content && <p className="text-sm text-neutral-700 whitespace-pre-wrap">{item.content}</p>}
@@ -137,7 +137,7 @@ function ConversationItem({ item }) {
       <div className="mb-3 border-l-4 border-accent-400 bg-accent-50 rounded-r-xl px-4 py-3">
         <div className="flex items-center justify-between mb-1">
           <span className="text-sm font-semibold text-accent-700">📅 Strategy Call Booked</span>
-          <span className="text-xs text-neutral-400">{relativeTime(item.created_at)}</span>
+          <span className="text-xs text-neutral-500">{relativeTime(item.created_at)}</span>
         </div>
         {item.scheduledAt && (
           <p className="text-xs text-neutral-600 mb-1">{formatDateTime(item.scheduledAt)}</p>
@@ -168,7 +168,7 @@ function ConversationItem({ item }) {
     } catch {}
     return (
       <div className="mb-2 flex flex-col items-center">
-        <span className="text-xs text-neutral-400 bg-neutral-100 rounded-full px-3 py-1">{label}</span>
+        <span className="text-xs text-neutral-500 bg-neutral-100 rounded-full px-3 py-1">{label}</span>
         <span className="text-[10px] text-neutral-300 mt-0.5">{relativeTime(item.created_at)}</span>
       </div>
     );
@@ -179,7 +179,7 @@ function ConversationItem({ item }) {
       <div className="mb-3 border-l-4 border-warning-500 bg-warning-500/10 rounded-r-xl px-4 py-3">
         <div className="flex items-center justify-between mb-1">
           <span className="text-sm font-semibold text-warning-700">✏️ Note by {item.createdBy ?? 'team'}</span>
-          <span className="text-xs text-neutral-400">{relativeTime(item.created_at)}</span>
+          <span className="text-xs text-neutral-500">{relativeTime(item.created_at)}</span>
         </div>
         <p className="text-sm text-neutral-700 whitespace-pre-wrap">{item.content}</p>
       </div>
@@ -346,7 +346,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
             <h2 className="font-bold text-neutral-900 text-base truncate">{fullName || 'Unknown'}</h2>
             <div className="flex items-center gap-2 flex-wrap">
               {contact?.companyName && (
-                <span className="text-xs text-neutral-400 truncate">{contact.companyName}</span>
+                <span className="text-xs text-neutral-500 truncate">{contact.companyName}</span>
               )}
               {btType && (
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${btType.color}`}>
@@ -361,7 +361,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                 href={`https://wa.me/${phone.replace(/\D/g, '')}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="p-2 text-neutral-400 hover:text-success-600 rounded-lg hover:bg-neutral-100"
+                className="p-2 text-neutral-500 hover:text-success-600 rounded-lg hover:bg-neutral-100"
                 title="Open WhatsApp"
               >
                 <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
@@ -371,7 +371,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
             )}
             <button
               onClick={onClose}
-              className="p-2 text-neutral-400 hover:text-neutral-600 rounded-lg hover:bg-neutral-100"
+              className="p-2 text-neutral-500 hover:text-neutral-600 rounded-lg hover:bg-neutral-100"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -389,7 +389,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
               className={`flex-1 py-2.5 text-xs font-medium transition-colors border-b-[2.5px] ${
                 activeTab === tab.id
                   ? 'text-primary-600 border-primary-500'
-                  : 'text-neutral-400 border-transparent hover:text-neutral-600'
+                  : 'text-neutral-500 border-transparent hover:text-neutral-600'
               }`}
             >
               {tab.label}
@@ -405,7 +405,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
             <div className="flex flex-col flex-1 overflow-hidden">
               <div className="flex-1 overflow-y-auto px-4 py-3">
                 {convLoading ? (
-                  <div className="flex justify-center py-8 text-neutral-400 text-sm">Loading…</div>
+                  <div className="flex justify-center py-8 text-neutral-500 text-sm">Loading…</div>
                 ) : conversation.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 text-neutral-300">
                     <svg className="w-10 h-10 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -443,7 +443,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
           {activeTab === 'details' && (
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
               <div className="space-y-3">
-                <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Contact Info</h3>
+                <h3 className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Contact Info</h3>
                 {phone && (
                   <div className="flex items-center gap-3">
                     <span className="text-xs text-neutral-400 w-20 shrink-0">Phone</span>
@@ -484,7 +484,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
 
               {!isWizmatchContact && (
                 <div className="space-y-2">
-                  <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Business Type</h3>
+                  <h3 className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Business Type</h3>
                   <select
                     value={contact?.businessType ?? ''}
                     onChange={(e) => patchContact({ businessType: e.target.value || null })}
@@ -500,7 +500,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
 
               {wizmatchCandidate && (
                 <div className="space-y-3">
-                  <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Candidate Info</h3>
+                  <h3 className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Candidate Info</h3>
                   {(wizmatchCandidate.githubUrl || wizmatchCandidate.linkedinUrl || wizmatchCandidate.resumeUrl) && (
                     <div className="flex flex-wrap gap-3">
                       {wizmatchCandidate.githubUrl && (
@@ -544,28 +544,28 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                   )}
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     {wizmatchCandidate.location && (
-                      <div><span className="text-xs text-neutral-400 block">Location</span>{wizmatchCandidate.location}</div>
+                      <div><span className="text-xs text-neutral-500 block">Location</span>{wizmatchCandidate.location}</div>
                     )}
                     {wizmatchCandidate.experienceYears != null && (
-                      <div><span className="text-xs text-neutral-400 block">Experience</span>{wizmatchCandidate.experienceYears} yrs</div>
+                      <div><span className="text-xs text-neutral-500 block">Experience</span>{wizmatchCandidate.experienceYears} yrs</div>
                     )}
                     {wizmatchCandidate.visaStatus && wizmatchCandidate.visaStatus !== 'unknown' && (
-                      <div><span className="text-xs text-neutral-400 block">Visa</span>{wizmatchCandidate.visaStatus}</div>
+                      <div><span className="text-xs text-neutral-500 block">Visa</span>{wizmatchCandidate.visaStatus}</div>
                     )}
                     {wizmatchCandidate.availabilityStatus && (
-                      <div><span className="text-xs text-neutral-400 block">Availability</span>{wizmatchCandidate.availabilityStatus}</div>
+                      <div><span className="text-xs text-neutral-500 block">Availability</span>{wizmatchCandidate.availabilityStatus}</div>
                     )}
                     {wizmatchCandidate.availabilityDate && (
-                      <div><span className="text-xs text-neutral-400 block">Available from</span>{formatDate(wizmatchCandidate.availabilityDate)}</div>
+                      <div><span className="text-xs text-neutral-500 block">Available from</span>{formatDate(wizmatchCandidate.availabilityDate)}</div>
                     )}
                     {wizmatchCandidate.rateHourly != null && (
-                      <div><span className="text-xs text-neutral-400 block">Rate</span>{wizmatchCandidate.rateCurrency ?? 'USD'} {wizmatchCandidate.rateHourly}/hr</div>
+                      <div><span className="text-xs text-neutral-500 block">Rate</span>{wizmatchCandidate.rateCurrency ?? 'USD'} {wizmatchCandidate.rateHourly}/hr</div>
                     )}
                     {wizmatchCandidate.matchScore != null && (
                       <div>
-                        <span className="text-xs text-neutral-400 block">Match score (at intake)</span>
+                        <span className="text-xs text-neutral-500 block">Match score (at intake)</span>
                         {wizmatchCandidate.matchScore}/100
-                        {wizmatchCandidate.createdAt && <span className="text-xs text-neutral-400"> · {formatDate(wizmatchCandidate.createdAt)}</span>}
+                        {wizmatchCandidate.createdAt && <span className="text-xs text-neutral-500"> · {formatDate(wizmatchCandidate.createdAt)}</span>}
                       </div>
                     )}
                   </div>
@@ -574,26 +574,26 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
 
               {wizmatchContactCandidate && (
                 <div className="space-y-3">
-                  <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Client Lead Info</h3>
+                  <h3 className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Client Lead Info</h3>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     {wizmatchContactCandidate.title && (
-                      <div><span className="text-xs text-neutral-400 block">Title</span>{wizmatchContactCandidate.title}</div>
+                      <div><span className="text-xs text-neutral-500 block">Title</span>{wizmatchContactCandidate.title}</div>
                     )}
                     {wizmatchContactCandidate.roleCategory && (
-                      <div><span className="text-xs text-neutral-400 block">Role category</span>{wizmatchContactCandidate.roleCategory}</div>
+                      <div><span className="text-xs text-neutral-500 block">Role category</span>{wizmatchContactCandidate.roleCategory}</div>
                     )}
                     {wizmatchContactCandidate.region && (
-                      <div><span className="text-xs text-neutral-400 block">Region</span>{wizmatchContactCandidate.region}</div>
+                      <div><span className="text-xs text-neutral-500 block">Region</span>{wizmatchContactCandidate.region}</div>
                     )}
                     {wizmatchContactCandidate.deliverabilityStatus && (
-                      <div><span className="text-xs text-neutral-400 block">Deliverability</span>{wizmatchContactCandidate.deliverabilityStatus}</div>
+                      <div><span className="text-xs text-neutral-500 block">Deliverability</span>{wizmatchContactCandidate.deliverabilityStatus}</div>
                     )}
                     {wizmatchContactCandidate.confidenceScore != null && (
-                      <div><span className="text-xs text-neutral-400 block">Confidence</span>{wizmatchContactCandidate.confidenceScore}/100</div>
+                      <div><span className="text-xs text-neutral-500 block">Confidence</span>{wizmatchContactCandidate.confidenceScore}/100</div>
                     )}
                     {wizmatchContactCandidate.source && (
                       <div>
-                        <span className="text-xs text-neutral-400 block">Source</span>
+                        <span className="text-xs text-neutral-500 block">Source</span>
                         {wizmatchContactCandidate.sourceUrl ? (
                           <a href={wizmatchContactCandidate.sourceUrl} target="_blank" rel="noreferrer" className="text-primary-600 hover:underline">
                             {formatSourceLabel(wizmatchContactCandidate.source)} ↗
@@ -612,7 +612,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
 
               {wizmatchCompany && (
                 <div className="space-y-3">
-                  <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Company Info</h3>
+                  <h3 className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Company Info</h3>
                   {wizmatchCompanyIntelligence && (
                     <div className="flex flex-wrap items-center gap-2">
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
@@ -635,30 +635,30 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     {wizmatchCompany.domain && (
                       <div>
-                        <span className="text-xs text-neutral-400 block">Domain</span>
+                        <span className="text-xs text-neutral-500 block">Domain</span>
                         <a href={`https://${wizmatchCompany.domain}`} target="_blank" rel="noreferrer" className="text-primary-600 hover:underline">
                           {wizmatchCompany.domain} ↗
                         </a>
                       </div>
                     )}
                     {wizmatchCompany.industry && (
-                      <div><span className="text-xs text-neutral-400 block">Industry</span>{wizmatchCompany.industry}</div>
+                      <div><span className="text-xs text-neutral-500 block">Industry</span>{wizmatchCompany.industry}</div>
                     )}
                     {wizmatchCompany.employeeCount != null && (
-                      <div><span className="text-xs text-neutral-400 block">Employees</span>{wizmatchCompany.employeeCount}</div>
+                      <div><span className="text-xs text-neutral-500 block">Employees</span>{wizmatchCompany.employeeCount}</div>
                     )}
                     {wizmatchCompany.atsType && wizmatchCompany.atsType !== 'none' && (
-                      <div><span className="text-xs text-neutral-400 block">ATS</span>{formatSourceLabel(wizmatchCompany.atsType)}</div>
+                      <div><span className="text-xs text-neutral-500 block">ATS</span>{formatSourceLabel(wizmatchCompany.atsType)}</div>
                     )}
                     {wizmatchCompany.h1bSponsorCount > 0 && (
-                      <div><span className="text-xs text-neutral-400 block">H-1B sponsorships</span>{wizmatchCompany.h1bSponsorCount}</div>
+                      <div><span className="text-xs text-neutral-500 block">H-1B sponsorships</span>{wizmatchCompany.h1bSponsorCount}</div>
                     )}
                   </div>
                 </div>
               )}
 
               <div className="space-y-2">
-                <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Assigned To</h3>
+                <h3 className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Assigned To</h3>
                 <div className="flex gap-2">
                   {ASSIGNED_OPTIONS.map((a) => (
                     <button
@@ -684,7 +684,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
 
               {contact?.tags?.length > 0 && (
                 <div className="space-y-2">
-                  <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Tags</h3>
+                  <h3 className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Tags</h3>
                   <div className="flex flex-wrap gap-1.5">
                     {(contact.tags ?? []).map((tag) => (
                       <span key={tag} className="text-xs px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600">
@@ -697,13 +697,13 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
 
               {contact?.notes && (
                 <div className="space-y-2">
-                  <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Contact Notes</h3>
+                  <h3 className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Contact Notes</h3>
                   <p className="text-sm text-neutral-700 whitespace-pre-wrap">{contact.notes}</p>
                 </div>
               )}
 
               <div className="space-y-1 pt-2 border-t border-neutral-100">
-                <p className="text-xs text-neutral-400">
+                <p className="text-xs text-neutral-500">
                   Created:{' '}
                   {contact?.createdAt
                     ? new Date(contact.createdAt).toLocaleDateString('en-IN', {
@@ -712,7 +712,7 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                     : '—'}
                 </p>
                 {contact?.lastActivityAt && (
-                  <p className="text-xs text-neutral-400">
+                  <p className="text-xs text-neutral-500">
                     Last activity:{' '}
                     {new Date(contact.lastActivityAt).toLocaleDateString('en-IN', {
                       day: 'numeric', month: 'short', year: 'numeric',
@@ -745,9 +745,9 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3">
-                <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Notes</h3>
+                <h3 className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Notes</h3>
                 {notesLoading ? (
-                  <p className="text-sm text-neutral-400 text-center py-4">Loading…</p>
+                  <p className="text-sm text-neutral-500 text-center py-4">Loading…</p>
                 ) : notes.length === 0 ? (
                   <p className="text-sm text-neutral-300 text-center py-8">No notes yet</p>
                 ) : (
@@ -780,19 +780,19 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                         <>
                           <p className="text-sm text-neutral-700 whitespace-pre-wrap mb-2">{note.content}</p>
                           <div className="flex items-center justify-between">
-                            <span className="text-xs text-neutral-400">
+                            <span className="text-xs text-neutral-500">
                               {note.createdBy} · {relativeTime(note.createdAt || note.created_at)}
                             </span>
                             <div className="flex gap-1">
                               <button
                                 onClick={() => { setEditNoteId(note.id); setEditNoteContent(note.content); }}
-                                className="text-xs text-neutral-400 hover:text-primary-600 px-2 py-1"
+                                className="text-xs text-neutral-500 hover:text-primary-600 px-2 py-1"
                               >
                                 Edit
                               </button>
                               <button
                                 onClick={() => deleteNote(note.id)}
-                                className="text-xs text-neutral-400 hover:text-danger-600 px-2 py-1"
+                                className="text-xs text-neutral-500 hover:text-danger-600 px-2 py-1"
                               >
                                 Delete
                               </button>
@@ -803,9 +803,9 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                     </div>
                   ))
                 )}
-                <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide pt-4 mt-2 border-t border-neutral-100">Tasks</h3>
+                <h3 className="text-xs font-semibold text-neutral-500 uppercase tracking-wide pt-4 mt-2 border-t border-neutral-100">Tasks</h3>
                 {tasksLoading ? (
-                <div className="flex justify-center py-8 text-neutral-400 text-sm">Loading tasks…</div>
+                <div className="flex justify-center py-8 text-neutral-500 text-sm">Loading tasks…</div>
               ) : tasks.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-neutral-300">
                   <svg className="w-10 h-10 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -839,12 +839,12 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                         </span>
                       )}
                       {task.due_date && (
-                        <span className="text-xs text-neutral-400">
+                        <span className="text-xs text-neutral-500">
                           Due: {new Date(Number(task.due_date)).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                         </span>
                       )}
                       {task.assignees?.length > 0 && (
-                        <span className="text-xs text-neutral-400">
+                        <span className="text-xs text-neutral-500">
                           → {task.assignees.map(a => a.username).join(', ')}
                         </span>
                       )}
@@ -901,10 +901,10 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                         {deal.stage ?? 'Unknown'}
                       </span>
                       {deal.pipelineName && (
-                        <span className="text-xs text-neutral-400">{deal.pipelineName}</span>
+                        <span className="text-xs text-neutral-500">{deal.pipelineName}</span>
                       )}
                       {deal.assignedTo && (
-                        <span className="text-xs text-neutral-400">→ {deal.assignedTo}</span>
+                        <span className="text-xs text-neutral-500">→ {deal.assignedTo}</span>
                       )}
                     </div>
                     {deal.lostReason && (

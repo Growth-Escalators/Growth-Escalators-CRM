@@ -100,7 +100,7 @@ function MultiSelect({ def, value, onChange }) {
             className="input w-full text-[12px] mb-1.5"
           />
         )}
-        {shown.length === 0 && <p className="text-[11.5px] text-neutral-400 px-1 py-1">No matching options</p>}
+        {shown.length === 0 && <p className="text-[11.5px] text-neutral-500 px-1 py-1">No matching options</p>}
         {shown.map((o) => (
           <label key={o.value} className="flex items-center gap-2 text-[12.5px] py-0.5 cursor-pointer hover:bg-neutral-50 rounded px-1">
             <input type="checkbox" checked={value.includes(o.value)} onChange={() => toggle(o.value)} />
@@ -133,7 +133,7 @@ function FilterControl({ def, value, setFilter }) {
       return (
         <span className="inline-flex items-center gap-1" title={def.label}>
           <DebouncedInput type="number" placeholder={`${def.label} min`} value={value.min} onCommit={(v) => onChange({ ...value, min: v })} className="input w-24" aria-label={`${def.label} min`} />
-          <span className="text-neutral-400">–</span>
+          <span className="text-neutral-500">–</span>
           <DebouncedInput type="number" placeholder="max" value={value.max} onCommit={(v) => onChange({ ...value, max: v })} className="input w-20" aria-label={`${def.label} max`} />
         </span>
       );
@@ -141,7 +141,7 @@ function FilterControl({ def, value, setFilter }) {
       return (
         <span className="inline-flex items-center gap-1" title={def.label}>
           <input type="date" value={value.from} onChange={(e) => onChange({ ...value, from: e.target.value })} className="input w-auto" aria-label={`${def.label} from`} />
-          <span className="text-neutral-400">→</span>
+          <span className="text-neutral-500">→</span>
           <input type="date" value={value.to} onChange={(e) => onChange({ ...value, to: e.target.value })} className="input w-auto" aria-label={`${def.label} to`} />
         </span>
       );

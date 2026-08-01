@@ -36,7 +36,7 @@ export default function ContractsLaunchPage() {
             Open Documenso
             <ExternalLink className="h-4 w-4" />
           </a>
-          <p className="mt-4 text-xs text-neutral-400">{DOCUMENSO_URL.replace('https://', '')}</p>
+          <p className="mt-4 text-xs text-neutral-500">{DOCUMENSO_URL.replace('https://', '')}</p>
         </div>
       </main>
     </div>
