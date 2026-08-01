@@ -10,6 +10,9 @@
  *
  * The `WIZMATCH_SENDING_ENABLED` kill-switch is intentionally NOT here — it stays
  * inline in the `/signals/:id/send` route as a synchronous gate on the route itself.
+ *
+ * Also hosts `releaseEnrolment` / `runEnrolmentReleaseActions` — the only writer of
+ * the `manually_released` terminal enrolment state (see the section header below).
  */
 
 import { db, pool } from '../db/index';
@@ -18,6 +21,8 @@ import { callClaude, parseClaudeJSON, CLAUDE_MODELS } from './claudeService';
 import {
   WIZMATCH_PHYSICAL_ADDRESS,
 } from '../config/constants';
+import { WIZMATCH_LIVE_ENROLMENT_STATES } from '../config/wizmatchOutreachStates';
+import { auditLog } from './auditLogger';
 import logger from '../utils/logger';
 import { evaluateWizmatchOutreachGate, shouldBlock } from '../modules/outreach/outreachGate';
 import { mintUnsubscribeToken } from '../modules/outreach/unsubscribeToken';
@@ -307,4 +312,318 @@ export async function sendSignalDraftEmail(tenantId: string, variantMessageId: s
     logger.error({ err: e }, '[wizmatch] send failed');
     return { kind: 'failed', detail: e instanceof Error ? e.message : 'unknown' };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Manual release of an outreach enrolment — the ONLY writer of the
+// `manually_released` terminal state (PRD-005 §10.6.1, ADR-006 D-6).
+//
+// D-6 deliberately keeps the company cold-email lock held through every reply
+// state: `replied`, `awaiting_action`, `positive_reply`, `referral_received`
+// and `conversation_open` are all in WIZMATCH_LIVE_ENROLMENT_STATES, so a reply
+// never silently re-opens a company to cold email. The intended escape hatch is
+// an explicit, audited transition to a terminal state — and until this function
+// `manually_released` was written by NOTHING: it appeared only in schema.ts and
+// its CHECK constraints, with no transition to any terminal state anywhere in
+// src/. The practical effect was that a prospect replying locked their company
+// out of cold email permanently, with no operator path back.
+// ---------------------------------------------------------------------------
+
+/**
+ * Derived, never spelled out. The four partial-unique-index predicates in
+ * schema.ts (§10.6.2) derive their live-state lists from this same constant; a
+ * literal copy here would silently drift from the DB constraints the day a
+ * state is added, and the compare-and-set below would start releasing (or
+ * refusing to release) rows the indexes still consider locked.
+ */
+const LIVE_ENROLMENT_STATES: string[] = [...WIZMATCH_LIVE_ENROLMENT_STATES];
+
+/** A bulk release of every live enrolment in one request is not an operator action; it is an accident. */
+const MAX_RELEASE_TARGETS = 100;
+
+export interface EnrolmentReleaseActor {
+  tenantId: string;
+  userId?: string;
+  role?: string;
+}
+
+export class EnrolmentReleaseValidationError extends Error {
+  readonly code: string;
+  constructor(message: string, code: string) {
+    super(message);
+    this.name = 'EnrolmentReleaseValidationError';
+    this.code = code;
+  }
+}
+
+export type ReleaseEnrolmentResult =
+  | {
+      kind: 'released';
+      enrolment: {
+        id: string;
+        companyId: string;
+        contactId: string | null;
+        batchId: string;
+        previousState: string;
+      };
+    }
+  /** The row exists for this tenant but is already terminal — reported, never re-written. */
+  | { kind: 'already_released'; state: string }
+  /** No row for (tenant, id). A cross-tenant id lands here too, by construction. */
+  | { kind: 'not_found' };
+
+/**
+ * Releases ONE enrolment's company cold-email lock.
+ *
+ * The eligibility check is the `state = ANY(...)` predicate on the UPDATE
+ * itself, not a preceding SELECT — the same race pattern `resolveDuplicate`
+ * (modules/outreach/decisionWorkbenchActions.ts -> duplicateService.ts) uses for
+ * `resolution = 'pending'`. Two operators releasing the same enrolment
+ * concurrently means exactly one UPDATE matches; the loser sees zero rows and
+ * is reported `already_released` rather than writing a second
+ * `released_by_user_id`/`release_reason` over the first operator's decision.
+ *
+ * Tenant scoping is part of the same predicate, so an enrolment id belonging to
+ * another tenant is indistinguishable from one that does not exist.
+ */
+export async function releaseEnrolment(
+  actor: EnrolmentReleaseActor,
+  enrolmentId: string,
+  reason: string,
+): Promise<ReleaseEnrolmentResult> {
+  // `wizmatch_outreach_enrolments_manually_released_chk` requires BOTH
+  // released_by_user_id and release_reason to be non-null whenever state is
+  // 'manually_released'. Validating here turns a missing actor or reason into a
+  // clean rejection instead of a Postgres constraint violation surfacing as a 500.
+  if (!actor.userId) {
+    throw new EnrolmentReleaseValidationError(
+      'Releasing an enrolment requires an authenticated actor with a user id.',
+      'actor_required',
+    );
+  }
+  const trimmedReason = typeof reason === 'string' ? reason.trim() : '';
+  if (!trimmedReason) {
+    throw new EnrolmentReleaseValidationError(
+      'A release reason is required — releasing re-opens the company to cold email.',
+      'release_reason_required',
+    );
+  }
+  if (typeof enrolmentId !== 'string' || !enrolmentId.trim()) {
+    throw new EnrolmentReleaseValidationError('A non-empty enrolment id is required.', 'enrolment_id_required');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // The `prev` self-join reads the pre-UPDATE snapshot of the same row, so
+    // RETURNING can report the state we released FROM. Without it the audit
+    // trail loses which live state (queued vs a live conversation) was ended,
+    // because RETURNING on the updated row only ever sees 'manually_released'.
+    const updated = await client.query(
+      `UPDATE wizmatch_outreach_enrolments AS e
+          SET state = 'manually_released',
+              released_by_user_id = $3,
+              release_reason = $4,
+              state_at = NOW(),
+              updated_at = NOW()
+         FROM wizmatch_outreach_enrolments AS prev
+        WHERE prev.id = e.id
+          AND e.tenant_id = $1
+          AND e.id = $2
+          AND e.state = ANY($5::text[])
+       RETURNING e.id, e.company_id, e.contact_id, e.batch_id, prev.state AS previous_state`,
+      [actor.tenantId, enrolmentId, actor.userId, trimmedReason, LIVE_ENROLMENT_STATES],
+    );
+
+    const row = updated.rows[0];
+    if (!row) {
+      // Read AFTER the failed write, purely to tell the operator which of the
+      // two zero-row causes they hit. It gates nothing — the decision to write
+      // was already made and lost by the UPDATE's own predicate above.
+      const current = await client.query(
+        `SELECT state FROM wizmatch_outreach_enrolments WHERE tenant_id = $1 AND id = $2`,
+        [actor.tenantId, enrolmentId],
+      );
+      await client.query('ROLLBACK');
+      if (current.rows.length === 0) return { kind: 'not_found' };
+      return { kind: 'already_released', state: String(current.rows[0].state) };
+    }
+
+    // Same transaction as the state change, following qualifySignalAndCreatePocTask
+    // (services/wizmatchSourcing.ts): a released lock with no event on the
+    // company timeline is an unexplained re-opening of cold email.
+    await client.query(
+      `INSERT INTO wizmatch_staffing_events
+         (tenant_id, actor_user_id, event_type, source, source_id, company_id, contact_id, payload)
+       VALUES ($1, $2, 'outreach_enrolment.manually_released', 'outreach', $3, $4, $5, $6::jsonb)`,
+      [
+        actor.tenantId,
+        actor.userId,
+        enrolmentId,
+        row.company_id,
+        row.contact_id,
+        JSON.stringify({
+          enrolmentId,
+          batchId: row.batch_id,
+          fromState: row.previous_state,
+          toState: 'manually_released',
+          releaseReason: trimmedReason,
+        }),
+      ],
+    );
+
+    await client.query('COMMIT');
+
+    await auditLog({
+      tenantId: actor.tenantId,
+      userId: actor.userId,
+      action: 'wizmatch_outreach_enrolment_released',
+      entityType: 'wizmatch_outreach_enrolment',
+      entityId: enrolmentId,
+      oldValues: { state: row.previous_state },
+      newValues: { state: 'manually_released', releaseReason: trimmedReason },
+    });
+
+    return {
+      kind: 'released',
+      enrolment: {
+        id: String(row.id),
+        companyId: String(row.company_id),
+        contactId: row.contact_id ? String(row.contact_id) : null,
+        batchId: String(row.batch_id),
+        previousState: String(row.previous_state),
+      },
+    };
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+export interface EnrolmentReleaseTarget {
+  type: 'enrolment';
+  id: string;
+}
+
+export interface EnrolmentReleaseRequest {
+  /** Only one action exists today; named explicitly so the endpoint can grow without changing shape. */
+  action: 'release';
+  targets: EnrolmentReleaseTarget[];
+  reason: string;
+}
+
+export interface EnrolmentActionResult {
+  type: 'enrolment';
+  id: string;
+  ok: boolean;
+  error?: string;
+  code?: string;
+}
+
+export interface EnrolmentActionsOutcome {
+  requested: number;
+  succeeded: number;
+  failed: number;
+  results: EnrolmentActionResult[];
+}
+
+/**
+ * Whole-request rejection (a 400 at the route), matching
+ * `validateRequestShape` in decisionWorkbenchActions.ts: a malformed or
+ * over-large selection is refused outright, while per-target outcomes
+ * (already released, not found) are reported in `results` so one target never
+ * hides another.
+ */
+function validateReleaseRequestShape(request: EnrolmentReleaseRequest): void {
+  if (request?.action !== 'release') {
+    throw new EnrolmentReleaseValidationError(`Unknown action '${request?.action}'.`, 'unknown_action');
+  }
+  if (!Array.isArray(request.targets) || request.targets.length === 0) {
+    throw new EnrolmentReleaseValidationError('targets must be a non-empty array.', 'targets_required');
+  }
+  if (request.targets.length > MAX_RELEASE_TARGETS) {
+    throw new EnrolmentReleaseValidationError(
+      `A release request may name at most ${MAX_RELEASE_TARGETS} enrolments.`,
+      'too_many_targets',
+    );
+  }
+  for (const target of request.targets) {
+    if (!target || target.type !== 'enrolment' || typeof target.id !== 'string' || target.id.trim() === '') {
+      throw new EnrolmentReleaseValidationError(
+        "every target must be of type 'enrolment' with a non-empty id.",
+        'mixed_invalid_targets',
+      );
+    }
+  }
+  if (typeof request.reason !== 'string' || !request.reason.trim()) {
+    throw new EnrolmentReleaseValidationError(
+      'A release reason is required — releasing re-opens the company to cold email.',
+      'release_reason_required',
+    );
+  }
+}
+
+/** The sole entry point for `POST /api/wizmatch/today/enrolment-actions`. */
+export async function runEnrolmentReleaseActions(
+  actor: EnrolmentReleaseActor,
+  request: EnrolmentReleaseRequest,
+): Promise<EnrolmentActionsOutcome> {
+  validateReleaseRequestShape(request);
+  // Actor provenance is a whole-request property, not a per-target one: without
+  // it every target would fail identically, so it belongs in the 400 alongside
+  // the missing reason rather than being reported 100 times in `results`.
+  if (!actor.userId) {
+    throw new EnrolmentReleaseValidationError(
+      'Releasing an enrolment requires an authenticated actor with a user id.',
+      'actor_required',
+    );
+  }
+
+  const results: EnrolmentActionResult[] = [];
+  for (const target of request.targets) {
+    try {
+      const outcome = await releaseEnrolment(actor, target.id, request.reason);
+      if (outcome.kind === 'released') {
+        results.push({ type: 'enrolment', id: target.id, ok: true });
+      } else if (outcome.kind === 'already_released') {
+        results.push({
+          type: 'enrolment',
+          id: target.id,
+          ok: false,
+          error: `This enrolment is no longer live (state '${outcome.state}'); its release was already recorded.`,
+          code: 'already_released',
+        });
+      } else {
+        results.push({
+          type: 'enrolment',
+          id: target.id,
+          ok: false,
+          error: 'Enrolment not found.',
+          code: 'not_found',
+        });
+      }
+    } catch (error) {
+      if (error instanceof EnrolmentReleaseValidationError) {
+        results.push({ type: 'enrolment', id: target.id, ok: false, error: error.message, code: error.code });
+        continue;
+      }
+      logger.error({ err: error, enrolmentId: target.id }, '[wizmatch] enrolment release failed');
+      results.push({
+        type: 'enrolment',
+        id: target.id,
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return {
+    requested: request.targets.length,
+    succeeded: results.filter((r) => r.ok).length,
+    failed: results.filter((r) => !r.ok).length,
+    results,
+  };
 }

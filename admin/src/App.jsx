@@ -1,7 +1,8 @@
-import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { getAuthPermissions, getAuthToken, getAuthUser, getProductHome, getTenantSlug, normalizeTenantSlug, WIZMATCH_SHARED_ROUTE_MAP } from './lib/auth.js';
 import { apiFetch } from './lib/api.js';
+import { resolveRouteView, sendRouteViewBeacon } from './lib/telemetry.js';
 import { normalizeStaffingAccess } from './lib/staffingAccess.js';
 import { ToastProvider } from './components/wizmatch/Toast.jsx';
 
@@ -242,9 +243,49 @@ function QueryBoundaryQaPage() {
   return <h1>Query boundary recovered</h1>;
 }
 
+/**
+ * Nav-usage beacon for the 2-week route-view experiment.
+ * Server side + PII boundary: src/routes/wizmatchTelemetry.ts.
+ *
+ * Mounted HERE — a sibling of <Routes>, inside <BrowserRouter> — rather than
+ * inside AppLayout, which was the obvious home and the wrong one. Only 24 of
+ * the registry's 36 routes render AppLayout; the other 12 render their own bare
+ * <Sidebar/> shell, and they are precisely the "More" pages the experiment
+ * exists to judge (Inbox, Tasks, CRM Contacts, Pipeline, Billing, Expenses,
+ * Permissions, Audit, Pipeline Manager, Contracts, WhatsApp Templates,
+ * Outreach). An AppLayout-mounted beacon would have measured everything we are
+ * NOT considering hiding and missed everything we are. At this level it sees
+ * every location change regardless of which shell the page renders.
+ *
+ * Renders nothing; it exists solely to hold the effect. It must stay inside
+ * <BrowserRouter> — useLocation has no context above it.
+ */
+function RouteViewBeacon() {
+  const location = useLocation();
+  const lastRouteIdRef = useRef(null);
+
+  useEffect(() => {
+    const view = resolveRouteView(location.pathname, location.search);
+    if (!view) return; // not a registry route (login, Growth CRM, demo pages)
+
+    // Deduped on routeId, not on pathname+query, for two reasons. React Router
+    // fires on every location change, so opening a record drawer (`?id=…`)
+    // would otherwise bill a second view for one visit. And the six legacy
+    // aliases (`/wizmatch/signals` → `/wizmatch/job-leads` etc.) produce TWO
+    // location changes for a single navigation, which a path-keyed guard would
+    // happily count twice — inflating exactly the renamed routes.
+    if (lastRouteIdRef.current === view.routeId) return;
+    lastRouteIdRef.current = view.routeId;
+    sendRouteViewBeacon(view.routeId, view.path);
+  }, [location.pathname, location.search]);
+
+  return null;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
+      <RouteViewBeacon />
       {/* ToastProvider wraps ALL routes, not just the ones inside AppLayout.
           27 pages render their own bare <Sidebar/> shell; while the provider
           lived in AppLayout, useToast fell through to its no-op fallback on

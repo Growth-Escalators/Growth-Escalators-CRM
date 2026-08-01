@@ -236,16 +236,25 @@ export const WIZMATCH_ROUTES: WizmatchRouteDefinition[] = [
     breadcrumb: { label: 'System' }, legacyAliases: [], searchVisible: true,
   },
   {
-    // Deliberate deep link into a tab of the System page above, kept because
-    // "where did my sourcing run go" is a destination operators look for by
-    // name. Both rows therefore resolve to the same pathname, which used to
-    // light BOTH up at once — React Router's NavLink isActive ignores the
-    // query string. Sidebar.jsx now matches on path + query (isEntryActive),
-    // so exactly one of the two is highlighted at a time. Any future
-    // `?tab=`-style nav entry inherits that behaviour for free.
+    // 2026-08-01 — OUT OF NAV: this row pointed at `?tab=sourcing`, and the
+    // System page has no `sourcing` tab. It never has. Clicking "Provider Runs"
+    // silently rendered Readiness, so the row promised a destination that does
+    // not exist while costing a slot in the menu we are trying to shrink.
+    //
+    // Earlier work fixed the SYMPTOM — two nav rows resolving to one pathname
+    // used to highlight simultaneously, since NavLink's isActive ignores the
+    // query string, and Sidebar's isEntryActive now matches on path + query.
+    // That made exactly one row light up. Nobody checked whether the row it lit
+    // up went anywhere.
+    //
+    // The need the old comment cited — "where did my sourcing run go" — is REAL
+    // and is now explicitly UNMET rather than falsely served. Meeting it means
+    // building a sourcing tab, which is a feature, not cleanup. The entry stays
+    // (id preserved, still routable) so telemetry can attribute a direct hit,
+    // but it is out of the sidebar and out of Cmd+K.
     id: 'more-provider-runs', label: 'Provider Runs', path: '/wizmatch/system?tab=sourcing', icon: Zap,
-    group: 'more.administration', moreSection: 'Administration', permission: 'canWizmatch',
-    breadcrumb: { label: 'Provider Runs' }, legacyAliases: [], searchVisible: true,
+    permission: 'canWizmatch',
+    breadcrumb: { label: 'Provider Runs' }, searchVisible: false, legacyAliases: [], searchVisible: true,
   },
   {
     id: 'more-permissions', label: 'Permissions', path: '/wizmatch/settings/permissions', icon: Shield,

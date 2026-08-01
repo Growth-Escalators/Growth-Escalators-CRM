@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, Ban, CheckCircle2, Clock, Lock, MessageSquareWarning, RefreshCw, Route as RouteIcon } from 'lucide-react';
+import { AlertTriangle, Ban, CheckCircle2, Clock, MessageSquareWarning, Radar, RefreshCw, Route as RouteIcon, UserCheck } from 'lucide-react';
 import { apiFetch } from '../../lib/api.js';
 import { useToast } from './Toast.jsx';
 import ErrorRetry from './ErrorRetry.jsx';
@@ -11,35 +11,153 @@ import TodayActionDialog from './TodayActionDialog.jsx';
 import TodayBulkActionBar from './TodayBulkActionBar.jsx';
 import { capabilityFor, resolveSelectionCapability } from '../../lib/todayActionCapabilities.js';
 
-// PRD-005 PR 6 §13 — the Decision Workbench. Re-buckets WizMatch Today into
-// four canonical queues fed entirely by GET /api/wizmatch/today/queues
-// (which itself derives every decision from the canonical policy resolver,
-// src/modules/outreach/outreachGate.ts — this component creates no
-// eligibility logic of its own; it only presents what the API already
-// decided and lets an operator act on it via POST /api/wizmatch/today/actions).
+// PRD-005 PR 6 §13 — the Decision Workbench, fed entirely by
+// GET /api/wizmatch/today/queues (which derives every decision from the
+// canonical policy resolver, src/modules/outreach/outreachGate.ts — this
+// component creates no eligibility logic of its own; it only presents what the
+// API already decided and lets an operator act on it).
+//
+// Six queues, in the order a normal day is worked: qualify the new job
+// signals, review the contacts discovery found, then the four company decision
+// queues. The first two are NOT served by POST /today/actions: they route to
+// the already-shipped POST /signals/bulk-action and
+// POST /contact-intelligence/contacts/bulk-review. That split is deliberate
+// and load-bearing — `runTodayActions`'s target union is closed at
+// `company | duplicate` and dispatches with an `else` branch, so a signal id
+// posted to /today/actions would be silently routed into DUPLICATE RESOLUTION
+// and would still type-check. The endpoint lives on the queue definition below
+// so a row can only ever be sent where its own queue says.
 
-const QUEUE_META = {
-  readyToContact: { label: 'Ready to Contact', icon: CheckCircle2, tone: 'success' },
-  needsReview: { label: 'Needs Review', icon: Clock, tone: 'warning' },
-  // PR 8A hardening (task 8) — companies the resolver routes to an account
-  // owner or a dedicated workflow (§8.6/§8.7), shown apart from ordinary
-  // review/ready so an operator can see ownership at a glance.
-  routed: { label: 'Routed', icon: RouteIcon, tone: 'info' },
-  pausedOrBlocked: { label: 'Paused or Blocked', icon: Ban, tone: 'danger' },
-};
+// Envelope difference, normalised at this boundary rather than guessed at each
+// call site: /today/actions returns per-target `{ type, id, ok, error?, code? }`,
+// while the two bulk endpoints return `{ id, ok, error? }` — no `type`, no
+// `code`. `type` is stamped from the queue's own kind so the failed-target list
+// can key on it; `code` is deliberately left undefined, because those endpoints
+// genuinely do not produce one and inventing a value would make the
+// stale-policy filter below (`r.type === 'company' && r.code === '…'`) act on a
+// fabrication. That filter's `type === 'company'` test is also why the new
+// kinds need no special-casing there: they simply never match.
+function normaliseBulkOutcome(outcome, kind, requestedCount) {
+  const results = (Array.isArray(outcome?.results) ? outcome.results : [])
+    .map((r) => ({ ...r, type: r?.type || kind }));
+  return {
+    requested: typeof outcome?.requested === 'number' ? outcome.requested : requestedCount,
+    succeeded: typeof outcome?.succeeded === 'number' ? outcome.succeeded : results.filter((r) => r.ok).length,
+    results,
+  };
+}
 
-// Which contextual actions are OFFERED for a bulk (multi-select) operation on
-// each queue. Only combinations that are safe and make sense together are
-// exposed — e.g. `merge`/`confirm_separate` never appear here because they
-// require every selected row to share the SAME pending-duplicate id, which a
-// multi-company selection cannot guarantee; those stay single-row-only.
-const BULK_ACTIONS_BY_QUEUE = {
-  readyToContact: ['approve_queue', 'skip', 'pause', 'block', 'assign_owner', 'set_review_date'],
-  needsReview: ['approve_queue', 'skip', 'pause', 'block', 'assign_owner', 'set_review_date'],
-  // Routed items are not queued for cold outreach directly (§8.6/§8.7 routes
-  // them to an owner or a dedicated workflow instead) — no `approve_queue`.
-  routed: ['skip', 'pause', 'block', 'assign_owner', 'set_review_date'],
-  pausedOrBlocked: ['resume', 'block', 'assign_owner', 'set_review_date'],
+// The bulk endpoints take ONE free-text `reason`, while TodayActionDialog
+// collects a structured reason code, an optional note and (for `reject`)
+// required evidence. Joined rather than dropped: a rejection recorded with no
+// explanation is what the aliasing fix on the contact route already had to
+// clean up once.
+function reasonTextFrom(extra) {
+  return [extra?.reasonCode, extra?.reason, extra?.evidenceText].filter(Boolean).join(' — ') || undefined;
+}
+
+// One definition per queue. Selection state, bulk actions, row identity, the
+// render loop and the submit endpoint are all DERIVED from this array — there
+// is no second hardcoded list of queue keys anywhere in this file, which is
+// what previously let the four literals drift apart (a key present in the
+// render loop but missing from `selected` throws on first click).
+const QUEUE_DEFS = [
+  {
+    key: 'signalsToQualify',
+    kind: 'signal',
+    idField: 'signalId',
+    label: 'Job Signals to Qualify',
+    icon: Radar,
+    endpoint: '/api/wizmatch/signals/bulk-action',
+    actions: ['qualify', 'reject'],
+    bulkActions: ['qualify', 'reject'],
+    emptyText: 'No new job signals are waiting to be qualified.',
+    labelOf: (item) => item.jobTitle || 'Untitled signal',
+    unavailableKey: 'signalsUnavailable',
+    truncatedKey: 'signalsTruncated',
+    unavailableMessage: 'Job Signals to Qualify could not be loaded. It is showing empty because of an error, not because there is nothing to qualify — do not treat it as clear. Try Refresh.',
+    defaultReasonCodeFor: (action) => (action === 'qualify' ? 'signal_qualified' : 'signal_rejected'),
+    buildBody: (action, ids, extra) => ({ ids, action, reason: reasonTextFrom(extra) }),
+  },
+  {
+    key: 'contactsToReview',
+    kind: 'contact',
+    idField: 'candidateId',
+    label: 'Contacts to Review',
+    icon: UserCheck,
+    endpoint: '/api/wizmatch/contact-intelligence/contacts/bulk-review',
+    actions: ['approve', 'reject'],
+    bulkActions: ['approve', 'reject'],
+    emptyText: 'No discovered contacts are waiting for review.',
+    labelOf: (item) => item.name || 'Unnamed contact',
+    unavailableKey: 'contactsUnavailable',
+    truncatedKey: 'contactsTruncated',
+    unavailableMessage: 'Contacts to Review could not be loaded. It is showing empty because of an error, not because there is nothing to review — do not treat it as clear. Try Refresh.',
+    defaultReasonCodeFor: (action) => (action === 'approve' ? 'contact_approved' : 'contact_rejected'),
+    // `decision`, not `action` — the two bulk endpoints genuinely differ here.
+    buildBody: (action, ids, extra) => ({ ids, decision: action, reason: reasonTextFrom(extra) }),
+  },
+  {
+    key: 'readyToContact',
+    kind: 'company',
+    idField: 'companyId',
+    label: 'Ready to Contact',
+    icon: CheckCircle2,
+    endpoint: '/api/wizmatch/today/actions',
+    emptyText: 'Nothing here right now.',
+    labelOf: (item) => item.companyName,
+    // Which contextual actions are OFFERED for a bulk (multi-select) operation.
+    // Only combinations that are safe and make sense together are exposed —
+    // e.g. `merge`/`confirm_separate` never appear because they require every
+    // selected row to share the SAME pending-duplicate id, which a
+    // multi-company selection cannot guarantee; those stay single-row-only.
+    bulkActions: ['approve_queue', 'skip', 'pause', 'block', 'assign_owner', 'set_review_date'],
+  },
+  {
+    key: 'needsReview',
+    kind: 'company',
+    idField: 'companyId',
+    label: 'Needs Review',
+    icon: Clock,
+    endpoint: '/api/wizmatch/today/actions',
+    emptyText: 'Nothing here right now.',
+    labelOf: (item) => item.companyName,
+    bulkActions: ['approve_queue', 'skip', 'pause', 'block', 'assign_owner', 'set_review_date'],
+  },
+  {
+    // PR 8A hardening (task 8) — companies the resolver routes to an account
+    // owner or a dedicated workflow (§8.6/§8.7), shown apart from ordinary
+    // review/ready so an operator can see ownership at a glance. Routed items
+    // are not queued for cold outreach directly — no `approve_queue`.
+    key: 'routed',
+    kind: 'company',
+    idField: 'companyId',
+    label: 'Routed',
+    icon: RouteIcon,
+    endpoint: '/api/wizmatch/today/actions',
+    emptyText: 'Nothing here right now.',
+    labelOf: (item) => item.companyName,
+    bulkActions: ['skip', 'pause', 'block', 'assign_owner', 'set_review_date'],
+  },
+  {
+    key: 'pausedOrBlocked',
+    kind: 'company',
+    idField: 'companyId',
+    label: 'Paused or Blocked',
+    icon: Ban,
+    endpoint: '/api/wizmatch/today/actions',
+    emptyText: 'Nothing here right now.',
+    labelOf: (item) => item.companyName,
+    bulkActions: ['resume', 'block', 'assign_owner', 'set_review_date'],
+  },
+];
+
+const QUEUE_KEYS = QUEUE_DEFS.map((d) => d.key);
+
+const ACTION_LABELS = {
+  qualify: 'Qualify',
+  approve: 'Approve',
+  reject: 'Reject',
 };
 
 // D-31: `effectiveDecision` is the decision the API actually bucketed and
@@ -236,28 +354,122 @@ function CompanyCard({ item, onAction, isStale }) {
   );
 }
 
-function QueueSection({ queueKey, items, selectedIds, onToggleRow, onToggleAll, onAction, loading, staleCompanyIds }) {
-  const meta = QUEUE_META[queueKey];
-  const Icon = meta.icon;
+// Renders the fixed set of actions a non-company queue offers, each resolved
+// against the SAME `item.capabilities` contract the company rows use (the
+// backend attaches one per item; a missing/malformed answer fails closed via
+// `capabilityFor`). Disabled reasons are deduped and shared by
+// `aria-describedby`, matching CompanyCard.
+function SimpleActionRow({ item, def, onAction }) {
+  const reasonIdByText = new Map();
+  const rowId = item[def.idField];
+  const resolved = def.actions.map((action) => {
+    const { enabled, reason } = capabilityFor(item, action);
+    if (enabled) return { action, enabled: true, reasonId: null };
+    if (!reasonIdByText.has(reason)) {
+      reasonIdByText.set(reason, `action-reason-${def.kind}-${rowId}-${reasonIdByText.size}`);
+    }
+    return { action, enabled: false, reasonId: reasonIdByText.get(reason) };
+  });
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2 pt-1">
+        {resolved.map((a, index) => (
+          <ActionButton
+            key={a.action}
+            label={ACTION_LABELS[a.action] || a.action}
+            className={`${index === 0 ? 'btn-primary' : 'btn-standard'} btn-compact`}
+            enabled={a.enabled}
+            reasonId={a.reasonId}
+            onClick={() => onAction(a.action, item)}
+          />
+        ))}
+      </div>
+      {reasonIdByText.size > 0 && (
+        <div className="flex flex-col gap-0.5">
+          {[...reasonIdByText.entries()].map(([text, id]) => (
+            <span key={id} id={id} className="text-[11px] text-neutral-500">
+              <AlertTriangle className="inline w-3 h-3 mr-0.5 -mt-0.5" aria-hidden="true" />
+              {text}
+            </span>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+function SignalCard({ item, def, onAction }) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-semibold text-neutral-900">{item.jobTitle || 'Untitled signal'}</span>
+        <span className="text-[11px] text-neutral-500">{item.companyName || 'Unknown company'}</span>
+        <StatusBadge status={item.status} label={String(item.status || '').replaceAll('_', ' ')} />
+      </div>
+      <p className="text-[12px] text-neutral-500">
+        {item.score === null || item.score === undefined ? 'No score yet' : `Score: ${item.score}/10`}
+        {item.location ? ` · ${item.location}` : ''}
+        {item.source ? ` · via ${item.source}` : ''}
+        {item.daysOpen === null || item.daysOpen === undefined ? '' : ` · ${item.daysOpen} days open`}
+      </p>
+      <SimpleActionRow item={item} def={def} onAction={onAction} />
+    </div>
+  );
+}
+
+function ContactCard({ item, def, onAction }) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-semibold text-neutral-900">{item.name || 'Unnamed contact'}</span>
+        {item.title && <span className="text-[11px] text-neutral-500">{item.title}</span>}
+        <StatusBadge status={item.confidenceTier} label={`${item.confidenceTier} confidence`} />
+      </div>
+      <p className="text-[12px] text-neutral-500">
+        {item.companyName || 'Unknown company'}
+        {item.email ? ` · ${item.email}` : ' · no email discovered'}
+        {` · score ${item.confidenceScore}`}
+      </p>
+      <SimpleActionRow item={item} def={def} onAction={onAction} />
+    </div>
+  );
+}
+
+const ROW_RENDERERS = {
+  company: (item, def, onAction, staleCompanyIds) => (
+    <CompanyCard item={item} onAction={onAction} isStale={staleCompanyIds?.has(item.companyId)} />
+  ),
+  signal: (item, def, onAction) => <SignalCard item={item} def={def} onAction={onAction} />,
+  contact: (item, def, onAction) => <ContactCard item={item} def={def} onAction={onAction} />,
+};
+
+function QueueSection({ def, items, selectedIds, onToggleRow, onToggleAll, onAction, loading, staleCompanyIds }) {
+  const Icon = def.icon;
   const columns = useMemo(() => [
     {
-      key: 'company',
-      label: 'Company',
-      render: (row) => <CompanyCard item={row} onAction={onAction} isStale={staleCompanyIds?.has(row.companyId)} />,
+      key: 'item',
+      label: def.kind === 'company' ? 'Company' : def.label,
+      render: (row) => ROW_RENDERERS[def.kind](row, def, onAction, staleCompanyIds),
     },
-  ], [onAction, staleCompanyIds]);
+  ], [def, onAction, staleCompanyIds]);
 
-  const rows = items.map((item) => ({ ...item, id: item.companyId, rowAriaLabel: `Select ${item.companyName}` }));
+  // `id` is derived from the queue's own `idField`, so a row key can never be
+  // silently `undefined` for a queue whose items are not keyed on companyId.
+  const rows = items.map((item) => ({
+    ...item,
+    id: item[def.idField],
+    rowAriaLabel: `Select ${def.labelOf(item) || item[def.idField]}`,
+  }));
 
   return (
-    <section className="card p-4" aria-labelledby={`queue-heading-${queueKey}`}>
+    <section className="card p-4" aria-labelledby={`queue-heading-${def.key}`}>
       <div className="flex items-center gap-2 mb-3">
         <Icon className="w-4 h-4 text-neutral-500" aria-hidden="true" />
-        <h2 id={`queue-heading-${queueKey}`} className="font-bold text-neutral-900 text-[13.5px]">{meta.label}</h2>
+        <h2 id={`queue-heading-${def.key}`} className="font-bold text-neutral-900 text-[13.5px]">{def.label}</h2>
         <span className="badge-muted text-[11px]">{items.length}</span>
       </div>
       {items.length === 0 ? (
-        <p className="text-[12.5px] text-neutral-500">Nothing here right now.</p>
+        <p className="text-[12.5px] text-neutral-500">{def.emptyText}</p>
       ) : (
         <DataTable
           columns={columns}
@@ -267,7 +479,7 @@ function QueueSection({ queueKey, items, selectedIds, onToggleRow, onToggleAll, 
           onToggleRow={onToggleRow}
           onToggleAll={onToggleAll}
           loading={loading}
-          emptyText="Nothing here right now."
+          emptyText={def.emptyText}
         />
       )}
     </section>
@@ -314,10 +526,19 @@ function ReplyRow({ item }) {
   );
 }
 
-// `routed` defaults to `[]` rather than being required by `isQueuePayload` —
-// an older/mocked backend response that predates the routed queue (PR 8A,
-// task 8) must not be rejected as malformed; it simply has no routed items.
-const EMPTY_QUEUES = { readyToContact: [], needsReview: [], routed: [], pausedOrBlocked: [], repliesNeedingAction: [], counts: {}, partial: { skippedCompanyIds: [], skippedEnrolmentIds: [] } };
+// `routed`, `signalsToQualify` and `contactsToReview` default to `[]` rather
+// than being required by `isQueuePayload` — an older backend that predates the
+// routed queue (PR 8A, task 8) or these two queues must not have its response
+// rejected as malformed; it simply has none of those items. The four original
+// arrays stay REQUIRED, because a payload missing those is genuinely
+// unreadable and must fail closed rather than render as a clear day.
+const EMPTY_QUEUES = {
+  readyToContact: [], needsReview: [], routed: [], pausedOrBlocked: [],
+  signalsToQualify: [], contactsToReview: [],
+  repliesNeedingAction: [], counts: {}, partial: { skippedCompanyIds: [], skippedEnrolmentIds: [] },
+};
+
+const emptySelection = () => Object.fromEntries(QUEUE_KEYS.map((key) => [key, new Set()]));
 
 export default function TodayDecisionWorkbench() {
   const [loading, setLoading] = useState(true);
@@ -326,8 +547,8 @@ export default function TodayDecisionWorkbench() {
   const [disabledOnServer, setDisabledOnServer] = useState(false);
   const [queues, setQueues] = useState(EMPTY_QUEUES);
   const [users, setUsers] = useState([]);
-  const [selected, setSelected] = useState({ readyToContact: new Set(), needsReview: new Set(), routed: new Set(), pausedOrBlocked: new Set() });
-  const [dialog, setDialog] = useState(null); // { action, targets: [{type,id}], targetLabel, defaultReasonCode, expectedPolicyId }
+  const [selected, setSelected] = useState(emptySelection);
+  const [dialog, setDialog] = useState(null); // { action, kind, endpoint, requested, targetLabel, defaultReasonCode, buildBody }
   const [submitting, setSubmitting] = useState(false);
   // Failed per-target results from the last action, kept on screen. A toast
   // auto-dismisses in 5s and was truncated to two messages, so after a bulk
@@ -361,8 +582,13 @@ export default function TodayDecisionWorkbench() {
       if (!isQueuePayload(data)) {
         throw new Error('The decision-queue response was not in the expected format.');
       }
-      setQueues({ ...data, routed: Array.isArray(data.routed) ? data.routed : [] });
-      setSelected({ readyToContact: new Set(), needsReview: new Set(), routed: new Set(), pausedOrBlocked: new Set() });
+      setQueues({
+        ...data,
+        routed: Array.isArray(data.routed) ? data.routed : [],
+        signalsToQualify: Array.isArray(data.signalsToQualify) ? data.signalsToQualify : [],
+        contactsToReview: Array.isArray(data.contactsToReview) ? data.contactsToReview : [],
+      });
+      setSelected(emptySelection());
       setStaleCompanyIds(new Set());
     } catch (e) {
       // A 404 here means WIZMATCH_DECISION_WORKBENCH_ENABLED is off on this
@@ -396,10 +622,10 @@ export default function TodayDecisionWorkbench() {
   // more hooks than during the previous render").
   const itemsByIdByQueue = useMemo(() => {
     const map = {};
-    for (const queueKey of ['readyToContact', 'needsReview', 'routed', 'pausedOrBlocked']) {
+    for (const def of QUEUE_DEFS) {
       const byId = new Map();
-      for (const item of queues[queueKey] || []) byId.set(item.companyId, item);
-      map[queueKey] = byId;
+      for (const item of queues[def.key] || []) byId.set(item[def.idField], item);
+      map[def.key] = byId;
     }
     return map;
   }, [queues]);
@@ -418,27 +644,67 @@ export default function TodayDecisionWorkbench() {
     });
   };
 
-  const openDialogForSingle = (action, item) => {
+  // Company queues post a `targets` array to /today/actions; the signal and
+  // contact queues post a flat `ids` array to their own endpoint. Both shapes
+  // are built HERE, from the queue definition the row came from, so no call
+  // site can send an id to the wrong endpoint.
+  // Every `buildBody` on a dialog — company, signal or contact — has the SAME
+  // shape: `(extra) => body`. `submitAction` calls it with the dialog's
+  // collected fields at submit time, so it must stay a function here rather
+  // than an already-evaluated object.
+  const companyBody = (action, targets, expectedPolicyId) => (extra) => ({
+    action,
+    targets,
+    expectedPolicyId,
+    ...extra,
+  });
+
+  const openDialogForSingle = (def) => (action, item) => {
+    const id = item[def.idField];
+    if (def.kind !== 'company') {
+      setDialog({
+        action,
+        kind: def.kind,
+        endpoint: def.endpoint,
+        requested: 1,
+        targetLabel: def.labelOf(item),
+        defaultReasonCode: def.defaultReasonCodeFor?.(action),
+        buildBody: (extra) => def.buildBody(action, [id], extra),
+      });
+      return;
+    }
     const isDuplicateTarget = action === 'merge' || action === 'confirm_separate';
+    const targets = [{ type: isDuplicateTarget ? 'duplicate' : 'company', id: isDuplicateTarget ? item.duplicateId : id }];
+    // Stale-state precondition (PR 8A hardening, task 5): round-trips the
+    // policy id the operator's view was built from. A single-target dialog
+    // always knows exactly which company it targets, so this is safe here;
+    // a bulk selection spans multiple companies with different policy ids,
+    // so it is intentionally omitted for bulk (openDialogForBulk below).
+    const expectedPolicyId = isDuplicateTarget ? undefined : item.policyId;
     setDialog({
       action,
-      targets: [{ type: isDuplicateTarget ? 'duplicate' : 'company', id: isDuplicateTarget ? item.duplicateId : item.companyId }],
+      kind: def.kind,
+      endpoint: def.endpoint,
+      requested: 1,
       targetLabel: item.companyName,
-      // Stale-state precondition (PR 8A hardening, task 5): round-trips the
-      // policy id the operator's view was built from. A single-target dialog
-      // always knows exactly which company it targets, so this is safe here;
-      // a bulk selection spans multiple companies with different policy ids,
-      // so it is intentionally omitted for bulk (openDialogForBulk below).
-      expectedPolicyId: isDuplicateTarget ? undefined : item.policyId,
+      defaultReasonCode: action === 'merge' || action === 'confirm_separate' ? 'manual_reclassified' : undefined,
+      buildBody: companyBody(action, targets, expectedPolicyId),
     });
   };
 
-  const openDialogForBulk = (queueKey, action) => {
-    const ids = [...selected[queueKey]];
+  const openDialogForBulk = (def, action) => {
+    const ids = [...selected[def.key]];
+    const noun = def.kind === 'company' ? 'companies' : `${def.kind}s`;
     setDialog({
       action,
-      targets: ids.map((id) => ({ type: 'company', id })),
-      targetLabel: `${ids.length} companies`,
+      kind: def.kind,
+      endpoint: def.endpoint,
+      requested: ids.length,
+      targetLabel: `${ids.length} ${noun}`,
+      defaultReasonCode: def.defaultReasonCodeFor?.(action),
+      buildBody: def.kind === 'company'
+        ? companyBody(action, ids.map((id) => ({ type: 'company', id })), undefined)
+        : (extra) => def.buildBody(action, ids, extra),
     });
   };
 
@@ -447,21 +713,17 @@ export default function TodayDecisionWorkbench() {
     setSubmitting(true);
     setLastResults([]);
     try {
-      const outcome = await apiFetch('/api/wizmatch/today/actions', {
+      const raw = await apiFetch(dialog.endpoint, {
         method: 'POST',
-        body: JSON.stringify({
-          action: dialog.action,
-          targets: dialog.targets,
-          expectedPolicyId: dialog.expectedPolicyId,
-          ...extra,
-        }),
+        body: JSON.stringify(dialog.buildBody(extra)),
       });
       // A 2xx means the writes already ran server-side. Never let a malformed
       // body throw here: the old code did, and the throw was caught below as
       // "Action failed" while `setDialog(null)` and `load()` were skipped —
       // so committed writes were reported as a failure, the dialog stayed open
       // inviting a re-submit, and the queues were never refreshed.
-      const results = Array.isArray(outcome?.results) ? outcome.results : [];
+      const outcome = normaliseBulkOutcome(raw, dialog.kind, dialog.requested);
+      const results = outcome.results;
       const failed = results.filter((r) => !r.ok);
       if (results.length === 0) {
         showError('The action was submitted but the server returned an unreadable result. Refreshing — check the queues before retrying.');
@@ -508,9 +770,13 @@ export default function TodayDecisionWorkbench() {
     return <ErrorRetry message={error} onRetry={() => load(true)} retrying={retrying} />;
   }
 
-  const totalDecisions = (queues.readyToContact?.length || 0) + (queues.needsReview?.length || 0)
-    + (queues.routed?.length || 0) + (queues.repliesNeedingAction?.length || 0) + (queues.pausedOrBlocked?.length || 0);
+  const totalDecisions = QUEUE_KEYS.reduce((sum, key) => sum + (queues[key]?.length || 0), 0)
+    + (queues.repliesNeedingAction?.length || 0);
   const skipped = (queues.partial?.skippedCompanyIds?.length || 0) + (queues.partial?.skippedEnrolmentIds?.length || 0);
+  // Queues that failed to load are NOT empty — the empty state below must not
+  // claim a clear day while any of them is unavailable.
+  const anyQueueUnavailable = queues.partial?.repliesUnavailable
+    || QUEUE_DEFS.some((def) => def.unavailableKey && queues.partial?.[def.unavailableKey]);
 
   const selectedItemsFor = (queueKey) => {
     const byId = itemsByIdByQueue[queueKey];
@@ -552,6 +818,39 @@ export default function TodayDecisionWorkbench() {
         </div>
       )}
 
+      {/* Same treatment for the two new queues: an empty queue that is empty
+          because it FAILED must never be readable as a finished step. */}
+      {QUEUE_DEFS.filter((def) => def.unavailableKey && queues.partial?.[def.unavailableKey]).map((def) => (
+        <div key={def.unavailableKey} role="alert" className="card p-3 border-danger-500/30 bg-danger-500/10 flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 text-danger-700 mt-0.5 shrink-0" aria-hidden="true" />
+          <p className="text-[12.5px] text-danger-800">{def.unavailableMessage}</p>
+        </div>
+      ))}
+
+      {QUEUE_DEFS.filter((def) => def.truncatedKey && queues.partial?.[def.truncatedKey]).map((def) => (
+        <div key={def.truncatedKey} role="alert" className="card p-3 border-warning-500/30 bg-warning-500/10 flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 text-warning-700 mt-0.5 shrink-0" aria-hidden="true" />
+          <p className="text-[12.5px] text-warning-800">
+            More items need a decision in {def.label} than fit on this page. Work through these, then refresh.
+          </p>
+        </div>
+      ))}
+
+      {/* A company with no root policy row is not paused, blocked or reviewed
+          — it is absent from every queue above. Disclosed rather than
+          silently excluded; the queues themselves are deliberately still
+          built from the root-policy join (see decisionWorkbench.ts). */}
+      {queues.partial?.companiesWithoutPolicy > 0 && (
+        <div role="alert" className="card p-3 border-warning-500/30 bg-warning-500/10 flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 text-warning-700 mt-0.5 shrink-0" aria-hidden="true" />
+          <p className="text-[12.5px] text-warning-800">
+            {queues.partial.companiesWithoutPolicy} compan{queues.partial.companiesWithoutPolicy === 1 ? 'y has' : 'ies have'} no
+            outreach policy on file and therefore appear in NO queue above — they are not paused or blocked,
+            they are simply undecided. Set a policy on them from the Companies page to bring them into Today.
+          </p>
+        </div>
+      )}
+
       {skipped > 0 && (
         <div role="alert" className="card p-3 border-warning-500/30 bg-warning-500/10 flex items-start gap-2">
           <AlertTriangle className="w-4 h-4 text-warning-700 mt-0.5 shrink-0" aria-hidden="true" />
@@ -581,38 +880,39 @@ export default function TodayDecisionWorkbench() {
         </div>
       )}
 
-      {totalDecisions === 0 && (
+      {totalDecisions === 0 && !anyQueueUnavailable && (
         <EmptyState
           icon={CheckCircle2}
           title="Nothing needs a decision right now"
-          description="Companies appear here once they have a policy row, a signal, or a reply that needs your attention."
+          description="Signals, contacts and companies appear here once they have been sourced, discovered, or given a policy row — or once a reply needs your attention."
         />
       )}
 
-      {(['readyToContact', 'needsReview', 'routed', 'pausedOrBlocked']).map((queueKey) => {
-        // Resolved fresh on every render from the CURRENT `queues[queueKey]`
+      {QUEUE_DEFS.map((def) => {
+        const items = queues[def.key] || [];
+        // Resolved fresh on every render from the CURRENT `queues[def.key]`
         // array via `itemsByIdByQueue` above — never a snapshot captured at
         // selection time. `selected` only ever stores ids.
-        const selectedItems = selectedItemsFor(queueKey);
+        const selectedItems = selectedItemsFor(def.key);
         return (
-          <div key={queueKey} className="relative">
+          <div key={def.key} className="relative">
             <QueueSection
-              queueKey={queueKey}
-              items={queues[queueKey] || []}
-              selectedIds={selected[queueKey]}
-              onToggleRow={toggleRow(queueKey)}
-              onToggleAll={toggleAll(queueKey, (queues[queueKey] || []).map((i) => i.companyId))}
-              onAction={openDialogForSingle}
+              def={def}
+              items={items}
+              selectedIds={selected[def.key]}
+              onToggleRow={toggleRow(def.key)}
+              onToggleAll={toggleAll(def.key, items.map((i) => i[def.idField]))}
+              onAction={openDialogForSingle(def)}
               loading={false}
               staleCompanyIds={staleCompanyIds}
             />
-            {selected[queueKey].size > 0 && (
+            {selected[def.key].size > 0 && (
               <TodayBulkActionBar
-                count={selected[queueKey].size}
-                actions={BULK_ACTIONS_BY_QUEUE[queueKey] || []}
+                count={selected[def.key].size}
+                actions={def.bulkActions || []}
                 capabilityForAction={(action) => resolveSelectionCapability(selectedItems, action, queues.bulkCapability)}
-                onClear={() => setSelected((prev) => ({ ...prev, [queueKey]: new Set() }))}
-                onAction={(action) => openDialogForBulk(queueKey, action)}
+                onClear={() => setSelected((prev) => ({ ...prev, [def.key]: new Set() }))}
+                onAction={(action) => openDialogForBulk(def, action)}
               />
             )}
           </div>
@@ -639,7 +939,7 @@ export default function TodayDecisionWorkbench() {
           open
           action={dialog.action}
           targetLabel={dialog.targetLabel}
-          defaultReasonCode={dialog.action === 'merge' || dialog.action === 'confirm_separate' ? 'manual_reclassified' : undefined}
+          defaultReasonCode={dialog.defaultReasonCode}
           users={users}
           submitting={submitting}
           onCancel={() => setDialog(null)}

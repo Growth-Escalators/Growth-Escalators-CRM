@@ -64,6 +64,7 @@ import wizmatchStaffingRouter from './routes/wizmatchStaffing';
 import wizmatchPolicyRouter from './routes/wizmatchPolicy';
 import wizmatchTodayRouter from './routes/wizmatchToday';
 import wizmatchPrepareRouter from './routes/wizmatchPrepare';
+import wizmatchTelemetryRouter, { ensureWizmatchRouteViewsTable } from './routes/wizmatchTelemetry';
 import { wizmatchPilotGate } from './middleware/wizmatchPilotGate';
 import { wizmatchPilotOrMachineSync } from './middleware/wizmatchMachineSyncLane';
 // Workers and cron jobs now run via src/worker.ts (see railway.json)
@@ -388,6 +389,16 @@ app.use('/api/wizmatch', requireAuth, wizmatchRequireStaffing, wizmatchTodayRout
 // next('router') convention and same M-1 mount-order reasoning as the two
 // routers above).
 app.use('/api/wizmatch', requireAuth, wizmatchRequireStaffing, wizmatchPrepareRouter);
+// Nav-usage telemetry (2-week experiment). Same M-1 reasoning as the three
+// mounts above — it MUST sit ahead of the wizmatchRequireAdmin-gated
+// wizmatchRouter below, because the whole point is to measure what NON-admin
+// teammates open; behind that gate every staff-tier beacon would 403 and the
+// experiment would report their screens as unused.
+//
+// It also deliberately does NOT apply wizmatchPilotOrMachineSync, unlike the
+// three routers above: a pilot-roster check would drop exactly the users whose
+// missing rows we would then misread as "nobody visits this screen".
+app.use('/api/wizmatch', requireAuth, wizmatchRequireStaffing, wizmatchTelemetryRouter);
 // `viewer` (the read-only Command Deck sync account) is listed here for GET access
 // to Wizmatch data. Safe because requireAuth blocks the viewer role on any non-GET
 // method, so viewer can read the Wizmatch surfaces but never trigger a write.
@@ -672,6 +683,8 @@ async function startServer() {
   ensureProcessedRepliesTable().catch(e => console.error('[startup] IMAP processed_replies table bootstrap failed:', e));
   // Bootstrap funnel waitlist table
   ensureFunnelWaitlistTable().catch(e => console.error('[startup] Funnel waitlist table bootstrap failed:', e));
+  // Bootstrap wizmatch_route_views (nav-usage experiment; drop the table when it ends)
+  ensureWizmatchRouteViewsTable().catch(e => console.error('[startup] wizmatch_route_views table bootstrap failed:', e));
   // Bootstrap pipeline_contacts tracking table
   ensurePipelineContactsTable().catch(e => console.error('[startup] Pipeline contacts table bootstrap failed:', e));
   // Bootstrap Agency Owners and Freelancer pipelines

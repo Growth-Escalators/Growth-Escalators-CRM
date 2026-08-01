@@ -330,13 +330,35 @@ export async function qualifySignalAndCreatePocTask(tenantId: string, signalId: 
   } finally { client.release(); }
 }
 
+// Statuses a signal can no longer be rejected FROM. `placed` is the one that
+// matters: it means a candidate was actually placed off this signal, and
+// overwriting it with `dead` destroys that outcome.
+const SIGNAL_TERMINAL_STATUSES = ['dead', 'placed'];
+
 export async function rejectSignal(tenantId: string, signalId: string, userId: string, reason?: string) {
+  // COMPARE-AND-SET on status. This used to match on (id, tenant_id) alone, so
+  // rejecting an already-`placed` signal succeeded and silently overwrote the
+  // placement outcome with `dead`. Tolerable while rejection was one click on
+  // one row; not tolerable now that Today offers a BULK reject over the same
+  // service, where a single action spans up to 200 signals.
   const result = await pool.query(
     `UPDATE wizmatch_job_signals SET status='dead',score_breakdown=COALESCE(score_breakdown,'{}'::jsonb)||$3::jsonb
-     WHERE id=$1 AND tenant_id=$2 RETURNING *`,
-    [signalId, tenantId, JSON.stringify({ rejectionReason: reason || 'rejected by reviewer', rejectedBy: userId, rejectedAt: new Date().toISOString() })],
+     WHERE id=$1 AND tenant_id=$2 AND status <> ALL($4::text[]) RETURNING *`,
+    [signalId, tenantId, JSON.stringify({ rejectionReason: reason || 'rejected by reviewer', rejectedBy: userId, rejectedAt: new Date().toISOString() }), SIGNAL_TERMINAL_STATUSES],
   );
-  if (!result.rows[0]) throw new Error('Signal not found');
+  if (!result.rows[0]) {
+    // Zero rows is either "no such signal" or "already terminal". One extra
+    // tenant-scoped read tells them apart, so a bulk run reports a useful
+    // per-item reason instead of a blanket "not found".
+    const existing = await pool.query(
+      'SELECT status FROM wizmatch_job_signals WHERE id=$1 AND tenant_id=$2',
+      [signalId, tenantId],
+    );
+    if (existing.rows[0]) {
+      throw new Error(`Signal is already ${existing.rows[0].status} and cannot be rejected`);
+    }
+    throw new Error('Signal not found');
+  }
   return result.rows[0];
 }
 

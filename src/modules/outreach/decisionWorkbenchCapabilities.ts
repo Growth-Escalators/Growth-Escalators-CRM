@@ -16,7 +16,11 @@
 // transcription of the enforcement path, kept in one place, rather than a
 // second rule set scattered through JSX.
 
-import type { DecisionWorkbenchCompanyItem } from './decisionWorkbench';
+import type {
+  DecisionWorkbenchCompanyItem,
+  DecisionWorkbenchSignalItem,
+  DecisionWorkbenchContactItem,
+} from './decisionWorkbench';
 import type { TodayActionType } from './decisionWorkbenchActions';
 
 export interface TodayActionCapability {
@@ -169,4 +173,99 @@ export function computeBulkCapability(actorRole: string | undefined): TodayActio
   return ROLES_BY_CONTEXT.bulk.includes(actorRole || '')
     ? allow()
     : deny('Bulk actions require admin.');
+}
+
+// ---------------------------------------------------------------------------
+// Signals and contacts.
+//
+// Two SIBLING functions rather than new branches inside `capabilityFor`.
+// `computeTodayActionCapabilities` predicts `runTodayActions`, whose target
+// union is closed at `company | duplicate` and whose per-target results carry
+// a failure `code`; signals and contacts go to entirely different endpoints
+// (`POST /signals/bulk-action`, `POST /contact-intelligence/contacts/bulk-review`)
+// with a different envelope and no `code` at all. Folding them into the
+// company predictor would make one function claim to mirror three unrelated
+// enforcement paths — and it is pinned by parity tests against exactly one of
+// them (`wizmatchCapabilityEnforcementParity.test.ts`).
+//
+// The role gate is IDENTICAL and deliberately shares `ROLES_BY_CONTEXT`,
+// because both endpoints reuse `allowBulkRole` in `src/routes/wizmatch.ts`,
+// which is a transcription of the same `/today/actions` split.
+// ---------------------------------------------------------------------------
+
+export type SignalActionType = 'qualify' | 'reject';
+export type SignalActionCapabilities = Record<SignalActionType, TodayActionCapability>;
+
+export type ContactActionType = 'approve' | 'reject';
+export type ContactActionCapabilities = Record<ContactActionType, TodayActionCapability>;
+
+const SIGNAL_ACTIONS: SignalActionType[] = ['qualify', 'reject'];
+const CONTACT_ACTIONS: ContactActionType[] = ['approve', 'reject'];
+
+/**
+ * Terminal signal statuses. `qualifySignalAndCreatePocTask` refuses these
+ * itself (`... AND status NOT IN ('dead','placed')`), so predicting `qualify`
+ * as enabled on them would offer a click guaranteed to come back "Signal not
+ * found or not qualifiable".
+ *
+ * `rejectSignal` carries NO such guard — it would happily overwrite a
+ * `placed` signal with `dead`. That is the more dangerous of the two, so
+ * `reject` is denied here as well.
+ */
+const SIGNAL_TERMINAL_STATUSES = new Set(['dead', 'placed']);
+
+/**
+ * Contact-candidate statuses that mean "a human already decided this".
+ *
+ * `applyContactCandidateReview` does NOT refuse a repeat review: it resolves
+ * the transition with a hardcoded `currentContactStatus: 'needs_review'` and
+ * updates on `(tenant_id, id)` alone, so re-approving a rejected candidate
+ * succeeds and silently overwrites the earlier decision and its reviewer.
+ * This deny is therefore a UI-side idempotency guard over an endpoint that
+ * has none — the safe direction for a predictor (it can only over-disable),
+ * but it is a prediction and not enforcement, exactly as this file's header
+ * says of every answer here.
+ */
+const CONTACT_REVIEWED_STATUSES = new Set(['approved', 'rejected', 'do_not_contact', 'linked_to_crm']);
+
+export function computeSignalActionCapabilities(
+  item: Pick<DecisionWorkbenchSignalItem, 'status'>,
+  actorRole: string | undefined,
+  context: CapabilityContext,
+): SignalActionCapabilities {
+  const allowedRoles = ROLES_BY_CONTEXT[context];
+  const capabilities = {} as SignalActionCapabilities;
+  for (const action of SIGNAL_ACTIONS) {
+    if (!actorRole || !allowedRoles.includes(actorRole)) {
+      capabilities[action] = deny(context === 'bulk'
+        ? 'Bulk actions require admin.'
+        : 'This action requires team_lead or admin.');
+      continue;
+    }
+    capabilities[action] = SIGNAL_TERMINAL_STATUSES.has(item.status)
+      ? deny(`This signal is already ${item.status}; it has been decided and cannot be qualified or rejected again.`)
+      : allow();
+  }
+  return capabilities;
+}
+
+export function computeContactActionCapabilities(
+  item: Pick<DecisionWorkbenchContactItem, 'status'>,
+  actorRole: string | undefined,
+  context: CapabilityContext,
+): ContactActionCapabilities {
+  const allowedRoles = ROLES_BY_CONTEXT[context];
+  const capabilities = {} as ContactActionCapabilities;
+  for (const action of CONTACT_ACTIONS) {
+    if (!actorRole || !allowedRoles.includes(actorRole)) {
+      capabilities[action] = deny(context === 'bulk'
+        ? 'Bulk actions require admin.'
+        : 'This action requires team_lead or admin.');
+      continue;
+    }
+    capabilities[action] = CONTACT_REVIEWED_STATUSES.has(item.status)
+      ? deny(`This contact was already reviewed (${item.status}). Reviewing it again would overwrite that decision.`)
+      : allow();
+  }
+  return capabilities;
 }

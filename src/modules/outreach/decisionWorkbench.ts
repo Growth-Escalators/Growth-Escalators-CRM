@@ -37,9 +37,10 @@
 // cannot fail the whole response — it is dropped into `partial.skippedCompanyIds`
 // and reported, never silently discarded and never allowed to 500 the request.
 
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
   db,
+  pool,
   wizmatchCompanies,
   wizmatchCompanyPolicies,
   wizmatchCompanyDuplicates,
@@ -62,7 +63,40 @@ const REPLY_NEEDS_ACTION_STATES = [
   'conversation_open',
 ] as const;
 
+/**
+ * The statuses a job signal can hold while still AWAITING a human
+ * qualify/reject decision. `new` is what the sourcing insert writes
+ * (`wizmatchSourcing.ts`); the scoring cron auto-advances it to `scored`
+ * (`wizmatchSignalPipeline.ts`) and POC enrichment to `enriched` — neither of
+ * which is a human decision, so both still belong in this queue. Everything
+ * past that (`matched`/`drafted`/`sent`/`replied_*`) is outreach already in
+ * flight, and `dead`/`placed` are terminal.
+ */
+const SIGNAL_AWAITING_QUALIFICATION_STATES = ['new', 'scored', 'enriched'] as const;
+
+/**
+ * Contact-candidate statuses that still await a human approve/reject. The
+ * column defaults to `needs_review`; the discovery cascade writes `new`.
+ * Everything else (`approved`/`rejected`/`do_not_contact`/`linked_to_crm`/
+ * `stale`) has already been decided.
+ *
+ * MUST stay set-equal to `CONTACT_REVIEWABLE_STATUSES` in
+ * `src/routes/wizmatch.ts`, which is the compare-and-set the review write
+ * path now applies. A status offered here but refused there would surface a
+ * row that fails the moment anyone clicks it — and in bulk, up to 200 of
+ * them. `wizmatchReviewIdempotency.test.ts` asserts the two agree.
+ */
+const CONTACT_AWAITING_REVIEW_STATES = ['new', 'needs_review'] as const;
+
 export interface DecisionWorkbenchCompanyItem {
+  /**
+   * Discriminant across the workbench's item types. Every queue item now
+   * carries one so a client can key rendering, row identity and the bulk
+   * endpoint off the item itself rather than off which array it arrived in —
+   * and so a row that leaks into the wrong queue is visible rather than
+   * silently rendered as the wrong thing.
+   */
+  kind: 'company';
   companyId: string;
   companyName: string;
   companyDomain: string | null;
@@ -119,9 +153,17 @@ export interface DecisionWorkbenchCompanyItem {
   /** The resolver's recommended route (§8.6/§8.7) — e.g. `account_owner`, `msp_vms_research`. `'none'`/`'standard_outreach'` are not routing states. */
   recommendedRoute: string;
   disabledReason: string | null;
+  /**
+   * The root policy row's `created_at`, i.e. when the CURRENT eligibility was
+   * recorded. Carried so the per-queue display sorts below can put the
+   * longest-waiting decision first without a second query. Display/ordering
+   * only — nothing gates on it.
+   */
+  policyCreatedAt: string | null;
 }
 
 export interface DecisionWorkbenchReplyItem {
+  kind: 'reply';
   enrolmentId: string;
   companyId: string;
   companyName: string | null;
@@ -130,11 +172,59 @@ export interface DecisionWorkbenchReplyItem {
   stateAt: string;
 }
 
+/**
+ * A sourced job signal awaiting the qualify/reject decision that opens the
+ * day's work. Acted on through the ALREADY-SHIPPED
+ * `POST /api/wizmatch/signals/bulk-action`, never through `/today/actions` —
+ * see the note on `TodayActionTargetType` in `decisionWorkbenchActions.ts`,
+ * whose target union is deliberately left closed at `company | duplicate`.
+ */
+export interface DecisionWorkbenchSignalItem {
+  kind: 'signal';
+  signalId: string;
+  jobTitle: string;
+  companyId: string | null;
+  companyName: string | null;
+  companyDomain: string | null;
+  status: string;
+  score: number | null;
+  location: string | null;
+  source: string | null;
+  daysOpen: number | null;
+  createdAt: string | null;
+}
+
+/**
+ * A discovered contact candidate awaiting approve/reject. Acted on through
+ * `POST /api/wizmatch/contact-intelligence/contacts/bulk-review`.
+ */
+export interface DecisionWorkbenchContactItem {
+  kind: 'contact';
+  candidateId: string;
+  companyId: string;
+  companyName: string | null;
+  name: string;
+  title: string | null;
+  email: string | null;
+  status: string;
+  confidenceScore: number;
+  confidenceTier: 'high' | 'medium' | 'low';
+  createdAt: string | null;
+}
+
 export interface TodayQueues {
   readyToContact: DecisionWorkbenchCompanyItem[];
   needsReview: DecisionWorkbenchCompanyItem[];
   repliesNeedingAction: DecisionWorkbenchReplyItem[];
   pausedOrBlocked: DecisionWorkbenchCompanyItem[];
+  /**
+   * The first two steps of a normal WizMatch day, which Today previously did
+   * not carry at all: qualify the new job signals, then review the contacts
+   * discovery found for them. Both are ADDITIVE read-model fields over
+   * endpoints that already exist — no new write path, no widened action union.
+   */
+  signalsToQualify: DecisionWorkbenchSignalItem[];
+  contactsToReview: DecisionWorkbenchContactItem[];
   /**
    * PR 8A hardening (task 8) — companies the resolver routes to an account
    * owner or a dedicated workflow (§8.6/§8.7: `existing_client`,
@@ -153,14 +243,41 @@ export interface TodayQueues {
     repliesNeedingAction: number;
     pausedOrBlocked: number;
     routed: number;
+    signalsToQualify: number;
+    contactsToReview: number;
   };
   partial: {
     skippedCompanyIds: string[];
     skippedEnrolmentIds: string[];
     /** True when the replies query failed — an empty reply queue that must NOT be read as "no replies". */
     repliesUnavailable?: boolean;
+    /**
+     * Same treatment as `repliesUnavailable`, for the same reason: a query
+     * failure renders as an EMPTY queue, and an empty "signals to qualify" or
+     * "contacts to review" is indistinguishable from a finished day unless it
+     * is reported. Broken must never render as done.
+     */
+    signalsUnavailable?: boolean;
+    contactsUnavailable?: boolean;
     /** True when more companies matched than `limit` returned, so the queues are a page, not the whole tenant. */
     truncated?: boolean;
+    signalsTruncated?: boolean;
+    contactsTruncated?: boolean;
+    /**
+     * Companies with NO root (`entire_company`) policy row at all. The company
+     * queues are built from an INNER JOIN on that row, so such a company is
+     * invisible in Today — not paused, not blocked, not reviewed: absent.
+     *
+     * Disclosed as a count rather than fixed by widening the join to a LEFT
+     * JOIN. Every policy-less row would then reach the action layer with no
+     * `policyId`, so its every action fails `policy_missing_root` server-side
+     * — Today would render server-side failures as work items. It would also
+     * fan `resolveCanonicalCompanyEligibilityBatch` across the entire company
+     * table rather than the companies that actually have a decision recorded.
+     * `undefined` (not `0`) when the count itself failed — an unknown is not
+     * a zero.
+     */
+    companiesWithoutPolicy?: number;
   };
 }
 
@@ -178,6 +295,7 @@ interface RawCompanyRow {
   reviewDate: string | null;
   policyReasonCode: string | null;
   policyScopeKey: string;
+  policyCreatedAt: Date | string | null;
 }
 
 async function fetchRootPolicyCompanies(tenantId: string, limit: number): Promise<RawCompanyRow[]> {
@@ -196,6 +314,7 @@ async function fetchRootPolicyCompanies(tenantId: string, limit: number): Promis
       reviewDate: wizmatchCompanyPolicies.reviewDate,
       policyReasonCode: wizmatchCompanyPolicies.reasonCode,
       policyScopeKey: wizmatchCompanyPolicies.scopeKey,
+      policyCreatedAt: wizmatchCompanyPolicies.createdAt,
     })
     .from(wizmatchCompanyPolicies)
     .innerJoin(
@@ -209,9 +328,111 @@ async function fetchRootPolicyCompanies(tenantId: string, limit: number): Promis
         isNull(wizmatchCompanyPolicies.supersededAt),
       ),
     )
-    .orderBy(desc(wizmatchCompanyPolicies.createdAt))
+    // The LIMIT is a SAMPLE, not just a sort: whatever this ORDER BY puts
+    // last is not merely displayed last, it is never fetched. `created_at
+    // DESC` alone therefore meant "the companies whose policy row I edited
+    // most recently" — a company paused six months ago with a review date
+    // that came due today could not appear in Today at all until it happened
+    // to fall inside the most-recently-written `limit` rows. No amount of
+    // re-sorting in JS can recover a row the query never returned.
+    //
+    // `review_date ASC NULLS LAST` puts every dated row (due first, since
+    // earlier dates sort first) ahead of the undated majority, and
+    // `created_at DESC` preserves today's ordering for everything else — so
+    // this is additive: it can only pull work IN, never push work out that
+    // the old order would have shown.
+    .orderBy(sql`${wizmatchCompanyPolicies.reviewDate} asc nulls last`, desc(wizmatchCompanyPolicies.createdAt))
     .limit(limit);
   return rows as RawCompanyRow[];
+}
+
+/**
+ * Companies with no root policy row — the population the INNER JOIN above
+ * silently excludes. Raw SQL because a Drizzle `notExists` subquery here
+ * builds a SECOND select against `wizmatch_company_policies`, which is
+ * exactly the shape the workbench test suite tells its two policy queries
+ * apart by; adding a third would make that discrimination ambiguous.
+ */
+async function countCompaniesWithoutRootPolicy(tenantId: string): Promise<number> {
+  const result = await pool.query(
+    `SELECT COUNT(*)::int AS count
+     FROM wizmatch_companies c
+     WHERE c.tenant_id = $1
+       AND NOT EXISTS (
+         SELECT 1 FROM wizmatch_company_policies p
+         WHERE p.tenant_id = c.tenant_id
+           AND p.company_id = c.id
+           AND p.scope_type = 'entire_company'
+           AND p.superseded_at IS NULL
+       )`,
+    [tenantId],
+  );
+  return Number(result.rows[0]?.count ?? 0);
+}
+
+/**
+ * Job signals awaiting a qualify/reject decision. ONE query with a company
+ * join — never one per company; the contact-intelligence fan-out this repo
+ * already paid to collapse (commit 1153295f) started exactly this way.
+ *
+ * `wizmatch_job_signals` has no Drizzle table object (it is an `ensure*`-style
+ * table), so this is raw SQL. Every column is table-qualified: an unqualified
+ * `status`/`created_at` across this join is the ambiguous-column 500 the
+ * signals list already shipped once.
+ */
+async function fetchSignalsAwaitingQualification(tenantId: string, limit: number) {
+  const result = await pool.query(
+    `SELECT s.id,
+            s.job_title,
+            s.company_id,
+            s.status,
+            s.score,
+            s.location,
+            s.source,
+            s.days_open,
+            s.created_at,
+            c.name   AS company_name,
+            c.domain AS company_domain
+     FROM wizmatch_job_signals s
+     LEFT JOIN wizmatch_companies c ON c.id = s.company_id AND c.tenant_id = s.tenant_id
+     WHERE s.tenant_id = $1
+       AND s.status = ANY($2::text[])
+     ORDER BY COALESCE(s.score, 0) DESC, s.created_at DESC
+     LIMIT $3`,
+    [tenantId, [...SIGNAL_AWAITING_QUALIFICATION_STATES], limit],
+  );
+  return result.rows as Record<string, unknown>[];
+}
+
+/** Contact candidates awaiting approve/reject. One query, joined to the company — no per-company read. */
+async function fetchContactsAwaitingReview(tenantId: string, limit: number) {
+  const rows = await db
+    .select({
+      candidateId: wizmatchContactCandidates.id,
+      companyId: wizmatchContactCandidates.companyId,
+      name: wizmatchContactCandidates.name,
+      title: wizmatchContactCandidates.title,
+      email: wizmatchContactCandidates.email,
+      status: wizmatchContactCandidates.status,
+      confidenceScore: wizmatchContactCandidates.confidenceScore,
+      metadata: wizmatchContactCandidates.metadata,
+      createdAt: wizmatchContactCandidates.createdAt,
+      companyName: wizmatchCompanies.name,
+    })
+    .from(wizmatchContactCandidates)
+    .leftJoin(
+      wizmatchCompanies,
+      and(eq(wizmatchCompanies.tenantId, wizmatchContactCandidates.tenantId), eq(wizmatchCompanies.id, wizmatchContactCandidates.companyId)),
+    )
+    .where(
+      and(
+        eq(wizmatchContactCandidates.tenantId, tenantId),
+        inArray(wizmatchContactCandidates.status, [...CONTACT_AWAITING_REVIEW_STATES]),
+      ),
+    )
+    .orderBy(desc(wizmatchContactCandidates.confidenceScore), desc(wizmatchContactCandidates.createdAt))
+    .limit(limit);
+  return rows;
 }
 
 /** Maps companyId -> the pending wizmatch_company_duplicates.id it participates in (first match wins if a company somehow has more than one pending pair). */
@@ -473,6 +694,68 @@ function disabledReasonFor(item: {
   return null;
 }
 
+/** Postgres returns timestamps as `Date`; a mocked/serialised row may already be a string. */
+function toIsoOrNull(value: unknown): string | null {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString();
+  return String(value);
+}
+
+/** Epoch ms for ordering; a missing or unparseable timestamp sorts LAST, never first. */
+function timeKey(value: string | null): number {
+  if (!value) return Number.POSITIVE_INFINITY;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? Number.POSITIVE_INFINITY : parsed;
+}
+
+/**
+ * Per-queue DISPLAY order, applied AFTER the bucketing chain and never inside
+ * it. The chain in `buildTodayQueues` encodes documented review fixes about
+ * WHICH queue a row belongs to (blocked outranks duplicate, duplicate
+ * outranks paused, a non-overridable block never reaches Ready to Contact);
+ * folding a sort key into it would put those fixes one edit away from being
+ * reordered by someone changing presentation. Sorting the finished arrays
+ * cannot move a row between queues at all.
+ */
+function applyDisplayOrder(queues: {
+  readyToContact: DecisionWorkbenchCompanyItem[];
+  needsReview: DecisionWorkbenchCompanyItem[];
+  pausedOrBlocked: DecisionWorkbenchCompanyItem[];
+  routed: DecisionWorkbenchCompanyItem[];
+}): void {
+  const oldestFirst = (a: DecisionWorkbenchCompanyItem, b: DecisionWorkbenchCompanyItem) =>
+    timeKey(a.policyCreatedAt) - timeKey(b.policyCreatedAt);
+
+  // Longest-waiting first. Deliberately NOT also sorted by contact confidence:
+  // the ONLY branch that pushes into this queue is `contactConfidenceTier ===
+  // 'high'` (everything else falls through to Needs Review), so every row here
+  // already carries the same tier and a confidence key would be dead code that
+  // no test could distinguish from its own absence. If the chain is ever
+  // widened to admit `medium`, add the key back — the invariant is pinned by a
+  // test so that change cannot land silently.
+  queues.readyToContact.sort(oldestFirst);
+
+  // Duplicates first: an unresolved duplicate pair blocks queueing and export
+  // for BOTH companies (gate L5), so it is the highest-leverage item here.
+  // Then rows whose review date has actually arrived — the work the operator
+  // scheduled for today.
+  queues.needsReview.sort((a, b) =>
+    Number(b.duplicatePending) - Number(a.duplicatePending)
+    || Number(b.reviewDateArrived) - Number(a.reviewDateArrived)
+    || oldestFirst(a, b));
+
+  // Soonest review date first, undated last: this queue is mostly things
+  // deliberately set aside, and the only reason to look at it is what is due.
+  queues.pausedOrBlocked.sort((a, b) =>
+    timeKey(a.reviewDate) - timeKey(b.reviewDate) || oldestFirst(a, b));
+
+  // Unassigned first — an OWNED routed row has no primary action at all
+  // (`disabledReasonFor`: work it through the owner), so it is the one row
+  // here that cannot be progressed from this screen. Unowned rows can.
+  queues.routed.sort((a, b) =>
+    Number(!!a.accountOwnerUserId) - Number(!!b.accountOwnerUserId) || oldestFirst(a, b));
+}
+
 export async function buildTodayQueues(tenantId: string, limit = 200): Promise<TodayQueues> {
   const partial: TodayQueues['partial'] = { skippedCompanyIds: [], skippedEnrolmentIds: [] };
 
@@ -565,6 +848,7 @@ export async function buildTodayQueues(tenantId: string, limit = 200): Promise<T
       const willBeRouted = isRoutedCandidate && effectiveDecision !== 'deny' && !duplicatePending;
 
       const item: DecisionWorkbenchCompanyItem = {
+        kind: 'company',
         companyId: row.companyId,
         companyName: row.companyName,
         companyDomain: row.companyDomain,
@@ -593,6 +877,7 @@ export async function buildTodayQueues(tenantId: string, limit = 200): Promise<T
         routed: willBeRouted,
         recommendedRoute,
         disabledReason: null,
+        policyCreatedAt: toIsoOrNull(row.policyCreatedAt),
       };
       item.disabledReason = disabledReasonFor(item);
 
@@ -671,6 +956,7 @@ export async function buildTodayQueues(tenantId: string, limit = 200): Promise<T
     for (const row of enrolmentRows) {
       try {
         repliesNeedingAction.push({
+          kind: 'reply',
           enrolmentId: row.enrolmentId,
           companyId: row.companyId,
           companyName: row.companyName ?? null,
@@ -691,21 +977,95 @@ export async function buildTodayQueues(tenantId: string, limit = 200): Promise<T
     console.error('[wizmatch today/queues] replies-needing-action query failed; queue reported unavailable', error);
   }
 
+  // Each new queue gets its OWN try/catch and its own unavailable flag, the
+  // same treatment as the replies queue: these two queues are the first two
+  // steps of the day, so an unreported empty reads as "nothing to qualify,
+  // nothing to review" — i.e. as a finished day — which is the most expensive
+  // possible lie on this screen.
+  const signalsToQualify: DecisionWorkbenchSignalItem[] = [];
+  try {
+    const signalRows = await fetchSignalsAwaitingQualification(tenantId, limit + 1);
+    if (signalRows.length > limit) partial.signalsTruncated = true;
+    for (const row of signalRows.slice(0, limit)) {
+      signalsToQualify.push({
+        kind: 'signal',
+        signalId: String(row.id),
+        jobTitle: String(row.job_title ?? ''),
+        companyId: (row.company_id as string | null) ?? null,
+        companyName: (row.company_name as string | null) ?? null,
+        companyDomain: (row.company_domain as string | null) ?? null,
+        status: String(row.status ?? ''),
+        score: row.score === null || row.score === undefined ? null : Number(row.score),
+        location: (row.location as string | null) ?? null,
+        source: (row.source as string | null) ?? null,
+        daysOpen: row.days_open === null || row.days_open === undefined ? null : Number(row.days_open),
+        createdAt: toIsoOrNull(row.created_at),
+      });
+    }
+  } catch (error) {
+    partial.signalsUnavailable = true;
+    console.error('[wizmatch today/queues] signals-to-qualify query failed; queue reported unavailable', error);
+  }
+
+  const contactsToReview: DecisionWorkbenchContactItem[] = [];
+  try {
+    const contactReviewRows = await fetchContactsAwaitingReview(tenantId, limit + 1);
+    if (contactReviewRows.length > limit) partial.contactsTruncated = true;
+    for (const row of contactReviewRows.slice(0, limit)) {
+      // Same `metadata.raw` gotcha as `fetchBestContactConfidenceByCompany`:
+      // `deriveConfidenceTier` reads the stored tier off `metadata.raw`, not
+      // off `metadata`, so passing `metadata` silently discards the cascade's
+      // own grading and falls through to the numeric threshold.
+      const metadata = row.metadata as { raw?: Record<string, unknown> } | null;
+      contactsToReview.push({
+        kind: 'contact',
+        candidateId: row.candidateId,
+        companyId: row.companyId,
+        companyName: row.companyName ?? null,
+        name: row.name,
+        title: row.title ?? null,
+        email: row.email ?? null,
+        status: row.status ?? '',
+        confidenceScore: row.confidenceScore ?? 0,
+        confidenceTier: deriveConfidenceTier(metadata?.raw ?? undefined, row.confidenceScore ?? 0),
+        createdAt: toIsoOrNull(row.createdAt),
+      });
+    }
+  } catch (error) {
+    partial.contactsUnavailable = true;
+    console.error('[wizmatch today/queues] contacts-to-review query failed; queue reported unavailable', error);
+  }
+
+  // Its own try/catch too — the disclosure must never be the thing that takes
+  // the page down, and an unknown count is left `undefined` rather than
+  // reported as zero (a zero here reads as "nothing is hidden").
+  try {
+    partial.companiesWithoutPolicy = await countCompaniesWithoutRootPolicy(tenantId);
+  } catch (error) {
+    console.error('[wizmatch today/queues] companies-without-policy count failed; disclosure omitted', error);
+  }
+
+  applyDisplayOrder({ readyToContact, needsReview, pausedOrBlocked, routed });
+
   return {
     readyToContact,
     needsReview,
     repliesNeedingAction,
     pausedOrBlocked,
     routed,
+    signalsToQualify,
+    contactsToReview,
     counts: {
       readyToContact: readyToContact.length,
       needsReview: needsReview.length,
       repliesNeedingAction: repliesNeedingAction.length,
       pausedOrBlocked: pausedOrBlocked.length,
       routed: routed.length,
+      signalsToQualify: signalsToQualify.length,
+      contactsToReview: contactsToReview.length,
     },
     partial,
   };
 }
 
-export { REPLY_NEEDS_ACTION_STATES };
+export { REPLY_NEEDS_ACTION_STATES, SIGNAL_AWAITING_QUALIFICATION_STATES, CONTACT_AWAITING_REVIEW_STATES };
