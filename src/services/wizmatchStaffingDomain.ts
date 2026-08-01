@@ -203,8 +203,17 @@ export function createWizmatchStaffingService(dbPool: TransactionPool = pool) {
     async listCompanies(tenantId: string, search = '') {
       // Returns the CI qualification tier + target region (via a 1-row LATERAL)
       // and prime/ats/employee fields so the Companies page can filter on them
-      // client-side (the list is small and also fanned out by Hiring Contacts, so
-      // it stays a single capped call rather than server-paginated).
+      // client-side.
+      //
+      // Still a single capped call rather than server-paginated, but the reason
+      // has changed: the old justification was "Hiring Contacts fans out over the
+      // full list", and that fan-out is gone — Linked Contacts uses the bulk
+      // /staffing/hiring-contacts endpoint now. What keeps it capped is that
+      // `search` runs BEFORE the LIMIT, so narrowing reaches the whole tenant;
+      // the cap is a ceiling on one page, not on what is findable.
+      //
+      // `total` is the count of matches for the SAME predicate, so the page can
+      // say "first 500 of 4,312 matching" instead of presenting 500 as the total.
       const result = await (dbPool as unknown as Queryable).query(
         `SELECT c.id,c.name,c.domain,c.industry,c.country,c.is_prime,c.ats_type,c.employee_count,
                 ci.tier, ci.region,
@@ -223,7 +232,14 @@ export function createWizmatchStaffingService(dbPool: TransactionPool = pool) {
          GROUP BY c.id, ci.tier, ci.region ORDER BY c.name LIMIT 500`,
         [tenantId, search.trim()],
       );
-      return result.rows;
+      // Tenant-scoped, same predicate as above. No GROUP BY needed: the joins in
+      // the row query only fan out for aggregation, and the count is over c.id.
+      const totalResult = await (dbPool as unknown as Queryable).query(
+        `SELECT COUNT(*)::int AS total FROM wizmatch_companies c
+         WHERE c.tenant_id=$1 AND ($2='' OR c.name ILIKE '%' || $2 || '%' OR COALESCE(c.domain,'') ILIKE '%' || $2 || '%')`,
+        [tenantId, search.trim()],
+      );
+      return { items: result.rows, total: Number(totalResult.rows[0]?.total ?? 0) };
     },
 
     async listUsers(tenantId: string) {
@@ -269,7 +285,20 @@ export function createWizmatchStaffingService(dbPool: TransactionPool = pool) {
          ORDER BY cc.last_activity_at DESC NULLS LAST,p.first_name LIMIT 1000`,
         [tenantId, search.trim()],
       );
-      return result.rows;
+      // Same predicate, tenant-scoped. The row query GROUP BYs to collapse the
+      // role/requirement joins; counting DISTINCT cc.id gives the same population
+      // without needing the aggregation.
+      const totalResult = await (dbPool as unknown as Queryable).query(
+        `SELECT COUNT(DISTINCT cc.id)::int AS total
+         FROM wizmatch_company_contacts cc
+         JOIN wizmatch_companies comp ON comp.id=cc.company_id AND comp.tenant_id=cc.tenant_id
+         JOIN contacts p ON p.id=cc.contact_id AND p.tenant_id=cc.tenant_id
+         WHERE cc.tenant_id=$1
+           AND ($2='' OR concat_ws(' ',p.first_name,p.last_name,comp.name) ILIKE '%' || $2 || '%'
+             OR EXISTS(SELECT 1 FROM contact_channels ch WHERE ch.tenant_id=$1 AND ch.contact_id=p.id AND ch.channel_value ILIKE '%' || $2 || '%'))`,
+        [tenantId, search.trim()],
+      );
+      return { items: result.rows, total: Number(totalResult.rows[0]?.total ?? 0) };
     },
 
     async searchContacts(tenantId: string, search = '') {

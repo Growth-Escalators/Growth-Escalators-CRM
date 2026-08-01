@@ -205,16 +205,72 @@ describe('Wizmatch staffing domain', () => {
 
     const result = await service.listHiringContacts('tenant-a');
 
-    // Exactly one query call total — not one per company.
-    expect(fake.calls).toHaveLength(1);
-    expect(fake.calls[0].params[0]).toBe('tenant-a');
-    expect(fake.calls[0].sql).toContain('FROM wizmatch_company_contacts cc');
-    expect(fake.calls[0].sql).toContain('WHERE cc.tenant_id=$1');
+    // A FIXED number of queries — not one per company. It is 2 now (rows + a
+    // count for the honest "first 1000 of N" denominator), which is still O(1)
+    // in the number of companies. The assertion is the property, not the
+    // literal: a per-company loop would scale with `rows`.
+    expect(fake.calls.length).toBeLessThanOrEqual(2);
+    expect(fake.calls.length).toBeLessThan(rows.length + 1);
+    for (const call of fake.calls) {
+      expect(call.params[0]).toBe('tenant-a');
+      expect(call.sql).toContain('cc.tenant_id=$1');
+    }
+    const rowQuery = fake.calls[0];
+    expect(rowQuery.sql).toContain('FROM wizmatch_company_contacts cc');
     // Must not restrict to active-only relationships (that filter is applied
     // client-side by the admin table so inactive/do_not_contact stay visible).
-    expect(fake.calls[0].sql).not.toContain(`cc.relationship_stage='active'`);
-    expect(fake.calls[0].sql).toContain('active_requirement_count');
-    expect(result).toEqual(rows);
+    expect(rowQuery.sql).not.toContain(`cc.relationship_stage='active'`);
+    expect(rowQuery.sql).toContain('active_requirement_count');
+    // Shape is now { items, total } so the page can distinguish "1000 loaded"
+    // from "1000 of 4312 matching".
+    expect(result.items).toEqual(rows);
+    expect(typeof result.total).toBe('number');
+  });
+
+  // listCompanies had NO coverage before the `total` count query was added to it.
+  // A count query is the easiest place to forget tenant scoping — it is written
+  // separately from the row query and returns a bare number, so a leak shows up
+  // as a slightly-too-large denominator rather than as visible foreign rows.
+  it('scopes EVERY listCompanies query to the caller tenant, including the count', async () => {
+    const fake = fakeQueryPool(() => ({ rows: [{ total: 3 }] }));
+    const service = createWizmatchStaffingService(fake.pool);
+
+    await service.listCompanies('tenant-a', 'acme');
+
+    expect(fake.calls.length).toBeGreaterThan(0);
+    for (const call of fake.calls) {
+      expect(call.params[0]).toBe('tenant-a');
+      expect(call.sql).toContain('c.tenant_id=$1');
+      expect(call.params).toHaveLength(2);
+    }
+  });
+
+  it('listCompanies applies the same search predicate to rows and to the count', async () => {
+    // If the two predicates diverge, the denominator stops describing the
+    // numerator — "showing 500 of 4312" where the 4312 counted something else.
+    const fake = fakeQueryPool(() => ({ rows: [] }));
+    const service = createWizmatchStaffingService(fake.pool);
+
+    await service.listCompanies('tenant-a', 'acme');
+
+    const countCall = fake.calls.find((c) => c.sql.includes('COUNT(*)'));
+    expect(countCall, 'no count query issued').toBeTruthy();
+    for (const call of fake.calls) {
+      expect(call.sql).toContain("c.name ILIKE '%' || $2 || '%'");
+      expect(call.params[1]).toBe('acme');
+    }
+  });
+
+  it('listCompanies returns { items, total }, not a bare array', async () => {
+    const rows = [{ id: 'c1', name: 'Acme' }];
+    let call = 0;
+    const fake = fakeQueryPool(() => (call++ === 0 ? { rows } : { rows: [{ total: 42 }] }));
+    const service = createWizmatchStaffingService(fake.pool);
+
+    const result = await service.listCompanies('tenant-a');
+
+    expect(result.items).toEqual(rows);
+    expect(result.total).toBe(42);
   });
 
   it('scopes listHiringContacts to the caller tenant and never accepts a tenant id from the query string', async () => {
@@ -223,9 +279,13 @@ describe('Wizmatch staffing domain', () => {
 
     await service.listHiringContacts('tenant-a', 'anything');
 
-    expect(fake.calls[0].params[0]).toBe('tenant-a');
-    // The signature only accepts (tenantId, search) — there is no code path
-    // for a caller-supplied tenant id to reach the query.
-    expect(fake.calls[0].params).toHaveLength(2);
+    // EVERY query the service issues must be tenant-scoped, not just the first.
+    for (const call of fake.calls) {
+      expect(call.params[0]).toBe('tenant-a');
+      // The signature only accepts (tenantId, search) — there is no code path
+      // for a caller-supplied tenant id to reach the query.
+      expect(call.params).toHaveLength(2);
+      expect(call.sql).toContain('cc.tenant_id=$1');
+    }
   });
 });

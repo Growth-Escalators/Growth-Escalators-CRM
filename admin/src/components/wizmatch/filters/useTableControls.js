@@ -206,7 +206,20 @@ export function useTableControls({ pageId, spec, columns, defaults = NO_DEFAULTS
 
   const toQueryParams = useCallback((extra = {}) => {
     const qp = new URLSearchParams();
-    for (const def of spec) if (isActive(def, filters[def.key])) serializeForServer(qp, def, filters[def.key]);
+    for (const def of spec) {
+      // A def with no `serverKey` still emits `?<def.key>=<value>`, which a route
+      // that expects a different param name ignores WITHOUT erroring — so the
+      // filter silently stops working and the list quietly returns everything.
+      // (Real case: the staffing routes read `search`, not `q`.) A serverOnly def
+      // has no client-side fallback, so that silence is total. Fail loudly in dev.
+      if (import.meta.env.DEV && def.serverOnly && !def.serverKey) {
+        throw new Error(
+          `Filter "${def.key}" is marked serverOnly but has no serverKey, so it would be sent as ` +
+          `"${def.key}" and silently ignored by a route expecting a different name. Add serverKey.`,
+        );
+      }
+      if (isActive(def, filters[def.key])) serializeForServer(qp, def, filters[def.key]);
+    }
     if (sort.key) qp.set('sort', `${sort.key}:${sort.dir}`);
     for (const [k, v] of Object.entries(extra)) if (v != null) qp.set(k, String(v));
     return qp;
