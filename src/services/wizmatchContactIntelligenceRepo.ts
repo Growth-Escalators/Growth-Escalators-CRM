@@ -49,6 +49,7 @@ import { numeric, isOptionalWizmatchSchemaError, optionalWizmatchValue } from '.
 import {
   resolveCanonicalCompanyEligibility,
   applyCanonicalEligibilityToContactIntelligence,
+  type CanonicalCompanyEligibility,
 } from '../modules/outreach/legacyEligibilityAdapter';
 
 export type ContactIntelligenceCompanyRow = {
@@ -226,6 +227,15 @@ export async function buildContactIntelligenceResult(
   // companies (see fetchInternalContactCandidatesBatch), it passes them in to avoid
   // a per-company query. Omitted → this fetches its own, preserving old behavior.
   internalContactsOverride?: Awaited<ReturnType<typeof fetchInternalContactCandidates>>,
+  // Same idea for the canonical policy decision, which costs 2-3 queries per
+  // company. Batched via resolveCanonicalCompanyEligibilityBatch, which is a
+  // CONCURRENCY LIMITER rather than a query batcher — it does not reduce the
+  // per-company query count, it stops a 100-company page firing ~300 of them at
+  // once against a pool with max: 20. A true set-based batch would mean
+  // reimplementing evaluateWizmatchOutreachGate's scope resolution in SQL, i.e.
+  // changing the canonical policy gate itself. Not worth it. Omitted → this
+  // resolves its own, preserving old behavior.
+  canonicalEligibilityOverride?: CanonicalCompanyEligibility,
 ) {
   const signalContactIds = row.signal_contact_ids?.filter(Boolean) ?? [];
   const internalContacts = internalContactsOverride ?? await fetchInternalContactCandidates(
@@ -284,7 +294,7 @@ export async function buildContactIntelligenceResult(
   // top, via src/modules/outreach/legacyEligibilityAdapter.ts. A canonical
   // DENY always forces `companyStatus: 'discovery_blocked'` here regardless
   // of local qualification, appending a `policy_<reasonCode>` hard block.
-  const canonicalEligibility = await resolveCanonicalCompanyEligibility(tenantId, row.company_id);
+  const canonicalEligibility = canonicalEligibilityOverride ?? await resolveCanonicalCompanyEligibility(tenantId, row.company_id);
   const qualified = applyCanonicalEligibilityToContactIntelligence(
     qualifyCompanyForContactIntelligence(input),
     canonicalEligibility,

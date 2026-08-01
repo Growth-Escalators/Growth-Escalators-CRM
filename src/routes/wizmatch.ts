@@ -137,6 +137,7 @@ import {
   type ContactIntelligenceCompanyRow,
   type PersistedContactIntelligence,
 } from '../services/wizmatchContactIntelligenceRepo';
+import { resolveCanonicalCompanyEligibilityBatch } from '../modules/outreach/legacyEligibilityAdapter';
 import { generateSignalDraftEmails, sendSignalDraftEmail } from '../services/wizmatchOutreachService';
 import { evaluateWizmatchOutreachGate, shouldBlock, suppress, isStatedContactPreference } from '../modules/outreach/outreachGate';
 
@@ -1563,6 +1564,45 @@ router.post('/requirement-priority/:requirementId/review-plan', async (req: Requ
 
 const REVIEW_WORKBENCH_SOURCE_LIMIT = 75;
 
+/**
+ * Build the contact-intelligence items for a page of companies using a FIXED
+ * number of set-based queries, instead of one fan-out per company.
+ *
+ * Unbatched, each company costs 1 internal-contacts query + 3 persisted queries.
+ * At the queue's max page of 100 that is ~400 round trips, fired as one
+ * unbounded Promise.all burst against a pool with max: 20. Batched it is 4.
+ *
+ * This existed inline in GET /command-center only. The queue route and the
+ * review workbench were never switched over — which is precisely the drift a
+ * copy-pasted block invites, so it now lives in one place and all three callers
+ * share it. The builders' override parameters are unchanged and still optional,
+ * so behaviour is identical: the batch helpers return the same rows the
+ * per-company queries would have.
+ *
+ * Read-only. Neither builder writes, so batching has no ordering constraint.
+ */
+async function buildBatchedContactIntelligence(
+  tenantId: string,
+  rows: ContactIntelligenceCompanyRow[],
+) {
+  if (rows.length === 0) return [];
+
+  const companyIds = rows.map((row) => row.company_id);
+  const [internalContactsByCompany, persistedByCompany, canonicalByCompany] = await Promise.all([
+    fetchInternalContactCandidatesBatch(tenantId, rows),
+    fetchPersistedContactIntelligenceBatch(tenantId, companyIds),
+    resolveCanonicalCompanyEligibilityBatch(tenantId, companyIds),
+  ]);
+  const emptyPersisted: PersistedContactIntelligence = { company: null, contactCandidates: [], discoveryRuns: [] };
+
+  const computed = await Promise.all(
+    rows.map((row) => buildContactIntelligenceResult(tenantId, row, internalContactsByCompany.get(row.company_id) ?? [], canonicalByCompany.get(row.company_id))),
+  );
+  return Promise.all(
+    computed.map((item) => withPersistedContactIntelligence(tenantId, item, persistedByCompany.get(item.companyId) ?? emptyPersisted)),
+  );
+}
+
 async function buildReviewWorkbenchPayload(tenantId: string) {
   const [
     contactRows,
@@ -1593,12 +1633,7 @@ async function buildReviewWorkbenchPayload(tenantId: string) {
     fetchOptionalContactIntelligenceRoiStats(tenantId),
   ]);
 
-  const computedContactIntelligence = await Promise.all(
-    contactRows.map((row) => buildContactIntelligenceResult(tenantId, row)),
-  );
-  const contactIntelligence = await Promise.all(
-    computedContactIntelligence.map((item) => withPersistedContactIntelligence(tenantId, item)),
-  );
+  const contactIntelligence = await buildBatchedContactIntelligence(tenantId, contactRows);
 
   return buildWizmatchReviewWorkbench({
     clientDiscovery: await rankClientDiscoveryQueueWithPolicy(tenantId, clientRows),
@@ -2080,8 +2115,7 @@ router.get('/contact-intelligence/queue', async (req: Request, res: Response) =>
       [tenantId],
     ),
   ]);
-  const computed = await Promise.all(rows.map((row) => buildContactIntelligenceResult(tenantId, row)));
-  const items = await Promise.all(computed.map((item) => withPersistedContactIntelligence(tenantId, item)));
+  const items = await buildBatchedContactIntelligence(tenantId, rows);
 
   res.json({
     items,
@@ -2631,27 +2665,8 @@ router.get('/command-center', async (req: Request, res: Response) => {
     fetchCommandCenterMetrics(tenantId),
   ]);
 
-  // Batch the two per-company fan-outs into a fixed number of set-based queries so a page
-  // of up to 25 companies costs 2 queries here instead of ~100 (1 + 3 per company) fired in
-  // 75-wide bursts against the 20-connection pool. Results are grouped in JS and fed into the
-  // unchanged builder helpers, so the response JSON is identical.
-  const companyIds = contactRows.map((row) => row.company_id);
-  const [internalContactsByCompany, persistedByCompany] = await Promise.all([
-    fetchInternalContactCandidatesBatch(tenantId, contactRows),
-    fetchPersistedContactIntelligenceBatch(tenantId, companyIds),
-  ]);
-  const emptyPersisted: PersistedContactIntelligence = { company: null, contactCandidates: [], discoveryRuns: [] };
+  const contactIntelligence = await buildBatchedContactIntelligence(tenantId, contactRows);
 
-  const computedContactIntelligence = await Promise.all(
-    contactRows.map((row) =>
-      buildContactIntelligenceResult(tenantId, row, internalContactsByCompany.get(row.company_id) ?? []),
-    ),
-  );
-  const contactIntelligence = await Promise.all(
-    computedContactIntelligence.map((item) =>
-      withPersistedContactIntelligence(tenantId, item, persistedByCompany.get(item.companyId) ?? emptyPersisted),
-    ),
-  );
   const metrics: CommandCenterMetricsInput = {
     ...baseMetrics,
     reviewReadyCompanies: contactIntelligence.filter((item) =>
