@@ -101,6 +101,7 @@ export default function SubtasksTab({ task }) {
               type="button"
               onClick={() => toggle(it)}
               className={`shrink-0 ${it.isDone ? 'text-emerald-500' : 'text-slate-300 hover:text-sky-500'}`}
+              aria-label={`${it.isDone ? 'Mark incomplete' : 'Mark complete'}: ${it.label}`}
             >
               {it.isDone ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
             </button>
@@ -127,6 +128,7 @@ export default function SubtasksTab({ task }) {
             if (e.key === 'Enter') { e.preventDefault(); addItem(); }
           }}
           placeholder="Add subtask…"
+          aria-label="Add subtask"
           className="flex-1 text-sm bg-transparent border-b border-slate-200 focus:border-sky-300 outline-none py-1 placeholder:text-slate-400"
         />
         <button

@@ -82,6 +82,7 @@ export default function BulkToolbar({ selectedIds, team, onClear, onApplied, onD
       <select
         defaultValue=""
         onChange={(e) => { if (e.target.value) { applyPatch({ status: e.target.value }); e.target.value = ''; } }}
+        aria-label="Set status for selected tasks"
         className="bg-slate-800 border border-slate-700 rounded text-xs px-2 py-1 focus:outline-none focus:ring-1 focus:ring-sky-400"
       >
         <option value="" disabled>Set status…</option>
@@ -91,6 +92,7 @@ export default function BulkToolbar({ selectedIds, team, onClear, onApplied, onD
       <select
         defaultValue=""
         onChange={(e) => { if (e.target.value) { applyPatch({ priority: e.target.value }); e.target.value = ''; } }}
+        aria-label="Set priority for selected tasks"
         className="bg-slate-800 border border-slate-700 rounded text-xs px-2 py-1 focus:outline-none focus:ring-1 focus:ring-sky-400"
       >
         <option value="" disabled>Set priority…</option>

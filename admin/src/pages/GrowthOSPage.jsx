@@ -127,6 +127,7 @@ function OverviewTab({ clients, selectedClient, setSelectedClient }) {
           value={selectedClient}
           onChange={e => setSelectedClient(e.target.value)}
           className="bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm"
+          aria-label="Client"
         >
           {clients.map(c => <option key={c.client_name} value={c.client_name}>{c.client_name}</option>)}
         </select>

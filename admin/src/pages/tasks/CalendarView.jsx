@@ -261,7 +261,7 @@ function DayModal({ date, tasks, team, onClose, onOpen }) {
       >
         <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
           <h3 className="text-sm font-semibold text-slate-800">{label}</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700">
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700" aria-label="Close">
             <X className="w-4 h-4" />
           </button>
         </div>

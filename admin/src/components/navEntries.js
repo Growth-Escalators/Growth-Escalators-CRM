@@ -66,7 +66,22 @@ export function computeFlags(role, perms = {}, tenantSlug = 'growth-escalators',
     canReports:    ['admin', 'manager_ops', 'manager_ads'].includes(role),
     canSocial:     ['admin', 'manager_ops', 'team_lead', 'staff', 'creative_assistant'].includes(role) || !!perms.accessSocial,
     canInbox:      ['admin', 'manager_ops', 'team_lead', 'sales', 'creative_assistant'].includes(role),
-    canBilling:    isAdmin || !!perms.billingView,
+    // Billing nav visibility must match the API's own rule, which is a DB
+    // grant and NOT a role: every /api/billing handler gates on
+    // `!p?.billingView && !p?.isOwner` (src/routes/billing.ts). The old
+    // `isAdmin ||` shortcut showed the Billing page to any admin without the
+    // grant, and all four of its endpoints then 403'd — verified in
+    // production. `isOwner` is included because it is part of the same
+    // backend predicate and reaches the client in the /api/permissions/me
+    // payload (the endpoint spreads the whole userPermissions row).
+    canBilling:    !!perms.billingView || !!perms.isOwner,
+    // Expenses (/finance) and Funnels (/funnels) used to ride on canBilling,
+    // but their APIs (src/routes/finance.ts, src/routes/funnel.ts) carry NO
+    // billingView check — they work for any authenticated admin, and /finance
+    // is where leave approvals live. Tightening canBilling to the grant would
+    // therefore have hidden two pages that were never broken, so they keep the
+    // old, deliberately looser predicate under their own name.
+    canFinance:    isAdmin || !!perms.billingView || !!perms.isOwner,
     canContracts:  ['admin', 'manager_ops', 'team_lead', 'sales'].includes(role) || !!perms.contractsView,
     canSequences:  ['admin', 'manager_ops', 'team_lead', 'sales'].includes(role),
     canDiscovery:  ['admin', 'manager_ops', 'team_lead', 'sales'].includes(role),
@@ -227,12 +242,12 @@ export const NAV_ENTRIES = [
     id: 'expenses', label: 'Expenses', to: '/finance',
     icon: Receipt, section: 'Finance', group: 'finance',
     badge: 'pending-leaves',
-    visible: f => f.canBilling,
+    visible: f => f.canFinance,
   },
   {
     id: 'funnels', label: 'Funnels', to: '/funnels',
     icon: Zap, section: 'Finance', group: 'finance',
-    visible: f => f.canBilling,
+    visible: f => f.canFinance,
   },
 
   // ── SETTINGS (collapsible, pinned to bottom) ──────────────────

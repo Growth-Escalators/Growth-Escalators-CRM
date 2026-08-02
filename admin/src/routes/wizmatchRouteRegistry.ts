@@ -21,9 +21,16 @@ import {
  * alone. This registry is the metadata layer, not a route-JSX generator.
  */
 
+// 2026-08-02 — `more.communication` was retired along with the Communication
+// bucket in Sidebar.jsx's MORE_SECTION_ORDER: every entry that lived in it
+// (Inbox, Email Templates, WhatsApp Templates) is a Growth CRM surface with no
+// WizMatch semantics and is now routable-but-hidden (see the block comment on
+// `more-inbox` below). Re-adding the member here without also re-adding
+// 'Communication' to MORE_SECTION_ORDER would silently drop the entry from the
+// sidebar while leaving it in Cmd+K — the exact ghost state
+// src/__tests__/sidebarNavBucketCoverage.test.ts exists to prevent.
 export type WizmatchNavGroup =
   | 'primary'
-  | 'more.communication'
   | 'more.crmUtilities'
   | 'more.administration'
   | 'more.finance';
@@ -38,6 +45,7 @@ export type WizmatchPermissionFlag =
   | 'canSequences'
   | 'canDiscovery'
   | 'canBilling'
+  | 'canFinance'
   | 'canContracts'
   | 'isAdmin'
   | 'isAdminTier'
@@ -62,8 +70,12 @@ export interface WizmatchRouteDefinition {
    * entity merge lands (still reachable by direct URL or breadcrumb).
    */
   group?: WizmatchNavGroup;
-  /** Sub-label under More, e.g. "Communication" — only set when group starts with "more." */
-  moreSection?: 'Communication' | 'CRM Utilities' | 'Administration' | 'Finance';
+  /**
+   * Sub-label under More, e.g. "Administration" — only set when group starts
+   * with "more.". MUST be a member of Sidebar.jsx's MORE_SECTION_ORDER;
+   * anything else is silently dropped from the sidebar.
+   */
+  moreSection?: 'CRM Utilities' | 'Administration' | 'Finance';
   /** AND-combined permission predicates gating nav visibility */
   permission: WizmatchPermissionFlag | WizmatchPermissionFlag[];
   breadcrumb: { label: string };
@@ -147,11 +159,26 @@ export const WIZMATCH_ROUTES: WizmatchRouteDefinition[] = [
     searchVisible: true,
   },
 
-  // ── MORE → Communication ─────────────────────────────────────────────
+  // ── Growth CRM surfaces mounted under /wizmatch/* — ROUTABLE, NOT IN NAV ──
+  //
+  // 2026-08-02 — the same treatment `more-outreach` and `more-discovery`
+  // already carry, applied to the rest of the Growth CRM pages that a
+  // /wizmatch/ path was pointed at: no `group` (filtered out of the sidebar at
+  // navEntries.js's `route.group !== undefined`), `searchVisible: false` (out
+  // of Cmd+K), path and `legacyAliases` untouched so every one of them still
+  // resolves by direct URL and breadcrumb. Hidden is not deleted; this is a
+  // one-field-per-entry change to reverse.
+  //
+  // Why: none of these are WizMatch surfaces. Inbox / Email Templates /
+  // WhatsApp Templates / CRM Contacts / Pipeline / Tasks / Billing / Expenses
+  // all render the Growth tenant's own pages, against Growth's data, and they
+  // made up most of a "More" menu whose problem is that it has too many rows.
+  // Two of them (Inbox, Expenses) also carried the badges that forced a
+  // global poll on every single page — see the gating in Sidebar.jsx.
   {
     id: 'more-inbox', label: 'Inbox', path: '/wizmatch/inbox', icon: MessageSquare,
-    group: 'more.communication', moreSection: 'Communication', permission: 'canInbox',
-    breadcrumb: { label: 'Inbox' }, legacyAliases: [], searchVisible: true,
+    permission: 'canInbox',
+    breadcrumb: { label: 'Inbox' }, legacyAliases: [], searchVisible: false,
     badge: 'inbox-unread',
   },
   {
@@ -166,13 +193,13 @@ export const WIZMATCH_ROUTES: WizmatchRouteDefinition[] = [
   },
   {
     id: 'more-templates-email', label: 'Email Templates', path: '/wizmatch/emails', icon: Mail,
-    group: 'more.communication', moreSection: 'Communication', permission: 'canSequences',
-    breadcrumb: { label: 'Email Templates' }, legacyAliases: [], searchVisible: true,
+    permission: 'canSequences',
+    breadcrumb: { label: 'Email Templates' }, legacyAliases: [], searchVisible: false,
   },
   {
     id: 'more-templates-wa', label: 'WhatsApp Templates', path: '/wizmatch/whatsapp-templates', icon: MessageSquare,
-    group: 'more.communication', moreSection: 'Communication', permission: 'canSequences',
-    breadcrumb: { label: 'WhatsApp Templates' }, legacyAliases: [], searchVisible: true,
+    permission: 'canSequences',
+    breadcrumb: { label: 'WhatsApp Templates' }, legacyAliases: [], searchVisible: false,
   },
 
   // ── MORE → CRM Utilities ─────────────────────────────────────────────
@@ -183,18 +210,18 @@ export const WIZMATCH_ROUTES: WizmatchRouteDefinition[] = [
     // now says which system it belongs to and reads as the sibling of
     // "Hiring Contacts" that it is.
     id: 'more-contacts', label: 'CRM Contacts (all)', path: '/wizmatch/contacts', icon: Users,
-    group: 'more.crmUtilities', moreSection: 'CRM Utilities', permission: 'canCRM',
-    breadcrumb: { label: 'CRM Contacts' }, legacyAliases: [], searchVisible: true,
+    permission: 'canCRM',
+    breadcrumb: { label: 'CRM Contacts' }, legacyAliases: [], searchVisible: false,
   },
   {
     id: 'more-pipeline', label: 'Pipeline', path: '/wizmatch/pipeline', icon: Kanban,
-    group: 'more.crmUtilities', moreSection: 'CRM Utilities', permission: 'canCRM',
-    breadcrumb: { label: 'Pipeline' }, legacyAliases: [], searchVisible: true,
+    permission: 'canCRM',
+    breadcrumb: { label: 'Pipeline' }, legacyAliases: [], searchVisible: false,
   },
   {
     id: 'more-tasks', label: 'Tasks', path: '/wizmatch/tasks', icon: CheckSquare,
-    group: 'more.crmUtilities', moreSection: 'CRM Utilities', permission: 'canTasks',
-    breadcrumb: { label: 'Tasks' }, legacyAliases: [], searchVisible: true,
+    permission: 'canTasks',
+    breadcrumb: { label: 'Tasks' }, legacyAliases: [], searchVisible: false,
   },
   {
     // UX audit 2026-07-31 (top-10 finding #2) — this label used to read
@@ -254,7 +281,11 @@ export const WIZMATCH_ROUTES: WizmatchRouteDefinition[] = [
     // but it is out of the sidebar and out of Cmd+K.
     id: 'more-provider-runs', label: 'Provider Runs', path: '/wizmatch/system?tab=sourcing', icon: Zap,
     permission: 'canWizmatch',
-    breadcrumb: { label: 'Provider Runs' }, searchVisible: false, legacyAliases: [], searchVisible: true,
+    // 2026-08-02 — this literal declared `searchVisible` TWICE
+    // (`searchVisible: false, legacyAliases: [], searchVisible: true`). The
+    // later key wins, so the entry was live in Cmd+K the whole time, directly
+    // contradicting the comment above it. Deduped to the documented intent.
+    breadcrumb: { label: 'Provider Runs' }, legacyAliases: [], searchVisible: false,
   },
   {
     id: 'more-permissions', label: 'Permissions', path: '/wizmatch/settings/permissions', icon: Shield,
@@ -300,8 +331,8 @@ export const WIZMATCH_ROUTES: WizmatchRouteDefinition[] = [
   // ── MORE → Finance ───────────────────────────────────────────────────
   {
     id: 'more-billing', label: 'Billing', path: '/wizmatch/billing', icon: CreditCard,
-    group: 'more.finance', moreSection: 'Finance', permission: 'canBilling',
-    breadcrumb: { label: 'Billing' }, legacyAliases: [], searchVisible: true,
+    permission: 'canBilling',
+    breadcrumb: { label: 'Billing' }, legacyAliases: [], searchVisible: false,
   },
   {
     id: 'more-contracts', label: 'Contracts', path: '/wizmatch/contracts', icon: FileText,
@@ -310,8 +341,11 @@ export const WIZMATCH_ROUTES: WizmatchRouteDefinition[] = [
   },
   {
     id: 'more-expenses', label: 'Expenses', path: '/wizmatch/finance', icon: Receipt,
-    group: 'more.finance', moreSection: 'Finance', permission: 'canBilling',
-    breadcrumb: { label: 'Expenses' }, legacyAliases: [], searchVisible: true,
+    // `canFinance`, not `canBilling` — /wizmatch/finance renders the expenses +
+    // attendance page, whose API has no billingView requirement. See the
+    // canBilling/canFinance split in navEntries.js computeFlags().
+    permission: 'canFinance',
+    breadcrumb: { label: 'Expenses' }, legacyAliases: [], searchVisible: false,
     badge: 'pending-leaves',
   },
 

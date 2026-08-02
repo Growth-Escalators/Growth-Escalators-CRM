@@ -71,6 +71,52 @@ describe('wizmatchRouteRegistry', () => {
     }
   });
 
+  // 2026-08-02 — the Growth CRM pages that a /wizmatch/* path was pointed at
+  // are now hidden from the WizMatch sidebar and Cmd+K while staying fully
+  // routable. Encoded as three separate invariants so a regression says which
+  // half broke: hidden-from-nav, hidden-from-search, and still-reachable.
+  // The last one is what makes this reversible rather than a deletion.
+  const ROUTABLE_BUT_HIDDEN = [
+    ['more-inbox', '/wizmatch/inbox'],
+    ['more-outreach', '/wizmatch/outreach'],
+    ['more-templates-email', '/wizmatch/emails'],
+    ['more-templates-wa', '/wizmatch/whatsapp-templates'],
+    ['more-contacts', '/wizmatch/contacts'],
+    ['more-pipeline', '/wizmatch/pipeline'],
+    ['more-tasks', '/wizmatch/tasks'],
+    ['more-discovery', '/wizmatch/discover'],
+    ['more-provider-runs', '/wizmatch/system?tab=sourcing'],
+    ['more-billing', '/wizmatch/billing'],
+    ['more-expenses', '/wizmatch/finance'],
+  ];
+
+  it.each(ROUTABLE_BUT_HIDDEN)('%s is out of the sidebar (no group) and out of Cmd+K', (id) => {
+    const route = WIZMATCH_ROUTES.find((r) => r.id === id);
+    expect(route, `registry entry ${id} disappeared — hidden is not deleted`).toBeDefined();
+    // navEntries.js filters on `route.group !== undefined`, so an absent group
+    // is the whole mechanism. A group value the Sidebar does not render would
+    // instead produce a ghost: in Cmd+K, missing from the sidebar.
+    expect(route.group, `${id} regained a group — it would reappear in the sidebar`).toBeUndefined();
+    expect(route.moreSection, `${id} keeps a moreSection with no group`).toBeUndefined();
+    expect(route.searchVisible, `${id} must stay out of Cmd+K`).toBe(false);
+  });
+
+  it.each(ROUTABLE_BUT_HIDDEN)('%s is still ROUTABLE at %s', (id, path) => {
+    const route = WIZMATCH_ROUTES.find((r) => r.id === id);
+    expect(route.path).toBe(path);
+    expect(findWizmatchRouteForPath(path)?.id).toBe(id);
+  });
+
+  it('has retired the Communication bucket entirely', () => {
+    // Sidebar.jsx's MORE_SECTION_ORDER no longer renders 'Communication'. An
+    // entry declaring it (or the old 'more.communication' group) would be
+    // dropped from the sidebar silently while still showing in Cmd+K.
+    const offenders = WIZMATCH_ROUTES.filter(
+      (r) => r.group === 'more.communication' || r.moreSection === 'Communication',
+    ).map((r) => r.id);
+    expect(offenders).toEqual([]);
+  });
+
   it('surfaces Talent Matching in nav + search (the actionable matching workspace)', () => {
     const route = WIZMATCH_ROUTES.find((r) => r.id === 'talent-matching');
     expect(route).toBeDefined();

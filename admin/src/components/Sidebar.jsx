@@ -26,7 +26,18 @@ const ROLE_LABELS = {
 const STORAGE_KEY = 'ge-crm-nav-groups';
 const DEFAULT_GROUPS = { tools: false, finance: false, settings: false, 'wizmatch-more': false };
 const GROUP_ICONS = { tools: Wrench, finance: Receipt, settings: SettingsIcon, 'wizmatch-more': MoreHorizontal };
-const MORE_SECTION_ORDER = ['Communication', 'CRM Utilities', 'Administration', 'Finance'];
+// 2026-08-02 — 'Communication' dropped: its three rows (Inbox, Email
+// Templates, WhatsApp Templates) are Growth CRM surfaces and are now
+// routable-but-hidden in wizmatchRouteRegistry.ts, leaving the bucket
+// permanently empty. Re-adding a section here without a registry entry
+// declaring it is inert; re-adding a registry `moreSection` without listing it
+// here silently drops the row from the sidebar while leaving it in Cmd+K —
+// src/__tests__/sidebarNavBucketCoverage.test.ts fails on the second case.
+//
+// DEFAULT_GROUPS/GROUP_ICONS above are deliberately untouched: 'wizmatch-more'
+// still has rows (CRM Utilities, Administration, Finance) and tools/finance/
+// settings are Growth's, which this change does not affect.
+const MORE_SECTION_ORDER = ['CRM Utilities', 'Administration', 'Finance'];
 
 function readStoredGroups() {
   try {
@@ -181,8 +192,40 @@ export default function Sidebar() {
     return () => { cancelled = true; };
   }, [tenantSlug, perms.staffingPilotAccess]);
 
-  // Inbox unread badge — poll every 30s
+  const visible = useMemo(
+    () => getVisibleEntries(role, perms, tenantSlug, staffingPhases),
+    [role, perms, tenantSlug, staffingPhases],
+  );
+
+  // Sidebar renders on every authenticated page, so anything it polls is a
+  // request on every page. Both badge polls below used to run with an empty
+  // dependency array — unconditionally, for every user, on every route. A
+  // production audit found them among the 3 slowest calls on 25 and 22 of 37
+  // pages respectively, including for users who could not see the badge they
+  // were fetching.
+  //
+  // Gate on the only thing that can consume the number: a nav row this user
+  // actually sees carrying that badge. `visible` is already permission- and
+  // tenant-filtered, so this covers both "no permission" and "not in this
+  // product's nav" without a second rule to keep in sync. Same shape as the
+  // fail-closed guard in the staffing-phase effect above.
+  const showsInboxBadge = useMemo(
+    () => visible.some(e => e.badge === 'inbox-unread'),
+    [visible],
+  );
+  const showsPendingLeavesBadge = useMemo(
+    () => visible.some(e => e.badge === 'pending-leaves'),
+    [visible],
+  );
+
+  // Inbox unread badge — poll every 30s, only while a visible row shows it.
   useEffect(() => {
+    if (!showsInboxBadge) {
+      // Drop any count fetched before the gate closed, so a permission or
+      // tenant switch can't leave a stale badge painted on the new nav.
+      setUnreadCount(0);
+      return undefined;
+    }
     function fetchUnread() {
       apiFetch('/api/inbox/unread-count')
         .then(d => setUnreadCount(d?.count ?? 0))
@@ -191,11 +234,16 @@ export default function Sidebar() {
     fetchUnread();
     const interval = setInterval(fetchUnread, 30_000);
     return () => clearInterval(interval);
-  }, []);
+  }, [showsInboxBadge]);
 
-  // Pending leaves badge — poll every 60s. The Expenses entry (route /finance)
-  // shows this; approval UI lives there in the Attendance tab.
+  // Pending leaves badge — poll every 60s, only while a visible row shows it.
+  // The Expenses entry (route /finance) shows this; approval UI lives there in
+  // the Attendance tab.
   useEffect(() => {
+    if (!showsPendingLeavesBadge) {
+      setPendingLeavesCount(0);
+      return undefined;
+    }
     function fetchPending() {
       apiFetch('/api/finance/leaves/pending-count')
         .then(d => setPendingLeavesCount(d?.count ?? 0))
@@ -204,7 +252,7 @@ export default function Sidebar() {
     fetchPending();
     const interval = setInterval(fetchPending, 60_000);
     return () => clearInterval(interval);
-  }, []);
+  }, [showsPendingLeavesBadge]);
 
   // Auto-close mobile drawer on route change
   useEffect(() => { setMobileOpen(false); }, [location.pathname]);
@@ -242,11 +290,6 @@ export default function Sidebar() {
       return next;
     });
   }
-
-  const visible = useMemo(
-    () => getVisibleEntries(role, perms, tenantSlug, staffingPhases),
-    [role, perms, tenantSlug, staffingPhases],
-  );
 
   // Query-aware active state — see isEntryActive above for why NavLink's own
   // isActive isn't enough. `visible` is passed so a bare row can defer to a
@@ -315,6 +358,7 @@ export default function Sidebar() {
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} entries={visible} />
 
       <aside
+        aria-label="Sidebar"
         className={`sidebar-fluent text-[rgba(219,234,254,0.78)] flex flex-col flex-shrink-0
           md:static md:w-64 md:min-h-screen md:translate-x-0
           fixed inset-y-0 left-0 z-50 w-64 h-screen
@@ -342,8 +386,13 @@ export default function Sidebar() {
           </div>
         </div>
 
-        {/* Nav — flex column so Settings group can mt-auto to bottom */}
-        <nav className="flex-1 flex flex-col px-3 py-2 overflow-y-auto">
+        {/* Nav — flex column so Settings group can mt-auto to bottom.
+            aria-label is required, not cosmetic: this <nav> and Breadcrumbs'
+            <nav> are two navigation landmarks on every page, and axe's
+            landmark-unique rule flags both when neither has an accessible
+            name (26 nodes across the audited pages). Attribute only — no
+            markup or styling change. */}
+        <nav aria-label="Main navigation" className="flex-1 flex flex-col px-3 py-2 overflow-y-auto">
           {/* Flat sections */}
           {FLAT_ORDER.map(section => {
             const entries = flatSections.get(section);

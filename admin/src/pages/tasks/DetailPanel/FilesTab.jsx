@@ -157,6 +157,7 @@ export default function FilesTab({ task }) {
           type="file"
           className="hidden"
           onChange={(e) => uploadFile(e.target.files?.[0])}
+          aria-label="Upload file"
         />
         <button
           type="button"
@@ -175,12 +176,14 @@ export default function FilesTab({ task }) {
             value={urlVal}
             onChange={(e) => setUrlVal(e.target.value)}
             placeholder="https://…"
+            aria-label="File URL"
             className="w-full text-sm bg-white border border-slate-200 rounded px-2 py-1 outline-none focus:border-sky-300 mb-1.5"
           />
           <input
             value={urlLabel}
             onChange={(e) => setUrlLabel(e.target.value)}
             placeholder="Label (optional)"
+            aria-label="Link label"
             className="w-full text-sm bg-white border border-slate-200 rounded px-2 py-1 outline-none focus:border-sky-300"
           />
           <div className="mt-1.5 flex items-center gap-2">

@@ -240,7 +240,7 @@ export default function ContractsPage() {
     <div className="flex h-screen bg-neutral-50">
       <Sidebar />
       {/* Hidden picker for the "Upload PDF" action (bring-your-own-PDF). */}
-      <input ref={fileInputRef} type="file" accept="application/pdf" className="hidden" onChange={onFileChosen} />
+      <input ref={fileInputRef} type="file" accept="application/pdf" className="hidden" onChange={onFileChosen} aria-label="Upload contract PDF" />
       <main className="flex-1 overflow-y-auto p-8">
         <div className="mb-6 flex items-center justify-between">
           <div>
@@ -320,8 +320,8 @@ export default function ContractsPage() {
             </label>
             {form.withCountersigner && (
               <div className="mb-2 grid grid-cols-2 gap-2">
-                <input placeholder="Countersigner name" className="rounded border border-neutral-300 px-3 py-2" value={form.counterName} onChange={(e) => setForm({ ...form, counterName: e.target.value })} />
-                <input placeholder="Countersigner email" type="email" className="rounded border border-neutral-300 px-3 py-2" value={form.counterEmail} onChange={(e) => setForm({ ...form, counterEmail: e.target.value })} />
+                <input placeholder="Countersigner name" aria-label="Countersigner name" className="rounded border border-neutral-300 px-3 py-2" value={form.counterName} onChange={(e) => setForm({ ...form, counterName: e.target.value })} />
+                <input placeholder="Countersigner email" type="email" aria-label="Countersigner email" className="rounded border border-neutral-300 px-3 py-2" value={form.counterEmail} onChange={(e) => setForm({ ...form, counterEmail: e.target.value })} />
               </div>
             )}
 
@@ -335,12 +335,12 @@ export default function ContractsPage() {
               )}
               {form.extraRecipients.map((r, i) => (
                 <div key={i} className="mb-2 grid grid-cols-[1fr_1fr_auto_auto] gap-2">
-                  <input placeholder="Name" className="rounded border border-neutral-300 px-2 py-1 text-sm" value={r.name} onChange={(e) => updateExtraRecipient(i, { name: e.target.value })} />
-                  <input placeholder="Email" type="email" className="rounded border border-neutral-300 px-2 py-1 text-sm" value={r.email} onChange={(e) => updateExtraRecipient(i, { email: e.target.value })} />
-                  <select className="rounded border border-neutral-300 px-2 py-1 text-sm" value={r.role} onChange={(e) => updateExtraRecipient(i, { role: e.target.value })}>
+                  <input placeholder="Name" aria-label={`Recipient ${i + 1} name`} className="rounded border border-neutral-300 px-2 py-1 text-sm" value={r.name} onChange={(e) => updateExtraRecipient(i, { name: e.target.value })} />
+                  <input placeholder="Email" type="email" aria-label={`Recipient ${i + 1} email`} className="rounded border border-neutral-300 px-2 py-1 text-sm" value={r.email} onChange={(e) => updateExtraRecipient(i, { email: e.target.value })} />
+                  <select aria-label={`Recipient ${i + 1} role`} className="rounded border border-neutral-300 px-2 py-1 text-sm" value={r.role} onChange={(e) => updateExtraRecipient(i, { role: e.target.value })}>
                     {RECIPIENT_ROLES.map((role) => <option key={role.value} value={role.value}>{role.label}</option>)}
                   </select>
-                  <button type="button" className="rounded px-2 text-sm text-neutral-500 hover:text-red-600" onClick={() => removeExtraRecipient(i)} title="Remove">✕</button>
+                  <button type="button" className="rounded px-2 text-sm text-neutral-500 hover:text-red-600" onClick={() => removeExtraRecipient(i)} title="Remove" aria-label={`Remove recipient ${i + 1}`}>✕</button>
                 </div>
               ))}
             </div>
@@ -389,7 +389,7 @@ export default function ContractsPage() {
                       </span>
                     </div>
                     {links[r.id] && (
-                      <input data-testid={`signing-link-${r.id}`} readOnly value={links[r.id]} onFocus={(e) => e.target.select()} className="mt-1 w-full rounded border border-neutral-200 px-2 py-1 text-xs text-neutral-600" />
+                      <input data-testid={`signing-link-${r.id}`} readOnly value={links[r.id]} onFocus={(e) => e.target.select()} aria-label={`Signing link for ${r.name || r.email || 'recipient'}`} className="mt-1 w-full rounded border border-neutral-200 px-2 py-1 text-xs text-neutral-600" />
                     )}
                   </li>
                 );
@@ -501,13 +501,13 @@ function TemplatesManager({ registered, onClose, onChanged }) {
           <p className="mb-2 text-xs text-neutral-500">No templates found in Documenso. Create one in the Documenso console first.</p>
         ) : (
           <form className="space-y-2" onSubmit={register}>
-            <select required className="w-full rounded border border-neutral-300 px-3 py-2 text-sm" value={reg.documensoTemplateId} onChange={(e) => setReg({ ...reg, documensoTemplateId: e.target.value })}>
+            <select required aria-label="Documenso template" className="w-full rounded border border-neutral-300 px-3 py-2 text-sm" value={reg.documensoTemplateId} onChange={(e) => setReg({ ...reg, documensoTemplateId: e.target.value })}>
               <option value="">Choose a Documenso template…</option>
               {docTemplates.map((t) => <option key={t.id} value={t.id}>{t.title}{t.recipientCount ? ` (${t.recipientCount} recipients)` : ''}</option>)}
             </select>
             <div className="grid grid-cols-2 gap-2">
-              <input required placeholder="Display name" className="rounded border border-neutral-300 px-3 py-2 text-sm" value={reg.name} onChange={(e) => setReg({ ...reg, name: e.target.value })} />
-              <input placeholder="Category (optional)" className="rounded border border-neutral-300 px-3 py-2 text-sm" value={reg.category} onChange={(e) => setReg({ ...reg, category: e.target.value })} />
+              <input required placeholder="Display name" aria-label="Template display name" className="rounded border border-neutral-300 px-3 py-2 text-sm" value={reg.name} onChange={(e) => setReg({ ...reg, name: e.target.value })} />
+              <input placeholder="Category (optional)" aria-label="Template category" className="rounded border border-neutral-300 px-3 py-2 text-sm" value={reg.category} onChange={(e) => setReg({ ...reg, category: e.target.value })} />
             </div>
             <button type="submit" disabled={busy} className="rounded bg-neutral-900 px-4 py-2 text-sm text-white disabled:opacity-50">Register template</button>
           </form>

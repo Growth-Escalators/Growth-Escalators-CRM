@@ -77,7 +77,7 @@ function StageConfigModal({ stageId, stageName, currentConfig, emailTemplates, o
               <h2 className="text-lg font-bold text-slate-900">Stage Settings</h2>
               <p className="text-sm text-slate-400 mt-0.5">{stageName}</p>
             </div>
-            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100">
+            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100" aria-label="Close">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
           </div>
@@ -89,11 +89,13 @@ function StageConfigModal({ stageId, stageName, currentConfig, emailTemplates, o
             </label>
             <input type="number" min="0" max="100" value={probability} onChange={e => setProbability(e.target.value)}
               placeholder="Leave blank for no default"
+              aria-label="Default probability (%)"
               className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Auto-send Email Template</label>
             <select value={emailTemplateId} onChange={e => setEmailTemplateId(e.target.value)}
+              aria-label="Auto-send email template"
               className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option value="">None</option>
               {emailTemplates.map(t => (
@@ -105,11 +107,13 @@ function StageConfigModal({ stageId, stageName, currentConfig, emailTemplates, o
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Auto-create ClickUp Task</label>
             <input type="text" value={taskTitle} onChange={e => setTaskTitle(e.target.value)}
               placeholder="Task title (leave blank for none)"
+              aria-label="Auto-create ClickUp task title"
               className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2" />
             {taskTitle && (
               <div className="flex items-center gap-2">
                 <span className="text-sm text-slate-500">Due in</span>
                 <input type="number" min="1" value={taskDays} onChange={e => setTaskDays(e.target.value)}
+                  aria-label="Task due in days"
                   className="w-16 border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 <span className="text-sm text-slate-500">days</span>
               </div>
@@ -200,6 +204,7 @@ function StageList({ stages, onChange, stageConfigs, onOpenStageConfig }) {
                   onBlur={() => commitEdit(idx)}
                   onKeyDown={(e) => { if (e.key === 'Enter') commitEdit(idx); if (e.key === 'Escape') { setEditingIdx(null); } }}
                   className="flex-1 text-sm border-none outline-none bg-transparent font-medium text-slate-800"
+                  aria-label="Stage name"
                 />
               ) : (
                 <span
@@ -220,6 +225,7 @@ function StageList({ stages, onChange, stageConfigs, onOpenStageConfig }) {
                 <button
                   onClick={() => onOpenStageConfig(stage)}
                   title="Stage settings"
+                  aria-label={`Settings for stage ${stageName}`}
                   className="p-1.5 text-slate-300 hover:text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -248,6 +254,7 @@ function StageList({ stages, onChange, stageConfigs, onOpenStageConfig }) {
           onKeyDown={(e) => e.key === 'Enter' && addStage()}
           placeholder="Stage name..."
           className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+          aria-label="New stage name"
         />
         <button
           onClick={addStage}
@@ -339,6 +346,7 @@ function PipelineEditor({ pipeline, onSaved, onCancel, stageConfigs, onOpenStage
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-400"
+                aria-label="Pipeline name"
               />
             </div>
             <div>
@@ -429,7 +437,7 @@ function NewPipelineModal({ onCreated, onClose }) {
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100 shrink-0">
           <h2 className="text-lg font-bold text-slate-900">New Pipeline</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100">
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100" aria-label="Close">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
             </svg>
@@ -446,6 +454,7 @@ function NewPipelineModal({ onCreated, onClose }) {
               onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
               placeholder="e.g. Enterprise Sales, Healthcare Leads..."
               className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+              aria-label="Pipeline name"
             />
           </div>
           <div>
@@ -705,6 +714,7 @@ export default function PipelineManagerPage() {
                     <div className="relative" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === p.id ? null : p.id); }}
+                        aria-label={`Actions for pipeline ${p.name}`}
                         className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 opacity-0 group-hover:opacity-100 transition-opacity"
                       >
                         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">

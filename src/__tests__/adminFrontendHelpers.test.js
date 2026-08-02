@@ -84,9 +84,14 @@ describe('admin tenant and pipeline outcome helpers', () => {
     const today = entries.find(e => e.id === 'today');
     expect(today.group).toBeNull();
 
-    const billing = entries.find(e => e.id === 'more-billing');
-    expect(billing.group).toBe('wizmatch-more');
-    expect(billing.moreSection).toBe('Finance');
+    // Was `more-billing`. That entry is now deliberately hidden from the
+    // WizMatch sidebar (routable, but no `group`), so it is correctly absent
+    // from getVisibleEntries. `more-contracts` is the Finance-bucket entry that
+    // survives, and it preserves this test's actual intent: that a non-primary
+    // entry lands in the 'wizmatch-more' group under a labelled subsection.
+    const contracts = entries.find(e => e.id === 'more-contracts');
+    expect(contracts.group).toBe('wizmatch-more');
+    expect(contracts.moreSection).toBe('Finance');
 
     const system = entries.find(e => e.id === 'more-system');
     expect(system.group).toBe('wizmatch-more');

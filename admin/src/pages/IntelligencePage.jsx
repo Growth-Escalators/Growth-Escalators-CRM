@@ -136,7 +136,7 @@ function IssueCard({ issue, idx }) {
             <span className="text-xs text-slate-500 flex items-center gap-1"><Clock className="w-3 h-3"/>{issue.deadline}</span>
           </div>
         </div>
-        <button onClick={() => setExpanded(o => !o)} className="flex-shrink-0 p-1 text-slate-400 hover:text-slate-600">
+        <button onClick={() => setExpanded(o => !o)} className="flex-shrink-0 p-1 text-slate-400 hover:text-slate-600" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${issue.title || 'issue'}`} aria-expanded={expanded}>
           {expanded ? <ChevronDown className="w-4 h-4"/> : <ChevronRight className="w-4 h-4"/>}
         </button>
       </div>

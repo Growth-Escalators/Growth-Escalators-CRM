@@ -105,35 +105,35 @@ function AddExpenseForm({ categories, onAdded, editing, onCancelEdit, vendors = 
       </div>
       {error && <p className="text-xs text-red-600 bg-red-50 px-3 py-1.5 rounded-lg">{error}</p>}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <input type="text" placeholder="Description *" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
+        <input type="text" aria-label="Expense description" placeholder="Description *" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
           className="col-span-2 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500" required />
         <div className="relative">
           <span className="absolute left-3 top-2.5 text-slate-400 text-sm">INR</span>
-          <input type="number" placeholder="Amount *" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })}
+          <input type="number" aria-label="Expense amount in rupees" placeholder="Amount *" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })}
             className="w-full border border-slate-200 rounded-lg pl-12 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500" required />
         </div>
-        <select value={form.categoryId} onChange={e => setForm({ ...form, categoryId: e.target.value })}
+        <select aria-label="Expense category" value={form.categoryId} onChange={e => setForm({ ...form, categoryId: e.target.value })}
           className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-sky-500">
           <option value="">Category</option>
           {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
-        <input type="date" value={form.expenseDate} onChange={e => setForm({ ...form, expenseDate: e.target.value })}
+        <input type="date" aria-label="Expense date" value={form.expenseDate} onChange={e => setForm({ ...form, expenseDate: e.target.value })}
           className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500" />
-        <input type="text" placeholder="Vendor (optional)" value={form.vendorName} onChange={e => setForm({ ...form, vendorName: e.target.value })}
+        <input type="text" aria-label="Vendor" placeholder="Vendor (optional)" value={form.vendorName} onChange={e => setForm({ ...form, vendorName: e.target.value })}
           list="vendor-suggestions"
           className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500" />
         <datalist id="vendor-suggestions">
           {vendors.map((v, i) => <option key={i} value={v} />)}
         </datalist>
       </div>
-      <textarea placeholder="Notes (optional)" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2}
+      <textarea aria-label="Expense notes" placeholder="Notes (optional)" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2}
         className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 resize-none" />
       <div className="flex items-center gap-3">
         <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
           <input type="checkbox" checked={form.isRecurring} onChange={e => setForm({ ...form, isRecurring: e.target.checked })} className="rounded border-slate-300 text-sky-600" />
           Recurring monthly
         </label>
-        <select value={form.paymentMethod} onChange={e => setForm({ ...form, paymentMethod: e.target.value })}
+        <select aria-label="Payment method" value={form.paymentMethod} onChange={e => setForm({ ...form, paymentMethod: e.target.value })}
           className="border border-slate-200 rounded-lg px-2 py-1 text-xs bg-white">
           <option value="">Payment method</option>
           <option value="card">Card</option>
@@ -209,20 +209,20 @@ function AddIncomeForm({ onAdded, editing, onCancelEdit }) {
         )}
       </div>
       {error && <p className="text-xs text-red-600 bg-red-50 px-3 py-1.5 rounded-lg">{error}</p>}
-      <input type="text" placeholder="Source *" value={form.source} onChange={e => setForm({ ...form, source: e.target.value })}
+      <input type="text" aria-label="Income source" placeholder="Source *" value={form.source} onChange={e => setForm({ ...form, source: e.target.value })}
         className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" required />
-      <input type="text" placeholder="Description (optional)" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
+      <input type="text" aria-label="Income description" placeholder="Description (optional)" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
         className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="relative">
           <span className="absolute left-3 top-2.5 text-slate-400 text-sm">INR</span>
-          <input type="number" placeholder="Amount *" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })}
+          <input type="number" aria-label="Income amount in rupees" placeholder="Amount *" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })}
             className="w-full border border-slate-200 rounded-lg pl-12 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" required />
         </div>
-        <input type="date" value={form.incomeDate} onChange={e => setForm({ ...form, incomeDate: e.target.value })}
+        <input type="date" aria-label="Income date" value={form.incomeDate} onChange={e => setForm({ ...form, incomeDate: e.target.value })}
           className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
       </div>
-      <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}
+      <select aria-label="Income category" value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}
         className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500">
         <option value="client_revenue">Client Revenue</option>
         <option value="consulting">Consulting</option>
@@ -230,7 +230,7 @@ function AddIncomeForm({ onAdded, editing, onCancelEdit }) {
         <option value="refund">Refund</option>
         <option value="other">Other</option>
       </select>
-      <textarea placeholder="Notes (optional)" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2}
+      <textarea aria-label="Income notes" placeholder="Notes (optional)" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2}
         className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none" />
       <button type="submit" disabled={saving}
         className={`w-full py-2 text-white rounded-lg text-sm font-medium disabled:opacity-50 ${editing ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
@@ -343,6 +343,7 @@ function DailyAttendanceGrid({ team, attendance, month, onCellClick }) {
                       type="button"
                       onClick={() => onCellClick?.(m, dStr, rec)}
                       title={title}
+                      aria-label={`${m.name} attendance on ${dStr}: ${rec?.status ? rec.status.replace('_', ' ') : 'no record'}`}
                       className={`w-6 h-6 flex items-center justify-center rounded text-[10px] font-bold relative
                         ${style ? `${style.bg} ${style.text}` : isWeekend ? 'bg-slate-50 text-slate-300' : isFuture ? 'bg-slate-50 text-slate-200' : 'bg-slate-100 text-slate-300 hover:bg-slate-200'}
                       `}
@@ -591,12 +592,12 @@ export default function FinancePage() {
 
             {/* Month selector */}
             <div className="ml-auto flex items-center gap-2">
-              <button onClick={prevMonth} className="p-1 hover:bg-slate-100 rounded"><ChevronLeft className="w-4 h-4 text-slate-500" /></button>
+              <button onClick={prevMonth} aria-label="Previous month" className="p-1 hover:bg-slate-100 rounded"><ChevronLeft className="w-4 h-4 text-slate-500" /></button>
               <span className="text-sm font-semibold text-slate-800 min-w-[120px] text-center">{monthLabel}</span>
-              <button onClick={nextMonth} className="p-1 hover:bg-slate-100 rounded"><ChevronRight className="w-4 h-4 text-slate-500" /></button>
+              <button onClick={nextMonth} aria-label="Next month" className="p-1 hover:bg-slate-100 rounded"><ChevronRight className="w-4 h-4 text-slate-500" /></button>
             </div>
 
-            <button onClick={loadData} disabled={loading} className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50">
+            <button onClick={loadData} disabled={loading} aria-label="Refresh finance data" className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50">
               <RefreshCw className={`w-4 h-4 text-slate-500 ${loading ? 'animate-spin' : ''}`} />
             </button>
           </div>
@@ -710,7 +711,7 @@ export default function FinancePage() {
                         <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Description</th>
                         <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Category</th>
                         <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500">Amount</th>
-                        <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500 w-10"></th>
+                        <th aria-label="Expense actions" className="px-4 py-2 text-right text-xs font-semibold text-slate-500 w-10"></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -736,8 +737,8 @@ export default function FinancePage() {
                           <td className="px-4 py-2.5 text-right font-semibold text-slate-800">INR {Number(e.amount).toLocaleString('en-IN')}</td>
                           <td className="px-4 py-2.5 text-right">
                             <div className="flex items-center gap-1 justify-end">
-                              <button onClick={() => setEditingExpense(e)} className="text-slate-400 hover:text-amber-600 p-1" title="Edit"><Edit2 className="w-3.5 h-3.5" /></button>
-                              <button onClick={() => setConfirmDeleteExpense(e.id)} className="text-slate-400 hover:text-red-600 p-1" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+                              <button onClick={() => setEditingExpense(e)} aria-label={`Edit expense ${e.description}`} className="text-slate-400 hover:text-amber-600 p-1" title="Edit"><Edit2 className="w-3.5 h-3.5" /></button>
+                              <button onClick={() => setConfirmDeleteExpense(e.id)} aria-label={`Delete expense ${e.description}`} className="text-slate-400 hover:text-red-600 p-1" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                             </div>
                           </td>
                         </tr>
@@ -769,7 +770,7 @@ export default function FinancePage() {
                         <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Description</th>
                         <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Type</th>
                         <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500">Amount</th>
-                        <th className="px-4 py-2 w-10"></th>
+                        <th aria-label="Income actions" className="px-4 py-2 w-10"></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -784,8 +785,8 @@ export default function FinancePage() {
                           <td className="px-4 py-2.5 text-right">
                             {i.category !== 'invoice' && (
                               <div className="flex items-center gap-1 justify-end">
-                                <button onClick={() => setEditingIncome(i)} className="text-slate-400 hover:text-amber-600 p-1" title="Edit"><Edit2 className="w-3.5 h-3.5" /></button>
-                                <button onClick={() => setConfirmDeleteIncome(i.id)} className="text-slate-400 hover:text-red-600 p-1" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+                                <button onClick={() => setEditingIncome(i)} aria-label={`Edit income entry ${i.source}`} className="text-slate-400 hover:text-amber-600 p-1" title="Edit"><Edit2 className="w-3.5 h-3.5" /></button>
+                                <button onClick={() => setConfirmDeleteIncome(i.id)} aria-label={`Delete income entry ${i.source}`} className="text-slate-400 hover:text-red-600 p-1" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                               </div>
                             )}
                           </td>
@@ -817,7 +818,7 @@ export default function FinancePage() {
                       <th className="px-4 py-2 text-center text-xs font-semibold text-slate-500">Expected Start</th>
                       <th className="px-4 py-2 text-center text-xs font-semibold text-slate-500" title="Casual / Sick / Earned">Leaves (C/S/E)</th>
                       <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500">Base Salary</th>
-                      <th className="px-4 py-2 w-20"></th>
+                      <th aria-label="Team member actions" className="px-4 py-2 w-20"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -840,8 +841,8 @@ export default function FinancePage() {
                               casualLeaveBalance: String(m.casual_leave_balance ?? 12),
                               sickLeaveBalance: String(m.sick_leave_balance ?? 6),
                               earnedLeaveBalance: String(m.earned_leave_balance ?? 15),
-                            })} className="text-slate-400 hover:text-sky-600 p-1" title="Edit"><Edit2 className="w-3.5 h-3.5" /></button>
-                            <button onClick={() => setConfirmRemoveMember({ id: m.id, name: m.name })} className="text-red-400 hover:text-red-600 p-1" title="Remove"><Trash2 className="w-3.5 h-3.5" /></button>
+                            })} aria-label={`Edit team member ${m.name}`} className="text-slate-400 hover:text-sky-600 p-1" title="Edit"><Edit2 className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => setConfirmRemoveMember({ id: m.id, name: m.name })} aria-label={`Remove ${m.name} from payroll`} className="text-red-400 hover:text-red-600 p-1" title="Remove"><Trash2 className="w-3.5 h-3.5" /></button>
                           </div>
                         </td>
                       </tr>
@@ -863,39 +864,39 @@ export default function FinancePage() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="text-xs text-slate-500 font-medium">Name</label>
-                    <input type="text" value={newMember.name} onChange={e => setNewMember({ ...newMember, name: e.target.value })} placeholder="Team member name"
+                    <input type="text" aria-label="Team member name" value={newMember.name} onChange={e => setNewMember({ ...newMember, name: e.target.value })} placeholder="Team member name"
                       className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" required />
                   </div>
                   <div>
                     <label className="text-xs text-slate-500 font-medium">Role</label>
-                    <input type="text" value={newMember.role} onChange={e => setNewMember({ ...newMember, role: e.target.value })} placeholder="e.g. Sales, Ops"
+                    <input type="text" aria-label="Team member role" value={newMember.role} onChange={e => setNewMember({ ...newMember, role: e.target.value })} placeholder="e.g. Sales, Ops"
                       className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
                   </div>
                   <div>
                     <label className="text-xs text-slate-500 font-medium">Base Salary (INR)</label>
-                    <input type="number" min="0" value={newMember.baseSalary} onChange={e => setNewMember({ ...newMember, baseSalary: e.target.value })} placeholder="25000"
+                    <input type="number" min="0" aria-label="Base salary in rupees" value={newMember.baseSalary} onChange={e => setNewMember({ ...newMember, baseSalary: e.target.value })} placeholder="25000"
                       className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
                   </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                   <div>
                     <label className="text-xs text-slate-500 font-medium">Expected Start</label>
-                    <input type="time" value={newMember.expectedStartTime} onChange={e => setNewMember({ ...newMember, expectedStartTime: e.target.value })}
+                    <input type="time" aria-label="Expected start time" value={newMember.expectedStartTime} onChange={e => setNewMember({ ...newMember, expectedStartTime: e.target.value })}
                       className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
                   </div>
                   <div>
                     <label className="text-xs text-slate-500 font-medium">Casual leaves</label>
-                    <input type="number" min="0" value={newMember.casualLeaveBalance} onChange={e => setNewMember({ ...newMember, casualLeaveBalance: e.target.value })}
+                    <input type="number" min="0" aria-label="Casual leave balance" value={newMember.casualLeaveBalance} onChange={e => setNewMember({ ...newMember, casualLeaveBalance: e.target.value })}
                       className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
                   </div>
                   <div>
                     <label className="text-xs text-slate-500 font-medium">Sick leaves</label>
-                    <input type="number" min="0" value={newMember.sickLeaveBalance} onChange={e => setNewMember({ ...newMember, sickLeaveBalance: e.target.value })}
+                    <input type="number" min="0" aria-label="Sick leave balance" value={newMember.sickLeaveBalance} onChange={e => setNewMember({ ...newMember, sickLeaveBalance: e.target.value })}
                       className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
                   </div>
                   <div>
                     <label className="text-xs text-slate-500 font-medium">Earned leaves</label>
-                    <input type="number" min="0" value={newMember.earnedLeaveBalance} onChange={e => setNewMember({ ...newMember, earnedLeaveBalance: e.target.value })}
+                    <input type="number" min="0" aria-label="Earned leave balance" value={newMember.earnedLeaveBalance} onChange={e => setNewMember({ ...newMember, earnedLeaveBalance: e.target.value })}
                       className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
                   </div>
                 </div>
@@ -915,9 +916,9 @@ export default function FinancePage() {
                   <Clock className="w-4 h-4 text-sky-500" /> Mark Attendance — {new Date(attDate).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })}
                 </h3>
                 <div className="flex items-center gap-3 mb-4">
-                  <input type="date" value={attDate} onChange={e => setAttDate(e.target.value)}
+                  <input type="date" aria-label="Attendance date" value={attDate} onChange={e => setAttDate(e.target.value)}
                     className="border border-slate-200 rounded-lg px-3 py-2 text-sm" />
-                  <select value={attStatus} onChange={e => setAttStatus(e.target.value)}
+                  <select aria-label="Attendance status to apply" value={attStatus} onChange={e => setAttStatus(e.target.value)}
                     className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white">
                     <option value="present">Present</option>
                     <option value="absent">Absent</option>
@@ -1137,8 +1138,10 @@ export default function FinancePage() {
                             {l.status === 'pending' && (
                               <div className="flex gap-1 justify-end">
                                 <button onClick={async () => { await apiFetch(`/api/finance/leaves/${l.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'approved' }) }); loadData(); }}
+                                  aria-label={`Approve leave request for ${l.member_name}`}
                                   className="px-2 py-1 bg-green-50 text-green-700 rounded text-xs font-medium hover:bg-green-100">Approve</button>
                                 <button onClick={async () => { await apiFetch(`/api/finance/leaves/${l.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'rejected' }) }); loadData(); }}
+                                  aria-label={`Reject leave request for ${l.member_name}`}
                                   className="px-2 py-1 bg-red-50 text-red-700 rounded text-xs font-medium hover:bg-red-100">Reject</button>
                               </div>
                             )}
@@ -1165,6 +1168,7 @@ export default function FinancePage() {
                       <span className="w-4 h-4 rounded-full flex-shrink-0" style={{ background: c.color }} />
                       <p className="text-sm font-medium text-slate-800 flex-1">{c.name}</p>
                       <button onClick={() => setConfirmDeleteCategory({ id: c.id, name: c.name })}
+                        aria-label={`Delete category ${c.name}`}
                         className="text-red-400 hover:text-red-600 p-1"><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
                   ))}
@@ -1173,12 +1177,12 @@ export default function FinancePage() {
               <form onSubmit={addCategory} className="bg-white rounded-xl border border-slate-200 p-5 flex items-end gap-3">
                 <div className="flex-1">
                   <label className="text-xs text-slate-500 font-medium">Category Name</label>
-                  <input type="text" value={newCat.name} onChange={e => setNewCat({ ...newCat, name: e.target.value })} placeholder="e.g. Travel, Office Supplies"
+                  <input type="text" aria-label="Category name" value={newCat.name} onChange={e => setNewCat({ ...newCat, name: e.target.value })} placeholder="e.g. Travel, Office Supplies"
                     className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" required />
                 </div>
                 <div className="w-20">
                   <label className="text-xs text-slate-500 font-medium">Color</label>
-                  <input type="color" value={newCat.color} onChange={e => setNewCat({ ...newCat, color: e.target.value })}
+                  <input type="color" aria-label="Category colour" value={newCat.color} onChange={e => setNewCat({ ...newCat, color: e.target.value })}
                     className="mt-1 w-full h-[38px] border border-slate-200 rounded-lg cursor-pointer" />
                 </div>
                 <button type="submit" className="px-4 py-2 bg-sky-600 text-white rounded-lg text-sm font-medium hover:bg-sky-700">Add Category</button>
@@ -1192,7 +1196,7 @@ export default function FinancePage() {
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center justify-between mb-5">
                 <h3 className="text-base font-bold text-slate-900">Edit team member</h3>
-                <button onClick={() => setEditingMember(null)} className="text-slate-400 hover:text-slate-600">
+                <button onClick={() => setEditingMember(null)} aria-label="Close edit team member dialog" className="text-slate-400 hover:text-slate-600">
                   <X className="w-4 h-4" />
                 </button>
               </div>
@@ -1214,24 +1218,24 @@ export default function FinancePage() {
               }} className="space-y-3">
                 <div>
                   <label className="text-xs text-slate-500 font-medium">Name</label>
-                  <input type="text" value={editingMember.name} onChange={e => setEditingMember({ ...editingMember, name: e.target.value })}
+                  <input type="text" aria-label="Team member name" value={editingMember.name} onChange={e => setEditingMember({ ...editingMember, name: e.target.value })}
                     className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" required />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="text-xs text-slate-500 font-medium">Role</label>
-                    <input type="text" value={editingMember.role} onChange={e => setEditingMember({ ...editingMember, role: e.target.value })}
+                    <input type="text" aria-label="Team member role" value={editingMember.role} onChange={e => setEditingMember({ ...editingMember, role: e.target.value })}
                       className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
                   </div>
                   <div>
                     <label className="text-xs text-slate-500 font-medium">Base Salary (INR)</label>
-                    <input type="number" min="0" value={editingMember.baseSalary} onChange={e => setEditingMember({ ...editingMember, baseSalary: e.target.value })}
+                    <input type="number" min="0" aria-label="Base salary in rupees" value={editingMember.baseSalary} onChange={e => setEditingMember({ ...editingMember, baseSalary: e.target.value })}
                       className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
                   </div>
                 </div>
                 <div>
                   <label className="text-xs text-slate-500 font-medium">Expected Start Time</label>
-                  <input type="time" value={editingMember.expectedStartTime} onChange={e => setEditingMember({ ...editingMember, expectedStartTime: e.target.value })}
+                  <input type="time" aria-label="Expected start time" value={editingMember.expectedStartTime} onChange={e => setEditingMember({ ...editingMember, expectedStartTime: e.target.value })}
                     className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
                   <p className="text-[11px] text-slate-400 mt-1">Late detection compares check-in clock to this time.</p>
                 </div>
@@ -1239,17 +1243,17 @@ export default function FinancePage() {
                   <label className="text-xs text-slate-500 font-medium">Annual leave balances</label>
                   <div className="grid grid-cols-3 gap-2 mt-1">
                     <div>
-                      <input type="number" min="0" value={editingMember.casualLeaveBalance} onChange={e => setEditingMember({ ...editingMember, casualLeaveBalance: e.target.value })}
+                      <input type="number" min="0" aria-label="Casual leave balance" value={editingMember.casualLeaveBalance} onChange={e => setEditingMember({ ...editingMember, casualLeaveBalance: e.target.value })}
                         className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" placeholder="Casual" />
                       <p className="text-[11px] text-slate-400 mt-0.5 text-center">Casual</p>
                     </div>
                     <div>
-                      <input type="number" min="0" value={editingMember.sickLeaveBalance} onChange={e => setEditingMember({ ...editingMember, sickLeaveBalance: e.target.value })}
+                      <input type="number" min="0" aria-label="Sick leave balance" value={editingMember.sickLeaveBalance} onChange={e => setEditingMember({ ...editingMember, sickLeaveBalance: e.target.value })}
                         className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" placeholder="Sick" />
                       <p className="text-[11px] text-slate-400 mt-0.5 text-center">Sick</p>
                     </div>
                     <div>
-                      <input type="number" min="0" value={editingMember.earnedLeaveBalance} onChange={e => setEditingMember({ ...editingMember, earnedLeaveBalance: e.target.value })}
+                      <input type="number" min="0" aria-label="Earned leave balance" value={editingMember.earnedLeaveBalance} onChange={e => setEditingMember({ ...editingMember, earnedLeaveBalance: e.target.value })}
                         className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" placeholder="Earned" />
                       <p className="text-[11px] text-slate-400 mt-0.5 text-center">Earned</p>
                     </div>

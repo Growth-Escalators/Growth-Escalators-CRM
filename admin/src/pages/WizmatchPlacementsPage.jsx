@@ -234,6 +234,10 @@ export default function WizmatchPlacementsPage() {
       {/* Command bar */}
       <div className="bg-white border-b border-neutral-200 px-6 py-3.5 space-y-3">
         <div className="flex items-center gap-3 flex-wrap">
+          {/* The page had no h1 at all, so the first heading in the DOM was a
+              Kanban column <h2> — that tripped both page-has-heading-one and
+              heading-order. Matches the sibling convention on Signals/Companies. */}
+          <h1 className="text-[20px] font-bold text-neutral-900">Placements</h1>
           {/* Server-side scope — one refetch with a `status` list, not a
               client-side filter. Intentionally kept out of the FilterBar/`ctl`
               so it can be a `load` dependency safely. */}
@@ -472,23 +476,23 @@ function AddPlacementModal({ onClose, onDone }) {
       }
     >
       <form id="add-placement-form" onSubmit={submit} className="space-y-3">
-        <select required value={form.candidate_id} onChange={e => setForm({ ...form, candidate_id: e.target.value })} className="input w-full">
+        <select required aria-label="Candidate" value={form.candidate_id} onChange={e => setForm({ ...form, candidate_id: e.target.value })} className="input w-full">
           <option value="">Select candidate…</option>
           {candidates.map(c => <option key={c.id} value={c.id}>{c.first_name} {c.last_name}</option>)}
         </select>
-        <select value={form.job_signal_id} onChange={e => setForm({ ...form, job_signal_id: e.target.value })} className="input w-full">
+        <select aria-label="Role" value={form.job_signal_id} onChange={e => setForm({ ...form, job_signal_id: e.target.value })} className="input w-full">
           <option value="">Select role (optional)…</option>
           {signals.map(s => <option key={s.id} value={s.id}>{s.job_title} — {s.company_name}</option>)}
         </select>
-        <select value={form.placement_type} onChange={e => setForm({ ...form, placement_type: e.target.value })} className="input w-full">
+        <select aria-label="Placement type" value={form.placement_type} onChange={e => setForm({ ...form, placement_type: e.target.value })} className="input w-full">
           <option value="contract_c2c">Contract — C2C</option>
           <option value="contract_w2">Contract — W2</option>
           <option value="contract_1099">Contract — 1099</option>
           <option value="permanent">Permanent</option>
         </select>
         <div className="grid grid-cols-2 gap-3">
-          <input type="number" placeholder="Bill rate $/hr" value={form.bill_rate_hourly} onChange={e => setForm({ ...form, bill_rate_hourly: e.target.value })} className="input" />
-          <input type="number" placeholder="Pay rate $/hr" value={form.pay_rate_hourly} onChange={e => setForm({ ...form, pay_rate_hourly: e.target.value })} className="input" />
+          <input type="number" aria-label="Bill rate per hour" placeholder="Bill rate $/hr" value={form.bill_rate_hourly} onChange={e => setForm({ ...form, bill_rate_hourly: e.target.value })} className="input" />
+          <input type="number" aria-label="Pay rate per hour" placeholder="Pay rate $/hr" value={form.pay_rate_hourly} onChange={e => setForm({ ...form, pay_rate_hourly: e.target.value })} className="input" />
         </div>
       </form>
     </Modal>
@@ -784,7 +788,7 @@ function InvoiceTab({ placement, canManageFinance, invoiceDetail, invoiceLoading
         <p className="text-[12px] text-neutral-500">Loading invoices…</p>
       ) : (
         <>
-          <input placeholder="Search by invoice number or client…" value={search} onChange={(e) => setSearch(e.target.value)} className="input w-full" />
+          <input aria-label="Search invoices" placeholder="Search by invoice number or client…" value={search} onChange={(e) => setSearch(e.target.value)} className="input w-full" />
           <select aria-label="Matching invoices" value={selectedId} onChange={(e) => setSelectedId(e.target.value)} className="input w-full" size={6}>
             {filtered.length === 0 && <option disabled>No matching invoices</option>}
             {filtered.map((inv) => (
@@ -905,9 +909,9 @@ function AdjustmentsTab({ placement, hasRequirement, adjustments, loading, canMa
               <select aria-label="Adjustment type" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} className="input">
                 {ADJUSTMENT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
-              <input type="number" placeholder="Amount" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="input" />
+              <input type="number" aria-label="Adjustment amount" placeholder="Amount" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="input" />
             </div>
-            <input placeholder="Reason *" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} className="input w-full" />
+            <input aria-label="Adjustment reason" placeholder="Reason *" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} className="input w-full" />
             {createError && <div role="alert" className="text-[12.5px] text-danger-600 bg-danger-500/10 border border-danger-500/30 rounded-md px-2.5 py-1.5">{createError}</div>}
             <div className="flex justify-end gap-2">
               <button onClick={() => setShowForm(false)} disabled={creating} className="btn-standard btn-compact">Cancel</button>

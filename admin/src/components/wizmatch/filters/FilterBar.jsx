@@ -108,7 +108,7 @@ function MultiSelect({ def, value, onChange }) {
           </label>
         ))}
         {count > 0 && (
-          <button type="button" onClick={() => onChange([])} className="mt-1 text-[11px] text-neutral-500 hover:text-neutral-700">Clear</button>
+          <button type="button" onClick={() => onChange([])} aria-label={`Clear ${def.label}`} className="mt-1 text-[11px] text-neutral-500 hover:text-neutral-700">Clear</button>
         )}
       </div>
     </details>
@@ -245,7 +245,7 @@ export default function FilterBar({
                   </div>
                 ))}
                 <div className="mt-2 border-t border-neutral-100 pt-2 space-y-1.5">
-                  <input value={presetName} onChange={(e) => setPresetName(e.target.value)} placeholder="Save current view as…" className="input w-full text-[12px]" />
+                  <input value={presetName} onChange={(e) => setPresetName(e.target.value)} placeholder="Save current view as…" aria-label="Name for the saved view" className="input w-full text-[12px]" />
                   <label className="flex items-center gap-1.5 text-[11.5px] text-neutral-600 px-0.5 cursor-pointer">
                     <input type="checkbox" checked={shareNew} onChange={(e) => setShareNew(e.target.checked)} />
                     Share with the team

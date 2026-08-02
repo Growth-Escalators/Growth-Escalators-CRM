@@ -79,7 +79,12 @@ test.describe('Phase 1A entity-first navigation', () => {
     }
   });
 
-  test('More menu expands to reveal 4 labeled subsections', async ({ page }) => {
+  // 2026-08-02 — was "4 labeled subsections". Communication is retired: its
+  // three rows (Inbox, Email Templates, WhatsApp Templates) are Growth CRM
+  // pages and are now routable-but-hidden, leaving the bucket empty. Finance
+  // survives on Contracts alone (Billing and Expenses are hidden too), which
+  // is why the leaf assertion below moved off Billing.
+  test('More menu expands to reveal 3 labeled subsections', async ({ page }) => {
     await page.goto('/wizmatch/today');
     await page.waitForLoadState('networkidle');
 
@@ -97,14 +102,45 @@ test.describe('Phase 1A entity-first navigation', () => {
     await moreButton.click();
     await expect(moreButton).toHaveAttribute('aria-expanded', 'true');
 
-    for (const section of ['Communication', 'CRM Utilities', 'Administration', 'Finance']) {
+    for (const section of ['CRM Utilities', 'Administration', 'Finance']) {
       await expect(page.getByText(section, { exact: true })).toBeVisible();
     }
+    await expect(page.getByText('Communication', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'System', exact: true })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Billing', exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Contracts', exact: true })).toBeVisible();
 
     await moreButton.click();
     await expect(moreButton).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  test('the hidden Growth CRM rows are gone from the sidebar but still resolve by URL', async ({ page }) => {
+    await page.goto('/wizmatch/today');
+    await page.waitForLoadState('networkidle');
+
+    const hamburger = page.getByRole('button', { name: 'Open navigation' });
+    if (await hamburger.isVisible().catch(() => false)) {
+      await hamburger.click();
+    }
+    // Scoped to the sidebar landmark so a same-named link elsewhere on the
+    // Today page cannot mask a nav regression.
+    const sidebarNav = page.getByRole('navigation', { name: 'Main navigation' });
+    await page.getByRole('button', { name: 'More' }).click();
+
+    for (const label of ['Inbox', 'Email Templates', 'WhatsApp Templates',
+      'CRM Contacts (all)', 'Pipeline', 'Tasks', 'Billing', 'Expenses']) {
+      await expect(
+        sidebarNav.getByRole('link', { name: label, exact: true }),
+        `${label} is back in the WizMatch sidebar`,
+      ).toHaveCount(0);
+    }
+
+    // Hidden is not deleted — the routes must still render.
+    for (const path of ['/wizmatch/inbox', '/wizmatch/contacts', '/wizmatch/billing']) {
+      await page.goto(path);
+      await page.waitForLoadState('networkidle');
+      expect(new URL(page.url()).pathname).toBe(path);
+      await expect(page.locator('body')).not.toContainText('Something went wrong');
+    }
   });
 
   test('More menu is keyboard operable', async ({ page }) => {

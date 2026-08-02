@@ -108,6 +108,7 @@ export default function DetailPanel({
             <button
               type="button"
               title="Previous task"
+              aria-label="Previous task"
               disabled={!prevTask}
               onClick={() => prevTask && onNavigate?.(prevTask)}
               className="p-1.5 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800 disabled:opacity-30 disabled:hover:bg-transparent"
@@ -117,6 +118,7 @@ export default function DetailPanel({
             <button
               type="button"
               title="Next task"
+              aria-label="Next task"
               disabled={!nextTask}
               onClick={() => nextTask && onNavigate?.(nextTask)}
               className="p-1.5 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800 disabled:opacity-30 disabled:hover:bg-transparent"
@@ -126,6 +128,7 @@ export default function DetailPanel({
             <button
               type="button"
               title="Copy link"
+              aria-label="Copy link to task"
               onClick={copyLink}
               className="p-1.5 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800"
             >
@@ -135,6 +138,7 @@ export default function DetailPanel({
               type="button"
               onClick={onClose}
               title="Close"
+              aria-label="Close task detail"
               className="p-1.5 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800"
             >
               <X className="w-4 h-4" />
@@ -150,6 +154,7 @@ export default function DetailPanel({
               value={titleDraft}
               onChange={(e) => setTitleDraft(e.target.value)}
               onBlur={commitTitle}
+              aria-label="Task title"
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();

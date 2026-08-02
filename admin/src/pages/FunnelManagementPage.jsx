@@ -114,10 +114,13 @@ function BonusProductsEditor({ items, onChange, inputClass }) {
         <div key={i} className="border border-slate-200 rounded-lg p-3 bg-white relative">
           <div className="absolute top-2 right-2 flex items-center gap-1">
             <button type="button" onClick={() => move(i, -1)} disabled={i === 0}
+              aria-label={`Move bonus product ${i + 1} up`}
               className="text-xs text-slate-400 hover:text-slate-700 disabled:opacity-30" title="Move up">↑</button>
             <button type="button" onClick={() => move(i, 1)} disabled={i === list.length - 1}
+              aria-label={`Move bonus product ${i + 1} down`}
               className="text-xs text-slate-400 hover:text-slate-700 disabled:opacity-30" title="Move down">↓</button>
             <button type="button" onClick={() => remove(i)}
+              aria-label={`Remove bonus product ${i + 1}`}
               className="text-slate-400 hover:text-red-600 p-1" title="Remove">
               <Trash2 className="w-3.5 h-3.5" />
             </button>
@@ -126,6 +129,7 @@ function BonusProductsEditor({ items, onChange, inputClass }) {
             <div className="md:col-span-2">
               <label className="text-xs text-slate-500 font-medium">Label</label>
               <input type="text" value={row.label || ''}
+                aria-label={`Bonus product ${i + 1} label`}
                 onChange={e => update(i, 'label', e.target.value)}
                 placeholder="e.g. Bonus: 50 Winning Ad Headlines"
                 className={inputClass} />
@@ -133,6 +137,7 @@ function BonusProductsEditor({ items, onChange, inputClass }) {
             <div className="md:col-span-2">
               <label className="text-xs text-slate-500 font-medium">Description</label>
               <textarea rows={2} value={row.description || ''}
+                aria-label={`Bonus product ${i + 1} description`}
                 onChange={e => update(i, 'description', e.target.value)}
                 placeholder="One-line description shown on the landing page."
                 className={inputClass} />
@@ -140,6 +145,7 @@ function BonusProductsEditor({ items, onChange, inputClass }) {
             <div>
               <label className="text-xs text-slate-500 font-medium">Image URL</label>
               <input type="text" value={row.image_url || ''}
+                aria-label={`Bonus product ${i + 1} image URL`}
                 onChange={e => update(i, 'image_url', e.target.value)}
                 placeholder="https://… (optional)"
                 className={inputClass} />
@@ -147,6 +153,7 @@ function BonusProductsEditor({ items, onChange, inputClass }) {
             <div>
               <label className="text-xs text-slate-500 font-medium">PDF / Asset URL</label>
               <input type="text" value={row.pdf_url || ''}
+                aria-label={`Bonus product ${i + 1} PDF or asset URL`}
                 onChange={e => update(i, 'pdf_url', e.target.value)}
                 placeholder="https://… (delivered post-purchase)"
                 className={inputClass} />
@@ -332,12 +339,12 @@ function FunnelForm({ config, onSaved, onCancel }) {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div>
           <label className="text-xs text-slate-500 font-medium">Name *</label>
-          <input type="text" value={form.name} onChange={e => set('name', e.target.value)}
+          <input type="text" aria-label="Funnel name" value={form.name} onChange={e => set('name', e.target.value)}
             placeholder="e.g. Growth Playbook" className={inputClass} required />
         </div>
         <div>
           <label className="text-xs text-slate-500 font-medium">Slug *</label>
-          <input type="text" value={form.slug} onChange={e => set('slug', e.target.value)}
+          <input type="text" aria-label="Funnel slug" value={form.slug} onChange={e => set('slug', e.target.value)}
             placeholder="e.g. growth-playbook" className={inputClass} required />
         </div>
         <div>
@@ -363,7 +370,7 @@ function FunnelForm({ config, onSaved, onCancel }) {
           <label className="text-xs text-slate-500 font-medium">Base Price (INR)</label>
           <div className="relative">
             <span className="absolute left-3 top-2.5 text-slate-400 text-sm">INR</span>
-            <input type="number" value={form.basePrice} onChange={e => set('basePrice', e.target.value)}
+            <input type="number" aria-label="Base price in rupees" value={form.basePrice} onChange={e => set('basePrice', e.target.value)}
               placeholder="999" className={`${inputClass} pl-12`} />
           </div>
         </div>
@@ -371,7 +378,7 @@ function FunnelForm({ config, onSaved, onCancel }) {
           <label className="text-xs text-slate-500 font-medium">Bump 1 Price (optional)</label>
           <div className="relative">
             <span className="absolute left-3 top-2.5 text-slate-400 text-sm">INR</span>
-            <input type="number" value={form.bump1Price} onChange={e => set('bump1Price', e.target.value)}
+            <input type="number" aria-label="Bump 1 price in rupees" value={form.bump1Price} onChange={e => set('bump1Price', e.target.value)}
               placeholder="499" className={`${inputClass} pl-12`} />
           </div>
         </div>
@@ -379,18 +386,18 @@ function FunnelForm({ config, onSaved, onCancel }) {
           <label className="text-xs text-slate-500 font-medium">Bump 2 Price (optional)</label>
           <div className="relative">
             <span className="absolute left-3 top-2.5 text-slate-400 text-sm">INR</span>
-            <input type="number" value={form.bump2Price} onChange={e => set('bump2Price', e.target.value)}
+            <input type="number" aria-label="Bump 2 price in rupees" value={form.bump2Price} onChange={e => set('bump2Price', e.target.value)}
               placeholder="299" className={`${inputClass} pl-12`} />
           </div>
         </div>
         <div>
           <label className="text-xs text-slate-500 font-medium">Bump 1 Label</label>
-          <input type="text" value={form.bump1Label} onChange={e => set('bump1Label', e.target.value)}
+          <input type="text" aria-label="Bump 1 label" value={form.bump1Label} onChange={e => set('bump1Label', e.target.value)}
             placeholder="e.g. Bonus Templates Pack" className={inputClass} />
         </div>
         <div>
           <label className="text-xs text-slate-500 font-medium">Bump 2 Label</label>
-          <input type="text" value={form.bump2Label} onChange={e => set('bump2Label', e.target.value)}
+          <input type="text" aria-label="Bump 2 label" value={form.bump2Label} onChange={e => set('bump2Label', e.target.value)}
             placeholder="e.g. 1-on-1 Strategy Call" className={inputClass} />
         </div>
       </div>
@@ -400,22 +407,22 @@ function FunnelForm({ config, onSaved, onCancel }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <label className="text-xs text-slate-500 font-medium">Product Name</label>
-          <input type="text" value={form.productName} onChange={e => set('productName', e.target.value)}
+          <input type="text" aria-label="Product name" value={form.productName} onChange={e => set('productName', e.target.value)}
             placeholder="e.g. Growth Playbook 2026" className={inputClass} />
         </div>
         <div>
           <label className="text-xs text-slate-500 font-medium">Main Product Description</label>
-          <input type="text" value={form.mainProductDescription} onChange={e => set('mainProductDescription', e.target.value)}
+          <input type="text" aria-label="Main product description" value={form.mainProductDescription} onChange={e => set('mainProductDescription', e.target.value)}
             placeholder="Short description of the main product" className={inputClass} />
         </div>
         <div>
           <label className="text-xs text-slate-500 font-medium">Bump 1 Description</label>
-          <input type="text" value={form.bump1Description} onChange={e => set('bump1Description', e.target.value)}
+          <input type="text" aria-label="Bump 1 description" value={form.bump1Description} onChange={e => set('bump1Description', e.target.value)}
             placeholder="What the first bump includes" className={inputClass} />
         </div>
         <div>
           <label className="text-xs text-slate-500 font-medium">Bump 2 Description</label>
-          <input type="text" value={form.bump2Description} onChange={e => set('bump2Description', e.target.value)}
+          <input type="text" aria-label="Bump 2 description" value={form.bump2Description} onChange={e => set('bump2Description', e.target.value)}
             placeholder="What the second bump includes" className={inputClass} />
         </div>
       </div>
@@ -425,17 +432,17 @@ function FunnelForm({ config, onSaved, onCancel }) {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div>
           <label className="text-xs text-slate-500 font-medium">Main PDF URL</label>
-          <input type="url" value={form.mainPdfUrl} onChange={e => set('mainPdfUrl', e.target.value)}
+          <input type="url" aria-label="Main PDF URL" value={form.mainPdfUrl} onChange={e => set('mainPdfUrl', e.target.value)}
             placeholder="https://..." className={inputClass} />
         </div>
         <div>
           <label className="text-xs text-slate-500 font-medium">Bump 1 PDF URL</label>
-          <input type="url" value={form.bump1PdfUrl} onChange={e => set('bump1PdfUrl', e.target.value)}
+          <input type="url" aria-label="Bump 1 PDF URL" value={form.bump1PdfUrl} onChange={e => set('bump1PdfUrl', e.target.value)}
             placeholder="https://..." className={inputClass} />
         </div>
         <div>
           <label className="text-xs text-slate-500 font-medium">Bump 2 Booking URL</label>
-          <input type="url" value={form.bump2BookingUrl} onChange={e => set('bump2BookingUrl', e.target.value)}
+          <input type="url" aria-label="Bump 2 booking URL" value={form.bump2BookingUrl} onChange={e => set('bump2BookingUrl', e.target.value)}
             placeholder="https://..." className={inputClass} />
         </div>
       </div>
@@ -445,25 +452,25 @@ function FunnelForm({ config, onSaved, onCancel }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <label className="text-xs text-slate-500 font-medium">Hero Headline</label>
-          <input type="text" value={form.heroHeadline} onChange={e => set('heroHeadline', e.target.value)}
+          <input type="text" aria-label="Hero headline" value={form.heroHeadline} onChange={e => set('heroHeadline', e.target.value)}
             placeholder="Main headline for the landing page" className={inputClass} />
         </div>
         <div>
           <label className="text-xs text-slate-500 font-medium">Hero Subheadline</label>
-          <input type="text" value={form.heroSubheadline} onChange={e => set('heroSubheadline', e.target.value)}
+          <input type="text" aria-label="Hero subheadline" value={form.heroSubheadline} onChange={e => set('heroSubheadline', e.target.value)}
             placeholder="Supporting text below the headline" className={inputClass} />
         </div>
         <div>
           <label className="text-xs text-slate-500 font-medium">CTA Text</label>
-          <input type="text" value={form.ctaText} onChange={e => set('ctaText', e.target.value)}
+          <input type="text" aria-label="CTA text" value={form.ctaText} onChange={e => set('ctaText', e.target.value)}
             placeholder="e.g. Buy Now" className={inputClass} />
         </div>
         <div>
           <label className="text-xs text-slate-500 font-medium">Accent Color</label>
           <div className="flex items-center gap-2">
-            <input type="color" value={form.accentColor} onChange={e => set('accentColor', e.target.value)}
+            <input type="color" aria-label="Accent colour" value={form.accentColor} onChange={e => set('accentColor', e.target.value)}
               className="w-10 h-[38px] border border-slate-200 rounded-lg cursor-pointer" />
-            <input type="text" value={form.accentColor} onChange={e => set('accentColor', e.target.value)}
+            <input type="text" aria-label="Accent colour hex value" value={form.accentColor} onChange={e => set('accentColor', e.target.value)}
               className={`flex-1 ${inputClass}`} />
           </div>
         </div>
@@ -474,12 +481,12 @@ function FunnelForm({ config, onSaved, onCancel }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <label className="text-xs text-slate-500 font-medium">Pipeline Name</label>
-          <input type="text" value={form.pipelineName} onChange={e => set('pipelineName', e.target.value)}
+          <input type="text" aria-label="Pipeline name" value={form.pipelineName} onChange={e => set('pipelineName', e.target.value)}
             placeholder="e.g. Growth Playbook Pipeline" className={inputClass} />
         </div>
         <div>
           <label className="text-xs text-slate-500 font-medium">Pipeline Stages (comma-separated or JSON)</label>
-          <input type="text" value={form.pipelineStages} onChange={e => set('pipelineStages', e.target.value)}
+          <input type="text" aria-label="Pipeline stages" value={form.pipelineStages} onChange={e => set('pipelineStages', e.target.value)}
             placeholder='e.g. Lead, Qualified, Purchased, Delivered' className={inputClass} />
         </div>
       </div>
@@ -489,7 +496,7 @@ function FunnelForm({ config, onSaved, onCancel }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <label className="text-xs text-slate-500 font-medium">Sequence Name</label>
-          <input type="text" value={form.sequenceName} onChange={e => set('sequenceName', e.target.value)}
+          <input type="text" aria-label="Sequence name" value={form.sequenceName} onChange={e => set('sequenceName', e.target.value)}
             placeholder="e.g. growth-playbook-post-purchase" className={inputClass} />
         </div>
       </div>
@@ -499,12 +506,12 @@ function FunnelForm({ config, onSaved, onCancel }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <label className="text-xs text-slate-500 font-medium">Slack Emoji</label>
-          <input type="text" value={form.slackEmoji} onChange={e => set('slackEmoji', e.target.value)}
+          <input type="text" aria-label="Slack emoji" value={form.slackEmoji} onChange={e => set('slackEmoji', e.target.value)}
             placeholder="e.g. :rocket:" className={inputClass} />
         </div>
         <div>
           <label className="text-xs text-slate-500 font-medium">Slack Label</label>
-          <input type="text" value={form.slackLabel} onChange={e => set('slackLabel', e.target.value)}
+          <input type="text" aria-label="Slack label" value={form.slackLabel} onChange={e => set('slackLabel', e.target.value)}
             placeholder="e.g. New Growth Playbook Sale" className={inputClass} />
         </div>
       </div>
@@ -652,6 +659,7 @@ export default function FunnelManagementPage() {
                 </button>
               )}
               <button onClick={() => loadConfigs()} disabled={loading}
+                aria-label="Refresh funnels"
                 className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50">
                 <RefreshCw className={`w-4 h-4 text-slate-500 ${loading ? 'animate-spin' : ''}`} />
               </button>
@@ -713,10 +721,12 @@ export default function FunnelManagementPage() {
                       <td className="px-4 py-2.5 text-right" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-1 justify-end">
                           <button onClick={() => handleEdit(c)}
+                            aria-label={`Edit funnel ${c.name}`}
                             className="text-slate-400 hover:text-amber-600 p-1" title="Edit">
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
                           <button onClick={() => setConfirmDeleteConfig(c)}
+                            aria-label={`Delete funnel ${c.name}`}
                             className="text-slate-400 hover:text-red-600 p-1" title="Delete">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>

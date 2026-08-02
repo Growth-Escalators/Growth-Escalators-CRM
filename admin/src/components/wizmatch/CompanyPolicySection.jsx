@@ -246,7 +246,7 @@ function AssignOwnerForm({ companyId, users, onDone, onError }) {
 
   return (
     <div className="mt-2 rounded-lg border border-neutral-200 p-3 flex items-center gap-2">
-      <select value={ownerUserId} onChange={(e) => setOwnerUserId(e.target.value)} className="input-standard flex-1">
+      <select aria-label="Account owner" value={ownerUserId} onChange={(e) => setOwnerUserId(e.target.value)} className="input-standard flex-1">
         <option value="">Unassigned</option>
         {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
       </select>
@@ -303,53 +303,54 @@ function PolicyWriteForm({ companyId, asOverride, submitting, setSubmitting, onD
   return (
     <div className="mt-2 rounded-lg border border-neutral-200 p-3 space-y-2">
       {!asOverride && (
-        <select value={scopeType} onChange={(e) => setScopeType(e.target.value)} className="input-standard w-full">
+        <select aria-label="Policy scope" value={scopeType} onChange={(e) => setScopeType(e.target.value)} className="input-standard w-full">
           {UI_SCOPE_TYPE_OPTIONS.map((s) => <option key={s} value={s}>{s.replaceAll('_', ' ')}</option>)}
         </select>
       )}
       {!asOverride && ['region', 'business_unit', 'location'].includes(scopeType) && (
         <input
+          aria-label="Scope label"
           value={scopeRefLabel}
           onChange={(e) => setScopeRefLabel(e.target.value)}
           placeholder={scopeType === 'region' ? 'india or us' : 'label, e.g. bengaluru'}
           className="input-standard w-full"
         />
       )}
-      <select value={outreachEligibility} onChange={(e) => setOutreachEligibility(e.target.value)} className="input-standard w-full">
+      <select aria-label="Outreach eligibility" value={outreachEligibility} onChange={(e) => setOutreachEligibility(e.target.value)} className="input-standard w-full">
         <option value="">Outreach eligibility — unchanged / inherit</option>
         {ELIGIBILITY_OPTIONS.map((o) => <option key={o} value={o}>{o.replaceAll('_', ' ')}</option>)}
       </select>
       {(asOverride || scopeType === 'entire_company') && (
         <>
-          <select value={externalHiringPolicy} onChange={(e) => setExternalHiringPolicy(e.target.value)} className="input-standard w-full">
+          <select aria-label="External hiring policy" value={externalHiringPolicy} onChange={(e) => setExternalHiringPolicy(e.target.value)} className="input-standard w-full">
             <option value="">Hiring policy — unchanged</option>
             {HIRING_POLICY_OPTIONS.map((o) => <option key={o} value={o}>{o.replaceAll('_', ' ')}</option>)}
           </select>
-          <select value={relationshipType} onChange={(e) => setRelationshipType(e.target.value)} className="input-standard w-full">
+          <select aria-label="Relationship type" value={relationshipType} onChange={(e) => setRelationshipType(e.target.value)} className="input-standard w-full">
             <option value="">Relationship — unchanged</option>
             {RELATIONSHIP_OPTIONS.map((o) => <option key={o} value={o}>{o.replaceAll('_', ' ')}</option>)}
           </select>
         </>
       )}
       {!asOverride && (
-        <input value={reasonCode} onChange={(e) => setReasonCode(e.target.value)} placeholder="Reason code (required, §9 taxonomy)" className="input-standard w-full" />
+        <input aria-label="Reason code" value={reasonCode} onChange={(e) => setReasonCode(e.target.value)} placeholder="Reason code (required, §9 taxonomy)" className="input-standard w-full" />
       )}
-      <textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (optional free text)" className="input-standard w-full" rows={2} />
+      <textarea aria-label="Reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (optional free text)" className="input-standard w-full" rows={2} />
       <div className="flex items-center gap-4 text-[12px]">
         <label className="flex items-center gap-1.5"><input type="checkbox" checked={isNonOverridable} onChange={(e) => setIsNonOverridable(e.target.checked)} /> Non-overridable</label>
         <label className="flex items-center gap-1.5"><input type="checkbox" checked={isPermanent} onChange={(e) => setIsPermanent(e.target.checked)} /> Permanent</label>
       </div>
-      <select value={blockClass} onChange={(e) => setBlockClass(e.target.value)} className="input-standard w-full">
+      <select aria-label="Block class" value={blockClass} onChange={(e) => setBlockClass(e.target.value)} className="input-standard w-full">
         <option value="standard">Block class: standard</option>
         <option value="compliance">Block class: compliance</option>
         <option value="legal">Block class: legal</option>
       </select>
-      <input type="date" value={reviewDate} onChange={(e) => setReviewDate(e.target.value)} className="input-standard w-full" />
+      <input type="date" aria-label="Review date" value={reviewDate} onChange={(e) => setReviewDate(e.target.value)} className="input-standard w-full" />
       <div className="grid grid-cols-2 gap-2">
-        <select value={evidenceKind} onChange={(e) => setEvidenceKind(e.target.value)} className="input-standard">
+        <select aria-label="Evidence kind" value={evidenceKind} onChange={(e) => setEvidenceKind(e.target.value)} className="input-standard">
           {EVIDENCE_KIND_OPTIONS.map((o) => <option key={o} value={o}>{o.replaceAll('_', ' ')}</option>)}
         </select>
-        <input value={evidenceText} onChange={(e) => setEvidenceText(e.target.value)} placeholder="Evidence text" className="input-standard" />
+        <input aria-label="Evidence text" value={evidenceText} onChange={(e) => setEvidenceText(e.target.value)} placeholder="Evidence text" className="input-standard" />
       </div>
       <p className="text-[10.5px] text-neutral-500">
         A permanent or non-overridable row requires evidence — the server rejects the write otherwise (PRD-005 §10.1 D-7).

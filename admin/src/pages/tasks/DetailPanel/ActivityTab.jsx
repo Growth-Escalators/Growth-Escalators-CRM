@@ -152,6 +152,7 @@ export default function ActivityTab({ task, team = [] }) {
                         onChange={(e) => setEditBody(e.target.value)}
                         rows={2}
                         className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-sky-300 focus:ring-2 focus:ring-sky-100 resize-none"
+                        aria-label="Edit comment"
                       />
                       <div className="mt-1 flex items-center gap-2">
                         <button
@@ -190,6 +191,7 @@ export default function ActivityTab({ task, team = [] }) {
             placeholder="Leave a comment… use @ to mention"
             rows={2}
             className="w-full bg-transparent text-sm outline-none resize-none placeholder:text-slate-400"
+            aria-label="Comment"
           />
           <div className="flex items-center justify-end">
             <button

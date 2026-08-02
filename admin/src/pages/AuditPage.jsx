@@ -110,6 +110,7 @@ export default function AuditPage() {
           <div className="flex items-center gap-3 mb-4 flex-wrap">
             <Filter className="w-4 h-4 text-slate-400" />
             <select value={filters.action} onChange={e => { setFilters(f => ({...f, action: e.target.value})); setPage(1); }}
+              aria-label="Filter by action"
               className="text-sm border border-slate-200 rounded-lg px-3 py-1.5">
               <option value="">All Actions</option>
               {['LOGIN','EXPORT_CONTACTS','BULK_DELETE','ADD_AD_ACCOUNT','REQUEST_REMOVAL','APPROVE_REMOVAL','SEND_REPORT','CONNECT_SOCIAL','POST_SOCIAL','CHANGE_ROLE'].map(a => (
@@ -117,14 +118,17 @@ export default function AuditPage() {
               ))}
             </select>
             <select value={filters.userId} onChange={e => { setFilters(f => ({...f, userId: e.target.value})); setPage(1); }}
+              aria-label="Filter by user"
               className="text-sm border border-slate-200 rounded-lg px-3 py-1.5">
               <option value="">All Users</option>
               {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select>
             <input type="date" value={filters.from} onChange={e => { setFilters(f => ({...f, from: e.target.value})); setPage(1); }}
+              aria-label="From date"
               className="text-sm border border-slate-200 rounded-lg px-3 py-1.5" />
             <span className="text-slate-400 text-sm">to</span>
             <input type="date" value={filters.to} onChange={e => { setFilters(f => ({...f, to: e.target.value})); setPage(1); }}
+              aria-label="To date"
               className="text-sm border border-slate-200 rounded-lg px-3 py-1.5" />
           </div>
 
@@ -177,10 +181,12 @@ export default function AuditPage() {
                   <p className="text-xs text-slate-400">Page {page} of {totalPages} ({total} events)</p>
                   <div className="flex gap-2">
                     <button onClick={() => setPage(p => Math.max(1, p-1))} disabled={page === 1}
+                      aria-label="Previous page"
                       className="p-1.5 rounded-lg border border-slate-200 disabled:opacity-30 hover:bg-slate-50">
                       <ChevronLeft className="w-4 h-4" />
                     </button>
                     <button onClick={() => setPage(p => Math.min(totalPages, p+1))} disabled={page === totalPages}
+                      aria-label="Next page"
                       className="p-1.5 rounded-lg border border-slate-200 disabled:opacity-30 hover:bg-slate-50">
                       <ChevronRight className="w-4 h-4" />
                     </button>

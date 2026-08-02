@@ -151,7 +151,7 @@ export default function WizmatchCandidatesPage() {
           </button>
         </div>
       </div>
-      <p className="text-[12.5px] text-neutral-500 mt-1 mb-4">Filter, sort and export the candidate pool. Filters are shareable via the URL and can be saved as presets.</p>
+      <p className="text-[12.5px] text-neutral-500 mt-1 mb-4">Filter, sort and export the candidate pool. Filters are shareable via the URL and can be saved as views.</p>
 
       {showAddForm && (
         <AddCandidateForm onClose={() => setShowAddForm(false)} onDone={() => { setShowAddForm(false); load(); }} />
@@ -277,15 +277,15 @@ function AddCandidateForm({ onClose, onDone }) {
             {saveError}
           </div>
         )}
-        <input required placeholder="Full Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="input col-span-2" />
-        <input required type="email" placeholder="Email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} className="input col-span-2" />
-        <input required placeholder="Skills (comma-sep)" value={form.skills} onChange={e => setForm({...form, skills: e.target.value})} className="input col-span-2" />
-        <input placeholder="Location" value={form.location} onChange={e => setForm({...form, location: e.target.value})} className="input" />
-        <select value={form.visa_status} onChange={e => setForm({...form, visa_status: e.target.value})} className="input">
+        <input required aria-label="Full name" placeholder="Full Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="input col-span-2" />
+        <input required type="email" aria-label="Email" placeholder="Email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} className="input col-span-2" />
+        <input required aria-label="Skills" placeholder="Skills (comma-sep)" value={form.skills} onChange={e => setForm({...form, skills: e.target.value})} className="input col-span-2" />
+        <input aria-label="Location" placeholder="Location" value={form.location} onChange={e => setForm({...form, location: e.target.value})} className="input" />
+        <select aria-label="Visa status" value={form.visa_status} onChange={e => setForm({...form, visa_status: e.target.value})} className="input">
           <option>unknown</option><option>H1B</option><option>GC</option><option>USC</option><option>OPT</option>
         </select>
-        <input type="number" placeholder="Rate/hr" value={form.rate_hourly} onChange={e => setForm({...form, rate_hourly: e.target.value})} className="input" />
-        <input type="number" min="0" placeholder="Experience (yrs)" value={form.experience_years} onChange={e => setForm({...form, experience_years: e.target.value})} className="input" />
+        <input type="number" aria-label="Rate per hour" placeholder="Rate/hr" value={form.rate_hourly} onChange={e => setForm({...form, rate_hourly: e.target.value})} className="input" />
+        <input type="number" min="0" aria-label="Years of experience" placeholder="Experience (yrs)" value={form.experience_years} onChange={e => setForm({...form, experience_years: e.target.value})} className="input" />
       </form>
     </Modal>
   );
@@ -424,7 +424,7 @@ function CandidateDetailDrawer({ candidateId, onClose, onChanged }) {
     return (
       <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex justify-end" onClick={onClose}>
         <div className="bg-white w-[600px] max-w-[95vw] h-full shadow-modal p-6" onClick={e => e.stopPropagation()}>
-          <div className="flex justify-end mb-4"><button onClick={onClose} className="text-neutral-500 hover:text-neutral-600"><X className="w-5 h-5" /></button></div>
+          <div className="flex justify-end mb-4"><button onClick={onClose} aria-label="Close" className="text-neutral-500 hover:text-neutral-600"><X className="w-5 h-5" /></button></div>
           <ErrorRetry message={error} onRetry={load} retrying={loading} />
         </div>
       </div>

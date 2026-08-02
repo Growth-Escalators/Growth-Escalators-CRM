@@ -54,7 +54,10 @@ export default function Breadcrumbs() {
   });
 
   return (
-    <nav className="flex items-center gap-1 text-xs text-neutral-500">
+    // Named landmark: the sidebar renders a <nav> too, and two same-role
+    // landmarks with no accessible name are indistinguishable in a screen
+    // reader's landmark list (axe `landmark-unique`, one node per page).
+    <nav aria-label="Breadcrumb" className="flex items-center gap-1 text-xs text-neutral-500">
       <Link to={rootPath} className="hover:text-neutral-700 transition-colors">{rootLabel}</Link>
       {crumbs.filter((_, i) => !(isWizmatch && i === 0)).map((crumb, i) => (
         <React.Fragment key={i}>
