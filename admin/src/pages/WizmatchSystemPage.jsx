@@ -306,7 +306,7 @@ export default function WizmatchSystemPage() {
               type="button"
               onClick={() => selectTab(t.id)}
               className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                activeTab === t.id ? 'bg-primary-500 text-white' : 'text-neutral-500 hover:bg-neutral-100'
+                activeTab === t.id ? 'bg-primary-600 text-white' : 'text-neutral-500 hover:bg-neutral-100'
               }`}
             >
               <t.icon className="h-3.5 w-3.5" /> {t.label}

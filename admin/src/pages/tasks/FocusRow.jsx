@@ -73,7 +73,7 @@ export default function FocusRow({ task, team = [], smartSort, onOpen, onToggleD
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); onDefer?.(task); }}
-        className="text-[10px] text-slate-400 hover:text-sky-700 hover:bg-sky-50 px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+        className="text-[10px] text-slate-500 hover:text-sky-700 hover:bg-sky-50 px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
         title="Push to tomorrow"
       >
         Defer →

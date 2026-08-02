@@ -140,7 +140,7 @@ export default function CalendarView({ tasks, team, onOpen, onCreateOnDay, onPat
             Today
           </button>
         </div>
-        <p className="text-xs text-slate-400">Drag a task to a new day to reschedule</p>
+        <p className="text-xs text-slate-500">Drag a task to a new day to reschedule</p>
       </div>
 
       <DragDropContext onDragEnd={onDragEnd}>

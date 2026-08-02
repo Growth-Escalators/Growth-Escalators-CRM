@@ -1,10 +1,26 @@
-import { expect, test, type Page, type Route } from '@playwright/test';
+import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
 // Accessibility scan for the pages/dialogs built in the Wizmatch complete
 // build (Jul 2026) — closes the "no axe-core scan ran" gap recorded in
 // docs/release/WIZMATCH_RELEASE_READINESS.md. Mocked session + mocked API
 // responses, same pattern as wizmatch-e2e-hardening-navigation.spec.ts.
+//
+// 2026-08-02 REPAIR. A full-app axe sweep of production measured 381 violation
+// nodes while this suite was green. It was structurally incapable of catching
+// any of them, for two reasons, both fixed below:
+//
+//   1. Every unmocked `**/api/**` call answered `{ items: [], total: 0 }`, so
+//      every table rendered its EMPTY state and every per-row violation simply
+//      never existed. The single biggest real offender was a per-row checkbox
+//      that multiplied across rows — invisible to a suite that renders none.
+//      Fixed by seeding FIXTURE_LIST, and — the part that actually matters —
+//      by asserting the rows are on screen before axe runs. A page that
+//      silently redirected or rendered empty scores zero violations, which is
+//      indistinguishable from success; that false negative IS the bug.
+//   2. Results were filtered to `critical | serious`, which made all 50
+//      moderate nodes structurally invisible. Fixed by the enumerated
+//      moderate landmark/heading gate in assertA11y().
 
 const session = {
   token: 'local-wizmatch-a11y-token',
@@ -31,8 +47,35 @@ async function json(route: Route, body: unknown, status = 200) {
   await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 }
 
+// ---------------------------------------------------------------------------
+// Non-empty catch-all fixture.
+//
+// Shaped loosely enough that any list page reached by these tests renders rows
+// off the generic `**/api/**` handler, whether it reads `items`, `data`,
+// `results` or `rows`. Per-test handlers registered later still win (Playwright
+// matches routes most-recently-registered first), so the specific fixtures
+// below are unaffected — this only changes what the UNMOCKED endpoints return,
+// which is exactly where the empty-table blind spot lived.
+// Same payload shape as e2e/walkthrough/axe-local.walkthrough.ts, which
+// rendered 5 rows and 30-65 inputs on the WizMatch list pages.
+const FIXTURE_ROWS = Array.from({ length: 5 }, (_, i) => ({
+  id: `fixture-${i}`,
+  name: `Fixture Row ${i}`, title: `Fixture Row ${i}`,
+  first_name: 'Fixture', last_name: `Row ${i}`,
+  company: 'Fixture Co', company_name: 'Fixture Co', company_id: 'fixture-company',
+  status: 'new', stage: 'draft', state: 'active', availability_status: 'available',
+  email: `fixture-${i}@example.invalid`, phone: '910000000000', source: 'manual',
+  created_at: '2026-08-01T00:00:00Z', updated_at: '2026-08-01T00:00:00Z',
+  score: 5, positions: 1, amount: 0, currency: 'INR',
+  skills: ['java'], keywords: ['java'], roles: ['hiring_manager'],
+}));
+const FIXTURE_LIST = {
+  items: FIXTURE_ROWS, data: FIXTURE_ROWS, results: FIXTURE_ROWS, rows: FIXTURE_ROWS,
+  total: FIXTURE_ROWS.length, count: FIXTURE_ROWS.length, ok: true,
+};
+
 async function installBaseMocks(page: Page) {
-  await page.route('**/api/**', (route) => json(route, { items: [], total: 0 }));
+  await page.route('**/api/**', (route) => json(route, FIXTURE_LIST));
   await page.route('**/api/wizmatch/staffing/access', (route) =>
     json(route, {
       allowed: true,
@@ -46,20 +89,113 @@ async function installBaseMocks(page: Page) {
 }
 
 /**
- * Runs axe against the current page state and fails with a readable summary
- * if any critical/serious violation is found. Moderate/minor findings are
- * logged but non-blocking — matches the plan's "fix what the scan surfaces,
- * don't assume" instruction without making the suite flaky on cosmetic
- * contrast nits unrelated to this build's new dialogs/pages.
+ * Fails unless the route ACTUALLY MOUNTED and the seeded fixture is on screen.
+ *
+ * This runs before every axe scan of a list page, and it is the load-bearing
+ * half of this repair. Two failure modes both score zero axe violations and
+ * are indistinguishable from a clean page:
+ *   - a route guard bounced the navigation (every WizMatch guard redirects to
+ *     /wizmatch/today, so the page under test never mounts);
+ *   - the page mounted but rendered its empty state.
+ *
+ * `sample` must be text/locator that can ONLY come from the seeded rows.
+ * `minDataRows` counts `tr[tabindex="0"]` rather than `table tbody tr`, because
+ * DataTable.jsx renders one <tr> for the empty state and EIGHT skeleton <tr>s
+ * while loading — a raw tbody-row count proves nothing.
  */
-async function assertNoSeriousViolations(page: Page, label: string) {
+async function assertRendered(
+  page: Page,
+  expectedPath: string,
+  sample: Locator,
+  opts: { minDataRows?: number } = {},
+) {
+  const landed = new URL(page.url()).pathname;
+  expect(landed, `expected to be on ${expectedPath}; a route guard redirected to ${landed}`).toBe(expectedPath);
+  await expect(sample, `${expectedPath} mounted but the seeded fixture never rendered`).toBeVisible();
+  if (opts.minDataRows) {
+    const dataRows = await page.locator('table tbody tr[tabindex="0"]').count();
+    expect(dataRows, `${expectedPath} rendered ${dataRows} data row(s), expected >= ${opts.minDataRows}`)
+      .toBeGreaterThanOrEqual(opts.minDataRows);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Moderate-impact landmark/heading gate.
+//
+// The old filter discarded everything below `serious`, which hid all 50
+// moderate nodes the production sweep found: landmark-unique (26), region (14),
+// heading-order (4), page-has-heading-one (4), landmark-one-main (2).
+//
+// Flipping the filter off wholesale would leave the suite permanently red: the
+// ~25 CRM pages that render their own bare <Sidebar/> + <main> shell (see the
+// note in admin/src/components/AppLayout.jsx) still emit `region` and
+// `landmark-one-main`. So these five rules are enumerated and gated by a NUMBER
+// per scan point instead. The count can only go down — any NEW node fails.
+const MODERATE_LANDMARK_RULES = [
+  'landmark-unique',
+  'page-has-heading-one',
+  'heading-order',
+  'landmark-one-main',
+  'region',
+] as const;
+
+/**
+ * Known-issue allowance for ONE scan point, per rule. The default is 0
+ * everywhere, and every scan in this file uses the default.
+ *
+ * Justification for 0: a local axe run over 14 rendered routes on 2026-08-02
+ * (after the 353 aria-label fixes) measured ZERO nodes at EVERY impact level on
+ * every AppLayout-hosted WizMatch page — today, job-leads, hiring-contacts,
+ * requirements, candidates, placements, reports. All 31 nodes it did find came
+ * from the shared CRM pages (tasks, inbox, pipeline, finance, audit), none of
+ * which this suite visits. Every route below renders through AppLayout, so 0 is
+ * a measurement, not an aspiration.
+ *
+ * Anything non-zero must carry a comment saying what it represents and what
+ * has to happen for it to be reduced.
+ */
+type ModerateAllowance = Partial<Record<(typeof MODERATE_LANDMARK_RULES)[number], number>>;
+
+/**
+ * Runs axe against the current page state.
+ *
+ * Hard-fails on any critical/serious violation (this includes `color-contrast`,
+ * which stays an unconditional failure — no contrast allowance is encoded
+ * anywhere in this file) AND on any enumerated moderate landmark/heading rule
+ * that exceeds its allowance.
+ *
+ * Moderate rules OUTSIDE the enumerated set stay non-blocking, as before.
+ */
+async function assertA11y(page: Page, label: string, allowance: ModerateAllowance = {}) {
   const results = await new AxeBuilder({ page }).analyze();
-  const blocking = results.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious');
-  if (blocking.length > 0) {
-    const summary = blocking
-      .map((v) => `- [${v.impact}] ${v.id}: ${v.help} (${v.nodes.length} node(s), e.g. ${v.nodes[0]?.target.join(' ')})`)
-      .join('\n');
-    throw new Error(`${label}: ${blocking.length} critical/serious a11y violation(s):\n${summary}`);
+  const failures: string[] = [];
+
+  for (const v of results.violations) {
+    if (v.impact === 'critical' || v.impact === 'serious') {
+      failures.push(`- [${v.impact}] ${v.id}: ${v.help} (${v.nodes.length} node(s), e.g. ${v.nodes[0]?.target.join(' ')})`);
+    }
+  }
+
+  const slack: string[] = [];
+  for (const rule of MODERATE_LANDMARK_RULES) {
+    const found = results.violations.find((v) => v.id === rule);
+    const nodes = found?.nodes.length ?? 0;
+    const allowed = allowance[rule] ?? 0;
+    if (nodes > allowed) {
+      failures.push(`- [moderate] ${rule}: ${nodes} node(s), allowance ${allowed} — a NEW violation appeared (e.g. ${found?.nodes[0]?.target.join(' ')})`);
+    } else if (nodes < allowed) {
+      slack.push(`${rule} ${nodes} < ${allowed}`);
+    }
+  }
+  // The ratchet: whenever reality beats the allowance, say so loudly so the
+  // number gets tightened rather than quietly rotting upward.
+  if (slack.length > 0) {
+    // eslint-disable-next-line no-console
+    console.log(`[a11y ratchet] ${label}: allowance is now looser than reality — lower it (${slack.join(', ')})`);
+  }
+
+  if (failures.length > 0) {
+    throw new Error(`${label}: ${failures.length} blocking a11y violation(s):\n${failures.join('\n')}`);
   }
 }
 
@@ -145,7 +281,12 @@ test.describe('Wizmatch accessibility scan (complete build)', () => {
     }));
     await page.goto('/wizmatch/today');
     await page.waitForLoadState('networkidle');
-    await assertNoSeriousViolations(page, 'Today');
+    // Four seeded company rows (2 ready + 1 needs-review + 1 blocked), each a
+    // DataTable row with its own select checkbox and action buttons. If the
+    // workbench ever renders empty here, axe scores 0 and the test used to pass.
+    await assertRendered(page, '/wizmatch/today',
+      page.getByRole('row').filter({ hasText: 'Review Co' }), { minDataRows: 4 });
+    await assertA11y(page, 'Today');
 
     // Keyboard/focus coverage (PR 6 §9): Approve & Queue on the needs-review
     // row opens the action dialog, focus moves inside it, and Escape closes
@@ -185,12 +326,21 @@ test.describe('Wizmatch accessibility scan (complete build)', () => {
     }));
     await page.goto('/wizmatch/companies');
     await page.waitForLoadState('networkidle');
+    // /wizmatch/companies sits behind StaffingPhaseRoute phase="A"; without the
+    // access mock it redirects to /wizmatch/today and the scan below would be
+    // measuring the wrong page. assertRendered catches exactly that.
+    await assertRendered(page, '/wizmatch/companies',
+      page.getByText('A11y Company').first(), { minDataRows: 1 });
+    // Scan the LIST state too, not just the drawer — per-row violations (row
+    // checkboxes, row action buttons) only exist while rows are on screen.
+    await assertA11y(page, 'Companies (list with rows)');
+
     await page.getByText('A11y Company').click();
     await expect(page.getByRole('heading', { name: 'A11y Company' })).toBeVisible();
-    await assertNoSeriousViolations(page, 'Companies (detail drawer open)');
+    await assertA11y(page, 'Companies (detail drawer open)');
 
     await page.getByRole('button', { name: 'Discover contacts' }).click();
-    await assertNoSeriousViolations(page, 'Companies (discovery panel open)');
+    await assertA11y(page, 'Companies (discovery panel open)');
   });
 
   test('Hiring Contacts — both tabs, linked-contact drawer', async ({ page }) => {
@@ -223,15 +373,17 @@ test.describe('Wizmatch accessibility scan (complete build)', () => {
 
     await page.goto('/wizmatch/hiring-contacts');
     await page.waitForLoadState('networkidle');
-    await assertNoSeriousViolations(page, 'Hiring Contacts (linked tab)');
+    await assertRendered(page, '/wizmatch/hiring-contacts',
+      page.getByRole('row').filter({ hasText: 'jane@a11y.test' }), { minDataRows: 1 });
+    await assertA11y(page, 'Hiring Contacts (linked tab)');
 
     await page.getByRole('row').filter({ hasText: 'jane@a11y.test' }).click();
     await expect(page.getByRole('heading', { name: 'Jane Doe' })).toBeVisible();
-    await assertNoSeriousViolations(page, 'Hiring Contacts (linked-contact drawer open)');
+    await assertA11y(page, 'Hiring Contacts (linked-contact drawer open)');
     await page.getByRole('button', { name: 'Close' }).first().click();
 
     await page.getByRole('button', { name: 'Discovery queue' }).click();
-    await assertNoSeriousViolations(page, 'Hiring Contacts (discovery queue tab)');
+    await assertA11y(page, 'Hiring Contacts (discovery queue tab)');
   });
 
   test('Candidates — list + 360 drawer with matches', async ({ page }) => {
@@ -253,9 +405,13 @@ test.describe('Wizmatch accessibility scan (complete build)', () => {
     }));
     await page.goto('/wizmatch/candidates');
     await page.waitForLoadState('networkidle');
+    await assertRendered(page, '/wizmatch/candidates',
+      page.getByRole('row').filter({ hasText: 'A11y Candidate' }), { minDataRows: 1 });
+    await assertA11y(page, 'Candidates (list with rows)');
+
     await page.getByRole('row').filter({ hasText: 'A11y Candidate' }).click();
     await expect(page.getByRole('heading', { name: 'A11y Candidate' })).toBeVisible();
-    await assertNoSeriousViolations(page, 'Candidates (360 drawer with match)');
+    await assertA11y(page, 'Candidates (360 drawer with match)');
   });
 
   test('Submissions — delivery board + all 6 dialogs', async ({ page }) => {
@@ -266,10 +422,16 @@ test.describe('Wizmatch accessibility scan (complete build)', () => {
     }));
     await page.goto('/wizmatch/submissions');
     await page.waitForLoadState('networkidle');
-    await assertNoSeriousViolations(page, 'Submissions (board)');
+    // /wizmatch/submissions is behind StaffingPhaseRoute phase="C". The board
+    // renders its own <table className="table-fluent"> rather than DataTable, so
+    // there is no tabindex row marker to count — the seeded requirement title is
+    // the evidence that a real row (with its per-row action buttons) exists.
+    await assertRendered(page, '/wizmatch/submissions',
+      page.getByText('A11y Requirement').first());
+    await assertA11y(page, 'Submissions (board)');
 
     await page.getByRole('button', { name: 'Consent' }).click();
-    await assertNoSeriousViolations(page, 'Submissions (Consent dialog)');
+    await assertA11y(page, 'Submissions (Consent dialog)');
     await page.keyboard.press('Escape');
 
     draft.status = 'approved';
@@ -277,7 +439,7 @@ test.describe('Wizmatch accessibility scan (complete build)', () => {
     await page.reload();
     await page.waitForLoadState('networkidle');
     await page.getByRole('button', { name: 'Record sent' }).click();
-    await assertNoSeriousViolations(page, 'Submissions (Submission dialog)');
+    await assertA11y(page, 'Submissions (Submission dialog)');
     await page.keyboard.press('Escape');
 
     draft.status = 'submitted';
@@ -285,7 +447,7 @@ test.describe('Wizmatch accessibility scan (complete build)', () => {
     await page.reload();
     await page.waitForLoadState('networkidle');
     await page.getByRole('button', { name: 'Add interview' }).click();
-    await assertNoSeriousViolations(page, 'Submissions (Interview dialog)');
+    await assertA11y(page, 'Submissions (Interview dialog)');
     await page.keyboard.press('Escape');
 
     draft.status = 'interviewing';
@@ -293,11 +455,11 @@ test.describe('Wizmatch accessibility scan (complete build)', () => {
     await page.reload();
     await page.waitForLoadState('networkidle');
     await page.getByRole('button', { name: 'Add offer' }).click();
-    await assertNoSeriousViolations(page, 'Submissions (Offer dialog)');
+    await assertA11y(page, 'Submissions (Offer dialog)');
     await page.keyboard.press('Escape');
 
     await page.getByRole('button', { name: 'Withdraw' }).click();
-    await assertNoSeriousViolations(page, 'Submissions (Withdraw dialog)');
+    await assertA11y(page, 'Submissions (Withdraw dialog)');
     await page.keyboard.press('Escape');
   });
 
@@ -308,13 +470,16 @@ test.describe('Wizmatch accessibility scan (complete build)', () => {
     await page.route('**/api/wizmatch/requirements/r1/timeline', (route) => json(route, { items: [] }));
     await page.goto('/wizmatch/placements');
     await page.waitForLoadState('networkidle');
-    await assertNoSeriousViolations(page, 'Placements (Kanban)');
+    // Kanban, not a table — the seeded card is the row-equivalent here.
+    await assertRendered(page, '/wizmatch/placements',
+      page.getByText('A11y Candidate').first());
+    await assertA11y(page, 'Placements (Kanban)');
 
     await page.getByText('A11y Candidate').click();
     await expect(page.getByText('Overview')).toBeVisible();
     for (const tab of ['Overview', 'Economics', 'Invoice', 'Collection', 'Adjustments']) {
       await page.getByRole('button', { name: tab }).click();
-      await assertNoSeriousViolations(page, `Placements (${tab} tab)`);
+      await assertA11y(page, `Placements (${tab} tab)`);
     }
   });
 
@@ -326,9 +491,18 @@ test.describe('Wizmatch accessibility scan (complete build)', () => {
       funnel: [], commercial: { gross_margin: '0', starts: 0, invoiced: '0', collected: '0' }, exceptions: { overdue_submissions: 0, missing_next_action: 0 },
       cohorts: [], timeToFill: { average_days: null }, aging: [], rejectionReasons: [], recruiterPerformance: [], sourcePerformance: [],
     }));
-    await page.route('**/api/wizmatch/requirements?**', (route) => json(route, { items: [], total: 0 }));
+    // Populated, not empty: this feeds the Reports requirement filter, and a
+    // <select> with no <option>s cannot surface the per-option problems this
+    // scan is meant to find.
+    await page.route('**/api/wizmatch/requirements?**', (route) => json(route, FIXTURE_LIST));
     await page.goto('/wizmatch/reports');
     await page.waitForLoadState('networkidle');
-    await assertNoSeriousViolations(page, 'Reports');
+    // Reports has no data table — it is charts and stat tiles. There is no
+    // "rows rendered" property to assert, so this only proves the route mounted
+    // rather than being bounced to /wizmatch/today. Stated plainly rather than
+    // dressed up as a row assertion it is not.
+    await assertRendered(page, '/wizmatch/reports',
+      page.getByRole('heading', { name: 'Wizmatch Reports' }));
+    await assertA11y(page, 'Reports');
   });
 });

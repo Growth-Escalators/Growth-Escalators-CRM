@@ -73,7 +73,7 @@ const STATUS_CHIP = {
   replied:   { label: 'Replied', cls: 'bg-accent-50 text-accent-700' },
   won:       { label: 'Client', cls: 'bg-accent-100 text-accent-700' },
   customer:  { label: 'Client', cls: 'bg-accent-100 text-accent-700' },
-  lost:      { label: 'Lost', cls: 'bg-neutral-100 text-neutral-500' },
+  lost:      { label: 'Lost', cls: 'bg-neutral-100 text-neutral-600' },
 };
 
 const LIMIT_OPTIONS = [20, 50, 100];
@@ -195,7 +195,7 @@ function AddContactModal({ onClose, onCreated }) {
 
   const field = (key, label, type = 'text', required = false) => (
     <div>
-      <label className="block text-xs font-medium text-neutral-600 mb-1">{label}{required && <span className="text-danger-500 ml-0.5">*</span>}</label>
+      <label className="block text-xs font-medium text-neutral-600 mb-1">{label}{required && <span className="text-danger-600 ml-0.5">*</span>}</label>
       <input
         type={type}
         value={form[key]}
@@ -806,12 +806,12 @@ export default function ContactsPage() {
               >
                 {list.label}
                 {list.id !== 'all' && listCounts[list.id] > 0 && (
-                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${activeList === list.id ? 'bg-primary-100 text-primary-700' : 'bg-neutral-100 text-neutral-500'}`}>
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${activeList === list.id ? 'bg-primary-100 text-primary-700' : 'bg-neutral-100 text-neutral-600'}`}>
                     {listCounts[list.id]}
                   </span>
                 )}
                 {list.id === 'all' && (
-                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${activeList === list.id ? 'bg-primary-100 text-primary-700' : 'bg-neutral-100 text-neutral-500'}`}>
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${activeList === list.id ? 'bg-primary-100 text-primary-700' : 'bg-neutral-100 text-neutral-600'}`}>
                     {total.toLocaleString()}
                   </span>
                 )}
@@ -866,7 +866,7 @@ export default function ContactsPage() {
 
           {activeFilters.length > 0 && (
             <button onClick={() => { setFilterSource(''); setFilterAssignedTo(''); setFilterDateFrom(''); setPage(1); }}
-              className="text-sm text-danger-500 hover:text-danger-700 font-medium">
+              className="text-sm text-danger-600 hover:text-danger-700 font-medium">
               Clear all filters
             </button>
           )}
@@ -878,7 +878,7 @@ export default function ContactsPage() {
             {activeFilters.map((f) => (
               <span key={f.key} className="inline-flex items-center gap-1.5 bg-primary-50 text-primary-700 text-xs font-medium px-2.5 py-1 rounded-full border border-primary-200">
                 {f.label}
-                <button onClick={f.clear} className="text-primary-400 hover:text-primary-700 leading-none">×</button>
+                <button onClick={f.clear} className="text-primary-600 hover:text-primary-700 leading-none">×</button>
               </span>
             ))}
           </div>
@@ -976,7 +976,7 @@ export default function ContactsPage() {
                             </p>
                             {(c.doNotContact || c.assignedTo) && (
                               <p className="text-[10px] text-neutral-500 truncate leading-tight">
-                                {c.doNotContact && <span className="text-danger-500 font-medium">DNC </span>}
+                                {c.doNotContact && <span className="text-danger-600 font-medium">DNC </span>}
                                 {c.assignedTo}
                               </p>
                             )}
@@ -988,21 +988,21 @@ export default function ContactsPage() {
                       <td className="px-3 py-1.5 text-neutral-600 cursor-pointer overflow-hidden" onClick={() => setSelectedContact(c)}>
                         {c.phone ? (
                           <span className="text-xs truncate block">{formatPhone(c.phone)}</span>
-                        ) : <span className="text-neutral-300 text-xs">—</span>}
+                        ) : <span className="text-neutral-500 text-xs">—</span>}
                       </td>
 
                       {/* Email */}
                       <td className="px-3 py-1.5 text-neutral-600 cursor-pointer overflow-hidden" onClick={() => setSelectedContact(c)}>
                         {c.email ? (
                           <span className="text-xs truncate block" title={c.email}>{c.email}</span>
-                        ) : <span className="text-neutral-300 text-xs">—</span>}
+                        ) : <span className="text-neutral-500 text-xs">—</span>}
                       </td>
 
                       {/* Business */}
                       <td className="px-3 py-1.5 text-neutral-600 text-xs cursor-pointer overflow-hidden" onClick={() => setSelectedContact(c)}>
                         {c.companyName ? (
                           <span className="truncate block" title={c.companyName}>{c.companyName}</span>
-                        ) : <span className="text-neutral-300">—</span>}
+                        ) : <span className="text-neutral-500">—</span>}
                       </td>
 
                       {/* Last activity */}
@@ -1066,48 +1066,49 @@ export default function ContactsPage() {
           </div>
           )}
         </div>
+
+        {/* Bulk action bar. Kept inside <main> so it is covered by a landmark —
+            it is a fixed overlay, so the DOM position does not affect layout. */}
+        {selectedIds.size > 0 && (
+          <BulkActionBar
+            selectedIds={selectedIds}
+            selectedContacts={selectedContactsData}
+            total={total}
+            onSelectAll={selectAll}
+            onClear={() => setSelectedIds(new Set())}
+            onDone={() => { load(); setSelectedIds(new Set()); }}
+            onOpenOpportunity={() => setShowOpportunityModal(true)}
+            load={load}
+          />
+        )}
+
+        {/* Contact slide-in */}
+        {selectedContact && (
+          <ContactSlideIn
+            contact={selectedContact}
+            onClose={() => setSelectedContact(null)}
+            onUpdated={() => { load(); setSelectedContact(null); }}
+          />
+        )}
+
+        {/* Add Contact modal */}
+        {showAddContact && (
+          <AddContactModal
+            onClose={() => setShowAddContact(false)}
+            onCreated={() => { setShowAddContact(false); load(); }}
+          />
+        )}
+
+        {/* Add/Update Opportunity modal */}
+        {showOpportunityModal && (
+          <AddUpdateOpportunityModal
+            contactIds={[...selectedIds]}
+            contacts={selectedContactsData}
+            onClose={() => setShowOpportunityModal(false)}
+            onDone={() => { setShowOpportunityModal(false); setSelectedIds(new Set()); setPage(1); load(); }}
+          />
+        )}
       </main>
-
-      {/* Bulk action bar */}
-      {selectedIds.size > 0 && (
-        <BulkActionBar
-          selectedIds={selectedIds}
-          selectedContacts={selectedContactsData}
-          total={total}
-          onSelectAll={selectAll}
-          onClear={() => setSelectedIds(new Set())}
-          onDone={() => { load(); setSelectedIds(new Set()); }}
-          onOpenOpportunity={() => setShowOpportunityModal(true)}
-          load={load}
-        />
-      )}
-
-      {/* Contact slide-in */}
-      {selectedContact && (
-        <ContactSlideIn
-          contact={selectedContact}
-          onClose={() => setSelectedContact(null)}
-          onUpdated={() => { load(); setSelectedContact(null); }}
-        />
-      )}
-
-      {/* Add Contact modal */}
-      {showAddContact && (
-        <AddContactModal
-          onClose={() => setShowAddContact(false)}
-          onCreated={() => { setShowAddContact(false); load(); }}
-        />
-      )}
-
-      {/* Add/Update Opportunity modal */}
-      {showOpportunityModal && (
-        <AddUpdateOpportunityModal
-          contactIds={[...selectedIds]}
-          contacts={selectedContactsData}
-          onClose={() => setShowOpportunityModal(false)}
-          onDone={() => { setShowOpportunityModal(false); setSelectedIds(new Set()); setPage(1); load(); }}
-        />
-      )}
     </div>
   );
 }

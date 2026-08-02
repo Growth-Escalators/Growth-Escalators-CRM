@@ -193,7 +193,7 @@ export default function DetailPanel({
                     }`}
                   >
                     {t.label}
-                    {c != null && <span className="ml-1 text-[10px] text-slate-400">{c}</span>}
+                    {c != null && <span className="ml-1 text-[10px] text-slate-500">{c}</span>}
                   </button>
                 );
               })}

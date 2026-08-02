@@ -155,7 +155,7 @@ export default function TeamPerformanceTab() {
       </div>
 
       {loading ? (
-        <p className="text-xs text-slate-400 py-12 text-center">Loading…</p>
+        <p className="text-xs text-slate-500 py-12 text-center">Loading…</p>
       ) : error ? (
         <p className="text-xs text-red-600 py-12 text-center">{error}</p>
       ) : (
@@ -175,7 +175,7 @@ export default function TeamPerformanceTab() {
               <tbody>
                 {members.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="text-center text-slate-400 text-xs py-8">No data for this period.</td>
+                    <td colSpan={6} className="text-center text-slate-500 text-xs py-8">No data for this period.</td>
                   </tr>
                 ) : members.map((m) => (
                   <tr key={m.id || m.email} className="border-t border-slate-100">
@@ -184,15 +184,15 @@ export default function TeamPerformanceTab() {
                         <Avatar name={m.name || m.email} size="lg" />
                         <div>
                           <p className="text-sm font-medium text-slate-800">{m.name || m.email}</p>
-                          {m.email && m.name && <p className="text-[11px] text-slate-400">{m.email}</p>}
+                          {m.email && m.name && <p className="text-[11px] text-slate-600">{m.email}</p>}
                         </div>
                       </div>
                     </td>
                     <td className="px-4 py-2.5 text-right text-slate-700">{m.donePeriod ?? m.done ?? 0}</td>
                     <td className="px-4 py-2.5 text-right">
                       <span className={`text-sm font-medium ${
-                        (m.onTimePct ?? 0) >= 80 ? 'text-emerald-600'
-                          : (m.onTimePct ?? 0) >= 60 ? 'text-amber-600'
+                        (m.onTimePct ?? 0) >= 80 ? 'text-emerald-700'
+                          : (m.onTimePct ?? 0) >= 60 ? 'text-amber-700'
                           : 'text-red-600'
                       }`}>
                         {m.onTimePct != null ? `${Math.round(m.onTimePct)}%` : '—'}

@@ -3,6 +3,7 @@ dotenv.config();
 
 import http from 'http';
 import cron from 'node-cron';
+import type { PoolClient } from 'pg';
 import { db, pool } from './db/index';
 import { sql } from 'drizzle-orm';
 import { startStuckJobWorker } from './workers/stuckJobWorker';
@@ -132,7 +133,24 @@ function hashCode(s: string): number {
 // Slack alerts, invoice drafts, and (worst case) the 5-minute placement
 // job racing itself on the same slo_purchase events. pg_try_advisory_lock
 // is cheap and non-blocking, so defaulting it on has no real downside.
-async function safeCron(name: string, fn: () => Promise<unknown>, useAdvisoryLock = true): Promise<void> {
+//
+// Advisory locks are SESSION-scoped in Postgres. Both this acquire and the
+// matching release below therefore run on ONE dedicated client checked out
+// of the pool — never `pool.query()`, which hands back an arbitrary
+// connection each call. `pg_advisory_unlock` from a session that doesn't
+// hold the lock logs a warning, returns false, and LEAVES THE LOCK HELD;
+// with the previous `pool.query()` pair (and both sides swallowed by a bare
+// `catch {}`) that happened silently whenever the pool didn't hand back the
+// same connection twice, and every later fire of that cron then hit the
+// "another instance holds the lock" branch and returned before running —
+// permanently, with no run row and no error. src/db/index.ts sets
+// `min: 2` with no maxLifetime/maxUses, so pg-pool's idle reaper never
+// recycles the last two connections: an orphaned lock could survive until
+// the next deploy. Same shape as withWizmatchSourceLock in
+// services/wizmatchSourcing.ts.
+// Exported for src/__tests__/safeCronAdvisoryLock.test.ts only — nothing else
+// imports it; every call site lives in this file.
+export async function safeCron(name: string, fn: () => Promise<unknown>, useAdvisoryLock = true): Promise<void> {
   // Overlap protection — skip if already running (in-process)
   if (_cronRunning.get(name)) {
     console.log(`[CRON] ${name} already running — skipping`);
@@ -140,15 +158,29 @@ async function safeCron(name: string, fn: () => Promise<unknown>, useAdvisoryLoc
   }
 
   // Cross-process lock (advisory lock using hash of name)
+  const lockKey = Math.abs(hashCode(name));
+  let lockClient: PoolClient | null = null;
   if (useAdvisoryLock) {
+    let client: PoolClient | null = null;
     try {
-      const lockKey = Math.abs(hashCode(name));
-      const lockResult = await pool.query('SELECT pg_try_advisory_lock($1) AS acquired', [lockKey]);
+      client = await pool.connect();
+      const lockResult = await client.query('SELECT pg_try_advisory_lock($1) AS acquired', [lockKey]);
       if (!lockResult.rows[0]?.acquired) {
         console.log(`[CRON] ${name} — another instance holds the lock, skipping`);
+        client.release();
         return;
       }
-    } catch { /* advisory lock non-critical, continue anyway */ }
+      lockClient = client;
+    } catch (error) {
+      // Acquire failed. We can't tell a "never taken the lock" failure from a
+      // "server took it, then the connection died mid-read" one, so destroy
+      // the connection (release(err)) — closing the session drops any
+      // advisory lock it may be holding. Then continue without the lock, as
+      // the previous implementation did: overlap protection is non-critical,
+      // skipping the job entirely is worse.
+      if (client) client.release(error instanceof Error ? error : new Error(String(error)));
+      console.warn(`[CRON] ${name} — advisory lock unavailable, running without cross-process lock:`, error instanceof Error ? error.message : error);
+    }
   }
 
   _cronRunning.set(name, true);
@@ -202,11 +234,27 @@ async function safeCron(name: string, fn: () => Promise<unknown>, useAdvisoryLoc
     } catch { /* Slack send failed */ }
   } finally {
     _cronRunning.set(name, false);
-    if (useAdvisoryLock) {
+    if (lockClient) {
+      const client = lockClient;
+      lockClient = null;
+      let unlockError: Error | undefined;
       try {
-        const lockKey = Math.abs(hashCode(name));
-        await pool.query('SELECT pg_advisory_unlock($1)', [lockKey]);
-      } catch { /* non-critical */ }
+        const unlockResult = await client.query('SELECT pg_advisory_unlock($1) AS released', [lockKey]);
+        // Postgres returns false (no error) when this session never held the
+        // lock — the exact silent-orphan case this rewrite exists to prevent.
+        if (unlockResult.rows[0]?.released === false) {
+          console.warn(`[CRON] ${name} — pg_advisory_unlock returned false; lock may be orphaned (key=${lockKey})`);
+        }
+      } catch (error) {
+        unlockError = error instanceof Error ? error : new Error(String(error));
+        console.error(`[CRON] ${name} — pg_advisory_unlock failed, destroying connection to drop the lock (key=${lockKey}):`, unlockError.message);
+      }
+      // Only pass the error on failure. release(err) tells pg-pool to DESTROY
+      // the connection instead of returning it; closing the session releases
+      // every advisory lock it holds, which is the one guaranteed way out of
+      // a stuck unlock. Doing that unconditionally would churn a connection
+      // on every one of the ~25 crons here for no benefit.
+      client.release(unlockError);
     }
   }
 }

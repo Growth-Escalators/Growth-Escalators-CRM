@@ -75,7 +75,7 @@ export default function SubtasksTab({ task }) {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
 
   if (loading) {
-    return <p className="text-xs text-slate-400">Loading subtasks…</p>;
+    return <p className="text-xs text-slate-500">Loading subtasks…</p>;
   }
 
   return (
@@ -87,7 +87,7 @@ export default function SubtasksTab({ task }) {
         <>
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-[11px] text-slate-500 font-medium">{done}/{total} complete</span>
-            <span className="text-[11px] text-slate-400">{pct}%</span>
+            <span className="text-[11px] text-slate-600">{pct}%</span>
           </div>
           <div className="h-1 bg-slate-100 rounded overflow-hidden mb-2">
             <div className="h-full bg-emerald-500 rounded transition-all" style={{ width: `${pct}%` }} />
@@ -105,7 +105,7 @@ export default function SubtasksTab({ task }) {
             >
               {it.isDone ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
             </button>
-            <span className={`flex-1 text-sm ${it.isDone ? 'line-through text-slate-400' : 'text-slate-700'}`}>
+            <span className={`flex-1 text-sm ${it.isDone ? 'line-through text-slate-500' : 'text-slate-700'}`}>
               {it.label}
             </span>
             <button

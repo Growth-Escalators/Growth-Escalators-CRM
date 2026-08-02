@@ -104,17 +104,17 @@ export default function TaskCard({
               {!dense && task.priority === 'high' && <PriorityFlag priority="high" />}
               {visibleTags.map((t) => <TagChip key={t} tag={t} />)}
               {extraTags > 0 && (
-                <span className="text-[10px] text-slate-400 font-medium">+{extraTags}</span>
+                <span className="text-[10px] text-slate-600 font-medium">+{extraTags}</span>
               )}
             </div>
 
             {/* Bottom row — counts + assignee */}
             <div className={`flex items-center gap-2 ${dense ? 'mt-1' : 'mt-2'}`}>
-              <div className="flex items-center gap-2 text-[10px] text-slate-400">
+              <div className="flex items-center gap-2 text-[10px] text-slate-600">
                 {task.subtasksTotal > 0 && (
                   <span
                     className={`inline-flex items-center gap-0.5 font-medium ${
-                      checklistDone ? 'text-emerald-600' : 'text-slate-500'
+                      checklistDone ? 'text-emerald-700' : 'text-slate-500'
                     }`}
                     title={`${task.subtasksDone}/${task.subtasksTotal} subtasks`}
                   >

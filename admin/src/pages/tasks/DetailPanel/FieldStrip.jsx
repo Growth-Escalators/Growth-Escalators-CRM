@@ -91,7 +91,7 @@ export default function FieldStrip({ task, team = [], onPatch }) {
                 <span className="text-sm text-slate-800 font-medium">{assigneeName}</span>
               </>
             ) : (
-              <span className="text-slate-400">Unassigned</span>
+              <span className="text-slate-500">Unassigned</span>
             )}
           </button>
         )}
@@ -122,7 +122,7 @@ export default function FieldStrip({ task, team = [], onPatch }) {
                 </span>
               </>
             ) : (
-              <span className="text-slate-400">No date</span>
+              <span className="text-slate-500">No date</span>
             )}
           </button>
         )}
@@ -181,7 +181,7 @@ export default function FieldStrip({ task, team = [], onPatch }) {
             ) : task.listId ? (
               <span className="text-xs text-slate-500">{task.listId}</span>
             ) : (
-              <span className="text-slate-400">None</span>
+              <span className="text-slate-500">None</span>
             )}
           </button>
         )}

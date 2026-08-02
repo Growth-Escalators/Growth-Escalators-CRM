@@ -58,7 +58,7 @@ function FocusSection({ title, hint, count, tone, children, defaultOpen = true }
         <span className={`w-1.5 h-1.5 rounded-full ${TONE_DOT[tone] || TONE_DOT.slate}`} aria-hidden />
         <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
         <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 rounded-full px-1.5 py-0.5">{count}</span>
-        {hint && <span className="text-[11px] text-slate-400">{hint}</span>}
+        {hint && <span className="text-[11px] text-slate-500">{hint}</span>}
         <span className="ml-auto text-slate-400">
           {open ? <ChevronUp className="w-4 h-4" aria-hidden /> : <ChevronDown className="w-4 h-4" aria-hidden />}
         </span>
@@ -195,7 +195,7 @@ export default function FocusView({
 
         <FocusSection title="Due today" hint="On your plate now" count={dueToday.length} tone="amber">
           {dueToday.length === 0 && (
-            <p className="text-xs text-slate-400 italic py-2">Nothing due today — enjoy a clear afternoon ☕</p>
+            <p className="text-xs text-slate-500 italic py-2">Nothing due today — enjoy a clear afternoon ☕</p>
           )}
           {sortBucket(dueToday, smartSort).map((t) => (
             <FocusRow

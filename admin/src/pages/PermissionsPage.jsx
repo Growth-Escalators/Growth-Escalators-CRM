@@ -385,7 +385,7 @@ export default function PermissionsPage() {
             </div>
           </div>
         ) : error && !users.length ? (
-          <div className="text-center py-16 text-red-500">{error}</div>
+          <div className="text-center py-16 text-red-600">{error}</div>
         ) : (
           <div className="flex gap-6">
             {/* User list */}
@@ -395,7 +395,7 @@ export default function PermissionsPage() {
                   <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Team Members</p>
                 </div>
                 {users.length === 0 && (
-                  <div className="p-4 text-sm text-slate-400 text-center">No users found</div>
+                  <div className="p-4 text-sm text-slate-500 text-center">No users found</div>
                 )}
                 {users.map(user => (
                   <button
@@ -412,9 +412,9 @@ export default function PermissionsPage() {
                     </div>
                     <div className="min-w-0">
                       <div className="text-sm font-medium text-slate-800 truncate">{user.name}</div>
-                      <div className="text-xs text-slate-400 truncate">{user.email}</div>
+                      <div className="text-xs text-slate-600 truncate">{user.email}</div>
                       {user.is_owner && (
-                        <span className="text-xs font-medium text-amber-600">Owner</span>
+                        <span className="text-xs font-medium text-amber-700">Owner</span>
                       )}
                     </div>
                   </button>
@@ -444,7 +444,7 @@ export default function PermissionsPage() {
                       </div>
                       <div>
                         <p className="font-semibold text-slate-900">{selectedUser.name}</p>
-                        <p className="text-xs text-slate-400">{selectedUser.email}</p>
+                        <p className="text-xs text-slate-500">{selectedUser.email}</p>
                       </div>
                       {isOwnerUser && (
                         <span className="ml-2 px-2.5 py-1 bg-amber-100 text-amber-700 text-xs font-semibold rounded-full">
@@ -453,8 +453,8 @@ export default function PermissionsPage() {
                       )}
                     </div>
                     <div className="flex items-center gap-3">
-                      {saved && <span className="text-sm text-green-600 font-medium">&#x2713; Saved</span>}
-                      {error && <span className="text-sm text-red-500">{error}</span>}
+                      {saved && <span className="text-sm text-green-700 font-medium">&#x2713; Saved</span>}
+                      {error && <span className="text-sm text-red-600">{error}</span>}
                       {!isOwnerUser && (
                         <>
                           <button
@@ -500,7 +500,7 @@ export default function PermissionsPage() {
                             </select>
                           </div>
                         </div>
-                        <p className="text-xs text-slate-400 mt-2">
+                        <p className="text-xs text-slate-500 mt-2">
                           Role controls which pages and API data this user can access. Changes take effect on their next login.
                         </p>
                       </div>
@@ -509,7 +509,7 @@ export default function PermissionsPage() {
                       <div>
                         <div className="flex items-center gap-2 mb-3">
                           <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">Module Access</h3>
-                          <span className="text-xs text-slate-400 font-normal normal-case tracking-normal">— unlocks sidebar sections regardless of role</span>
+                          <span className="text-xs text-slate-500 font-normal normal-case tracking-normal">— unlocks sidebar sections regardless of role</span>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                           {MODULE_ACCESS.map(mod => (
@@ -543,10 +543,10 @@ export default function PermissionsPage() {
                               <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">{group.label}</h3>
                               <div className="flex items-center gap-2 text-xs">
                                 <button onClick={() => toggleAll(group, true)}
-                                  className="text-sky-600 hover:underline">All on</button>
-                                <span className="text-slate-300">|</span>
+                                  className="text-sky-700 hover:underline">All on</button>
+                                <span className="text-slate-500">|</span>
                                 <button onClick={() => toggleAll(group, false)}
-                                  className="text-slate-400 hover:underline">All off</button>
+                                  className="text-slate-600 hover:underline">All off</button>
                               </div>
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

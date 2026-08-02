@@ -55,7 +55,7 @@ export default function DensityMenu({ value = 'default', onChange }) {
           aria-label="Card density"
           className="absolute right-0 top-full mt-1 w-44 bg-white border border-slate-200 rounded-lg shadow-lg p-1 z-20"
         >
-          <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-slate-400 font-semibold">
+          <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
             Density
           </div>
           {OPTIONS.map((opt) => {
@@ -75,7 +75,7 @@ export default function DensityMenu({ value = 'default', onChange }) {
               >
                 <span className="flex-1">
                   <span className="font-medium block leading-tight">{opt.label}</span>
-                  <span className="text-[10px] text-slate-400 leading-tight">{opt.hint}</span>
+                  <span className="text-[10px] text-slate-500 leading-tight">{opt.hint}</span>
                 </span>
                 {active && <Check className="w-3.5 h-3.5 text-sky-600" aria-hidden />}
               </button>

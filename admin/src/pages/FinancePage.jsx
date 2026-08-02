@@ -31,9 +31,9 @@ function StatCard({ icon: Icon, title, value, sub, color = 'text-slate-900', tre
       </div>
       <p className={`text-2xl font-bold ${color}`}>{value}</p>
       <div className="flex items-center gap-2 mt-1">
-        {sub && <p className="text-xs text-slate-400">{sub}</p>}
+        {sub && <p className="text-xs text-slate-500">{sub}</p>}
         {trend != null && trend !== 0 && (
-          <span className={`text-xs font-medium flex items-center gap-0.5 ${trend > 0 ? 'text-green-600' : 'text-red-600'}`}>
+          <span className={`text-xs font-medium flex items-center gap-0.5 ${trend > 0 ? 'text-green-700' : 'text-red-600'}`}>
             {trend > 0 ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />}
             {Math.abs(trend)}%
           </span>
@@ -108,7 +108,7 @@ function AddExpenseForm({ categories, onAdded, editing, onCancelEdit, vendors = 
         <input type="text" aria-label="Expense description" placeholder="Description *" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
           className="col-span-2 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500" required />
         <div className="relative">
-          <span className="absolute left-3 top-2.5 text-slate-400 text-sm">INR</span>
+          <span className="absolute left-3 top-2.5 text-slate-500 text-sm">INR</span>
           <input type="number" aria-label="Expense amount in rupees" placeholder="Amount *" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })}
             className="w-full border border-slate-200 rounded-lg pl-12 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500" required />
         </div>
@@ -215,7 +215,7 @@ function AddIncomeForm({ onAdded, editing, onCancelEdit }) {
         className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="relative">
-          <span className="absolute left-3 top-2.5 text-slate-400 text-sm">INR</span>
+          <span className="absolute left-3 top-2.5 text-slate-500 text-sm">INR</span>
           <input type="number" aria-label="Income amount in rupees" placeholder="Amount *" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })}
             className="w-full border border-slate-200 rounded-lg pl-12 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" required />
         </div>
@@ -277,7 +277,7 @@ function DailyAttendanceGrid({ team, attendance, month, onCellClick }) {
   }, [attendance]);
 
   if (!team || team.length === 0) {
-    return <p className="text-xs text-slate-400 italic">No team members configured.</p>;
+    return <p className="text-xs text-slate-500 italic">No team members configured.</p>;
   }
 
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
@@ -298,7 +298,7 @@ function DailyAttendanceGrid({ team, attendance, month, onCellClick }) {
               const dStr = `${month}-${String(d).padStart(2, '0')}`;
               const isToday = dStr === todayStr;
               return (
-                <th key={d} className={`px-1 py-0.5 text-center font-medium ${isWeekend ? 'text-slate-300' : 'text-slate-500'} ${isToday ? 'underline decoration-sky-500' : ''}`}>
+                <th key={d} className={`px-1 py-0.5 text-center font-medium ${isWeekend ? 'text-slate-500' : 'text-slate-700'} ${isToday ? 'underline decoration-sky-500' : ''}`}>
                   <div>{d}</div>
                   <div className="text-[9px] font-normal opacity-70">{dowLetter[dow]}</div>
                 </th>
@@ -345,7 +345,7 @@ function DailyAttendanceGrid({ team, attendance, month, onCellClick }) {
                       title={title}
                       aria-label={`${m.name} attendance on ${dStr}: ${rec?.status ? rec.status.replace('_', ' ') : 'no record'}`}
                       className={`w-6 h-6 flex items-center justify-center rounded text-[10px] font-bold relative
-                        ${style ? `${style.bg} ${style.text}` : isWeekend ? 'bg-slate-50 text-slate-300' : isFuture ? 'bg-slate-50 text-slate-200' : 'bg-slate-100 text-slate-300 hover:bg-slate-200'}
+                        ${style ? `${style.bg} ${style.text}` : isWeekend ? 'bg-slate-50 text-slate-600' : isFuture ? 'bg-slate-50 text-slate-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}
                       `}
                     >
                       {style?.letter ?? (isWeekend ? '·' : isFuture ? '' : '–')}
@@ -648,7 +648,7 @@ export default function FinancePage() {
                           <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
                             <div className="h-full rounded-full" style={{ width: `${pct}%`, background: c.color }} />
                           </div>
-                          <span className="text-xs text-slate-400 w-8 text-right">{pct}%</span>
+                          <span className="text-xs text-slate-600 w-8 text-right">{pct}%</span>
                         </div>
                       );
                     })}
@@ -670,7 +670,7 @@ export default function FinancePage() {
                             <div className="w-4 bg-red-200 rounded-t" style={{ height: `${(p.expenses / maxVal) * 100}%` }} title={`Expenses: INR ${fmtINR(p.expenses)}`} />
                           </div>
                           <p className="text-[10px] text-slate-500">{new Date(p.month + '-01').toLocaleDateString('en-IN', { month: 'short' })}</p>
-                          <p className={`text-xs font-semibold ${p.profit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtINR(p.profit)}</p>
+                          <p className={`text-xs font-semibold ${p.profit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>{fmtINR(p.profit)}</p>
                         </div>
                       );
                     })}
@@ -716,14 +716,14 @@ export default function FinancePage() {
                     </thead>
                     <tbody>
                       {expenses.length === 0 && (
-                        <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-sm">No expenses for {monthLabel}</td></tr>
+                        <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-500 text-sm">No expenses for {monthLabel}</td></tr>
                       )}
                       {expenses.map(e => (
                         <tr key={e.id} className="border-b border-slate-50 hover:bg-slate-50">
                           <td className="px-4 py-2.5 text-slate-600">{new Date(String(e.expense_date).split('T')[0] + 'T12:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</td>
                           <td className="px-4 py-2.5">
                             <p className="text-slate-800 font-medium">{e.description}</p>
-                            {e.vendor_name && <p className="text-xs text-slate-400">{e.vendor_name}</p>}
+                            {e.vendor_name && <p className="text-xs text-slate-600">{e.vendor_name}</p>}
                             {e.is_recurring && <span className="text-[10px] bg-sky-50 text-sky-600 px-1.5 py-0.5 rounded font-medium">Recurring</span>}
                           </td>
                           <td className="px-4 py-2.5">
@@ -732,7 +732,7 @@ export default function FinancePage() {
                                 <span className="w-2 h-2 rounded-full" style={{ background: e.category_color }} />
                                 {e.category_name}
                               </span>
-                            ) : <span className="text-xs text-slate-400">—</span>}
+                            ) : <span className="text-xs text-slate-600">—</span>}
                           </td>
                           <td className="px-4 py-2.5 text-right font-semibold text-slate-800">INR {Number(e.amount).toLocaleString('en-IN')}</td>
                           <td className="px-4 py-2.5 text-right">
@@ -760,7 +760,7 @@ export default function FinancePage() {
                 <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                   <div className="px-6 py-3 border-b bg-slate-50 flex items-center justify-between">
                     <p className="text-xs font-semibold text-slate-500 uppercase">Income — {monthLabel}</p>
-                    <p className="text-sm font-semibold text-emerald-600">Total: INR {fmtINR(income.reduce((s, i) => s + Number(i.amount), 0))}</p>
+                    <p className="text-sm font-semibold text-emerald-700">Total: INR {fmtINR(income.reduce((s, i) => s + Number(i.amount), 0))}</p>
                   </div>
                   <table className="w-full text-sm">
                     <thead>
@@ -774,14 +774,14 @@ export default function FinancePage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {income.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">No income for {monthLabel}</td></tr>}
+                      {income.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-500">No income for {monthLabel}</td></tr>}
                       {income.map((i, idx) => (
                         <tr key={idx} className="border-b border-slate-50 hover:bg-slate-50">
                           <td className="px-4 py-2.5 text-slate-600">{new Date(String(i.income_date).split('T')[0] + 'T12:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</td>
                           <td className="px-4 py-2.5 text-slate-800 font-medium">{i.source}</td>
                           <td className="px-4 py-2.5 text-slate-600">{i.description || '—'}</td>
                           <td className="px-4 py-2.5"><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${i.category === 'invoice' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{i.category === 'invoice' ? 'Invoice' : 'Other'}</span></td>
-                          <td className="px-4 py-2.5 text-right font-semibold text-emerald-600">INR {fmtINR(i.amount)}</td>
+                          <td className="px-4 py-2.5 text-right font-semibold text-emerald-700">INR {fmtINR(i.amount)}</td>
                           <td className="px-4 py-2.5 text-right">
                             {i.category !== 'invoice' && (
                               <div className="flex items-center gap-1 justify-end">
@@ -822,7 +822,7 @@ export default function FinancePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {team.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">No team members added</td></tr>}
+                    {team.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-500">No team members added</td></tr>}
                     {team.map(m => (
                       <tr key={m.id} className="border-b border-slate-50 hover:bg-slate-50">
                         <td className="px-4 py-2.5 text-slate-800 font-medium">{m.name}</td>
@@ -850,7 +850,7 @@ export default function FinancePage() {
                     <tr className="bg-slate-50 border-t">
                       <td colSpan={4} className="px-4 py-2.5 text-sm font-semibold text-slate-700">
                         Total Monthly Payroll
-                        <span className="text-xs font-normal text-slate-400 ml-2">(already included in Expenses total)</span>
+                        <span className="text-xs font-normal text-slate-500 ml-2">(already included in Expenses total)</span>
                       </td>
                       <td className="px-4 py-2.5 text-right font-bold text-slate-900">INR {fmtINR(team.reduce((s, m) => s + Number(m.base_salary || 0), 0))}</td>
                       <td></td>
@@ -954,7 +954,7 @@ export default function FinancePage() {
                         {statusIcon}
                         <div className="flex-1 min-w-0">
                           <p className="font-medium text-slate-800 truncate">{m.name}</p>
-                          {currentStatus && <p className="text-[10px] text-slate-400 capitalize">{currentStatus.replace('_', ' ')}</p>}
+                          {currentStatus && <p className="text-[10px] text-slate-600 capitalize">{currentStatus.replace('_', ' ')}</p>}
                         </div>
                       </button>
                     );
@@ -985,7 +985,7 @@ export default function FinancePage() {
                     <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                       <Calendar className="w-4 h-4 text-sky-500" /> Daily Attendance — {monthLabel}
                     </h3>
-                    <p className="text-[11px] text-slate-400">click a cell to mark / edit</p>
+                    <p className="text-[11px] text-slate-500">click a cell to mark / edit</p>
                   </div>
                   <DailyAttendanceGrid
                     team={attendance.team || []}
@@ -1016,9 +1016,9 @@ export default function FinancePage() {
                     <thead>
                       <tr className="border-b">
                         <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Team Member</th>
-                        <th className="px-4 py-2 text-center text-xs font-semibold text-green-600">Present</th>
+                        <th className="px-4 py-2 text-center text-xs font-semibold text-green-700">Present</th>
                         <th className="px-4 py-2 text-center text-xs font-semibold text-red-600">Absent</th>
-                        <th className="px-4 py-2 text-center text-xs font-semibold text-amber-600">Half Days</th>
+                        <th className="px-4 py-2 text-center text-xs font-semibold text-amber-700">Half Days</th>
                         <th className="px-4 py-2 text-center text-xs font-semibold text-blue-600">Leaves</th>
                         <th className="px-4 py-2 text-center text-xs font-semibold text-slate-500">Total Hours</th>
                       </tr>
@@ -1041,7 +1041,7 @@ export default function FinancePage() {
                                 {s.member_name}
                               </td>
                               <td className="px-4 py-2.5 text-center"><span className="bg-green-50 text-green-700 px-2 py-0.5 rounded-full text-xs font-semibold">{s.present}</span></td>
-                              <td className="px-4 py-2.5 text-center"><span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${Number(s.absent) > 0 ? 'bg-red-50 text-red-700' : 'bg-slate-50 text-slate-400'}`}>{s.absent}</span></td>
+                              <td className="px-4 py-2.5 text-center"><span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${Number(s.absent) > 0 ? 'bg-red-50 text-red-700' : 'bg-slate-50 text-slate-600'}`}>{s.absent}</span></td>
                               <td className="px-4 py-2.5 text-center"><span className="bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full text-xs font-semibold">{s.half_days}</span></td>
                               <td className="px-4 py-2.5 text-center"><span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full text-xs font-semibold">{s.leaves}</span></td>
                               <td className="px-4 py-2.5 text-center text-slate-600">{Number(s.total_hours).toFixed(1)}h</td>
@@ -1050,11 +1050,11 @@ export default function FinancePage() {
                               <tr className="bg-slate-50/50">
                                 <td colSpan={6} className="px-6 py-3">
                                   {memberDays.length === 0 ? (
-                                    <p className="text-xs text-slate-400 italic">No daily records for {monthLabel}.</p>
+                                    <p className="text-xs text-slate-500 italic">No daily records for {monthLabel}.</p>
                                   ) : (
                                     <table className="w-full text-xs">
                                       <thead>
-                                        <tr className="text-slate-400 border-b">
+                                        <tr className="text-slate-600 border-b">
                                           <th className="text-left py-1 px-2">Date</th>
                                           <th className="text-left py-1 px-2">Status</th>
                                           <th className="text-left py-1 px-2">Check-in</th>
@@ -1082,7 +1082,7 @@ export default function FinancePage() {
                                               <td className="py-1 px-2 text-slate-600">{fmtTime(a.check_out)}</td>
                                               <td className="py-1 px-2 text-slate-600">{a.hours_worked != null ? `${Number(a.hours_worked).toFixed(1)}h` : '—'}</td>
                                               <td className="py-1 px-2">
-                                                {a.is_late ? <span className="text-amber-600 font-medium">+{a.late_minutes ?? '?'}m</span> : <span className="text-slate-300">—</span>}
+                                                {a.is_late ? <span className="text-amber-700 font-medium">+{a.late_minutes ?? '?'}m</span> : <span className="text-slate-500">—</span>}
                                               </td>
                                               <td className="py-1 px-2 text-slate-600 capitalize">{a.work_location || 'office'}</td>
                                               <td className="py-1 px-2 text-slate-500 truncate max-w-[200px]" title={a.notes || ''}>{a.notes || '—'}</td>
@@ -1109,7 +1109,7 @@ export default function FinancePage() {
                   <p className="text-xs font-semibold text-slate-500 uppercase">Leave Requests</p>
                 </div>
                 {leaves.length === 0 ? (
-                  <div className="p-8 text-center text-sm text-slate-400">No leave requests for {monthLabel}</div>
+                  <div className="p-8 text-center text-sm text-slate-500">No leave requests for {monthLabel}</div>
                 ) : (
                   <table className="w-full text-sm">
                     <thead>
@@ -1237,7 +1237,7 @@ export default function FinancePage() {
                   <label className="text-xs text-slate-500 font-medium">Expected Start Time</label>
                   <input type="time" aria-label="Expected start time" value={editingMember.expectedStartTime} onChange={e => setEditingMember({ ...editingMember, expectedStartTime: e.target.value })}
                     className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
-                  <p className="text-[11px] text-slate-400 mt-1">Late detection compares check-in clock to this time.</p>
+                  <p className="text-[11px] text-slate-500 mt-1">Late detection compares check-in clock to this time.</p>
                 </div>
                 <div>
                   <label className="text-xs text-slate-500 font-medium">Annual leave balances</label>
@@ -1245,17 +1245,17 @@ export default function FinancePage() {
                     <div>
                       <input type="number" min="0" aria-label="Casual leave balance" value={editingMember.casualLeaveBalance} onChange={e => setEditingMember({ ...editingMember, casualLeaveBalance: e.target.value })}
                         className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" placeholder="Casual" />
-                      <p className="text-[11px] text-slate-400 mt-0.5 text-center">Casual</p>
+                      <p className="text-[11px] text-slate-500 mt-0.5 text-center">Casual</p>
                     </div>
                     <div>
                       <input type="number" min="0" aria-label="Sick leave balance" value={editingMember.sickLeaveBalance} onChange={e => setEditingMember({ ...editingMember, sickLeaveBalance: e.target.value })}
                         className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" placeholder="Sick" />
-                      <p className="text-[11px] text-slate-400 mt-0.5 text-center">Sick</p>
+                      <p className="text-[11px] text-slate-500 mt-0.5 text-center">Sick</p>
                     </div>
                     <div>
                       <input type="number" min="0" aria-label="Earned leave balance" value={editingMember.earnedLeaveBalance} onChange={e => setEditingMember({ ...editingMember, earnedLeaveBalance: e.target.value })}
                         className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" placeholder="Earned" />
-                      <p className="text-[11px] text-slate-400 mt-0.5 text-center">Earned</p>
+                      <p className="text-[11px] text-slate-500 mt-0.5 text-center">Earned</p>
                     </div>
                   </div>
                 </div>

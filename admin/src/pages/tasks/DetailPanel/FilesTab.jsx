@@ -207,9 +207,9 @@ export default function FilesTab({ task }) {
       )}
 
       {loading ? (
-        <p className="text-xs text-slate-400">Loading files…</p>
+        <p className="text-xs text-slate-500">Loading files…</p>
       ) : items.length === 0 ? (
-        <p className="text-xs text-slate-400 italic">No files yet.</p>
+        <p className="text-xs text-slate-500 italic">No files yet.</p>
       ) : (
         <div className="space-y-2">
           {items.map((att) => {

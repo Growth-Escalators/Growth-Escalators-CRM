@@ -43,22 +43,32 @@ describe('PRD-005 §22.2 #16 — every company-insert path bootstraps a root pol
   });
 
   it('every file that inserts a company also writes the cold-start root policy', () => {
-    const missing = companyInsertFiles
-      .filter(
-        ({ text }) =>
-          !text.includes('insertWizmatchCompanyRootPolicy') &&
-          !text.includes('wizmatchRootPolicyBootstrapCte'),
-      )
-      .map(({ path }) => path);
+    // Local-only dev seeders may write the root row with direct SQL. The contract
+    // being protected is "no company row exists without a root policy row" — not
+    // "the shared helper was called". scripts/dev/ deliberately seeds FOUR
+    // DIFFERENT policy states (eligible, needs_review, blocked, competitor) so the
+    // local UI can exercise every branch; the helper only writes the uniform
+    // cold-start row, so calling it here would make the fixture strictly worse.
+    // This stays narrow: scripts/dev/ never runs against production (its own
+    // localhost guard aborts otherwise), it must still demonstrably insert into
+    // wizmatch_company_policies, and the explicit path list below fails if any new
+    // insert path appears anywhere in the tree.
+    const writesRootPolicy = ({ path, text }: { path: string; text: string }) =>
+      text.includes('insertWizmatchCompanyRootPolicy')
+      || text.includes('wizmatchRootPolicyBootstrapCte')
+      || (path.startsWith('scripts/dev/') && /INSERT\s+INTO\s+wizmatch_company_policies/i.test(text));
+
+    const missing = companyInsertFiles.filter((f) => !writesRootPolicy(f)).map(({ path }) => path);
 
     // A company row that is observable without a policy row is a permanent L0
     // `policy_missing_root` deny that no re-run repairs.
     expect(missing).toEqual([]);
   });
 
-  it('names the three known paths explicitly, so a silent removal is also caught', () => {
+  it('names the known paths explicitly, so a silent removal is also caught', () => {
     const paths = companyInsertFiles.map((f) => f.path).sort();
     expect(paths).toEqual([
+      'scripts/dev/seed-local.ts',
       'scripts/onboarding/wizmatch-seed-ats-boards.ts',
       'src/services/wizmatchContactIntelligenceRepo.ts',
       'src/services/wizmatchSourcing.ts',

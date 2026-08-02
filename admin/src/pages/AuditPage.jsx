@@ -126,7 +126,7 @@ export default function AuditPage() {
             <input type="date" value={filters.from} onChange={e => { setFilters(f => ({...f, from: e.target.value})); setPage(1); }}
               aria-label="From date"
               className="text-sm border border-slate-200 rounded-lg px-3 py-1.5" />
-            <span className="text-slate-400 text-sm">to</span>
+            <span className="text-slate-600 text-sm">to</span>
             <input type="date" value={filters.to} onChange={e => { setFilters(f => ({...f, to: e.target.value})); setPage(1); }}
               aria-label="To date"
               className="text-sm border border-slate-200 rounded-lg px-3 py-1.5" />
@@ -164,12 +164,12 @@ export default function AuditPage() {
                       </td>
                       <td className="px-4 py-3 text-sm text-slate-500">
                         {evt.resource_type && <span className="capitalize">{evt.resource_type}</span>}
-                        {evt.resource_id && <span className="text-slate-400 ml-1 font-mono text-xs">{evt.resource_id.slice(0, 8)}</span>}
+                        {evt.resource_id && <span className="text-slate-600 ml-1 font-mono text-xs">{evt.resource_id.slice(0, 8)}</span>}
                       </td>
-                      <td className="px-4 py-3 text-xs text-slate-400 max-w-48 truncate">
+                      <td className="px-4 py-3 text-xs text-slate-600 max-w-48 truncate">
                         {evt.metadata && typeof evt.metadata === 'object' ? JSON.stringify(evt.metadata) : '—'}
                       </td>
-                      <td className="px-4 py-3 text-xs text-slate-400 font-mono">{evt.ip_address || '—'}</td>
+                      <td className="px-4 py-3 text-xs text-slate-600 font-mono">{evt.ip_address || '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -178,7 +178,7 @@ export default function AuditPage() {
               {/* Pagination */}
               {totalPages > 1 && (
                 <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-between">
-                  <p className="text-xs text-slate-400">Page {page} of {totalPages} ({total} events)</p>
+                  <p className="text-xs text-slate-600">Page {page} of {totalPages} ({total} events)</p>
                   <div className="flex gap-2">
                     <button onClick={() => setPage(p => Math.max(1, p-1))} disabled={page === 1}
                       aria-label="Previous page"

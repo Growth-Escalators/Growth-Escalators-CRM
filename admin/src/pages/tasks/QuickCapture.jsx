@@ -85,7 +85,7 @@ export default function QuickCapture({ onCreate, team = [] }) {
           className="flex-1 text-sm bg-transparent outline-none placeholder:text-slate-400"
           aria-label="Quick-capture new task"
         />
-        <kbd className="hidden sm:inline-flex items-center gap-0.5 text-[10px] text-slate-400 font-mono px-1.5 py-0.5 rounded border border-slate-200 bg-slate-50">
+        <kbd className="hidden sm:inline-flex items-center gap-0.5 text-[10px] text-slate-600 font-mono px-1.5 py-0.5 rounded border border-slate-200 bg-slate-50">
           ⌘K
         </kbd>
         {text && (
@@ -100,7 +100,7 @@ export default function QuickCapture({ onCreate, team = [] }) {
 
       {parsed && text && hasPreviewTokens && (
         <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg p-2 z-30">
-          <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold px-1 mb-1.5">Auto-detected</p>
+          <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold px-1 mb-1.5">Auto-detected</p>
           <div className="flex items-center gap-2 flex-wrap text-xs">
             <span className="font-medium text-slate-700">"{parsed.title || '…'}"</span>
             {parsed.priority && <PriorityChip priority={parsed.priority} />}
@@ -116,7 +116,7 @@ export default function QuickCapture({ onCreate, team = [] }) {
             {parsed.tags.map((tag) => (
               <span key={tag} className="px-1.5 py-px rounded bg-violet-50 text-violet-700">#{tag}</span>
             ))}
-            <span className="ml-auto text-[10px] text-slate-400">Enter ↵ to add</span>
+            <span className="ml-auto text-[10px] text-slate-500">Enter ↵ to add</span>
           </div>
         </div>
       )}

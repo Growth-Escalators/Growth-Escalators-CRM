@@ -389,7 +389,7 @@ export default function EmailTemplatesPage() {
               </div>
             ) : templates.length === 0 ? (
               <div className="p-6 text-center">
-                <p className="text-slate-400 text-sm">No templates yet</p>
+                <p className="text-slate-500 text-sm">No templates yet</p>
                 <button onClick={() => setShowNew(true)} className="mt-3 text-xs text-blue-600 font-medium">+ Create your first template</button>
               </div>
             ) : (
@@ -404,7 +404,7 @@ export default function EmailTemplatesPage() {
                   >
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-sm font-semibold text-slate-900 truncate">{t.displayName || t.name}</span>
-                      <span className="text-xs font-mono text-slate-400 ml-2 shrink-0">{t.brevoSynced ? '●' : '○'}</span>
+                      <span className="text-xs font-mono text-slate-600 ml-2 shrink-0">{t.brevoSynced ? '●' : '○'}</span>
                     </div>
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-xs font-medium px-1.5 py-0.5 rounded" style={{ color: tm.color, background: tm.bg }}>{tm.label}</span>
@@ -412,7 +412,7 @@ export default function EmailTemplatesPage() {
                         {t.brevoSynced ? `Brevo #${t.brevoTemplateId}` : 'Draft'}
                       </span>
                     </div>
-                    <p className="text-xs text-slate-400">{t.sentCount || 0} sent{t.openRate ? ` · ${(t.openRate * 100).toFixed(0)}% open` : ''}</p>
+                    <p className="text-xs text-slate-600">{t.sentCount || 0} sent{t.openRate ? ` · ${(t.openRate * 100).toFixed(0)}% open` : ''}</p>
                   </button>
                 );
               })
@@ -430,7 +430,7 @@ export default function EmailTemplatesPage() {
                 </svg>
               </div>
               <p className="text-slate-500 font-medium">Select a template to edit</p>
-              <p className="text-slate-400 text-sm mt-1">or create a new one</p>
+              <p className="text-slate-500 text-sm mt-1">or create a new one</p>
               <button onClick={() => setShowNew(true)}
                 className="mt-4 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg">
                 + Create your first template
@@ -447,7 +447,7 @@ export default function EmailTemplatesPage() {
                     onChange={(e) => { setForm((f) => ({ ...f, displayName: e.target.value })); setDirty(true); }}
                     className="text-xl font-bold text-slate-900 bg-transparent border-0 border-b-2 border-transparent hover:border-slate-200 focus:border-blue-400 focus:outline-none w-full pb-0.5"
                   />
-                  <p className="text-sm text-slate-400 mt-1">
+                  <p className="text-sm text-slate-500 mt-1">
                     {selected.brevoTemplateId ? `Brevo ID: ${selected.brevoTemplateId}` : 'Not synced to Brevo'}
                   </p>
                 </div>
@@ -570,7 +570,7 @@ export default function EmailTemplatesPage() {
               </div>
 
               {dirty && (
-                <div className="text-xs text-amber-600 text-center">You have unsaved changes</div>
+                <div className="text-xs text-amber-700 text-center">You have unsaved changes</div>
               )}
             </div>
           )}
