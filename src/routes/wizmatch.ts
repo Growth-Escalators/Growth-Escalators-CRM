@@ -2434,6 +2434,12 @@ class ContactCandidateReviewError extends Error {
  * gate-before-write ordering, same columns written, same tenant scoping —
  * rather than one drifting from the other.
  */
+// Statuses a contact candidate can still be reviewed FROM. Mirrors
+// CONTACT_AWAITING_REVIEW_STATES in decisionWorkbench.ts, which is what Today's
+// review queue selects — the two must agree, or the queue would offer a row the
+// write path then refuses.
+const CONTACT_REVIEWABLE_STATUSES = ['new', 'needs_review'];
+
 async function applyContactCandidateReview(input: {
   tenantId: string;
   userId: string | null;
@@ -2482,6 +2488,19 @@ async function applyContactCandidateReview(input: {
     }
   }
 
+  // COMPARE-AND-SET on status, not just (tenant_id, id).
+  //
+  // The transition above resolves from a HARDCODED `currentContactStatus:
+  // 'needs_review'` — it never reads the row's real status — and this UPDATE
+  // used to match on id alone. So re-reviewing an already-decided candidate
+  // succeeded and silently overwrote `status`, `reviewed_by`, `reviewed_at` and
+  // `rejection_reason`: the earlier decision and the person who made it were
+  // lost with no error.
+  //
+  // Survivable while this was one row per click. It is not survivable now that
+  // Today exposes a BULK approve/reject over the same service — one click could
+  // overwrite up to 200 prior decisions. The predicate makes the hardcoded
+  // assumption above actually true instead of merely assumed.
   const result = await pool.query(
     `UPDATE wizmatch_contact_candidates
      SET status = $1,
@@ -2492,11 +2511,19 @@ async function applyContactCandidateReview(input: {
          rejection_reason = $3,
          updated_at = NOW()
      WHERE tenant_id = $4 AND id = $5
+       AND status = ANY($6::text[])
      RETURNING company_id`,
-    [transition.nextContactStatus, userId, rejectionReason, tenantId, candidateId],
+    [transition.nextContactStatus, userId, rejectionReason, tenantId, candidateId, CONTACT_REVIEWABLE_STATUSES],
   );
   if (result.rows.length === 0) {
-    throw new ContactCandidateReviewError(404, { error: 'Contact candidate not found' }, 'Contact candidate not found');
+    // Zero rows means either "no such candidate" or "already decided". The
+    // SELECT above already proved it exists and is in this tenant, so at this
+    // point it can only be the latter — report that rather than a misleading 404.
+    throw new ContactCandidateReviewError(
+      409,
+      { error: 'Contact candidate has already been reviewed', code: 'already_reviewed' },
+      'Contact candidate has already been reviewed',
+    );
   }
   return { transition, companyId: result.rows[0].company_id };
 }

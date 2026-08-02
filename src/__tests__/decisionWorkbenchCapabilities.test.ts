@@ -12,6 +12,8 @@ import type { DecisionWorkbenchCompanyItem } from '../modules/outreach/decisionW
 import {
   computeTodayActionCapabilities,
   computeBulkCapability,
+  computeSignalActionCapabilities,
+  computeContactActionCapabilities,
 } from '../modules/outreach/decisionWorkbenchCapabilities';
 
 function item(overrides: Partial<DecisionWorkbenchCompanyItem> = {}): DecisionWorkbenchCompanyItem {
@@ -227,4 +229,100 @@ describe('bulk capability — admin-only, whatever the single-row answer is', ()
     expect(computeBulkCapability('admin')).toEqual({ enabled: true, reason: null });
     expect(computeTodayActionCapabilities(item(), 'admin', 'bulk').approve_queue.enabled).toBe(true);
   });
+});
+
+// The two sibling predictors for the queues that do NOT go through
+// /today/actions. They mirror `allowBulkRole` in src/routes/wizmatch.ts (the
+// same >1 ⇒ admin split) plus a terminal-status deny per surface.
+describe('computeSignalActionCapabilities', () => {
+  const signal = (status: string) => ({ status });
+
+  it.each(['admin', 'team_lead'])('role %s may qualify and reject a signal awaiting a decision', (role) => {
+    for (const status of ['new', 'scored', 'enriched']) {
+      const caps = computeSignalActionCapabilities(signal(status), role, 'single');
+      expect(caps.qualify, `${role}/${status}`).toEqual({ enabled: true, reason: null });
+      expect(caps.reject).toEqual({ enabled: true, reason: null });
+    }
+  });
+
+  it.each(['manager_ops', 'sales', 'staff', 'viewer', undefined])('reader role %s sees no signal action at all', (role) => {
+    const caps = computeSignalActionCapabilities(signal('new'), role, 'single');
+    for (const action of ['qualify', 'reject'] as const) {
+      expect(caps[action].enabled, String(role)).toBe(false);
+      expect(caps[action].reason).toBe('This action requires team_lead or admin.');
+    }
+  });
+
+  // >1 target is a bulk action server-side whatever it is named, so a
+  // team_lead selecting two signals must be told that BEFORE clicking.
+  it('a team_lead may act on one signal but not on a selection (the >1 ⇒ admin split)', () => {
+    expect(computeSignalActionCapabilities(signal('new'), 'team_lead', 'single').qualify.enabled).toBe(true);
+    const bulk = computeSignalActionCapabilities(signal('new'), 'team_lead', 'bulk');
+    expect(bulk.qualify).toEqual({ enabled: false, reason: 'Bulk actions require admin.' });
+    expect(computeSignalActionCapabilities(signal('new'), 'admin', 'bulk').qualify.enabled).toBe(true);
+  });
+
+  // `qualifySignalAndCreatePocTask` refuses these itself (`status NOT IN
+  // ('dead','placed')`); `rejectSignal` does NOT, and would overwrite a
+  // `placed` signal with `dead`. Both are denied here.
+  it.each(['dead', 'placed'])('a %s signal is terminal — neither action is offered, to ANY role', (status) => {
+    for (const role of ['admin', 'team_lead']) {
+      const caps = computeSignalActionCapabilities(signal(status), role, 'single');
+      for (const action of ['qualify', 'reject'] as const) {
+        expect(caps[action].enabled, `${role}/${status}/${action}`).toBe(false);
+        expect(caps[action].reason).toContain(status);
+      }
+    }
+  });
+
+  // The terminal list must not swallow the in-flight states, which are still
+  // decidable — a `sent` signal can still be rejected.
+  it.each(['drafted', 'sent', 'matched', 'replied_positive'])('an in-flight %s signal is still actionable', (status) => {
+    expect(computeSignalActionCapabilities(signal(status), 'admin', 'single').reject.enabled).toBe(true);
+  });
+});
+
+describe('computeContactActionCapabilities', () => {
+  const contact = (status: string) => ({ status });
+
+  it.each(['admin', 'team_lead'])('role %s may approve and reject a candidate awaiting review', (role) => {
+    for (const status of ['new', 'needs_review']) {
+      const caps = computeContactActionCapabilities(contact(status), role, 'single');
+      expect(caps.approve, `${role}/${status}`).toEqual({ enabled: true, reason: null });
+      expect(caps.reject).toEqual({ enabled: true, reason: null });
+    }
+  });
+
+  it.each(['manager_ops', 'sales', 'staff', 'viewer', undefined])('reader role %s sees no contact action at all', (role) => {
+    const caps = computeContactActionCapabilities(contact('needs_review'), role, 'single');
+    for (const action of ['approve', 'reject'] as const) {
+      expect(caps[action].enabled, String(role)).toBe(false);
+      expect(caps[action].reason).toBe('This action requires team_lead or admin.');
+    }
+  });
+
+  it('a team_lead may review one contact but not a selection (the >1 ⇒ admin split)', () => {
+    expect(computeContactActionCapabilities(contact('needs_review'), 'team_lead', 'single').approve.enabled).toBe(true);
+    expect(computeContactActionCapabilities(contact('needs_review'), 'team_lead', 'bulk').approve)
+      .toEqual({ enabled: false, reason: 'Bulk actions require admin.' });
+    expect(computeContactActionCapabilities(contact('needs_review'), 'admin', 'bulk').approve.enabled).toBe(true);
+  });
+
+  // `applyContactCandidateReview` resolves its transition from a HARDCODED
+  // `currentContactStatus: 'needs_review'` and updates on (tenant_id, id)
+  // alone, so the server would happily let a second review overwrite the
+  // first one's decision and reviewer. This deny is the only thing between an
+  // operator and that overwrite.
+  it.each(['approved', 'rejected', 'do_not_contact', 'linked_to_crm'])(
+    'a %s candidate has already been decided — neither action is offered, to ANY role',
+    (status) => {
+      for (const role of ['admin', 'team_lead']) {
+        const caps = computeContactActionCapabilities(contact(status), role, 'single');
+        for (const action of ['approve', 'reject'] as const) {
+          expect(caps[action].enabled, `${role}/${status}/${action}`).toBe(false);
+          expect(caps[action].reason).toContain('already reviewed');
+        }
+      }
+    },
+  );
 });

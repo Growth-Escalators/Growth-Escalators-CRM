@@ -63,7 +63,7 @@ function CreateTemplateModal({ onClose, onCreated }) {
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b">
           <h2 className="text-lg font-semibold text-slate-900">Create Template</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-700">✕</button>
         </div>
         <div className="p-5 space-y-4">
           {error && <div className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{error}</div>}
@@ -74,7 +74,7 @@ function CreateTemplateModal({ onClose, onCreated }) {
               placeholder="e.g. welcome_new_client"
               value={form.templateName}
               onChange={e => setForm(f => ({ ...f, templateName: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') }))} />
-            <p className="text-xs text-slate-400 mt-1">Lowercase, numbers, underscores only</p>
+            <p className="text-xs text-slate-500 mt-1">Lowercase, numbers, underscores only</p>
           </div>
 
           <div>
@@ -94,7 +94,7 @@ function CreateTemplateModal({ onClose, onCreated }) {
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="block text-xs font-medium text-slate-700">Message Body *</label>
-              <span className={`text-xs ${form.body.length > 1024 ? 'text-red-500 font-medium' : 'text-slate-400'}`}>
+              <span className={`text-xs ${form.body.length > 1024 ? 'text-red-600 font-medium' : 'text-slate-500'}`}>
                 {form.body.length} / 1024
               </span>
             </div>
@@ -103,7 +103,7 @@ function CreateTemplateModal({ onClose, onCreated }) {
               placeholder="Hi {{firstName}}, welcome to..."
               value={form.body}
               onChange={e => setForm(f => ({ ...f, body: e.target.value }))} />
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-xs text-slate-500 mt-1">
               Use {'{{variableName}}'} for dynamic content
             </p>
           </div>
@@ -222,9 +222,9 @@ export default function WhatsAppTemplatesPage() {
         </div>
 
         {loading ? (
-          <div className="text-center py-16 text-slate-400">Loading...</div>
+          <div className="text-center py-16 text-slate-500">Loading...</div>
         ) : filtered.length === 0 ? (
-          <div className="text-center py-16 text-slate-400">No templates found</div>
+          <div className="text-center py-16 text-slate-500">No templates found</div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {filtered.map(t => {
@@ -235,7 +235,7 @@ export default function WhatsAppTemplatesPage() {
                   <div className="flex items-start justify-between mb-3">
                     <div>
                       <h3 className="text-sm font-semibold text-slate-800 font-mono">{t.template_name || t.templateName}</h3>
-                      {t.description && <p className="text-xs text-slate-400 mt-0.5">{t.description}</p>}
+                      {t.description && <p className="text-xs text-slate-500 mt-0.5">{t.description}</p>}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${CATEGORY_BADGE[t.category] || 'bg-slate-100 text-slate-600'}`}>
@@ -253,7 +253,7 @@ export default function WhatsAppTemplatesPage() {
                       {highlightVars(t.body)}
                     </div>
                   ) : (
-                    <div className="bg-slate-50 rounded-lg p-3 text-sm text-slate-400 italic flex-1 border border-slate-100">
+                    <div className="bg-slate-50 rounded-lg p-3 text-sm text-slate-600 italic flex-1 border border-slate-100">
                       No message body available
                     </div>
                   )}
@@ -262,9 +262,9 @@ export default function WhatsAppTemplatesPage() {
                   <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
                     <div className="flex items-center gap-2">
                       {vars.length > 0 && (
-                        <span className="text-xs text-slate-400">
+                        <span className="text-xs text-slate-500">
                           {vars.length} variable{vars.length !== 1 ? 's' : ''}: {vars.map(v => (
-                            <span key={v} className="font-mono text-amber-600">{v}</span>
+                            <span key={v} className="font-mono text-amber-700">{v}</span>
                           )).reduce((a, b, i) => i === 0 ? [b] : [...a, ', ', b], [])}
                         </span>
                       )}

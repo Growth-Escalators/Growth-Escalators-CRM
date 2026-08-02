@@ -142,7 +142,7 @@ export default function Column({
                   >
                     Cancel
                   </button>
-                  <span className="text-[10px] text-slate-400 ml-auto">↵ to add</span>
+                  <span className="text-[10px] text-slate-600 ml-auto">↵ to add</span>
                 </div>
               </form>
             )}
@@ -151,7 +151,7 @@ export default function Column({
               <button
                 type="button"
                 onClick={() => setAdding(true)}
-                className="w-full text-xs text-slate-400 hover:text-slate-600 hover:bg-white border border-dashed border-slate-200 hover:border-slate-300 rounded-lg py-3 italic"
+                className="w-full text-xs text-slate-600 hover:text-slate-700 hover:bg-white border border-dashed border-slate-200 hover:border-slate-300 rounded-lg py-3 italic"
               >
                 Drop a task or + add
               </button>
@@ -161,7 +161,7 @@ export default function Column({
               <button
                 type="button"
                 onClick={() => setAdding(true)}
-                className="w-full text-xs text-slate-400 hover:text-slate-600 hover:bg-white border border-dashed border-transparent hover:border-slate-200 rounded-lg py-1.5"
+                className="w-full text-xs text-slate-600 hover:text-slate-700 hover:bg-white border border-dashed border-transparent hover:border-slate-200 rounded-lg py-1.5"
               >
                 + Add task
               </button>

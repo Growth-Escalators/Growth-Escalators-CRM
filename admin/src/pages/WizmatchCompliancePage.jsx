@@ -45,16 +45,18 @@ function AddSuppressionForm({ onAdded }) {
         <input
           type="email"
           required
+          aria-label="Email address to suppress"
           placeholder="Email address *"
           value={form.email}
           onChange={e => setForm({ ...form, email: e.target.value })}
           className="input sm:col-span-2"
         />
-        <select value={form.reason} onChange={e => setForm({ ...form, reason: e.target.value })} className="input">
+        <select aria-label="Suppression reason" value={form.reason} onChange={e => setForm({ ...form, reason: e.target.value })} className="input">
           {REASON_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
         </select>
         <input
           type="text"
+          aria-label="Source channel"
           placeholder="Source channel"
           value={form.source_channel}
           onChange={e => setForm({ ...form, source_channel: e.target.value })}
@@ -63,6 +65,7 @@ function AddSuppressionForm({ onAdded }) {
       </div>
       <input
         type="text"
+        aria-label="Notes"
         placeholder="Notes (optional)"
         value={form.notes}
         onChange={e => setForm({ ...form, notes: e.target.value })}
@@ -99,7 +102,7 @@ export default function WizmatchCompliancePage() {
       <h1 className="text-[20px] font-bold text-neutral-900 mb-6">Compliance Log</h1>
       <AddSuppressionForm onAdded={load} />
       <div className="mb-4 flex gap-3 items-center">
-        <select value={filters.reason} onChange={e => setFilters({ reason: e.target.value })} className="input w-auto">
+        <select aria-label="Filter by reason" value={filters.reason} onChange={e => setFilters({ reason: e.target.value })} className="input w-auto">
           <option value="">All Reasons</option>
           <option value="unsubscribe">Unsubscribe</option>
           <option value="hard_bounce">Hard Bounce</option>

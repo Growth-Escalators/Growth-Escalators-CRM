@@ -500,7 +500,7 @@ export default function WizmatchSignalsPage() {
                 <h2 className="text-[18px] font-bold text-neutral-900">{selectedSignal.job_title}</h2>
                 <p className="text-[12.5px] text-neutral-500">{selectedSignal.company_name || 'Unknown'} · {selectedSignal.location || '—'}</p>
               </div>
-              <button onClick={() => setSelectedSignal(null)} className="text-neutral-500 hover:text-neutral-600">
+              <button onClick={() => setSelectedSignal(null)} aria-label="Close" className="text-neutral-500 hover:text-neutral-600">
                 <X className="w-5 h-5" />
               </button>
             </div>

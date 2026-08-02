@@ -42,6 +42,20 @@ const fixtures = vi.hoisted(() => ({
   // exact defect class flagged repeatedly in this project's PR reviews).
   // Empty by default; a test opts in explicitly.
   narrowerNonOverridableRows: [] as unknown[],
+  // `fetchContactsAwaitingReview` queries `wizmatchContactCandidates` a SECOND
+  // time with a different projection (candidateId/name/email/status) and a
+  // different predicate (status in new|needs_review, no company filter). Same
+  // mock-vacuity trap as the two policy queries above: returning `contactRows`
+  // for both would make every confidence fixture double as a review-queue
+  // fixture, so a dropped status predicate would stay green.
+  contactReviewRows: [] as unknown[],
+  contactReviewShouldFail: false,
+  // `wizmatch_job_signals` has no Drizzle table object, so the signals queue
+  // and the companies-without-policy disclosure go through `pool` directly.
+  signalRows: [] as Record<string, unknown>[],
+  signalsShouldFail: false,
+  companiesWithoutPolicy: 0,
+  companiesWithoutPolicyShouldFail: false,
 }));
 
 /**
@@ -55,6 +69,8 @@ const fixtures = vi.hoisted(() => ({
  * predicate is now captured so a test can assert on it.
  */
 const capturedWhere: unknown[] = [];
+/** Same reasoning as `capturedWhere`, for ORDER BY: the fetch order is a SAMPLING decision (it selects which rows the LIMIT returns at all), so dropping it must be observable. */
+const capturedOrderBy: unknown[] = [];
 
 function makeChain(rows: unknown[], captureKey?: string) {
   const chain: Record<string, unknown> = {
@@ -65,9 +81,26 @@ function makeChain(rows: unknown[], captureKey?: string) {
       if (captureKey) capturedWhere.push({ key: captureKey, condition });
       return chain;
     },
-    orderBy: () => chain,
+    orderBy: (...args: unknown[]) => {
+      if (captureKey) capturedOrderBy.push({ key: captureKey, args });
+      return chain;
+    },
     limit: () => Promise.resolve(rows),
     then: (resolve: (v: unknown) => unknown) => resolve(rows),
+  };
+  return chain;
+}
+
+/** A chain whose await REJECTS — proves a queue that failed is reported as unavailable rather than rendering as an empty (i.e. finished) queue. */
+function makeFailingChain(message: string) {
+  const chain: Record<string, unknown> = {
+    from: () => chain,
+    innerJoin: () => chain,
+    leftJoin: () => chain,
+    where: () => chain,
+    orderBy: () => chain,
+    limit: () => Promise.reject(new Error(message)),
+    then: (_resolve: unknown, reject: (e: unknown) => unknown) => reject(new Error(message)),
   };
   return chain;
 }
@@ -88,11 +121,31 @@ vi.mock('../db', async (importOriginal) => {
               : makeChain(fixtures.narrowerNonOverridableRows, 'narrowerNonOverridable');
           }
           if (table === actual.wizmatchCompanyDuplicates) return makeChain(fixtures.duplicateRows);
-          if (table === actual.wizmatchContactCandidates) return makeChain(fixtures.contactRows);
+          if (table === actual.wizmatchContactCandidates) {
+            if (!('candidateId' in projection)) return makeChain(fixtures.contactRows);
+            return fixtures.contactReviewShouldFail
+              ? makeFailingChain('contacts-to-review query failed')
+              : makeChain(fixtures.contactReviewRows);
+          }
           if (table === actual.wizmatchOutreachEnrolments) return makeChain(fixtures.enrolmentRows);
           return makeChain([]);
         },
       }),
+    },
+    // Routed by SQL text, not call order: `buildTodayQueues` issues both of
+    // these and a positional mock would silently swap them.
+    pool: {
+      query: async (text: string) => {
+        if (String(text).includes('wizmatch_job_signals')) {
+          if (fixtures.signalsShouldFail) throw new Error('signals query failed');
+          return { rows: fixtures.signalRows };
+        }
+        if (String(text).includes('NOT EXISTS')) {
+          if (fixtures.companiesWithoutPolicyShouldFail) throw new Error('count failed');
+          return { rows: [{ count: fixtures.companiesWithoutPolicy }] };
+        }
+        throw new Error(`unexpected pool query in test: ${String(text).slice(0, 80)}`);
+      },
     },
   };
 });
@@ -114,18 +167,32 @@ function companyRow(overrides: Record<string, unknown> = {}) {
     reviewDate: null,
     policyReasonCode: 'policy_unknown_cold_start',
     policyScopeKey: 'entire_company',
+    policyCreatedAt: new Date('2026-01-01T00:00:00Z'),
     ...overrides,
   };
 }
 
 beforeEach(() => {
+  // The malformed-row case below installs a `vi.spyOn` on
+  // `resolveCanonicalCompanyEligibilityBatch` that resolves ONLY `fine-1`.
+  // Without this restore that spy leaks into every test declared after it —
+  // which is invisible while those tests happen not to use companies, and
+  // silently empties every company queue for any test added later.
+  vi.restoreAllMocks();
   eligibilityByCompany.clear();
   fixtures.companyRows = [];
   fixtures.duplicateRows = [];
   fixtures.contactRows = [];
   fixtures.enrolmentRows = [];
   fixtures.narrowerNonOverridableRows = [];
+  fixtures.contactReviewRows = [];
+  fixtures.contactReviewShouldFail = false;
+  fixtures.signalRows = [];
+  fixtures.signalsShouldFail = false;
+  fixtures.companiesWithoutPolicy = 0;
+  fixtures.companiesWithoutPolicyShouldFail = false;
   capturedWhere.length = 0;
+  capturedOrderBy.length = 0;
 });
 
 describe('buildTodayQueues — bucket assignment', () => {
@@ -753,6 +820,322 @@ describe('buildTodayQueues — Replies Needing Action', () => {
     expect(queues.repliesNeedingAction).toHaveLength(1);
     expect(queues.repliesNeedingAction[0].companyName).toBe('Reply Co');
     expect(queues.counts.repliesNeedingAction).toBe(1);
+  });
+});
+
+/** Collects every literal SQL fragment from a Drizzle `sql` template (StringChunk carries `value: string[]`). Skips `table` for the same circular-reference reason as `collectColumnNames`. */
+function collectSqlText(node: unknown, seen = new Set<unknown>(), out: string[] = []): string[] {
+  if (!node || typeof node !== 'object' || seen.has(node)) return out;
+  seen.add(node);
+  const record = node as Record<string, unknown>;
+  if (Array.isArray(record.value) && record.value.every((v) => typeof v === 'string')) {
+    out.push(...(record.value as string[]));
+  }
+  for (const [key, value] of Object.entries(record)) {
+    if (key === 'table') continue;
+    if (Array.isArray(value)) value.forEach((v) => collectSqlText(v, seen, out));
+    else if (value && typeof value === 'object') collectSqlText(value, seen, out);
+  }
+  return out;
+}
+
+// The root-policy fetch ends in `LIMIT n`, so its ORDER BY decides WHICH
+// companies are returned at all, not merely in what order they are shown. With
+// `created_at DESC` alone the LIMIT sampled "the companies whose policy I
+// edited most recently", and a company whose review date came due today could
+// be absent from the response entirely — a defect no JS-side sort can repair,
+// because the row was never fetched.
+describe('buildTodayQueues — the root-policy fetch order (a sampling decision, not a display one)', () => {
+  it('orders by review_date ASC NULLS LAST before created_at DESC', async () => {
+    fixtures.companyRows = [companyRow({ companyId: 'c1' })];
+    eligibilityByCompany.set('c1', { decision: 'review', reasonCode: null, blockerCode: null, enforcementMode: 'shadow', actsOnDecision: false });
+
+    await buildTodayQueues('tenant-1');
+
+    const captured = capturedOrderBy.filter((c) => (c as { key: string }).key === 'rootPolicies');
+    expect(captured).toHaveLength(1);
+    const args = (captured[0] as { args: unknown[] }).args;
+    const columns = collectColumnNames(args);
+    expect(columns, 'the fetch must be ordered by review_date, or due work can fall outside the LIMIT').toContain('review_date');
+    expect(columns, 'created_at must remain the tiebreak so existing ordering is preserved').toContain('created_at');
+    expect(collectSqlText(args).join(' ').toLowerCase())
+      .toMatch(/asc\s+nulls\s+last/);
+  });
+});
+
+// Display order, applied AFTER the bucketing chain. These assertions are about
+// which item comes FIRST inside a queue — never about which queue it lands in,
+// which the chain alone decides.
+describe('buildTodayQueues — per-queue display order', () => {
+  const allow = (extra: Record<string, unknown> = {}) => ({
+    decision: 'allow', reasonCode: null, blockerCode: null, enforcementMode: 'shadow', actsOnDecision: false,
+    recommendedRoute: 'standard_outreach', accountOwnerUserId: null, ...extra,
+  });
+
+  it('readyToContact leads with the longest-waiting row', async () => {
+    fixtures.companyRows = [
+      companyRow({ companyId: 'new', outreachEligibility: 'eligible', policyCreatedAt: new Date('2026-06-01T00:00:00Z') }),
+      companyRow({ companyId: 'old', outreachEligibility: 'eligible', policyCreatedAt: new Date('2026-01-01T00:00:00Z') }),
+    ];
+    fixtures.contactRows = [
+      { companyId: 'new', confidenceScore: 9, metadata: { raw: { confidenceTier: 'high' } } },
+      { companyId: 'old', confidenceScore: 9, metadata: { raw: { confidenceTier: 'high' } } },
+    ];
+    for (const id of ['new', 'old']) eligibilityByCompany.set(id, allow());
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.readyToContact.map((i) => i.companyId)).toEqual(['old', 'new']);
+  });
+
+  // Pins the invariant that makes a contact-confidence sort key on
+  // readyToContact dead code: the only branch that pushes into this queue is
+  // `contactConfidenceTier === 'high'`. If the chain is ever widened to admit
+  // `medium`, this fails and the ordering comment must be revisited with it.
+  it('every readyToContact row is high-confidence, so the queue is homogeneous by construction', async () => {
+    fixtures.companyRows = [
+      companyRow({ companyId: 'hi', outreachEligibility: 'eligible' }),
+      companyRow({ companyId: 'mid', outreachEligibility: 'eligible' }),
+      companyRow({ companyId: 'none', outreachEligibility: 'eligible' }),
+    ];
+    fixtures.contactRows = [
+      { companyId: 'hi', confidenceScore: 9, metadata: { raw: { confidenceTier: 'high' } } },
+      { companyId: 'mid', confidenceScore: 6, metadata: { raw: { confidenceTier: 'medium' } } },
+    ];
+    for (const id of ['hi', 'mid', 'none']) eligibilityByCompany.set(id, allow());
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.readyToContact.map((i) => i.companyId)).toEqual(['hi']);
+    expect(queues.readyToContact.every((i) => i.contactConfidenceTier === 'high')).toBe(true);
+    expect(queues.needsReview.map((i) => i.companyId).sort()).toEqual(['mid', 'none']);
+  });
+
+  it('needsReview leads with pending duplicates, then rows whose review date has arrived', async () => {
+    fixtures.companyRows = [
+      companyRow({ companyId: 'plain' }),
+      companyRow({ companyId: 'due', outreachEligibility: 'paused', reviewDate: '2020-01-01' }),
+      companyRow({ companyId: 'dup' }),
+    ];
+    fixtures.duplicateRows = [{ id: 'duplicate-1', companyAId: 'dup', companyBId: 'other' }];
+    eligibilityByCompany.set('plain', allow({ decision: 'review' }));
+    eligibilityByCompany.set('dup', allow({ decision: 'review' }));
+    eligibilityByCompany.set('due', {
+      decision: 'deny', reasonCode: 'policy_paused_by_owner', blockerCode: null,
+      enforcementMode: 'enforce', actsOnDecision: true, recommendedRoute: 'standard_outreach', accountOwnerUserId: null,
+    });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.needsReview.map((i) => i.companyId)).toEqual(['dup', 'due', 'plain']);
+  });
+
+  it('pausedOrBlocked leads with the soonest review date and puts undated rows last', async () => {
+    fixtures.companyRows = [
+      companyRow({ companyId: 'undated', outreachEligibility: 'blocked', reviewDate: null }),
+      companyRow({ companyId: 'far', outreachEligibility: 'blocked', reviewDate: '2099-12-31' }),
+      companyRow({ companyId: 'near', outreachEligibility: 'blocked', reviewDate: '2027-01-01' }),
+    ];
+    for (const id of ['undated', 'far', 'near']) {
+      eligibilityByCompany.set(id, {
+        decision: 'deny', reasonCode: 'manual_block_by_operator', blockerCode: null,
+        enforcementMode: 'enforce', actsOnDecision: true, recommendedRoute: 'standard_outreach', accountOwnerUserId: null,
+      });
+    }
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.pausedOrBlocked.map((i) => i.companyId)).toEqual(['near', 'far', 'undated']);
+  });
+
+  it('routed leads with UNASSIGNED rows — an owned routed row has no primary action at all', async () => {
+    fixtures.companyRows = [
+      companyRow({ companyId: 'owned', outreachEligibility: 'eligible' }),
+      companyRow({ companyId: 'unowned', outreachEligibility: 'eligible' }),
+    ];
+    eligibilityByCompany.set('owned', allow({ recommendedRoute: 'account_owner', accountOwnerUserId: 'user-42' }));
+    eligibilityByCompany.set('unowned', allow({ recommendedRoute: 'account_owner', accountOwnerUserId: null }));
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.routed.map((i) => i.companyId)).toEqual(['unowned', 'owned']);
+  });
+
+  it('the display sorts never move a row between queues (the bucketing chain still decides)', async () => {
+    fixtures.companyRows = [
+      companyRow({ companyId: 'ready', outreachEligibility: 'eligible', policyCreatedAt: new Date('2026-06-01T00:00:00Z') }),
+      companyRow({ companyId: 'blocked', outreachEligibility: 'blocked', reviewDate: '2020-01-01' }),
+    ];
+    fixtures.contactRows = [{ companyId: 'ready', confidenceScore: 9, metadata: { raw: { confidenceTier: 'high' } } }];
+    eligibilityByCompany.set('ready', allow());
+    eligibilityByCompany.set('blocked', {
+      decision: 'deny', reasonCode: 'manual_block_by_operator', blockerCode: null,
+      enforcementMode: 'enforce', actsOnDecision: true, recommendedRoute: 'standard_outreach', accountOwnerUserId: null,
+    });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.readyToContact.map((i) => i.companyId)).toEqual(['ready']);
+    expect(queues.pausedOrBlocked.map((i) => i.companyId)).toEqual(['blocked']);
+  });
+});
+
+describe('buildTodayQueues — signals to qualify', () => {
+  const signalRow = (overrides: Record<string, unknown> = {}) => ({
+    id: 'signal-1',
+    job_title: 'Senior Java Engineer',
+    company_id: 'company-9',
+    status: 'scored',
+    score: 8,
+    location: 'Bengaluru',
+    source: 'theirstack',
+    days_open: 3,
+    created_at: new Date('2026-07-20T00:00:00Z'),
+    company_name: 'Acme Staffing',
+    company_domain: 'acme.example',
+    ...overrides,
+  });
+
+  it('surfaces awaiting-qualification signals with a `signal` kind and counts them', async () => {
+    fixtures.signalRows = [signalRow()];
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.signalsToQualify).toHaveLength(1);
+    expect(queues.signalsToQualify[0]).toMatchObject({
+      kind: 'signal',
+      signalId: 'signal-1',
+      jobTitle: 'Senior Java Engineer',
+      companyName: 'Acme Staffing',
+      status: 'scored',
+      score: 8,
+    });
+    expect(queues.counts.signalsToQualify).toBe(1);
+  });
+
+  it('queries only the statuses that still await a human decision', async () => {
+    const { SIGNAL_AWAITING_QUALIFICATION_STATES } = await import('../modules/outreach/decisionWorkbench');
+    expect([...SIGNAL_AWAITING_QUALIFICATION_STATES].sort()).toEqual(['enriched', 'new', 'scored']);
+    // Terminal and in-flight states must never appear: a `dead`/`placed`
+    // signal is decided, and a `sent`/`drafted` one is outreach in flight.
+    for (const state of ['dead', 'placed', 'drafted', 'sent', 'matched', 'replied_positive']) {
+      expect(SIGNAL_AWAITING_QUALIFICATION_STATES).not.toContain(state);
+    }
+  });
+
+  it('reports a FAILED signals query as unavailable — an empty queue must never read as "nothing to qualify"', async () => {
+    fixtures.signalsShouldFail = true;
+    fixtures.companyRows = [companyRow({ companyId: 'c1' })];
+    eligibilityByCompany.set('c1', { decision: 'review', reasonCode: null, blockerCode: null, enforcementMode: 'shadow', actsOnDecision: false });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.signalsToQualify).toEqual([]);
+    expect(queues.partial.signalsUnavailable).toBe(true);
+    // ...and it does not take the other queues down with it.
+    expect(queues.needsReview).toHaveLength(1);
+  });
+
+  it('flags truncation rather than silently dropping the overflow', async () => {
+    fixtures.signalRows = [signalRow({ id: 's1' }), signalRow({ id: 's2' }), signalRow({ id: 's3' })];
+
+    const queues = await buildTodayQueues('tenant-1', 2);
+    expect(queues.signalsToQualify.map((i) => i.signalId)).toEqual(['s1', 's2']);
+    expect(queues.partial.signalsTruncated).toBe(true);
+  });
+});
+
+describe('buildTodayQueues — contacts to review', () => {
+  const contactReviewRow = (overrides: Record<string, unknown> = {}) => ({
+    candidateId: 'candidate-1',
+    companyId: 'company-9',
+    name: 'Priya Sharma',
+    title: 'Head of Talent',
+    email: 'priya@acme.example',
+    status: 'needs_review',
+    confidenceScore: 6,
+    metadata: {},
+    createdAt: new Date('2026-07-20T00:00:00Z'),
+    companyName: 'Acme Staffing',
+    ...overrides,
+  });
+
+  it('surfaces awaiting-review candidates with a `contact` kind and counts them', async () => {
+    fixtures.contactReviewRows = [contactReviewRow()];
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.contactsToReview).toHaveLength(1);
+    expect(queues.contactsToReview[0]).toMatchObject({
+      kind: 'contact',
+      candidateId: 'candidate-1',
+      name: 'Priya Sharma',
+      companyName: 'Acme Staffing',
+      status: 'needs_review',
+    });
+    expect(queues.counts.contactsToReview).toBe(1);
+  });
+
+  // Same `metadata.raw` trap `fetchBestContactConfidenceByCompany` already
+  // shipped once: a tier stored at the top level is NOT where the discovery
+  // cascade writes it and must not be treated as authoritative.
+  it('reads the stored confidence tier from metadata.raw, not from metadata', async () => {
+    fixtures.contactReviewRows = [
+      contactReviewRow({ candidateId: 'stored', confidenceScore: 6, metadata: { raw: { confidenceTier: 'high' } } }),
+      contactReviewRow({ candidateId: 'wrong-level', confidenceScore: 6, metadata: { confidenceTier: 'high' } }),
+    ];
+
+    const queues = await buildTodayQueues('tenant-1');
+    const byId = new Map(queues.contactsToReview.map((i) => [i.candidateId, i]));
+    expect(byId.get('stored')!.confidenceTier).toBe('high');
+    expect(byId.get('wrong-level')!.confidenceTier).toBe('medium');
+  });
+
+  it('only awaits-review statuses are queried', async () => {
+    const { CONTACT_AWAITING_REVIEW_STATES } = await import('../modules/outreach/decisionWorkbench');
+    expect([...CONTACT_AWAITING_REVIEW_STATES].sort()).toEqual(['needs_review', 'new']);
+    for (const state of ['approved', 'rejected', 'do_not_contact', 'linked_to_crm']) {
+      expect(CONTACT_AWAITING_REVIEW_STATES).not.toContain(state);
+    }
+  });
+
+  it('reports a FAILED contacts query as unavailable — an empty queue must never read as "nothing to review"', async () => {
+    fixtures.contactReviewShouldFail = true;
+    fixtures.signalRows = [{
+      id: 'signal-1', job_title: 'X', company_id: null, status: 'new', score: null,
+      location: null, source: null, days_open: null, created_at: null, company_name: null, company_domain: null,
+    }];
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.contactsToReview).toEqual([]);
+    expect(queues.partial.contactsUnavailable).toBe(true);
+    // ...and the sibling queue is unaffected.
+    expect(queues.signalsToQualify).toHaveLength(1);
+  });
+});
+
+// A company with NO root policy row never appears in Today at all — the
+// company queues are built from an INNER JOIN on that row. Disclosed as a
+// count rather than "fixed" by a LEFT JOIN, which would surface every such row
+// as a server-side `policy_missing_root` failure dressed up as a work item.
+describe('buildTodayQueues — companies excluded for having no root policy row', () => {
+  it('discloses the count', async () => {
+    fixtures.companiesWithoutPolicy = 7;
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.partial.companiesWithoutPolicy).toBe(7);
+  });
+
+  it('reports zero as zero (nothing is hidden)', async () => {
+    fixtures.companiesWithoutPolicy = 0;
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.partial.companiesWithoutPolicy).toBe(0);
+  });
+
+  it('leaves the count UNDEFINED when it fails — an unknown is not a zero', async () => {
+    fixtures.companiesWithoutPolicyShouldFail = true;
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.partial.companiesWithoutPolicy).toBeUndefined();
+  });
+
+  it('a failed count never takes the queues down with it', async () => {
+    fixtures.companiesWithoutPolicyShouldFail = true;
+    fixtures.companyRows = [companyRow({ companyId: 'c1', outreachEligibility: 'eligible' })];
+    fixtures.contactRows = [{ companyId: 'c1', confidenceScore: 9, metadata: { raw: { confidenceTier: 'high' } } }];
+    eligibilityByCompany.set('c1', { decision: 'allow', reasonCode: null, blockerCode: null, enforcementMode: 'shadow', actsOnDecision: false });
+
+    const queues = await buildTodayQueues('tenant-1');
+    expect(queues.readyToContact).toHaveLength(1);
   });
 });
 

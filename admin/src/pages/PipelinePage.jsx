@@ -125,6 +125,7 @@ function DealCard({ deal, index, onClick, onArchive, onUnarchive, selected = fal
                 <button
                   onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
                   className="text-neutral-300 hover:text-neutral-500 p-0.5 rounded"
+                  aria-label={`Actions for deal ${deal.contactName ?? 'Unknown'}`}
                 >
                   <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
@@ -152,11 +153,11 @@ function DealCard({ deal, index, onClick, onArchive, onUnarchive, selected = fal
           <div className="flex items-center justify-between mt-2">
             <div className="flex items-center gap-1.5">
               {fmtInr(deal.dealValue) && (
-                <span className="text-xs font-semibold text-success-600">{fmtInr(deal.dealValue)}</span>
+                <span className="text-xs font-semibold text-success-700">{fmtInr(deal.dealValue)}</span>
               )}
             </div>
             <div className="flex items-center gap-1">
-              <span className={`text-[10px] text-neutral-500 ${days > 3 ? 'text-danger-500' : ''}`}>{days}d</span>
+              <span className={`text-[10px] text-neutral-500 ${days > 3 ? 'text-danger-600' : ''}`}>{days}d</span>
               {assignedTo ? (
                 <span
                   className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold uppercase"
@@ -166,7 +167,7 @@ function DealCard({ deal, index, onClick, onArchive, onUnarchive, selected = fal
                   {safeInitial(assignedTo)}
                 </span>
               ) : (
-                <span className="w-5 h-5 rounded-full bg-neutral-200 flex items-center justify-center text-neutral-400 text-[9px]">?</span>
+                <span className="w-5 h-5 rounded-full bg-neutral-200 flex items-center justify-center text-neutral-600 text-[9px]">?</span>
               )}
             </div>
           </div>
@@ -230,12 +231,13 @@ function WonLostModal({ stageName, stageOutcome, contactName, onConfirm, onCance
           {lost && (
             <div className="mt-4">
               <label className="block text-sm font-medium text-neutral-700 mb-1.5">
-                Reason <span className="text-danger-500">*</span>
+                Reason <span className="text-danger-600">*</span>
               </label>
               <select
                 value={lostReason}
                 onChange={(e) => setLostReason(e.target.value)}
                 className="w-full border border-neutral-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-danger-500"
+                aria-label="Reason"
               >
                 <option value="">Select a reason…</option>
                 {LOST_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
@@ -253,6 +255,7 @@ function WonLostModal({ stageName, stageOutcome, contactName, onConfirm, onCance
               rows={3}
               placeholder={won ? 'What made this deal happen?' : 'Any additional context…'}
               className="w-full border border-neutral-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-300 resize-none"
+              aria-label={won ? 'Notes about this win' : 'Additional notes'}
             />
           </div>
         </div>
@@ -330,17 +333,17 @@ function AddDealModal({ pipelineId, stageName, onAdded, onClose }) {
             <h2 className="text-lg font-bold text-neutral-900">Add Deal</h2>
             <p className="text-sm text-neutral-500 mt-0.5">Stage: <span className="font-medium text-neutral-600">{stageName}</span></p>
           </div>
-          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-600 p-1 rounded-lg hover:bg-neutral-100">
+          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-600 p-1 rounded-lg hover:bg-neutral-100" aria-label="Close">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
         </div>
         <div className="px-6 py-5 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-neutral-700 mb-1.5">Contact <span className="text-danger-500">*</span></label>
+            <label className="block text-sm font-medium text-neutral-700 mb-1.5">Contact <span className="text-danger-600">*</span></label>
             {selectedContact ? (
               <div className="flex items-center justify-between border border-neutral-200 rounded-lg px-3 py-2.5 bg-primary-50">
                 <span className="text-sm font-medium text-primary-800">{selectedContact.firstName} {selectedContact.lastName ?? ''}</span>
-                <button onClick={() => { setSelectedContact(null); setSearch(''); }} className="text-primary-400 hover:text-primary-600 text-xs">Change</button>
+                <button onClick={() => { setSelectedContact(null); setSearch(''); }} className="text-primary-700 hover:text-primary-800 text-xs">Change</button>
               </div>
             ) : (
               <div className="relative">
@@ -350,6 +353,7 @@ function AddDealModal({ pipelineId, stageName, onAdded, onClose }) {
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search contact name..."
                   className="w-full border border-neutral-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  aria-label="Search contact"
                 />
                 {(searching || contacts.length > 0) && (
                   <div className="absolute top-full mt-1 w-full bg-white border border-neutral-200 rounded-xl shadow-lg z-10 max-h-48 overflow-y-auto">
@@ -380,6 +384,7 @@ function AddDealModal({ pipelineId, stageName, onAdded, onClose }) {
                 onChange={(e) => setDealValue(e.target.value)}
                 placeholder="0"
                 className="w-full border border-neutral-200 rounded-lg pl-7 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                aria-label="Deal value in rupees"
               />
             </div>
           </div>
@@ -389,6 +394,7 @@ function AddDealModal({ pipelineId, stageName, onAdded, onClose }) {
               value={assignedTo}
               onChange={(e) => setAssignedTo(e.target.value)}
               className="w-full border border-neutral-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+              aria-label="Assigned To"
             >
               <option value="">Unassigned</option>
               <option value="jatin">Jatin</option>
@@ -401,6 +407,7 @@ function AddDealModal({ pipelineId, stageName, onAdded, onClose }) {
               value={source}
               onChange={(e) => setSource(e.target.value)}
               className="w-full border border-neutral-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+              aria-label="Source"
             >
               <option value="">Unknown</option>
               <option value="form">Website Form</option>
@@ -657,6 +664,11 @@ export default function PipelinePage() {
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Header */}
         <div className="bg-white border-b px-6 py-4 shrink-0">
+          {/* This page has no visible title — its header is a pipeline picker.
+              A visually-hidden h1 gives the document a correct outline without
+              changing the layout. Promoting the "Pipeline:" field label to h1
+              instead would name the page after a form control. */}
+          <h1 className="sr-only">Pipeline</h1>
           <div className="flex items-center gap-4 flex-wrap">
             {/* Pipeline dropdown */}
             <div className="flex items-center gap-2">
@@ -667,6 +679,7 @@ export default function PipelinePage() {
                   onChange={(e) => setActivePipelineId(e.target.value)}
                   className="appearance-none border border-neutral-200 rounded-xl pl-3 pr-8 py-2 text-sm font-semibold text-neutral-800 bg-white focus:outline-none focus:ring-2 focus:ring-primary-400 cursor-pointer"
                   style={{ minWidth: 180 }}
+                  aria-label="Pipeline"
                 >
                   {pipelinesList.map((p) => (
                     <option key={p.id} value={p.id}>{p.name}</option>
@@ -730,6 +743,7 @@ export default function PipelinePage() {
           {/* Filters — compact inline row */}
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             <select value={filterAssigned} onChange={(e) => setFilterAssigned(e.target.value)}
+              aria-label="Filter by owner"
               className="text-xs border border-neutral-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-primary-400">
               <option value="">All Owners</option>
               <option value="jatin">Jatin</option>
@@ -737,6 +751,7 @@ export default function PipelinePage() {
               <option value="unassigned">Unassigned</option>
             </select>
             <select value={filterValue} onChange={(e) => setFilterValue(e.target.value)}
+              aria-label="Filter by deal value"
               className="text-xs border border-neutral-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-primary-400">
               <option value="">All Values</option>
               <option value="high">High (10L+)</option>
@@ -744,6 +759,7 @@ export default function PipelinePage() {
               <option value="low">Low (&lt; 1L)</option>
             </select>
             <select value={filterAge} onChange={(e) => setFilterAge(e.target.value)}
+              aria-label="Filter by deal age"
               className="text-xs border border-neutral-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-primary-400">
               <option value="">All Ages</option>
               <option value="stale">Stale (3+ days)</option>
@@ -752,7 +768,7 @@ export default function PipelinePage() {
             </select>
             {(filterAssigned || filterValue || filterAge) && (
               <button onClick={() => { setFilterAssigned(''); setFilterValue(''); setFilterAge(''); }}
-                className="text-xs text-danger-500 hover:text-danger-600 font-medium">Clear</button>
+                className="text-xs text-danger-600 hover:text-danger-700 font-medium">Clear</button>
             )}
           </div>
         </div>
@@ -761,9 +777,9 @@ export default function PipelinePage() {
           <div className="bg-white border-b border-neutral-100 px-6 py-3 shrink-0">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {[
-                { label: 'Weighted Forecast', value: analytics.forecast > 0 ? fmtInr(analytics.forecast) : '₹0', color: 'text-success-600' },
+                { label: 'Weighted Forecast', value: analytics.forecast > 0 ? fmtInr(analytics.forecast) : '₹0', color: 'text-success-700' },
                 { label: 'Win Rate', value: `${Math.round(analytics.winRate * 100)}%`, color: 'text-primary-600' },
-                { label: 'Avg Cycle', value: analytics.avgCycleDays ? `${analytics.avgCycleDays}d` : '—', color: 'text-accent-600' },
+                { label: 'Avg Cycle', value: analytics.avgCycleDays ? `${analytics.avgCycleDays}d` : '—', color: 'text-accent-700' },
                 { label: 'Open Deals', value: `${analytics.openCount}`, color: 'text-neutral-700' },
               ].map(kpi => (
                 <div key={kpi.label} className="bg-neutral-50 rounded-xl px-4 py-3 border border-neutral-100">
@@ -778,8 +794,8 @@ export default function PipelinePage() {
                   <div key={s.stage} className="shrink-0 bg-neutral-50 rounded-lg px-3 py-1.5 border border-neutral-100 text-xs">
                     <span className="font-medium text-neutral-700">{s.stage}</span>
                     <span className="text-neutral-500 ml-2">{s.count} deals</span>
-                    {s.value > 0 && <span className="text-success-600 ml-2">{fmtInr(s.value)}</span>}
-                    <span className="text-warning-500 ml-2">{s.avg_age_days}d avg</span>
+                    {s.value > 0 && <span className="text-success-700 ml-2">{fmtInr(s.value)}</span>}
+                    <span className="text-warning-700 ml-2">{s.avg_age_days}d avg</span>
                   </div>
                 ))}
               </div>
@@ -884,7 +900,7 @@ export default function PipelinePage() {
                           ))}
                           {provided.placeholder}
                           {stageDeals.length === 0 && !snapshot.isDraggingOver && (
-                            <p className="text-center text-xs text-neutral-300 py-2">Empty</p>
+                            <p className="text-center text-xs text-neutral-600 py-2">Empty</p>
                           )}
                         </div>
                       )}
@@ -905,9 +921,10 @@ export default function PipelinePage() {
             </div>
           </DragDropContext>
         )}
-      </main>
 
-      {/* Floating bulk-action bar — visible whenever at least one deal is selected */}
+      {/* Floating bulk-action bar — visible whenever at least one deal is selected.
+          Kept INSIDE <main> so it sits in a landmark (axe `region`); it is
+          position:fixed, so nesting changes nothing visually. */}
       {selectedIds.size > 0 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 bg-white border border-neutral-200 shadow-xl rounded-2xl px-4 py-2.5 flex items-center gap-3">
           <span className="text-sm font-medium text-neutral-700">
@@ -926,13 +943,15 @@ export default function PipelinePage() {
           <button
             onClick={() => setSelectedIds(new Set())}
             disabled={bulkBusy}
-            className="flex items-center gap-1 px-2 py-1.5 text-sm text-neutral-400 hover:text-neutral-700 rounded-lg transition-colors disabled:opacity-50"
+            className="flex items-center gap-1 px-2 py-1.5 text-sm text-neutral-600 hover:text-neutral-700 rounded-lg transition-colors disabled:opacity-50"
             title="Clear selection"
+            aria-label="Clear selection"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
       )}
+      </main>
 
       {wonLostModal && (
         <WonLostModal

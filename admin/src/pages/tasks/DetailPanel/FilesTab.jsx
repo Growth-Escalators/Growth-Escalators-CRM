@@ -157,6 +157,7 @@ export default function FilesTab({ task }) {
           type="file"
           className="hidden"
           onChange={(e) => uploadFile(e.target.files?.[0])}
+          aria-label="Upload file"
         />
         <button
           type="button"
@@ -175,12 +176,14 @@ export default function FilesTab({ task }) {
             value={urlVal}
             onChange={(e) => setUrlVal(e.target.value)}
             placeholder="https://…"
+            aria-label="File URL"
             className="w-full text-sm bg-white border border-slate-200 rounded px-2 py-1 outline-none focus:border-sky-300 mb-1.5"
           />
           <input
             value={urlLabel}
             onChange={(e) => setUrlLabel(e.target.value)}
             placeholder="Label (optional)"
+            aria-label="Link label"
             className="w-full text-sm bg-white border border-slate-200 rounded px-2 py-1 outline-none focus:border-sky-300"
           />
           <div className="mt-1.5 flex items-center gap-2">
@@ -204,9 +207,9 @@ export default function FilesTab({ task }) {
       )}
 
       {loading ? (
-        <p className="text-xs text-slate-400">Loading files…</p>
+        <p className="text-xs text-slate-500">Loading files…</p>
       ) : items.length === 0 ? (
-        <p className="text-xs text-slate-400 italic">No files yet.</p>
+        <p className="text-xs text-slate-500 italic">No files yet.</p>
       ) : (
         <div className="space-y-2">
           {items.map((att) => {

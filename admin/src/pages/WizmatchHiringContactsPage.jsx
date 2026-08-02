@@ -387,7 +387,7 @@ function LinkedContactDetailDrawer({ companyContactId, onClose, onChanged }) {
     return (
       <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex justify-end" onClick={onClose}>
         <div className="bg-white w-[560px] max-w-[95vw] h-full shadow-modal p-6" onClick={e => e.stopPropagation()}>
-          <div className="flex justify-end mb-4"><button onClick={onClose} className="text-neutral-500 hover:text-neutral-600"><X className="w-5 h-5" /></button></div>
+          <div className="flex justify-end mb-4"><button onClick={onClose} aria-label="Close" className="text-neutral-500 hover:text-neutral-600"><X className="w-5 h-5" /></button></div>
           <ErrorRetry message={error} onRetry={load} retrying={loading} />
         </div>
       </div>
@@ -758,15 +758,15 @@ function DiscoveryQueueTab() {
           <>
             {c.status === 'needs_review' && (
               <>
-                <button disabled={busyId === c.id} onClick={() => review(c, 'approve_contact')} className="text-success-600 hover:text-success-700" title="Approve"><CheckCircle2 className="w-4 h-4" /></button>
-                <button disabled={busyId === c.id} onClick={() => review(c, 'reject_contact')} className="text-danger-600 hover:text-danger-700" title="Reject"><XCircle className="w-4 h-4" /></button>
+                <button disabled={busyId === c.id} onClick={() => review(c, 'approve_contact')} className="text-success-600 hover:text-success-700" aria-label={`Approve ${c.name}`} title="Approve"><CheckCircle2 className="w-4 h-4" /></button>
+                <button disabled={busyId === c.id} onClick={() => review(c, 'reject_contact')} className="text-danger-600 hover:text-danger-700" aria-label={`Reject ${c.name}`} title="Reject"><XCircle className="w-4 h-4" /></button>
               </>
             )}
             {c.status === 'approved' && (
-              <button disabled={busyId === c.id} onClick={() => linkAndAttach(c)} className="text-primary-700 hover:text-primary-800" title="Link to CRM and attach to company"><Link2 className="w-4 h-4" /></button>
+              <button disabled={busyId === c.id} onClick={() => linkAndAttach(c)} className="text-primary-700 hover:text-primary-800" aria-label={`Link ${c.name} to CRM and attach to company`} title="Link to CRM and attach to company"><Link2 className="w-4 h-4" /></button>
             )}
             {!isLinked(c) && (
-              <button disabled={busyId === c.id} onClick={() => setDeleteTarget(c)} className="text-neutral-500 hover:text-danger-600" title="Delete permanently"><Trash2 className="w-4 h-4" /></button>
+              <button disabled={busyId === c.id} onClick={() => setDeleteTarget(c)} className="text-neutral-500 hover:text-danger-600" aria-label={`Delete ${c.name} permanently`} title="Delete permanently"><Trash2 className="w-4 h-4" /></button>
             )}
           </>
         )}

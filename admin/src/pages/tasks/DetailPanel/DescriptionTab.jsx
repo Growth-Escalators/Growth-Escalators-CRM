@@ -34,6 +34,7 @@ export default function DescriptionTab({ task, onPatch }) {
         onBlur={commit}
         placeholder="Add context, links, or acceptance criteria…"
         rows={3}
+        aria-label="Description"
         className="w-full bg-transparent outline-none resize-none p-2 -ml-2 rounded-md focus:bg-slate-50 placeholder:text-slate-400 placeholder:italic"
       />
     </div>

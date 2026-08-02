@@ -42,7 +42,7 @@ function RoiTile({ label, value, sub, color = 'text-slate-800' }) {
     <div className="bg-white rounded-xl border border-slate-200 px-4 py-3">
       <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">{label}</p>
       <p className={`text-xl font-bold mt-0.5 ${color}`}>{value}</p>
-      {sub && <p className="text-[10px] text-slate-400 mt-0.5">{sub}</p>}
+      {sub && <p className="text-[10px] text-slate-600 mt-0.5">{sub}</p>}
     </div>
   );
 }
@@ -104,7 +104,7 @@ export default function OutreachDashboard() {
             <h1 className="text-2xl font-bold text-slate-900">Outreach Pipeline</h1>
             <p className="text-slate-500 text-sm mt-0.5">White-label agency outreach — UK, AU, CA, US</p>
           </div>
-          {lastUpdated && <p className="text-xs text-slate-400">Updated {lastUpdated.toLocaleTimeString('en-IN')}</p>}
+          {lastUpdated && <p className="text-xs text-slate-600">Updated {lastUpdated.toLocaleTimeString('en-IN')}</p>}
         </div>
 
         {loading ? (
@@ -123,7 +123,7 @@ export default function OutreachDashboard() {
             </div>
           </>
         ) : !data ? (
-          <div className="text-center py-16 text-red-500 text-sm">Failed to load outreach data</div>
+          <div className="text-center py-16 text-red-600 text-sm">Failed to load outreach data</div>
         ) : (
           <>
             {/* ROI Tiles — 30-day funnel */}
@@ -189,7 +189,7 @@ export default function OutreachDashboard() {
               </div>
             )}
             {funnel && (
-              <p className="text-[10px] text-slate-400 mb-4">
+              <p className="text-[10px] text-slate-600 mb-4">
                 Window: last {funnel.days}d · {(funnel.totals?.leadsNew ?? 0)} new · {(funnel.totals?.leadsEnriched ?? 0)} enriched · {(funnel.totals?.repliesTotal ?? 0)} replies · {(funnel.totals?.discoveryApiCalls ?? 0)} Places calls · {(funnel.totals?.serperApiCalls ?? 0)} Serper calls · spend ${(funnel.totals?.discoveryCostUsd ?? 0).toFixed(2)}
               </p>
             )}
@@ -208,7 +208,7 @@ export default function OutreachDashboard() {
               <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-4">
                 <h2 className="font-bold text-sm text-slate-800 mb-3">Interested Leads</h2>
                 {(data.interestedLeads ?? []).length === 0 ? (
-                  <p className="text-slate-400 text-sm py-6 text-center">No interested replies yet</p>
+                  <p className="text-slate-600 text-sm py-6 text-center">No interested replies yet</p>
                 ) : (
                   <div className="space-y-2 max-h-64 overflow-y-auto">
                     {data.interestedLeads.map(l => (
@@ -217,7 +217,7 @@ export default function OutreachDashboard() {
                           <p className="text-sm font-semibold text-slate-800">{l.company}</p>
                           <p className="text-xs text-slate-500">{l.email} · {l.country}</p>
                         </div>
-                        <span className="text-xs text-amber-600 font-medium">{l.notes?.slice(0, 40) || 'Interested'}</span>
+                        <span className="text-xs text-amber-700 font-medium">{l.notes?.slice(0, 40) || 'Interested'}</span>
                       </div>
                     ))}
                   </div>
@@ -235,7 +235,7 @@ export default function OutreachDashboard() {
                       <div key={c.country}>
                         <div className="flex justify-between text-xs mb-0.5">
                           <span className="font-medium text-slate-700">{c.country}</span>
-                          <span className="text-slate-400">{c.count} ({pct}%)</span>
+                          <span className="text-slate-600">{c.count} ({pct}%)</span>
                         </div>
                         <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                           <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
@@ -247,7 +247,7 @@ export default function OutreachDashboard() {
 
                 <h2 className="font-bold text-sm text-slate-800 mt-5 mb-3">Reply breakdown</h2>
                 {replyBreakdown.length === 0 ? (
-                  <p className="text-slate-400 text-xs py-2">No classified replies yet</p>
+                  <p className="text-slate-600 text-xs py-2">No classified replies yet</p>
                 ) : (
                   <div className="space-y-2">
                     {replyBreakdown.map(b => {
@@ -258,7 +258,7 @@ export default function OutreachDashboard() {
                         <div key={b.category}>
                           <div className="flex justify-between text-xs mb-0.5">
                             <span className="font-medium text-slate-700">{label}</span>
-                            <span className="text-slate-400">{b.count}</span>
+                            <span className="text-slate-600">{b.count}</span>
                           </div>
                           <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                             <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
@@ -285,7 +285,7 @@ export default function OutreachDashboard() {
                     </div>
                   ))}
                 </div>
-                <p className="text-[10px] text-slate-400 mt-2">First snapshot runs daily at 23:55 IST — tiles populate after 24h.</p>
+                <p className="text-[10px] text-slate-600 mt-2">First snapshot runs daily at 23:55 IST — tiles populate after 24h.</p>
               </div>
             )}
 
@@ -297,7 +297,7 @@ export default function OutreachDashboard() {
                   {(data.weeklyTrend ?? []).map(d => (
                     <div key={d.date} className="flex-1 flex flex-col items-center">
                       <div className="w-full bg-sky-500 rounded-t" style={{ height: `${(d.count / maxWeekly) * 80}px`, minHeight: d.count > 0 ? '4px' : '0' }} />
-                      <span className="text-[9px] text-slate-400 mt-1">{new Date(d.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
+                      <span className="text-[9px] text-slate-600 mt-1">{new Date(d.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
                     </div>
                   ))}
                 </div>
@@ -349,14 +349,14 @@ export default function OutreachDashboard() {
                           <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
                             r.status === 'Active' ? 'bg-green-100 text-green-700' :
                             r.status === 'Replied' ? 'bg-purple-100 text-purple-700' :
-                            r.status === 'Not_Found' ? 'bg-red-100 text-red-600' :
+                            r.status === 'Not_Found' ? 'bg-red-100 text-red-700' :
                             'bg-slate-100 text-slate-600'
                           }`}>{r.status}</span>
                         </td>
                         <td className="py-1.5 px-2 text-slate-500 text-xs">{r.email || '—'}</td>
-                        <td className="py-1.5 px-2 text-slate-400 text-xs">{r.email_source || '—'}</td>
+                        <td className="py-1.5 px-2 text-slate-600 text-xs">{r.email_source || '—'}</td>
                         <td className="py-1.5 px-2 text-slate-500">{r.country || '—'}</td>
-                        <td className="py-1.5 px-2 text-slate-400 text-xs">{r.updated_at ? new Date(r.updated_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                        <td className="py-1.5 px-2 text-slate-600 text-xs">{r.updated_at ? new Date(r.updated_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                       </tr>
                     ))}
                   </tbody>

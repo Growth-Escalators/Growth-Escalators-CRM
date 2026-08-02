@@ -311,7 +311,11 @@ export default function TasksPage() {
   return (
     <div className="h-screen w-screen flex bg-slate-100 text-slate-800 overflow-hidden">
       <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0 relative">
+      {/* <main>, not a bare <div>: this page renders its own Sidebar shell (it is
+          never wrapped in AppLayout), so without this every control on the page
+          sits outside any landmark — axe `region`. Same shape the other
+          Sidebar-owning pages already use. */}
+      <main className="flex-1 flex flex-col min-w-0 relative">
         <Header
           subView={subView}
           onSubView={setSubView}
@@ -411,7 +415,7 @@ export default function TasksPage() {
             onClose={closeDetailPanel}
           />
         )}
-      </div>
+      </main>
     </div>
   );
 }

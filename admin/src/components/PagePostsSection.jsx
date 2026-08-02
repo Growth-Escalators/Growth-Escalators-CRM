@@ -110,6 +110,7 @@ export default function PagePostsSection() {
             value={selectedPageId}
             onChange={(e) => setSelectedPageId(e.target.value)}
             className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 min-w-[16rem]"
+            aria-label="Facebook Page"
           >
             {pages.map((p) => (
               <option key={p.id} value={p.id}>

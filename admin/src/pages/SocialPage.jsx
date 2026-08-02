@@ -78,17 +78,20 @@ function ConnectModal({ onClose, onSave }) {
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Page ID</label>
             <input value={pageId} onChange={e => setPageId(e.target.value)} placeholder="e.g. 123456789"
+              aria-label="Page ID"
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500" />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Page Name</label>
             <input value={pageName} onChange={e => setPageName(e.target.value)} placeholder="e.g. Growth Escalators"
+              aria-label="Page Name"
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500" />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Page Access Token</label>
             <textarea value={accessToken} onChange={e => setAccessToken(e.target.value)} placeholder="EAA..."
               rows={3}
+              aria-label="Page Access Token"
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono text-xs" />
           </div>
         </div>
@@ -219,6 +222,7 @@ function ComposeTab({ accounts, onPost }) {
             placeholder="What would you like to share?"
             rows={6}
             className="w-full border-0 resize-none focus:outline-none text-sm text-slate-800 placeholder-slate-400"
+            aria-label="Caption"
           />
         </div>
 
@@ -235,6 +239,7 @@ function ComposeTab({ accounts, onPost }) {
                 value={scheduledAt}
                 onChange={e => setScheduledAt(e.target.value)}
                 className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                aria-label="Scheduled date and time"
               />
             )}
           </div>
@@ -425,6 +430,7 @@ function LibraryTab({ onUseInPost }) {
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-3 top-2 w-4 h-4 text-slate-400" />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search files…"
+            aria-label="Search files"
             className="w-full pl-9 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500" />
         </div>
       </div>
@@ -731,10 +737,13 @@ function AccountsTab({ accounts, onDelete, onAdd }) {
         <form onSubmit={handleManualConnect} className="bg-slate-50 rounded-xl border border-slate-200 p-4 space-y-3">
           <p className="text-xs text-slate-500 font-medium">Manual Page Connection (fallback)</p>
           <input value={manualName} onChange={e => setManualName(e.target.value)} placeholder="Page Name"
+            aria-label="Page Name"
             className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
           <input value={manualPageId} onChange={e => setManualPageId(e.target.value)} placeholder="Page ID (e.g. 123456789)"
+            aria-label="Page ID"
             className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono" />
           <textarea value={manualToken} onChange={e => setManualToken(e.target.value)} placeholder="Page Access Token" rows={2}
+            aria-label="Page Access Token"
             className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono text-xs" />
           {manualError && <p className="text-xs text-red-500">{manualError}</p>}
           <div className="flex gap-2">

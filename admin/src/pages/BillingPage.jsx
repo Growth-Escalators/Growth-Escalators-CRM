@@ -117,6 +117,7 @@ function ServicesPicker({ value = [], onChange }) {
       <div className="flex gap-2">
         <input
           type="text"
+          aria-label="Add custom service"
           placeholder="Add custom service (press Enter)"
           className="flex-1 border border-neutral-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
           value={custom}
@@ -216,7 +217,7 @@ function ClientModal({ client, onClose, onSaved }) {
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b">
           <h2 className="text-lg font-semibold text-neutral-900">{client ? 'Edit Client' : 'Add Billing Client'}</h2>
-          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-600">✕</button>
+          <button onClick={onClose} aria-label="Close client dialog" className="text-neutral-500 hover:text-neutral-600">✕</button>
         </div>
         <div className="p-5 space-y-4">
           {error && <div className="text-sm text-danger-600 bg-danger-500/10 p-3 rounded-lg">{error}</div>}
@@ -224,35 +225,35 @@ function ClientModal({ client, onClose, onSaved }) {
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
               <label className="block text-xs font-medium text-neutral-700 mb-1">Client / Company Name *</label>
-              <input className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              <input aria-label="Client / Company name" className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
             </div>
             <div>
               <label className="block text-xs font-medium text-neutral-700 mb-1">Contact Person</label>
               <input className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                value={form.contactPerson} onChange={e => setForm(f => ({ ...f, contactPerson: e.target.value }))} />
+                aria-label="Contact person" value={form.contactPerson} onChange={e => setForm(f => ({ ...f, contactPerson: e.target.value }))} />
             </div>
             <div>
               <label className="block text-xs font-medium text-neutral-700 mb-1">Email</label>
               <input className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+                aria-label="Client email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
             </div>
           </div>
 
           <div>
             <label className="block text-xs font-medium text-neutral-700 mb-1">Address</label>
             <input className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 mb-2"
-              placeholder="Address line 1" value={form.addressLine1} onChange={e => setForm(f => ({ ...f, addressLine1: e.target.value }))} />
+              aria-label="Address line 1" placeholder="Address line 1" value={form.addressLine1} onChange={e => setForm(f => ({ ...f, addressLine1: e.target.value }))} />
             <div className="grid grid-cols-3 gap-2">
               <input className="border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                placeholder="City" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} />
+                aria-label="City" placeholder="City" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} />
               <select className="border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                value={form.state} onChange={e => handleStateChange(e.target.value)}>
+                aria-label="State" value={form.state} onChange={e => handleStateChange(e.target.value)}>
                 <option value="">State</option>
                 {INDIAN_STATES.map(s => <option key={s.code} value={s.name}>{s.name}</option>)}
               </select>
               <input className="border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                placeholder="Pincode" value={form.pincode} onChange={e => setForm(f => ({ ...f, pincode: e.target.value }))} />
+                aria-label="Pincode" placeholder="Pincode" value={form.pincode} onChange={e => setForm(f => ({ ...f, pincode: e.target.value }))} />
             </div>
           </div>
 
@@ -269,12 +270,12 @@ function ClientModal({ client, onClose, onSaved }) {
                 <div>
                   <label className="block text-xs font-medium text-neutral-700 mb-1">GSTIN</label>
                   <input className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 uppercase"
-                    value={form.gstin} onChange={e => setForm(f => ({ ...f, gstin: e.target.value.toUpperCase() }))} />
+                    aria-label="GSTIN" value={form.gstin} onChange={e => setForm(f => ({ ...f, gstin: e.target.value.toUpperCase() }))} />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-neutral-700 mb-1">Tax Type</label>
                   <select className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    value={form.taxType} onChange={e => setForm(f => ({ ...f, taxType: e.target.value }))}>
+                    aria-label="Tax type" value={form.taxType} onChange={e => setForm(f => ({ ...f, taxType: e.target.value }))}>
                     <option value="">Select tax type</option>
                     <option value="igst">IGST 18% (other state)</option>
                     <option value="cgst_sgst">CGST 9% + SGST 9% (Rajasthan)</option>
@@ -288,17 +289,17 @@ function ClientModal({ client, onClose, onSaved }) {
             <div>
               <label className="block text-xs font-medium text-neutral-700 mb-1">Monthly Retainer (₹)</label>
               <input type="number" className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                value={form.retainerAmount} onChange={e => setForm(f => ({ ...f, retainerAmount: e.target.value }))} />
+                aria-label="Monthly retainer in rupees" value={form.retainerAmount} onChange={e => setForm(f => ({ ...f, retainerAmount: e.target.value }))} />
             </div>
             <div>
               <label className="block text-xs font-medium text-neutral-700 mb-1">Invoice Day</label>
               <input type="number" min="1" max="28" className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                value={form.invoiceDayOfMonth} onChange={e => setForm(f => ({ ...f, invoiceDayOfMonth: e.target.value }))} />
+                aria-label="Invoice day of month" value={form.invoiceDayOfMonth} onChange={e => setForm(f => ({ ...f, invoiceDayOfMonth: e.target.value }))} />
             </div>
             <div>
               <label className="block text-xs font-medium text-neutral-700 mb-1">SAC Code</label>
               <input className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                value={form.sacCode} onChange={e => setForm(f => ({ ...f, sacCode: e.target.value }))} />
+                aria-label="SAC code" value={form.sacCode} onChange={e => setForm(f => ({ ...f, sacCode: e.target.value }))} />
             </div>
           </div>
 
@@ -309,7 +310,7 @@ function ClientModal({ client, onClose, onSaved }) {
 
           <div>
             <label className="block text-xs font-medium text-neutral-700 mb-1">Notes</label>
-            <textarea rows={2} className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            <textarea rows={2} aria-label="Client notes" className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
           </div>
         </div>
@@ -476,7 +477,7 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b">
           <h2 className="text-lg font-semibold text-neutral-900">{isEdit ? 'Edit Invoice' : 'New Invoice'}</h2>
-          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-600">✕</button>
+          <button onClick={onClose} aria-label="Close invoice dialog" className="text-neutral-500 hover:text-neutral-600">✕</button>
         </div>
         <div className="p-5 space-y-5">
           {error && <div className="text-sm text-danger-600 bg-danger-500/10 p-3 rounded-lg">{error}</div>}
@@ -485,7 +486,7 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
             <div className="col-span-3">
               <label className="block text-xs font-medium text-neutral-700 mb-1">Client *</label>
               <select className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                value={form.clientId} onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))}>
+                aria-label="Client" value={form.clientId} onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))}>
                 <option value="">Select client…</option>
                 {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
@@ -493,12 +494,12 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
             <div>
               <label className="block text-xs font-medium text-neutral-700 mb-1">Invoice Date</label>
               <input type="date" className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                value={String(form.invoiceDate || '')} onChange={e => setForm(f => ({ ...f, invoiceDate: e.target.value }))} />
+                aria-label="Invoice date" value={String(form.invoiceDate || '')} onChange={e => setForm(f => ({ ...f, invoiceDate: e.target.value }))} />
             </div>
             <div>
               <label className="block text-xs font-medium text-neutral-700 mb-1">Due Date</label>
               <input type="date" className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                value={String(form.dueDate || '')} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} />
+                aria-label="Due date" value={String(form.dueDate || '')} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} />
             </div>
             <div>
               <label className="block text-xs font-medium text-neutral-700 mb-1">Invoice Type</label>
@@ -533,6 +534,7 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
               Invoice Description <span className="text-neutral-500 font-normal">(optional)</span>
             </label>
             <input className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              aria-label="Invoice description"
               placeholder="e.g. Retainer — Performance Marketing · April 2026"
               value={form.serviceDescription}
               onChange={e => setForm(f => ({ ...f, serviceDescription: e.target.value }))} />
@@ -555,7 +557,7 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
                     <th className="text-left px-3 py-2 text-xs font-medium text-neutral-600 w-[10%]">Unit</th>
                     <th className="text-left px-3 py-2 text-xs font-medium text-neutral-600 w-[15%]">Rate (₹)</th>
                     <th className="text-left px-3 py-2 text-xs font-medium text-neutral-600 w-[15%]">Amount (₹)</th>
-                    <th className="w-[7%]"></th>
+                    <th aria-label="Remove line item" className="w-[7%]"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -563,22 +565,27 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
                     <tr key={idx} className="border-t border-neutral-100">
                       <td className="px-2 py-1">
                         <input className="w-full border-0 px-1 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary-400 rounded"
+                          aria-label={`Line item ${idx + 1} description`}
                           value={item.description} onChange={e => updateLineItem(idx, 'description', e.target.value)} />
                       </td>
                       <td className="px-2 py-1">
                         <input className="w-full border-0 px-1 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary-400 rounded"
+                          aria-label={`Line item ${idx + 1} SAC code`}
                           value={item.sacCode} onChange={e => updateLineItem(idx, 'sacCode', e.target.value)} />
                       </td>
                       <td className="px-2 py-1">
                         <input type="number" className="w-full border-0 px-1 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary-400 rounded"
+                          aria-label={`Line item ${idx + 1} quantity`}
                           value={item.quantity} onChange={e => updateLineItem(idx, 'quantity', e.target.value)} />
                       </td>
                       <td className="px-2 py-1">
                         <input className="w-full border-0 px-1 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary-400 rounded"
+                          aria-label={`Line item ${idx + 1} unit`}
                           value={item.unit} onChange={e => updateLineItem(idx, 'unit', e.target.value)} />
                       </td>
                       <td className="px-2 py-1">
                         <input type="number" className="w-full border-0 px-1 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary-400 rounded"
+                          aria-label={`Line item ${idx + 1} rate in rupees`}
                           value={item.rate} onChange={e => updateLineItem(idx, 'rate', e.target.value)} />
                       </td>
                       <td className="px-2 py-1 text-neutral-600 text-right pr-3">
@@ -586,6 +593,7 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
                       </td>
                       <td className="px-2 py-1 text-center">
                         <button onClick={() => setLineItems(l => l.filter((_, i) => i !== idx))}
+                          aria-label={`Remove line item ${idx + 1}`}
                           className="text-neutral-300 hover:text-danger-500 text-xs">✕</button>
                       </td>
                     </tr>
@@ -610,13 +618,14 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
             <div className="grid grid-cols-[140px_1fr_1.5fr] gap-2 items-center">
               <div className="flex rounded-lg border border-neutral-300 overflow-hidden text-xs">
                 {[
-                  { k: '', label: 'None' },
-                  { k: 'fixed', label: '₹' },
-                  { k: 'percent', label: '%' },
-                ].map(({ k, label }) => (
+                  { k: '', label: 'None', aria: 'No discount' },
+                  { k: 'fixed', label: '₹', aria: 'Discount in rupees' },
+                  { k: 'percent', label: '%', aria: 'Discount in percent' },
+                ].map(({ k, label, aria }) => (
                   <button
                     key={k || 'none'}
                     type="button"
+                    aria-label={aria}
                     onClick={() => setForm(f => ({ ...f, discountType: k, discountValue: k ? f.discountValue : '' }))}
                     className={`flex-1 py-1.5 font-medium transition-colors ${
                       form.discountType === k ? 'bg-primary-600 text-white' : 'bg-white text-neutral-600 hover:bg-neutral-50'
@@ -629,6 +638,7 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
                 step="0.01"
                 min="0"
                 disabled={!form.discountType}
+                aria-label="Discount value"
                 placeholder={form.discountType === 'percent' ? '10' : '500'}
                 className="border border-neutral-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-neutral-50 disabled:text-neutral-400"
                 value={form.discountValue}
@@ -637,6 +647,7 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
               <input
                 type="text"
                 disabled={!form.discountType}
+                aria-label="Discount label"
                 placeholder="Label (e.g. Loyalty discount)"
                 className="border border-neutral-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-neutral-50 disabled:text-neutral-400"
                 value={form.discountLabel}
@@ -681,6 +692,7 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
             <div>
               <label className="block text-xs font-medium text-neutral-700 mb-1">Payment Note</label>
               <input className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                aria-label="Payment note"
                 placeholder="Payment details for non-GST invoice"
                 value={form.paymentNote} onChange={e => setForm(f => ({ ...f, paymentNote: e.target.value }))} />
             </div>
@@ -688,7 +700,7 @@ function InvoiceModal({ invoice, clients, onClose, onSaved }) {
 
           <div>
             <label className="block text-xs font-medium text-neutral-700 mb-1">Notes</label>
-            <textarea rows={2} className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            <textarea rows={2} aria-label="Invoice notes" className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
           </div>
         </div>
@@ -742,25 +754,25 @@ function PaymentModal({ invoice, onClose, onSaved }) {
             <h2 className="text-lg font-semibold text-neutral-900">Record Payment</h2>
             <p className="text-sm text-neutral-500 mt-0.5">{invoice.invoice_number} · Due: {fmt(invoice.amount_due)}</p>
           </div>
-          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-600">✕</button>
+          <button onClick={onClose} aria-label="Close payment dialog" className="text-neutral-500 hover:text-neutral-600">✕</button>
         </div>
         <div className="p-5 space-y-4">
           {error && <div className="text-sm text-danger-600 bg-danger-500/10 p-3 rounded-lg">{error}</div>}
           <div>
             <label className="block text-xs font-medium text-neutral-700 mb-1">Amount (₹) *</label>
             <input type="number" className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-              value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} />
+              aria-label="Payment amount in rupees" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-neutral-700 mb-1">Payment Date</label>
               <input type="date" className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                value={form.paymentDate} onChange={e => setForm(f => ({ ...f, paymentDate: e.target.value }))} />
+                aria-label="Payment date" value={form.paymentDate} onChange={e => setForm(f => ({ ...f, paymentDate: e.target.value }))} />
             </div>
             <div>
               <label className="block text-xs font-medium text-neutral-700 mb-1">Mode</label>
               <select className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                value={form.paymentMode} onChange={e => setForm(f => ({ ...f, paymentMode: e.target.value }))}>
+                aria-label="Payment mode" value={form.paymentMode} onChange={e => setForm(f => ({ ...f, paymentMode: e.target.value }))}>
                 <option value="bank_transfer">Bank Transfer</option>
                 <option value="upi">UPI</option>
                 <option value="cheque">Cheque</option>
@@ -772,7 +784,7 @@ function PaymentModal({ invoice, onClose, onSaved }) {
           <div>
             <label className="block text-xs font-medium text-neutral-700 mb-1">UTR / Reference Number</label>
             <input className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-              value={form.reference} onChange={e => setForm(f => ({ ...f, reference: e.target.value }))} />
+              aria-label="UTR / reference number" value={form.reference} onChange={e => setForm(f => ({ ...f, reference: e.target.value }))} />
           </div>
         </div>
         <div className="flex justify-end gap-3 p-5 border-t">
@@ -822,7 +834,7 @@ function StatusUpdateModal({ invoice, onClose, onSaved }) {
             <h2 className="text-lg font-semibold text-neutral-900">Update Status</h2>
             <p className="text-sm text-neutral-500 mt-0.5">{invoice.invoice_number} &middot; {invoice.client_name}</p>
           </div>
-          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-600">&#10005;</button>
+          <button onClick={onClose} aria-label="Close status dialog" className="text-neutral-500 hover:text-neutral-600">&#10005;</button>
         </div>
         <div className="p-5 space-y-4">
           {error && <div className="text-sm text-danger-600 bg-danger-500/10 p-3 rounded-lg">{error}</div>}
@@ -835,7 +847,7 @@ function StatusUpdateModal({ invoice, onClose, onSaved }) {
           <div>
             <label className="block text-xs font-medium text-neutral-700 mb-1">New Status *</label>
             <select className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-              value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
+              aria-label="New status" value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
               {['draft', 'sent', 'paid', 'partially_paid', 'overdue'].map(s => (
                 <option key={s} value={s}>{s.replace('_', ' ')}</option>
               ))}
@@ -844,11 +856,11 @@ function StatusUpdateModal({ invoice, onClose, onSaved }) {
           <div>
             <label className="block text-xs font-medium text-neutral-700 mb-1">Amount Paid (&#8377;) <span className="text-neutral-500 font-normal">optional</span></label>
             <input type="number" className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-              placeholder="0" value={form.amountPaid} onChange={e => setForm(f => ({ ...f, amountPaid: e.target.value }))} />
+              aria-label="Amount paid in rupees" placeholder="0" value={form.amountPaid} onChange={e => setForm(f => ({ ...f, amountPaid: e.target.value }))} />
           </div>
           <div>
             <label className="block text-xs font-medium text-neutral-700 mb-1">Notes <span className="text-neutral-500 font-normal">optional</span></label>
-            <textarea rows={2} className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            <textarea rows={2} aria-label="Status update notes" className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
           </div>
         </div>
@@ -1050,6 +1062,7 @@ function RetainersTab() {
                 </div>
                 {r.status === 'active' && (
                   <button onClick={() => setConfirmGenerate({ id: r.id, name: r.client_name })}
+                    aria-label={`Generate invoice for ${r.client_name}`}
                     className="w-full text-center text-xs font-medium px-3 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700">
                     Generate Invoice
                   </button>
@@ -1283,7 +1296,7 @@ export default function BillingPage() {
               <div>
                 <div className="flex items-center gap-3 mb-4">
                   <div className="relative flex-1 max-w-xs">
-                    <input placeholder="Search client or invoice #" value={search} onChange={e => setSearch(e.target.value)}
+                    <input aria-label="Search invoices" placeholder="Search client or invoice #" value={search} onChange={e => setSearch(e.target.value)}
                       className="w-full pl-9 pr-3 py-2 text-sm border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" />
                     <svg className="absolute left-3 top-2.5 w-4 h-4 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -1360,20 +1373,23 @@ export default function BillingPage() {
                                 } catch { setEditInvoice({ ...inv }); }
                                 setShowInvoiceModal(true);
                               }}
-                                className="p-1.5 text-neutral-500 hover:text-primary-600 hover:bg-primary-50 rounded" title="Edit">
+                                className="p-1.5 text-neutral-500 hover:text-primary-600 hover:bg-primary-50 rounded" title="Edit"
+                                aria-label={`Edit invoice ${inv.invoice_number}`}>
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                 </svg>
                               </button>
                               <button onClick={() => handleDownloadPDF(inv.id, inv.invoice_number)}
-                                className="p-1.5 text-neutral-500 hover:text-accent-600 hover:bg-accent-50 rounded" title="Download PDF">
+                                className="p-1.5 text-neutral-500 hover:text-accent-600 hover:bg-accent-50 rounded" title="Download PDF"
+                                aria-label={`Download PDF for invoice ${inv.invoice_number}`}>
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                 </svg>
                               </button>
                               {['draft', 'overdue'].includes(inv.status) && (
                                 <button onClick={() => handleMarkSent(inv.id)}
-                                  className="p-1.5 text-neutral-500 hover:text-primary-600 hover:bg-primary-50 rounded" title="Mark Sent">
+                                  className="p-1.5 text-neutral-500 hover:text-primary-600 hover:bg-primary-50 rounded" title="Mark Sent"
+                                  aria-label={`Mark invoice ${inv.invoice_number} as sent`}>
                                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                                   </svg>
@@ -1381,7 +1397,8 @@ export default function BillingPage() {
                               )}
                               {['sent', 'partially_paid', 'overdue'].includes(inv.status) && (
                                 <button onClick={() => setPaymentInvoice(inv)}
-                                  className="p-1.5 text-neutral-500 hover:text-success-600 hover:bg-success-500/10 rounded" title="Record Payment">
+                                  className="p-1.5 text-neutral-500 hover:text-success-600 hover:bg-success-500/10 rounded" title="Record Payment"
+                                  aria-label={`Record payment for invoice ${inv.invoice_number}`}>
                                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                                   </svg>
@@ -1389,7 +1406,8 @@ export default function BillingPage() {
                               )}
                               {inv.status !== 'cancelled' && (
                                 <button onClick={() => setStatusInvoice(inv)}
-                                  className="p-1.5 text-neutral-500 hover:text-primary-600 hover:bg-primary-50 rounded" title="Update Status">
+                                  className="p-1.5 text-neutral-500 hover:text-primary-600 hover:bg-primary-50 rounded" title="Update Status"
+                                  aria-label={`Update status of invoice ${inv.invoice_number}`}>
                                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                                   </svg>
@@ -1397,14 +1415,16 @@ export default function BillingPage() {
                               )}
                               {inv.status === 'cancelled' ? (
                                 <button onClick={() => setConfirmDeleteId(inv.id)}
-                                  className="p-1.5 text-neutral-500 hover:text-danger-500 hover:bg-danger-500/10 rounded" title="Delete permanently">
+                                  className="p-1.5 text-neutral-500 hover:text-danger-500 hover:bg-danger-500/10 rounded" title="Delete permanently"
+                                  aria-label={`Permanently delete invoice ${inv.invoice_number}`}>
                                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                   </svg>
                                 </button>
                               ) : inv.status !== 'paid' ? (
                                 <button onClick={() => setConfirmCancelId(inv.id)}
-                                  className="p-1.5 text-neutral-500 hover:text-danger-500 hover:bg-danger-500/10 rounded" title="Cancel">
+                                  className="p-1.5 text-neutral-500 hover:text-danger-500 hover:bg-danger-500/10 rounded" title="Cancel"
+                                  aria-label={`Cancel invoice ${inv.invoice_number}`}>
                                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                   </svg>
@@ -1480,9 +1500,11 @@ export default function BillingPage() {
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2">
                               <button onClick={() => { setEditClient(c); setShowClientModal(true); }}
+                                aria-label={`Edit client ${c.name}`}
                                 className="text-xs text-primary-600 hover:underline">Edit</button>
                               {c.isActive && (
                                 <button onClick={() => setConfirmDeactivateId(c.id)}
+                                  aria-label={`Deactivate client ${c.name}`}
                                   className="text-xs text-danger-500 hover:text-danger-600 hover:underline">Deactivate</button>
                               )}
                             </div>

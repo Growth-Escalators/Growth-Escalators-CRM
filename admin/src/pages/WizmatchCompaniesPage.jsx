@@ -253,7 +253,7 @@ export default function WizmatchCompaniesPage() {
         </div>
       </div>
       <p className="text-[12.5px] text-neutral-500 mt-1 mb-3">
-        Client companies in the staffing pipeline — hiring contacts, open requirements and delivery activity. Filters and sort are shareable via the URL and savable as presets.
+        Client companies in the staffing pipeline — hiring contacts, open requirements and delivery activity. Filters and sort are shareable via the URL and savable as views.
       </p>
 
       {truncated && (
@@ -503,15 +503,15 @@ function BulkPolicyDialog({ count, busy, error, onSubmit, onCancel }) {
             </label>
           ) : (
             <>
-              <select value={outreachEligibility} onChange={(e) => setOutreachEligibility(e.target.value)} className="input w-full">
+              <select aria-label="Outreach eligibility" value={outreachEligibility} onChange={(e) => setOutreachEligibility(e.target.value)} className="input w-full">
                 <option value="">Outreach eligibility — required</option>
                 {ELIGIBILITY_OPTIONS.map((o) => <option key={o} value={o}>{o.replaceAll('_', ' ')}</option>)}
               </select>
-              <select value={externalHiringPolicy} onChange={(e) => setExternalHiringPolicy(e.target.value)} className="input w-full">
+              <select aria-label="External hiring policy" value={externalHiringPolicy} onChange={(e) => setExternalHiringPolicy(e.target.value)} className="input w-full">
                 <option value="">Hiring policy — required</option>
                 {HIRING_POLICY_OPTIONS.map((o) => <option key={o} value={o}>{o.replaceAll('_', ' ')}</option>)}
               </select>
-              <select value={relationshipType} onChange={(e) => setRelationshipType(e.target.value)} className="input w-full">
+              <select aria-label="Relationship type" value={relationshipType} onChange={(e) => setRelationshipType(e.target.value)} className="input w-full">
                 <option value="">Relationship — required</option>
                 {RELATIONSHIP_OPTIONS.map((o) => <option key={o} value={o}>{o.replaceAll('_', ' ')}</option>)}
               </select>
@@ -523,7 +523,7 @@ function BulkPolicyDialog({ count, busy, error, onSubmit, onCancel }) {
               <input type="date" value={reviewDate} onChange={(e) => setReviewDate(e.target.value)} className="input w-full mt-1" />
             </label>
           )}
-          <select value={reasonCode} onChange={(e) => setReasonCode(e.target.value)} className="input w-full">
+          <select aria-label="Reason code" value={reasonCode} onChange={(e) => setReasonCode(e.target.value)} className="input w-full">
             <option value="">Reason code — required (§9 taxonomy)</option>
             {Object.entries(REASON_CODES_BY_CATEGORY).map(([category, codes]) => (
               <optgroup key={category} label={category.replaceAll('_', ' ')}>
@@ -537,12 +537,12 @@ function BulkPolicyDialog({ count, busy, error, onSubmit, onCancel }) {
               without it is not reviewable later — add evidence text below.
             </p>
           )}
-          <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} placeholder="Reason (optional free text)" className="input w-full resize-y" />
+          <textarea aria-label="Reason" value={reason} onChange={(e) => setReason(e.target.value)} rows={2} placeholder="Reason (optional free text)" className="input w-full resize-y" />
           <div className="grid grid-cols-2 gap-2">
-            <select value={evidenceKind} onChange={(e) => setEvidenceKind(e.target.value)} className="input">
+            <select aria-label="Evidence kind" value={evidenceKind} onChange={(e) => setEvidenceKind(e.target.value)} className="input">
               {EVIDENCE_KIND_OPTIONS.map((o) => <option key={o} value={o}>{o.replaceAll('_', ' ')}</option>)}
             </select>
-            <input value={evidenceText} onChange={(e) => setEvidenceText(e.target.value)} placeholder="Evidence text (optional)" className="input" />
+            <input aria-label="Evidence text" value={evidenceText} onChange={(e) => setEvidenceText(e.target.value)} placeholder="Evidence text (optional)" className="input" />
           </div>
           <p className="text-[10.5px] text-neutral-400">
             The reason code must be in the ratified §9 taxonomy — the server rejects anything else, per company, and the
@@ -635,7 +635,7 @@ function CompanyDetailDrawer({ companyId, onClose, onDeleted, onChanged }) {
     return (
       <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex justify-end" onClick={onClose}>
         <div className="bg-white w-[600px] max-w-[95vw] h-full shadow-modal p-6" onClick={e => e.stopPropagation()}>
-          <div className="flex justify-end mb-4"><button onClick={onClose} className="text-neutral-500 hover:text-neutral-600"><X className="w-5 h-5" /></button></div>
+          <div className="flex justify-end mb-4"><button onClick={onClose} aria-label="Close" className="text-neutral-500 hover:text-neutral-600"><X className="w-5 h-5" /></button></div>
           <ErrorRetry message={error} onRetry={load} retrying={loading} />
         </div>
       </div>
@@ -967,6 +967,7 @@ function AddHiringContactPanel({ companyId, onClose, onAdded, onError }) {
   return (
     <div className="card p-3 mb-3 space-y-2.5 bg-neutral-50/50">
       <input
+        aria-label="Search CRM contacts"
         placeholder="Search CRM contacts by name, company, email or phone…"
         value={search}
         onChange={e => { setSearch(e.target.value); setSelected(null); }}

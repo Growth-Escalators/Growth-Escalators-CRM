@@ -320,11 +320,13 @@ function AccountsTab() {
           <div className="flex-1">
             <label className="text-xs text-slate-500 font-medium">Account ID</label>
             <input value={formId} onChange={e => setFormId(e.target.value)} placeholder="act_123456789"
+              aria-label="Account ID"
               className="mt-1 w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-sky-500" />
           </div>
           <div className="flex-1">
             <label className="text-xs text-slate-500 font-medium">Client Name</label>
             <input value={formName} onChange={e => setFormName(e.target.value)} placeholder="Client name"
+              aria-label="Client Name"
               className="mt-1 w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-sky-500" />
           </div>
           <button type="submit" disabled={submitting || !formId.startsWith('act_') || !formName.trim()}
@@ -367,6 +369,7 @@ function AccountsTab() {
                         onBlur={() => handleEditSave(a.id)}
                         onKeyDown={e => { if (e.key === 'Enter') handleEditSave(a.id); if (e.key === 'Escape') setEditingId(null); }}
                         className="w-full text-sm border border-sky-300 rounded px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                        aria-label="Client name"
                       />
                     ) : (
                       <span className="flex items-center gap-2 group">
@@ -375,6 +378,7 @@ function AccountsTab() {
                           onClick={() => { setEditingId(a.id); setEditingName(name); }}
                           className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-sky-600 transition-opacity"
                           title="Edit name"
+                          aria-label={`Edit name for ${name || metaId}`}
                         >
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                         </button>
@@ -409,7 +413,7 @@ function AccountsTab() {
                   </td>
                   <td className="px-6 py-3 text-right">
                     <button onClick={() => handleRemove(a.id)}
-                      className="text-red-400 hover:text-red-600 p-1" title="Request removal">
+                      className="text-red-400 hover:text-red-600 p-1" title="Request removal" aria-label={`Request removal of ${name || metaId}`}>
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </td>
@@ -471,6 +475,7 @@ function AlertsTab({ adAccounts }) {
                 <label className="text-xs text-slate-500">Min ROAS:</label>
                 <input type="number" step="0.1" min="0" value={val}
                   onChange={e => handleChange(a.id, e.target.value)}
+                  aria-label={`Min ROAS for ${a.name}`}
                   className="w-20 text-sm border border-slate-200 rounded-lg px-2 py-1 text-center focus:outline-none focus:ring-2 focus:ring-sky-500" />
               </div>
             </div>
@@ -628,6 +633,8 @@ function SlackAutomationTab({ adAccounts, insights, dateRange, customSince, cust
                 <button
                   onClick={() => toggleAutomation(a.key)}
                   className={`relative w-11 h-6 rounded-full transition-colors ${enabled ? 'bg-purple-600' : 'bg-slate-300'}`}
+                  aria-label={`${enabled ? 'Disable' : 'Enable'} ${a.label}`}
+                  aria-pressed={enabled}
                 >
                   <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${enabled ? 'translate-x-5.5 left-auto right-0.5' : 'left-0.5'}`}
                     style={enabled ? { left: 'auto', right: '2px' } : { left: '2px' }}
@@ -806,6 +813,7 @@ function SlackDailyReportTab() {
               onChange={e => setFormAccountId(e.target.value)}
               placeholder="act_1234567890"
               className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm"
+              aria-label="Meta ad account ID"
             />
             <p className="text-[10px] text-slate-400 mt-0.5">act_ prefix added if missing</p>
           </div>
@@ -817,6 +825,7 @@ function SlackDailyReportTab() {
               onChange={e => setFormClientName(e.target.value)}
               placeholder="Paraiso"
               className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm"
+              aria-label="Client / display name"
             />
           </div>
           <div>
@@ -825,6 +834,7 @@ function SlackDailyReportTab() {
               value={formCurrency}
               onChange={e => setFormCurrency(e.target.value)}
               className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm"
+              aria-label="Currency"
             >
               <option value="INR">INR</option>
               <option value="USD">USD</option>
@@ -1131,6 +1141,7 @@ export default function AdsPage() {
               value={selectedAccount}
               onChange={e => setSelectedAccount(e.target.value)}
               className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-sky-500"
+              aria-label="Ad account"
             >
               <option value="all">All Accounts</option>
               {adAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -1146,6 +1157,7 @@ export default function AdsPage() {
                 if (e.target.value !== 'custom') setCustomApplied(false);
               }}
               className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-sky-500"
+              aria-label="Date range"
             >
               {DATE_RANGES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>

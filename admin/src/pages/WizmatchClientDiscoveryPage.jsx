@@ -372,6 +372,7 @@ function SeedProspectPanel({ demoMode, onSeeded }) {
         <div className="flex flex-wrap items-center gap-3">
           <input
             type="file"
+            aria-label="CSV file to import"
             accept=".csv,text/csv"
             onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
             className="text-[12px]"

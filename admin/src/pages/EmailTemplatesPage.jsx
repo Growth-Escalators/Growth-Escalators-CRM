@@ -71,7 +71,7 @@ function NewTemplateModal({ onClose, onCreate }) {
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100">
           <h2 className="text-lg font-bold text-slate-900">New Email Template</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1">
+          <button onClick={onClose} aria-label="Close new template dialog" className="text-slate-400 hover:text-slate-600 p-1">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
         </div>
@@ -80,19 +80,19 @@ function NewTemplateModal({ onClose, onCreate }) {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">Slug name *</label>
-              <input value={form.name} onChange={set('name')} placeholder="welcome_d2c"
+              <input value={form.name} onChange={set('name')} aria-label="Template slug name" placeholder="welcome_d2c"
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">Display name</label>
-              <input value={form.displayName} onChange={set('displayName')} placeholder="Welcome Email — D2C"
+              <input value={form.displayName} onChange={set('displayName')} aria-label="Template display name" placeholder="Welcome Email — D2C"
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">Type</label>
-              <select value={form.type} onChange={set('type')}
+              <select value={form.type} onChange={set('type')} aria-label="Template type"
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
                 <option value="sequence">Sequence step</option>
                 <option value="triggered">Triggered</option>
@@ -101,18 +101,18 @@ function NewTemplateModal({ onClose, onCreate }) {
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">From name</label>
-              <input value={form.fromName} onChange={set('fromName')}
+              <input value={form.fromName} onChange={set('fromName')} aria-label="From name"
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-1">Subject line *</label>
-            <input value={form.subject} onChange={set('subject')} placeholder="Your D2C Funnel Breakdown Pack is here"
+            <input value={form.subject} onChange={set('subject')} aria-label="Subject line" placeholder="Your D2C Funnel Breakdown Pack is here"
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-1">Body (plain text)</label>
-            <textarea value={form.bodyText} onChange={set('bodyText')} rows={6}
+            <textarea value={form.bodyText} onChange={set('bodyText')} rows={6} aria-label="Email body (plain text)"
               placeholder={'Hi {{firstName}},\n\nYour email body here...\n\nJatin\nGrowth Escalators'}
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
@@ -162,7 +162,7 @@ function SendTestModal({ template, onClose }) {
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100">
           <h2 className="text-lg font-bold text-slate-900">Send Test Email</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1">
+          <button onClick={onClose} aria-label="Close send test dialog" className="text-slate-400 hover:text-slate-600 p-1">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
         </div>
@@ -180,7 +180,7 @@ function SendTestModal({ template, onClose }) {
               {status === 'error' && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Send to</label>
-                <input value={toEmail} onChange={(e) => setToEmail(e.target.value)}
+                <input value={toEmail} onChange={(e) => setToEmail(e.target.value)} aria-label="Send test email to"
                   className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               {vars.length > 0 && (
@@ -191,6 +191,7 @@ function SendTestModal({ template, onClose }) {
                       <div key={v} className="flex items-center gap-2">
                         <span className="text-xs font-mono text-slate-500 w-32 shrink-0">{`{{${v}}}`}</span>
                         <input value={varValues[v] || ''} onChange={(e) => setVarValues((prev) => ({ ...prev, [v]: e.target.value }))}
+                          aria-label={`Sample value for {{${v}}}`}
                           className="flex-1 border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                       </div>
                     ))}
@@ -388,7 +389,7 @@ export default function EmailTemplatesPage() {
               </div>
             ) : templates.length === 0 ? (
               <div className="p-6 text-center">
-                <p className="text-slate-400 text-sm">No templates yet</p>
+                <p className="text-slate-500 text-sm">No templates yet</p>
                 <button onClick={() => setShowNew(true)} className="mt-3 text-xs text-blue-600 font-medium">+ Create your first template</button>
               </div>
             ) : (
@@ -403,7 +404,7 @@ export default function EmailTemplatesPage() {
                   >
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-sm font-semibold text-slate-900 truncate">{t.displayName || t.name}</span>
-                      <span className="text-xs font-mono text-slate-400 ml-2 shrink-0">{t.brevoSynced ? '●' : '○'}</span>
+                      <span className="text-xs font-mono text-slate-600 ml-2 shrink-0">{t.brevoSynced ? '●' : '○'}</span>
                     </div>
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-xs font-medium px-1.5 py-0.5 rounded" style={{ color: tm.color, background: tm.bg }}>{tm.label}</span>
@@ -411,7 +412,7 @@ export default function EmailTemplatesPage() {
                         {t.brevoSynced ? `Brevo #${t.brevoTemplateId}` : 'Draft'}
                       </span>
                     </div>
-                    <p className="text-xs text-slate-400">{t.sentCount || 0} sent{t.openRate ? ` · ${(t.openRate * 100).toFixed(0)}% open` : ''}</p>
+                    <p className="text-xs text-slate-600">{t.sentCount || 0} sent{t.openRate ? ` · ${(t.openRate * 100).toFixed(0)}% open` : ''}</p>
                   </button>
                 );
               })
@@ -429,7 +430,7 @@ export default function EmailTemplatesPage() {
                 </svg>
               </div>
               <p className="text-slate-500 font-medium">Select a template to edit</p>
-              <p className="text-slate-400 text-sm mt-1">or create a new one</p>
+              <p className="text-slate-500 text-sm mt-1">or create a new one</p>
               <button onClick={() => setShowNew(true)}
                 className="mt-4 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg">
                 + Create your first template
@@ -441,11 +442,12 @@ export default function EmailTemplatesPage() {
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1">
                   <input
+                    aria-label="Template display name"
                     value={form.displayName || form.name}
                     onChange={(e) => { setForm((f) => ({ ...f, displayName: e.target.value })); setDirty(true); }}
                     className="text-xl font-bold text-slate-900 bg-transparent border-0 border-b-2 border-transparent hover:border-slate-200 focus:border-blue-400 focus:outline-none w-full pb-0.5"
                   />
-                  <p className="text-sm text-slate-400 mt-1">
+                  <p className="text-sm text-slate-500 mt-1">
                     {selected.brevoTemplateId ? `Brevo ID: ${selected.brevoTemplateId}` : 'Not synced to Brevo'}
                   </p>
                 </div>
@@ -466,7 +468,7 @@ export default function EmailTemplatesPage() {
                       <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> Saving…</>
                     ) : 'Save + sync to Brevo'}
                   </button>
-                  <button onClick={() => setConfirmDelete(true)} className="p-2 text-slate-400 hover:text-red-500 rounded-lg hover:bg-red-50">
+                  <button onClick={() => setConfirmDelete(true)} aria-label={`Delete template ${selected.name}`} className="p-2 text-slate-400 hover:text-red-500 rounded-lg hover:bg-red-50">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                   </button>
                 </div>
@@ -484,11 +486,11 @@ export default function EmailTemplatesPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">Slug name</label>
-                    <input value={form.name} onChange={setField('name')} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    <input value={form.name} onChange={setField('name')} aria-label="Template slug name" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">Type</label>
-                    <select value={form.type} onChange={setField('type')} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <select value={form.type} onChange={setField('type')} aria-label="Template type" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
                       <option value="sequence">Sequence step</option>
                       <option value="triggered">Triggered</option>
                       <option value="manual">Manual</option>
@@ -496,13 +498,13 @@ export default function EmailTemplatesPage() {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">From name</label>
-                    <input value={form.fromName} onChange={setField('fromName')} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    <input value={form.fromName} onChange={setField('fromName')} aria-label="From name" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                 </div>
 
                 <div>
                   <label className="block text-xs font-medium text-slate-700 mb-1">Subject line</label>
-                  <input value={form.subject} onChange={setField('subject')} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <input value={form.subject} onChange={setField('subject')} aria-label="Subject line" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
 
                 {/* Variable pills */}
@@ -547,6 +549,7 @@ export default function EmailTemplatesPage() {
                       ref={bodyRef}
                       value={form.bodyText}
                       onChange={setField('bodyText')}
+                      aria-label="Email body (plain text)"
                       rows={14}
                       className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
@@ -567,7 +570,7 @@ export default function EmailTemplatesPage() {
               </div>
 
               {dirty && (
-                <div className="text-xs text-amber-600 text-center">You have unsaved changes</div>
+                <div className="text-xs text-amber-700 text-center">You have unsaved changes</div>
               )}
             </div>
           )}

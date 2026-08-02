@@ -51,6 +51,10 @@ function FeedbackWidget() {
         onClick={() => setOpen(!open)}
         className="flex items-center gap-1.5 px-2.5 py-1.5 text-neutral-500 hover:text-primary-600 rounded-lg hover:bg-primary-50 transition-colors text-sm"
         title="Send feedback or suggestion"
+        // The "Feedback" text is `hidden lg:inline`, so below 1024px this was
+        // an icon-only button whose only name came from `title`.
+        aria-label="Send feedback"
+        aria-expanded={open}
       >
         <MessageSquarePlus className="w-4 h-4" />
         <span className="hidden lg:inline text-xs font-medium">Feedback</span>
@@ -74,7 +78,7 @@ function FeedbackWidget() {
                 {/* Header */}
                 <div className="px-4 py-3 border-b border-neutral-100 flex items-center justify-between">
                   <h3 className="text-sm font-bold text-neutral-800">Send Feedback</h3>
-                  <button type="button" onClick={() => setOpen(false)} className="text-neutral-500 hover:text-neutral-600">
+                  <button type="button" onClick={() => setOpen(false)} aria-label="Close feedback" className="text-neutral-500 hover:text-neutral-600">
                     <X className="w-4 h-4" />
                   </button>
                 </div>
@@ -86,6 +90,7 @@ function FeedbackWidget() {
                       key={t.id}
                       type="button"
                       onClick={() => setType(t.id)}
+                      aria-pressed={type === t.id}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                       type === t.id ? t.bg + ' ' + t.color : 'bg-white border-neutral-200 text-neutral-500 hover:bg-neutral-50'
                     }`}
@@ -107,6 +112,7 @@ function FeedbackWidget() {
                       "What would you like to know?"
                     }
                     rows={4}
+                    aria-label={`${activeType.label} details`}
                     className="w-full border border-neutral-300 rounded-sm px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-200 resize-none"
                     autoFocus
                     required

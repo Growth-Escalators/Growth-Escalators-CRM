@@ -129,8 +129,34 @@ export async function importTheirStackJobs(options: { trigger?: 'manual' | 'sche
 }> {
   const apiKey = process.env.THEIRSTACK_API_KEY;
   const tenantId = process.env.WIZMATCH_TENANT_ID;
-  if (!apiKey || !tenantId) {
+
+  // Leave a DB trace when we bail out.
+  //
+  // This used to return before createSourceRun, so a dormant importer left no
+  // row at all — only a log line. pollAtsBoards does the opposite (it creates
+  // the run first), which is why ATS writes a visible `skipped` row every day
+  // while TheirStack wrote nothing, and why "has this ever run?" was
+  // unanswerable from the data during the 2026-08-02 audit.
+  //
+  // Deliberately NOT merged with the createSourceRun below: that one needs
+  // `query` and `cursorBefore` from the two DB reads that follow, and emitting
+  // two rows for one real run would corrupt inserted_total. The cursor lookup
+  // filters on status='succeeded', so a 'skipped' row here is inert.
+  if (!apiKey) {
     logger.info('[wizmatch/theirstack] THEIRSTACK_API_KEY not set — importer dormant');
+    if (tenantId) {
+      const dormantRun = await createSourceRun({
+        tenantId, provider: 'theirstack', trigger: options.trigger, requestedBy: options.requestedBy,
+      });
+      await finishSourceRun(dormantRun.id, tenantId, {
+        status: 'skipped', fetched: 0, errorMessage: 'theirstack_api_key_missing',
+      });
+    }
+    return { fetched: 0, inserted: 0, updated: 0, duplicates: 0, rejected: 0, errors: 0 };
+  }
+  if (!tenantId) {
+    // No tenant means no tenant-scoped row is possible — log only.
+    logger.info('[wizmatch/theirstack] WIZMATCH_TENANT_ID not set — importer dormant');
     return { fetched: 0, inserted: 0, updated: 0, duplicates: 0, rejected: 0, errors: 0 };
   }
   const config = getWizmatchSourcingConfig();

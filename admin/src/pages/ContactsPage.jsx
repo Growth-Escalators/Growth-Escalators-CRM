@@ -73,7 +73,7 @@ const STATUS_CHIP = {
   replied:   { label: 'Replied', cls: 'bg-accent-50 text-accent-700' },
   won:       { label: 'Client', cls: 'bg-accent-100 text-accent-700' },
   customer:  { label: 'Client', cls: 'bg-accent-100 text-accent-700' },
-  lost:      { label: 'Lost', cls: 'bg-neutral-100 text-neutral-500' },
+  lost:      { label: 'Lost', cls: 'bg-neutral-100 text-neutral-600' },
 };
 
 const LIMIT_OPTIONS = [20, 50, 100];
@@ -195,13 +195,14 @@ function AddContactModal({ onClose, onCreated }) {
 
   const field = (key, label, type = 'text', required = false) => (
     <div>
-      <label className="block text-xs font-medium text-neutral-600 mb-1">{label}{required && <span className="text-danger-500 ml-0.5">*</span>}</label>
+      <label className="block text-xs font-medium text-neutral-600 mb-1">{label}{required && <span className="text-danger-600 ml-0.5">*</span>}</label>
       <input
         type={type}
         value={form[key]}
         onChange={(e) => setForm({ ...form, [key]: e.target.value })}
         className="w-full border border-neutral-200 rounded-sm px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-200 focus:border-primary-500"
         required={required}
+        aria-label={label}
       />
     </div>
   );
@@ -232,6 +233,7 @@ function AddContactModal({ onClose, onCreated }) {
           <div>
             <label className="block text-xs font-medium text-neutral-600 mb-1">Source</label>
             <select value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })}
+              aria-label="Source"
               className="w-full border border-neutral-200 rounded-sm px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-200 focus:border-primary-500">
               <option value="">Select…</option>
               <option value="facebook">Facebook</option>
@@ -246,6 +248,7 @@ function AddContactModal({ onClose, onCreated }) {
           <div>
             <label className="block text-xs font-medium text-neutral-600 mb-1">Assigned To</label>
             <select value={form.assignedTo} onChange={(e) => setForm({ ...form, assignedTo: e.target.value })}
+              aria-label="Assigned To"
               className="w-full border border-neutral-200 rounded-sm px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-200 focus:border-primary-500">
               <option value="">Unassigned</option>
               <option value="jatin">Jatin</option>
@@ -261,6 +264,7 @@ function AddContactModal({ onClose, onCreated }) {
             onChange={(e) => setForm({ ...form, tags: e.target.value })}
             placeholder="hot-lead, d2c, …"
             className="w-full border border-neutral-200 rounded-sm px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-200 focus:border-primary-500"
+            aria-label="Tags (comma-separated)"
           />
         </div>
         {error && <p className="text-sm text-danger-600">{error}</p>}
@@ -471,6 +475,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
                 onChange={(e) => setTagInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleBulkTag()}
                 className="flex-1 min-w-[200px] border border-neutral-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                aria-label="New tags (comma-separated)"
               />
               <button onClick={handleBulkTag} disabled={busy || (!tagInput.trim() && selectedTags.size === 0)}
                 className="bg-primary-600 hover:bg-primary-700 text-white text-sm px-4 py-1.5 rounded-lg disabled:opacity-50">
@@ -489,6 +494,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
               value={selectedTemplateId}
               onChange={(e) => setSelectedTemplateId(e.target.value)}
               className="flex-1 min-w-[240px] border border-neutral-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+              aria-label="Email template"
             >
               <option value="">Select an email template…</option>
               {emailTemplates.map((t) => (
@@ -508,6 +514,7 @@ function BulkActionBar({ selectedIds, selectedContacts, total, onSelectAll, onCl
           <div className="bg-white border-b border-neutral-200 shadow-md px-6 py-3 flex items-center gap-3">
             <span className="text-sm font-medium text-neutral-700">Assign to:</span>
             <select value={assignTo} onChange={(e) => setAssignTo(e.target.value)}
+              aria-label="Assign to"
               className="border border-neutral-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
               <option value="jatin">Jatin</option>
               <option value="saksham">Saksham</option>
@@ -778,7 +785,7 @@ export default function ContactsPage() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
               Add Contact
             </button>
-            <button className="p-2 text-neutral-500 hover:text-neutral-600 border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors" title="Settings">
+            <button className="p-2 text-neutral-500 hover:text-neutral-600 border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors" title="Settings" aria-label="Settings">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
             </button>
           </div>
@@ -799,12 +806,12 @@ export default function ContactsPage() {
               >
                 {list.label}
                 {list.id !== 'all' && listCounts[list.id] > 0 && (
-                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${activeList === list.id ? 'bg-primary-100 text-primary-700' : 'bg-neutral-100 text-neutral-500'}`}>
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${activeList === list.id ? 'bg-primary-100 text-primary-700' : 'bg-neutral-100 text-neutral-600'}`}>
                     {listCounts[list.id]}
                   </span>
                 )}
                 {list.id === 'all' && (
-                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${activeList === list.id ? 'bg-primary-100 text-primary-700' : 'bg-neutral-100 text-neutral-500'}`}>
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${activeList === list.id ? 'bg-primary-100 text-primary-700' : 'bg-neutral-100 text-neutral-600'}`}>
                     {total.toLocaleString()}
                   </span>
                 )}
@@ -824,10 +831,12 @@ export default function ContactsPage() {
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               className="w-full pl-9 pr-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              aria-label="Search contacts"
             />
           </div>
 
           <select value={filterSource} onChange={(e) => { setFilterSource(e.target.value); setPage(1); setActiveList('all'); }}
+            aria-label="Filter by source"
             className="border border-neutral-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
             <option value="">Source</option>
             <option value="facebook">Facebook</option>
@@ -842,6 +851,7 @@ export default function ContactsPage() {
           </select>
 
           <select value={filterAssignedTo} onChange={(e) => { setFilterAssignedTo(e.target.value); setPage(1); }}
+            aria-label="Filter by assignee"
             className="border border-neutral-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
             <option value="">Assigned To</option>
             <option value="jatin">Jatin</option>
@@ -851,11 +861,12 @@ export default function ContactsPage() {
           <input type="date" value={filterDateFrom} onChange={(e) => { setFilterDateFrom(e.target.value); setPage(1); }}
             className="border border-neutral-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 text-neutral-600"
             title="Added from date"
+            aria-label="Added from date"
           />
 
           {activeFilters.length > 0 && (
             <button onClick={() => { setFilterSource(''); setFilterAssignedTo(''); setFilterDateFrom(''); setPage(1); }}
-              className="text-sm text-danger-500 hover:text-danger-700 font-medium">
+              className="text-sm text-danger-600 hover:text-danger-700 font-medium">
               Clear all filters
             </button>
           )}
@@ -867,7 +878,7 @@ export default function ContactsPage() {
             {activeFilters.map((f) => (
               <span key={f.key} className="inline-flex items-center gap-1.5 bg-primary-50 text-primary-700 text-xs font-medium px-2.5 py-1 rounded-full border border-primary-200">
                 {f.label}
-                <button onClick={f.clear} className="text-primary-400 hover:text-primary-700 leading-none">×</button>
+                <button onClick={f.clear} className="text-primary-600 hover:text-primary-700 leading-none">×</button>
               </span>
             ))}
           </div>
@@ -899,6 +910,7 @@ export default function ContactsPage() {
                 <tr className="bg-neutral-50 border-b border-neutral-200 text-left select-none">
                   <th className="px-2 py-2">
                     <input type="checkbox" checked={allOnPageSelected} onChange={toggleAll}
+                      aria-label="Select all contacts on this page"
                       className="rounded border-neutral-300 text-primary-600 focus:ring-primary-500" />
                   </th>
                   <th className="relative group px-3 py-2 font-semibold text-neutral-500 text-xs uppercase tracking-wide">
@@ -945,6 +957,7 @@ export default function ContactsPage() {
                       className={`border-b border-neutral-100 transition-colors ${isSelected ? 'bg-primary-50 shadow-[inset_3px_0_0_theme(colors.primary.500)]' : 'hover:bg-neutral-50'}`}>
                       <td className="px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
                         <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(c.id)}
+                          aria-label={`Select contact ${[c.firstName, c.lastName].filter(Boolean).join(' ') || c.id}`}
                           className="rounded border-neutral-300 text-primary-600 focus:ring-primary-500" />
                       </td>
 
@@ -963,7 +976,7 @@ export default function ContactsPage() {
                             </p>
                             {(c.doNotContact || c.assignedTo) && (
                               <p className="text-[10px] text-neutral-500 truncate leading-tight">
-                                {c.doNotContact && <span className="text-danger-500 font-medium">DNC </span>}
+                                {c.doNotContact && <span className="text-danger-600 font-medium">DNC </span>}
                                 {c.assignedTo}
                               </p>
                             )}
@@ -975,21 +988,21 @@ export default function ContactsPage() {
                       <td className="px-3 py-1.5 text-neutral-600 cursor-pointer overflow-hidden" onClick={() => setSelectedContact(c)}>
                         {c.phone ? (
                           <span className="text-xs truncate block">{formatPhone(c.phone)}</span>
-                        ) : <span className="text-neutral-300 text-xs">—</span>}
+                        ) : <span className="text-neutral-500 text-xs">—</span>}
                       </td>
 
                       {/* Email */}
                       <td className="px-3 py-1.5 text-neutral-600 cursor-pointer overflow-hidden" onClick={() => setSelectedContact(c)}>
                         {c.email ? (
                           <span className="text-xs truncate block" title={c.email}>{c.email}</span>
-                        ) : <span className="text-neutral-300 text-xs">—</span>}
+                        ) : <span className="text-neutral-500 text-xs">—</span>}
                       </td>
 
                       {/* Business */}
                       <td className="px-3 py-1.5 text-neutral-600 text-xs cursor-pointer overflow-hidden" onClick={() => setSelectedContact(c)}>
                         {c.companyName ? (
                           <span className="truncate block" title={c.companyName}>{c.companyName}</span>
-                        ) : <span className="text-neutral-300">—</span>}
+                        ) : <span className="text-neutral-500">—</span>}
                       </td>
 
                       {/* Last activity */}
@@ -1034,6 +1047,7 @@ export default function ContactsPage() {
                   {total === 0 ? '0 results' : `Page ${page} of ${totalPages} — ${total.toLocaleString()} total`}
                 </p>
                 <select value={limit} onChange={(e) => { setLimit(Number(e.target.value)); setPage(1); }}
+                  aria-label="Rows per page"
                   className="text-xs border border-neutral-200 rounded-lg px-2 py-1 bg-white focus:outline-none">
                   {LIMIT_OPTIONS.map((n) => <option key={n} value={n}>{n} / page</option>)}
                 </select>
@@ -1052,48 +1066,49 @@ export default function ContactsPage() {
           </div>
           )}
         </div>
+
+        {/* Bulk action bar. Kept inside <main> so it is covered by a landmark —
+            it is a fixed overlay, so the DOM position does not affect layout. */}
+        {selectedIds.size > 0 && (
+          <BulkActionBar
+            selectedIds={selectedIds}
+            selectedContacts={selectedContactsData}
+            total={total}
+            onSelectAll={selectAll}
+            onClear={() => setSelectedIds(new Set())}
+            onDone={() => { load(); setSelectedIds(new Set()); }}
+            onOpenOpportunity={() => setShowOpportunityModal(true)}
+            load={load}
+          />
+        )}
+
+        {/* Contact slide-in */}
+        {selectedContact && (
+          <ContactSlideIn
+            contact={selectedContact}
+            onClose={() => setSelectedContact(null)}
+            onUpdated={() => { load(); setSelectedContact(null); }}
+          />
+        )}
+
+        {/* Add Contact modal */}
+        {showAddContact && (
+          <AddContactModal
+            onClose={() => setShowAddContact(false)}
+            onCreated={() => { setShowAddContact(false); load(); }}
+          />
+        )}
+
+        {/* Add/Update Opportunity modal */}
+        {showOpportunityModal && (
+          <AddUpdateOpportunityModal
+            contactIds={[...selectedIds]}
+            contacts={selectedContactsData}
+            onClose={() => setShowOpportunityModal(false)}
+            onDone={() => { setShowOpportunityModal(false); setSelectedIds(new Set()); setPage(1); load(); }}
+          />
+        )}
       </main>
-
-      {/* Bulk action bar */}
-      {selectedIds.size > 0 && (
-        <BulkActionBar
-          selectedIds={selectedIds}
-          selectedContacts={selectedContactsData}
-          total={total}
-          onSelectAll={selectAll}
-          onClear={() => setSelectedIds(new Set())}
-          onDone={() => { load(); setSelectedIds(new Set()); }}
-          onOpenOpportunity={() => setShowOpportunityModal(true)}
-          load={load}
-        />
-      )}
-
-      {/* Contact slide-in */}
-      {selectedContact && (
-        <ContactSlideIn
-          contact={selectedContact}
-          onClose={() => setSelectedContact(null)}
-          onUpdated={() => { load(); setSelectedContact(null); }}
-        />
-      )}
-
-      {/* Add Contact modal */}
-      {showAddContact && (
-        <AddContactModal
-          onClose={() => setShowAddContact(false)}
-          onCreated={() => { setShowAddContact(false); load(); }}
-        />
-      )}
-
-      {/* Add/Update Opportunity modal */}
-      {showOpportunityModal && (
-        <AddUpdateOpportunityModal
-          contactIds={[...selectedIds]}
-          contacts={selectedContactsData}
-          onClose={() => setShowOpportunityModal(false)}
-          onDone={() => { setShowOpportunityModal(false); setSelectedIds(new Set()); setPage(1); load(); }}
-        />
-      )}
     </div>
   );
 }

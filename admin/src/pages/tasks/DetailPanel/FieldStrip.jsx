@@ -75,6 +75,7 @@ export default function FieldStrip({ task, team = [], onPatch }) {
             value={task.assignedTo || ''}
             onChange={(e) => { onPatch({ assignedTo: e.target.value || null }); setEditing(null); }}
             onBlur={() => setEditing(null)}
+            aria-label="Assignee"
             className="text-sm border border-slate-200 rounded px-1.5 py-0.5 bg-white"
           >
             <option value="">Unassigned</option>
@@ -90,7 +91,7 @@ export default function FieldStrip({ task, team = [], onPatch }) {
                 <span className="text-sm text-slate-800 font-medium">{assigneeName}</span>
               </>
             ) : (
-              <span className="text-slate-400">Unassigned</span>
+              <span className="text-slate-500">Unassigned</span>
             )}
           </button>
         )}
@@ -108,6 +109,7 @@ export default function FieldStrip({ task, team = [], onPatch }) {
               onPatch({ dueAt: v ? new Date(v).toISOString() : null });
               setEditing(null);
             }}
+            aria-label="Due date"
             className="text-sm border border-slate-200 rounded px-1.5 py-0.5 bg-white"
           />
         ) : (
@@ -120,7 +122,7 @@ export default function FieldStrip({ task, team = [], onPatch }) {
                 </span>
               </>
             ) : (
-              <span className="text-slate-400">No date</span>
+              <span className="text-slate-500">No date</span>
             )}
           </button>
         )}
@@ -160,6 +162,7 @@ export default function FieldStrip({ task, team = [], onPatch }) {
             value={task.listId || ''}
             onChange={(e) => { onPatch({ listId: e.target.value || null }); setEditing(null); }}
             onBlur={() => setEditing(null)}
+            aria-label="List"
             className="text-sm border border-slate-200 rounded px-1.5 py-0.5 bg-white"
           >
             <option value="">None</option>
@@ -178,7 +181,7 @@ export default function FieldStrip({ task, team = [], onPatch }) {
             ) : task.listId ? (
               <span className="text-xs text-slate-500">{task.listId}</span>
             ) : (
-              <span className="text-slate-400">None</span>
+              <span className="text-slate-500">None</span>
             )}
           </button>
         )}
@@ -201,6 +204,7 @@ export default function FieldStrip({ task, team = [], onPatch }) {
             }}
             onBlur={addTag}
             placeholder="+ tag"
+            aria-label="Add tag"
             className="text-[10px] text-slate-600 placeholder:text-slate-400 px-1.5 py-0.5 rounded border border-dashed border-slate-200 bg-transparent outline-none focus:border-sky-300 focus:bg-white w-16"
           />
         </div>

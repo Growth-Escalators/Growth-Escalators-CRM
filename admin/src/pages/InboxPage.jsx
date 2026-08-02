@@ -232,7 +232,7 @@ export default function InboxPage() {
       <div className={`w-full md:w-80 flex-shrink-0 bg-white border-r border-neutral-200 flex flex-col ${selectedConv ? 'hidden md:flex' : 'flex'}`}>
         {/* Header */}
         <div className="px-4 py-4 border-b border-neutral-100">
-          <h2 className="font-bold text-neutral-900 mb-3 flex items-center gap-2">
+          <h1 className="font-bold text-neutral-900 mb-3 flex items-center gap-2">
             <MessageSquare className="w-5 h-5 text-primary-600" />
             Inbox
             {totalUnread > 0 && (
@@ -240,7 +240,7 @@ export default function InboxPage() {
                 {totalUnread} unread
               </span>
             )}
-          </h2>
+          </h1>
           <div className="relative">
             <Search className="absolute left-3 top-2.5 w-4 h-4 text-neutral-400" />
             <input
@@ -248,6 +248,7 @@ export default function InboxPage() {
               onChange={e => setSearch(e.target.value)}
               placeholder="Search contacts…"
               className="w-full pl-9 pr-3 py-2 text-sm border border-neutral-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+              aria-label="Search conversations"
             />
           </div>
         </div>
@@ -325,7 +326,7 @@ export default function InboxPage() {
           <>
             {/* Chat header */}
             <div className="bg-white border-b border-neutral-200 px-4 md:px-6 py-3 flex items-center gap-3 md:gap-4">
-              <button onClick={() => setSelectedConv(null)} className="md:hidden p-1 text-neutral-500 hover:text-neutral-700">
+              <button onClick={() => setSelectedConv(null)} className="md:hidden p-1 text-neutral-500 hover:text-neutral-700" aria-label="Back to conversations">
                 <ArrowLeft className="w-5 h-5" />
               </button>
               <div className="w-9 h-9 rounded-full bg-neutral-200 flex items-center justify-center text-neutral-600 font-bold text-sm">
@@ -338,6 +339,7 @@ export default function InboxPage() {
                     onClick={() => setEditContactId(selectedConv.contactId)}
                     className="p-1 text-neutral-500 hover:text-primary-600 rounded hover:bg-neutral-100 transition-colors"
                     title="Edit contact"
+                    aria-label={`Edit contact ${selectedConv.contactName || 'Unknown'}`}
                   >
                     <Pencil className="w-3.5 h-3.5" />
                   </button>
@@ -389,12 +391,14 @@ export default function InboxPage() {
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
                   placeholder="Type a message…"
                   className="flex-1 border border-neutral-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  aria-label="Message"
                 />
 
                 <button
                   onClick={sendMessage}
                   disabled={sending || !newMsg.trim()}
                   className="p-2.5 bg-primary-600 text-white rounded-xl hover:bg-primary-700 disabled:opacity-50 transition-colors"
+                  aria-label="Send message"
                 >
                   <Send className="w-4 h-4" />
                 </button>

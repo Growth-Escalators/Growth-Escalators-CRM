@@ -68,22 +68,24 @@ export default function SubmissionDialog({ open, resend = false, companyContacts
               <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
                 <input
                   ref={i === 0 ? firstFieldRef : undefined}
+                  aria-label={`Recipient ${i + 1} name`}
                   placeholder="Recipient name *"
                   value={r.name}
                   onChange={(e) => setRecipient(i, { name: e.target.value })}
                   className="input"
                 />
                 <input
+                  aria-label={`Recipient ${i + 1} email`}
                   placeholder="Email (optional)"
                   value={r.email}
                   onChange={(e) => setRecipient(i, { email: e.target.value })}
                   className="input"
                 />
-                <button type="button" aria-label="Remove recipient" onClick={() => removeRecipient(i)} disabled={recipients.length === 1} className="text-danger-600 disabled:opacity-30 justify-self-end">
+                <button type="button" aria-label={`Remove recipient ${i + 1}`} onClick={() => removeRecipient(i)} disabled={recipients.length === 1} className="text-danger-600 disabled:opacity-30 justify-self-end">
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
                 {companyContacts.length > 0 && (
-                  <select value={r.companyContactId} onChange={(e) => setRecipient(i, { companyContactId: e.target.value })} className="input col-span-2">
+                  <select aria-label={`Recipient ${i + 1} hiring contact`} value={r.companyContactId} onChange={(e) => setRecipient(i, { companyContactId: e.target.value })} className="input col-span-2">
                     <option value="">Link to hiring contact (optional)…</option>
                     {companyContacts.map((c) => <option key={c.id} value={c.id}>{[c.first_name, c.last_name].filter(Boolean).join(' ')}</option>)}
                   </select>

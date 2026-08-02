@@ -19,9 +19,20 @@
 // reach `/today/queues` without being 403'd by an unrelated stricter gate.
 
 import { Router, type Request, type Response } from 'express';
-import { buildTodayQueues, type DecisionWorkbenchCompanyItem } from '../modules/outreach/decisionWorkbench';
+import {
+  buildTodayQueues,
+  type DecisionWorkbenchCompanyItem,
+  type DecisionWorkbenchSignalItem,
+  type DecisionWorkbenchContactItem,
+} from '../modules/outreach/decisionWorkbench';
 import { runTodayActions, TodayActionValidationError, type TodayActionRequest } from '../modules/outreach/decisionWorkbenchActions';
-import { computeTodayActionCapabilities, computeBulkCapability } from '../modules/outreach/decisionWorkbenchCapabilities';
+import {
+  computeTodayActionCapabilities,
+  computeBulkCapability,
+  computeSignalActionCapabilities,
+  computeContactActionCapabilities,
+  type TodayActionCapability,
+} from '../modules/outreach/decisionWorkbenchCapabilities';
 import { wizmatchPilotOrMachineSync } from '../middleware/wizmatchMachineSyncLane';
 
 const router = Router();
@@ -54,6 +65,12 @@ router.use(featureGate);
 // — none of which this router serves. `/today/queues` and `/today/actions` are
 // not on that allowlist, so both still get the identical roster check.
 router.use(wizmatchPilotOrMachineSync);
+import {
+  runEnrolmentReleaseActions,
+  EnrolmentReleaseValidationError,
+  type EnrolmentReleaseRequest,
+} from '../services/wizmatchOutreachService';
+
 
 function actorFrom(req: Request) {
   // `role` is carried into the action layer because PRD-005 §4 gates "admin
@@ -74,14 +91,36 @@ function clampLimit(raw: unknown, fallback: number, max: number): number {
 // an answer the backend already gave.
 const QUEUE_KEYS = ['readyToContact', 'needsReview', 'routed', 'pausedOrBlocked'] as const;
 
+/**
+ * Which capability function answers for which queue. The signal and contact
+ * queues act on entirely different endpoints from the four company queues
+ * (POST /signals/bulk-action and POST /contact-intelligence/contacts/bulk-review,
+ * both already shipped), so they get their own predictors rather than being
+ * squeezed through the company one — see the long note in
+ * decisionWorkbenchCapabilities.ts.
+ *
+ * Every queue is optional here: `buildTodayQueues` reports a failed queue as
+ * an absent/empty array plus a `partial.*Unavailable` flag, and the tests that
+ * pin this route mock it with the pre-existing shape. A missing key is skipped
+ * rather than throwing.
+ */
+const CAPABILITY_BY_QUEUE: Record<string, (item: never, role: string | undefined) => Record<string, TodayActionCapability>> = {
+  ...Object.fromEntries(QUEUE_KEYS.map((key) => [
+    key,
+    (item: DecisionWorkbenchCompanyItem, role: string | undefined) => computeTodayActionCapabilities(item, role, 'single'),
+  ])),
+  signalsToQualify: (item: DecisionWorkbenchSignalItem, role: string | undefined) => computeSignalActionCapabilities(item, role, 'single'),
+  contactsToReview: (item: DecisionWorkbenchContactItem, role: string | undefined) => computeContactActionCapabilities(item, role, 'single'),
+} as Record<string, (item: never, role: string | undefined) => Record<string, TodayActionCapability>>;
+
 function attachCapabilities(queues: Record<string, unknown>, role: string | undefined) {
   const withCapabilities: Record<string, unknown> = { ...queues };
-  for (const key of QUEUE_KEYS) {
+  for (const [key, computeFor] of Object.entries(CAPABILITY_BY_QUEUE)) {
     const items = queues[key];
     if (!Array.isArray(items)) continue;
-    withCapabilities[key] = (items as DecisionWorkbenchCompanyItem[]).map((item) => ({
-      ...item,
-      capabilities: computeTodayActionCapabilities(item, role, 'single'),
+    withCapabilities[key] = items.map((item) => ({
+      ...(item as Record<string, unknown>),
+      capabilities: computeFor(item as never, role),
     }));
   }
   withCapabilities.bulkCapability = computeBulkCapability(role);
@@ -124,6 +163,53 @@ router.post('/today/actions', async (req: Request, res: Response) => {
       return;
     }
     console.error('[wizmatch today/actions] failed', error);
+    res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+
+// POST /api/wizmatch/today/enrolment-actions — release a company's cold-email lock.
+//
+// A SIBLING route rather than a new action on /today/actions, deliberately.
+// TodayActionTargetType is a closed union ('company' | 'duplicate') and
+// runTodayActions dispatches `if (type === 'company') … else duplicate`. Adding
+// an 'enrolment' member would make that `else` route enrolments into duplicate
+// resolution — and it would compile. Keeping the union frozen keeps that
+// impossible.
+//
+// Placement matters: sitting on this router it inherits `featureGate` and
+// `wizmatchPilotOrMachineSync` from the router-level `use`s above, which is
+// exactly the gating we want and would have to be re-declared (and could drift)
+// in a separate file.
+//
+// The role split is transcribed from /today/actions rather than shared. They are
+// gated on the same rule today, but a shared helper would let a future change to
+// one endpoint's gate silently widen the other's.
+router.post('/today/enrolment-actions', async (req: Request, res: Response) => {
+  const body = (req.body ?? {}) as Partial<EnrolmentReleaseRequest>;
+  const targets = Array.isArray(body.targets) ? body.targets : [];
+  const role = req.user?.role || 'staff';
+  const isBulk = targets.length > 1;
+  const allowedRoles = isBulk ? ['admin'] : ['admin', 'team_lead'];
+  if (!allowedRoles.includes(role)) {
+    res.status(403).json({
+      error: 'forbidden',
+      message: isBulk
+        ? 'Bulk actions (more than one target) require admin.'
+        : 'This action requires team_lead or admin.',
+    });
+    return;
+  }
+
+  try {
+    const outcome = await runEnrolmentReleaseActions(actorFrom(req), body as EnrolmentReleaseRequest);
+    res.json(outcome);
+  } catch (error) {
+    if (error instanceof EnrolmentReleaseValidationError) {
+      res.status(400).json({ error: 'validation_error', code: error.code, message: error.message });
+      return;
+    }
+    console.error('[wizmatch today/enrolment-actions] failed', error);
     res.status(500).json({ error: 'internal_error' });
   }
 });

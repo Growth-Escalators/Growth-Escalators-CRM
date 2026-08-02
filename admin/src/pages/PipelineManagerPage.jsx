@@ -75,9 +75,9 @@ function StageConfigModal({ stageId, stageName, currentConfig, emailTemplates, o
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-lg font-bold text-slate-900">Stage Settings</h2>
-              <p className="text-sm text-slate-400 mt-0.5">{stageName}</p>
+              <p className="text-sm text-slate-500 mt-0.5">{stageName}</p>
             </div>
-            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100">
+            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100" aria-label="Close">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
           </div>
@@ -85,15 +85,17 @@ function StageConfigModal({ stageId, stageName, currentConfig, emailTemplates, o
         <div className="px-6 py-5 space-y-4">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">
-              Default Probability (%) <span className="text-slate-400 font-normal">— auto-set when deal enters this stage</span>
+              Default Probability (%) <span className="text-slate-500 font-normal">— auto-set when deal enters this stage</span>
             </label>
             <input type="number" min="0" max="100" value={probability} onChange={e => setProbability(e.target.value)}
               placeholder="Leave blank for no default"
+              aria-label="Default probability (%)"
               className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Auto-send Email Template</label>
             <select value={emailTemplateId} onChange={e => setEmailTemplateId(e.target.value)}
+              aria-label="Auto-send email template"
               className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option value="">None</option>
               {emailTemplates.map(t => (
@@ -105,11 +107,13 @@ function StageConfigModal({ stageId, stageName, currentConfig, emailTemplates, o
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Auto-create ClickUp Task</label>
             <input type="text" value={taskTitle} onChange={e => setTaskTitle(e.target.value)}
               placeholder="Task title (leave blank for none)"
+              aria-label="Auto-create ClickUp task title"
               className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2" />
             {taskTitle && (
               <div className="flex items-center gap-2">
                 <span className="text-sm text-slate-500">Due in</span>
                 <input type="number" min="1" value={taskDays} onChange={e => setTaskDays(e.target.value)}
+                  aria-label="Task due in days"
                   className="w-16 border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 <span className="text-sm text-slate-500">days</span>
               </div>
@@ -191,7 +195,7 @@ function StageList({ stages, onChange, stageConfigs, onOpenStageConfig }) {
               onDrop={onDrop}
               className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-2 cursor-grab active:cursor-grabbing hover:border-slate-300 transition-colors"
             >
-              <span className="text-slate-300 cursor-grab text-sm select-none">⠿</span>
+              <span className="text-slate-500 cursor-grab text-sm select-none">⠿</span>
               {editingIdx === idx ? (
                 <input
                   autoFocus
@@ -200,6 +204,7 @@ function StageList({ stages, onChange, stageConfigs, onOpenStageConfig }) {
                   onBlur={() => commitEdit(idx)}
                   onKeyDown={(e) => { if (e.key === 'Enter') commitEdit(idx); if (e.key === 'Escape') { setEditingIdx(null); } }}
                   className="flex-1 text-sm border-none outline-none bg-transparent font-medium text-slate-800"
+                  aria-label="Stage name"
                 />
               ) : (
                 <span
@@ -220,6 +225,7 @@ function StageList({ stages, onChange, stageConfigs, onOpenStageConfig }) {
                 <button
                   onClick={() => onOpenStageConfig(stage)}
                   title="Stage settings"
+                  aria-label={`Settings for stage ${stageName}`}
                   className="p-1.5 text-slate-300 hover:text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -231,7 +237,7 @@ function StageList({ stages, onChange, stageConfigs, onOpenStageConfig }) {
               <button
                 onClick={() => removeStage(idx)}
                 disabled={stages.length <= 2}
-                className="text-slate-300 hover:text-red-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ml-1 text-xs font-bold"
+                className="text-slate-500 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ml-1 text-xs font-bold"
                 title="Remove stage"
               >
                 ✕
@@ -248,6 +254,7 @@ function StageList({ stages, onChange, stageConfigs, onOpenStageConfig }) {
           onKeyDown={(e) => e.key === 'Enter' && addStage()}
           placeholder="Stage name..."
           className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+          aria-label="New stage name"
         />
         <button
           onClick={addStage}
@@ -339,6 +346,7 @@ function PipelineEditor({ pipeline, onSaved, onCancel, stageConfigs, onOpenStage
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-400"
+                aria-label="Pipeline name"
               />
             </div>
             <div>
@@ -354,7 +362,7 @@ function PipelineEditor({ pipeline, onSaved, onCancel, stageConfigs, onOpenStage
         <div>
           <div className="mb-3">
             <h3 className="text-sm font-semibold text-slate-700">Stages</h3>
-            <p className="text-xs text-slate-400 mt-0.5">Drag to reorder. Terminal behavior is preserved with each stage.</p>
+            <p className="text-xs text-slate-500 mt-0.5">Drag to reorder. Terminal behavior is preserved with each stage.</p>
           </div>
           <StageList stages={stages} onChange={setStages} stageConfigs={stageConfigs} onOpenStageConfig={onOpenStageConfig} />
         </div>
@@ -429,7 +437,7 @@ function NewPipelineModal({ onCreated, onClose }) {
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100 shrink-0">
           <h2 className="text-lg font-bold text-slate-900">New Pipeline</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100">
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100" aria-label="Close">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
             </svg>
@@ -437,7 +445,7 @@ function NewPipelineModal({ onCreated, onClose }) {
         </div>
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">Pipeline Name <span className="text-red-500">*</span></label>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Pipeline Name <span className="text-red-600">*</span></label>
             <input
               autoFocus
               type="text"
@@ -446,6 +454,7 @@ function NewPipelineModal({ onCreated, onClose }) {
               onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
               placeholder="e.g. Enterprise Sales, Healthcare Leads..."
               className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+              aria-label="Pipeline name"
             />
           </div>
           <div>
@@ -639,7 +648,7 @@ export default function PipelineManagerPage() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-xl font-bold text-slate-900">Pipeline Manager</h1>
-              <p className="text-sm text-slate-400 mt-0.5">Create and manage your sales pipelines and stages</p>
+              <p className="text-sm text-slate-500 mt-0.5">Create and manage your sales pipelines and stages</p>
             </div>
             <button
               onClick={() => setShowNewModal(true)}
@@ -657,7 +666,7 @@ export default function PipelineManagerPage() {
           {/* Left panel — pipeline list */}
           <div className="w-80 shrink-0 border-r border-slate-100 bg-white flex flex-col">
             <div className="px-4 py-3 border-b border-slate-100">
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
                 {pipelinesList.length} Pipeline{pipelinesList.length !== 1 ? 's' : ''}
               </p>
             </div>
@@ -670,8 +679,8 @@ export default function PipelineManagerPage() {
                 </div>
               ) : pipelinesList.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center px-4">
-                  <p className="text-sm text-slate-400">No pipelines yet</p>
-                  <button onClick={() => setShowNewModal(true)} className="text-sm text-orange-500 font-medium mt-2">
+                  <p className="text-sm text-slate-500">No pipelines yet</p>
+                  <button onClick={() => setShowNewModal(true)} className="text-sm text-orange-700 font-medium mt-2">
                     + Create your first pipeline
                   </button>
                 </div>
@@ -696,7 +705,7 @@ export default function PipelineManagerPage() {
                     />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-slate-800 truncate">{p.name}</p>
-                      <p className="text-xs text-slate-400">
+                      <p className="text-xs text-slate-600">
                         {normalizePipelineStages(p.normalizedStages || p.stages).length} stages
                         {p.dealCount > 0 && ` · ${p.dealCount} deals`}
                       </p>
@@ -705,6 +714,7 @@ export default function PipelineManagerPage() {
                     <div className="relative" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === p.id ? null : p.id); }}
+                        aria-label={`Actions for pipeline ${p.name}`}
                         className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 opacity-0 group-hover:opacity-100 transition-opacity"
                       >
                         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
@@ -760,7 +770,7 @@ export default function PipelineManagerPage() {
                   </svg>
                 </div>
                 <h3 className="text-lg font-semibold text-slate-700 mb-1">Select a pipeline to edit</h3>
-                <p className="text-sm text-slate-400">or create a new one to get started</p>
+                <p className="text-sm text-slate-500">or create a new one to get started</p>
                 <button
                   onClick={() => setShowNewModal(true)}
                   className="mt-4 px-4 py-2 text-sm font-medium text-orange-600 border border-orange-200 rounded-xl hover:bg-orange-50"

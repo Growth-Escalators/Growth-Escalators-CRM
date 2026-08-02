@@ -928,6 +928,7 @@ function SeedProspectPanel({ demoMode, onSeeded }) {
             <div className="flex flex-wrap items-center gap-3">
               <input
                 type="file"
+                aria-label="CSV file to import"
                 accept=".csv,text/csv"
                 onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
                 className="text-[12px]"
@@ -1394,6 +1395,7 @@ export function WizmatchCandidateIntelligenceNewPage({ demoMode = false }) {
         </div>
 
         <textarea
+          aria-label="Candidate profiles to import"
           className="mt-4 min-h-[128px] w-full rounded-lg border border-neutral-200 bg-white p-3 text-sm font-mono text-neutral-800 outline-none focus:border-primary-300 focus:ring-2 focus:ring-primary-100"
           value={intakeText}
           onChange={(event) => setIntakeText(event.target.value)}

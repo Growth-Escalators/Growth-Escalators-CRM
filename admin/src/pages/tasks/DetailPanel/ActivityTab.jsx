@@ -111,9 +111,9 @@ export default function ActivityTab({ task, team = [] }) {
     <div>
       {error && <p className="text-xs text-rose-600 mb-2">{error}</p>}
       {loading ? (
-        <p className="text-xs text-slate-400">Loading activity…</p>
+        <p className="text-xs text-slate-500">Loading activity…</p>
       ) : comments.length === 0 ? (
-        <p className="text-xs text-slate-400 italic">No comments yet. Start the conversation.</p>
+        <p className="text-xs text-slate-500 italic">No comments yet. Start the conversation.</p>
       ) : (
         <div className="space-y-3">
           {comments.map((c) => {
@@ -125,7 +125,7 @@ export default function ActivityTab({ task, team = [] }) {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-baseline gap-2">
                     <span className="text-xs font-semibold text-slate-800">{name}</span>
-                    <span className="text-[10px] text-slate-400">{timeAgo(c.createdAt)}</span>
+                    <span className="text-[10px] text-slate-600">{timeAgo(c.createdAt)}</span>
                     {isMine && editingId !== c.id && (
                       <span className="ml-auto flex items-center gap-2 opacity-0 group-hover:opacity-100">
                         <button
@@ -152,6 +152,7 @@ export default function ActivityTab({ task, team = [] }) {
                         onChange={(e) => setEditBody(e.target.value)}
                         rows={2}
                         className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-sky-300 focus:ring-2 focus:ring-sky-100 resize-none"
+                        aria-label="Edit comment"
                       />
                       <div className="mt-1 flex items-center gap-2">
                         <button
@@ -190,6 +191,7 @@ export default function ActivityTab({ task, team = [] }) {
             placeholder="Leave a comment… use @ to mention"
             rows={2}
             className="w-full bg-transparent text-sm outline-none resize-none placeholder:text-slate-400"
+            aria-label="Comment"
           />
           <div className="flex items-center justify-end">
             <button

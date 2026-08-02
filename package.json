@@ -31,7 +31,9 @@
     "wizmatch:pilot-readiness": "tsx scripts/wizmatch-pilot-readiness.ts",
     "ai:brief": "tsx scripts/generate-ai-brief.ts",
     "ge:seo": "npx tsx scripts/ge-seo-pull.ts",
-    "seo:indexing-queue": "npx tsx scripts/seo-indexing-queue.ts"
+    "seo:indexing-queue": "npx tsx scripts/seo-indexing-queue.ts",
+    "dev:seed": "tsx scripts/dev/seed-local.ts",
+    "dev:setup": "npm run db:migrate && npm run dev:seed"
   },
   "keywords": [],
   "author": "",

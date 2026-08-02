@@ -73,7 +73,7 @@ export default function Header({
               {count} active · {doneCount} done
             </span>
           </div>
-          <p className="text-[10px] text-slate-400 mt-1">{todayLabel()}</p>
+          <p className="text-[10px] text-slate-500 mt-1">{todayLabel()}</p>
         </div>
 
         <QuickCapture onCreate={onCreate} team={team} />

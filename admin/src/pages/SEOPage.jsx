@@ -262,6 +262,7 @@ function KeywordsTab({ keywords, loading }) {
           <Search className="absolute left-3 top-2 w-4 h-4 text-slate-400" />
           <input value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Filter keywords..."
+            aria-label="Filter keywords"
             className="pl-9 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 w-64" />
         </div>
         <div className="relative">
@@ -269,6 +270,7 @@ function KeywordsTab({ keywords, loading }) {
             value={clientFilter}
             onChange={e => setClientFilter(e.target.value)}
             className="appearance-none pl-3 pr-8 py-1.5 text-sm border border-slate-200 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+            aria-label="Filter by client"
           >
             <option value="all">All Clients</option>
             {domains.map(d => {
@@ -431,6 +433,7 @@ function ContentGapsTab() {
         <input
           type="text" placeholder="Filter by keyword or client..."
           value={filter} onChange={e => setFilter(e.target.value)}
+          aria-label="Filter content gaps"
           className="flex-1 text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-sky-400"
         />
         <span className="text-xs text-slate-400">{filtered.length} gaps</span>
@@ -521,6 +524,7 @@ function BacklinksTab() {
         <input
           type="text" placeholder="Filter by URL, anchor text or client..."
           value={filter} onChange={e => setFilter(e.target.value)}
+          aria-label="Filter backlinks"
           className="flex-1 text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-sky-400"
         />
         <span className="text-xs text-slate-400">{filtered.length} backlinks</span>
@@ -598,7 +602,7 @@ function ClientDetailPanel({ domain, onClose }) {
       <div className="w-full max-w-2xl bg-white shadow-2xl overflow-y-auto">
         {/* Header */}
         <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center gap-3 z-10">
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1">
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1" aria-label="Close">
             <X className="w-5 h-5" />
           </button>
           <Globe className="w-5 h-5 text-sky-500" />
@@ -1335,6 +1339,7 @@ function ContentEngineTab() {
                 value={genClient}
                 onChange={e => setGenClient(e.target.value)}
                 className="appearance-none pl-3 pr-8 py-2 text-sm border border-slate-200 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                aria-label="Client"
               >
                 {CLIENTS.map(c => (
                   <option key={c.domain} value={c.domain}>{c.label}</option>
@@ -1351,6 +1356,7 @@ function ContentEngineTab() {
               onChange={e => setGenKeyword(e.target.value)}
               placeholder="Enter target keyword..."
               className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+              aria-label="Keyword"
             />
           </div>
           <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer pb-0.5">
@@ -1446,6 +1452,7 @@ function ContentEngineTab() {
               onChange={e => setVizUrl(e.target.value)}
               placeholder="https://example.com/page"
               className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+              aria-label="URL"
             />
           </div>
           <button

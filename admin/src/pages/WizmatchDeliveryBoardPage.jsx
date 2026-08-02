@@ -286,7 +286,8 @@ export default function WizmatchDeliveryBoardPage() {
           <table className="table-fluent">
             <thead>
               <tr>
-                <th></th>
+                {/* Expand/collapse column — no visible header, so name it for screen readers. */}
+                <th aria-label="Expand row"></th>
                 <th>Candidate</th>
                 <th>Requirement</th>
                 <th>Consent</th>
@@ -306,7 +307,7 @@ export default function WizmatchDeliveryBoardPage() {
                   <Fragment key={item.id}>
                     <tr>
                       <td className="w-8">
-                        <button type="button" onClick={() => toggleActivity(item)} className="text-neutral-500 hover:text-neutral-600" aria-label="Toggle activity">
+                        <button type="button" onClick={() => toggleActivity(item)} className="text-neutral-500 hover:text-neutral-600" aria-label={`Toggle activity for ${candidateName(item)}`}>
                           {expandedId === item.id ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                         </button>
                       </td>

@@ -157,7 +157,7 @@ function ProspectDrawer({ id, onClose, onMutated }) {
     <div className="fixed inset-y-0 right-0 w-[480px] bg-white border-l border-slate-200 shadow-xl z-30 overflow-y-auto">
       <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-5 py-3 flex items-center gap-2">
         <p className="font-semibold text-slate-900 mr-auto">Prospect</p>
-        <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5" /></button>
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-700" aria-label="Close prospect panel"><X className="w-5 h-5" /></button>
       </div>
 
       {loading && (
@@ -192,6 +192,7 @@ function ProspectDrawer({ id, onClose, onMutated }) {
                   value=""
                   disabled={statusSaving}
                   onChange={(e) => e.target.value && updateStatus(e.target.value)}
+                  aria-label="Change prospect status"
                 >
                   <option value="">change…</option>
                   {STATUSES.filter((s) => s !== data.prospect.status).map((s) => (
@@ -300,6 +301,7 @@ function ProspectDrawer({ id, onClose, onMutated }) {
                   value={replyChannel}
                   onChange={(e) => setReplyChannel(e.target.value)}
                   className="text-sm border border-slate-200 rounded px-2 py-1"
+                  aria-label="Reply channel"
                 >
                   <option value="email">email</option>
                   <option value="linkedin">linkedin</option>
@@ -319,6 +321,7 @@ function ProspectDrawer({ id, onClose, onMutated }) {
                 onChange={(e) => setReplyText(e.target.value)}
                 placeholder="Paste the reply text here…"
                 className="w-full border border-slate-200 rounded p-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-200"
+                aria-label="Reply text"
               />
             </div>
           </div>
@@ -437,11 +440,13 @@ export default function OutboundPage() {
           <div className="flex items-center gap-2 mt-2">
             <Filter className="w-4 h-4 text-slate-400" />
             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
+              aria-label="Filter by status"
               className="text-sm border border-slate-200 rounded px-2 py-1">
               <option value="">All statuses</option>
               {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
             <select value={icpFilter} onChange={(e) => setIcpFilter(e.target.value)}
+              aria-label="Filter by ICP segment"
               className="text-sm border border-slate-200 rounded px-2 py-1">
               <option value="">All ICP segments</option>
               {ICP_SEGMENTS.map((s) => <option key={s} value={s}>{s}</option>)}

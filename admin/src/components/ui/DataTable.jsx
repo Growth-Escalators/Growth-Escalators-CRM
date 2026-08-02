@@ -24,6 +24,11 @@ import React, { useCallback } from 'react';
  * The wrapper scrolls (`maxHeight`) so `position: sticky` on <thead> has a
  * scroll container to stick to. Pass `maxHeight={null}` to opt out and let the
  * page scroll instead (the header will not stick in that mode).
+ *
+ * ── accessible name ─────────────────────────────────────────────────────────
+ * The scroll wrapper is a focusable region, so it needs a name. `ariaLabel`
+ * defaults to a generic one so no existing caller breaks; pages with more than
+ * one table on screen should pass something specific ("Candidates", "Signals").
  */
 export default function DataTable({
   columns,
@@ -39,6 +44,7 @@ export default function DataTable({
   sort = null,
   onSort = null,
   maxHeight = 'calc(100vh - 300px)',
+  ariaLabel = 'Data table',
 }) {
   const selectable = !!onToggleRow;
   const allSelected = rows.length > 0 && rows.every((r) => selectedIds.has(r[rowKey]));
@@ -67,7 +73,13 @@ export default function DataTable({
   }, [someSelected, allSelected]);
 
   return (
+    // The wrapper scrolls, so it needs to be focusable or a keyboard-only user
+    // cannot scroll it at all (axe `scrollable-region-focusable`). A focusable
+    // scroll container also needs a role + name, hence role="region".
     <div
+      tabIndex={0}
+      role="region"
+      aria-label={ariaLabel}
       className="bg-white border border-neutral-200 rounded-lg shadow-card overflow-auto"
       style={maxHeight ? { maxHeight } : undefined}
     >
