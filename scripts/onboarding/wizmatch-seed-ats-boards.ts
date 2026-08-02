@@ -18,6 +18,28 @@ const pool = new Pool({
   connectionTimeoutMillis: 20_000,
 });
 
+/**
+ * The ATS poller selects companies WHERE ats_board_url IS NOT NULL
+ * (src/services/wizmatchAtsPoller.ts). This script previously omitted the
+ * column, so every company it seeded was filtered straight back out and the
+ * poller marked each daily run `skipped` — the header's claim that the poller
+ * "will harvest these automatically" was false as written.
+ *
+ * Note the column is a human-confirmation flag, not a fetch target: the poller
+ * reads it into its row type but never requests it. All three vendors are
+ * fetched from `ats_slug` alone. These templates therefore only need to match
+ * what detectAtsType() already proposes as the canonical board URL
+ * (wizmatchAtsPoller.ts detectAtsType return values).
+ */
+function boardUrlFor(atsType: string, slug: string): string | null {
+  switch (atsType) {
+    case 'greenhouse': return `https://boards.greenhouse.io/${slug}`;
+    case 'lever':      return `https://jobs.lever.co/${slug}`;
+    case 'ashby':      return `https://boards.ashby.com/${slug}`;
+    default:           return null; // unknown vendor stays NULL and stays unpolled
+  }
+}
+
 // [name, domain, ats_type, ats_slug]
 const BOARDS: [string, string, string, string][] = [
   ['Airbnb', 'airbnb.com', 'greenhouse', 'airbnb'],
@@ -64,12 +86,12 @@ async function main() {
     let inserted = 0;
     for (const [name, domain, atsType, atsSlug] of BOARDS) {
       const r = await client.query(
-        `INSERT INTO wizmatch_companies (tenant_id, name, domain, ats_type, ats_slug, industry, country)
-         SELECT $1,$2,$3,$4,$5,'Technology','US'
+        `INSERT INTO wizmatch_companies (tenant_id, name, domain, ats_type, ats_slug, ats_board_url, industry, country)
+         SELECT $1,$2,$3,$4,$5,$6,'Technology','US'
          WHERE NOT EXISTS (
            SELECT 1 FROM wizmatch_companies WHERE tenant_id=$1 AND ats_type=$4 AND ats_slug=$5
          ) RETURNING id`,
-        [tenantId, name, domain, atsType, atsSlug]);
+        [tenantId, name, domain, atsType, atsSlug, boardUrlFor(atsType, atsSlug)]);
       if (r.rowCount) {
         inserted += 1;
         // PRD-005 §8.1 / §22.2 #16 — every company-insert path writes the
