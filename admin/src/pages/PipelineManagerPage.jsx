@@ -225,7 +225,7 @@ function StageList({ stages, onChange, stageConfigs, onOpenStageConfig }) {
                 <button
                   onClick={() => onOpenStageConfig(stage)}
                   title="Stage settings"
-                  aria-label={`Settings for stage ${stageName}`}
+                  aria-label={`Settings for stage ${stage.name}`}
                   className="p-1.5 text-slate-300 hover:text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
