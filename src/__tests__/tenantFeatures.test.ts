@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Ground truth this suite pins: for the 3 tenants that exist today
-// (growth-escalators / wizmatch / city-clinic — referred to by slug only),
+// (growth-escalators / wizmatch / sample-agency-basic — referred to by slug only),
 // getTenantFeatures() must resolve to EXACTLY what's true today via the
 // global env-var flags, with settings.features left at its default `{}` (no
 // production backfill has run). See tenantFeatures.ts's PLAN_DEFAULTS
@@ -30,7 +30,7 @@ describe('computeTenantFeatures (pure, per-plan defaults)', () => {
     });
   });
 
-  it('client_basic (e.g. city-clinic) — everything off', async () => {
+  it('client_basic (e.g. sample-agency-basic) — everything off', async () => {
     const { computeTenantFeatures } = await import('../services/tenantFeatures');
     expect(computeTenantFeatures('client_basic', {})).toEqual({
       wizmatch: false,
@@ -109,10 +109,10 @@ describe('getTenantFeatures — zero-behavior-change proof for the 3 existing te
     });
   });
 
-  it('city-clinic (client_basic, unmigrated settings={}) — matches today: nothing on', async () => {
+  it('sample-agency-basic (client_basic, unmigrated settings={}) — matches today: nothing on', async () => {
     mockTenantRow({ plan: 'client_basic', settings: {} });
     const { getTenantFeatures } = await import('../services/tenantFeatures');
-    await expect(getTenantFeatures('city-clinic-tenant-id')).resolves.toEqual({
+    await expect(getTenantFeatures('sample-agency-basic-tenant-id')).resolves.toEqual({
       wizmatch: false, seo: false, crmAutomation: false, gstBilling: false, d2c: false,
     });
   });
@@ -141,7 +141,7 @@ describe('getActiveTenantsWithFeature', () => {
     const rows = [
       { id: 'ge-id', slug: 'growth-escalators', plan: 'agency_internal', settings: {} },
       { id: 'wm-id', slug: 'wizmatch', plan: 'wizmatch_internal', settings: {} },
-      { id: 'cc-id', slug: 'city-clinic', plan: 'client_basic', settings: {} },
+      { id: 'sab-id', slug: 'sample-agency-basic', plan: 'client_basic', settings: {} },
     ];
     mockTenantRows(rows);
     const { getActiveTenantsWithFeature } = await import('../services/tenantFeatures');
@@ -176,7 +176,7 @@ describe('getActiveTenantsWithFeature', () => {
   });
 
   it('returns an empty list when no active tenant has the feature', async () => {
-    mockTenantRows([{ id: 'cc-id', slug: 'city-clinic', plan: 'client_basic', settings: {} }]);
+    mockTenantRows([{ id: 'sab-id', slug: 'sample-agency-basic', plan: 'client_basic', settings: {} }]);
     const { getActiveTenantsWithFeature } = await import('../services/tenantFeatures');
     await expect(getActiveTenantsWithFeature('d2c')).resolves.toEqual([]);
   });
@@ -198,14 +198,14 @@ describe('getSingleActiveTenantWithFeature', () => {
     mockTenantRows([
       { id: 'ge-id', slug: 'growth-escalators', plan: 'agency_internal', settings: {} },
       { id: 'wm-id', slug: 'wizmatch', plan: 'wizmatch_internal', settings: {} },
-      { id: 'cc-id', slug: 'city-clinic', plan: 'client_basic', settings: {} },
+      { id: 'sab-id', slug: 'sample-agency-basic', plan: 'client_basic', settings: {} },
     ]);
     const { getSingleActiveTenantWithFeature } = await import('../services/tenantFeatures');
     await expect(getSingleActiveTenantWithFeature('crmAutomation')).resolves.toEqual({ id: 'ge-id', slug: 'growth-escalators' });
   });
 
   it('returns null when nothing qualifies', async () => {
-    mockTenantRows([{ id: 'cc-id', slug: 'city-clinic', plan: 'client_basic', settings: {} }]);
+    mockTenantRows([{ id: 'sab-id', slug: 'sample-agency-basic', plan: 'client_basic', settings: {} }]);
     const { getSingleActiveTenantWithFeature } = await import('../services/tenantFeatures');
     await expect(getSingleActiveTenantWithFeature('gstBilling')).resolves.toBeNull();
   });
