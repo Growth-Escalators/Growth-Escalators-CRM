@@ -243,7 +243,11 @@ async function tenantIdFromRef(ref: string): Promise<string | null> {
   return null;
 }
 
-async function defaultResolvePreferredTenantId(change: FacebookLeadgenChange): Promise<string | null> {
+// Exported so callers outside processFacebookLeadgenChange's own dependency
+// injection (e.g. routes/webhooks.ts's facebook_lead_failed audit-job
+// insert) can reuse the exact same page/form -> tenant resolution instead of
+// re-implementing or guessing at it.
+export async function defaultResolvePreferredTenantId(change: FacebookLeadgenChange): Promise<string | null> {
   const ref = tenantRefFromLeadFormConfig(change);
   return ref ? tenantIdFromRef(ref) : null;
 }
