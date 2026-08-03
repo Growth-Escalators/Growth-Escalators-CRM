@@ -13,6 +13,7 @@ import nodemailer from 'nodemailer';
 import { pool } from '../db/index';
 import { WIZMATCH_SYSTEM_CHANNEL } from '../config/constants';
 import { sendSlackMessage } from './slackService';
+import { getDecryptedCredentials } from './tenantIntegrationsService';
 import logger from '../utils/logger';
 
 export interface SendResult {
@@ -29,7 +30,47 @@ export interface SendParams {
   tenantId: string;
 }
 
-// Build inbox config from env vars (6 inboxes across 3 domains)
+interface TenantSmtpCredentials {
+  host: string;
+  port: number;
+  user: string;
+  pass: string;
+}
+
+function isTenantSmtpCredentials(v: unknown): v is TenantSmtpCredentials {
+  if (!v || typeof v !== 'object') return false;
+  const c = v as Record<string, unknown>;
+  return typeof c.host === 'string' && c.host.length > 0
+    && typeof c.user === 'string' && c.user.length > 0
+    && typeof c.pass === 'string' && c.pass.length > 0
+    && (typeof c.port === 'number' || typeof c.port === 'string') && Number(c.port) > 0;
+}
+
+/**
+ * Per-tenant SMTP credentials (Phase 3 white-label — `tenant_integrations`,
+ * provider 'email_smtp'). Returns null when the tenant has no `connected` row
+ * — the fallback signal `sendColdEmail` uses to hit exactly today's global
+ * PURELYMAIL_*_1..6 pool below. True for every tenant today (none has a
+ * `tenant_integrations` row yet), so this is a zero-behavior-change addition
+ * until a tenant actually connects their own SMTP account.
+ *
+ * A `connected` row with a corrupt/incomplete credential payload throws
+ * rather than silently falling through — see
+ * `tenantIntegrationsService.getDecryptedCredentials`.
+ */
+async function getTenantSmtpCredentials(tenantId: string): Promise<TenantSmtpCredentials | null> {
+  const creds = await getDecryptedCredentials<Partial<TenantSmtpCredentials>>(tenantId, 'email_smtp');
+  if (!creds) return null;
+  if (!isTenantSmtpCredentials(creds)) {
+    throw new Error(
+      `tenant_integrations 'email_smtp' credentials for tenant=${tenantId} decrypted to an incomplete/invalid payload (need host, port, user, pass)`,
+    );
+  }
+  return { host: creds.host, port: Number(creds.port), user: creds.user, pass: creds.pass };
+}
+
+// Build inbox config from env vars (6 inboxes across 3 domains) — the global
+// fallback pool, exactly as before this file gained tenant-awareness.
 function getInboxes() {
   const host = process.env.PURELYMAIL_SMTP_HOST || 'smtp.purelymail.com';
   const port = Number(process.env.PURELYMAIL_SMTP_PORT) || 587;
@@ -54,6 +95,21 @@ export async function sendColdEmail(params: SendParams): Promise<SendResult> {
   if (process.env.AUTOMATED_EMAILS_ENABLED !== 'true') {
     throw new Error('cold email suppressed — AUTOMATED_EMAILS_ENABLED is off');
   }
+
+  // Per-tenant SMTP integration takes priority over the shared global pool.
+  // A tenant's own account is out of scope for `wizmatch_domain_health` (that
+  // table tracks reputation of OUR shared Purelymail inboxes, not a tenant's
+  // own domain), so it bypasses the healthy-domain gate below entirely.
+  const tenantSmtp = await getTenantSmtpCredentials(params.tenantId);
+  if (tenantSmtp) {
+    return sendWithInboxes(
+      tenantSmtp.host,
+      tenantSmtp.port,
+      [{ user: tenantSmtp.user, pass: tenantSmtp.pass, domain: tenantSmtp.user.split('@')[1] || '' }],
+      params,
+    );
+  }
+
   const { host, port, inboxes } = getInboxes();
 
   if (inboxes.length === 0) {
@@ -92,15 +148,18 @@ export async function sendColdEmail(params: SendParams): Promise<SendResult> {
         { allowDuringPause: true },
       ).catch(() => {});
     }
-    return sendWithInboxes(inboxes, params);
+    return sendWithInboxes(host, port, inboxes, params);
   }
 
-  return sendWithInboxes(availableInboxes, params);
+  return sendWithInboxes(host, port, availableInboxes, params);
 }
 
-async function sendWithInboxes(availableInboxes: Array<{ user: string; pass: string; domain: string }>, params: SendParams): Promise<SendResult> {
-  const { host, port } = getInboxes();
-
+async function sendWithInboxes(
+  host: string,
+  port: number,
+  availableInboxes: Array<{ user: string; pass: string; domain: string }>,
+  params: SendParams,
+): Promise<SendResult> {
   // Round-robin: pick inbox based on today's count (simplified — in production, track per-inbox daily count)
   // For now, use a hash of the recipient email to distribute evenly
   const bucket = Math.abs(hashString(params.to)) % availableInboxes.length;

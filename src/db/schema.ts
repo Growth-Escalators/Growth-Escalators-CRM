@@ -3140,3 +3140,46 @@ export const tenantBranding = pgTable(
     tenantIdUniq: uniqueIndex('tenant_branding_tenant_id_uniq').on(t.tenantId),
   }),
 );
+
+// ---------------------------------------------------------------------------
+// Tenant integrations — per-tenant credential store for external services
+// (SMTP, Meta, etc). Phase 3 of the white-label effort: today the app has one
+// global Meta token, one WhatsApp number, and hand-enumerated
+// PURELYMAIL_*_1..6 env vars for outbound email, which only works for a single
+// tenant. This table lets a second tenant plug in their own channels without
+// a code change.
+//
+// `encryptedCredentials` is a ciphertext blob (AES-256-GCM, see
+// src/services/credentialEncryption.ts) — the plaintext secret is NEVER
+// stored here and NEVER returned by the API; only `status`/`metadata` are
+// safe to expose to a tenant member. `provider` is a plain text column (not a
+// Postgres enum) matching this schema's existing convention for enum-like
+// fields. One row per (tenant, provider) — a tenant can connect multiple
+// providers, but only one integration per provider at a time.
+// ---------------------------------------------------------------------------
+export const tenantIntegrations = pgTable(
+  'tenant_integrations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // e.g. 'email_smtp' | 'meta' | 'google' — plain text, not pgEnum (matches
+    // repo convention; see `status` columns elsewhere in this file).
+    provider: text('provider').notNull(),
+    // AES-256-GCM ciphertext (versioned, self-describing string — see
+    // credentialEncryption.ts). Nullable: a row can exist in 'disconnected'
+    // state with no secret stored yet.
+    encryptedCredentials: text('encrypted_credentials'),
+    // Non-secret config only (e.g. display name, connected-by, last-checked-at).
+    metadata: jsonb('metadata').default({}),
+    // 'connected' | 'disconnected' | 'error'
+    status: text('status').notNull().default('disconnected'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantIdIdx: index('tenant_integrations_tenant_id_idx').on(t.tenantId),
+    tenantProviderUniq: uniqueIndex('tenant_integrations_tenant_id_provider_uniq').on(
+      t.tenantId, t.provider,
+    ),
+  }),
+);

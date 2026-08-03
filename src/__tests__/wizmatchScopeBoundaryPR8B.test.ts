@@ -201,11 +201,14 @@ describe('PR 8B scope boundary — PR 9/10 must not have started', () => {
       + 'Ships schema + a `requirePlatformSuperadmin` middleware + audit-logging capability, none of it '
       + 'wired into any route. Unrelated to PR 9/10 (Smartlead / reply ingestion).',
     41: 'tenant_branding — white-label admin-SPA branding (display name/logo/colors per tenant), '
-      + 'part of the tenant-branding-whitelabel PR. Renumbered from 0040 to 0041 during merge — 0040 '
-      + 'was already claimed by the superadmin migration above. Additive CREATE TABLE only; no ALTER '
-      + 'of any existing table. Stores only display chrome (name, logo URL, hex colors, favicon URL) — '
-      + 'no outreach, sequence, reply, or provider data of any kind. Unrelated to PR 9/10 (Smartlead / '
-      + 'reply ingestion).',
+      + 'part of the tenant-branding-whitelabel PR. Additive CREATE TABLE only; no ALTER of any '
+      + 'existing table. Unrelated to PR 9/10 (Smartlead / reply ingestion).',
+    42: 'tenant_integrations — Phase 3 white-label credential store (per-tenant SMTP/Meta/etc. '
+      + 'credentials, AES-256-GCM encrypted), approved as part of the white-label reselling effort. '
+      + 'Additive CREATE TABLE only; no ALTER of any existing table. `provider` is a generic '
+      + "text column (e.g. 'email_smtp', 'meta') — this migration itself carries no Smartlead or "
+      + 'reply-ingestion surface. Renumbered from 0040 to 0042 during merge — 0040/0041 were already '
+      + 'claimed. Unrelated to PR 9/10 (Smartlead / reply ingestion).',
   };
 
   it('every migration past 0037 is in the reviewed out-of-scope allowlist', () => {
