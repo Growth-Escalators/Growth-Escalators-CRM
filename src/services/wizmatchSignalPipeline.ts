@@ -29,12 +29,53 @@ export type ScoreSignalResult =
       reasoning: string;
     };
 
+/** Matches the injectable executor in wizmatchSourcing, so ingest can pass its own. */
+type Queryable = { query: (text: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number | null }> };
+
+export type ScoreSignalOptions = {
+  /**
+   * Query executor. Defaults to the shared pool. Ingest passes the same injected
+   * executor it was handed, so a test that fakes the database for ingestion does not
+   * get a live connection attempt smuggled in through the scorer.
+   */
+  db?: Queryable;
+  /**
+   * Post the `score >= 7` Slack alert. Defaults to true, which is what the cron and
+   * the HTTP route have always done.
+   *
+   * Ingest and backfill pass `false`. Scoring at ingest means a single TheirStack run
+   * can score 15 signals in one loop, and a backfill can score every historical row —
+   * both would turn one designed alert into a burst against a real channel. Whether
+   * ingest should alert is a product decision, not a side effect of fixing scoring;
+   * `WIZMATCH_SCORE_ALERTS_ENABLED` (below) is the deliberate switch for it.
+   */
+  notify?: boolean;
+};
+
+/**
+ * Opt-in switch for ingest-time priority alerts. Default off.
+ *
+ * Without this, making scoring run at ingest would silently retire the `score >= 7`
+ * alert: the cron only picks up `status='new'` rows, and ingest-scored signals are
+ * already `'scored'` by the time it looks. Off-by-default keeps the blast radius at
+ * zero while leaving the feature one documented flag away.
+ */
+export function isWizmatchScoreAlertsEnabled(): boolean {
+  return ['1', 'true', 'yes', 'on'].includes(String(process.env.WIZMATCH_SCORE_ALERTS_ENABLED || '').toLowerCase());
+}
+
 /**
  * Deterministic TS scorer (pure, $0). Returns `{ notFound: true }` when the signal
  * does not exist for this tenant so the caller can translate it into a 404.
  */
-export async function scoreSignalById(tenantId: string, signalId: string): Promise<ScoreSignalResult> {
-  const result = await pool.query(
+export async function scoreSignalById(
+  tenantId: string,
+  signalId: string,
+  options: ScoreSignalOptions = {},
+): Promise<ScoreSignalResult> {
+  const notify = options.notify !== false;
+  const db = options.db ?? pool;
+  const result = await db.query(
     `SELECT s.*, c.h1b_sponsor_count,
             (SELECT COUNT(*)::int FROM wizmatch_job_signals s2
              WHERE s2.company_id = s.company_id AND s2.status NOT IN ('dead','placed')) AS company_volume
@@ -63,7 +104,7 @@ export async function scoreSignalById(tenantId: string, signalId: string): Promi
     rawText: row.raw_text,   // scanned for contract/C2C/urgency language
   });
 
-  await pool.query(
+  await db.query(
     `UPDATE wizmatch_job_signals
      SET score = $3, score_breakdown = $4::jsonb, status = 'scored', days_open = $5
      WHERE id = $1 AND tenant_id = $2`,
@@ -71,7 +112,7 @@ export async function scoreSignalById(tenantId: string, signalId: string): Promi
   );
 
   // Slack alert for high scores
-  if (score >= 7 && WIZMATCH_LEADS_CHANNEL) {
+  if (notify && score >= 7 && WIZMATCH_LEADS_CHANNEL) {
     await sendSlackMessage(
       WIZMATCH_LEADS_CHANNEL,
       `🎯 *Priority Signal* (score ${score}/10)\n*${row.job_title}* at ${row.company_name || 'Unknown'}\n${reasoning}`,
@@ -81,6 +122,38 @@ export async function scoreSignalById(tenantId: string, signalId: string): Promi
   }
 
   return { notFound: false, signalId, score, breakdown, reasoning };
+}
+
+/**
+ * Scores a signal only if it has never been scored, and reports which happened.
+ *
+ * `score` alone cannot answer "has this been scored?" — the column defaults to 0
+ * (`schema.ts:1411`) and `scoreSignal` can legitimately return 0, so a never-scored
+ * row and a genuinely-worthless one are indistinguishable by score. `score_breakdown`
+ * is the discriminator: it defaults to `{}` and is always non-empty after a real
+ * scoring pass.
+ *
+ * Idempotent by design — qualify may be pressed repeatedly on the same signal, and
+ * re-running the scorer each time would re-fire the priority alert.
+ */
+export async function ensureSignalScored(
+  tenantId: string,
+  signalId: string,
+  options: ScoreSignalOptions = {},
+): Promise<{ scored: boolean; reason: 'already_scored' | 'not_found' | 'scored_now' }> {
+  const existing = await (options.db ?? pool).query(
+    'SELECT score_breakdown FROM wizmatch_job_signals WHERE id = $1 AND tenant_id = $2',
+    [signalId, tenantId],
+  );
+  if (existing.rows.length === 0) return { scored: false, reason: 'not_found' };
+
+  const breakdown = existing.rows[0].score_breakdown;
+  if (breakdown && Object.keys(breakdown).length > 0) return { scored: false, reason: 'already_scored' };
+
+  const result = await scoreSignalById(tenantId, signalId, options);
+  return result.notFound
+    ? { scored: false, reason: 'not_found' }
+    : { scored: true, reason: 'scored_now' };
 }
 
 export type EnrichSignalPayload =

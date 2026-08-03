@@ -45,6 +45,13 @@ const scoreColor = (score) => {
   return 'bg-neutral-200 text-neutral-500 border-neutral-300';
 };
 
+// A never-scored signal and a genuinely-worthless one both arrive as score 0 — the
+// column defaults to 0 and the scorer can legitimately return 0. score_breakdown is
+// the only discriminator: it defaults to {} and is always populated by a real scoring
+// pass. Rendering both as a grey "0" made an entire dead pipeline look like a working
+// one that simply had nothing good in it.
+const isSignalScored = (s) => Boolean(s?.score_breakdown && Object.keys(s.score_breakdown).length > 0);
+
 const sigOpts = (arr) => arr.map((v) => ({ value: v, label: v }));
 const SIGNAL_DEFAULTS = { region: 'india' };
 const SIGNAL_FILTERS = [
@@ -62,7 +69,15 @@ const SIGNAL_COLUMNS = [
   { key: 'job_title', label: 'Job Title', sortable: true, exportValue: (s) => s.job_title, render: (s) => <span className="font-medium text-neutral-900">{s.job_title}</span> },
   { key: 'company_name', label: 'Company', sortable: true, render: (s) => s.company_name || '—' },
   { key: 'days_open', label: 'Days Open', sortable: true, exportValue: (s) => s.days_open || 0, render: (s) => <span className={s.days_open >= 30 ? 'text-danger-600 font-bold' : 'text-neutral-600'}>{s.days_open || 0}d</span> },
-  { key: 'score', label: 'Score', sortable: true, exportValue: (s) => s.score || 0, render: (s) => <span className={`inline-flex items-center justify-center w-7 h-7 rounded-md text-sm font-bold border ${scoreColor(s.score || 0)}`}>{s.score || 0}</span> },
+  {
+    key: 'score',
+    label: 'Score',
+    sortable: true,
+    exportValue: (s) => (isSignalScored(s) ? s.score || 0 : ''),
+    render: (s) => (isSignalScored(s)
+      ? <span className={`inline-flex items-center justify-center w-7 h-7 rounded-md text-sm font-bold border ${scoreColor(s.score || 0)}`}>{s.score || 0}</span>
+      : <span className="text-neutral-400" title="Not scored yet">—</span>),
+  },
   { key: 'source', label: 'Source', sortable: true, render: (s) => <span className="text-neutral-500">{s.source}</span> },
   { key: 'status', label: 'Status', sortable: true, render: (s) => <span className={STATUS_BADGE[s.status] || 'badge-muted'}>{s.status?.replace(/_/g, ' ')}</span> },
 ];
