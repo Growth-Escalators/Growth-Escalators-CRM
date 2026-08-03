@@ -12,12 +12,15 @@ const router = Router();
 
 // ---------------------------------------------------------------------------
 // POST /sequences — create a sequence
+// tenantId is always the authenticated caller's own tenant — a client-supplied
+// tenantId would let one tenant create sequences inside another's account (IDOR).
 // ---------------------------------------------------------------------------
 router.post('/', async (req, res) => {
-  const { tenantId, name, channel, steps } = req.body;
+  const tenantId = req.user!.tenantId;
+  const { name, channel, steps } = req.body;
 
-  if (!tenantId || !name || !channel) {
-    res.status(400).json({ error: 'tenantId, name, and channel are required' });
+  if (!name || !channel) {
+    res.status(400).json({ error: 'name and channel are required' });
     return;
   }
 
@@ -82,12 +85,17 @@ router.get('/stats', async (req, res) => {
 
 // ---------------------------------------------------------------------------
 // POST /sequences/enrol — enrol a contact into a sequence
+// tenantId is always the authenticated caller's own tenant — a client-supplied
+// tenantId (or contactId belonging to another tenant) would let one tenant
+// enrol a different tenant's contact into a sequence (IDOR). enrolContact()
+// itself also re-verifies the contact belongs to this tenant.
 // ---------------------------------------------------------------------------
 router.post('/enrol', async (req, res) => {
-  const { tenantId, contactId, sequenceName, startAfterMinutes } = req.body;
+  const tenantId = req.user!.tenantId;
+  const { contactId, sequenceName, startAfterMinutes } = req.body;
 
-  if (!tenantId || !contactId || !sequenceName) {
-    res.status(400).json({ error: 'tenantId, contactId, and sequenceName are required' });
+  if (!contactId || !sequenceName) {
+    res.status(400).json({ error: 'contactId and sequenceName are required' });
     return;
   }
 
@@ -102,11 +110,14 @@ router.post('/enrol', async (req, res) => {
 
 // ---------------------------------------------------------------------------
 // DELETE /sequences/enrolments/:id — cancel an enrolment
+// Scoped to the caller's tenant — without this, any authenticated user of any
+// tenant could cancel another tenant's enrolment by GUID (IDOR).
 // ---------------------------------------------------------------------------
 router.delete('/enrolments/:id', async (req, res) => {
+  const tenantId = req.user!.tenantId;
   const { id } = req.params;
 
-  const cancelled = await cancelEnrolment(id);
+  const cancelled = await cancelEnrolment(id, tenantId);
   if (!cancelled) {
     res.status(404).json({ error: 'enrolment not found' });
     return;
