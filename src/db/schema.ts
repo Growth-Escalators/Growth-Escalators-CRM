@@ -480,6 +480,20 @@ export const users = pgTable(
     // every existing database. Nullable is deliberate: login reads
     // `is_active IS NULL OR is_active = true`.
     isActive: boolean('is_active').default(true),
+    // Platform-superadmin primitive (Phase-1 hardening, security audit finding
+    // 2026-08-03): there is otherwise NO cross-tenant concept anywhere in this
+    // codebase — every prior instance of cross-tenant visibility has been an
+    // accidental bug (see Phase-0 fixes: PRs #109/#110/#111), not a designed
+    // feature. This column is the explicit, opt-in, audited replacement for
+    // that accident: a GE-staff account flagged here may be granted cross-
+    // tenant support access via `requirePlatformSuperadmin` (src/middleware/
+    // rbac.ts), and every actual cross-tenant access it performs must be
+    // logged via `auditEvents` (see `auditSuperadminCrossTenantAccess`).
+    // `notNull().default(false)` deliberately, unlike the nullable `isActive`
+    // precedent above — a security gate should have exactly one falsy
+    // representation, not two (`NULL` and `false`) that every call site has to
+    // remember to treat as equivalent.
+    isPlatformSuperadmin: boolean('is_platform_superadmin').notNull().default(false),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (t) => ({

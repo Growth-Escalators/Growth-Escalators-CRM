@@ -1,6 +1,7 @@
 import { type Request, type Response, type NextFunction } from 'express';
 import { db, users } from '../db/index';
 import { eq } from 'drizzle-orm';
+import { logAuditEvent } from '../utils/audit';
 
 // Permission → which roles are allowed
 // `team_lead` sits between sales and admin: full operational access (Contacts,
@@ -108,6 +109,94 @@ export function hasPermission(role: string, permission: string): boolean {
     return false;
   }
   return allowed.includes(role);
+}
+
+// ---------------------------------------------------------------------------
+// Platform superadmin (Phase-1 hardening, security audit 2026-08-03)
+// ---------------------------------------------------------------------------
+// There is no "platform superadmin" concept anywhere else in this codebase.
+// Every prior instance of cross-tenant visibility here has been an accidental
+// bug (see Phase-0 fixes: PRs #109/#110/#111), never a designed feature. This
+// is the explicit, opt-in, audited primitive for legitimate GE-staff cross-
+// tenant support access — added as scaffolding only. Nothing in this codebase
+// wires it into a route yet, and there is no current support-UI use case.
+// Its existence is not authorisation to build one — that's a separate,
+// explicitly-approved change.
+//
+// Design notes:
+//  - The flag is read fresh from the DB on every call, not trusted from the
+//    JWT — `AuthPayload` (`src/middleware/auth.ts`) carries no such claim,
+//    deliberately. A support-access grant, or its revocation, must take
+//    effect without waiting for the holder's token to expire or be reissued.
+//    This mirrors why `requireAuth` re-checks `token_version`/`is_active`
+//    against the DB per request instead of trusting the JWT alone.
+//  - Fails closed on every exit: missing `req.user`, no matching DB row, or
+//    the DB call throwing all deny with 403 — never a silent pass-through.
+//  - This middleware only answers "is this caller a flagged superadmin?". It
+//    is NOT a substitute for tenant-scoping a query — a route wiring this in
+//    still has to decide, per request, which tenant's data it is about to
+//    touch, and audit that decision (see `auditSuperadminCrossTenantAccess`).
+export async function requirePlatformSuperadmin(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const userId = req.user?.id;
+  if (!userId) {
+    res.status(403).json({ error: 'forbidden', message: "You don't have permission to access this resource" });
+    return;
+  }
+  try {
+    const [row] = await db
+      .select({ isPlatformSuperadmin: users.isPlatformSuperadmin })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    if (row?.isPlatformSuperadmin === true) {
+      next();
+      return;
+    }
+  } catch (e) {
+    console.error('[rbac] requirePlatformSuperadmin lookup failed — denying:', e);
+  }
+  res.status(403).json({ error: 'forbidden', message: "You don't have permission to access this resource" });
+}
+
+// Audit-logging capability for the platform-superadmin primitive above. A
+// future support-tooling route would call this AFTER `requirePlatformSuperadmin`
+// has passed, once it knows which tenant's data it is about to read or write.
+// Deliberately a no-op (inserts nothing) when the target tenant IS the
+// caller's own tenant — that's ordinary same-tenant access, not the
+// cross-tenant support case this exists to make visible/audited.
+//
+// Reuses the generic `audit_events` table (`logAuditEvent`,
+// `src/utils/audit.ts`) rather than a parallel log — PRD-005 already names it
+// as the preferred home for exactly this kind of fact (see
+// `src/modules/outreach/outreachGate.ts`'s `recordShadowObservation`).
+//
+// Not wired into any production route today — there is no current support-UI
+// use case. This is the capability a future route would call, not a route
+// itself.
+export async function auditSuperadminCrossTenantAccess(
+  req: Request,
+  targetTenantId: string,
+  opts?: { resourceType?: string; resourceId?: string; metadata?: Record<string, unknown> },
+): Promise<void> {
+  const actor = req.user;
+  if (!actor) return;
+  if (!targetTenantId || targetTenantId === actor.tenantId) return; // same-tenant access isn't cross-tenant
+  await logAuditEvent(
+    actor.id,
+    targetTenantId,
+    'platform_superadmin.cross_tenant_access',
+    opts?.resourceType,
+    opts?.resourceId,
+    {
+      actorUserId: actor.id,
+      actorTenantId: actor.tenantId,
+      targetTenantId,
+      method: req.method,
+      path: req.originalUrl,
+      ...opts?.metadata,
+    },
+    req,
+  );
 }
 
 // Data masking for staff role

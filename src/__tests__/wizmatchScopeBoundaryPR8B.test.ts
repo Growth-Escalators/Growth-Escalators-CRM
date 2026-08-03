@@ -195,6 +195,11 @@ describe('PR 8B scope boundary — PR 9/10 must not have started', () => {
       + 'Additive CREATE TABLE only; no ALTER of any existing table. Stores no outreach, sequence, '
       + 'reply or provider data — `query` is a URL query string for a list page, not a payload. '
       + 'Unrelated to PR 9/10 (Smartlead / reply ingestion).',
+    40: 'users.is_platform_superadmin — platform-superadmin primitive (Phase-1 hardening, security '
+      + 'audit 2026-08-03), owner-approved in that task\'s brief. `ADD COLUMN ... DEFAULT false NOT NULL` '
+      + 'on the shared `users` table only; no new table, no outreach/sequence/reply/provider surface. '
+      + 'Ships schema + a `requirePlatformSuperadmin` middleware + audit-logging capability, none of it '
+      + 'wired into any route. Unrelated to PR 9/10 (Smartlead / reply ingestion).',
   };
 
   it('every migration past 0037 is in the reviewed out-of-scope allowlist', () => {
