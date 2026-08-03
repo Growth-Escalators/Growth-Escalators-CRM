@@ -17,6 +17,7 @@ export interface BrandHealthAlert {
 export interface BrandHealthScore {
   client_name: string;
   ad_account_id: string;
+  tenant_id: string | null;
   score_date: string;
   overall_score: number;
   ads_score: number;
@@ -84,6 +85,7 @@ export async function calculateBrandHealth(client: GrowthOSClient): Promise<Bran
   const scoreRecord: BrandHealthScore = {
     client_name: client.client_name,
     ad_account_id: client.ad_account_id,
+    tenant_id: client.tenant_id,
     score_date: today,
     overall_score,
     ads_score: adsResult.score,
@@ -264,11 +266,11 @@ async function getPreviousScore(clientName: string): Promise<number | null> {
 async function saveHealthScore(score: BrandHealthScore): Promise<void> {
   try {
     await pool.query(
-      `INSERT INTO brand_health_scores (client_name, ad_account_id, score_date, overall_score, ads_score, email_score, whatsapp_score, seo_score, retention_score, ads_detail, email_detail, whatsapp_detail, seo_detail, retention_detail, previous_score, score_change, alerts)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+      `INSERT INTO brand_health_scores (client_name, ad_account_id, tenant_id, score_date, overall_score, ads_score, email_score, whatsapp_score, seo_score, retention_score, ads_detail, email_detail, whatsapp_detail, seo_detail, retention_detail, previous_score, score_change, alerts)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
        ON CONFLICT DO NOTHING`,
       [
-        score.client_name, score.ad_account_id, score.score_date, score.overall_score,
+        score.client_name, score.ad_account_id, score.tenant_id, score.score_date, score.overall_score,
         score.ads_score, score.email_score, score.whatsapp_score, score.seo_score, score.retention_score,
         JSON.stringify(score.ads_detail), JSON.stringify(score.email_detail),
         JSON.stringify(score.whatsapp_detail), JSON.stringify(score.seo_detail),

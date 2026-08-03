@@ -38,13 +38,14 @@ export async function runCompetitorPulse(client: GrowthOSClient): Promise<void> 
       const analysis = await analyzeWithClaude(String(competitorName), client.client_name, client.industry, adTexts);
 
       await pool.query(
-        `INSERT INTO competitor_pulse (client_name, competitor_name, competitor_page_id, week_start, ads_found, trending_formats, new_offers, insights, recommendations, raw_data)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        `INSERT INTO competitor_pulse (client_name, competitor_name, competitor_page_id, week_start, ads_found, trending_formats, new_offers, insights, recommendations, raw_data, tenant_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
         [
           client.client_name, competitorName, pageId, weekStartStr, adsFound,
           JSON.stringify(analysis.trending_formats), JSON.stringify(analysis.new_offers),
           analysis.insights, JSON.stringify(analysis.recommendations),
           JSON.stringify({ ad_texts_sample: adTexts.slice(0, 5) }),
+          client.tenant_id,
         ]
       );
 

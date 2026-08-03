@@ -108,7 +108,12 @@ Description: "${content.description}"
 // Main tracker
 // ---------------------------------------------------------------------------
 
-export async function trackCreativePerformance(adAccountId: string): Promise<void> {
+// `tenantId` is optional — worker.ts's scheduled crons call this unscoped
+// (across every tenant's ad accounts, by design, same posture as
+// getActiveGrowthOSClients()). routes/growthOS.ts's POST /creatives/scan
+// (admin-triggered, behind requireAuth) passes the caller's client.tenant_id
+// so every row this writes is attributed, not left NULL.
+export async function trackCreativePerformance(adAccountId: string, tenantId?: string | null): Promise<void> {
   logger.info(`[creative] Tracking creatives for ${adAccountId}...`);
   const token = process.env.META_ADS_TOKEN;
   if (!token) {
@@ -131,7 +136,7 @@ export async function trackCreativePerformance(adAccountId: string): Promise<voi
 
     for (const ad of ads) {
       try {
-        await processAd(ad, adAccountId, token);
+        await processAd(ad, adAccountId, tenantId ?? null, token);
         await new Promise(r => setTimeout(r, 300)); // Rate limit buffer
       } catch (e) {
         logger.error(`[creative] ad ${ad.id} processing failed:`, e instanceof Error ? e.message : String(e));
@@ -142,7 +147,7 @@ export async function trackCreativePerformance(adAccountId: string): Promise<voi
   }
 }
 
-async function processAd(ad: Record<string, unknown>, adAccountId: string, token: string): Promise<void> {
+async function processAd(ad: Record<string, unknown>, adAccountId: string, tenantId: string | null, token: string): Promise<void> {
   const adId = String(ad.id);
   const adName = String(ad.name ?? 'Unknown Ad');
   const campaignName = String((ad.campaign as Record<string, unknown> | undefined)?.name ?? 'Unknown Campaign');
@@ -188,9 +193,9 @@ async function processAd(ad: Record<string, unknown>, adAccountId: string, token
   if (existing.rows.length === 0) {
     // New ad — insert
     await pool.query(
-      `INSERT INTO creative_intelligence (ad_account_id, ad_id, ad_name, campaign_name, adset_name, first_seen, latest_roas, peak_roas, latest_ctr, peak_ctr, latest_frequency, days_running, spend_to_date, raw_metrics, fatigue_status, creative_content, creative_tags)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,$12,$13,'healthy',$14,$15)`,
-      [adAccountId, adId, adName, campaignName, adsetName, today, insights.roas, insights.roas, insights.ctr, insights.ctr, insights.frequency, insights.spend, JSON.stringify(insights), creativeContent ? JSON.stringify(creativeContent) : null, creativeTags ? JSON.stringify(creativeTags) : null]
+      `INSERT INTO creative_intelligence (ad_account_id, ad_id, ad_name, campaign_name, adset_name, first_seen, latest_roas, peak_roas, latest_ctr, peak_ctr, latest_frequency, days_running, spend_to_date, raw_metrics, fatigue_status, creative_content, creative_tags, tenant_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,$12,$13,'healthy',$14,$15,$16)`,
+      [adAccountId, adId, adName, campaignName, adsetName, today, insights.roas, insights.roas, insights.ctr, insights.ctr, insights.frequency, insights.spend, JSON.stringify(insights), creativeContent ? JSON.stringify(creativeContent) : null, creativeTags ? JSON.stringify(creativeTags) : null, tenantId]
     );
   } else {
     const row = existing.rows[0] as Record<string, unknown>;
