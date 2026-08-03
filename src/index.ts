@@ -24,6 +24,8 @@ import messagesRouter from './routes/messages';
 import emailRouter from './routes/email';
 import bookingRouter from './routes/booking';
 import cashfreeRouter, { cashfreeAdminRouter } from './routes/cashfree';
+import subscriptionsRouter from './routes/subscriptions';
+import subscriptionWebhooksRouter from './routes/subscriptionWebhooks';
 import authRouter from './routes/auth';
 import healthRouter from './routes/healthRoute';
 import pipelinesRouter from './routes/pipelines';
@@ -289,6 +291,10 @@ app.use('/book', (req, res, next) => {
 }, bookingRouter);
 app.use('/api/cashfree', cashfreeRouter);
 app.use('/api/cashfree', requireStrictAuth, requireRole('admin'), cashfreeAdminRouter); // simulate-webhook + debug-orders (admin-only)
+// Subscription-billing webhook — provider-agnostic (Cashfree/Razorpay/...),
+// public like the other webhook mounts above (signature-verified inside the
+// route itself, per-provider, before anything is trusted).
+app.use('/api/webhooks/subscriptions', webhookLimiter, subscriptionWebhooksRouter);
 
 // ---------------------------------------------------------------------------
 // Protected CRM routes (require JWT)
@@ -307,6 +313,7 @@ app.use('/api/email-templates', requireAuth, emailTemplatesRouter);
 app.use('/api/capi', requireAuth, capiRouter);
 app.use('/api/blockers', requireAuth, blockersRouter);
 app.use('/api/billing', requireStrictAuth, billingRouter);
+app.use('/api/subscriptions', requireAuth, subscriptionsRouter);
 app.use('/api/permissions', requireStrictAuth, permissionsRouter);
 app.use('/api/tenant-branding', requireStrictAuth, tenantBrandingRouter);
 app.use('/api/tenant-integrations', requireStrictAuth, tenantIntegrationsRouter);

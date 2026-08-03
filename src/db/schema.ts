@@ -3183,3 +3183,83 @@ export const tenantIntegrations = pgTable(
     ),
   }),
 );
+
+// ---------------------------------------------------------------------------
+// TABLE — plans (subscription billing — reselling this CRM to other agencies)
+//
+// A plan is provider-agnostic: it does not name Cashfree or Razorpay. The
+// provider is chosen per-subscription (see `subscriptions.paymentProvider`
+// below) via the PaymentGatewayAdapter factory in
+// src/services/paymentGateway/index.ts, so the same plan can be sold through
+// either gateway without a schema change.
+//
+// `price`/`currency`: `price` is an integer in the currency's BASE unit (e.g.
+// rupees, not paise) — never assume a subunit or INR anywhere reading this
+// column; always pair it with the row's own `currency`.
+//
+// `featureEntitlements` maps to the `TenantFeatureFlags` shape in
+// src/services/tenantFeatures.ts (wizmatch/seo/crmAutomation/gstBilling/d2c).
+// Left as untyped jsonb — no table in this file uses Drizzle's `.$type<>()`,
+// so a typed jsonb column would be a new precedent; the shape is documented
+// here and enforced at the call site instead (see
+// applyPlanEntitlementsToTenant in tenantFeatures.ts).
+//
+// `limits` is a free-form jsonb bag (e.g. `{ "seats": 5 }`) — there is no
+// existing seat/limit concept in this codebase to match, so this is
+// intentionally unopinionated until a real limit is enforced somewhere.
+// ---------------------------------------------------------------------------
+export const plans = pgTable('plans', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull(),
+  price: integer('price').notNull(),
+  currency: text('currency').notNull(),
+  featureEntitlements: jsonb('feature_entitlements').notNull().default({}),
+  limits: jsonb('limits').notNull().default({}),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// TABLE — subscriptions (a tenant's billing relationship to one plan)
+//
+// `status` values: created | active | paused | cancelled | expired — mirrors
+// PaymentGatewayAdapter.getSubscriptionStatus()'s return union, so a status
+// read from the adapter needs no translation before being written here. Plus
+// one extra value written only by the webhook processor: 'failed', for a
+// failed recurring-charge event (NormalizedSubscriptionEvent's
+// 'subscription.failed') — distinct from a hard 'cancelled', and not part of
+// getSubscriptionStatus()'s own enum since that call answers "what is this
+// subscription's state at the gateway right now", not "did the last charge
+// attempt fail".
+//
+// `paymentProvider` values: cashfree | razorpay — mirrors SubscriptionProvider
+// from src/services/paymentGateway/types.ts.
+//
+// `providerSubscriptionId` is unique PER PROVIDER, not globally — two
+// different gateways could in principle mint colliding ids, so the unique
+// index below is composite on (paymentProvider, providerSubscriptionId),
+// matching how the webhook route looks a subscription up (it always knows
+// the provider from the URL param before it has the id).
+// ---------------------------------------------------------------------------
+export const subscriptions = pgTable(
+  'subscriptions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    planId: uuid('plan_id').notNull().references(() => plans.id),
+    status: text('status').notNull().default('created'),
+    paymentProvider: text('payment_provider').notNull(),
+    providerSubscriptionId: text('provider_subscription_id').notNull(),
+    renewalDate: timestamp('renewal_date'),
+    currency: text('currency').notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantIdx: index('subscriptions_tenant_idx').on(t.tenantId),
+    providerSubscriptionUniq: uniqueIndex('subscriptions_provider_subscription_uniq').on(
+      t.paymentProvider, t.providerSubscriptionId,
+    ),
+  }),
+);
