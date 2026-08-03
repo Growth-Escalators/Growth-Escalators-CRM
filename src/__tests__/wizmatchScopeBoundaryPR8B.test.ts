@@ -208,7 +208,10 @@ describe('PR 8B scope boundary — PR 9/10 must not have started', () => {
       + 'Additive CREATE TABLE only; no ALTER of any existing table. `provider` is a generic '
       + "text column (e.g. 'email_smtp', 'meta') — this migration itself carries no Smartlead or "
       + 'reply-ingestion surface. Renumbered from 0040 to 0042 during merge — 0040/0041 were already '
-      + 'claimed. Unrelated to PR 9/10 (Smartlead / reply ingestion).',
+      + 'claimed. The Meta OAuth connect-flow scaffolding '
+      + '(src/services/metaOAuthService.ts, src/routes/integrations*.ts) reuses this same table '
+      + '(provider=\'meta\') rather than adding its own migration. Unrelated to PR 9/10 '
+      + '(Smartlead CSV adapter / reply ingestion).',
   };
 
   it('every migration past 0037 is in the reviewed out-of-scope allowlist', () => {

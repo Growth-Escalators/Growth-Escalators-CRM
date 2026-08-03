@@ -393,9 +393,10 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
     // 42 = tenant_integrations (Phase 3 white-label per-tenant credential
     // store — AES-256-GCM encrypted, generic `provider` text column),
     // authorised as part of the white-label reselling effort. Additive
-    // CREATE TABLE only, no ALTER of any existing table. Renumbered from 40
-    // to 42 during merge — 40 and 41 were already claimed by the time this
-    // PR merged.
+    // CREATE TABLE only, no ALTER of any existing table. The Meta OAuth
+    // connect-flow scaffolding (src/services/metaOAuthService.ts) reuses this
+    // same table (provider='meta') rather than adding its own — no new
+    // migration needed for that scaffolding.
     // Bump this ONLY alongside an explicit authorisation for the migration in
     // question — the point of the mark is that an unreviewed migration showing
     // up in a hardening pass still gets surfaced.
