@@ -29,10 +29,10 @@
 // external consumer keeps working.
 
 import { eq } from 'drizzle-orm';
-import { db, tenants, contacts } from '../db/index';
+import { db, contacts } from '../db/index';
 import { findOrCreateContact } from './contactService';
 import { getPendingJobs, claimJob, completeJob, failJob } from './jobQueue';
-import { DEFAULT_TENANT_SLUG } from '../config/constants';
+import { getSingleActiveTenantWithFeature } from './tenantFeatures';
 import logger from '../utils/logger';
 
 const POLL_INTERVAL_MS = 60_000;
@@ -99,9 +99,13 @@ export async function processFormSubmitJob(jobId: string, payload: unknown): Pro
   const parsed = parseTallySubmission(payload);
   if (!parsed.email) return 'skipped';
 
-  const [tenant] = await db.select({ id: tenants.id }).from(tenants)
-    .where(eq(tenants.slug, DEFAULT_TENANT_SLUG)).limit(1);
-  if (!tenant) throw new Error(`default tenant "${DEFAULT_TENANT_SLUG}" not found`);
+  // Tenant-feature-gated (PR: tenant feature gating) — replaces the old
+  // hardcoded eq(tenants.slug, DEFAULT_TENANT_SLUG) lookup. Today only
+  // growth-escalators has the "crmAutomation" feature enabled (see
+  // tenantFeatures.ts PLAN_DEFAULTS), so this resolves to the exact same
+  // tenant as before.
+  const tenant = await getSingleActiveTenantWithFeature('crmAutomation');
+  if (!tenant) throw new Error('no active tenant has the "crmAutomation" feature enabled');
 
   const channels: { channelType: 'email' | 'whatsapp'; channelValue: string; isPrimary?: boolean }[] = [
     { channelType: 'email', channelValue: parsed.email.trim().toLowerCase(), isPrimary: true },
