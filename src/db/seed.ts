@@ -1,9 +1,19 @@
 import { db, tenants, sequences } from './index';
 import { eq, and } from 'drizzle-orm';
+import { computeTenantFeatures } from '../services/tenantFeatures';
 
 async function seed() {
   // -------------------------------------------------------------------------
   // Seed tenants
+  //
+  // `settings.features` below is DERIVED from computeTenantFeatures(plan, {}) —
+  // i.e. exactly what src/services/tenantFeatures.ts's PLAN_DEFAULTS table
+  // already computes for each plan as a fallback — so the two can never
+  // drift apart. This is belt-and-suspenders seeding for a FRESH database
+  // (dev/CI), not a behavior change: an unmigrated tenant (settings.features
+  // empty, e.g. today's production rows) gets identical flags from the
+  // plan-default fallback. See the "tenant feature gating" PR description
+  // for the ground-truth evidence per flag.
   // -------------------------------------------------------------------------
   console.log('Seeding tenants...');
   const insertedTenants = await db
@@ -14,21 +24,21 @@ async function seed() {
         slug: 'growth-escalators',
         plan: 'agency_internal',
         isActive: true,
-        settings: {},
+        settings: { features: computeTenantFeatures('agency_internal', {}) },
       },
       {
         name: 'Wizmatch',
         slug: 'wizmatch',
         plan: 'wizmatch_internal',
         isActive: true,
-        settings: {},
+        settings: { features: computeTenantFeatures('wizmatch_internal', {}) },
       },
       {
         name: 'City Clinic',
         slug: 'city-clinic',
         plan: 'client_basic',
         isActive: true,
-        settings: {},
+        settings: { features: computeTenantFeatures('client_basic', {}) },
       },
     ])
     .onConflictDoNothing()
