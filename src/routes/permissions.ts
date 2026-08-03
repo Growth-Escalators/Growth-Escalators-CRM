@@ -3,19 +3,12 @@ import { db } from '../db/index';
 import { userPermissions, users } from '../db/schema';
 import { and, eq, sql } from 'drizzle-orm';
 import { hash } from '@node-rs/argon2';
-import crypto from 'crypto';
 import { resolveStaffingAccess } from '../services/wizmatchStaffingAccess';
+import { generatePassword } from '../utils/password';
 
 const router = Router();
 
 const VALID_ROLES = ['admin', 'manager_ops', 'manager_ads', 'team_lead', 'sales', 'staff', 'creative_assistant', 'viewer'];
-
-function generatePassword(): string {
-  // 12 chars: mixed case + digits — readable but reasonable entropy.
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-  return Array.from(crypto.randomFillSync(new Uint8Array(12)))
-    .map(b => alphabet[b % alphabet.length]).join('');
-}
 
 // Ensure runtime columns exist (idempotent — safe to run on every cold start)
 db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true`).catch(() => {});
