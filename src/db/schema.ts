@@ -3111,3 +3111,32 @@ export const savedViews = pgTable(
     ),
   }),
 );
+
+// ---------------------------------------------------------------------------
+// TABLE — tenant_branding
+//
+// White-label mechanism: one row per tenant carrying the display name/logo/
+// colors the admin SPA renders instead of Growth Escalators' own branding.
+// Genuinely 1:1 with tenants (unlike every other tenant-scoped table, which is
+// many-rows-per-tenant), hence the bare unique index on tenantId rather than a
+// composite one. Any authenticated user of a tenant may read this row (it's
+// just chrome for the UI they already have access to); only an owner
+// (userPermissions.isOwner) may write it — see src/routes/tenantBranding.ts.
+// ---------------------------------------------------------------------------
+export const tenantBranding = pgTable(
+  'tenant_branding',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    displayName: text('display_name').notNull(),
+    logoUrl: text('logo_url'),
+    primaryColor: text('primary_color'),
+    accentColor: text('accent_color'),
+    faviconUrl: text('favicon_url'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantIdUniq: uniqueIndex('tenant_branding_tenant_id_uniq').on(t.tenantId),
+  }),
+);

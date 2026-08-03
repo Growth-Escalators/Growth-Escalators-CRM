@@ -81,12 +81,79 @@ export function getTenantSlug(explicit) {
   return normalizeTenantSlug(localStorage.getItem('crm_active_tenant_slug'));
 }
 
-export function getTenantConfig(slug = getTenantSlug()) {
+// Base, code-defined config for the two admin SPA product variants
+// (routing/storage — which UI/build a hostname or ?tenant= renders). This is
+// deliberately NOT what a white-label tenant's branding overrides — see
+// getTenantConfig below for the fetched-branding merge that layers the
+// tenant's own display name/logo/colors on top of whichever product variant
+// they're using.
+function baseTenantConfig(slug) {
   return TENANTS[normalizeTenantSlug(slug)] || TENANTS['growth-escalators'];
 }
 
+// Best-effort initials from a display name, for the round logo badge when no
+// logoUrl is set — "Client Workspace" -> "CW", "Growth Escalators" -> "GE"
+// (matches the pre-existing hardcoded shortLabel, by construction).
+function shortLabelFromName(name) {
+  const words = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return null;
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[1][0]).toUpperCase();
+}
+
+function brandingStorageKey(slug) {
+  return `${baseTenantConfig(slug).storagePrefix}_branding`;
+}
+
+// Fetched from GET /api/tenant-branding (see admin/src/lib/branding.js) and
+// cached here, namespaced the same way token/user/permissions already are —
+// per PRODUCT variant, not per real tenant id (matches this file's existing
+// session-storage convention; see the module-level note above storageKey).
+export function setTenantBranding(branding, slug = getTenantSlug()) {
+  try {
+    localStorage.setItem(brandingStorageKey(slug), JSON.stringify(branding || {}));
+  } catch {
+    // localStorage unavailable (private mode / quota) — branding is cosmetic,
+    // never let this throw into a caller that isn't expecting it.
+  }
+}
+
+export function getTenantBranding(slug = getTenantSlug()) {
+  try {
+    return JSON.parse(localStorage.getItem(brandingStorageKey(slug)) || 'null');
+  } catch {
+    return null;
+  }
+}
+
+export function clearTenantBranding(slug = getTenantSlug()) {
+  localStorage.removeItem(brandingStorageKey(slug));
+}
+
+// The single read path every display surface (LoginPage, Sidebar, page
+// <title>) should use. Merges the fetched tenant_branding row (if any is
+// cached yet) on top of the base product config — display identity becomes
+// tenant-specific and requires no code change to add a new tenant; which
+// PRODUCT VARIANT (routing, storage prefix, Growth-vs-Wizmatch UI) a tenant
+// runs is unaffected and stays code-defined in TENANTS above (a deeper,
+// separate axis this pass doesn't redesign).
+export function getTenantConfig(slug = getTenantSlug()) {
+  const base = baseTenantConfig(slug);
+  const branding = getTenantBranding(slug);
+  if (!branding) return base;
+  return {
+    ...base,
+    label: branding.displayName || base.label,
+    shortLabel: shortLabelFromName(branding.displayName) || base.shortLabel,
+    logoUrl: branding.logoUrl ?? null,
+    primaryColor: branding.primaryColor ?? null,
+    accentColor: branding.accentColor ?? null,
+    faviconUrl: branding.faviconUrl ?? null,
+  };
+}
+
 function storageKey(kind, slug = getTenantSlug()) {
-  return `${getTenantConfig(slug).storagePrefix}_${kind}`;
+  return `${baseTenantConfig(slug).storagePrefix}_${kind}`;
 }
 
 export function setActiveTenantSlug(slug) {
@@ -129,4 +196,5 @@ export function clearAuthSession(slug = getTenantSlug()) {
   localStorage.removeItem(storageKey('token', slug));
   localStorage.removeItem(storageKey('user', slug));
   localStorage.removeItem(storageKey('permissions', slug));
+  clearTenantBranding(slug);
 }
