@@ -270,7 +270,19 @@ app.use('/api', healthRouter); // alias: /api/health matches the /api/* conventi
 app.use('/auth', authRouter);
 app.use('/webhooks/documenso', contractsWebhookRouter); // Documenso e-sign completion webhook (HMAC-verified, public) — before the generic /webhooks mount
 app.use('/webhooks', webhooksRouter);
-app.use('/book', bookingRouter);
+// Security audit (2026-08) — booking.ts was mounted here with NO auth at all,
+// so the full funnel create/read/update/reset management surface (everything
+// except the visitor redirect below) was reachable by anyone on the internet,
+// several routes trusting `tenantId` straight off the request body/query.
+// Same carve-out technique as the /api/funnel-configs mount below: GET
+// /book/:slug is the public visitor-facing redirect and must stay
+// unauthenticated; every /book/funnels* route is funnel management and is
+// now behind requireAuth, with the router itself deriving tenantId from
+// req.user rather than the request.
+app.use('/book', (req, res, next) => {
+  if (req.path.startsWith('/funnels')) return requireAuth(req, res, next);
+  return next();
+}, bookingRouter);
 app.use('/api/cashfree', cashfreeRouter);
 app.use('/api/cashfree', requireStrictAuth, requireRole('admin'), cashfreeAdminRouter); // simulate-webhook + debug-orders (admin-only)
 
