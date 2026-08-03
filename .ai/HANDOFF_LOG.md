@@ -6,6 +6,39 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-08-03 — Platform-superadmin primitive: schema + middleware + audit-logging (scaffolding only) — Claude
+
+**PR #112** (`feat/platform-superadmin-role`), open, not merged. Security-audit finding: no
+"platform superadmin" concept existed anywhere in this codebase — every prior instance of
+cross-tenant visibility has been an accidental bug (Phase-0 fixes, in flight as #109/#110/#111
+at the time this branch was cut). This adds the explicit, opt-in, audited primitive for future
+GE-staff cross-tenant support access.
+
+**What changed:**
+- `src/db/schema.ts` — `users.isPlatformSuperadmin` (`boolean NOT NULL DEFAULT false`); generated
+  migration `src/db/migrations/0040_mean_roulette.sql` via `npm run db:generate` (not hand-written).
+- `src/middleware/rbac.ts` — `requirePlatformSuperadmin` (fail-closed, reads the flag fresh from
+  the DB per request — deliberately NOT a JWT claim, so a grant/revocation takes effect without a
+  new token) and `auditSuperadminCrossTenantAccess` (logs cross-tenant access via the existing
+  `audit_events` table / `logAuditEvent`, no-ops on same-tenant access).
+- `src/__tests__/platformSuperadmin.test.ts` (new) — proves the middleware's fail-closed
+  behaviour, the audit helper's insert shape, and that `requireAuth`'s existing H-1 tenant-binding
+  check is unaffected by the new column (a superadmin-flagged user still can't forge `tenantId`).
+- Incidental: bumped the `AUTHORISED_MIGRATION_HIGH_WATER_MARK` (39→40) in
+  `src/services/wizmatchPilotReadiness.ts` and the PR 8B scope-boundary allowlist in
+  `src/__tests__/wizmatchScopeBoundaryPR8B.test.ts` — both are pre-existing sentinels that require
+  every migration past their mark to be named with a reviewed rationale; 0040 is unrelated to
+  PR 9/10 (Smartlead/reply-ingestion) scope.
+
+**Not wired in:** no route uses `requirePlatformSuperadmin` or `auditSuperadminCrossTenantAccess`;
+no new support-UI/support-API endpoints. This PR is the primitive only.
+
+**Verify:** `npm run build` exit 0; `npm test` — identical 15 pre-existing failures to a clean
+`origin/main` checkout (confirmed via `git stash`), zero new failures, 15 new tests passing.
+
+**Next:** human review + merge (not done by this session); any future support-tooling route wiring
+this in is a separate, explicitly-approved change.
+
 ## 2026-07-29 — WizMatch two-user pilot: independent verification + go-live closeout — Claude
 
 **Verdict: PILOT READY FOR LIMITED INTERNAL USE — TWO USERS · EXPLICIT CONFIG REDEPLOY PENDING.**
