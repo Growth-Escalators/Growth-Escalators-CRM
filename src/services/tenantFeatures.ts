@@ -79,6 +79,17 @@ const PLAN_DEFAULTS: Record<string, TenantFeatureFlags> = {
   // never by client name, per repo convention). No background automation is
   // wired to this plan today.
   client_basic: { ...ALL_OFF },
+  // reseller_pilot — white-label reseller pilot agencies, manually provisioned
+  // one at a time via scripts/onboarding/provisionResellerTenant.ts (Phase 2
+  // of the reseller plan; self-serve signup is a later phase, out of scope
+  // here). Pilot tenants get the plain CRM (contacts/pipeline/deals — same
+  // "generic automation" surface client_basic tenants would get once wired
+  // up) but NOT Wizmatch, SEO, GST billing, or D2C — those are
+  // Growth-Escalators-internal product surfaces this pilot has no reason to
+  // see. Revisit this table once a pilot actually needs one of those flipped
+  // on (per-tenant override via `settings.features` already supports that
+  // without touching this default).
+  reseller_pilot: { wizmatch: false, seo: false, crmAutomation: true, gstBilling: false, d2c: false },
 };
 
 /**

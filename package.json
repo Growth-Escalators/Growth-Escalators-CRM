@@ -29,6 +29,7 @@
     "wizmatch:staffing-backfill-preview": "tsx scripts/wizmatch-staffing-backfill-preview.ts",
     "wizmatch:policy-backfill": "tsx scripts/onboarding/wizmatch-policy-backfill.ts",
     "tenant-features:backfill": "tsx scripts/onboarding/tenant-features-backfill.ts",
+    "onboarding:provision-reseller-tenant": "tsx scripts/onboarding/provisionResellerTenant.ts",
     "wizmatch:policy-readiness": "tsx scripts/wizmatch-policy-readiness.ts",
     "wizmatch:pilot-readiness": "tsx scripts/wizmatch-pilot-readiness.ts",
     "ai:brief": "tsx scripts/generate-ai-brief.ts",
