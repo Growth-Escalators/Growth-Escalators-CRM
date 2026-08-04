@@ -2,7 +2,7 @@ import {
   Calendar, Home, Users, Kanban, CheckSquare, MessageSquare, TrendingUp,
   Megaphone, Share2, Target, Search, FileText, Brain, MapPin, Zap, Mail,
   Link as LinkIcon, CreditCard, Receipt, Shield, ShieldCheck, ClipboardList, Settings,
-  Briefcase, Building2, Palette,
+  Briefcase, Building2, Palette, Plug,
 } from 'lucide-react';
 import { WIZMATCH_ROUTES, evaluateWizmatchPermission } from '../routes/wizmatchRouteRegistry.ts';
 import { companyPolicyUiEnabled } from '../lib/companyPolicyFlag.js';
@@ -269,6 +269,14 @@ export const NAV_ENTRIES = [
   {
     id: 'audit', label: 'Audit Log', to: '/settings/audit',
     icon: ClipboardList, section: 'Settings', group: 'settings',
+    visible: f => f.isAdmin,
+  },
+  {
+    // Per-tenant OAuth connections (currently: Meta Ads). Separate from the
+    // shared-account "Connect Facebook" buttons on Social/Meta Assets — see
+    // IntegrationsPage.jsx header comment.
+    id: 'integrations', label: 'Integrations', to: '/settings/integrations',
+    icon: Plug, section: 'Settings', group: 'settings',
     visible: f => f.isAdmin,
   },
   {
