@@ -28,12 +28,12 @@ import crypto from 'crypto';
 // Notify the internal owner (contract creator / sender) — NOT a contact-facing
 // bulk email, so it goes straight through the transactional sender and is never
 // gated by the automated-email kill-switch. Best-effort; never blocks the flow.
-async function notifyOwner(userId: string | null | undefined, subject: string, html: string, text: string): Promise<void> {
+async function notifyOwner(userId: string | null | undefined, tenantId: string, subject: string, html: string, text: string): Promise<void> {
   if (!userId) return;
   try {
     const [u] = await db.select({ email: users.email, name: users.name }).from(users).where(eq(users.id, userId)).limit(1);
     if (!u?.email) return;
-    await sendTransactionalEmail(u.email, u.name || 'there', subject, html, text);
+    await sendTransactionalEmail(u.email, u.name || 'there', subject, html, text, tenantId);
   } catch (err) {
     console.error('[esign] owner notification failed', { userId, error: (err as Error).message });
   }
@@ -49,7 +49,7 @@ async function sendSignInvite(recipient: RecipientRow, contract: ContractRow, ur
     const subject = `Please sign: ${contract.title} (${contract.referenceNumber})`;
     const html = `<p>Hi ${recipient.name},</p><p>You have a document to review and sign: <strong>${contract.title}</strong> (${contract.referenceNumber}).</p><p><a href="${url}">Open and sign the document</a></p><p>This link is unique to you — please do not forward it.</p>`;
     const text = `Hi ${recipient.name},\n\nPlease review and sign "${contract.title}" (${contract.referenceNumber}):\n${url}\n\nThis link is unique to you — please do not forward it.`;
-    await sendTransactionalEmail(recipient.email, recipient.name, subject, html, text);
+    await sendTransactionalEmail(recipient.email, recipient.name, subject, html, text, contract.tenantId);
   } catch (err) {
     // Non-fatal: the contract is sent; a failed invite email can be retried.
     console.error('[esign] sign-invite email failed', { recipientId: recipient.id, error: (err as Error).message });
@@ -412,6 +412,7 @@ export async function sendContract(ctx: Ctx, id: string): Promise<ContractDetail
   // Confirmation to the sender (internal owner) — so they know it went out.
   await notifyOwner(
     ctx.userId,
+    ctx.tenantId,
     `Sent for signature: ${sent.title} (${sent.referenceNumber})`,
     `<p>Your contract <strong>${sent.title}</strong> (${sent.referenceNumber}) was sent for signature to ${recipients.map((r) => r.name).join(', ')}.</p><p>You'll be emailed when it's completed. Track it on the CRM Contracts page.</p>`,
     `Your contract "${sent.title}" (${sent.referenceNumber}) was sent for signature to ${recipients.map((r) => r.name).join(', ')}. You'll be emailed when it's completed.`,
@@ -656,6 +657,7 @@ async function completeFromProvider(
   // Notify the contract's creator that it's fully signed + downloadable.
   await notifyOwner(
     contract.createdBy,
+    tenantId,
     `Completed: ${contract.title} (${contract.referenceNumber})`,
     `<p>Your contract <strong>${contract.title}</strong> (${contract.referenceNumber}) has been fully signed and completed.</p><p>Download the signed PDF and audit certificate on the CRM Contracts page.</p>`,
     `Your contract "${contract.title}" (${contract.referenceNumber}) has been fully signed and completed. Download it on the CRM Contracts page.`,

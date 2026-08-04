@@ -232,7 +232,7 @@ router.patch('/:id', async (req, res) => {
               } else {
                 const firstName = contactRow.first_name || 'there';
                 const htmlContent = (tpl.body || '').replace(/\{\{firstName\}\}/g, firstName);
-                await sendTransactionalEmail(contactRow.email, firstName, tpl.subject, htmlContent, htmlContent.replace(/<[^>]+>/g, ''));
+                await sendTransactionalEmail(contactRow.email, firstName, tpl.subject, htmlContent, htmlContent.replace(/<[^>]+>/g, ''), tenantId);
                 await pool.query(
                   `INSERT INTO deal_activities (tenant_id, deal_id, contact_id, activity_type, note, created_by)
                    VALUES ($1, $2, $3, 'automation_email', $4, 'automation')`,

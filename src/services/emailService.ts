@@ -1,9 +1,11 @@
 import logger from '../utils/logger';
 import { BrevoClient } from '@getbrevo/brevo';
+import nodemailer from 'nodemailer';
 import { eq, and, sql } from 'drizzle-orm';
 import { db, contacts, contactChannels, messages, emailTemplates } from '../db/index';
 import { resolveWizmatchLinkage } from '../modules/outreach/wizmatchLinkage';
 import { evaluateWizmatchOutreachGate, shouldBlock } from '../modules/outreach/outreachGate';
+import { getTenantSmtpCredentials, type TenantSmtpCredentials } from './multiDomainMailer';
 
 // ---------------------------------------------------------------------------
 // Email templates — inline content used when BREVO_API_KEY is configured
@@ -63,8 +65,60 @@ const EMAIL_TEMPLATES: Record<string, { subject: string; html: string; text: str
 };
 
 // ---------------------------------------------------------------------------
+// sendViaTenantSmtp
+// Sends a single email through a tenant's own connected `email_smtp`
+// integration (see `tenant_integrations`, `credentialEncryption.ts`) via
+// nodemailer directly — a tenant's own SMTP account is not a Brevo API key,
+// so it can't go through `BrevoClient`. Mirrors `multiDomainMailer.ts`'s
+// `sendWithInboxes` transport setup (`secure: false` regardless of port —
+// same established, tested convention, not a new one) for consistency with
+// the one other consumer of tenant SMTP credentials in this repo.
+// ---------------------------------------------------------------------------
+async function sendViaTenantSmtp(
+  smtp: TenantSmtpCredentials,
+  to: string,
+  subject: string,
+  htmlContent: string,
+  textContent: string,
+): Promise<{ success: boolean; messageId: string }> {
+  const transport = nodemailer.createTransport({
+    host: smtp.host,
+    port: smtp.port,
+    secure: false,
+    auth: { user: smtp.user, pass: smtp.pass },
+  });
+
+  const info = await transport.sendMail({
+    from: smtp.user,
+    to,
+    subject,
+    html: htmlContent,
+    text: textContent,
+  });
+
+  return { success: true, messageId: info.messageId };
+}
+
+// ---------------------------------------------------------------------------
 // sendTransactionalEmail
-// Sends an email via Brevo. If BREVO_API_KEY is empty, returns mock success.
+// Sends an email — a tenant's own connected SMTP integration (`email_smtp`
+// in `tenant_integrations`) takes priority when `tenantId` is given and the
+// tenant has one `connected`; otherwise falls back to the existing global
+// Brevo path exactly as before (BREVO_API_KEY / hello@growthescalators.com).
+// This fallback is the load-bearing, zero-behavior-change guarantee: Growth
+// Escalators' own tenant and every other tenant that hasn't configured their
+// own credentials continues sending exactly as it does today. If
+// BREVO_API_KEY is empty on the fallback path, returns mock success (same as
+// before this change).
+//
+// `tenantId` is optional (and appended last) so every pre-existing caller
+// that doesn't pass one keeps hitting the global path unchanged; callers
+// that have a tenantId in scope should pass it — see `sendSequenceEmail`,
+// `sendManualEmail`, `routes/deals.ts`, `esign.service.ts`.
+//
+// A `connected` row with a corrupt/incomplete credential payload throws
+// rather than silently falling back to the global pool — see
+// `getTenantSmtpCredentials` / `tenantIntegrationsService.getDecryptedCredentials`.
 // ---------------------------------------------------------------------------
 export async function sendTransactionalEmail(
   to: string,
@@ -72,7 +126,15 @@ export async function sendTransactionalEmail(
   subject: string,
   htmlContent: string,
   textContent: string,
+  tenantId?: string,
 ): Promise<{ success: boolean; messageId?: string; mock?: boolean }> {
+  if (tenantId) {
+    const tenantSmtp = await getTenantSmtpCredentials(tenantId);
+    if (tenantSmtp) {
+      return sendViaTenantSmtp(tenantSmtp, to, subject, htmlContent, textContent);
+    }
+  }
+
   const apiKey = process.env.BREVO_API_KEY;
 
   if (!apiKey) {
@@ -241,6 +303,7 @@ export async function sendSequenceEmail(
     subject,
     htmlContent,
     textContent,
+    tenantId,
   );
 
   // Log message record
@@ -268,15 +331,17 @@ export async function sendSequenceEmail(
 
 // ---------------------------------------------------------------------------
 // sendManualEmail
-// Sends a one-off email (no template lookup) via Brevo transactional API.
-// Used by POST /email/manual from the CRM admin panel.
+// Sends a one-off email (no template lookup) — tenant SMTP first, Brevo
+// fallback (see `sendTransactionalEmail`). Used by POST /email/manual from
+// the CRM admin panel.
 // ---------------------------------------------------------------------------
 export async function sendManualEmail(
   toEmail: string,
   toName: string,
   subject: string,
   body: string,
+  tenantId?: string,
 ): Promise<{ success: boolean; mock?: boolean; messageId?: string }> {
   const html = body.replace(/\n/g, '<br>');
-  return sendTransactionalEmail(toEmail, toName, subject, html, body);
+  return sendTransactionalEmail(toEmail, toName, subject, html, body, tenantId);
 }
