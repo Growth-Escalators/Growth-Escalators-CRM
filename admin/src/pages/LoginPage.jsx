@@ -4,6 +4,7 @@ import {
   getTenantConfig,
   getTenantSlug,
   getProductHome,
+  isKnownTenantSlug,
   setActiveTenantSlug,
   setAuthPermissions,
   setAuthSession,
@@ -24,6 +25,12 @@ export default function LoginPage() {
   const [newPassword, setNewPassword] = useState('');
   const [message, setMessage] = useState('');
   const tenant = getTenantConfig(tenantSlug);
+  // The GE/Wizmatch product picker only makes sense for those two
+  // code-defined products. A reseller reaches this page via its own
+  // `?tenant=<slug>` link (see getTenantSlug), and picking "Growth
+  // Escalators" or "Wizmatch" there would silently log them into the wrong
+  // tenant — so the picker is hidden entirely for any other slug.
+  const showProductPicker = isKnownTenantSlug(tenantSlug);
 
   function handleTenantChange(nextSlug) {
     setTenantSlug(nextSlug);
@@ -135,25 +142,27 @@ export default function LoginPage() {
 
         {mode === 'login' && (
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Product</label>
-              <div className="grid grid-cols-2 gap-2">
-                {TENANT_OPTIONS.map((option) => (
-                  <button
-                    key={option.slug}
-                    type="button"
-                    onClick={() => handleTenantChange(option.slug)}
-                    className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                      tenantSlug === option.slug
-                        ? 'border-sky-500 bg-sky-50 text-sky-700'
-                        : 'border-slate-200 text-slate-600 hover:border-slate-300'
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                ))}
+            {showProductPicker && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Product</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {TENANT_OPTIONS.map((option) => (
+                    <button
+                      key={option.slug}
+                      type="button"
+                      onClick={() => handleTenantChange(option.slug)}
+                      className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                        tenantSlug === option.slug
+                          ? 'border-sky-500 bg-sky-50 text-sky-700'
+                          : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
               <input type="email" value={email} onChange={e => setEmail(e.target.value)} required
@@ -180,22 +189,24 @@ export default function LoginPage() {
         {mode === 'forgot' && (
           <form onSubmit={handleForgot} className="space-y-4">
             <p className="text-sm text-slate-600">Enter your {tenant.label} email and we'll send a reset code.</p>
-            <div className="grid grid-cols-2 gap-2">
-              {TENANT_OPTIONS.map((option) => (
-                <button
-                  key={option.slug}
-                  type="button"
-                  onClick={() => handleTenantChange(option.slug)}
-                  className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                    tenantSlug === option.slug
-                      ? 'border-sky-500 bg-sky-50 text-sky-700'
-                      : 'border-slate-200 text-slate-600 hover:border-slate-300'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
+            {showProductPicker && (
+              <div className="grid grid-cols-2 gap-2">
+                {TENANT_OPTIONS.map((option) => (
+                  <button
+                    key={option.slug}
+                    type="button"
+                    onClick={() => handleTenantChange(option.slug)}
+                    className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                      tenantSlug === option.slug
+                        ? 'border-sky-500 bg-sky-50 text-sky-700'
+                        : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
               <input type="email" value={email} onChange={e => setEmail(e.target.value)} required

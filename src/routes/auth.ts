@@ -26,17 +26,37 @@ function normaliseEmail(email: string): string {
   return email.toLowerCase().trim();
 }
 
+// Reseller readiness (2026-08) — this USED to fold any slug that wasn't one
+// of the two hardcoded GE/Wizmatch aliases down to DEFAULT_TENANT_SLUG. That
+// broke login for every provisioned reseller tenant: a user under slug
+// `acme-media` got looked up as `growth-escalators` and always 401'd.
+//
+// Known aliases still fold exactly as before (byte-for-byte unchanged for GE
+// and Wizmatch). Anything else is passed through unchanged, lowercased and
+// trimmed, rather than folded — the login/forgot-password/reset-password
+// queries below all INNER JOIN tenants ON t.slug = tenantSlug AND
+// t.is_active = true, so a slug that doesn't match an active tenant simply
+// matches zero rows and falls through to the exact same generic 401 (or
+// non-committal "if that email is registered…" response) as a bad password.
+// That IS the tenant-existence check — there is no separate lookup to add,
+// and critically no separate code path that could leak which slugs exist.
 function normaliseTenantSlug(value: unknown): string {
   const raw = String(value || '').toLowerCase().trim();
   if (raw === 'wizmatch' || raw === 'wm') return 'wizmatch';
   if (raw === 'growth' || raw === 'growth-escalators' || raw === 'ge') return 'growth-escalators';
-  return DEFAULT_TENANT_SLUG;
+  return raw;
 }
 
 function tenantSlugFromRequest(req: Request, explicit?: unknown): string {
-  if (explicit) return normaliseTenantSlug(explicit);
+  if (explicit) {
+    const slug = normaliseTenantSlug(explicit);
+    if (slug) return slug;
+  }
   const headerTenant = req.get('x-tenant-slug') || req.get('x-product');
-  if (headerTenant) return normaliseTenantSlug(headerTenant);
+  if (headerTenant) {
+    const slug = normaliseTenantSlug(headerTenant);
+    if (slug) return slug;
+  }
   const host = (req.hostname || req.get('host') || '').toLowerCase();
   if (host.startsWith('wizmatch.') || host.includes('wizmatch')) return 'wizmatch';
   return DEFAULT_TENANT_SLUG;

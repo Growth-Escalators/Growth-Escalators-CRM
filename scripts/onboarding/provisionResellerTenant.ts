@@ -261,6 +261,12 @@ async function main(): Promise<void> {
   console.log(`  Tenant:       ${result.tenant.name} (${result.tenant.slug})`);
   console.log(`  Tenant ID:    ${result.tenant.id}${result.tenant.alreadyExisted ? '  (already existed — reused)' : ''}`);
   console.log(`  Plan:         ${result.tenant.plan}`);
+  // Reseller readiness (2026-08) — auth.ts login now looks the tenant slug
+  // up against the tenants table instead of folding every unrecognised slug
+  // to Growth Escalators, so this is the actual, working login link for the
+  // freshly provisioned owner (admin/src/pages/LoginPage.jsx reads `?tenant=`
+  // via getTenantSlug in admin/src/lib/auth.js).
+  console.log(`  Login URL:    https://crm.growthescalators.com/login?tenant=${result.tenant.slug}`);
   console.log(`  Owner email:  ${result.owner.email}`);
   if (result.temporaryPassword) {
     console.log(`  Owner pass:   ${result.temporaryPassword}`);
