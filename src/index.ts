@@ -39,6 +39,8 @@ import tenantIntegrationsRouter from './routes/tenantIntegrations';
 import adsRouter from './routes/ads';
 import reportsRouter from './routes/reports';
 import socialRouter, { oauthRouter as socialOAuthRouter } from './routes/social';
+import integrationsRouter from './routes/integrations';
+import integrationsMetaCallbackRouter from './routes/integrationsMetaCallback';
 import inboxRouter, { setSocketIO } from './routes/inbox';
 import discoverRouter from './routes/discover';
 import marketingRouter from './routes/marketing';
@@ -312,6 +314,12 @@ app.use('/api/ads', requireAuth, adsRouter);
 app.use('/api/reports', requireAuth, reportsRouter);
 app.use('/api/social/oauth', socialOAuthRouter); // no auth — browser redirects can't send headers
 app.use('/api/social', requireAuth, socialRouter);
+// Per-tenant Meta OAuth connect flow (scaffolding — see docs in the PR for
+// what still needs configuring before this is live). Callback mounted first
+// and without auth, same reasoning as /api/social/oauth above: Meta redirects
+// the bare browser here and cannot attach an Authorization header.
+app.use('/api/integrations/meta/callback', integrationsMetaCallbackRouter);
+app.use('/api/integrations', requireAuth, requireRole('admin'), integrationsRouter);
 app.use('/api/inbox', requireAuth, inboxRouter);
 app.use('/api/outreach/discover', requireAuth, discoverRouter);
 app.use('/api/marketing', requireAuth, marketingRouter);
