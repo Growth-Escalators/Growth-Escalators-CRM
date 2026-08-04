@@ -1,6 +1,6 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
-import { type GrowthOSClient, sendWhatsAppMessage } from './growthOSSetup';
+import { type GrowthOSClient, sendWhatsAppMessage, canSendGrowthOSWhatsApp } from './growthOSSetup';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -177,6 +177,15 @@ async function sendCompetitorWhatsApp(
   weekStartStr: string
 ): Promise<void> {
   if (!client.founder_whatsapp) return;
+
+  // Growth OS has no per-tenant WhatsApp identity yet — see the guard
+  // comment in growthOSSetup.ts. The competitor pulse rows themselves are
+  // still saved for every tenant (runCompetitorPulse above); only this
+  // delivery step is gated.
+  if (!(await canSendGrowthOSWhatsApp(client.tenant_id))) {
+    logger.info(`[competitor] WhatsApp delivery skipped for ${client.client_name} — not GE's own tenant`);
+    return;
+  }
 
   const date = new Date(weekStartStr).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 

@@ -104,6 +104,11 @@ router.get('/health/:clientName', async (req: Request, res: Response) => {
 
 // ---------------------------------------------------------------------------
 // POST /api/growth-os/health/generate — admin only
+//
+// Health-score generation and DB writes run for every tenant. The WhatsApp
+// delivery step (sendHealthScoreWhatsApp, in brandHealthService.ts) gates
+// itself to GE's own tenant — see canSendGrowthOSWhatsApp() in
+// growthOSSetup.ts, same invariant as canSendWhatsApp() in routes/inbox.ts.
 // ---------------------------------------------------------------------------
 router.post('/health/generate', async (req: Request, res: Response) => {
   const user = req.user;
@@ -258,6 +263,11 @@ router.get('/copilot/:clientName', async (req: Request, res: Response) => {
 
 // ---------------------------------------------------------------------------
 // POST /api/growth-os/competitor/run
+//
+// Competitor pulse rows are saved for every tenant. The WhatsApp delivery
+// step (sendCompetitorWhatsApp, in competitorService.ts) gates itself to
+// GE's own tenant the same way — see the comment on POST /health/generate
+// above.
 // ---------------------------------------------------------------------------
 router.post('/competitor/run', async (req: Request, res: Response) => {
   const user = req.user;

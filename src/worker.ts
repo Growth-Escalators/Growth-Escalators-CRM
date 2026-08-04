@@ -551,6 +551,11 @@ console.log('[cron] workflow self-healing — PAUSED 2026-05-03');
 
 // ---------------------------------------------------------------------------
 // Growth OS — Brand Health Score — Daily 8:00 AM IST (2:30 UTC)
+//
+// Sweeps every tenant's active clients on purpose (see
+// getActiveGrowthOSClients's comment). sendHealthScoreWhatsApp gates its own
+// WhatsApp delivery to GE's own tenant (canSendGrowthOSWhatsApp in
+// growthOSSetup.ts) — score calculation + save still run for every tenant.
 // ---------------------------------------------------------------------------
 cron.schedule('30 2 * * *', () => safeCron('Growth OS Health Scores', async () => {
   const { getActiveGrowthOSClients } = await import('./services/growthOSSetup');
@@ -658,6 +663,8 @@ cron.schedule('0 */6 * * *', () => safeCron('Creative Intelligence', async () =>
 console.log('[cron] Creative intelligence scheduled — every 6 hours');
 
 // Growth OS — Competitor Pulse — Every Friday 9:00 AM IST (3:30 UTC)
+// Same cross-tenant sweep + same WhatsApp-delivery-only gate as the health
+// score cron above — see runCompetitorPulse -> sendCompetitorWhatsApp.
 cron.schedule('30 3 * * 5', () => safeCron('Competitor Pulse', async () => {
   const { getActiveGrowthOSClients } = await import('./services/growthOSSetup');
   const { runCompetitorPulse } = await import('./services/competitorService');
