@@ -405,10 +405,16 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
     // Additive CREATE TABLE only (two new tables), no ALTER of any existing
     // table. Renumbered from 40 to 43 during merge — 40/41/42 were already
     // claimed by the time this PR merged.
+    // 44 = tenant_branding legal/financial identity columns — reseller-
+    // readiness fix so a white-label tenant's own invoices/reports render its
+    // own legal name, address, tax ID, and bank details instead of Growth
+    // Escalators', owner-approved. Additive ADD COLUMN only (ten nullable
+    // text columns on the existing tenant_branding table), no ALTER of any
+    // other table, no new table.
     // Bump this ONLY alongside an explicit authorisation for the migration in
     // question — the point of the mark is that an unreviewed migration showing
     // up in a hardening pass still gets surfaced.
-    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 43;
+    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 44;
     const unauthorised = sqlFiles
       .map((f) => ({ file: f, idx: parseInt(f.slice(0, 4), 10) }))
       .filter((m) => Number.isFinite(m.idx) && m.idx > AUTHORISED_MIGRATION_HIGH_WATER_MARK)

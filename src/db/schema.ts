@@ -3116,12 +3116,25 @@ export const savedViews = pgTable(
 // TABLE — tenant_branding
 //
 // White-label mechanism: one row per tenant carrying the display name/logo/
-// colors the admin SPA renders instead of Growth Escalators' own branding.
-// Genuinely 1:1 with tenants (unlike every other tenant-scoped table, which is
-// many-rows-per-tenant), hence the bare unique index on tenantId rather than a
-// composite one. Any authenticated user of a tenant may read this row (it's
-// just chrome for the UI they already have access to); only an owner
-// (userPermissions.isOwner) may write it — see src/routes/tenantBranding.ts.
+// colors the admin SPA renders instead of Growth Escalators' own branding,
+// PLUS (below) the legal/financial identity that client-facing documents
+// (invoices, performance report PDFs) render instead of Growth Escalators'
+// own identity. Genuinely 1:1 with tenants (unlike every other tenant-scoped
+// table, which is many-rows-per-tenant), hence the bare unique index on
+// tenantId rather than a composite one.
+//
+// Read access is split by sensitivity, not by column group:
+//   - displayName/logoUrl/primaryColor/accentColor/faviconUrl and the legal/
+//     contact fields (legalEntityName, registeredAddress, supportEmail,
+//     supportPhone, website) are readable by any authenticated tenant member —
+//     they're either UI chrome or the kind of thing that's already printed on
+//     an outbound document anyway.
+//   - gstin and the bank* fields are financial/tax identifiers entered by the
+//     tenant owner for that tenant's own invoices; the GET handler in
+//     src/routes/tenantBranding.ts strips them from the response for any
+//     caller who isn't isOwner.
+// Only an owner (userPermissions.isOwner) may write any of this — see
+// src/routes/tenantBranding.ts.
 // ---------------------------------------------------------------------------
 export const tenantBranding = pgTable(
   'tenant_branding',
@@ -3133,6 +3146,23 @@ export const tenantBranding = pgTable(
     primaryColor: text('primary_color'),
     accentColor: text('accent_color'),
     faviconUrl: text('favicon_url'),
+    // -- Legal / financial identity for client-facing documents (reseller
+    // -- readiness — see docs/decisions for the ADR). All nullable: a tenant
+    // -- with nothing configured here must not silently inherit Growth
+    // -- Escalators' identity — the invoice/report generation routes block
+    // -- instead of falling back. Growth Escalators' own row is backfilled
+    // -- with its real values by seedTenantBrandingDefaults() so its own
+    // -- documents are unaffected by this table gaining new columns.
+    legalEntityName: text('legal_entity_name'),
+    registeredAddress: text('registered_address'),
+    gstin: text('gstin'), // owner-only on read; nullable — non-Indian tenants won't have one
+    bankName: text('bank_name'), // the banking institution, e.g. "ICICI Bank" — owner-only on read
+    bankAccountName: text('bank_account_name'), // owner-only on read
+    bankAccountNumber: text('bank_account_number'), // owner-only on read
+    bankIfsc: text('bank_ifsc'), // owner-only on read
+    supportEmail: text('support_email'),
+    supportPhone: text('support_phone'),
+    website: text('website'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },

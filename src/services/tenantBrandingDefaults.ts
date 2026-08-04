@@ -1,6 +1,7 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { db } from '../db/index';
 import { tenantBranding, tenants } from '../db/schema';
+import { DEFAULT_TENANT_SLUG, COMPANY_GSTIN } from '../config/constants';
 
 // ---------------------------------------------------------------------------
 // Default branding values, keyed by tenant slug.
@@ -56,10 +57,69 @@ export function getDefaultBrandingForSlug(slug: string): TenantBrandingDefaults 
 }
 
 // ---------------------------------------------------------------------------
+// Legal / financial identity — the fields client-facing documents (invoices,
+// performance report PDFs) render instead of the old hardcoded Growth
+// Escalators literals. All nullable in the DB: a tenant that hasn't filled
+// these in must not silently inherit Growth Escalators' identity, so the
+// invoice/report routes in src/routes/billing.ts and src/routes/reports.ts
+// block document generation instead of falling back — see
+// isBillingIdentityConfigured below.
+// ---------------------------------------------------------------------------
+export interface TenantBillingIdentity {
+  legalEntityName: string | null;
+  registeredAddress: string | null;
+  gstin: string | null;
+  bankName: string | null;
+  bankAccountName: string | null;
+  bankAccountNumber: string | null;
+  bankIfsc: string | null;
+  supportEmail: string | null;
+  supportPhone: string | null;
+  website: string | null;
+}
+
+// Everything a client-facing document needs about a tenant, in one row read:
+// the existing branding chrome (name/colors) plus the legal/financial
+// identity above.
+export interface TenantDocumentIdentity extends TenantBillingIdentity {
+  displayName: string;
+  primaryColor: string | null;
+  accentColor: string | null;
+}
+
+// Growth Escalators' own real legal/financial identity. This is the ONE
+// place these values live in code now — previously they were duplicated as
+// literals across src/routes/billing.ts, src/services/pdfService.ts, and
+// src/routes/reports.ts. Kept env-first with the same fallback literals
+// those call sites used, so an env override already in effect in production
+// keeps working unchanged. Used only to backfill Growth Escalators' own
+// tenant_branding row (see seedTenantBrandingDefaults) so its own invoices
+// and reports render byte-identically to before this change.
+const GE_BILLING_IDENTITY: TenantBillingIdentity = {
+  legalEntityName: 'Growth Escalators',
+  registeredAddress: '264/103-104 Pratap Nagar, Sanganer, Jaipur, Rajasthan 302033',
+  gstin: COMPANY_GSTIN,
+  bankName: 'ICICI Bank',
+  bankAccountName: 'Growth Escalators',
+  bankAccountNumber: process.env.GE_BANK_ACCOUNT ?? '3617 0500 1178',
+  bankIfsc: process.env.GE_BANK_IFSC ?? 'ICIC0003617',
+  supportEmail: 'jatin@growthescalators.com',
+  supportPhone: '+91 77338 88883',
+  website: 'growthescalators.com',
+};
+
+// ---------------------------------------------------------------------------
 // Idempotent startup bootstrap — inserts a default branding row for every
 // tenant that doesn't already have one. Safe to run on every cold start
 // (relies on the unique index on tenant_branding.tenant_id to no-op on a
 // second insert attempt for the same tenant).
+//
+// Also backfills Growth Escalators' own legal/financial identity onto its
+// row — additive columns introduced by the reseller-readiness fix start out
+// null even for a tenant that already had a tenant_branding row (this insert
+// is a no-op for it). The backfill only touches rows where legalEntityName
+// is still null, so re-running this on every boot never clobbers a value an
+// owner later edits via the Branding settings page.
 // ---------------------------------------------------------------------------
 export async function seedTenantBrandingDefaults(): Promise<void> {
   const tenantRows = await db.select({ id: tenants.id, slug: tenants.slug }).from(tenants);
@@ -69,7 +129,73 @@ export async function seedTenantBrandingDefaults(): Promise<void> {
       .insert(tenantBranding)
       .values({ tenantId: t.id, ...defaults })
       .onConflictDoNothing({ target: tenantBranding.tenantId });
+
+    if (t.slug === DEFAULT_TENANT_SLUG) {
+      await db
+        .update(tenantBranding)
+        .set({ ...GE_BILLING_IDENTITY, updatedAt: new Date() })
+        .where(and(eq(tenantBranding.tenantId, t.id), isNull(tenantBranding.legalEntityName)));
+    }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Read path for client-facing document generation (billing.ts, reports.ts).
+// Returns null when the tenant has no tenant_branding row at all yet (seed
+// hasn't run against this environment / brand-new tenant) — callers treat
+// that the same as "not configured".
+// ---------------------------------------------------------------------------
+export async function getTenantDocumentIdentity(tenantId: string): Promise<TenantDocumentIdentity | null> {
+  const [row] = await db
+    .select({
+      displayName: tenantBranding.displayName,
+      primaryColor: tenantBranding.primaryColor,
+      accentColor: tenantBranding.accentColor,
+      legalEntityName: tenantBranding.legalEntityName,
+      registeredAddress: tenantBranding.registeredAddress,
+      gstin: tenantBranding.gstin,
+      bankName: tenantBranding.bankName,
+      bankAccountName: tenantBranding.bankAccountName,
+      bankAccountNumber: tenantBranding.bankAccountNumber,
+      bankIfsc: tenantBranding.bankIfsc,
+      supportEmail: tenantBranding.supportEmail,
+      supportPhone: tenantBranding.supportPhone,
+      website: tenantBranding.website,
+    })
+    .from(tenantBranding)
+    .where(eq(tenantBranding.tenantId, tenantId))
+    .limit(1);
+  return row ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// The gate for "does this tenant have enough billing identity configured to
+// generate a client-facing invoice" — the fix for the bug this change set
+// out to close: a tenant with nothing configured must not silently render
+// Growth Escalators' identity onto their client's invoice.
+//
+// legalEntityName + registeredAddress are required for every invoice (they
+// render in the header regardless of GST/non-GST). requireGstBankDetails
+// additionally requires gstin + full bank details — pdfService only ever
+// renders a bank-details block for invoiceType='gst' (non-GST invoices use a
+// freeform per-invoice paymentNote instead), so non-GST invoices don't need
+// them. requireSupportEmail is separate again: only the invoice-email route
+// needs it (as the "from" address) — PDF download/creation don't send an
+// email at all, so they leave it false rather than block a tenant that only
+// wants PDFs from also having to fill in a support email.
+// ---------------------------------------------------------------------------
+export function isBillingIdentityConfigured(
+  identity: TenantDocumentIdentity | TenantBillingIdentity | null,
+  opts: { requireGstBankDetails: boolean; requireSupportEmail?: boolean },
+): boolean {
+  if (!identity?.legalEntityName?.trim() || !identity?.registeredAddress?.trim()) return false;
+  if (opts.requireGstBankDetails) {
+    if (!identity.gstin?.trim()) return false;
+    if (!identity.bankName?.trim() || !identity.bankAccountName?.trim()) return false;
+    if (!identity.bankAccountNumber?.trim() || !identity.bankIfsc?.trim()) return false;
+  }
+  if (opts.requireSupportEmail && !identity.supportEmail?.trim()) return false;
+  return true;
 }
 
 // ---------------------------------------------------------------------------

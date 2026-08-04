@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // is the actual column object, not a stand-in.
 const mockSelect = vi.fn();
 const mockInsert = vi.fn();
+const mockUpdate = vi.fn();
 
 vi.mock('../db/index', async () => {
   const schema = await import('../db/schema');
@@ -12,21 +13,73 @@ vi.mock('../db/index', async () => {
     db: {
       select: (...args: unknown[]) => mockSelect(...args),
       insert: (...args: unknown[]) => mockInsert(...args),
+      update: (...args: unknown[]) => mockUpdate(...args),
     },
     pool: { query: vi.fn() },
     schema,
   };
 });
 
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { tenants, tenantBranding } from '../db/schema';
 import {
   getDefaultBrandingForSlug,
   GENERIC_DEFAULT_BRANDING,
   seedTenantBrandingDefaults,
+  getTenantDocumentIdentity,
+  isBillingIdentityConfigured,
+  type TenantDocumentIdentity,
 } from '../services/tenantBrandingDefaults';
+
+const dialect = new PgDialect();
 
 function selectTenantsChain(rows: Array<{ id: string; slug: string }>) {
   return { from: vi.fn().mockResolvedValue(rows) };
+}
+
+// Builds a mock select-chain that hands back to the caller the exact
+// condition object passed to `.where(...)`, so it can be compiled and
+// inspected the same way tenantBranding.test.ts / savedViewsTenantIsolation
+// do — proves the WHERE binds the real tenantId param, not a stand-in.
+function selectWhereChain(rows: unknown[], onWhere?: (cond: unknown) => void) {
+  return {
+    from: vi.fn().mockReturnValue({
+      where: vi.fn().mockImplementation((cond: unknown) => {
+        onWhere?.(cond);
+        return { limit: vi.fn().mockResolvedValue(rows) };
+      }),
+    }),
+  };
+}
+
+function updateWhereChain(onWhere?: (cond: unknown) => void) {
+  return {
+    set: vi.fn().mockReturnValue({
+      where: vi.fn().mockImplementation((cond: unknown) => {
+        onWhere?.(cond);
+        return Promise.resolve(undefined);
+      }),
+    }),
+  };
+}
+
+function fullIdentity(overrides: Partial<TenantDocumentIdentity> = {}): TenantDocumentIdentity {
+  return {
+    displayName: 'Acme Recruiting',
+    primaryColor: '#123456',
+    accentColor: '#abcdef',
+    legalEntityName: 'Acme Recruiting Pvt Ltd',
+    registeredAddress: '1 MG Road, Bengaluru, Karnataka 560001',
+    gstin: '29AABCU9603R1ZM',
+    bankName: 'HDFC Bank',
+    bankAccountName: 'Acme Recruiting Pvt Ltd',
+    bankAccountNumber: '000111222333',
+    bankIfsc: 'HDFC0000001',
+    supportEmail: 'billing@acme.example',
+    supportPhone: '+91 90000 00000',
+    website: 'acme.example',
+    ...overrides,
+  };
 }
 
 describe('getDefaultBrandingForSlug', () => {
@@ -85,6 +138,9 @@ describe('seedTenantBrandingDefaults', () => {
     const values = vi.fn().mockReturnValue({ onConflictDoNothing });
     mockInsert.mockReturnValue({ values });
 
+    let updateWhereCond: unknown;
+    mockUpdate.mockReturnValueOnce(updateWhereChain((cond) => { updateWhereCond = cond; }));
+
     await seedTenantBrandingDefaults();
 
     expect(mockInsert).toHaveBeenCalledTimes(3);
@@ -108,12 +164,134 @@ describe('seedTenantBrandingDefaults', () => {
     for (const call of onConflictDoNothing.mock.calls) {
       expect(call[0]).toEqual({ target: tenantBranding.tenantId });
     }
+
+    // The legal/financial identity backfill runs ONLY for growth-escalators
+    // (DEFAULT_TENANT_SLUG) — never for Wizmatch or the pilot tenant, and
+    // never as a second call.
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(mockUpdate).toHaveBeenCalledWith(tenantBranding);
+    const compiledUpdateWhere = dialect.sqlToQuery(updateWhereCond as any);
+    expect(compiledUpdateWhere.sql).toContain('"tenant_branding"."tenant_id" =');
+    expect(compiledUpdateWhere.sql).toContain('"tenant_branding"."legal_entity_name" is null');
+    expect(compiledUpdateWhere.params).toEqual([TENANT_GE]);
+  });
+
+  it('backfills growth-escalators\' own legal/financial identity with an idempotent, null-guarded UPDATE', async () => {
+    const TENANT_GE = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    mockSelect.mockReturnValueOnce(selectTenantsChain([{ id: TENANT_GE, slug: 'growth-escalators' }]));
+
+    const onConflictDoNothing = vi.fn().mockResolvedValue(undefined);
+    mockInsert.mockReturnValue({ values: vi.fn().mockReturnValue({ onConflictDoNothing }) });
+
+    let setArgs: unknown;
+    const set = vi.fn().mockImplementation((args: unknown) => {
+      setArgs = args;
+      return { where: vi.fn().mockResolvedValue(undefined) };
+    });
+    mockUpdate.mockReturnValueOnce({ set });
+
+    await seedTenantBrandingDefaults();
+
+    // Byte-identical to today's hardcoded values — GE's own invoices/reports
+    // must render exactly as before this change.
+    expect(setArgs).toMatchObject({
+      legalEntityName: 'Growth Escalators',
+      registeredAddress: '264/103-104 Pratap Nagar, Sanganer, Jaipur, Rajasthan 302033',
+      gstin: '08DRYPA4899F2ZZ',
+      bankName: 'ICICI Bank',
+      bankAccountName: 'Growth Escalators',
+      bankAccountNumber: '3617 0500 1178',
+      bankIfsc: 'ICIC0003617',
+      supportEmail: 'jatin@growthescalators.com',
+      supportPhone: '+91 77338 88883',
+      website: 'growthescalators.com',
+    });
   });
 
   it('is a no-op when there are no tenants', async () => {
     mockSelect.mockReturnValueOnce(selectTenantsChain([]));
     await seedTenantBrandingDefaults();
     expect(mockInsert).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe('getTenantDocumentIdentity', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns null when the tenant has no tenant_branding row yet — never a default GSTIN/bank', async () => {
+    mockSelect.mockReturnValueOnce(selectWhereChain([]));
+    const result = await getTenantDocumentIdentity('some-tenant-id');
+    expect(result).toBeNull();
+  });
+
+  it('scopes the read to the given tenantId', async () => {
+    let captured: unknown;
+    mockSelect.mockReturnValueOnce(selectWhereChain(
+      [fullIdentity()],
+      (cond) => { captured = cond; },
+    ));
+    const result = await getTenantDocumentIdentity('tenant-x');
+    expect(result?.legalEntityName).toBe('Acme Recruiting Pvt Ltd');
+
+    const compiled = dialect.sqlToQuery(captured as any);
+    expect(compiled.sql).toContain('"tenant_branding"."tenant_id" =');
+    expect(compiled.params).toEqual(['tenant-x']);
+  });
+});
+
+describe('isBillingIdentityConfigured', () => {
+  it('rejects null identity', () => {
+    expect(isBillingIdentityConfigured(null, { requireGstBankDetails: false })).toBe(false);
+  });
+
+  it('requires legalEntityName + registeredAddress for every invoice, GST or not', () => {
+    expect(isBillingIdentityConfigured(
+      fullIdentity({ legalEntityName: null }), { requireGstBankDetails: false },
+    )).toBe(false);
+    expect(isBillingIdentityConfigured(
+      fullIdentity({ registeredAddress: '   ' }), { requireGstBankDetails: false },
+    )).toBe(false);
+    expect(isBillingIdentityConfigured(
+      fullIdentity(), { requireGstBankDetails: false },
+    )).toBe(true);
+  });
+
+  it('additionally requires gstin + full bank details when requireGstBankDetails is true', () => {
+    const complete = fullIdentity();
+    expect(isBillingIdentityConfigured(complete, { requireGstBankDetails: true })).toBe(true);
+
+    for (const field of ['gstin', 'bankName', 'bankAccountName', 'bankAccountNumber', 'bankIfsc'] as const) {
+      const partial = fullIdentity({ [field]: null });
+      expect(isBillingIdentityConfigured(partial, { requireGstBankDetails: true })).toBe(false);
+      // But the same partial identity is fine for a non-GST invoice.
+      expect(isBillingIdentityConfigured(partial, { requireGstBankDetails: false })).toBe(true);
+    }
+  });
+
+  it('additionally requires supportEmail only when requireSupportEmail is true', () => {
+    const noSupportEmail = fullIdentity({ supportEmail: null });
+    expect(isBillingIdentityConfigured(noSupportEmail, { requireGstBankDetails: false })).toBe(true);
+    expect(isBillingIdentityConfigured(
+      noSupportEmail, { requireGstBankDetails: false, requireSupportEmail: true },
+    )).toBe(false);
+    expect(isBillingIdentityConfigured(
+      fullIdentity(), { requireGstBankDetails: false, requireSupportEmail: true },
+    )).toBe(true);
+  });
+
+  it('a Growth-Escalators-shaped complete identity passes every combination of requirements', () => {
+    const ge = fullIdentity({
+      legalEntityName: 'Growth Escalators',
+      registeredAddress: '264/103-104 Pratap Nagar, Sanganer, Jaipur, Rajasthan 302033',
+      gstin: '08DRYPA4899F2ZZ',
+      bankName: 'ICICI Bank',
+      bankAccountName: 'Growth Escalators',
+      bankAccountNumber: '3617 0500 1178',
+      bankIfsc: 'ICIC0003617',
+      supportEmail: 'jatin@growthescalators.com',
+    });
+    expect(isBillingIdentityConfigured(ge, { requireGstBankDetails: true, requireSupportEmail: true })).toBe(true);
   });
 });
 
