@@ -35,6 +35,7 @@ import blockersRouter from './routes/blockers';
 import billingRouter from './routes/billing';
 import permissionsRouter from './routes/permissions';
 import tenantBrandingRouter from './routes/tenantBranding';
+import tenantIntegrationsRouter from './routes/tenantIntegrations';
 import adsRouter from './routes/ads';
 import reportsRouter from './routes/reports';
 import socialRouter, { oauthRouter as socialOAuthRouter } from './routes/social';
@@ -306,6 +307,7 @@ app.use('/api/blockers', requireAuth, blockersRouter);
 app.use('/api/billing', requireStrictAuth, billingRouter);
 app.use('/api/permissions', requireStrictAuth, permissionsRouter);
 app.use('/api/tenant-branding', requireStrictAuth, tenantBrandingRouter);
+app.use('/api/tenant-integrations', requireStrictAuth, tenantIntegrationsRouter);
 app.use('/api/ads', requireAuth, adsRouter);
 app.use('/api/reports', requireAuth, reportsRouter);
 app.use('/api/social/oauth', socialOAuthRouter); // no auth — browser redirects can't send headers

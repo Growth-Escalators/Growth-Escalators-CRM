@@ -112,4 +112,5 @@ export {
   wizmatchOutreachEnrolments,
   wizmatchOutreachEvents,
   wizmatchSuppressionEvents,
+  tenantIntegrations,
 } from './schema';

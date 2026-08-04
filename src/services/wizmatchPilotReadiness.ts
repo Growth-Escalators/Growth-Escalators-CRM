@@ -388,15 +388,18 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
     // default on the shared `users` table, plus the (not-yet-wired-in)
     // `requirePlatformSuperadmin` middleware and audit-logging capability.
     // Explicitly authorised as scaffolding-only in that task's own brief.
-    // 41 = tenant_branding (white-label admin-SPA branding: display name/logo/
-    // colors per tenant), part of the tenant-branding-whitelabel PR. Additive
-    // CREATE TABLE only, no ALTER of any existing table. Renumbered from 40 to
-    // 41 during merge — 40 was already claimed by the superadmin migration
-    // above by the time this PR merged.
+    // 41 = tenant_branding (white-label admin-SPA branding), authorised as
+    // part of the reselling effort.
+    // 42 = tenant_integrations (Phase 3 white-label per-tenant credential
+    // store — AES-256-GCM encrypted, generic `provider` text column),
+    // authorised as part of the white-label reselling effort. Additive
+    // CREATE TABLE only, no ALTER of any existing table. Renumbered from 40
+    // to 42 during merge — 40 and 41 were already claimed by the time this
+    // PR merged.
     // Bump this ONLY alongside an explicit authorisation for the migration in
     // question — the point of the mark is that an unreviewed migration showing
     // up in a hardening pass still gets surfaced.
-    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 41;
+    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 42;
     const unauthorised = sqlFiles
       .map((f) => ({ file: f, idx: parseInt(f.slice(0, 4), 10) }))
       .filter((m) => Number.isFinite(m.idx) && m.idx > AUTHORISED_MIGRATION_HIGH_WATER_MARK)
