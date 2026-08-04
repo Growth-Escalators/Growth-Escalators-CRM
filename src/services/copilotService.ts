@@ -37,8 +37,8 @@ export async function handleCopilotMessage(from: string, messageText: string): P
     const clientName = String(client.client_name);
     const tenantId = (client.tenant_id as string | null) ?? null;
 
-    // Step 2 — gather context
-    const context = await gatherContext(clientName);
+    // Step 2 — gather context, scoped to the matched client's own tenant.
+    const context = await gatherContext(clientName, tenantId);
 
     // Step 3 — call Claude
     const response = await callClaude(String(clientName), client, context, messageText);
@@ -75,13 +75,23 @@ export async function handleCopilotMessage(from: string, messageText: string): P
 // Context collector
 // ---------------------------------------------------------------------------
 
-async function gatherContext(clientName: string): Promise<Record<string, unknown>> {
+// `tenantId` is the matched Growth OS client's own tenant (handleCopilotMessage
+// Step 1, `client.tenant_id`) — every query below must scope to it. Before this
+// fix, none of these five queries carried a tenant predicate at all: the
+// client_name-only lookups (brand_health_scores, money_on_table,
+// creative_intelligence's growth_os_clients subquery) could return another
+// tenant's row for a same-named client, and the deals/contacts aggregates had
+// no scoping predicate whatsoever — they summed every tenant's rows into one
+// number for every Co-Pilot reply, regardless of client_name collisions. A
+// null tenantId (client row predates the tenant_id backfill) intentionally
+// matches nothing here — same fail-closed posture as canSendGrowthOSWhatsApp.
+async function gatherContext(clientName: string, tenantId: string | null): Promise<Record<string, unknown>> {
   const [healthRes, opportunityRes, creativesRes, pipelineRes, contactsRes] = await Promise.all([
-    pool.query(`SELECT overall_score, ads_score, seo_score, whatsapp_score, email_score, retention_score, score_change, alerts FROM brand_health_scores WHERE client_name = $1 ORDER BY score_date DESC LIMIT 1`, [clientName]).catch(() => ({ rows: [] })),
-    pool.query(`SELECT total_opportunity, cart_abandonment_opportunity, winback_opportunity, detail FROM money_on_table WHERE client_name = $1 ORDER BY created_at DESC LIMIT 1`, [clientName]).catch(() => ({ rows: [] })),
-    pool.query(`SELECT ad_name, campaign_name, fatigue_status, latest_roas, latest_ctr, days_running FROM creative_intelligence WHERE ad_account_id IN (SELECT ad_account_id FROM growth_os_clients WHERE client_name = $1) AND fatigue_status != 'healthy' ORDER BY updated_at DESC LIMIT 5`, [clientName]).catch(() => ({ rows: [] })),
-    pool.query(`SELECT stage, COUNT(*) AS cnt FROM deals GROUP BY stage`).catch(() => ({ rows: [] })),
-    pool.query(`SELECT COUNT(*) AS cnt FROM contacts WHERE created_at >= NOW() - INTERVAL '7 days'`).catch(() => ({ rows: [{ cnt: '0' }] })),
+    pool.query(`SELECT overall_score, ads_score, seo_score, whatsapp_score, email_score, retention_score, score_change, alerts FROM brand_health_scores WHERE client_name = $1 AND tenant_id = $2 ORDER BY score_date DESC LIMIT 1`, [clientName, tenantId]).catch(() => ({ rows: [] })),
+    pool.query(`SELECT total_opportunity, cart_abandonment_opportunity, winback_opportunity, detail FROM money_on_table WHERE client_name = $1 AND tenant_id = $2 ORDER BY created_at DESC LIMIT 1`, [clientName, tenantId]).catch(() => ({ rows: [] })),
+    pool.query(`SELECT ad_name, campaign_name, fatigue_status, latest_roas, latest_ctr, days_running FROM creative_intelligence WHERE tenant_id = $2 AND ad_account_id IN (SELECT ad_account_id FROM growth_os_clients WHERE client_name = $1 AND tenant_id = $2) AND fatigue_status != 'healthy' ORDER BY updated_at DESC LIMIT 5`, [clientName, tenantId]).catch(() => ({ rows: [] })),
+    pool.query(`SELECT stage, COUNT(*) AS cnt FROM deals WHERE tenant_id = $1 GROUP BY stage`, [tenantId]).catch(() => ({ rows: [] })),
+    pool.query(`SELECT COUNT(*) AS cnt FROM contacts WHERE tenant_id = $1 AND created_at >= NOW() - INTERVAL '7 days'`, [tenantId]).catch(() => ({ rows: [{ cnt: '0' }] })),
   ]);
 
   return {

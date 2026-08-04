@@ -47,8 +47,6 @@
     "src/services/contactService.ts::contactChannels::select": 1,
     "src/services/contactService.ts::contacts::select": 3,
     "src/services/contactService.ts::contacts::update": 3,
-    "src/services/copilotService.ts::contacts::raw-sql": 1,
-    "src/services/copilotService.ts::deals::raw-sql": 1,
     "src/services/eveningSummaryService.ts::invoices::raw-sql": 1,
     "src/services/eveningSummaryService.ts::users::raw-sql": 1,
     "src/services/facebookLeadForms.ts::contacts::select": 1,
