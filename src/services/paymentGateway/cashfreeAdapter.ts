@@ -27,6 +27,7 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import logger from '../../utils/logger';
 import type { NormalizedSubscriptionEvent, PaymentGatewayAdapter, SubscriptionProvider } from './types';
+import { registerPaymentGatewayAdapter } from './registry';
 
 const PROVIDER: SubscriptionProvider = 'cashfree';
 const TIMEOUT_MS = 15_000;
@@ -338,3 +339,10 @@ export class CashfreeSubscriptionAdapter implements PaymentGatewayAdapter {
 }
 
 export default CashfreeSubscriptionAdapter;
+
+// Self-registers at import time (see registry.ts's overwrite note), replacing
+// the mock adapter mockAdapter.ts registered for 'cashfree'. Config is
+// resolved lazily per-call, so constructing this eagerly here is safe even
+// before Cashfree Subscriptions credentials are set — it only throws once an
+// operation is actually invoked.
+registerPaymentGatewayAdapter(new CashfreeSubscriptionAdapter());
