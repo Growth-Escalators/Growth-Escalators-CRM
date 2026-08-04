@@ -1,7 +1,8 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import { db } from '../db/index';
 import { tenantBranding, tenants } from '../db/schema';
-import { DEFAULT_TENANT_SLUG, COMPANY_GSTIN } from '../config/constants';
+import { DEFAULT_TENANT_SLUG } from '../config/constants';
+import logger from '../utils/logger';
 
 // ---------------------------------------------------------------------------
 // Default branding values, keyed by tenant slug.
@@ -87,26 +88,48 @@ export interface TenantDocumentIdentity extends TenantBillingIdentity {
   accentColor: string | null;
 }
 
-// Growth Escalators' own real legal/financial identity. This is the ONE
-// place these values live in code now — previously they were duplicated as
-// literals across src/routes/billing.ts, src/services/pdfService.ts, and
-// src/routes/reports.ts. Kept env-first with the same fallback literals
-// those call sites used, so an env override already in effect in production
-// keeps working unchanged. Used only to backfill Growth Escalators' own
-// tenant_branding row (see seedTenantBrandingDefaults) so its own invoices
-// and reports render byte-identically to before this change.
-const GE_BILLING_IDENTITY: TenantBillingIdentity = {
-  legalEntityName: 'Growth Escalators',
-  registeredAddress: '264/103-104 Pratap Nagar, Sanganer, Jaipur, Rajasthan 302033',
-  gstin: COMPANY_GSTIN,
-  bankName: 'ICICI Bank',
-  bankAccountName: 'Growth Escalators',
-  bankAccountNumber: process.env.GE_BANK_ACCOUNT ?? '3617 0500 1178',
-  bankIfsc: process.env.GE_BANK_IFSC ?? 'ICIC0003617',
-  supportEmail: 'jatin@growthescalators.com',
-  supportPhone: '+91 77338 88883',
-  website: 'growthescalators.com',
+// ---------------------------------------------------------------------------
+// The default tenant's (DEFAULT_TENANT_SLUG) own legal/financial identity is
+// read ENTIRELY from environment configuration — never hardcoded in source.
+// This repo is public; hardcoding that tenant's real registered address,
+// GSTIN, or bank details as literals here would put them in git history,
+// which is exactly the class of leak this whole change set exists to close.
+//
+// Every var is independently optional: seedTenantBrandingDefaults below
+// writes only the fields whose var is actually set, and logs a startup WARN
+// naming exactly which vars are missing. An unset legalEntityName/
+// registeredAddress means that tenant's own invoice/report generation is
+// blocked by isBillingIdentityConfigured — same as any other unconfigured
+// tenant, deliberately not special-cased. Set these in the deployment
+// environment (see .env.example) before this ships to a live default
+// tenant that issues real invoices.
+// ---------------------------------------------------------------------------
+const DEFAULT_TENANT_ENV_VARS: Record<keyof TenantBillingIdentity, string> = {
+  legalEntityName: 'DEFAULT_TENANT_LEGAL_NAME',
+  registeredAddress: 'DEFAULT_TENANT_REGISTERED_ADDRESS',
+  gstin: 'DEFAULT_TENANT_GSTIN',
+  bankName: 'DEFAULT_TENANT_BANK_NAME',
+  bankAccountName: 'DEFAULT_TENANT_BANK_ACCOUNT_NAME',
+  bankAccountNumber: 'DEFAULT_TENANT_BANK_ACCOUNT_NUMBER',
+  bankIfsc: 'DEFAULT_TENANT_BANK_IFSC',
+  supportEmail: 'DEFAULT_TENANT_SUPPORT_EMAIL',
+  supportPhone: 'DEFAULT_TENANT_SUPPORT_PHONE',
+  website: 'DEFAULT_TENANT_WEBSITE',
 };
+
+function readDefaultTenantIdentityFromEnv(): { values: Partial<TenantBillingIdentity>; missingEnvVars: string[] } {
+  const values: Partial<TenantBillingIdentity> = {};
+  const missingEnvVars: string[] = [];
+  for (const [field, envVar] of Object.entries(DEFAULT_TENANT_ENV_VARS) as Array<[keyof TenantBillingIdentity, string]>) {
+    const raw = process.env[envVar];
+    if (raw && raw.trim()) {
+      values[field] = raw.trim();
+    } else {
+      missingEnvVars.push(envVar);
+    }
+  }
+  return { values, missingEnvVars };
+}
 
 // ---------------------------------------------------------------------------
 // Idempotent startup bootstrap — inserts a default branding row for every
@@ -114,12 +137,18 @@ const GE_BILLING_IDENTITY: TenantBillingIdentity = {
 // (relies on the unique index on tenant_branding.tenant_id to no-op on a
 // second insert attempt for the same tenant).
 //
-// Also backfills Growth Escalators' own legal/financial identity onto its
-// row — additive columns introduced by the reseller-readiness fix start out
-// null even for a tenant that already had a tenant_branding row (this insert
-// is a no-op for it). The backfill only touches rows where legalEntityName
-// is still null, so re-running this on every boot never clobbers a value an
-// owner later edits via the Branding settings page.
+// Also backfills the default tenant's legal/financial identity onto its
+// row from the DEFAULT_TENANT_* env vars above — additive columns introduced
+// by the reseller-readiness fix start out null even for a tenant that already
+// had a tenant_branding row (the insert above is a no-op for it). Two
+// deliberate safety properties, since getting this wrong would newly BLOCK
+// that tenant's real invoice generation instead of fixing the bug:
+//   1. Only fields whose env var is actually set are written — a partially
+//      configured deployment doesn't clobber the rest with nulls/undefined.
+//   2. The write only ever happens once: it's gated on legalEntityName still
+//      being null, so a later deploy where an env var goes missing (or the
+//      row was since hand-edited via the Branding settings page) can never
+//      overwrite what's already there.
 // ---------------------------------------------------------------------------
 export async function seedTenantBrandingDefaults(): Promise<void> {
   const tenantRows = await db.select({ id: tenants.id, slug: tenants.slug }).from(tenants);
@@ -131,10 +160,19 @@ export async function seedTenantBrandingDefaults(): Promise<void> {
       .onConflictDoNothing({ target: tenantBranding.tenantId });
 
     if (t.slug === DEFAULT_TENANT_SLUG) {
-      await db
-        .update(tenantBranding)
-        .set({ ...GE_BILLING_IDENTITY, updatedAt: new Date() })
-        .where(and(eq(tenantBranding.tenantId, t.id), isNull(tenantBranding.legalEntityName)));
+      const { values, missingEnvVars } = readDefaultTenantIdentityFromEnv();
+      if (missingEnvVars.length > 0) {
+        logger.warn(
+          `[tenant-branding] default tenant (${DEFAULT_TENANT_SLUG}) billing identity: env var(s) not set — ${missingEnvVars.join(', ')}. ` +
+          'That tenant\'s own invoice/report generation will be blocked or incomplete for the affected fields until these are configured — see .env.example.',
+        );
+      }
+      if (Object.keys(values).length > 0) {
+        await db
+          .update(tenantBranding)
+          .set({ ...values, updatedAt: new Date() })
+          .where(and(eq(tenantBranding.tenantId, t.id), isNull(tenantBranding.legalEntityName)));
+      }
     }
   }
 }

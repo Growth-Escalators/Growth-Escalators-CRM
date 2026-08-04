@@ -320,7 +320,7 @@ export default function BrandingPage() {
               <TextField
                 label="GSTIN" value={form.gstin}
                 onChange={v => update('gstin', v.toUpperCase())}
-                placeholder="08DRYPA4899F2ZZ" maxLength={15}
+                placeholder="22AAAAA0000A1Z5" maxLength={15}
                 error={!gstinValid ? 'Enter a valid 15-character GSTIN, or leave blank.' : ''}
                 hint={gstinValid ? 'Leave blank if you don’t have one (e.g. a non-Indian entity).' : ''}
               />
@@ -362,7 +362,7 @@ export default function BrandingPage() {
                 <TextField
                   label="Bank name" value={form.bankName}
                   onChange={v => update('bankName', v)}
-                  placeholder="ICICI Bank" maxLength={200}
+                  placeholder="HDFC Bank" maxLength={200}
                 />
                 <TextField
                   label="Account holder name" value={form.bankAccountName}
@@ -377,8 +377,8 @@ export default function BrandingPage() {
                 <TextField
                   label="IFSC" value={form.bankIfsc}
                   onChange={v => update('bankIfsc', v.toUpperCase())}
-                  placeholder="ICIC0003617" maxLength={11}
-                  error={!bankIfscValid ? 'Enter a valid IFSC code (e.g. ICIC0003617), or leave blank.' : ''}
+                  placeholder="HDFC0000001" maxLength={11}
+                  error={!bankIfscValid ? 'Enter a valid IFSC code (e.g. HDFC0000001), or leave blank.' : ''}
                 />
               </div>
             </div>

@@ -52,7 +52,7 @@ function baseInvoiceData(overrides: Partial<InvoiceData> = {}): InvoiceData {
     taxType: 'cgst_sgst',
     companyName: 'Growth Escalators',
     companyAddress: 'Jaipur, Rajasthan',
-    companyGstin: '08DRYPA4899F2ZZ',
+    companyGstin: '22AAAAA0000A1Z5',
     companyBank: { accountNo: '123', name: 'GE', ifsc: 'ICIC0001', type: 'Current' },
     clientName: 'Acme Marketing Pvt Ltd',
     clientContactPerson: 'John Smith',
@@ -113,28 +113,44 @@ describe('generateInvoicePDF (reseller-readiness — tenant-driven company ident
   // but generateInvoicePDF's header rendering ignored both and hardcoded
   // 'GROWTH ESCALATORS' / the Jaipur address directly — so passing a
   // different tenant's identity in had NO effect on the rendered PDF. Same
-  // bug for the "Bank: ICICI Bank" line, hardcoded independent of
+  // bug for the "Bank: <name>" line, which used to be hardcoded independent of
   // companyBank. These tests render real PDF bytes and decode the content
   // stream (see decodePdfTextRuns above) rather than asserting on the
   // JS object passed in, specifically so they can't pass while that bug is
   // still present.
   it('renders companyName (uppercased) and companyAddress from the passed-in data, not a hardcoded literal', async () => {
-    const buf = await generateInvoicePDF(baseInvoiceData({
+    const bufAcme = await generateInvoicePDF(baseInvoiceData({
       companyName: 'Acme Reseller Pvt Ltd',
       companyAddress: '42 MG Road, Bengaluru, Karnataka 560001',
     }));
-    expect(containsText(buf, 'ACME RESELLER PVT LTD')).toBe(true);
-    expect(containsText(buf, '42 MG Road, Bengaluru, Karnataka 560001')).toBe(true);
-    expect(containsText(buf, 'GROWTH ESCALATORS')).toBe(false);
-    expect(containsText(buf, 'Pratap Nagar')).toBe(false);
+    expect(containsText(bufAcme, 'ACME RESELLER PVT LTD')).toBe(true);
+    expect(containsText(bufAcme, '42 MG Road, Bengaluru, Karnataka 560001')).toBe(true);
+
+    // A second, differently-configured tenant must render ITS OWN name/
+    // address, not Acme's — proving the header text tracks
+    // data.companyName/companyAddress rather than being hardcoded to any
+    // single literal (which is exactly the bug this test guards against).
+    const bufOther = await generateInvoicePDF(baseInvoiceData({
+      companyName: 'Example Operator Pvt Ltd',
+      companyAddress: '1 Example Business Park, Sample City, Karnataka 560001',
+    }));
+    expect(containsText(bufOther, 'EXAMPLE OPERATOR PVT LTD')).toBe(true);
+    expect(containsText(bufOther, '1 Example Business Park, Sample City, Karnataka 560001')).toBe(true);
+    expect(containsText(bufOther, 'ACME RESELLER PVT LTD')).toBe(false);
+    expect(containsText(bufOther, '42 MG Road')).toBe(false);
   });
 
-  it('renders companyBank.bankName ("Bank: <name>") from the passed-in data, not a hardcoded "ICICI Bank"', async () => {
-    const buf = await generateInvoicePDF(baseInvoiceData({
+  it('renders companyBank.bankName ("Bank: <name>") from the passed-in data, not a hardcoded literal', async () => {
+    const bufAcme = await generateInvoicePDF(baseInvoiceData({
       companyBank: { accountNo: '000111222333', name: 'Acme Reseller Pvt Ltd', ifsc: 'HDFC0000001', type: 'Current Account', bankName: 'HDFC Bank' },
     }));
-    expect(containsText(buf, 'Bank: HDFC Bank')).toBe(true);
-    expect(containsText(buf, 'ICICI Bank')).toBe(false);
+    expect(containsText(bufAcme, 'Bank: HDFC Bank')).toBe(true);
+
+    const bufOther = await generateInvoicePDF(baseInvoiceData({
+      companyBank: { accountNo: '000123456789', name: 'Example Operator Pvt Ltd', ifsc: 'EXBK0001234', type: 'Current Account', bankName: 'Example Bank' },
+    }));
+    expect(containsText(bufOther, 'Bank: Example Bank')).toBe(true);
+    expect(containsText(bufOther, 'HDFC Bank')).toBe(false);
   });
 
   it('omits the "Bank:" line (rather than printing a blank/undefined name) when companyBank.bankName is not supplied', async () => {
@@ -147,22 +163,25 @@ describe('generateInvoicePDF (reseller-readiness — tenant-driven company ident
     expect(containsText(buf, 'Account Name: Acme Reseller Pvt Ltd')).toBe(true);
   });
 
-  it('is byte-identical to Growth Escalators\' own hardcoded values when GE\'s own seeded identity is passed in', async () => {
-    // These literals are exactly what seedTenantBrandingDefaults' GE_BILLING_IDENTITY
-    // resolves to (see tenantBrandingDefaults.test.ts), and exactly what this
-    // file's own header/bank block used to hardcode before this change.
+  it('renders a fully-configured identity end to end — header, GSTIN line, and full bank block all reflect exactly what was configured', async () => {
+    // Fictitious tenant identity, shaped like what a fully-configured
+    // default-tenant row would resolve to (see the FAKE_DEFAULT_TENANT_ENV
+    // fixture in tenantBrandingDefaults.test.ts) — proves the complete
+    // render path (header + GSTIN line + full 5-line bank block at its
+    // standard y-offsets) works end to end for whatever identity a tenant
+    // has configured, not a hardcoded literal.
     const buf = await generateInvoicePDF(baseInvoiceData({
-      companyName: 'Growth Escalators',
-      companyAddress: '264/103-104 Pratap Nagar, Sanganer, Jaipur, Rajasthan 302033',
-      companyGstin: '08DRYPA4899F2ZZ',
-      companyBank: { accountNo: '3617 0500 1178', name: 'Growth Escalators', ifsc: 'ICIC0003617', type: 'Current Account', bankName: 'ICICI Bank' },
+      companyName: 'Example Operator Pvt Ltd',
+      companyAddress: '1 Example Business Park, Sample City, Karnataka 560001',
+      companyGstin: '22AAAAA0000A1Z5',
+      companyBank: { accountNo: '000123456789', name: 'Example Operator Pvt Ltd', ifsc: 'EXBK0001234', type: 'Current Account', bankName: 'Example Bank' },
     }));
-    expect(containsText(buf, 'GROWTH ESCALATORS')).toBe(true);
-    expect(containsText(buf, '264/103-104 Pratap Nagar, Sanganer, Jaipur, Rajasthan 302033')).toBe(true);
-    expect(containsText(buf, 'GSTIN: 08DRYPA4899F2ZZ')).toBe(true);
-    expect(containsText(buf, 'Bank: ICICI Bank')).toBe(true);
-    expect(containsText(buf, 'Account No: 3617 0500 1178')).toBe(true);
-    expect(containsText(buf, 'IFSC: ICIC0003617')).toBe(true);
+    expect(containsText(buf, 'EXAMPLE OPERATOR PVT LTD')).toBe(true);
+    expect(containsText(buf, '1 Example Business Park, Sample City, Karnataka 560001')).toBe(true);
+    expect(containsText(buf, 'GSTIN: 22AAAAA0000A1Z5')).toBe(true);
+    expect(containsText(buf, 'Bank: Example Bank')).toBe(true);
+    expect(containsText(buf, 'Account No: 000123456789')).toBe(true);
+    expect(containsText(buf, 'IFSC: EXBK0001234')).toBe(true);
   });
 
   it('uses the tenant\'s primaryColor/accentColor when supplied, and Growth Escalators\' own palette when not', async () => {

@@ -47,6 +47,11 @@ vi.mock('../services/tenantBrandingDefaults', () => ({
 
 import { getReportBrand, generateReportPDF, generateMonthlyReportPDF, type ReportData, type MonthlyReportData } from '../routes/reports';
 
+// Fictitious throughout — reports.ts has no hardcoded fallback brand at all
+// (see getReportBrand), so this fixture represents an arbitrary fully-
+// configured tenant, not any real one.
+const FAKE_BRAND = { displayName: 'Example Operator', website: 'example-operator.test', supportEmail: 'billing@example-operator.test', supportPhone: '+91 90000 00001' };
+
 function baseWeeklyData(overrides: Partial<ReportData> = {}): ReportData {
   return {
     client: { name: 'Test Client' },
@@ -55,7 +60,7 @@ function baseWeeklyData(overrides: Partial<ReportData> = {}): ReportData {
     weekEnd: new Date('2026-08-02'),
     adMetrics: null,
     completedTasks: [],
-    brand: { displayName: 'Growth Escalators', website: 'growthescalators.com', supportEmail: 'jatin@growthescalators.com', supportPhone: '+91 77338 88883' },
+    brand: FAKE_BRAND,
     ...overrides,
   };
 }
@@ -69,7 +74,7 @@ function baseMonthlyData(overrides: Partial<MonthlyReportData> = {}): MonthlyRep
     adMetrics: null,
     seo: null,
     billing: null,
-    brand: { displayName: 'Growth Escalators', website: 'growthescalators.com', supportEmail: 'jatin@growthescalators.com', supportPhone: '+91 77338 88883' },
+    brand: FAKE_BRAND,
     ...overrides,
   };
 }
@@ -107,14 +112,18 @@ describe('getReportBrand', () => {
 });
 
 describe('generateReportPDF / generateMonthlyReportPDF — tenant-driven header/footer', () => {
-  it('weekly report renders brand.displayName/website in the header, not a hardcoded "Growth Escalators"/"growthescalators.com"', async () => {
-    const buf = await generateReportPDF(baseWeeklyData({
+  it('weekly report renders brand.displayName/website in the header for two DIFFERENT tenants — not a single hardcoded literal', async () => {
+    const bufAcme = await generateReportPDF(baseWeeklyData({
       brand: { displayName: 'Acme Recruiting', website: 'acme.example', supportEmail: null, supportPhone: null },
     }));
-    expect(containsText(buf, 'Acme Recruiting')).toBe(true);
-    expect(containsText(buf, 'acme.example')).toBe(true);
-    expect(containsText(buf, 'Growth Escalators')).toBe(false);
-    expect(containsText(buf, 'growthescalators.com')).toBe(false);
+    expect(containsText(bufAcme, 'Acme Recruiting')).toBe(true);
+    expect(containsText(bufAcme, 'acme.example')).toBe(true);
+
+    const bufOther = await generateReportPDF(baseWeeklyData());
+    expect(containsText(bufOther, FAKE_BRAND.displayName)).toBe(true);
+    expect(containsText(bufOther, FAKE_BRAND.website)).toBe(true);
+    expect(containsText(bufOther, 'Acme Recruiting')).toBe(false);
+    expect(containsText(bufOther, 'acme.example')).toBe(false);
   });
 
   it('weekly report footer joins only the configured brand fields — no literal "null"s when contact info is missing', async () => {
@@ -126,27 +135,27 @@ describe('generateReportPDF / generateMonthlyReportPDF — tenant-driven header/
     expect(containsText(buf, 'Acme Recruiting')).toBe(true);
   });
 
-  it('weekly report is byte-identical to today\'s hardcoded values when Growth Escalators\' own seeded brand is passed in', async () => {
+  it('weekly report footer joins all three fields ("Name | email | phone") when fully configured', async () => {
     const buf = await generateReportPDF(baseWeeklyData());
-    expect(containsText(buf, 'Growth Escalators')).toBe(true);
-    expect(containsText(buf, 'growthescalators.com')).toBe(true);
-    expect(containsText(buf, 'Growth Escalators | jatin@growthescalators.com | +91 77338 88883')).toBe(true);
+    expect(containsText(buf, `${FAKE_BRAND.displayName} | ${FAKE_BRAND.supportEmail} | ${FAKE_BRAND.supportPhone}`)).toBe(true);
   });
 
-  it('monthly report renders brand.displayName/website in the header, not a hardcoded "Growth Escalators"/"growthescalators.com"', async () => {
-    const buf = await generateMonthlyReportPDF(baseMonthlyData({
+  it('monthly report renders brand.displayName/website in the header for two DIFFERENT tenants — not a single hardcoded literal', async () => {
+    const bufAcme = await generateMonthlyReportPDF(baseMonthlyData({
       brand: { displayName: 'Acme Recruiting', website: 'acme.example', supportEmail: null, supportPhone: null },
     }));
-    expect(containsText(buf, 'Acme Recruiting')).toBe(true);
-    expect(containsText(buf, 'acme.example')).toBe(true);
-    expect(containsText(buf, 'Growth Escalators')).toBe(false);
-    expect(containsText(buf, 'growthescalators.com')).toBe(false);
+    expect(containsText(bufAcme, 'Acme Recruiting')).toBe(true);
+    expect(containsText(bufAcme, 'acme.example')).toBe(true);
+
+    const bufOther = await generateMonthlyReportPDF(baseMonthlyData());
+    expect(containsText(bufOther, FAKE_BRAND.displayName)).toBe(true);
+    expect(containsText(bufOther, FAKE_BRAND.website)).toBe(true);
+    expect(containsText(bufOther, 'Acme Recruiting')).toBe(false);
+    expect(containsText(bufOther, 'acme.example')).toBe(false);
   });
 
-  it('monthly report is byte-identical to today\'s hardcoded values when Growth Escalators\' own seeded brand is passed in', async () => {
+  it('monthly report footer joins all three fields ("Name | email | phone") when fully configured', async () => {
     const buf = await generateMonthlyReportPDF(baseMonthlyData());
-    expect(containsText(buf, 'Growth Escalators')).toBe(true);
-    expect(containsText(buf, 'growthescalators.com')).toBe(true);
-    expect(containsText(buf, 'Growth Escalators | jatin@growthescalators.com | +91 77338 88883')).toBe(true);
+    expect(containsText(buf, `${FAKE_BRAND.displayName} | ${FAKE_BRAND.supportEmail} | ${FAKE_BRAND.supportPhone}`)).toBe(true);
   });
 });

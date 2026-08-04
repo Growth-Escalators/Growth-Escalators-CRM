@@ -53,7 +53,7 @@ interface BankDetails {
   name: string;
   ifsc: string;
   type: string;
-  // The banking institution itself (e.g. "ICICI Bank") — optional so callers
+  // The banking institution itself (e.g. "HDFC Bank") — optional so callers
   // that genuinely have nothing to put here (shouldn't happen once
   // isBillingIdentityConfigured is enforced upstream) don't have to fake a
   // value. When absent, the "Bank: <name>" line is simply omitted rather

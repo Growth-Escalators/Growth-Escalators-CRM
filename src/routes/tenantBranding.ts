@@ -144,7 +144,7 @@ function sanitizeBrandingInput(body: Record<string, unknown>): { errors: string[
     } else if (typeof v === 'string' && IFSC_RE.test(v.trim().toUpperCase())) {
       values.bankIfsc = v.trim().toUpperCase();
     } else {
-      errors.push('bankIfsc must be a valid IFSC code (e.g. ICIC0003617), or blank');
+      errors.push('bankIfsc must be a valid IFSC code (e.g. HDFC0000001), or blank');
     }
   }
 

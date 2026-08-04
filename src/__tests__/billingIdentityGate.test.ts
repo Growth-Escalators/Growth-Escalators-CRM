@@ -102,18 +102,23 @@ async function invokeRoute(router: any, path: string, method: string, req: any, 
   }
 }
 
-// Growth Escalators' own seeded identity — exactly what
-// seedTenantBrandingDefaults' GE_BILLING_IDENTITY resolves to (see
-// tenantBrandingDefaults.test.ts) — used to prove GE's own path is unchanged.
-const GE_IDENTITY = {
-  displayName: 'Growth Escalators', primaryColor: '#1A3A5C', accentColor: '#F97316',
-  legalEntityName: 'Growth Escalators',
-  registeredAddress: '264/103-104 Pratap Nagar, Sanganer, Jaipur, Rajasthan 302033',
-  gstin: '08DRYPA4899F2ZZ',
-  bankName: 'ICICI Bank', bankAccountName: 'Growth Escalators',
-  bankAccountNumber: '3617 0500 1178', bankIfsc: 'ICIC0003617',
-  supportEmail: 'jatin@growthescalators.com', supportPhone: '+91 77338 88883',
-  website: 'growthescalators.com',
+// A second, fully-configured tenant identity, deliberately shaped like the
+// default tenant's env-configured identity (see the FAKE_DEFAULT_TENANT_ENV
+// fixture in tenantBrandingDefaults.test.ts) — fictitious values throughout,
+// standard example GSTIN/IFSC formats. getTenantDocumentIdentity is mocked
+// directly in this file (it doesn't read env vars — only
+// seedTenantBrandingDefaults does), so what matters here is proving
+// rendering treats this tenant exactly like any other: no special-casing,
+// no fallback to a different identity.
+const DEFAULT_TENANT_IDENTITY = {
+  displayName: 'Example Operator', primaryColor: '#1A3A5C', accentColor: '#F97316',
+  legalEntityName: 'Example Operator Pvt Ltd',
+  registeredAddress: '1 Example Business Park, Sample City, Karnataka 560001',
+  gstin: '22AAAAA0000A1Z5',
+  bankName: 'Example Bank', bankAccountName: 'Example Operator Pvt Ltd',
+  bankAccountNumber: '000123456789', bankIfsc: 'EXBK0001234',
+  supportEmail: 'billing@example-operator.test', supportPhone: '+91 90000 00001',
+  website: 'example-operator.test',
 };
 
 const RESELLER_IDENTITY = {
@@ -196,8 +201,11 @@ describe('POST /api/billing/invoices — billing identity gate', () => {
     });
     await invokeRoute(router, '/invoices', 'post', req, res);
 
-    expect(values).toHaveBeenCalledWith(expect.objectContaining({ companyGstin: '29AABCU9603R1ZM' }));
-    expect(values).not.toHaveBeenCalledWith(expect.objectContaining({ companyGstin: '08DRYPA4899F2ZZ' }));
+    expect(values).toHaveBeenCalledWith(expect.objectContaining({ companyGstin: RESELLER_IDENTITY.gstin }));
+    // Never the default tenant's own GSTIN — this call never even resolved
+    // the default tenant's identity, so this also guards against a copy-paste
+    // mistake reusing the wrong mock's return value.
+    expect(values).not.toHaveBeenCalledWith(expect.objectContaining({ companyGstin: DEFAULT_TENANT_IDENTITY.gstin }));
   });
 });
 
@@ -250,26 +258,32 @@ describe('GET /api/billing/invoices/:id/pdf — billing identity gate', () => {
     expect(pdfData.companyName).not.toBe('Growth Escalators');
   });
 
-  it('Growth Escalators\' own seeded identity renders PDF data byte-identical to today\'s hardcoded constants', async () => {
+  it('the default tenant\'s own configured identity renders through into PDF data exactly as configured — no special-casing vs. any other tenant', async () => {
     mockPerms({ billingView: true, isOwner: false });
-    mockSelectOnce([{ id: 'inv-1', tenantId: 'tenant-ge', invoiceType: 'gst', clientId: 'client-1', invoiceNumber: 'GE/GST/2026-27/001', invoiceDate: new Date(), dueDate: new Date(), companyGstin: '08DRYPA4899F2ZZ', subtotal: 1000, totalAmount: 1000, amountInWords: 'x' }]);
+    mockSelectOnce([{ id: 'inv-1', tenantId: 'tenant-default', invoiceType: 'gst', clientId: 'client-1', invoiceNumber: 'INV/GST/2026-27/001', invoiceDate: new Date(), dueDate: new Date(), companyGstin: DEFAULT_TENANT_IDENTITY.gstin, subtotal: 1000, totalAmount: 1000, amountInWords: 'x' }]);
     mockSelectOnce([{ id: 'client-1', name: 'Client Co', addressLine1: 'x' }]);
     mockDbSelect.mockReturnValueOnce({
       from: vi.fn().mockReturnValue({
         where: vi.fn().mockReturnValue({ orderBy: vi.fn().mockResolvedValue([]) }),
       }),
     });
-    mockGetTenantDocumentIdentity.mockResolvedValueOnce(GE_IDENTITY);
+    mockGetTenantDocumentIdentity.mockResolvedValueOnce(DEFAULT_TENANT_IDENTITY);
 
     const { default: router } = await import('../routes/billing');
-    const { req, res } = makeReqRes('user-1', 'tenant-ge', { id: 'inv-1' });
+    const { req, res } = makeReqRes('user-1', 'tenant-default', { id: 'inv-1' });
     await invokeRoute(router, '/invoices/:id/pdf', 'get', req, res);
 
     expect(mockGenerateInvoicePDF).toHaveBeenCalledWith(expect.objectContaining({
-      companyName: 'Growth Escalators',
-      companyAddress: '264/103-104 Pratap Nagar, Sanganer, Jaipur, Rajasthan 302033',
-      companyGstin: '08DRYPA4899F2ZZ',
-      companyBank: { accountNo: '3617 0500 1178', name: 'Growth Escalators', ifsc: 'ICIC0003617', type: 'Current Account', bankName: 'ICICI Bank' },
+      companyName: DEFAULT_TENANT_IDENTITY.legalEntityName,
+      companyAddress: DEFAULT_TENANT_IDENTITY.registeredAddress,
+      companyGstin: DEFAULT_TENANT_IDENTITY.gstin,
+      companyBank: {
+        accountNo: DEFAULT_TENANT_IDENTITY.bankAccountNumber,
+        name: DEFAULT_TENANT_IDENTITY.bankAccountName,
+        ifsc: DEFAULT_TENANT_IDENTITY.bankIfsc,
+        type: 'Current Account',
+        bankName: DEFAULT_TENANT_IDENTITY.bankName,
+      },
     }));
   });
 });
@@ -347,8 +361,11 @@ describe('POST /api/billing/invoices/:id/send — billing identity gate', () => 
     expect(callBody.htmlContent).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
     expect(callBody.htmlContent).not.toContain('<b>Evil</b> Client');
     expect(callBody.htmlContent).toContain('&lt;b&gt;Evil&lt;/b&gt; Client');
-    // Never falls back to Growth Escalators' own sender address.
-    expect(callBody.sender.email).not.toBe('jatin@growthescalators.com');
+    // Never falls back to the operator's own sender address — the mock for
+    // this call never resolved DEFAULT_TENANT_IDENTITY at all, so any value
+    // matching it would mean the wrong identity leaked in from somewhere.
+    expect(callBody.sender.email).not.toBe(DEFAULT_TENANT_IDENTITY.supportEmail);
+    expect(callBody.sender.email).toBe(RESELLER_IDENTITY.supportEmail);
   });
 
   it('does not require the send-time gate at all when Brevo isn\'t configured or the client has no email — marks sent without touching identity', async () => {
