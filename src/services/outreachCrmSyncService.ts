@@ -3,6 +3,7 @@ import { db, contacts, contactChannels, deals } from '../db/index';
 import logger from '../utils/logger';
 import { sendSlackMessage, sendSlackDM } from './slackService';
 import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN } from '../config/constants';
+import { CRM_BASE_URL } from '../config/crmLinks';
 
 const WL_PIPELINE_NAME = 'White-Label Partner Pipeline';
 const WL_STAGES = ['Outreach Active', 'Replied — Interested', 'Discovery Call Booked', 'Proposal Sent', 'Partner Signed'];
@@ -196,7 +197,7 @@ export async function promoteInterestedLead(leadId: number): Promise<void> {
   await sendSlackDM(SLACK_JATIN,
     `🔥 *HOT LEAD: ${lead.company}* from ${lead.country ?? 'Unknown'} replied INTERESTED to white-label outreach.\n` +
     `Email: ${lead.email}\n` +
-    `CRM: https://crm.growthescalators.com/contacts\n` +
+    `CRM: ${CRM_BASE_URL}/contacts\n` +
     `Reply within 2 hours for best conversion.`,
   ).catch(() => {});
 }

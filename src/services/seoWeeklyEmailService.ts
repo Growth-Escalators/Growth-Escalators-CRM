@@ -1,6 +1,7 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { resolveDefaultSeoTenantId } from './seoTenantContext';
+import { CRM_BASE_URL } from '../config/crmLinks';
 
 /**
  * Send SEO weekly summary email to Jatin via Brevo.
@@ -91,7 +92,7 @@ export async function sendSEOWeeklyEmail(): Promise<void> {
     }
   }
 
-  html += `<p style="margin-top:20px;font-size:12px;color:#94a3b8">Full dashboard: crm.growthescalators.com/seo</p>`;
+  html += `<p style="margin-top:20px;font-size:12px;color:#94a3b8">Full dashboard: ${CRM_BASE_URL}/seo</p>`;
   html += `</div></div>`;
 
   // Send via Brevo
