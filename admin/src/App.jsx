@@ -2,6 +2,7 @@ import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { getAuthPermissions, getAuthToken, getAuthUser, getProductHome, getTenantSlug, normalizeTenantSlug, WIZMATCH_SHARED_ROUTE_MAP } from './lib/auth.js';
 import { apiFetch } from './lib/api.js';
+import { applyCachedTenantBranding, refreshTenantBranding } from './lib/branding.js';
 import { resolveRouteView, sendRouteViewBeacon } from './lib/telemetry.js';
 import { normalizeStaffingAccess } from './lib/staffingAccess.js';
 import { ToastProvider } from './components/wizmatch/Toast.jsx';
@@ -283,6 +284,18 @@ function RouteViewBeacon() {
 }
 
 export default function App() {
+  // White-label branding bootstrap — runs exactly once regardless of route
+  // (this is the one component guaranteed to mount once per session-restore
+  // or hard reload). Applies whatever's already cached instantly (no flash of
+  // GE's default branding for a returning tenant), then refreshes it from the
+  // server. A no-op (no request fired) when there's no session yet — the
+  // login page's own post-login fetch (see LoginPage.jsx) covers that case.
+  useEffect(() => {
+    applyCachedTenantBranding();
+    if (!getAuthToken()) return;
+    refreshTenantBranding();
+  }, []);
+
   return (
     <BrowserRouter>
       <RouteViewBeacon />

@@ -34,6 +34,7 @@ import capiRouter from './routes/capi';
 import blockersRouter from './routes/blockers';
 import billingRouter from './routes/billing';
 import permissionsRouter from './routes/permissions';
+import tenantBrandingRouter from './routes/tenantBranding';
 import adsRouter from './routes/ads';
 import reportsRouter from './routes/reports';
 import socialRouter, { oauthRouter as socialOAuthRouter } from './routes/social';
@@ -304,6 +305,7 @@ app.use('/api/capi', requireAuth, capiRouter);
 app.use('/api/blockers', requireAuth, blockersRouter);
 app.use('/api/billing', requireStrictAuth, billingRouter);
 app.use('/api/permissions', requireStrictAuth, permissionsRouter);
+app.use('/api/tenant-branding', requireStrictAuth, tenantBrandingRouter);
 app.use('/api/ads', requireAuth, adsRouter);
 app.use('/api/reports', requireAuth, reportsRouter);
 app.use('/api/social/oauth', socialOAuthRouter); // no auth — browser redirects can't send headers
@@ -720,6 +722,9 @@ async function startServer() {
       }
     })
     .catch(e => console.error('[startup] Funnel config / delivery log bootstrap failed:', e));
+  // Bootstrap tenant_branding defaults (white-label mechanism) for every tenant
+  import('./services/tenantBrandingDefaults').then(m => m.seedTenantBrandingDefaults())
+    .catch(e => console.error('[startup] Tenant branding defaults seed failed:', e));
   // Bootstrap SEO tables (site_health_metrics, seo_opportunities, seo_alerts_log) THEN seed knowledge base
   import('./services/seoWorkflowHealthService').then(m => m.ensureSeoTables())
     .then(() => import('./services/seoKnowledgeBase').then(m => m.seedClientKnowledgeBase()))

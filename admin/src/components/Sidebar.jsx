@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { logout, getUser, getPermissions, apiFetch } from '../lib/api.js';
 import { getTenantConfig, getTenantSlug } from '../lib/auth.js';
+import { refreshTenantBranding } from '../lib/branding.js';
 import { ChevronRight, Menu, X, Wrench, Receipt, Settings as SettingsIcon, MoreHorizontal } from 'lucide-react';
 import { GROUP_LABELS, getVisibleEntries, groupForPath } from './navEntries.js';
 import CommandPalette from './CommandPalette.jsx';
@@ -171,6 +172,21 @@ export default function Sidebar() {
   const [openGroups, setOpenGroups] = useState(readStoredGroups);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [staffingPhases, setStaffingPhases] = useState(closedStaffingPhases);
+  const [, forceRerenderForBranding] = useState(0);
+
+  // `tenant` (above) reads branding from the localStorage cache synchronously
+  // at render time via getTenantConfig — this effect's only job is to refresh
+  // that cache from the server and trigger a re-render when it changes, so
+  // the Sidebar is correctly on-brand even if it mounted before App.jsx's own
+  // boot-time fetch (see App.jsx) resolved, e.g. right after the login page's
+  // navigate().
+  useEffect(() => {
+    let cancelled = false;
+    refreshTenantBranding().then((branding) => {
+      if (!cancelled && branding) forceRerenderForBranding((n) => n + 1);
+    });
+    return () => { cancelled = true; };
+  }, [tenantSlug]);
 
   // Phase visibility is a runtime server decision. Fail closed so a stale or
   // cached Vite bundle can never expose a phase that the API has disabled.
@@ -378,7 +394,7 @@ export default function Sidebar() {
         {/* Logo */}
         <div className="px-5 py-5 border-b border-white/10">
           <div className="flex items-center gap-3">
-            <img src="/ge-mark.png" alt={tenant.shortLabel} className="w-9 h-9 rounded-lg border border-white/20" />
+            <img src={tenant.logoUrl || '/ge-mark.png'} alt={tenant.shortLabel} className="w-9 h-9 rounded-lg border border-white/20" />
             <div>
               <p className="text-white font-semibold text-[13.5px] leading-tight">{tenant.label}</p>
               <p className="text-primary-300 text-[11.5px]">{tenant.productLabel || tenant.subtitle}</p>

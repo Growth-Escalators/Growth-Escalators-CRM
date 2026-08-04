@@ -9,6 +9,7 @@ import {
   setAuthSession,
   TENANT_OPTIONS,
 } from '../lib/auth.js';
+import { refreshTenantBranding } from '../lib/branding.js';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -54,6 +55,10 @@ export default function LoginPage() {
       } catch {
         setAuthPermissions({}, tenantSlug);
       }
+      // Fetch + apply this tenant's white-label branding (name/logo/colors)
+      // before navigating, so the Sidebar's first paint is already on-brand
+      // instead of flashing GE's defaults. Best-effort — never blocks login.
+      await refreshTenantBranding();
       const requestedReturn = new URLSearchParams(location.search).get('returnTo');
       const safeReturn = requestedReturn?.startsWith('/') && !requestedReturn.startsWith('//')
         ? requestedReturn
