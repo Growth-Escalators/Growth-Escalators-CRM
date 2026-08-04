@@ -1,7 +1,7 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { fetchWithRetry } from '../utils/fetchWithRetry';
-import { type GrowthOSClient, sendWhatsAppMessage } from './growthOSSetup';
+import { type GrowthOSClient, sendWhatsAppMessage, canSendGrowthOSWhatsApp } from './growthOSSetup';
 import { resolveDefaultSeoTenantId } from './seoTenantContext';
 
 // ---------------------------------------------------------------------------
@@ -289,6 +289,15 @@ async function saveHealthScore(score: BrandHealthScore): Promise<void> {
 
 export async function sendHealthScoreWhatsApp(score: BrandHealthScore, founderWA: string): Promise<void> {
   if (!founderWA) return;
+
+  // Growth OS has no per-tenant WhatsApp identity yet — see the guard
+  // comment in growthOSSetup.ts. The health score itself is still
+  // calculated and saved for every tenant (calculateBrandHealth above);
+  // only this delivery step is gated.
+  if (!(await canSendGrowthOSWhatsApp(score.tenant_id))) {
+    logger.info(`[brand-health] WhatsApp delivery skipped for ${score.client_name} — not GE's own tenant`);
+    return;
+  }
 
   const s = score.overall_score;
   const emoji = s >= 80 ? '🚀' : s >= 60 ? '✅' : s >= 40 ? '⚠️' : '🔴';
