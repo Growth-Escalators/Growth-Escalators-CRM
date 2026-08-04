@@ -2,7 +2,7 @@ import {
   Calendar, Home, Users, Kanban, CheckSquare, MessageSquare, TrendingUp,
   Megaphone, Share2, Target, Search, FileText, Brain, MapPin, Zap, Mail,
   Link as LinkIcon, CreditCard, Receipt, Shield, ShieldCheck, ClipboardList, Settings,
-  Briefcase, Building2, Palette, Plug,
+  Briefcase, Building2, Palette, Plug, UserPlus,
 } from 'lucide-react';
 import { WIZMATCH_ROUTES, evaluateWizmatchPermission } from '../routes/wizmatchRouteRegistry.ts';
 import { companyPolicyUiEnabled } from '../lib/companyPolicyFlag.js';
@@ -62,6 +62,14 @@ export function computeFlags(role, perms = {}, tenantSlug = 'growth-escalators',
     // tenantBranding.ts: `if (!myPerms?.isOwner)`). `perms.isOwner` reaches
     // the client in the /api/permissions/me payload, same as canBilling above.
     isOwner: !!perms.isOwner,
+    // Platform superadmin — a GE-staff-only, opt-in cross-tenant flag (NOT a
+    // role or a per-tenant grant; see src/middleware/rbac.ts's
+    // requirePlatformSuperadmin doc comment). Reaches the client in the
+    // /api/permissions/me payload for the caller's own session only. Gates
+    // the "Provision Tenant" nav entry below — the backend route
+    // (POST /api/platform/tenants) re-checks this from the DB independently,
+    // so hiding the nav entry is defense-in-depth, not the actual boundary.
+    isPlatformSuperadmin: !!perms.isPlatformSuperadmin,
     product,
     isGrowthProduct: product === 'growth',
     isWizmatchProduct: product === 'wizmatch',
@@ -293,6 +301,14 @@ export const NAV_ENTRIES = [
     id: 'pipeline-manager', label: 'Pipeline Manager', to: '/pipelines/settings',
     icon: Settings, section: 'Settings', group: 'settings',
     visible: f => f.isAdmin,
+  },
+  {
+    // Platform-superadmin only — onboards a new reseller-pilot tenant from
+    // the admin panel instead of the CLI (npm run onboarding:provision-
+    // reseller-tenant). See src/routes/platformTenants.ts.
+    id: 'provision-tenant', label: 'Provision Tenant', to: '/settings/provision-tenant',
+    icon: UserPlus, section: 'Settings', group: 'settings',
+    visible: f => f.isPlatformSuperadmin,
   },
 ];
 

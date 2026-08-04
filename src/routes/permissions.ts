@@ -25,6 +25,18 @@ router.get('/me', async (req: Request, res: Response) => {
       userId,
       role: req.user!.role,
     });
+    // Read fresh from the DB rather than trusting the JWT — same reasoning
+    // requirePlatformSuperadmin (src/middleware/rbac.ts) reads it fresh: a
+    // grant or revocation must take effect without waiting for token expiry.
+    // This is the ONLY place isPlatformSuperadmin reaches the client — it is
+    // exposed for the calling user's own session only, never as part of any
+    // listing of other users.
+    const [userRow] = await db.select({ isPlatformSuperadmin: users.isPlatformSuperadmin })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    const isPlatformSuperadmin = userRow?.isPlatformSuperadmin === true;
+
     const [p] = await db.select().from(userPermissions)
       .where(eq(userPermissions.userId, userId))
       .limit(1);
@@ -34,6 +46,7 @@ router.get('/me', async (req: Request, res: Response) => {
         isOwner: false,
         staffingPilotAccess: staffing.allowed,
         staffingCapabilities: staffing.capabilities,
+        isPlatformSuperadmin,
       } });
       return;
     }
@@ -42,6 +55,7 @@ router.get('/me', async (req: Request, res: Response) => {
       ...p,
       staffingPilotAccess: staffing.allowed,
       staffingCapabilities: staffing.capabilities,
+      isPlatformSuperadmin,
     } });
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
