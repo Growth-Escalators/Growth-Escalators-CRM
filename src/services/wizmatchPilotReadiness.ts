@@ -383,10 +383,15 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
     // unreviewed migration appearing in a hardening pass is still reported.
     // 39 = saved_views (admin filter presets), authorised by the owner
     // 2026-08-01. Additive CREATE TABLE only, no ALTER of any existing table.
+    // 40 = users.is_platform_superadmin (Phase-1 hardening, security audit
+    // 2026-08-03) — the platform-superadmin primitive: an ADD COLUMN with a
+    // default on the shared `users` table, plus the (not-yet-wired-in)
+    // `requirePlatformSuperadmin` middleware and audit-logging capability.
+    // Explicitly authorised as scaffolding-only in that task's own brief.
     // Bump this ONLY alongside an explicit authorisation for the migration in
     // question — the point of the mark is that an unreviewed migration showing
     // up in a hardening pass still gets surfaced.
-    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 39;
+    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 40;
     const unauthorised = sqlFiles
       .map((f) => ({ file: f, idx: parseInt(f.slice(0, 4), 10) }))
       .filter((m) => Number.isFinite(m.idx) && m.idx > AUTHORISED_MIGRATION_HIGH_WATER_MARK)

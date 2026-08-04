@@ -446,8 +446,8 @@ describe('assessWizmatchPilotReadiness — safety properties', () => {
   it('reports migration status as informational, never asserts anything about production application', () => {
     const report = assessWizmatchPilotReadiness({ env: baseEnv(), repoRoot });
     const migrationFinding = report.findings.find((f) => f.code === 'migration:status');
-    // 0039 (saved_views) is authorised and at the high-water mark, so the
-    // sentinel stays quiet and the informational message
+    // 0040 (users.is_platform_superadmin) is authorised and at the high-water
+    // mark, so the sentinel stays quiet and the informational message
     // is reported. The point of this test is unchanged: whatever it says, it must
     // describe the filesystem and explicitly decline to claim anything about
     // whether a migration is APPLIED to a database.
@@ -457,19 +457,20 @@ describe('assessWizmatchPilotReadiness — safety properties', () => {
 
   it('warns when a migration ABOVE the authorised high-water mark appears', () => {
     // The sentinel must still catch an unreviewed migration — moving the mark
-    // (now 0039, saved_views) must not turn it off. The probe therefore always
-    // sits ONE ABOVE the current mark, and exercises the real filesystem branch
-    // rather than a stub. If you bump the mark again, bump this probe with it —
-    // a probe at or below the mark would make this test vacuous.
+    // (now 0040, users.is_platform_superadmin) must not turn it off. The probe
+    // therefore always sits ONE ABOVE the current mark, and exercises the real
+    // filesystem branch rather than a stub. If you bump the mark again, bump
+    // this probe with it — a probe at or below the mark would make this test
+    // vacuous.
     const migrationsDir = join(repoRoot, 'src', 'db', 'migrations');
-    const probe = join(migrationsDir, '0040__readiness_sentinel_probe.sql');
+    const probe = join(migrationsDir, '0041__readiness_sentinel_probe.sql');
     writeFileSync(probe, '-- temporary probe written and removed by wizmatchPilotReadiness.test.ts\n');
     try {
       const report = assessWizmatchPilotReadiness({ env: baseEnv(), repoRoot });
       const migrationFinding = report.findings.find((f) => f.code === 'migration:status');
       expect(migrationFinding?.severity).toBe('warning');
       expect(migrationFinding?.message).toMatch(/beyond the authorised high-water mark/);
-      expect(migrationFinding?.message).toContain('0040__readiness_sentinel_probe.sql');
+      expect(migrationFinding?.message).toContain('0041__readiness_sentinel_probe.sql');
     } finally {
       rmSync(probe, { force: true });
     }
