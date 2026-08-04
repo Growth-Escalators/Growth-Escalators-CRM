@@ -90,18 +90,50 @@ describe('metaOAuthService', () => {
 
   // -- config -----------------------------------------------------------------
   describe('getMetaOAuthConfig', () => {
-    it('returns null when META_OAUTH_CLIENT_ID/SECRET are unset (fails closed, not a hardcoded fallback)', () => {
+    it('returns null when NEITHER pair is set (fails closed, not a hardcoded fallback)', () => {
       delete process.env.META_OAUTH_CLIENT_ID;
       delete process.env.META_OAUTH_CLIENT_SECRET;
+      delete process.env.META_APP_ID;
+      delete process.env.META_APP_SECRET;
       expect(getMetaOAuthConfig()).toBeNull();
     });
 
-    it('reads the NEW multi-tenant client id/secret, distinct from the legacy single-account vars', () => {
+    it('both set: the OAuth-specific client id/secret win over the legacy single-account vars', () => {
       process.env.META_APP_ID = 'legacy-single-account-app-id';
       process.env.META_APP_SECRET = 'legacy-single-account-secret';
       const config = getMetaOAuthConfig();
       expect(config?.clientId).toBe('test-client-id');
+      expect(config?.clientSecret).toBe('test-client-secret');
       expect(config?.clientId).not.toBe('legacy-single-account-app-id');
+    });
+
+    it('only the legacy single-account vars set: falls back to META_APP_ID/META_APP_SECRET instead of 503ing', () => {
+      delete process.env.META_OAUTH_CLIENT_ID;
+      delete process.env.META_OAUTH_CLIENT_SECRET;
+      process.env.META_APP_ID = 'legacy-single-account-app-id';
+      process.env.META_APP_SECRET = 'legacy-single-account-secret';
+      const config = getMetaOAuthConfig();
+      expect(config).not.toBeNull();
+      expect(config?.clientId).toBe('legacy-single-account-app-id');
+      expect(config?.clientSecret).toBe('legacy-single-account-secret');
+    });
+
+    it('neither pair set: returns null (not a thrown error), same as before the fallback existed', () => {
+      delete process.env.META_OAUTH_CLIENT_ID;
+      delete process.env.META_OAUTH_CLIENT_SECRET;
+      delete process.env.META_APP_ID;
+      delete process.env.META_APP_SECRET;
+      expect(getMetaOAuthConfig()).toBeNull();
+    });
+
+    it('only one half of each pair set (e.g. an id with no matching secret) still fails closed', () => {
+      delete process.env.META_OAUTH_CLIENT_ID;
+      process.env.META_OAUTH_CLIENT_SECRET = 'oauth-secret-only';
+      delete process.env.META_APP_ID;
+      process.env.META_APP_SECRET = 'legacy-secret-only';
+      // clientId resolves from neither var (both unset) — must fail closed
+      // even though both *secret* vars are present.
+      expect(getMetaOAuthConfig()).toBeNull();
     });
   });
 

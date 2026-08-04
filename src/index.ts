@@ -46,6 +46,7 @@ import reportsRouter from './routes/reports';
 import socialRouter, { oauthRouter as socialOAuthRouter } from './routes/social';
 import integrationsRouter from './routes/integrations';
 import integrationsMetaCallbackRouter from './routes/integrationsMetaCallback';
+import integrationsMetaConnectRouter from './routes/integrationsMetaConnect';
 import inboxRouter, { setSocketIO } from './routes/inbox';
 import discoverRouter from './routes/discover';
 import marketingRouter from './routes/marketing';
@@ -340,10 +341,14 @@ app.use('/api/ads', requireAuth, adsRouter);
 app.use('/api/reports', requireAuth, reportsRouter);
 app.use('/api/social/oauth', socialOAuthRouter); // no auth — browser redirects can't send headers
 app.use('/api/social', requireAuth, socialRouter);
-// Per-tenant Meta OAuth connect flow (scaffolding — see docs in the PR for
-// what still needs configuring before this is live). Callback mounted first
-// and without auth, same reasoning as /api/social/oauth above: Meta redirects
-// the bare browser here and cannot attach an Authorization header.
+// Per-tenant Meta OAuth connect flow. Both the flow starter (connect) and its
+// callback are mounted WITHOUT auth, before the authenticated
+// /api/integrations mount, same reasoning as /api/social/oauth above: Meta
+// redirects the bare browser to these routes directly and neither can attach
+// an Authorization header — connect additionally accepts a `?token=` query
+// param so the SPA can still assert which tenant is connecting (see
+// src/routes/integrationsMetaConnect.ts).
+app.use('/api/integrations/meta/connect', integrationsMetaConnectRouter);
 app.use('/api/integrations/meta/callback', integrationsMetaCallbackRouter);
 app.use('/api/integrations', requireAuth, requireRole('admin'), integrationsRouter);
 app.use('/api/inbox', requireAuth, inboxRouter);

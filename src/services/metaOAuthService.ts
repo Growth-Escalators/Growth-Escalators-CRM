@@ -1,15 +1,17 @@
 // ---------------------------------------------------------------------------
 // Per-tenant Meta (Facebook/Instagram) OAuth connect flow — scaffolding.
 //
-// This is deliberately SEPARATE from the existing single-account integration:
-//   - `META_ACCESS_TOKEN` / `META_APP_ID` / `META_APP_SECRET` (constants.ts,
-//     social.ts's oauthRouter) belong to ONE global Meta Business account
-//     shared by every tenant today.
-//   - `META_OAUTH_CLIENT_ID` / `META_OAUTH_CLIENT_SECRET` (read here) belong
-//     to a DIFFERENT, not-yet-created Meta Developer App for this product's
-//     own multi-tenant connect flow. Do not conflate the two — see the PR
-//     description for exactly what Jatin still needs to set up in Meta's
-//     developer console before this is live-usable.
+// This flow is functionally separate from the existing single-account
+// integration (`social.ts`'s oauthRouter): it writes a per-tenant row into
+// `tenant_integrations` rather than the shared `socialAccounts` table, and
+// signs its own tenant-bound `state`. It does NOT require its own Meta
+// Developer App to do that, though — `getMetaOAuthConfig()` reuses the SAME
+// app already configured via `META_APP_ID` / `META_APP_SECRET` (the one
+// `social.ts`'s oauthRouter uses) when the OAuth-specific
+// `META_OAUTH_CLIENT_ID` / `META_OAUTH_CLIENT_SECRET` aren't set, since that
+// app's Valid OAuth Redirect URIs already allowlist this flow's callback. A
+// dedicated app can be swapped in later by setting the OAuth-specific vars —
+// they take precedence whenever both are present.
 //
 // Nothing in this file is wired into ads-reporting/CAPI/lead-forms yet. It
 // only builds and stores a per-tenant token; consuming it is a follow-up.
@@ -48,25 +50,37 @@ export interface MetaOAuthConfig {
   redirectUri: string;
 }
 
-/** Reads the NEW multi-tenant OAuth app's credentials. Returns null (not a
- * thrown error) when unconfigured so callers can respond 503 rather than
- * 500 — this is expected to be unset until Jatin creates the Meta Developer
- * App described in the PR. */
+/** Reads the multi-tenant OAuth app's credentials. Falls back to the
+ * existing single-account app's credentials (`META_APP_ID` /
+ * `META_APP_SECRET` — already configured in Railway, and already used by the
+ * legacy `social.ts` flow) when the OAuth-specific `META_OAUTH_CLIENT_ID` /
+ * `META_OAUTH_CLIENT_SECRET` aren't set. The OAuth-specific names win
+ * whenever both are present, so a future dedicated Meta Developer App for
+ * this flow can be swapped in later without a code change. Returns null (not
+ * a thrown error) only when NEITHER pair is configured, so callers can
+ * respond 503 rather than 500. */
 export function getMetaOAuthConfig(): MetaOAuthConfig | null {
-  const clientId = process.env.META_OAUTH_CLIENT_ID;
-  const clientSecret = process.env.META_OAUTH_CLIENT_SECRET;
+  const clientId = process.env.META_OAUTH_CLIENT_ID || process.env.META_APP_ID;
+  const clientSecret = process.env.META_OAUTH_CLIENT_SECRET || process.env.META_APP_SECRET;
   if (!clientId || !clientSecret) return null;
   const redirectUri = process.env.META_OAUTH_REDIRECT_URI
     || `${process.env.BACKEND_URL || 'https://web-production-311da.up.railway.app'}/api/integrations/meta/callback`;
   return { clientId, clientSecret, redirectUri };
 }
 
+/** Shared 503 message for both the connect and refresh routes — kept in one
+ * place so their wording can't drift out of sync with which env vars
+ * getMetaOAuthConfig() actually checks. */
+export const META_OAUTH_NOT_CONFIGURED_MESSAGE =
+  'Meta OAuth app credentials are not configured (checked META_OAUTH_CLIENT_ID/META_OAUTH_CLIENT_SECRET, then META_APP_ID/META_APP_SECRET).';
+
 function stateSigningSecret(): string {
-  // Falls back to JWT_SECRET only so state-signing never silently no-ops in
-  // an environment that has JWT_SECRET but hasn't set META_OAUTH_CLIENT_SECRET
-  // yet — but getMetaOAuthConfig() already gates the whole flow on the client
-  // secret being present, so in practice this always resolves to the OAuth
-  // app's own secret once configured.
+  // This is a server-only signing key for the `state` param — it has no
+  // relationship to whichever Meta app credentials getMetaOAuthConfig()
+  // resolves to (META_OAUTH_CLIENT_SECRET, or its META_APP_SECRET fallback),
+  // so it deliberately does NOT chain through META_APP_SECRET too. Falls back
+  // to JWT_SECRET only so state-signing never silently no-ops in an
+  // environment that has JWT_SECRET but hasn't set META_OAUTH_CLIENT_SECRET.
   const secret = process.env.META_OAUTH_CLIENT_SECRET || process.env.JWT_SECRET;
   if (!secret) {
     throw new Error('META_OAUTH_CLIENT_SECRET or JWT_SECRET must be set to sign OAuth state');
