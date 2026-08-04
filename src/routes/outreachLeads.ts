@@ -21,15 +21,42 @@ import { insertOutreachLead } from '../services/outreachLeadsService';
 import { pool } from '../db/index';
 import { isAdminTier } from '../middleware/rbac';
 import { timingSafeSecretMatch } from '../middleware/internalAuth';
+import { DEFAULT_TENANT_SLUG } from '../config/constants';
 
 const router = Router();
 
 // ---------------------------------------------------------------------------
+// GE-tenant-only gate: outreach_leads is a GE-internal outbound-sales tool
+// with no per-tenant data model. The JWT admin-tier auth branch below is
+// restricted to GE's own tenant; the separate internal-secret path (used by
+// automation, not a user session) is unaffected.
+// ---------------------------------------------------------------------------
+let _geTenantIdPromise: Promise<string | null> | null = null;
+async function resolveGeTenantId(): Promise<string | null> {
+  if (!_geTenantIdPromise) {
+    _geTenantIdPromise = pool.query(`SELECT id FROM tenants WHERE slug = $1 LIMIT 1`, [DEFAULT_TENANT_SLUG])
+      .then(r => (r.rows[0] as { id?: string } | undefined)?.id ?? null)
+      .catch(() => null);
+  }
+  const id = await _geTenantIdPromise;
+  if (!id) _geTenantIdPromise = null; // allow retry on next request if the lookup failed
+  return id;
+}
+
+// ---------------------------------------------------------------------------
 // Internal-secret auth (same pattern as imapReplies.ts)
 // ---------------------------------------------------------------------------
-function checkInternalSecret(req: Request, res: Response): boolean {
+async function checkInternalSecret(req: Request, res: Response): Promise<boolean> {
   // Accept JWT auth from CRM frontend (admin-tier users: admin or team_lead)
-  if (isAdminTier((req as Request & { user?: { role: string } }).user?.role)) return true;
+  // — but ONLY for GE's own tenant. Fail closed: an unresolved GE tenant id
+  // blocks even a genuine GE admin rather than silently falling through.
+  const user = (req as Request & { user?: { role: string; tenantId?: string } }).user;
+  if (isAdminTier(user?.role)) {
+    const geTenantId = await resolveGeTenantId();
+    if (geTenantId && user?.tenantId === geTenantId) return true;
+    res.status(403).json({ error: 'Growth Escalators internal tool — not available for this tenant' });
+    return false;
+  }
 
   const secret = process.env.OUTREACH_INTERNAL_SECRET;
   if (!secret) {
@@ -93,7 +120,7 @@ function computeFitScore(place: {
 // POST /api/outreach/leads/run-discovery
 // ---------------------------------------------------------------------------
 router.post('/run-discovery', async (req: Request, res: Response) => {
-  if (!checkInternalSecret(req, res)) return;
+  if (!(await checkInternalSecret(req, res))) return;
 
   const {
     query,
@@ -244,7 +271,7 @@ router.post('/run-discovery', async (req: Request, res: Response) => {
 // POST /api/outreach/leads/insert — manual single-lead insert
 // ---------------------------------------------------------------------------
 router.post('/insert', async (req: Request, res: Response) => {
-  if (!checkInternalSecret(req, res)) return;
+  if (!(await checkInternalSecret(req, res))) return;
 
   const { company, firstName, phone, websiteUrl, address, country, fitScore, sourceDetail } = req.body as {
     company: string;
@@ -274,7 +301,7 @@ router.post('/insert', async (req: Request, res: Response) => {
 // GET /api/outreach/leads/stats — pipeline counts by status
 // ---------------------------------------------------------------------------
 router.get('/stats', async (req: Request, res: Response) => {
-  if (!checkInternalSecret(req, res)) return;
+  if (!(await checkInternalSecret(req, res))) return;
 
   try {
     const result = await pool.query(
@@ -293,7 +320,7 @@ router.get('/stats', async (req: Request, res: Response) => {
 // Used by n8n WF-03 and CRM admin UI. Requires internal secret.
 // ---------------------------------------------------------------------------
 router.get('/digest-stats', async (req: Request, res: Response) => {
-  if (!checkInternalSecret(req, res)) return;
+  if (!(await checkInternalSecret(req, res))) return;
 
   try {
     const today = new Date().toISOString().slice(0, 10);
@@ -358,7 +385,7 @@ router.get('/digest-stats', async (req: Request, res: Response) => {
 // GET /api/outreach/leads/replied — all replied leads with category summary
 // ---------------------------------------------------------------------------
 router.get('/replied', async (req: Request, res: Response) => {
-  if (!checkInternalSecret(req, res)) return;
+  if (!(await checkInternalSecret(req, res))) return;
 
   try {
     const leadsResult = await pool.query(`
@@ -393,7 +420,7 @@ router.get('/replied', async (req: Request, res: Response) => {
 // GET /api/outreach/leads/pipeline-summary — full pipeline overview
 // ---------------------------------------------------------------------------
 router.get('/pipeline-summary', async (req: Request, res: Response) => {
-  if (!checkInternalSecret(req, res)) return;
+  if (!(await checkInternalSecret(req, res))) return;
 
   try {
     const statusResult = await pool.query(`
@@ -429,7 +456,7 @@ router.get('/pipeline-summary', async (req: Request, res: Response) => {
 // POST /api/outreach/leads/reset-stuck — reset stuck Enriching leads to New
 // ---------------------------------------------------------------------------
 router.post('/reset-stuck', async (req: Request, res: Response) => {
-  if (!checkInternalSecret(req, res)) return;
+  if (!(await checkInternalSecret(req, res))) return;
 
   try {
     // Reset leads stuck in Enriching for more than 1 hour back to New
@@ -455,7 +482,7 @@ router.post('/reset-stuck', async (req: Request, res: Response) => {
 // POST /api/outreach/leads/enrich-now — manually trigger backend enrichment
 // ---------------------------------------------------------------------------
 router.post('/enrich-now', async (req: Request, res: Response) => {
-  if (!checkInternalSecret(req, res)) return;
+  if (!(await checkInternalSecret(req, res))) return;
 
   try {
     // Reset Not_Found leads that were marked due to missing API key so they can be re-scraped
@@ -480,7 +507,7 @@ router.post('/enrich-now', async (req: Request, res: Response) => {
 // GET /api/outreach/leads/active — list all Active leads with full details
 // ---------------------------------------------------------------------------
 router.get('/active', async (req: Request, res: Response) => {
-  if (!checkInternalSecret(req, res)) return;
+  if (!(await checkInternalSecret(req, res))) return;
   try {
     const result = await pool.query(`
       SELECT id, company, first_name, last_name, email, website_url, icebreaker,
@@ -498,7 +525,7 @@ router.get('/active', async (req: Request, res: Response) => {
 // POST /api/outreach/leads/upload-saleshandy — push Active leads to Saleshandy
 // ---------------------------------------------------------------------------
 router.post('/upload-saleshandy', async (req: Request, res: Response) => {
-  if (!checkInternalSecret(req, res)) return;
+  if (!(await checkInternalSecret(req, res))) return;
 
   const apiKey = process.env.SALESHANDY_API_KEY;
   const sequenceId = process.env.SALESHANDY_SEQUENCE_ID;
@@ -599,7 +626,7 @@ router.post('/upload-saleshandy', async (req: Request, res: Response) => {
 // GET /api/outreach/leads/dashboard — complete outreach overview
 // ---------------------------------------------------------------------------
 router.get('/dashboard', async (req: Request, res: Response) => {
-  if (!checkInternalSecret(req, res)) return;
+  if (!(await checkInternalSecret(req, res))) return;
   try {
     const [statusR, recentR, interestedR, countryR, weeklyR, uploadedR, replyCatR] = await Promise.all([
       pool.query(`SELECT status, COUNT(*)::int AS count FROM outreach_leads GROUP BY status`),
@@ -643,7 +670,7 @@ router.get('/dashboard', async (req: Request, res: Response) => {
 // POST /api/outreach/leads/sync-crm — manually trigger CRM sync
 // ---------------------------------------------------------------------------
 router.post('/sync-crm', async (req: Request, res: Response) => {
-  if (!checkInternalSecret(req, res)) return;
+  if (!(await checkInternalSecret(req, res))) return;
   try {
     const { syncOutreachToCrm } = await import('../services/outreachCrmSyncService');
     const result = await syncOutreachToCrm();
@@ -657,7 +684,7 @@ router.post('/sync-crm', async (req: Request, res: Response) => {
 // PATCH /api/outreach/leads/:id/reply — set reply category + auto-promote
 // ---------------------------------------------------------------------------
 router.patch('/:id/reply', async (req: Request, res: Response) => {
-  if (!checkInternalSecret(req, res)) return;
+  if (!(await checkInternalSecret(req, res))) return;
   try {
     const leadId = parseInt(req.params.id as string, 10);
     const { reply_category, notes } = req.body as { reply_category: string; notes?: string };
@@ -687,7 +714,7 @@ router.patch('/:id/reply', async (req: Request, res: Response) => {
 // POST /api/outreach/leads/:id/auto-classify — AI-powered reply classification
 // ---------------------------------------------------------------------------
 router.post('/:id/auto-classify', async (req: Request, res: Response) => {
-  if (!checkInternalSecret(req, res)) return;
+  if (!(await checkInternalSecret(req, res))) return;
   try {
     const id = req.params.id as string;
     const { replyBody } = req.body as { replyBody?: string };
@@ -742,7 +769,7 @@ router.post('/:id/auto-classify', async (req: Request, res: Response) => {
 // GET /api/outreach/leads/funnel?days=30 — ROI + funnel metrics for dashboard
 // ---------------------------------------------------------------------------
 router.get('/funnel', async (req: Request, res: Response) => {
-  if (!checkInternalSecret(req, res)) return;
+  if (!(await checkInternalSecret(req, res))) return;
   try {
     const days = parseInt((req.query.days as string) || '30', 10);
     const { getFunnelSummary } = await import('../services/outreachFunnelMetrics');
@@ -758,7 +785,7 @@ router.get('/funnel', async (req: Request, res: Response) => {
 // GET /api/outreach/leads/export-csv — download Active leads as Saleshandy CSV
 // ---------------------------------------------------------------------------
 router.get('/export-csv', async (req: Request, res: Response) => {
-  if (!checkInternalSecret(req, res)) return;
+  if (!(await checkInternalSecret(req, res))) return;
   try {
     const result = await pool.query(`
       SELECT first_name, company AS last_name, email, website_url, country, icebreaker

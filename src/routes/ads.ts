@@ -1,8 +1,37 @@
-import { Router, type Request, type Response } from 'express';
+import { Router, type Request, type Response, type NextFunction } from 'express';
 import { pool } from '../db/index';
 import { fetchWithRetry } from '../utils/fetchWithRetry';
+import { DEFAULT_TENANT_SLUG } from '../config/constants';
 
 const router = Router();
+
+// ---------------------------------------------------------------------------
+// GE-tenant-only gate: this router runs on GE's shared Meta credentials and
+// account config, with no per-tenant model yet (that lands with the
+// meta-oauth-connect work) — scoping individual queries wouldn't be
+// meaningful in the meantime. Restrict the whole router to GE's own tenant
+// until real per-tenant Meta credentials exist.
+// ---------------------------------------------------------------------------
+let _geTenantIdPromise: Promise<string | null> | null = null;
+async function resolveGeTenantId(): Promise<string | null> {
+  if (!_geTenantIdPromise) {
+    _geTenantIdPromise = pool.query(`SELECT id FROM tenants WHERE slug = $1 LIMIT 1`, [DEFAULT_TENANT_SLUG])
+      .then(r => (r.rows[0] as { id?: string } | undefined)?.id ?? null)
+      .catch(() => null);
+  }
+  const id = await _geTenantIdPromise;
+  if (!id) _geTenantIdPromise = null; // allow retry on next request if the lookup failed
+  return id;
+}
+
+router.use(async (req: Request, res: Response, next: NextFunction) => {
+  const geTenantId = await resolveGeTenantId();
+  if (!geTenantId || req.user?.tenantId !== geTenantId) {
+    res.status(403).json({ error: 'Not available for this tenant' });
+    return;
+  }
+  next();
+});
 
 const META_API_BASE = 'https://graph.facebook.com/v19.0';
 

@@ -5,8 +5,31 @@ import { collectDailyData } from '../services/intelligenceDataCollector';
 import { analyzeWithClaude, ensureIntelligenceTable } from '../services/intelligenceAnalyzer';
 import { deliverDailyIntelligence } from '../services/intelligenceDelivery';
 import { isAdminTier } from '../middleware/rbac';
+import { DEFAULT_TENANT_SLUG } from '../config/constants';
 
 const router = Router();
+
+// ---------------------------------------------------------------------------
+// GE-tenant-only gate: used by the generation-triggering routes below
+// (POST /generate, POST /run-cron/:name). The read routes above are
+// tenant-scoped by the caller's own tenant_id, but the underlying data
+// collection and whitelisted cron jobs are not tenant-parameterized at all
+// — they always operate on GE's own business data, regardless of who
+// triggers them. Restrict triggering to GE's own tenant until that
+// collection layer is made tenant-aware; a reseller then simply has no
+// reports to generate, which is correct.
+// ---------------------------------------------------------------------------
+let _geTenantIdPromise: Promise<string | null> | null = null;
+async function resolveGeTenantId(): Promise<string | null> {
+  if (!_geTenantIdPromise) {
+    _geTenantIdPromise = pool.query(`SELECT id FROM tenants WHERE slug = $1 LIMIT 1`, [DEFAULT_TENANT_SLUG])
+      .then(r => (r.rows[0] as { id?: string } | undefined)?.id ?? null)
+      .catch(() => null);
+  }
+  const id = await _geTenantIdPromise;
+  if (!id) _geTenantIdPromise = null; // allow retry on next request if the lookup failed
+  return id;
+}
 
 // Ensure table exists at startup
 ensureIntelligenceTable().catch(e => logger.error('[intelligence] table bootstrap failed:', e));
@@ -27,17 +50,19 @@ if (!_apiKey || _apiKey.length <= 10) {
 // ---------------------------------------------------------------------------
 // GET /api/intelligence/reports — last 30 reports (all statuses for history)
 // ---------------------------------------------------------------------------
-router.get('/reports', async (_req: Request, res: Response) => {
+router.get('/reports', async (req: Request, res: Response) => {
   try {
+    const tenantId = req.user!.tenantId;
     const result = await pool.query(`
       SELECT id, report_date, report_type, analysis, wins, problems, actions,
              anomalies, predictions, ads_score, seo_score, sales_score,
              ops_score, overall_score, tokens_used, created_at,
              COALESCE(status, 'complete') AS status, error_message
       FROM ai_intelligence_reports
-      WHERE COALESCE(status, 'complete') IN ('complete', 'failed', 'generating')
+      WHERE tenant_id = $1
+        AND COALESCE(status, 'complete') IN ('complete', 'failed', 'generating')
       ORDER BY created_at DESC LIMIT 30
-    `);
+    `, [tenantId]);
     res.json({ reports: result.rows });
   } catch (e) {
     logger.error('[intelligence] reports fetch failed:', e);
@@ -48,15 +73,17 @@ router.get('/reports', async (_req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/intelligence/today — today's complete report, or failed state
 // ---------------------------------------------------------------------------
-router.get('/today', async (_req: Request, res: Response) => {
+router.get('/today', async (req: Request, res: Response) => {
   try {
+    const tenantId = req.user!.tenantId;
     // Prefer complete report for today
     const complete = await pool.query(`
       SELECT * FROM ai_intelligence_reports
-      WHERE report_date = CURRENT_DATE
+      WHERE tenant_id = $1
+        AND report_date = CURRENT_DATE
         AND COALESCE(status, 'complete') = 'complete'
       ORDER BY created_at DESC LIMIT 1
-    `);
+    `, [tenantId]);
     if (complete.rows.length > 0) {
       res.json({ report: complete.rows[0] });
       return;
@@ -65,9 +92,10 @@ router.get('/today', async (_req: Request, res: Response) => {
     const latest = await pool.query(`
       SELECT id, report_date, status, error_message, created_at
       FROM ai_intelligence_reports
-      WHERE report_date = CURRENT_DATE
+      WHERE tenant_id = $1
+        AND report_date = CURRENT_DATE
       ORDER BY created_at DESC LIMIT 1
-    `);
+    `, [tenantId]);
     res.json({ report: latest.rows[0] ?? null });
   } catch (e) {
     logger.error('[intelligence] today fetch failed:', e);
@@ -78,14 +106,16 @@ router.get('/today', async (_req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/intelligence/scores — score trend for charts
 // ---------------------------------------------------------------------------
-router.get('/scores', async (_req: Request, res: Response) => {
+router.get('/scores', async (req: Request, res: Response) => {
   try {
+    const tenantId = req.user!.tenantId;
     const result = await pool.query(`
       SELECT report_date, overall_score, ads_score, seo_score, sales_score, ops_score
       FROM ai_intelligence_reports
-      WHERE COALESCE(status, 'complete') = 'complete'
+      WHERE tenant_id = $1
+        AND COALESCE(status, 'complete') = 'complete'
       ORDER BY report_date DESC LIMIT 30
-    `);
+    `, [tenantId]);
     res.json({ scores: result.rows });
   } catch (e) {
     logger.error('[intelligence] scores fetch failed:', e);
@@ -96,14 +126,16 @@ router.get('/scores', async (_req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/intelligence/actions — open actions from last 7 days
 // ---------------------------------------------------------------------------
-router.get('/actions', async (_req: Request, res: Response) => {
+router.get('/actions', async (req: Request, res: Response) => {
   try {
+    const tenantId = req.user!.tenantId;
     const result = await pool.query(`
       SELECT report_date, actions FROM ai_intelligence_reports
-      WHERE report_date >= NOW() - INTERVAL '7 days'
+      WHERE tenant_id = $1
+        AND report_date >= NOW() - INTERVAL '7 days'
         AND COALESCE(status, 'complete') = 'complete'
       ORDER BY report_date DESC
-    `);
+    `, [tenantId]);
     res.json({ actionsByDay: result.rows });
   } catch (e) {
     logger.error('[intelligence] actions fetch failed:', e);
@@ -149,6 +181,11 @@ router.post('/run-cron/:name', async (req: Request, res: Response) => {
     res.status(403).json({ error: 'Admin only' });
     return;
   }
+  const geTenantId = await resolveGeTenantId();
+  if (!geTenantId || req.user?.tenantId !== geTenantId) {
+    res.status(403).json({ error: 'Not available for this tenant' });
+    return;
+  }
 
   const rawName = req.params.name;
   const name = Array.isArray(rawName) ? rawName[0] : rawName;
@@ -180,10 +217,11 @@ router.post('/run-cron/:name', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 router.get('/status/:id', async (req: Request, res: Response) => {
   try {
+    const tenantId = req.user!.tenantId;
     const result = await pool.query(
       `SELECT id, status, overall_score, tokens_used, error_message, created_at
-       FROM ai_intelligence_reports WHERE id = $1 LIMIT 1`,
-      [req.params.id],
+       FROM ai_intelligence_reports WHERE id = $1 AND tenant_id = $2 LIMIT 1`,
+      [req.params.id, tenantId],
     );
     if (result.rows.length === 0) {
       res.json({ status: 'not_found' });
@@ -201,7 +239,10 @@ router.get('/status/:id', async (req: Request, res: Response) => {
   }
 });
 
-// In-memory flag
+// In-memory flag. Shared module-level state would normally mean one
+// tenant's in-flight generation blocks every other tenant's — moot here
+// since the GE-tenant-only gate below means only one tenant can ever reach
+// this code path at all.
 let _generating = false;
 let _generatingStartedAt: number | null = null;
 const GENERATION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
@@ -215,6 +256,16 @@ router.post('/generate', async (req: Request, res: Response) => {
     res.status(403).json({ error: 'Admin only' });
     return;
   }
+  const geTenantId = await resolveGeTenantId();
+  if (!geTenantId || req.user?.tenantId !== geTenantId) {
+    res.status(403).json({ error: 'Not available for this tenant' });
+    return;
+  }
+
+  // Tenant isolation: stamp every report this handler creates with the
+  // calling admin's own tenant, and scope the "today's report already
+  // exists" recovery path to that tenant too.
+  const tenantId = req.user!.tenantId;
 
   // Auto-reset if stuck for more than 5 minutes
   if (_generating && _generatingStartedAt && (Date.now() - _generatingStartedAt > GENERATION_TIMEOUT_MS)) {
@@ -232,19 +283,20 @@ router.post('/generate', async (req: Request, res: Response) => {
   let reportId: string | null = null;
   try {
     const insertResult = await pool.query(`
-      INSERT INTO ai_intelligence_reports (report_date, report_type, status, overall_score, tokens_used)
-      VALUES (CURRENT_DATE, 'daily', 'generating', 0, 0)
+      INSERT INTO ai_intelligence_reports (report_date, report_type, status, overall_score, tokens_used, tenant_id)
+      VALUES (CURRENT_DATE, 'daily', 'generating', 0, 0, $1)
       RETURNING id
-    `);
+    `, [tenantId]);
     reportId = (insertResult.rows[0] as { id: string }).id;
   } catch (e) {
-    // If today's report exists, delete and recreate
-    await pool.query(`DELETE FROM ai_intelligence_reports WHERE report_date = CURRENT_DATE`).catch(() => {});
+    // If today's report exists, delete and recreate — scoped to this
+    // tenant only, never touches another tenant's row for the same date.
+    await pool.query(`DELETE FROM ai_intelligence_reports WHERE report_date = CURRENT_DATE AND tenant_id = $1`, [tenantId]).catch(() => {});
     const insertResult = await pool.query(`
-      INSERT INTO ai_intelligence_reports (report_date, report_type, status, overall_score, tokens_used)
-      VALUES (CURRENT_DATE, 'daily', 'generating', 0, 0)
+      INSERT INTO ai_intelligence_reports (report_date, report_type, status, overall_score, tokens_used, tenant_id)
+      VALUES (CURRENT_DATE, 'daily', 'generating', 0, 0, $1)
       RETURNING id
-    `);
+    `, [tenantId]);
     reportId = (insertResult.rows[0] as { id: string }).id;
   }
 
@@ -258,7 +310,7 @@ router.post('/generate', async (req: Request, res: Response) => {
     try {
       logger.info('[intelligence] Background generation started');
       const data = await collectDailyData();
-      const analysis = await analyzeWithClaude(data);
+      const analysis = await analyzeWithClaude(data, tenantId);
       await deliverDailyIntelligence(analysis, data);
 
       // Update record with complete status and actual scores

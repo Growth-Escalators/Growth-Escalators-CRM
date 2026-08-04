@@ -2,8 +2,28 @@ import { Router, type Request, type Response } from 'express';
 import { db, pool } from '../db/index';
 import { sql } from 'drizzle-orm';
 import { requirePermission } from '../middleware/rbac';
+import { DEFAULT_TENANT_SLUG } from '../config/constants';
 
 const router = Router();
+
+// ---------------------------------------------------------------------------
+// GE-tenant-only gate — used by /team-performance below. That route reads
+// a hardcoded GE staff roster with no tenant dimension at all; scoping the
+// underlying `tasks` query by tenant_id would still surface the roster
+// itself (with all-zero counts) to every reseller. Block instead. See
+// src/services/teamPerformanceService.ts.
+// ---------------------------------------------------------------------------
+let _geTenantIdPromise: Promise<string | null> | null = null;
+async function resolveGeTenantId(): Promise<string | null> {
+  if (!_geTenantIdPromise) {
+    _geTenantIdPromise = pool.query(`SELECT id FROM tenants WHERE slug = $1 LIMIT 1`, [DEFAULT_TENANT_SLUG])
+      .then(r => (r.rows[0] as { id?: string } | undefined)?.id ?? null)
+      .catch(() => null);
+  }
+  const id = await _geTenantIdPromise;
+  if (!id) _geTenantIdPromise = null; // allow retry on next request if the lookup failed
+  return id;
+}
 
 // ---------------------------------------------------------------------------
 // GET /api/analytics/lead-sources
@@ -220,8 +240,13 @@ router.get('/mrr-trend', requirePermission('REPORTS_VIEW'), async (req: Request,
 // ---------------------------------------------------------------------------
 // GET /api/analytics/team-performance — CRM-tasks-backed metrics per team member
 // ---------------------------------------------------------------------------
-router.get('/team-performance', requirePermission('REPORTS_VIEW'), async (_req: Request, res: Response) => {
+router.get('/team-performance', requirePermission('REPORTS_VIEW'), async (req: Request, res: Response) => {
   try {
+    const geTenantId = await resolveGeTenantId();
+    if (!geTenantId || req.user?.tenantId !== geTenantId) {
+      res.status(403).json({ error: 'Not available for this tenant' });
+      return;
+    }
     const { fetchTeamPerformance } = await import('../services/teamPerformanceService');
     const members = await fetchTeamPerformance();
     res.json({ members });
@@ -233,8 +258,9 @@ router.get('/team-performance', requirePermission('REPORTS_VIEW'), async (_req: 
 // ---------------------------------------------------------------------------
 // GET /api/analytics/attribution — UTM attribution report
 // ---------------------------------------------------------------------------
-router.get('/attribution', requirePermission('REPORTS_VIEW'), async (_req: Request, res: Response) => {
+router.get('/attribution', requirePermission('REPORTS_VIEW'), async (req: Request, res: Response) => {
   try {
+    const tenantId = req.user!.tenantId;
     const result = await pool.query(`
       SELECT
         metadata->>'utm_source' AS source,
@@ -245,7 +271,8 @@ router.get('/attribution', requirePermission('REPORTS_VIEW'), async (_req: Reque
         SUM((metadata->>'paidAmount')::numeric) AS total_revenue,
         ROUND(AVG((metadata->>'paidAmount')::numeric)) AS avg_order_value
       FROM contacts
-      WHERE metadata->>'paymentStatus' = 'paid'
+      WHERE tenant_id = $1
+        AND metadata->>'paymentStatus' = 'paid'
         AND metadata->>'utm_source' IS NOT NULL
       GROUP BY
         metadata->>'utm_source',
@@ -254,7 +281,7 @@ router.get('/attribution', requirePermission('REPORTS_VIEW'), async (_req: Reque
         metadata->>'utm_content'
       ORDER BY COUNT(*) DESC
       LIMIT 50
-    `);
+    `, [tenantId]);
     res.json(result.rows);
   } catch (e) {
     res.status(500).json({ error: 'Failed to fetch attribution data' });
