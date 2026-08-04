@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import TopBar from '../components/TopBar.jsx';
 import GlobalSearch from '../components/GlobalSearch.jsx';
+import SetupChecklistCard from '../components/SetupChecklistCard.jsx';
 import { apiFetch, getUser } from '../lib/api.js';
 import { safeLower } from '../lib/safe.js';
 import { KpiTile, Card, Badge } from '../components/ui/index.js';
@@ -292,6 +293,8 @@ export default function DashboardPage() {
               </button>
             </div>
           </div>
+
+          <SetupChecklistCard />
 
           {error && (
             <div className="bg-danger-500/10 border border-danger-500/20 rounded-lg p-4 text-sm text-danger-700">
