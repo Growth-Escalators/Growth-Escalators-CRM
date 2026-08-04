@@ -98,6 +98,33 @@ export function getTenantSlug(explicit) {
   return normalizeTenantSlug(localStorage.getItem('crm_active_tenant_slug'));
 }
 
+// Reseller readiness (2026-08) — getTenantSlug()'s LAST fallback (nothing in
+// the query string, hostname, or path, AND localStorage has never seen a
+// tenant) silently resolves to 'growth-escalators'. Looking only at that
+// resolved slug, there is no way to tell "nothing was asked for" apart from
+// "growth-escalators was asked for explicitly". Callers that need to tell
+// those two cases apart (LoginPage's product picker — see isKnownTenantSlug
+// below) should use this instead of inspecting the resolved slug. Mirrors
+// getTenantSlug's own detection order, but reports whether a real signal was
+// found rather than which tenant it resolved to.
+export function hasExplicitTenantSignal() {
+  if (typeof window === 'undefined') return false;
+
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('tenant') || params.get('product')) return true;
+
+  const host = window.location.hostname.toLowerCase();
+  if (host.startsWith('wizmatch.') || host.includes('wizmatch')) return true;
+
+  const pathname = window.location.pathname.toLowerCase();
+  if (pathname.startsWith('/wizmatch')) return true;
+  if (GROWTH_SHARED_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`))) {
+    return true;
+  }
+
+  return Boolean(localStorage.getItem('crm_active_tenant_slug'));
+}
+
 // Base, code-defined config for the two admin SPA product variants
 // (routing/storage — which UI/build a hostname or ?tenant= renders). This is
 // deliberately NOT what a white-label tenant's branding overrides — see

@@ -85,12 +85,24 @@ const PLAN_DEFAULTS: Record<string, TenantFeatureFlags> = {
   // of the reseller plan; self-serve signup is a later phase, out of scope
   // here). Pilot tenants get the plain CRM (contacts/pipeline/deals — same
   // "generic automation" surface client_basic tenants would get once wired
-  // up) but NOT Wizmatch, SEO, GST billing, or D2C — those are
-  // Growth-Escalators-internal product surfaces this pilot has no reason to
-  // see. Revisit this table once a pilot actually needs one of those flipped
-  // on (per-tenant override via `settings.features` already supports that
-  // without touching this default).
-  reseller_pilot: { wizmatch: false, seo: false, crmAutomation: true, gstBilling: false, d2c: false },
+  // up) PLUS GST billing — `/api/billing` is gated behind
+  // `requireTenantFeature('gstBilling')`, and the tenant-driven invoice
+  // branding work (legal/financial identity sourced from `tenant_branding`)
+  // was built specifically so a pilot can invoice ITS OWN clients under its
+  // own identity, not GE's; leaving this flag off made that work
+  // unreachable for the tenants it exists for. Still NOT Wizmatch, SEO, or
+  // D2C — those stay Growth-Escalators-internal product surfaces this pilot
+  // has no reason to see. Revisit this table once a pilot needs one of those
+  // flipped on (per-tenant override via `settings.features` already
+  // supports that without touching this default).
+  //
+  // NOTE: this default only applies going forward — provisionResellerTenant.ts
+  // derives a new tenant's `settings.features` from this table at creation
+  // time, so newly-provisioned tenants pick it up automatically. It is not
+  // retroactive: any reseller_pilot tenant already provisioned before this
+  // change keeps whatever `settings.features` it was given at the time and
+  // needs a separate manual fix, not covered by this change.
+  reseller_pilot: { wizmatch: false, seo: false, crmAutomation: true, gstBilling: true, d2c: false },
 };
 
 /**
