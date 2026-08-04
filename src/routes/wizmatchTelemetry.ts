@@ -76,6 +76,7 @@ export const WIZMATCH_TELEMETRY_ROUTES: TelemetryRouteEntry[] = [
   { id: 'more-provider-runs', label: 'Provider Runs' },
   { id: 'more-permissions', label: 'Permissions' },
   { id: 'more-audit', label: 'Audit' },
+  { id: 'more-branding', label: 'Branding' },
   { id: 'more-configuration', label: 'Pipeline Manager' },
   { id: 'more-intelligence', label: 'AI Intelligence' },
   { id: 'more-primes', label: 'Primes' },

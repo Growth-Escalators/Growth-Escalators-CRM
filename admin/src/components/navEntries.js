@@ -2,7 +2,7 @@ import {
   Calendar, Home, Users, Kanban, CheckSquare, MessageSquare, TrendingUp,
   Megaphone, Share2, Target, Search, FileText, Brain, MapPin, Zap, Mail,
   Link as LinkIcon, CreditCard, Receipt, Shield, ShieldCheck, ClipboardList, Settings,
-  Briefcase, Building2,
+  Briefcase, Building2, Palette,
 } from 'lucide-react';
 import { WIZMATCH_ROUTES, evaluateWizmatchPermission } from '../routes/wizmatchRouteRegistry.ts';
 import { companyPolicyUiEnabled } from '../lib/companyPolicyFlag.js';
@@ -57,6 +57,11 @@ export function computeFlags(role, perms = {}, tenantSlug = 'growth-escalators',
     isTeamLead,
     isAdminTier,
     isCreativeAssistant,
+    // Tenant branding (name/logo/colors) is owner-only — same predicate as
+    // the PUT /api/tenant-branding route's own check (src/routes/
+    // tenantBranding.ts: `if (!myPerms?.isOwner)`). `perms.isOwner` reaches
+    // the client in the /api/permissions/me payload, same as canBilling above.
+    isOwner: !!perms.isOwner,
     product,
     isGrowthProduct: product === 'growth',
     isWizmatchProduct: product === 'wizmatch',
@@ -255,6 +260,11 @@ export const NAV_ENTRIES = [
     id: 'permissions', label: 'Permissions', to: '/settings/permissions',
     icon: Shield, section: 'Settings', group: 'settings',
     visible: f => f.isAdmin,
+  },
+  {
+    id: 'branding', label: 'Branding', to: '/settings/branding',
+    icon: Palette, section: 'Settings', group: 'settings',
+    visible: f => f.isOwner,
   },
   {
     id: 'audit', label: 'Audit Log', to: '/settings/audit',

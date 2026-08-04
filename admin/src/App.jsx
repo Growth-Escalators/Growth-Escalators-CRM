@@ -19,6 +19,7 @@ const ContractsLaunchPage = lazy(() => import('./pages/ContractsLaunchPage.jsx')
 const SignContractPage = lazy(() => import('./pages/SignContractPage.jsx'));
 const FinancePage = lazy(() => import('./pages/FinancePage.jsx'));
 const PermissionsPage = lazy(() => import('./pages/PermissionsPage.jsx'));
+const BrandingPage = lazy(() => import('./pages/BrandingPage.jsx'));
 const AdsPage = lazy(() => import('./pages/AdsPage.jsx'));
 const MetaAssetsPage = lazy(() => import('./pages/MetaAssetsPage.jsx'));
 const SocialPage = lazy(() => import('./pages/SocialPage.jsx'));
@@ -322,6 +323,7 @@ export default function App() {
             <Route path="/contracts" element={<PrivateRoute><ContractsLaunchPage /></PrivateRoute>} />
             <Route path="/finance" element={<PrivateRoute><FinancePage /></PrivateRoute>} />
             <Route path="/settings/permissions" element={<PrivateRoute><PermissionsPage /></PrivateRoute>} />
+            <Route path="/settings/branding" element={<PrivateRoute><BrandingPage /></PrivateRoute>} />
             <Route path="/settings/audit" element={<PrivateRoute><AuditPage /></PrivateRoute>} />
             <Route path="/ads" element={<PrivateRoute><AdsPage /></PrivateRoute>} />
             <Route path="/meta-assets" element={<PrivateRoute><MetaAssetsPage /></PrivateRoute>} />
@@ -366,6 +368,7 @@ export default function App() {
             <Route path="/wizmatch/outreach" element={<PrivateRoute><OutreachDashboard /></PrivateRoute>} />
             <Route path="/wizmatch/intelligence" element={<PrivateRoute><AppLayout><WizmatchIntelligencePage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/settings/permissions" element={<PrivateRoute><PermissionsPage /></PrivateRoute>} />
+            <Route path="/wizmatch/settings/branding" element={<PrivateRoute><BrandingPage /></PrivateRoute>} />
             <Route path="/wizmatch/settings/audit" element={<PrivateRoute><AuditPage /></PrivateRoute>} />
             <Route path="/wizmatch/pipelines/settings" element={<PrivateRoute><PipelineManagerPage /></PrivateRoute>} />
             {import.meta.env.DEV && <Route path="/wizmatch/command-center-demo" element={<Navigate to="/wizmatch/review-workbench-demo" replace />} />}
