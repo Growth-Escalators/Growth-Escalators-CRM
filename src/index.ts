@@ -39,6 +39,7 @@ import billingRouter from './routes/billing';
 import permissionsRouter from './routes/permissions';
 import tenantBrandingRouter from './routes/tenantBranding';
 import tenantIntegrationsRouter from './routes/tenantIntegrations';
+import tenantFeaturesRouter from './routes/tenantFeatures';
 import adsRouter from './routes/ads';
 import reportsRouter from './routes/reports';
 import socialRouter, { oauthRouter as socialOAuthRouter } from './routes/social';
@@ -324,6 +325,10 @@ app.use('/api/subscriptions', requireAuth, subscriptionsRouter);
 app.use('/api/permissions', requireStrictAuth, permissionsRouter);
 app.use('/api/tenant-branding', requireStrictAuth, tenantBrandingRouter);
 app.use('/api/tenant-integrations', requireStrictAuth, tenantIntegrationsRouter);
+// Read-only feature-flag mirror for the admin nav (navEntries.js) — see
+// tenantFeatures.ts's module doc. Not itself gated by requireTenantFeature:
+// every tenant is allowed to know its own entitlements.
+app.use('/api/tenant-features', requireStrictAuth, tenantFeaturesRouter);
 app.use('/api/ads', requireAuth, adsRouter);
 app.use('/api/reports', requireAuth, reportsRouter);
 app.use('/api/social/oauth', socialOAuthRouter); // no auth — browser redirects can't send headers

@@ -177,6 +177,10 @@ function brandingStorageKey(slug) {
   return `${baseTenantConfig(slug).storagePrefix}_branding`;
 }
 
+function tenantFeaturesStorageKey(slug) {
+  return `${baseTenantConfig(slug).storagePrefix}_tenant_features`;
+}
+
 // Fetched from GET /api/tenant-branding (see admin/src/lib/branding.js) and
 // cached here, namespaced the same way token/user/permissions already are —
 // per PRODUCT variant, not per real tenant id (matches this file's existing
@@ -200,6 +204,36 @@ export function getTenantBranding(slug = getTenantSlug()) {
 
 export function clearTenantBranding(slug = getTenantSlug()) {
   localStorage.removeItem(brandingStorageKey(slug));
+}
+
+// Fetched from GET /api/tenant-features/me (see admin/src/lib/tenantFeatures.js)
+// and cached here, namespaced exactly like branding above — per PRODUCT
+// variant, not per real tenant id. This is what navEntries.js's
+// computeFlags() reads to decide whether to show a nav entry whose backing
+// API is gated by requireTenantFeature (src/middleware/requireTenantFeature.ts)
+// — e.g. Billing for a tenant without `gstBilling`. Absent/uncached reads as
+// `{}`, which computeFlags() treats as "unknown, don't restrict" rather than
+// "everything off" — a fetch that hasn't resolved yet (or failed) must never
+// hide a nav entry that was visible a moment ago.
+export function setTenantFeatureFlags(features, slug = getTenantSlug()) {
+  try {
+    localStorage.setItem(tenantFeaturesStorageKey(slug), JSON.stringify(features || {}));
+  } catch {
+    // localStorage unavailable (private mode / quota) — same best-effort
+    // posture as setTenantBranding above.
+  }
+}
+
+export function getTenantFeatureFlags(slug = getTenantSlug()) {
+  try {
+    return JSON.parse(localStorage.getItem(tenantFeaturesStorageKey(slug)) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+export function clearTenantFeatureFlags(slug = getTenantSlug()) {
+  localStorage.removeItem(tenantFeaturesStorageKey(slug));
 }
 
 // The single read path every display surface (LoginPage, Sidebar, page
@@ -269,4 +303,5 @@ export function clearAuthSession(slug = getTenantSlug()) {
   localStorage.removeItem(storageKey('user', slug));
   localStorage.removeItem(storageKey('permissions', slug));
   clearTenantBranding(slug);
+  clearTenantFeatureFlags(slug);
 }

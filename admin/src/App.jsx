@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import { getAuthPermissions, getAuthToken, getAuthUser, getProductHome, getTenantSlug, normalizeTenantSlug, WIZMATCH_SHARED_ROUTE_MAP } from './lib/auth.js';
 import { apiFetch } from './lib/api.js';
 import { applyCachedTenantBranding, refreshTenantBranding } from './lib/branding.js';
+import { refreshTenantFeatures } from './lib/tenantFeatures.js';
 import { resolveRouteView, sendRouteViewBeacon } from './lib/telemetry.js';
 import { normalizeStaffingAccess } from './lib/staffingAccess.js';
 import { ToastProvider } from './components/wizmatch/Toast.jsx';
@@ -292,10 +293,17 @@ export default function App() {
   // GE's default branding for a returning tenant), then refreshes it from the
   // server. A no-op (no request fired) when there's no session yet — the
   // login page's own post-login fetch (see LoginPage.jsx) covers that case.
+  //
+  // Tenant feature flags (gstBilling/wizmatch/seo/d2c — see
+  // admin/src/lib/tenantFeatures.js) piggyback on the same boot effect: no
+  // DOM to apply synchronously (there's no cosmetic flash to avoid), just a
+  // refresh so Sidebar/CommandPalette's own cache reads are warm as early as
+  // possible after a hard reload, same as branding.
   useEffect(() => {
     applyCachedTenantBranding();
     if (!getAuthToken()) return;
     refreshTenantBranding();
+    refreshTenantFeatures();
   }, []);
 
   return (

@@ -12,6 +12,7 @@ import {
   TENANT_OPTIONS,
 } from '../lib/auth.js';
 import { refreshTenantBranding } from '../lib/branding.js';
+import { refreshTenantFeatures } from '../lib/tenantFeatures.js';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -78,6 +79,12 @@ export default function LoginPage() {
       // before navigating, so the Sidebar's first paint is already on-brand
       // instead of flashing GE's defaults. Best-effort — never blocks login.
       await refreshTenantBranding();
+      // Same idea for tenant feature-flag entitlements — fetched before
+      // navigating so the very first Sidebar render already has the right nav
+      // (e.g. Billing hidden for a tenant without gstBilling) instead of
+      // showing it for one render and then hiding it once Sidebar's own
+      // effect resolves. Best-effort — never blocks login.
+      await refreshTenantFeatures();
       const requestedReturn = new URLSearchParams(location.search).get('returnTo');
       const safeReturn = requestedReturn?.startsWith('/') && !requestedReturn.startsWith('//')
         ? requestedReturn
