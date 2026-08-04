@@ -5182,3 +5182,44 @@ instead); Itika deferred (2-user pilot); G1 clone = restored local PG18.
 
 Next: G3 — push docs, final CI, merge (normal commit) + auto-deploy, enable company-policy +
 decision-workbench, verify 2-user roster, readiness + smoke tests.
+
+---
+
+## 2026-08-03 — Tenant feature gating + cron/automation de-hardcoding (PR #115, separate from the Wizmatch pilot thread above)
+
+**Unrelated to the Wizmatch pilot rollout tracked above** — this is the Phase-1 white-label-SaaS
+hardening batch (Jatin-approved), on branch `feat/tenant-feature-gating-and-cron-detenant`, PR
+[#115](https://github.com/Growth-Escalators/Growth-Escalators-CRM/pull/115), **NOT merged**.
+
+**What shipped:** `src/services/tenantFeatures.ts` — `getTenantFeatures(tenantId)` reads
+`tenants.plan` + `tenants.settings.features` (previously unread anywhere), with a hand-verified
+per-plan fallback (`PLAN_DEFAULTS`) so every tenant today (settings.features still empty in
+production) gets identical behavior to what the global env-var flags produce now.
+`getActiveTenantsWithFeature`/`getSingleActiveTenantWithFeature` then replace the
+`DEFAULT_TENANT_SLUG`/`WIZMATCH_TENANT_ID` hardcoding in `src/worker.ts` (10 Wizmatch cron bodies
++ the active Overdue Invoice Check), `seoTenantContext.ts`, `jobDrainer.ts`,
+`edgeQueueDrainer.ts`, `intelligenceDataCollector.ts`, and (as an illustrative route-level gate)
+`src/routes/leads.ts`. `src/db/seed.ts`/`scripts/dev/seed-local.ts` seed `settings.features`
+explicitly for fresh DBs; an optional Jatin-gated production backfill script
+(`scripts/onboarding/tenant-features-backfill.ts`) exists but was NOT run against production —
+correctness doesn't depend on it, the plan-default fallback already covers today's 3 tenants
+(`growth-escalators`, `wizmatch`, and a client-basic tenant referred to only by slug).
+
+**Deliberately NOT done:** replacing every `process.env.*_ENABLED` check codebase-wide (large
+follow-up); converting `facebookLeadForms.ts` (already tenant-aware per Facebook Page);
+converting the ~22 downstream consumers of `resolveDefaultSeoTenantId()` to a multi-tenant loop
+(only the resolution mechanism changed, not the whole SEO subsystem); touching
+`src/middleware/wizmatchPilotGate.ts` as the second route-level gate example — investigated and
+found it's the shared choke point for ~5 existing test files that construct requests through it
+without mocking the DB layer, so bolting on an unmocked async tenant-features call would need
+defensive test updates across all of them; did leads.ts (zero prior coverage) instead as a safer,
+fully-tested example.
+
+**Gates:** `npm run build` exit 0. `npm test`: 162 files / 2003 tests, same 5 files / 15 tests
+failing as on clean `main` (verified via `git stash`) — pre-existing environment gaps (a CLI
+subprocess test; `admin/node_modules` not installed in this environment, unrelated to backend
+code). Zero new failures.
+
+**Conflicts flagged in the PR:** likely conflicts with unmerged PRs #109 (`src/index.ts`) and
+#111 (`src/routes/webhooks.ts`) since none of the Phase-0 PRs are merged yet — recommend merging
+those first and rebasing this on top. **Not merged by this session** — awaiting Jatin's review.

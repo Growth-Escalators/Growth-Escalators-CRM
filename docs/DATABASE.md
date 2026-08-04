@@ -23,6 +23,25 @@ The system is multi-tenant by `tenants.slug`. The default slug `growth-escalator
 
 Almost every query is tenant-scoped — forgetting `tenant_id` leaks data across tenants.
 
+### Tenant feature flags (`tenants.plan` / `tenants.settings.features`)
+
+`src/services/tenantFeatures.ts`'s `getTenantFeatures(tenantId)` reads a per-tenant
+`settings.features` override, falling back to a per-plan default table
+(`PLAN_DEFAULTS`) when it's empty — which is every tenant today, since
+production has never had this column populated. That fallback table is
+hand-verified against what's actually true per tenant via the (still
+present) global `process.env.*_ENABLED` flags, so this is safe to read
+without a backfill.
+
+The automation/cron layer (`src/worker.ts`'s Wizmatch crons, the generic
+lead-intake sweepers, SEO tenant context) uses `getActiveTenantsWithFeature(feature)`
+/ `getSingleActiveTenantWithFeature(feature)` instead of hardcoding
+`DEFAULT_TENANT_SLUG` / `WIZMATCH_TENANT_ID` — see those functions' doc
+comments before adding a new automation call site that should be
+tenant-aware. This does NOT replace every `process.env.*_ENABLED` check in
+the codebase (most feature flags are still global) — only the subsystems
+that were previously hardcoded to a single resolved tenant.
+
 ## Contact channels schema
 
 Email and phone do **not** live on the `contacts` table. They live in `contact_channels` as rows with `(channel_type, channel_value)`. Selecting `c.email` or `c.phone` from `contacts` will 500 — use a correlated subquery or join against `contact_channels`.

@@ -1,7 +1,7 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
-import { DEFAULT_TENANT_SLUG } from '../config/constants';
 import { resolveDefaultSeoTenantId } from './seoTenantContext';
+import { getSingleActiveTenantWithFeature } from './tenantFeatures';
 
 // ---------------------------------------------------------------------------
 // SEO Workflow Health types + collector (exported so worker can call directly)
@@ -355,14 +355,15 @@ type Queryable = { query: (text: string, values?: unknown[]) => Promise<import('
 
 async function _collectDailyDataInner(client: Queryable, errors: string[]): Promise<AgencyDailyData> {
 
-  // Resolve tenant ID
+  // Resolve tenant ID — tenant-feature-gated (PR: tenant feature gating),
+  // replaces the old `SELECT id FROM tenants WHERE slug = DEFAULT_TENANT_SLUG`
+  // lookup. Today only growth-escalators has the "crmAutomation" feature
+  // enabled (see tenantFeatures.ts PLAN_DEFAULTS), so this resolves to the
+  // exact same tenant as before.
   let tenantId = '';
   try {
-    const tenantRes = await client.query(
-      `SELECT id FROM tenants WHERE slug = $1 LIMIT 1`,
-      [DEFAULT_TENANT_SLUG],
-    );
-    tenantId = (tenantRes.rows[0] as { id: string } | undefined)?.id ?? '';
+    const tenant = await getSingleActiveTenantWithFeature('crmAutomation');
+    tenantId = tenant?.id ?? '';
     logger.info(`[intel-collector] Tenant resolved: ${tenantId}`);
   } catch (e) {
     logger.error('[intel-collector] tenant lookup failed:', e);

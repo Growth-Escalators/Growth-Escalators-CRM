@@ -174,13 +174,19 @@ function assertLocalDatabase(connectionString: string | undefined): string {
   return connectionString;
 }
 
-async function upsertTenant(client: PoolClient, slug: string, name: string): Promise<string> {
+// Tenant-feature-gating PR — `plan` now drives getTenantFeatures()'s
+// per-plan defaults (src/services/tenantFeatures.ts), so it must match the
+// tenant's real slug, not always 'agency_internal' (that bug pre-dates this
+// PR — plan was never read by anything before, so it didn't matter; it does
+// now, since a locally-seeded wizmatch tenant with the wrong plan would get
+// wizmatch:false and silently break local Wizmatch testing).
+async function upsertTenant(client: PoolClient, slug: string, name: string, plan: string): Promise<string> {
   const result = await client.query<{ id: string }>(
     `INSERT INTO tenants (name, slug, plan, is_active)
-     VALUES ($1, $2, 'agency_internal', true)
-     ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, is_active = true
+     VALUES ($1, $2, $3, true)
+     ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, plan = EXCLUDED.plan, is_active = true
      RETURNING id`,
-    [name, slug],
+    [name, slug, plan],
   );
   return result.rows[0].id;
 }
@@ -686,8 +692,8 @@ async function main(): Promise<void> {
 
     const passwordHash = await hash(LOCAL_PASSWORD);
 
-    growthTenantId = await upsertTenant(client, GROWTH_SLUG, 'Growth Escalators');
-    wizmatchTenantId = await upsertTenant(client, WIZMATCH_SLUG, 'Wizmatch');
+    growthTenantId = await upsertTenant(client, GROWTH_SLUG, 'Growth Escalators', 'agency_internal');
+    wizmatchTenantId = await upsertTenant(client, WIZMATCH_SLUG, 'Wizmatch', 'wizmatch_internal');
     console.log(`[seed-local] tenants ready  growth-escalators=${growthTenantId}  wizmatch=${wizmatchTenantId}`);
 
     await upsertUser(client, ID.userGrowthAdmin, growthTenantId, 'Local Admin One', 'test-admin-one@example.invalid', passwordHash);

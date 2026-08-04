@@ -8,12 +8,27 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+// Tenant resolution now goes through getSingleActiveTenantWithFeature
+// (tenantFeatures.ts), which queries db.select({...}).from(tenants).where(eq(tenants.isActive, true))
+// and awaits the `where(...)` result DIRECTLY (no .limit() in that path).
+// processFormSubmitJob's OWN "existing contact tags" lookup still chains
+// .limit(1) on the same select().from().where() shape. One mock object
+// serves both: it's directly awaitable (thenable) for the tenant-resolution
+// path AND supports .limit() for the contacts lookup.
 vi.mock('../db/index', () => ({
   db: {
-    select: () => ({ from: () => ({ where: () => ({ limit: async () => [{ id: 'tenant-1' }] }) }) }),
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          then: (resolve: (v: unknown) => void) =>
+            resolve([{ id: 'tenant-1', slug: 'growth-escalators', plan: 'agency_internal', settings: {} }]),
+          limit: async () => [{ tags: [] }],
+        }),
+      }),
+    }),
     update: () => ({ set: () => ({ where: async () => undefined }) }),
   },
-  tenants: { id: 'id', slug: 'slug' },
+  tenants: { id: 'id', slug: 'slug', plan: 'plan', settings: 'settings', isActive: 'isActive' },
   contacts: { id: 'id' },
 }));
 vi.mock('../services/contactService', () => ({ findOrCreateContact: vi.fn() }));

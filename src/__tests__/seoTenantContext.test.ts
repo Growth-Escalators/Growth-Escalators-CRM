@@ -12,13 +12,16 @@ describe('seoTenantContext.resolveDefaultSeoTenantId', () => {
     vi.resetModules();
   });
 
-  it('resolves the tenant id for DEFAULT_TENANT_SLUG and memoizes it (only queries once)', async () => {
-    const limit = vi.fn().mockResolvedValue([{ id: 'resolved-tenant-id' }]);
-    const where = vi.fn().mockReturnValue({ limit });
-    const from = vi.fn().mockReturnValue({ where });
-    const select = vi.fn().mockReturnValue({ from });
-    vi.doMock('../db/index', () => ({ db: { select } }));
-    vi.doMock('../config/constants', () => ({ DEFAULT_TENANT_SLUG: 'growth-escalators' }));
+  // Tenant-feature-gating PR — this now resolves via
+  // getSingleActiveTenantWithFeature('seo') instead of a hardcoded
+  // eq(tenants.slug, DEFAULT_TENANT_SLUG) query. getSingleActiveTenantWithFeature
+  // itself has its own dedicated coverage (tenantFeatures.test.ts); this suite
+  // only needs to prove resolveDefaultSeoTenantId calls it correctly and still
+  // memoizes.
+
+  it('resolves the tenant id for the "seo" feature and memoizes it (only queries once)', async () => {
+    const getSingleActiveTenantWithFeature = vi.fn().mockResolvedValue({ id: 'resolved-tenant-id', slug: 'growth-escalators' });
+    vi.doMock('../services/tenantFeatures', () => ({ getSingleActiveTenantWithFeature }));
 
     const { resolveDefaultSeoTenantId } = await import('../services/seoTenantContext');
     const first = await resolveDefaultSeoTenantId();
@@ -26,41 +29,15 @@ describe('seoTenantContext.resolveDefaultSeoTenantId', () => {
 
     expect(first).toBe('resolved-tenant-id');
     expect(second).toBe('resolved-tenant-id');
-    expect(select).toHaveBeenCalledTimes(1); // memoized — second call hit the cache, not the DB
+    expect(getSingleActiveTenantWithFeature).toHaveBeenCalledTimes(1); // memoized — second call hit the cache, not the DB
+    expect(getSingleActiveTenantWithFeature).toHaveBeenCalledWith('seo');
   });
 
-  it('throws a clear error when no tenant matches DEFAULT_TENANT_SLUG', async () => {
-    const limit = vi.fn().mockResolvedValue([]);
-    const where = vi.fn().mockReturnValue({ limit });
-    const from = vi.fn().mockReturnValue({ where });
-    const select = vi.fn().mockReturnValue({ from });
-    vi.doMock('../db/index', () => ({ db: { select } }));
-    vi.doMock('../config/constants', () => ({ DEFAULT_TENANT_SLUG: 'growth-escalators' }));
+  it('throws a clear error when no active tenant has the "seo" feature enabled', async () => {
+    const getSingleActiveTenantWithFeature = vi.fn().mockResolvedValue(null);
+    vi.doMock('../services/tenantFeatures', () => ({ getSingleActiveTenantWithFeature }));
 
     const { resolveDefaultSeoTenantId } = await import('../services/seoTenantContext');
-    await expect(resolveDefaultSeoTenantId()).rejects.toThrow(/DEFAULT_TENANT_SLUG/);
-  });
-
-  it('queries by the configured DEFAULT_TENANT_SLUG value, not a hardcoded one', async () => {
-    const limit = vi.fn().mockResolvedValue([{ id: 'x' }]);
-    const where = vi.fn().mockReturnValue({ limit });
-    const from = vi.fn().mockReturnValue({ where });
-    const select = vi.fn().mockReturnValue({ from });
-    vi.doMock('../db/index', () => ({ db: { select } }));
-    vi.doMock('../config/constants', () => ({ DEFAULT_TENANT_SLUG: 'some-other-slug' }));
-
-    const { resolveDefaultSeoTenantId } = await import('../services/seoTenantContext');
-    await resolveDefaultSeoTenantId();
-
-    // eq(tenants.slug, DEFAULT_TENANT_SLUG) — drizzle's eq() builds an SQL
-    // condition whose queryChunks alternate StringChunk (text, `.value` is a
-    // string[]), the PgText column reference, and a Param wrapping the bound
-    // scalar (`.value` is the raw value itself) — extract just that Param.
-    expect(where).toHaveBeenCalledTimes(1);
-    const condition = where.mock.calls[0][0] as { queryChunks?: Array<{ value?: unknown }> };
-    const boundValues = (condition.queryChunks ?? [])
-      .filter((c) => c && typeof c === 'object' && 'value' in c && !Array.isArray(c.value))
-      .map((c) => c.value);
-    expect(boundValues).toContain('some-other-slug');
+    await expect(resolveDefaultSeoTenantId()).rejects.toThrow(/no active tenant has the "seo" feature/);
   });
 });

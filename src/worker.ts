@@ -25,6 +25,7 @@ import { deliverDailyIntelligence } from './services/intelligenceDelivery';
 import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_PERF_MARKETING_CHANNEL, SLACK_SEO_CHANNEL, SLACK_OUTREACH_CHANNEL, SLACK_SOD_EOD_CHANNEL, DEFAULT_TENANT_SLUG, WIZMATCH_LEADS_CHANNEL, WIZMATCH_SYSTEM_CHANNEL } from './config/constants';
 import { isPaused } from './config/featureFlags';
 import { getWizmatchAutomationStatus, WIZMATCH_STAFFING_REMINDER_CRON } from './services/wizmatchAutomation';
+import { getActiveTenantsWithFeature, getSingleActiveTenantWithFeature } from './services/tenantFeatures';
 import { extractErrorCount } from './services/cronErrorExtraction';
 import { expireOverdueContracts, sendSigningReminders } from './modules/esign/esign.jobs';
 
@@ -404,7 +405,15 @@ console.log('[cron] monthly invoice drafts scheduled — 1st of month at 9 AM IS
 console.log('[cron] monthly invoice drafts — PAUSED 2026-05-03');
 
 // Overdue invoice detection — daily at 10 AM IST (4:30 AM UTC)
+//
+// Tenant-feature-gated (PR: tenant feature gating) — replaces the old
+// hardcoded `tenant_id = (SELECT id FROM tenants WHERE slug = DEFAULT_TENANT_SLUG)`
+// subquery. Today only growth-escalators has the "gstBilling" feature
+// enabled (see tenantFeatures.ts PLAN_DEFAULTS), so this resolves to the
+// exact same tenant as before.
 cron.schedule('30 4 * * *', () => safeCron('Overdue Invoice Check', async () => {
+  const billingTenant = await getSingleActiveTenantWithFeature('gstBilling');
+  if (!billingTenant) { console.log('[cron] overdue invoice check skipped — no tenant has gstBilling enabled'); return; }
   const overdueResult = await db.execute(sql`
     SELECT i.id, i.invoice_number, i.total_amount, i.due_date,
            bc.name as client_name
@@ -412,7 +421,7 @@ cron.schedule('30 4 * * *', () => safeCron('Overdue Invoice Check', async () => 
     JOIN billing_clients bc ON bc.id = i.client_id
     WHERE i.status = 'sent'
       AND i.due_date < now()
-      AND i.tenant_id = (SELECT id FROM tenants WHERE slug = ${DEFAULT_TENANT_SLUG})
+      AND i.tenant_id = ${billingTenant.id}
   `);
 
   for (const inv of overdueResult.rows as Array<Record<string, unknown>>) {
@@ -1622,74 +1631,87 @@ if (wizmatchAutomation.masterEnabled) {
   // Calls scoreSignalById in-process instead of an HTTPS self-request to the public
   // API. No network hop, no global rate-limiter contention, and a hung/failed signal
   // can no longer silently wedge the batch — each is isolated by the per-signal catch.
+  //
+  // Tenant-feature-gated (PR: tenant feature gating) — every cron in this
+  // block used to read `process.env.WIZMATCH_TENANT_ID!` directly, hardcoding
+  // automation to a single tenant. They now loop over
+  // getActiveTenantsWithFeature('wizmatch'), which today resolves to exactly
+  // the one tenant WIZMATCH_TENANT_ID used to point at (see
+  // tenantFeatures.ts PLAN_DEFAULTS) — a second tenant onboarding Wizmatch
+  // would now run these crons too, without a code change here.
   cron.schedule('*/30 * * * *', () => safeCron('Wizmatch Signal Scoring', async () => {
-    const tenantId = process.env.WIZMATCH_TENANT_ID!;
-    const signals = await pool.query(
-      `SELECT id FROM wizmatch_job_signals WHERE tenant_id = $1 AND status = 'new' LIMIT 50`,
-      [tenantId],
-    );
     const { scoreSignalById } = await import('./services/wizmatchSignalPipeline');
-    for (const s of signals.rows) {
-      try {
-        await scoreSignalById(tenantId, s.id);
-      } catch (e) { console.error('[CRON] wizmatch score failed for', s.id, e); }
+    for (const { id: tenantId } of await getActiveTenantsWithFeature('wizmatch')) {
+      const signals = await pool.query(
+        `SELECT id FROM wizmatch_job_signals WHERE tenant_id = $1 AND status = 'new' LIMIT 50`,
+        [tenantId],
+      );
+      for (const s of signals.rows) {
+        try {
+          await scoreSignalById(tenantId, s.id);
+        } catch (e) { console.error('[CRON] wizmatch score failed for', s.id, e); }
+      }
+      if (signals.rows.length > 0) console.log(`[CRON] Wizmatch: scored ${signals.rows.length} signals (tenant ${tenantId})`);
     }
-    if (signals.rows.length > 0) console.log(`[CRON] Wizmatch: scored ${signals.rows.length} signals`);
   }), { timezone: 'UTC' });
   console.log('[cron] Wizmatch signal scoring scheduled — every 30 minutes');
 
   // Enrichment — every hour, cap 20/run
   cron.schedule('0 * * * *', () => safeCron('Wizmatch Enrichment', async () => {
-    const tenantId = process.env.WIZMATCH_TENANT_ID!;
-    const signals = await pool.query(
-      `SELECT id FROM wizmatch_job_signals WHERE tenant_id = $1 AND score >= 7 AND contact_id IS NULL AND status = 'scored' LIMIT 20`,
-      [tenantId],
-    );
     const { enrichSignalById } = await import('./services/wizmatchSignalPipeline');
-    for (const s of signals.rows) {
-      try {
-        await enrichSignalById(tenantId, s.id);
-      } catch (e) { console.error('[CRON] wizmatch enrich failed for', s.id, e); }
+    for (const { id: tenantId } of await getActiveTenantsWithFeature('wizmatch')) {
+      const signals = await pool.query(
+        `SELECT id FROM wizmatch_job_signals WHERE tenant_id = $1 AND score >= 7 AND contact_id IS NULL AND status = 'scored' LIMIT 20`,
+        [tenantId],
+      );
+      for (const s of signals.rows) {
+        try {
+          await enrichSignalById(tenantId, s.id);
+        } catch (e) { console.error('[CRON] wizmatch enrich failed for', s.id, e); }
+      }
+      if (signals.rows.length > 0) console.log(`[CRON] Wizmatch: enriched ${signals.rows.length} signals (tenant ${tenantId})`);
     }
-    if (signals.rows.length > 0) console.log(`[CRON] Wizmatch: enriched ${signals.rows.length} signals`);
   }), { timezone: 'UTC' });
   console.log('[cron] Wizmatch enrichment scheduled — every hour');
 
   // Candidate matching — every 2 hours, cap 30/run (pure SQL+TS, $0)
   cron.schedule('0 */2 * * *', () => safeCron('Wizmatch Matching', async () => {
-    const tenantId = process.env.WIZMATCH_TENANT_ID!;
-    const signals = await pool.query(
-      `SELECT id FROM wizmatch_job_signals WHERE tenant_id = $1 AND status = 'enriched' LIMIT 30`,
-      [tenantId],
-    );
     const { matchSignalById } = await import('./services/wizmatchSignalPipeline');
-    for (const s of signals.rows) {
-      try {
-        await matchSignalById(tenantId, s.id);
-      } catch (e) { console.error('[CRON] wizmatch match failed for', s.id, e); }
+    for (const { id: tenantId } of await getActiveTenantsWithFeature('wizmatch')) {
+      const signals = await pool.query(
+        `SELECT id FROM wizmatch_job_signals WHERE tenant_id = $1 AND status = 'enriched' LIMIT 30`,
+        [tenantId],
+      );
+      for (const s of signals.rows) {
+        try {
+          await matchSignalById(tenantId, s.id);
+        } catch (e) { console.error('[CRON] wizmatch match failed for', s.id, e); }
+      }
+      if (signals.rows.length > 0) console.log(`[CRON] Wizmatch: matched ${signals.rows.length} signals (tenant ${tenantId})`);
     }
-    if (signals.rows.length > 0) console.log(`[CRON] Wizmatch: matched ${signals.rows.length} signals`);
   }), { timezone: 'UTC' });
   console.log('[cron] Wizmatch matching scheduled — every 2 hours');
 
   // Domain health monitor — every hour
   cron.schedule('0 * * * *', () => safeCron('Wizmatch Domain Health', async () => {
-    const tenantId = process.env.WIZMATCH_TENANT_ID!;
     const { runWizmatchDomainHealthCheck } = await import('./services/wizmatchDomainHealthService');
-    const result = await runWizmatchDomainHealthCheck(tenantId);
-    const alertStatus = result.alertSent ? ', alert sent' : result.alertThrottled ? ', alert throttled' : '';
-    console.log(`[CRON] Wizmatch domain health: checked ${result.checked} domains (${result.healthy} healthy, ${result.warn} warn${alertStatus})`);
+    for (const { id: tenantId } of await getActiveTenantsWithFeature('wizmatch')) {
+      const result = await runWizmatchDomainHealthCheck(tenantId);
+      const alertStatus = result.alertSent ? ', alert sent' : result.alertThrottled ? ', alert throttled' : '';
+      console.log(`[CRON] Wizmatch domain health (tenant ${tenantId}): checked ${result.checked} domains (${result.healthy} healthy, ${result.warn} warn${alertStatus})`);
+    }
   }), { timezone: 'UTC' });
   console.log('[cron] Wizmatch domain health scheduled — every hour');
 
   // Domain warmup — every 6 hours
   cron.schedule('0 */6 * * *', () => safeCron('Wizmatch Domain Warmup', async () => {
-    const tenantId = process.env.WIZMATCH_TENANT_ID!;
     const warmupContacts = (process.env.WIZMATCH_WARMUP_CONTACTS || '').split(',').filter(Boolean);
     if (warmupContacts.length === 0) return;
     const { sendWarmupEmails } = await import('./services/multiDomainMailer');
-    const result = await sendWarmupEmails(tenantId, warmupContacts);
-    console.log(`[CRON] Wizmatch warmup: ${result?.sent || 0}/${result?.total || 0} sent`);
+    for (const { id: tenantId } of await getActiveTenantsWithFeature('wizmatch')) {
+      const result = await sendWarmupEmails(tenantId, warmupContacts);
+      console.log(`[CRON] Wizmatch warmup (tenant ${tenantId}): ${result?.sent || 0}/${result?.total || 0} sent`);
+    }
   }), { timezone: 'UTC' });
   console.log('[cron] Wizmatch domain warmup scheduled — every 6 hours');
 
@@ -1783,31 +1805,32 @@ if (wizmatchAutomation.masterEnabled) {
   cron.schedule('30 12 * * 1-6', () => safeCron('Wizmatch Daily Digest', async () => {
     const { WIZMATCH_DAILY_CHANNEL } = await import('./config/constants');
     const { sendSlackMessage } = await import('./services/slackService');
-    const tenantId = process.env.WIZMATCH_TENANT_ID!;
     const today = new Date().toISOString().slice(0, 10);
 
-    const stats = await pool.query(
-      `SELECT
-         (SELECT COUNT(*)::int FROM wizmatch_job_signals WHERE tenant_id = $1 AND created_at::date = $2) AS signals,
-         (SELECT COUNT(*)::int FROM wizmatch_job_signals WHERE tenant_id = $1 AND created_at::date = $2 AND score >= 7) AS priority,
-         (SELECT COUNT(*)::int FROM messages WHERE tenant_id = $1 AND sent_at::date = $2 AND channel = 'email' AND direction = 'outbound') AS sends,
-         (SELECT COUNT(*)::int FROM wizmatch_job_signals WHERE tenant_id = $1 AND status = 'replied_positive' AND updated_at::date = $2) AS positive_replies,
-         (SELECT COUNT(*)::int FROM wizmatch_candidates WHERE tenant_id = $1 AND created_at::date = $2) AS candidates
-      `,
-      [tenantId, today],
-    );
-    const s = stats.rows[0] || {};
+    for (const { id: tenantId } of await getActiveTenantsWithFeature('wizmatch')) {
+      const stats = await pool.query(
+        `SELECT
+           (SELECT COUNT(*)::int FROM wizmatch_job_signals WHERE tenant_id = $1 AND created_at::date = $2) AS signals,
+           (SELECT COUNT(*)::int FROM wizmatch_job_signals WHERE tenant_id = $1 AND created_at::date = $2 AND score >= 7) AS priority,
+           (SELECT COUNT(*)::int FROM messages WHERE tenant_id = $1 AND sent_at::date = $2 AND channel = 'email' AND direction = 'outbound') AS sends,
+           (SELECT COUNT(*)::int FROM wizmatch_job_signals WHERE tenant_id = $1 AND status = 'replied_positive' AND updated_at::date = $2) AS positive_replies,
+           (SELECT COUNT(*)::int FROM wizmatch_candidates WHERE tenant_id = $1 AND created_at::date = $2) AS candidates
+        `,
+        [tenantId, today],
+      );
+      const s = stats.rows[0] || {};
 
-    if (WIZMATCH_DAILY_CHANNEL) {
-      await sendSlackMessage(WIZMATCH_DAILY_CHANNEL,
-        `📊 *Wizmatch Daily Digest — ${today}*\n\n` +
-        `Signals: ${s.signals || 0} (${s.priority || 0} priority)\n` +
-        `Sends: ${s.sends || 0}\n` +
-        `Positive replies: ${s.positive_replies || 0}\n` +
-        `Candidates sourced: ${s.candidates || 0}`,
-      ).catch(() => {});
+      if (WIZMATCH_DAILY_CHANNEL) {
+        await sendSlackMessage(WIZMATCH_DAILY_CHANNEL,
+          `📊 *Wizmatch Daily Digest — ${today}*\n\n` +
+          `Signals: ${s.signals || 0} (${s.priority || 0} priority)\n` +
+          `Sends: ${s.sends || 0}\n` +
+          `Positive replies: ${s.positive_replies || 0}\n` +
+          `Candidates sourced: ${s.candidates || 0}`,
+        ).catch(() => {});
+      }
+      console.log(`[CRON] Wizmatch daily digest sent (tenant ${tenantId})`);
     }
-    console.log('[CRON] Wizmatch daily digest sent');
   }), { timezone: 'UTC' });
   console.log('[cron] Wizmatch daily digest scheduled — 6 PM IST Mon-Sat');
 
@@ -1821,9 +1844,11 @@ if (wizmatchAutomation.masterEnabled) {
     cron.schedule('35 1 * * 1,4', () => safeCron('Wizmatch TheirStack Results-First Importer', async () => {
       const { importTheirStackJobs } = await import('./services/wizmatchTheirStackImporter');
       const { withWizmatchSourceLock } = await import('./services/wizmatchSourcing');
-      const result = await withWizmatchSourceLock(process.env.WIZMATCH_TENANT_ID!, 'theirstack', () => importTheirStackJobs({ trigger: 'scheduled' }));
-      if (!result) { console.log('[CRON] Wizmatch TheirStack sourcing skipped — another run holds the lock'); return; }
-      console.log(`[CRON] Wizmatch TheirStack sourcing: ${result.inserted} new, ${result.updated} updated, ${result.errors} errors`);
+      for (const { id: tenantId } of await getActiveTenantsWithFeature('wizmatch')) {
+        const result = await withWizmatchSourceLock(tenantId, 'theirstack', () => importTheirStackJobs({ trigger: 'scheduled' }));
+        if (!result) { console.log(`[CRON] Wizmatch TheirStack sourcing skipped (tenant ${tenantId}) — another run holds the lock`); continue; }
+        console.log(`[CRON] Wizmatch TheirStack sourcing (tenant ${tenantId}): ${result.inserted} new, ${result.updated} updated, ${result.errors} errors`);
+      }
     }), { timezone: 'UTC' });
     console.log('[cron] Wizmatch TheirStack results-first importer scheduled — 7:05 AM IST Mon/Thu');
   } else {
@@ -1834,9 +1859,11 @@ if (wizmatchAutomation.masterEnabled) {
     cron.schedule('40 0 * * *', () => safeCron('Wizmatch ATS Results-First Poller', async () => {
       const { pollAtsBoards } = await import('./services/wizmatchAtsPoller');
       const { withWizmatchSourceLock } = await import('./services/wizmatchSourcing');
-      const result = await withWizmatchSourceLock(process.env.WIZMATCH_TENANT_ID!, 'ats', () => pollAtsBoards({ trigger: 'scheduled' }));
-      if (!result) { console.log('[CRON] Wizmatch ATS sourcing skipped — another run holds the lock'); return; }
-      console.log(`[CRON] Wizmatch ATS sourcing: ${result.jobs_inserted} new, ${result.jobs_updated} updated, ${result.errors} errors`);
+      for (const { id: tenantId } of await getActiveTenantsWithFeature('wizmatch')) {
+        const result = await withWizmatchSourceLock(tenantId, 'ats', () => pollAtsBoards({ trigger: 'scheduled' }));
+        if (!result) { console.log(`[CRON] Wizmatch ATS sourcing skipped (tenant ${tenantId}) — another run holds the lock`); continue; }
+        console.log(`[CRON] Wizmatch ATS sourcing (tenant ${tenantId}): ${result.jobs_inserted} new, ${result.jobs_updated} updated, ${result.errors} errors`);
+      }
     }), { timezone: 'UTC' });
     console.log('[cron] Wizmatch ATS results-first poller scheduled — 6:10 AM IST daily');
   } else {
@@ -1850,9 +1877,11 @@ if (wizmatchAutomation.masterEnabled) {
   if (wizmatchAutomation.autoPrepEnabled) {
     cron.schedule('15 2 * * *', () => safeCron('Wizmatch Company Preparation', async () => {
       const { prepareCompaniesJob } = await import('./modules/outreach/prepareCompanies');
-      const report = await prepareCompaniesJob(process.env.WIZMATCH_TENANT_ID!);
-      if (!report.lockAcquired) { console.log('[CRON] Wizmatch company prep skipped — another run holds the lock'); return; }
-      console.log(`[CRON] Wizmatch company prep: ${report.prepared} prepared, ${report.reviewRequired} review-required, ${report.skipped} skipped, ${report.failed} failed (of ${report.attempted} attempted)`);
+      for (const { id: tenantId } of await getActiveTenantsWithFeature('wizmatch')) {
+        const report = await prepareCompaniesJob(tenantId);
+        if (!report.lockAcquired) { console.log(`[CRON] Wizmatch company prep skipped (tenant ${tenantId}) — another run holds the lock`); continue; }
+        console.log(`[CRON] Wizmatch company prep (tenant ${tenantId}): ${report.prepared} prepared, ${report.reviewRequired} review-required, ${report.skipped} skipped, ${report.failed} failed (of ${report.attempted} attempted)`);
+      }
     }), { timezone: 'UTC' });
     console.log('[cron] Wizmatch company preparation scheduled — 7:45 AM IST daily');
   } else {
@@ -1864,8 +1893,10 @@ if (wizmatchAutomation.masterEnabled) {
   if (wizmatchAutomation.staffingRemindersEnabled) {
     cron.schedule(WIZMATCH_STAFFING_REMINDER_CRON, () => safeCron('Wizmatch Staffing Reminders', async () => {
       const { wizmatchDeliveryService } = await import('./services/wizmatchDeliveryDomain');
-      const result = await wizmatchDeliveryService.runDeterministicReminders(process.env.WIZMATCH_TENANT_ID!);
-      console.log(`[CRON] Wizmatch staffing reminders: ${result.total} tasks created (${result.requirementSla} requirement SLA, ${result.submissionFollowUps} submission follow-up, ${result.availabilityReviews} availability)`);
+      for (const { id: tenantId } of await getActiveTenantsWithFeature('wizmatch')) {
+        const result = await wizmatchDeliveryService.runDeterministicReminders(tenantId);
+        console.log(`[CRON] Wizmatch staffing reminders (tenant ${tenantId}): ${result.total} tasks created (${result.requirementSla} requirement SLA, ${result.submissionFollowUps} submission follow-up, ${result.availabilityReviews} availability)`);
+      }
     }), { timezone: 'UTC' });
     console.log('[cron] Wizmatch staffing reminders scheduled — 9:17 AM IST Mon-Sat');
   } else {

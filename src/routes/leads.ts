@@ -1,9 +1,10 @@
 import { Router, type Request, type Response } from 'express';
 import { eq } from 'drizzle-orm';
-import { db, contacts, tenants } from '../db/index';
+import { db, contacts } from '../db/index';
 import { findOrCreateContact } from '../services/contactService';
 import { sendSlackMessage } from '../services/slackService';
-import { DEFAULT_TENANT_SLUG, SLACK_SALES_BD_CHANNEL } from '../config/constants';
+import { getSingleActiveTenantWithFeature } from '../services/tenantFeatures';
+import { SLACK_SALES_BD_CHANNEL } from '../config/constants';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -31,13 +32,16 @@ router.post('/agency', async (req: Request, res: Response): Promise<void> => {
   }
 
   try {
-    const [tenant] = await db
-      .select({ id: tenants.id })
-      .from(tenants)
-      .where(eq(tenants.slug, DEFAULT_TENANT_SLUG))
-      .limit(1);
+    // Route-level tenant-feature gate (PR: tenant feature gating) — replaces
+    // the old hardcoded eq(tenants.slug, DEFAULT_TENANT_SLUG) lookup. Today
+    // only growth-escalators has the "crmAutomation" feature enabled (see
+    // tenantFeatures.ts PLAN_DEFAULTS), so this resolves to the exact same
+    // tenant as before and the response is unchanged for existing callers.
+    // A second tenant onboarding this generic lead-capture capability would
+    // now be picked up automatically — no code change needed here.
+    const tenant = await getSingleActiveTenantWithFeature('crmAutomation');
     if (!tenant) {
-      res.status(500).json({ error: 'tenant not configured' });
+      res.status(503).json({ error: 'agency lead intake is not enabled for any tenant' });
       return;
     }
 

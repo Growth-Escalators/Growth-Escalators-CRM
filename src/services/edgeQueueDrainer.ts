@@ -22,7 +22,7 @@
  */
 
 import { eq } from 'drizzle-orm';
-import { db, tenants, contacts, pool } from '../db/index';
+import { db, contacts, pool } from '../db/index';
 import { findOrCreateContact } from './contactService';
 import { sendSlackMessage } from './slackService';
 import {
@@ -30,7 +30,8 @@ import {
   recordPendingOrder,
   type CashfreeWebhookBody,
 } from './cashfreeEventProcessor';
-import { DEFAULT_TENANT_SLUG, SLACK_SALES_BD_CHANNEL } from '../config/constants';
+import { getSingleActiveTenantWithFeature } from './tenantFeatures';
+import { SLACK_SALES_BD_CHANNEL } from '../config/constants';
 import {
   getUpstashClient,
   QUEUE_STREAM,
@@ -169,7 +170,10 @@ async function handleEntry(id: string, fieldsFlat: string[]): Promise<void> {
   }
 }
 
-async function dispatch(event: QueueEvent): Promise<void> {
+// Exported so the tenant-resolution path (the 'lead'/'agency_lead' case) can
+// be exercised directly in tests without standing up the full Upstash
+// polling loop.
+export async function dispatch(event: QueueEvent): Promise<void> {
   switch (event.type) {
     case 'cashfree_event':
       await processCashfreeEvent(event.payload as CashfreeWebhookBody, {
@@ -202,7 +206,12 @@ async function dispatch(event: QueueEvent): Promise<void> {
         tags?: string[]; metadata?: Record<string, unknown>;
       };
       if (!p.name || !p.email) return;
-      const [tenant] = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.slug, DEFAULT_TENANT_SLUG)).limit(1);
+      // Tenant-feature-gated (PR: tenant feature gating) — replaces the old
+      // hardcoded eq(tenants.slug, DEFAULT_TENANT_SLUG) lookup. Today only
+      // growth-escalators has the "crmAutomation" feature enabled (see
+      // tenantFeatures.ts PLAN_DEFAULTS), so this resolves to the exact same
+      // tenant as before.
+      const tenant = await getSingleActiveTenantWithFeature('crmAutomation');
       if (!tenant) return;
 
       const cleanPhone = (p.phone || '').replace(/\D/g, '');
