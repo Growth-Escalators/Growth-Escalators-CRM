@@ -22,6 +22,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest --run --coverage",
     "build:all": "npm run client:build && npm run admin:build && npm run build",
+    "lint:tenant-scoping": "npx tsx scripts/lint-tenant-scoping.ts",
     "seo:doctor": "npx tsx scripts/seo-doctor.ts",
     "db:sizes": "npx tsx scripts/db-table-sizes.ts",
     "wizmatch:env-check": "npx tsx scripts/wizmatch-env-check.ts",

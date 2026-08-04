@@ -31,5 +31,8 @@ jobs:
       - name: Build (tsc)
         run: npm run build
 
+      - name: Tenant-scoping lint (cross-tenant IDOR guard)
+        run: npm run lint:tenant-scoping
+
       - name: Test + coverage thresholds (vitest)
         run: npm run test:coverage
