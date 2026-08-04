@@ -42,7 +42,7 @@ function wizmatchEntriesFromRegistry() {
     }));
 }
 
-export function computeFlags(role, perms = {}, tenantSlug = 'growth-escalators', staffingPhases = {}) {
+export function computeFlags(role, perms = {}, tenantSlug = 'growth-escalators', staffingPhases = {}, tenantFeatures = {}) {
   const isAdmin = role === 'admin';
   const isTeamLead = role === 'team_lead';
   const isAdminTier = isAdmin || isTeamLead;
@@ -79,7 +79,30 @@ export function computeFlags(role, perms = {}, tenantSlug = 'growth-escalators',
     // production. `isOwner` is included because it is part of the same
     // backend predicate and reaches the client in the /api/permissions/me
     // payload (the endpoint spreads the whole userPermissions row).
-    canBilling:    !!perms.billingView || !!perms.isOwner,
+    //
+    // `tenantFeatures.gstBilling !== false` layers the PLAN entitlement on
+    // top: `/api/billing` is also mounted behind
+    // `requireTenantFeature('gstBilling')` (src/index.ts), so a reseller/
+    // client tenant without that flag gets a 403 from every one of these
+    // endpoints regardless of role or grant. `!== false` (not `=== true`) is
+    // deliberate — tenantFeatures starts as `{}` before the
+    // /api/tenant-features/me fetch resolves (see admin/src/lib/
+    // tenantFeatures.js), and an unresolved fetch must never hide a nav
+    // entry that would otherwise be visible; only an explicit `false`
+    // (agency_internal's own default is `true` — PLAN_DEFAULTS in
+    // src/services/tenantFeatures.ts — so this is a no-op for GE's own
+    // tenant) hides it.
+    //
+    // wizmatch/seo/d2c do NOT get the same treatment here: as of this
+    // writing only `gstBilling` (/api/billing) and `wizmatch` (/api/wizmatch)
+    // are actually wired to requireTenantFeature (grep src/index.ts), and
+    // the wizmatch nav is already isolated by `product === 'wizmatch'` below
+    // — Wizmatch is its own tenant (wizmatch_internal), never a reseller's.
+    // seo/d2c back no route requireTenantFeature currently gates, so there is
+    // nothing to hide yet; add the same `!== false` pattern here if/when one
+    // of their routes gets a requireTenantFeature mount, rather than
+    // assuming this comment still covers it.
+    canBilling:    (!!perms.billingView || !!perms.isOwner) && tenantFeatures.gstBilling !== false,
     // Expenses (/finance) and Funnels (/funnels) used to ride on canBilling,
     // but their APIs (src/routes/finance.ts, src/routes/funnel.ts) carry NO
     // billingView check — they work for any authenticated admin, and /finance
@@ -296,8 +319,8 @@ export const NAV_ENTRIES = [
   },
 ];
 
-export function getVisibleEntries(role, perms, tenantSlug, staffingPhases) {
-  const flags = computeFlags(role, perms, tenantSlug, staffingPhases);
+export function getVisibleEntries(role, perms, tenantSlug, staffingPhases, tenantFeatures) {
+  const flags = computeFlags(role, perms, tenantSlug, staffingPhases, tenantFeatures);
   if (flags.product === 'wizmatch') {
     return wizmatchEntriesFromRegistry().filter(e => e.visible(flags));
   }
@@ -314,8 +337,8 @@ export const GROUP_LABELS = {
 
 // Find which collapsible group (if any) owns a given pathname.
 // Used by Sidebar's auto-expand-on-route logic.
-export function groupForPath(pathname, role, perms, tenantSlug, staffingPhases) {
-  const entries = getVisibleEntries(role, perms, tenantSlug, staffingPhases);
+export function groupForPath(pathname, role, perms, tenantSlug, staffingPhases, tenantFeatures) {
+  const entries = getVisibleEntries(role, perms, tenantSlug, staffingPhases, tenantFeatures);
   // Compare pathnames only. Some entries deep-link to a tab
   // (`/wizmatch/system?tab=sourcing`); a raw `pathname === e.to` can never
   // match one of those, so the group holding them never auto-expanded.

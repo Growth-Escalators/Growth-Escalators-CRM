@@ -7,7 +7,7 @@ import {
 import { GROUP_LABELS, getVisibleEntries } from './navEntries.js';
 import { closedStaffingPhases } from '../lib/staffingAccess.js';
 import { apiFetch, getPermissions, getUser, logout } from '../lib/api.js';
-import { getTenantSlug, productPath } from '../lib/auth.js';
+import { getTenantFeatureFlags, getTenantSlug, productPath } from '../lib/auth.js';
 import { safeLower } from '../lib/safe.js';
 
 // The single ⌘K surface. It used to be one of TWO competing palettes: the
@@ -133,11 +133,13 @@ export default function CommandPalette({ open, onClose, entries }) {
   const navEntries = useMemo(() => {
     if (entries) return entries;
     const user = getUser();
+    const slug = user?.tenantSlug || getTenantSlug();
     return getVisibleEntries(
       user?.role || 'staff',
       getPermissions(),
-      user?.tenantSlug || getTenantSlug(),
+      slug,
       closedStaffingPhases(),
+      getTenantFeatureFlags(slug),
     );
   }, [entries, open]); // eslint-disable-line react-hooks/exhaustive-deps -- re-read session on each open
 

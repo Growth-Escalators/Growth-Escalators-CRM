@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { logout, getUser, getPermissions, apiFetch } from '../lib/api.js';
-import { getTenantConfig, getTenantSlug } from '../lib/auth.js';
+import { getTenantConfig, getTenantFeatureFlags, getTenantSlug } from '../lib/auth.js';
 import { refreshTenantBranding } from '../lib/branding.js';
+import { refreshTenantFeatures } from '../lib/tenantFeatures.js';
 import { ChevronRight, Menu, X, Wrench, Receipt, Settings as SettingsIcon, MoreHorizontal } from 'lucide-react';
 import { GROUP_LABELS, getVisibleEntries, groupForPath } from './navEntries.js';
 import CommandPalette from './CommandPalette.jsx';
@@ -173,6 +174,7 @@ export default function Sidebar() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [staffingPhases, setStaffingPhases] = useState(closedStaffingPhases);
   const [, forceRerenderForBranding] = useState(0);
+  const [tenantFeatures, setTenantFeatures] = useState(() => getTenantFeatureFlags(tenantSlug));
 
   // `tenant` (above) reads branding from the localStorage cache synchronously
   // at render time via getTenantConfig — this effect's only job is to refresh
@@ -184,6 +186,20 @@ export default function Sidebar() {
     let cancelled = false;
     refreshTenantBranding().then((branding) => {
       if (!cancelled && branding) forceRerenderForBranding((n) => n + 1);
+    });
+    return () => { cancelled = true; };
+  }, [tenantSlug]);
+
+  // Same shape as the branding effect above, for the tenant's feature-flag
+  // entitlements (navEntries.js's canBilling etc). `tenantFeatures` state
+  // seeds synchronously from cache (getTenantFeatureFlags) so a returning
+  // tenant's nav is correct on first paint; this refreshes it from the server
+  // in case the cache is stale or this is the first session on this device.
+  useEffect(() => {
+    let cancelled = false;
+    setTenantFeatures(getTenantFeatureFlags(tenantSlug));
+    refreshTenantFeatures().then((features) => {
+      if (!cancelled && features) setTenantFeatures(features);
     });
     return () => { cancelled = true; };
   }, [tenantSlug]);
@@ -209,8 +225,8 @@ export default function Sidebar() {
   }, [tenantSlug, perms.staffingPilotAccess]);
 
   const visible = useMemo(
-    () => getVisibleEntries(role, perms, tenantSlug, staffingPhases),
-    [role, perms, tenantSlug, staffingPhases],
+    () => getVisibleEntries(role, perms, tenantSlug, staffingPhases, tenantFeatures),
+    [role, perms, tenantSlug, staffingPhases, tenantFeatures],
   );
 
   // Sidebar renders on every authenticated page, so anything it polls is a
@@ -276,7 +292,7 @@ export default function Sidebar() {
   // Auto-expand group containing the active route. Re-runs on nav so Cmd+K
   // jumps into a closed group still open the right one.
   useEffect(() => {
-    const target = groupForPath(location.pathname, role, perms, tenantSlug, staffingPhases);
+    const target = groupForPath(location.pathname, role, perms, tenantSlug, staffingPhases, tenantFeatures);
     if (!target) return;
     setOpenGroups(prev => {
       if (prev[target]) return prev;
@@ -284,7 +300,7 @@ export default function Sidebar() {
       writeStoredGroups(next);
       return next;
     });
-  }, [location.pathname, role, perms, tenantSlug, staffingPhases]);
+  }, [location.pathname, role, perms, tenantSlug, staffingPhases, tenantFeatures]);
 
   // Cmd+K / Ctrl+K command palette
   useEffect(() => {
