@@ -143,6 +143,10 @@ export async function requirePlatformSuperadmin(req: Request, res: Response, nex
     return;
   }
   try {
+    // tenant-scoping-lint-ignore-next-line — filters by users.id, the primary
+    // key: globally unique regardless of tenant, so no additional tenant_id
+    // predicate can narrow this further. This check is intentionally
+    // tenant-agnostic (see the comment block above this function).
     const [row] = await db
       .select({ isPlatformSuperadmin: users.isPlatformSuperadmin })
       .from(users)

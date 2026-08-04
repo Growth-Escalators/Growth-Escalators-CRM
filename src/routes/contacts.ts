@@ -268,10 +268,15 @@ router.post('/:id/notes', async (req, res) => {
 // ---------------------------------------------------------------------------
 router.patch('/:id/notes/:noteId', async (req, res) => {
   try {
-  const { noteId } = req.params;
+  const { id, noteId } = req.params;
+  const tenantId = req.user!.tenantId;
   const { content } = req.body;
   if (!content) { res.status(400).json({ error: 'content is required' }); return; }
-  const [updated] = await db.update(contactNotes).set({ content, updatedAt: new Date() }).where(eq(contactNotes.id, noteId)).returning();
+  // Scope by contact + tenant as well as note id — otherwise noteId alone lets
+  // any authenticated user of ANY tenant edit another tenant's note.
+  const [updated] = await db.update(contactNotes).set({ content, updatedAt: new Date() })
+    .where(and(eq(contactNotes.id, noteId), eq(contactNotes.contactId, id), eq(contactNotes.tenantId, tenantId)))
+    .returning();
   if (!updated) { res.status(404).json({ error: 'note not found' }); return; }
   res.json(updated);
   } catch (e: unknown) {
@@ -286,7 +291,13 @@ router.patch('/:id/notes/:noteId', async (req, res) => {
 router.delete('/:id/notes/:noteId', async (req, res) => {
   try {
   const { id, noteId } = req.params;
-  await db.delete(contactNotes).where(and(eq(contactNotes.id, noteId), eq(contactNotes.contactId, id)));
+  const tenantId = req.user!.tenantId;
+  // Scope by tenant too — otherwise noteId (+ contactId) alone lets any
+  // authenticated user of ANY tenant delete another tenant's note.
+  const deleted = await db.delete(contactNotes)
+    .where(and(eq(contactNotes.id, noteId), eq(contactNotes.contactId, id), eq(contactNotes.tenantId, tenantId)))
+    .returning();
+  if (deleted.length === 0) { res.status(404).json({ error: 'note not found' }); return; }
   res.json({ deleted: true });
   } catch (e: unknown) {
     logger.error('[contacts] DELETE /:id/notes/:noteId error:', e);
@@ -351,6 +362,17 @@ router.get('/:id', async (req, res) => {
 router.get('/:id/channels', async (req, res) => {
   try {
   const { id } = req.params;
+  const tenantId = req.user!.tenantId;
+
+  // Verify the contact belongs to the caller's tenant before returning its
+  // channels — same "verify parent, then act by id" convention as GET /:id.
+  const [owner] = await db.select({ id: contacts.id }).from(contacts)
+    .where(and(eq(contacts.id, id), eq(contacts.tenantId, tenantId))).limit(1);
+  if (!owner) {
+    res.status(404).json({ error: 'contact not found' });
+    return;
+  }
+
   const channels = await db.select().from(contactChannels).where(eq(contactChannels.contactId, id));
   res.json({ channels });
   } catch (e: unknown) {
@@ -393,6 +415,7 @@ router.post('/', async (req, res) => {
 router.patch('/:id', async (req, res) => {
   try {
   const { id } = req.params;
+  const tenantId = req.user!.tenantId;
   const {
     status,
     score,
@@ -408,6 +431,16 @@ router.patch('/:id', async (req, res) => {
     lastContactedAt,
     lastActivityAt,
   } = req.body;
+
+  // Verify the contact belongs to the caller's tenant before mutating it —
+  // otherwise `id` alone lets any authenticated user of ANY tenant edit
+  // another tenant's contact. Same convention as deals.ts's PATCH /:id.
+  const existing = await db.select({ id: contacts.id }).from(contacts)
+    .where(and(eq(contacts.id, id), eq(contacts.tenantId, tenantId))).limit(1);
+  if (existing.length === 0) {
+    res.status(404).json({ error: 'contact not found' });
+    return;
+  }
 
   const updates: Partial<typeof contacts.$inferInsert> = { updatedAt: new Date() };
   if (status !== undefined) updates.status = status;
