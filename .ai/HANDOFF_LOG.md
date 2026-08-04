@@ -5223,3 +5223,74 @@ code). Zero new failures.
 **Conflicts flagged in the PR:** likely conflicts with unmerged PRs #109 (`src/index.ts`) and
 #111 (`src/routes/webhooks.ts`) since none of the Phase-0 PRs are merged yet — recommend merging
 those first and rebasing this on top. **Not merged by this session** — awaiting Jatin's review.
+
+---
+
+## 2026-08-04 — Route-level enforcement of `getTenantFeatures()` for wizmatch/gstBilling (branch `feat/tenant-feature-route-enforcement`)
+
+Follow-up to PR #115 above, which is now merged to `main` (`546507d1`) — `getTenantFeatures()` had
+zero HTTP call sites until this change; only cron helpers consulted it. This PR adds real
+route-level enforcement so a tenant whose plan turns a feature off can no longer successfully call
+that feature's routes at all (not a cross-tenant leak either way — every route already scopes its
+DB queries by `req.user.tenantId` — but the plan entitlement itself was unenforced).
+
+**What shipped:** `src/middleware/requireTenantFeature.ts` (new file — deliberately NOT added to
+`src/middleware/auth.ts` or `rbac.ts`, both guardrail paths) exports
+`requireTenantFeature(feature: keyof TenantFeatureFlags)`, an Express middleware that reads
+`req.user.tenantId`, calls `getTenantFeatures()`, and 403s with
+`{ error: 'feature_not_enabled', message }` when the flag resolves false; fails closed (403, not
+500) if the tenant lookup throws. Mounted in `src/index.ts`: `/api/billing` (GST invoicing —
+clients/invoices/retainers/MRR, confirmed by reading `billing.ts` route-by-route; distinct from
+the newer `/api/subscriptions` pluggable-gateway billing, which is NOT gated by this) now requires
+`gstBilling`. `/api/wizmatch` now requires `wizmatch`, wired as ONE additional, separate
+`app.use('/api/wizmatch', requireAuth, requireTenantFeature('wizmatch'))` inserted right after the
+internal-ingest/public-unsubscribe short-circuit and before the seven existing role-gated router
+mounts — deliberately NOT folded into any of those seven mount lines, because their exact text is
+pinned verbatim by `wizmatchIndexMountOrder.test.ts` and `wizmatchPilotGateOnOutreachRouter.test.ts`
+(M-1/M-3 regression guards); editing them in place would have desynced those needles for no
+behavioural gain, since Express treats sequential same-path `app.use` calls as one chain.
+
+**`d2c` deliberately NOT gated:** exhaustively grepped (`src/index.ts` mounts, all of `src/routes/`,
+literal `/d2c` path segments) — there is no D2C-specific backend HTTP route group. D2C/ecom lives
+on Vercel (`ecom.growthescalators.com`) + Cashfree edge functions + the Upstash/Railway drainer;
+the only `d2c` references in this repo are a `metadata.segment` tag shared by generic CRM routes
+(contacts/deals/pipelines) that serve every tenant/segment identically. Gating those would have
+broken a tenant's non-D2C data through the same routes. Left as-is; flagged in the PR body.
+
+**CRITICAL SAFETY FINDING, verified before wiring anything:** the task's working assumption was
+that growth-escalators (GE's own tenant) needs `wizmatch`/`gstBilling`/`d2c` all on. Investigation
+(reading `tenantFeatures.ts`'s `PLAN_DEFAULTS`, `tenantFeatures.test.ts`, `src/db/seed.ts`,
+`src/scripts/createWizmatchAdmin.ts`, and `auth.ts`'s H-1 comment) showed this is only 2/3 true:
+growth-escalators (`agency_internal` plan) has `gstBilling`/`d2c` on but **`wizmatch` off, by
+design** — Wizmatch automation/admin runs under a SEPARATELY PROVISIONED tenant (`wizmatch_internal`
+plan, slug `wizmatch`), with its own dedicated admin login created by `createWizmatchAdmin.ts`
+(same email, e.g. `jatin@growthescalators.com`, but a DIFFERENT user row under a different
+`tenant_id` — `users.tenant_id` is one-tenant-per-account, no multi-tenant membership join table).
+`auth.ts`'s H-1 comment independently corroborates this: "both pilot operators hold accounts in
+two of them [tenants]." This is pre-existing, tested, documented architecture (`tenantFeatures.test.ts`
+already pins `agency_internal` → `wizmatch: false` as "matches today"), not something this PR
+changes — enforcing it via `requireTenantFeature('wizmatch')` on `/api/wizmatch` is therefore safe
+and correct: real GE Wizmatch traffic authenticates as the `wizmatch_internal` tenant, not
+`growth-escalators`. Pinned as a test, not just a comment — see below.
+
+**Tests added:** `src/__tests__/requireTenantFeature.test.ts` (5 tests — unit-level: 401 without
+`req.user`, allow-through when the flag is true, 403 with the documented body when false, fails
+closed on a thrown lookup, and confirms it checks the exact feature key it was configured with).
+`src/__tests__/tenantFeatureRouteEnforcement.test.ts` (5 tests — end-to-end against the REAL
+`getTenantFeatures`/`computeTenantFeatures` plan-default table, DB mocked per-tenant): a
+`reseller_pilot` tenant 403s on both `/api/wizmatch` and `/api/billing`; the `wizmatch_internal`
+tenant (real Wizmatch production traffic) gets a normal 200 on `/api/wizmatch`; growth-escalators
+(`agency_internal`) gets a normal 200 on `/api/billing` (gstBilling control); and — the safety
+finding above, pinned as a regression guard — growth-escalators also 403s on `/api/wizmatch`,
+explicitly documented in the test as intended behaviour, not a bug.
+
+**Gates:** `npm run build` exit 0. `npm test`: 189 files / 2422 tests, all passing (0 pre-existing
+failures once `admin/` deps were installed in this environment — 4 suites needed a separate
+`npm install` inside `admin/` for `lucide-react`; confirmed via `git stash` that those 4 failures
+existed before this change too and are an environment gap, not a regression).
+
+**Not done / explicitly out of scope per the task:** `crmAutomation`/`seo` route-level gating (no
+clean single route-group mapping was investigated — task scope was wizmatch/gstBilling/d2c only).
+No change to `/api/subscriptions` (separate, newer pluggable-gateway billing feature — not
+`gstBilling`). **Not merged by this session** — opened as a PR, awaiting Jatin's review; no
+deploy, no production data touched.

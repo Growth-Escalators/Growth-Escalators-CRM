@@ -92,6 +92,7 @@ import contractsWebhookRouter from './modules/esign/esign.webhook.routes';
 import { requireAuth, requireStrictAuth, optionalAuth, verifyAuthTokenForHandshake } from './middleware/auth';
 import { contactBelongsToTenant } from './services/socketAuth';
 import { requireRole } from './middleware/rbac';
+import { requireTenantFeature } from './middleware/requireTenantFeature';
 import { validateEnv } from './config/env';
 import { serializeError, HttpError } from './utils/errors';
 import logger from './utils/logger';
@@ -312,7 +313,11 @@ app.use('/api/system', systemHealthRouter);
 app.use('/api/email-templates', requireAuth, emailTemplatesRouter);
 app.use('/api/capi', requireAuth, capiRouter);
 app.use('/api/blockers', requireAuth, blockersRouter);
-app.use('/api/billing', requireStrictAuth, billingRouter);
+// gstBilling entitlement (src/services/tenantFeatures.ts) — GST invoicing
+// (clients, invoices, retainers, MRR) is a Growth-Escalators-internal
+// billing surface; a reseller-pilot or client tenant has no reason to reach
+// it. See requireTenantFeature.ts for the fail-closed contract.
+app.use('/api/billing', requireStrictAuth, requireTenantFeature('gstBilling'), billingRouter);
 app.use('/api/subscriptions', requireAuth, subscriptionsRouter);
 app.use('/api/permissions', requireStrictAuth, permissionsRouter);
 app.use('/api/tenant-branding', requireStrictAuth, tenantBrandingRouter);
@@ -386,6 +391,23 @@ app.use('/api/wizmatch', (req, res, next) => {
   if (isInternalIngest || isPublicUnsubscribe) return wizmatchRouter(req, res, next);
   next();
 });
+// `wizmatch` tenant-feature entitlement (src/services/tenantFeatures.ts).
+// Deliberately a SEPARATE, ADDITIVE `app.use` rather than folded into any of
+// the seven router mounts below: those exact `app.use('/api/wizmatch', ...)`
+// strings are pinned verbatim by wizmatchIndexMountOrder.test.ts and
+// wizmatchPilotGateOnOutreachRouter.test.ts (regression guards for the M-1/M-3
+// mount-order fixes) — editing them in place would desync those needles from
+// the real file without changing anything they actually guard against. This
+// mount runs once, for every request that fell through the internal-ingest/
+// public-unsubscribe short-circuit above (i.e. every browser-JWT request),
+// before any of the seven role-gated mounts below — so a tenant without
+// `wizmatch` gets a uniform 403 regardless of which of those routers would
+// otherwise have served the path. Does NOT run for the internal-ingest or
+// public-unsubscribe lanes (matched request never reaches here, same
+// reasoning as those two carve-outs), which is correct: internal ingest
+// authenticates via a shared service token, not a tenant-scoped JWT, and has
+// no `req.user` for requireTenantFeature to read.
+app.use('/api/wizmatch', requireAuth, requireTenantFeature('wizmatch'));
 // Gate A operational endpoints are isolated from legacy send/spend routes. Recruiter-level
 // operators can use My Work and staffing relationships without gaining access to outreach,
 // provider or other admin mutations. Viewer remains read-only through requireAuth.
