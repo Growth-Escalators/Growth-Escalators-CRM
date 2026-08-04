@@ -34,6 +34,7 @@ import systemHealthRouter from './routes/systemHealth';
 import emailTemplatesRouter from './routes/emailTemplates';
 import capiRouter from './routes/capi';
 import blockersRouter from './routes/blockers';
+import onboardingRouter from './routes/onboarding';
 import billingRouter from './routes/billing';
 import permissionsRouter from './routes/permissions';
 import tenantBrandingRouter from './routes/tenantBranding';
@@ -313,6 +314,7 @@ app.use('/api/system', systemHealthRouter);
 app.use('/api/email-templates', requireAuth, emailTemplatesRouter);
 app.use('/api/capi', requireAuth, capiRouter);
 app.use('/api/blockers', requireAuth, blockersRouter);
+app.use('/api/onboarding', requireAuth, onboardingRouter);
 // gstBilling entitlement (src/services/tenantFeatures.ts) — GST invoicing
 // (clients, invoices, retainers, MRR) is a Growth-Escalators-internal
 // billing surface; a reseller-pilot or client tenant has no reason to reach
