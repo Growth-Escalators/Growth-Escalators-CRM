@@ -2,8 +2,33 @@ import { Router, type Request, type Response } from 'express';
 import { db, billingClients, userPermissions } from '../db/index';
 import { eq, and, isNotNull } from 'drizzle-orm';
 import PDFDocument from 'pdfkit';
+import { getTenantDocumentIdentity, GENERIC_DEFAULT_BRANDING } from '../services/tenantBrandingDefaults';
 
 const router = Router();
+
+// What these report PDFs need of a tenant's identity — deliberately lighter
+// than billing.ts's invoice gate: a report is a lower-stakes marketing
+// document, not a tax/money document, so it never blocks generation. A
+// tenant with nothing configured falls back to their own existing
+// tenant_branding.displayName (already always populated — "Client
+// Workspace" at worst) and simply omits the website/contact footer lines —
+// never to Growth Escalators' identity.
+export interface ReportBrand {
+  displayName: string;
+  website: string | null;
+  supportEmail: string | null;
+  supportPhone: string | null;
+}
+
+export async function getReportBrand(tenantId: string): Promise<ReportBrand> {
+  const identity = await getTenantDocumentIdentity(tenantId);
+  return {
+    displayName: identity?.displayName || GENERIC_DEFAULT_BRANDING.displayName,
+    website: identity?.website ?? null,
+    supportEmail: identity?.supportEmail ?? null,
+    supportPhone: identity?.supportPhone ?? null,
+  };
+}
 
 const META_API_BASE = 'https://graph.facebook.com/v19.0';
 
@@ -294,9 +319,10 @@ router.post('/send-pdf', async (req: Request, res: Response) => {
     if (!client) { res.status(404).json({ error: 'client not found' }); return; }
 
     const { start, end } = weekRange(weekOf);
-    const [adMetrics, completedTasks] = await Promise.all([
+    const [adMetrics, completedTasks, brand] = await Promise.all([
       client.metaAdAccountId ? fetchWeeklyAdMetrics(client.metaAdAccountId, weekOf) : Promise.resolve(null),
       fetchCompletedTasksForWeek(weekOf, tenantId),
+      getReportBrand(tenantId),
     ]);
 
     // Fetch benchmark + agency avg + trends for PDF
@@ -310,6 +336,7 @@ router.post('/send-pdf', async (req: Request, res: Response) => {
       agencyAvg: pdfExtra.agencyAvg,
       aiRecommendations: pdfExtra.aiRecommendations,
       trends: pdfExtra.trends,
+      brand,
     });
 
     // Send via WhatsApp if client has phone number
@@ -387,9 +414,10 @@ router.get('/pdf', async (req: Request, res: Response) => {
     if (!client) { res.status(404).json({ error: 'client not found' }); return; }
 
     const { start, end } = weekRange(weekOf);
-    const [adMetrics, completedTasks] = await Promise.all([
+    const [adMetrics, completedTasks, brand] = await Promise.all([
       client.metaAdAccountId ? fetchWeeklyAdMetrics(client.metaAdAccountId, weekOf) : Promise.resolve(null),
       fetchCompletedTasksForWeek(weekOf, tenantId),
+      getReportBrand(tenantId),
     ]);
 
     // Fetch benchmark + agency avg + trends for PDF
@@ -402,6 +430,7 @@ router.get('/pdf', async (req: Request, res: Response) => {
       agencyAvg: pdfExtra.agencyAvg,
       aiRecommendations: pdfExtra.aiRecommendations,
       trends: pdfExtra.trends,
+      brand,
     });
 
     res.setHeader('Content-Type', 'application/pdf');
@@ -527,7 +556,7 @@ Return ONLY a JSON array of 3 strings. No other text.`
 // ---------------------------------------------------------------------------
 // PDF generation helper
 // ---------------------------------------------------------------------------
-interface ReportData {
+export interface ReportData {
   client: Record<string, unknown>;
   weekOf: string;
   weekStart: Date;
@@ -538,6 +567,7 @@ interface ReportData {
   agencyAvg?: Record<string, unknown> | null;
   aiRecommendations?: string[];
   trends?: Record<string, string | null>;
+  brand: ReportBrand;
 }
 
 function trendArrow(trend: string | null | undefined): string {
@@ -547,7 +577,7 @@ function trendArrow(trend: string | null | undefined): string {
   return '';
 }
 
-function generateReportPDF(data: ReportData): Promise<Buffer> {
+export function generateReportPDF(data: ReportData): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 50 });
     const buffers: Buffer[] = [];
@@ -556,15 +586,18 @@ function generateReportPDF(data: ReportData): Promise<Buffer> {
     doc.on('error', reject);
 
     const { client, weekOf, weekStart, weekEnd, adMetrics, completedTasks,
-            benchmark, agencyAvg, aiRecommendations, trends } = data;
+            benchmark, agencyAvg, aiRecommendations, trends, brand } = data;
     const clientName = String(client.name || '');
     const dateStr = `${weekStart.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} – ${weekEnd.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`;
 
-    // Header
+    // Header — tenant-driven (brand.displayName/website; never Growth
+    // Escalators' own identity for another tenant, see getReportBrand).
     doc.rect(0, 0, 595, 80).fill('#0f172a');
-    doc.fontSize(22).fillColor('#ffffff').text('Growth Escalators', 50, 20);
+    doc.fontSize(22).fillColor('#ffffff').text(brand.displayName, 50, 20);
     doc.fontSize(10).fillColor('#94a3b8').text('Weekly Performance Report', 50, 48);
-    doc.fillColor('#f97316').text('growthescalators.com', 50, 62);
+    if (brand.website) {
+      doc.fillColor('#f97316').text(brand.website, 50, 62);
+    }
 
     doc.moveDown(4);
 
@@ -684,9 +717,12 @@ function generateReportPDF(data: ReportData): Promise<Buffer> {
       });
     }
 
-    // Footer
+    // Footer — tenant-driven; joins only the parts that are actually
+    // configured, so a tenant that hasn't set a support email/phone gets a
+    // shorter line instead of literal "null"s.
     doc.moveTo(50, 760).lineTo(545, 760).strokeColor('#e2e8f0').stroke();
-    doc.fontSize(9).fillColor('#94a3b8').text('Growth Escalators | jatin@growthescalators.com | +91 77338 88883', 50, 770, { align: 'center', width: 495 });
+    const footerLine = [brand.displayName, brand.supportEmail, brand.supportPhone].filter(Boolean).join(' | ');
+    doc.fontSize(9).fillColor('#94a3b8').text(footerLine, 50, 770, { align: 'center', width: 495 });
 
     doc.end();
   });
@@ -877,15 +913,16 @@ router.get('/monthly-pdf', async (req: Request, res: Response) => {
     if (!client) { res.status(404).json({ error: 'client not found' }); return; }
 
     const { start, end } = monthRange(month);
-    const [adMetrics, seoSummary, billing] = await Promise.all([
+    const [adMetrics, seoSummary, billing, brand] = await Promise.all([
       client.metaAdAccountId ? fetchMonthlyAdMetrics(client.metaAdAccountId, month) : Promise.resolve(null),
       fetchMonthlySeoSummary(client.name, month, tenantId),
       fetchMonthlyBilling(clientId, tenantId, month),
+      getReportBrand(tenantId),
     ]);
 
     const pdfBuffer = await generateMonthlyReportPDF({
       client, month, monthStart: start, monthEnd: end,
-      adMetrics, seo: seoSummary, billing,
+      adMetrics, seo: seoSummary, billing, brand,
     });
 
     const monthLabel = start.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
@@ -900,7 +937,7 @@ router.get('/monthly-pdf', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // Monthly report PDF generation
 // ---------------------------------------------------------------------------
-interface MonthlyReportData {
+export interface MonthlyReportData {
   client: Record<string, unknown>;
   month: string;
   monthStart: Date;
@@ -920,9 +957,10 @@ interface MonthlyReportData {
     invoiceCount: number;
     retainerPaise: number;
   } | null;
+  brand: ReportBrand;
 }
 
-function generateMonthlyReportPDF(data: MonthlyReportData): Promise<Buffer> {
+export function generateMonthlyReportPDF(data: MonthlyReportData): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 50 });
     const buffers: Buffer[] = [];
@@ -930,16 +968,19 @@ function generateMonthlyReportPDF(data: MonthlyReportData): Promise<Buffer> {
     doc.on('end', () => resolve(Buffer.concat(buffers)));
     doc.on('error', reject);
 
-    const { client, month, monthStart, monthEnd, adMetrics, seo, billing } = data;
+    const { client, month, monthStart, monthEnd, adMetrics, seo, billing, brand } = data;
     const clientName = String(client.name || '');
     const monthLabel = monthStart.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
     const fmtINR = (paise: number) => `₹${Math.round(paise / 100).toLocaleString('en-IN')}`;
 
-    // Header
+    // Header — tenant-driven (brand.displayName/website; never Growth
+    // Escalators' own identity for another tenant, see getReportBrand).
     doc.rect(0, 0, 595, 80).fill('#0f172a');
-    doc.fontSize(22).fillColor('#ffffff').text('Growth Escalators', 50, 20);
+    doc.fontSize(22).fillColor('#ffffff').text(brand.displayName, 50, 20);
     doc.fontSize(10).fillColor('#94a3b8').text('Monthly Performance Report', 50, 48);
-    doc.fillColor('#f97316').text('growthescalators.com', 50, 62);
+    if (brand.website) {
+      doc.fillColor('#f97316').text(brand.website, 50, 62);
+    }
 
     // Client + Month
     doc.fontSize(16).fillColor('#0f172a').text(clientName, 50, 100);
@@ -1043,9 +1084,12 @@ function generateMonthlyReportPDF(data: MonthlyReportData): Promise<Buffer> {
       doc.fontSize(11).fillColor('#94a3b8').text('No invoices for this month.', 50, doc.y);
     }
 
-    // Footer
+    // Footer — tenant-driven; joins only the parts that are actually
+    // configured, so a tenant that hasn't set a support email/phone gets a
+    // shorter line instead of literal "null"s.
     doc.moveTo(50, 760).lineTo(545, 760).strokeColor('#e2e8f0').stroke();
-    doc.fontSize(9).fillColor('#94a3b8').text('Growth Escalators | jatin@growthescalators.com | +91 77338 88883', 50, 770, { align: 'center', width: 495 });
+    const footerLine = [brand.displayName, brand.supportEmail, brand.supportPhone].filter(Boolean).join(' | ');
+    doc.fontSize(9).fillColor('#94a3b8').text(footerLine, 50, 770, { align: 'center', width: 495 });
 
     doc.end();
   });

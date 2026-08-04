@@ -218,6 +218,12 @@ describe('PR 8B scope boundary — PR 9/10 must not have started', () => {
       + 'subscription state (status, provider, renewal date) — no outreach, sequence, reply, or '
       + 'Smartlead/reply-ingestion data of any kind. Renumbered from 0040 to 0043 during merge — '
       + '0040/0041/0042 were already claimed. Unrelated to PR 9/10 (Smartlead / reply ingestion).',
+    44: 'tenant_branding legal/financial identity columns — reseller-readiness fix so a white-label '
+      + 'tenant\'s own invoices/reports render its own legal name, registered address, tax ID, and bank '
+      + 'details instead of Growth Escalators\' (owner-approved). Additive ADD COLUMN only (ten nullable '
+      + 'text columns on the existing tenant_branding table); no ALTER of any other table, no new table. '
+      + 'Carries no outreach, sequence, reply, or Smartlead/reply-ingestion data of any kind. Unrelated '
+      + 'to PR 9/10 (Smartlead / reply ingestion).',
   };
 
   it('every migration past 0037 is in the reviewed out-of-scope allowlist', () => {

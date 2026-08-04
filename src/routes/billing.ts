@@ -13,8 +13,35 @@ import { getNextInvoiceNumber, peekNextInvoiceNumber } from '../services/invoice
 import { amountInWords } from '../services/amountInWordsService';
 import { generateInvoicePDF, type InvoiceData } from '../services/pdfService';
 import { generateMonthlyDraftInvoices } from '../services/recurringInvoiceService';
+import {
+  getTenantDocumentIdentity,
+  isBillingIdentityConfigured,
+  type TenantDocumentIdentity,
+} from '../services/tenantBrandingDefaults';
 
 const router = Router();
+
+// A tenant with no (or incomplete) billing identity configured must not
+// silently inherit Growth Escalators' identity on a client-facing invoice —
+// that was the actual bug. Block with a clear, actionable error instead.
+function billingIdentityError(requireGstBankDetails: boolean): string {
+  return requireGstBankDetails
+    ? 'Configure your billing details (legal entity name, registered address, GSTIN, and bank details) in Settings → Branding before generating a GST invoice.'
+    : 'Configure your billing details (legal entity name and registered address) in Settings → Branding before generating invoices.';
+}
+
+// Minimal HTML-escaping for the invoice email — legalEntityName/bankName/etc.
+// are tenant-owner-entered free text that now gets interpolated into an HTML
+// email sent to that tenant's own client, so it must be escaped like any
+// other user-controlled string rendered into HTML.
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 // ---------------------------------------------------------------------------
 // Permission helper
@@ -288,6 +315,17 @@ router.post('/invoices', async (req: Request, res: Response) => {
     const effectiveTaxType = taxType ?? client.taxType;
     const tax = calcTax(subtotal, effectiveTaxType, discount.discountAmount);
     const effectiveInvoiceType: 'gst' | 'non_gst' = invoiceType ?? (client.isGst ? 'gst' : 'non_gst');
+
+    // Block before burning an invoice number: a tenant with no (or
+    // incomplete) billing identity configured must not generate an invoice
+    // that would go on to render Growth Escalators' identity (or nothing at
+    // all) at PDF/email time — see isBillingIdentityConfigured.
+    const billingIdentity = await getTenantDocumentIdentity(tenantId);
+    if (!isBillingIdentityConfigured(billingIdentity, { requireGstBankDetails: effectiveInvoiceType === 'gst' })) {
+      res.status(422).json({ error: billingIdentityError(effectiveInvoiceType === 'gst') });
+      return;
+    }
+
     const { number, series, financialYear } = await getNextInvoiceNumber(tenantId, effectiveInvoiceType);
     const words = amountInWords(tax.total);
 
@@ -317,7 +355,9 @@ router.post('/invoices', async (req: Request, res: Response) => {
       clientGstin: client.gstin,
       clientState: client.state,
       clientStateCode: client.stateCode,
-      companyGstin: process.env.COMPANY_GSTIN ?? '08DRYPA4899F2ZZ',
+      // A point-in-time snapshot of the tenant's own GSTIN, not Growth
+      // Escalators' — billingIdentity is already confirmed configured above.
+      companyGstin: billingIdentity!.gstin,
       taxType: effectiveTaxType,
       serviceDescription: serviceDescription || client.serviceDescription,
       sacCode: client.sacCode ?? '9983',
@@ -494,17 +534,46 @@ router.post('/invoices/:id/send', async (req: Request, res: Response) => {
     // Send via Brevo if configured
     const brevoKey = process.env.BREVO_API_KEY;
     if (brevoKey && client?.email) {
+      // Resolved live from this tenant's own tenant_branding row — a tenant
+      // with nothing (or, for a GST invoice, incomplete) billing identity
+      // configured must not send a client email that renders Growth
+      // Escalators' name/bank details, so block instead.
+      const billingIdentity = await getTenantDocumentIdentity(tenantId);
+      const requireGstBankDetails = inv.invoiceType === 'gst';
+      if (!isBillingIdentityConfigured(billingIdentity, { requireGstBankDetails, requireSupportEmail: true })) {
+        res.status(422).json({
+          error: `${billingIdentityError(requireGstBankDetails)} A support email is also required as the sender address.`,
+        });
+        return;
+      }
+      const identity = billingIdentity as TenantDocumentIdentity;
+      const legalName = escapeHtml(identity.legalEntityName!);
+
       const itemsHtml = lineItems.map(li =>
-        `<tr><td style="padding:8px;border:1px solid #e2e8f0">${li.description}</td><td style="padding:8px;border:1px solid #e2e8f0;text-align:right">₹${((li.amount ?? 0) / 100).toLocaleString('en-IN')}</td></tr>`
+        `<tr><td style="padding:8px;border:1px solid #e2e8f0">${escapeHtml(li.description)}</td><td style="padding:8px;border:1px solid #e2e8f0;text-align:right">₹${((li.amount ?? 0) / 100).toLocaleString('en-IN')}</td></tr>`
       ).join('');
+
+      // Non-GST tenants aren't required to have bank details configured
+      // (mirrors src/services/pdfService.ts, which only ever renders a bank
+      // block for invoiceType='gst') — omit the block entirely rather than
+      // print blank/undefined values.
+      const bankHtml = identity.bankAccountNumber
+        ? `<div style="margin:16px 0;padding:12px;background:#f0fdf4;border-radius:8px">
+              <p style="margin:0;font-size:14px"><strong>Bank Details:</strong></p>
+              <p style="margin:4px 0;font-size:13px">Account: ${escapeHtml(identity.bankAccountNumber)} | IFSC: ${escapeHtml(identity.bankIfsc ?? '')} | ${legalName}</p>
+            </div>`
+        : '';
+      const gstinHtml = identity.gstin
+        ? `<p style="font-size:12px;color:#94a3b8;margin-top:24px">GSTIN: ${escapeHtml(identity.gstin)}</p>`
+        : '';
 
       const html = `
         <div style="font-family:Inter,sans-serif;max-width:600px;margin:0 auto">
           <div style="background:#1B2E5E;color:white;padding:20px;text-align:center;border-radius:8px 8px 0 0">
-            <h2 style="margin:0">Growth Escalators</h2>
+            <h2 style="margin:0">${legalName}</h2>
           </div>
           <div style="padding:24px;border:1px solid #e2e8f0;border-top:none">
-            <p>Dear ${client.contactPerson || client.name},</p>
+            <p>Dear ${escapeHtml(client.contactPerson || client.name)},</p>
             <p>Please find your invoice details below:</p>
             <table style="width:100%;margin:16px 0">
               <tr><td><strong>Invoice #:</strong></td><td>${inv.invoiceNumber}</td></tr>
@@ -517,11 +586,8 @@ router.post('/invoices/:id/send', async (req: Request, res: Response) => {
               <tr style="font-weight:bold"><td style="padding:8px;border:1px solid #e2e8f0">Total</td><td style="padding:8px;border:1px solid #e2e8f0;text-align:right">₹${(inv.totalAmount / 100).toLocaleString('en-IN')}</td></tr>
             </table>
             <p style="font-size:14px;color:#64748b">Amount in words: ${inv.amountInWords || ''}</p>
-            <div style="margin:16px 0;padding:12px;background:#f0fdf4;border-radius:8px">
-              <p style="margin:0;font-size:14px"><strong>Bank Details:</strong></p>
-              <p style="margin:4px 0;font-size:13px">Account: ${process.env.GE_BANK_ACCOUNT ?? '3617 0500 1178'} | IFSC: ${process.env.GE_BANK_IFSC ?? 'ICIC0003617'} | Growth Escalators</p>
-            </div>
-            <p style="font-size:12px;color:#94a3b8;margin-top:24px">GSTIN: ${process.env.COMPANY_GSTIN ?? '08DRYPA4899F2ZZ'}</p>
+            ${bankHtml}
+            ${gstinHtml}
           </div>
         </div>`;
 
@@ -530,9 +596,16 @@ router.post('/invoices/:id/send', async (req: Request, res: Response) => {
         headers: { 'api-key': brevoKey, 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(15000),
         body: JSON.stringify({
-          sender: { name: 'Growth Escalators', email: 'jatin@growthescalators.com' },
+          // Sender name + address reflect the tenant's own identity
+          // (requireSupportEmail above guarantees supportEmail is set —
+          // never falls back to Growth Escalators' address). Note this
+          // still routes through GE's shared Brevo account, so an
+          // unverified sender domain may bounce; per-tenant sending infra
+          // is tracked separately (src/services/multiDomainMailer.ts /
+          // src/routes/tenantIntegrations.ts), not part of this change.
+          sender: { name: identity.legalEntityName!, email: identity.supportEmail! },
           to: [{ email: client.email, name: client.contactPerson || client.name }],
-          subject: `Invoice ${inv.invoiceNumber} from Growth Escalators`,
+          subject: `Invoice ${inv.invoiceNumber} from ${identity.legalEntityName}`,
           htmlContent: html,
         }),
       });
@@ -802,18 +875,33 @@ router.get('/invoices/:id/pdf', async (req: Request, res: Response) => {
       client.state, client.pincode, client.country,
     ].filter(Boolean).join(', ');
 
+    // Resolved live at render time from this tenant's own tenant_branding
+    // row — not from inv.companyGstin (a point-in-time snapshot taken at
+    // creation, see POST /invoices above). A tenant with nothing (or
+    // incomplete) billing identity configured must not download a PDF that
+    // would otherwise render blank/undefined identity — block instead.
+    const billingIdentity = await getTenantDocumentIdentity(tenantId);
+    const invoiceType = inv.invoiceType as 'gst' | 'non_gst';
+    if (!isBillingIdentityConfigured(billingIdentity, { requireGstBankDetails: invoiceType === 'gst' })) {
+      res.status(422).json({ error: billingIdentityError(invoiceType === 'gst') });
+      return;
+    }
+    const identity = billingIdentity as TenantDocumentIdentity;
+
     const pdfData: InvoiceData = {
       invoiceNumber: inv.invoiceNumber,
       invoiceDate: new Date(inv.invoiceDate),
       dueDate: new Date(inv.dueDate),
-      invoiceType: inv.invoiceType as 'gst' | 'non_gst',
+      invoiceType,
       taxType: inv.taxType as 'igst' | 'cgst_sgst' | null,
-      companyName: 'Growth Escalators',
-      companyAddress: '264/103-104 Pratap Nagar, Sanganer, Jaipur, Rajasthan 302033',
-      companyGstin: inv.companyGstin,
-      companyBank: inv.invoiceType === 'gst'
-        ? { accountNo: '3617 0500 1178', name: 'Growth Escalators', ifsc: 'ICIC0003617', type: 'Current Account' }
+      companyName: identity.legalEntityName!,
+      companyAddress: identity.registeredAddress!,
+      companyGstin: identity.gstin,
+      companyBank: invoiceType === 'gst'
+        ? { accountNo: identity.bankAccountNumber!, name: identity.bankAccountName!, ifsc: identity.bankIfsc!, type: 'Current Account', bankName: identity.bankName }
         : null,
+      primaryColor: identity.primaryColor,
+      accentColor: identity.accentColor,
       clientName: client.name,
       clientContactPerson: client.contactPerson,
       clientAddress: clientAddr,

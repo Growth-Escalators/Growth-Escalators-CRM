@@ -89,6 +89,7 @@ describe('GET /api/tenant-branding', () => {
       [{ id: 'row-1', tenantId: TENANT_A, displayName: 'Growth Escalators', logoUrl: '/ge-mark.png', primaryColor: '#1A3A5C', accentColor: '#F97316', faviconUrl: '/favicon.svg' }],
       (cond) => { captured = cond; },
     ));
+    mockSelect.mockReturnValueOnce(selectChain([{ isOwner: true }])); // owner-only-field permissions check
 
     const { req, res, jsonFn } = makeReqRes({ id: USER_A_STAFF, tenantId: TENANT_A, tenantSlug: 'growth-escalators' });
     await invoke('get', '/', req, res);
@@ -97,6 +98,53 @@ describe('GET /api/tenant-branding', () => {
     expect(compiled.sql).toContain('"tenant_branding"."tenant_id" =');
     expect(compiled.params).toEqual([TENANT_A]);
     expect(jsonFn).toHaveBeenCalledWith({ branding: expect.objectContaining({ displayName: 'Growth Escalators' }) });
+  });
+
+  it('an owner sees gstin/bank* fields; a non-owner has them stripped from the response', async () => {
+    const fullRow = {
+      id: 'row-1', tenantId: TENANT_A, displayName: 'Acme', logoUrl: null,
+      primaryColor: '#123456', accentColor: '#abcdef', faviconUrl: null,
+      legalEntityName: 'Acme Pvt Ltd', registeredAddress: '1 MG Road',
+      gstin: '29AABCU9603R1ZM', bankName: 'HDFC Bank', bankAccountName: 'Acme Pvt Ltd',
+      bankAccountNumber: '000111222333', bankIfsc: 'HDFC0000001',
+      supportEmail: 'billing@acme.example', supportPhone: '+91 90000 00000', website: 'acme.example',
+    };
+
+    // Owner
+    mockSelect.mockReturnValueOnce(selectChain([fullRow]));
+    mockSelect.mockReturnValueOnce(selectChain([{ isOwner: true }]));
+    const owner = makeReqRes({ id: USER_A_OWNER, tenantId: TENANT_A });
+    await invoke('get', '/', owner.req, owner.res);
+    expect(owner.jsonFn).toHaveBeenCalledWith({
+      branding: expect.objectContaining({
+        gstin: '29AABCU9603R1ZM', bankName: 'HDFC Bank', bankAccountName: 'Acme Pvt Ltd',
+        bankAccountNumber: '000111222333', bankIfsc: 'HDFC0000001',
+      }),
+    });
+
+    // Non-owner staff member of the SAME tenant
+    mockSelect.mockReturnValueOnce(selectChain([fullRow]));
+    mockSelect.mockReturnValueOnce(selectChain([{ isOwner: false }]));
+    const staff = makeReqRes({ id: USER_A_STAFF, tenantId: TENANT_A });
+    await invoke('get', '/', staff.req, staff.res);
+    const staffBranding = staff.jsonFn.mock.calls[0][0].branding;
+    expect(staffBranding.gstin).toBeUndefined();
+    expect(staffBranding.bankName).toBeUndefined();
+    expect(staffBranding.bankAccountName).toBeUndefined();
+    expect(staffBranding.bankAccountNumber).toBeUndefined();
+    expect(staffBranding.bankIfsc).toBeUndefined();
+    // Non-sensitive legal/contact fields are still visible to any member.
+    expect(staffBranding.legalEntityName).toBe('Acme Pvt Ltd');
+    expect(staffBranding.registeredAddress).toBe('1 MG Road');
+    expect(staffBranding.supportEmail).toBe('billing@acme.example');
+
+    // A caller with no userPermissions row at all (myPerms undefined) is
+    // treated as non-owner, not as owner — !!undefined?.isOwner is false.
+    mockSelect.mockReturnValueOnce(selectChain([fullRow]));
+    mockSelect.mockReturnValueOnce(selectChain([]));
+    const noPerms = makeReqRes({ id: 'user-no-perms', tenantId: TENANT_A });
+    await invoke('get', '/', noPerms.req, noPerms.res);
+    expect(noPerms.jsonFn.mock.calls[0][0].branding.gstin).toBeUndefined();
   });
 
   it('two different tenants compile to the identical query shape but different bound tenant ids — no cross-tenant leak is even representable', async () => {
@@ -117,14 +165,23 @@ describe('GET /api/tenant-branding', () => {
     expect(b.params).toEqual([TENANT_B]);
   });
 
-  it('falls back to a computed default (using req.user.tenantSlug) when no row exists yet, without an extra DB round-trip', async () => {
+  it('falls back to a computed default (using req.user.tenantSlug) when no row exists yet, without an extra DB round-trip, and never carries a real GSTIN/bank details', async () => {
     mockSelect.mockReturnValueOnce(selectChain([]));
 
     const { req, res, jsonFn } = makeReqRes({ id: USER_A_STAFF, tenantId: TENANT_B, tenantSlug: 'wizmatch' });
     await invoke('get', '/', req, res);
 
-    expect(mockSelect).toHaveBeenCalledTimes(1); // no tenants-table lookup needed — tenantSlug was already on the token
-    expect(jsonFn).toHaveBeenCalledWith({ branding: expect.objectContaining({ displayName: 'Wizmatch', accentColor: '#3b82f6' }) });
+    // Only the tenant_branding lookup ran — no tenants-table lookup (tenantSlug
+    // was already on the token) and no owner-permissions lookup either (the
+    // no-row-yet default never carries a real gstin/bank detail to gate).
+    expect(mockSelect).toHaveBeenCalledTimes(1);
+    expect(jsonFn).toHaveBeenCalledWith({
+      branding: expect.objectContaining({
+        displayName: 'Wizmatch', accentColor: '#3b82f6',
+        gstin: null, bankName: null, bankAccountName: null, bankAccountNumber: null, bankIfsc: null,
+        legalEntityName: null,
+      }),
+    });
   });
 
   it('falls back to the tenants table for the slug when the JWT lacks tenantSlug, and serves the generic placeholder for an unrecognized tenant', async () => {
@@ -215,5 +272,122 @@ describe('PUT /api/tenant-branding', () => {
 
     expect(values).toHaveBeenCalledWith(expect.objectContaining({ tenantId: TENANT_A, displayName: 'Pilot Co' }));
     expect(jsonFn).toHaveBeenCalledWith({ branding: expect.objectContaining({ displayName: 'Pilot Co' }) });
+  });
+
+  describe('legal/financial identity field validation', () => {
+    it('rejects a malformed GSTIN and does not write anything', async () => {
+      mockSelect.mockReturnValueOnce(selectChain([{ isOwner: true }]));
+      const { req, res, statusFn } = makeReqRes({ id: USER_A_OWNER, tenantId: TENANT_A }, { gstin: 'not-a-gstin' });
+      await invoke('put', '/', req, res);
+      expect(statusFn).toHaveBeenCalledWith(400);
+      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(mockInsert).not.toHaveBeenCalled();
+    });
+
+    it('rejects a malformed IFSC and does not write anything', async () => {
+      mockSelect.mockReturnValueOnce(selectChain([{ isOwner: true }]));
+      const { req, res, statusFn } = makeReqRes({ id: USER_A_OWNER, tenantId: TENANT_A }, { bankIfsc: 'not-an-ifsc' });
+      await invoke('put', '/', req, res);
+      expect(statusFn).toHaveBeenCalledWith(400);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('rejects a malformed support email and does not write anything', async () => {
+      mockSelect.mockReturnValueOnce(selectChain([{ isOwner: true }]));
+      const { req, res, statusFn } = makeReqRes({ id: USER_A_OWNER, tenantId: TENANT_A }, { supportEmail: 'not-an-email' });
+      await invoke('put', '/', req, res);
+      expect(statusFn).toHaveBeenCalledWith(400);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('accepts a valid GSTIN/IFSC, uppercases them, and persists all new fields on update', async () => {
+      let setArgs: unknown;
+      mockSelect
+        .mockReturnValueOnce(selectChain([{ isOwner: true }])) // perms
+        .mockReturnValueOnce(selectChain([{ id: 'row-1', tenantId: TENANT_A }])); // existing row
+      mockUpdate.mockReturnValueOnce({
+        set: vi.fn().mockImplementation((args: unknown) => {
+          setArgs = args;
+          return { where: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'row-1', tenantId: TENANT_A, ...(args as object) }]) }) };
+        }),
+      });
+
+      const { req, res, jsonFn } = makeReqRes(
+        { id: USER_A_OWNER, tenantId: TENANT_A },
+        {
+          legalEntityName: 'Acme Recruiting Pvt Ltd',
+          registeredAddress: '1 MG Road, Bengaluru',
+          gstin: '29aabcu9603r1zm', // lowercase on input
+          bankName: 'HDFC Bank',
+          bankAccountName: 'Acme Recruiting Pvt Ltd',
+          bankAccountNumber: '000111222333',
+          bankIfsc: 'hdfc0000001', // lowercase on input
+          supportEmail: 'Billing@Acme.example', // mixed case on input
+          supportPhone: '+91 90000 00000',
+          website: 'acme.example',
+        },
+      );
+      await invoke('put', '/', req, res);
+
+      expect(setArgs).toMatchObject({
+        legalEntityName: 'Acme Recruiting Pvt Ltd',
+        registeredAddress: '1 MG Road, Bengaluru',
+        gstin: '29AABCU9603R1ZM',
+        bankName: 'HDFC Bank',
+        bankAccountName: 'Acme Recruiting Pvt Ltd',
+        bankAccountNumber: '000111222333',
+        bankIfsc: 'HDFC0000001',
+        supportEmail: 'billing@acme.example',
+        supportPhone: '+91 90000 00000',
+        website: 'acme.example',
+      });
+      expect(jsonFn).toHaveBeenCalledWith({ branding: expect.objectContaining({ gstin: '29AABCU9603R1ZM' }) });
+    });
+
+    it('a blank string clears a previously-set field back to null rather than being rejected', async () => {
+      let setArgs: unknown;
+      mockSelect
+        .mockReturnValueOnce(selectChain([{ isOwner: true }]))
+        .mockReturnValueOnce(selectChain([{ id: 'row-1', tenantId: TENANT_A }]));
+      mockUpdate.mockReturnValueOnce({
+        set: vi.fn().mockImplementation((args: unknown) => {
+          setArgs = args;
+          return { where: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'row-1', tenantId: TENANT_A }]) }) };
+        }),
+      });
+
+      const { req, res } = makeReqRes({ id: USER_A_OWNER, tenantId: TENANT_A }, { gstin: '', bankIfsc: '' });
+      await invoke('put', '/', req, res);
+
+      expect(setArgs).toMatchObject({ gstin: null, bankIfsc: null });
+    });
+
+    it('the first-time create insert includes the new legal/financial fields (defaulting to null when omitted)', async () => {
+      mockSelect
+        .mockReturnValueOnce(selectChain([{ isOwner: true }]))
+        .mockReturnValueOnce(selectChain([]));
+      const { values } = insertChain([{ id: 'new-row', tenantId: TENANT_A, displayName: 'Pilot Co' }]);
+      mockInsert.mockReturnValueOnce({ values });
+
+      const { req, res } = makeReqRes(
+        { id: USER_A_OWNER, tenantId: TENANT_A },
+        { displayName: 'Pilot Co', legalEntityName: 'Pilot Co Pvt Ltd' },
+      );
+      await invoke('put', '/', req, res);
+
+      expect(values).toHaveBeenCalledWith(expect.objectContaining({
+        tenantId: TENANT_A,
+        legalEntityName: 'Pilot Co Pvt Ltd',
+        registeredAddress: null,
+        gstin: null,
+        bankName: null,
+        bankAccountName: null,
+        bankAccountNumber: null,
+        bankIfsc: null,
+        supportEmail: null,
+        supportPhone: null,
+        website: null,
+      }));
+    });
   });
 });

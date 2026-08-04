@@ -53,6 +53,12 @@ interface BankDetails {
   name: string;
   ifsc: string;
   type: string;
+  // The banking institution itself (e.g. "HDFC Bank") — optional so callers
+  // that genuinely have nothing to put here (shouldn't happen once
+  // isBillingIdentityConfigured is enforced upstream) don't have to fake a
+  // value. When absent, the "Bank: <name>" line is simply omitted rather
+  // than rendering a blank/undefined bank name.
+  bankName?: string | null;
 }
 
 export interface InvoiceData {
@@ -65,6 +71,11 @@ export interface InvoiceData {
   companyAddress: string;
   companyGstin: string | null;
   companyBank: BankDetails | null;
+  // Header background / accent colours — optional, default to Growth
+  // Escalators' own palette so any existing caller that doesn't pass these
+  // renders exactly as before this field was added.
+  primaryColor?: string | null;
+  accentColor?: string | null;
   clientName: string;
   clientContactPerson: string | null;
   clientAddress: string;
@@ -137,8 +148,11 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<Buffer> {
     }
 
     const W = 515;
-    const primaryColor = '#1A3A5C';
-    const accentColor = '#F97316';
+    // Tenant-driven (see InvoiceData.primaryColor/accentColor) — falls back
+    // to Growth Escalators' own palette when a caller doesn't pass one, so
+    // this is a no-op for any pre-existing caller.
+    const primaryColor = data.primaryColor || '#1A3A5C';
+    const accentColor = data.accentColor || '#F97316';
     const paidColor = '#16A34A'; // emerald-600 — used everywhere status is paid
     const lightGray = '#F3F4F6';
     const darkGray = '#374151';
@@ -150,11 +164,15 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<Buffer> {
     const badgeColor = isPaid ? paidColor : accentColor;
 
     // ── HEADER ──
+    // companyName/companyAddress are tenant-driven (src/routes/billing.ts
+    // resolves them from that tenant's tenant_branding row before calling
+    // this function) — uppercased here purely as a style choice, matching
+    // how "GROWTH ESCALATORS" was previously rendered as a literal.
     doc.rect(40, 40, W, 70).fill(primaryColor);
     doc.fillColor('#FFFFFF').fontSize(22).font('Helvetica-Bold')
-       .text('GROWTH ESCALATORS', 55, 52);
+       .text(data.companyName.toUpperCase(), 55, 52);
     doc.fontSize(9).font('Helvetica')
-       .text('264/103-104 Pratap Nagar, Sanganer, Jaipur, Rajasthan 302033', 55, 78);
+       .text(data.companyAddress, 55, 78);
     if (data.companyGstin) {
       doc.text(`GSTIN: ${data.companyGstin}`, 55, 91);
     }
@@ -337,18 +355,27 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<Buffer> {
         const bY2 = bankY + 72;
         doc.fillColor(primaryColor).fontSize(10).font('Helvetica-Bold')
            .text('Bank Details (for balance)', 40, bY2);
+        const bankPrefix = data.companyBank.bankName ? `Bank: ${data.companyBank.bankName}   ` : '';
         doc.fillColor(midGray).fontSize(9).font('Helvetica')
-           .text(`Bank: ICICI Bank   Account: ${data.companyBank.accountNo}   IFSC: ${data.companyBank.ifsc}`, 40, bY2 + 14, { width: W });
+           .text(`${bankPrefix}Account: ${data.companyBank.accountNo}   IFSC: ${data.companyBank.ifsc}`, 40, bY2 + 14, { width: W });
       }
     } else if (data.invoiceType === 'gst' && data.companyBank) {
       doc.fillColor(primaryColor).fontSize(10).font('Helvetica-Bold')
          .text('Bank Details', 40, bankY);
-      doc.fillColor(midGray).fontSize(9).font('Helvetica')
-         .text('Bank: ICICI Bank', 40, bankY + 14)
-         .text(`Account Name: ${data.companyBank.name}`, 40, bankY + 26)
-         .text(`Account No: ${data.companyBank.accountNo}`, 40, bankY + 38)
-         .text(`IFSC: ${data.companyBank.ifsc}`, 40, bankY + 50)
-         .text(`Account Type: ${data.companyBank.type}`, 40, bankY + 62);
+      doc.fillColor(midGray).fontSize(9).font('Helvetica');
+      // Same fixed 12px-per-line layout as before — when bankName is present
+      // (the common case; billing.ts only builds a companyBank at all once
+      // isBillingIdentityConfigured has confirmed it), this renders at the
+      // exact same y-offsets (14/26/38/50/62) as the old hardcoded block.
+      let by = bankY + 14;
+      if (data.companyBank.bankName) {
+        doc.text(`Bank: ${data.companyBank.bankName}`, 40, by);
+        by += 12;
+      }
+      doc.text(`Account Name: ${data.companyBank.name}`, 40, by); by += 12;
+      doc.text(`Account No: ${data.companyBank.accountNo}`, 40, by); by += 12;
+      doc.text(`IFSC: ${data.companyBank.ifsc}`, 40, by); by += 12;
+      doc.text(`Account Type: ${data.companyBank.type}`, 40, by);
     } else if (data.paymentNote) {
       doc.fillColor(primaryColor).fontSize(10).font('Helvetica-Bold')
          .text('Payment Details', 40, bankY);

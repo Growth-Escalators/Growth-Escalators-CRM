@@ -5,14 +5,51 @@ import { refreshTenantBranding } from '../lib/branding.js';
 import { SkeletonCard } from '../components/SkeletonLoader.jsx';
 import { useToast } from '../components/wizmatch/Toast.jsx';
 
-// Mirrors src/routes/tenantBranding.ts's HEX_COLOR_RE exactly — client-side
-// validation is just an early, friendlier error; the server is still the
-// source of truth and re-validates on PUT.
+// Mirrors src/routes/tenantBranding.ts's HEX_COLOR_RE/GSTIN_RE/IFSC_RE/
+// EMAIL_RE exactly — client-side validation is just an early, friendlier
+// error; the server is still the source of truth and re-validates on PUT.
 const HEX_COLOR_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 const FULL_HEX_RE = /^#[0-9a-fA-F]{6}$/;
+const GSTIN_RE = /^[0-9]{2}[A-Z0-9]{13}$/;
+const IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function isValidHexOrEmpty(value) {
   return value === '' || HEX_COLOR_RE.test(value.trim());
+}
+
+function isValidGstinOrEmpty(value) {
+  return value === '' || GSTIN_RE.test(value.trim().toUpperCase());
+}
+
+function isValidIfscOrEmpty(value) {
+  return value === '' || IFSC_RE.test(value.trim().toUpperCase());
+}
+
+function isValidEmailOrEmpty(value) {
+  return value === '' || EMAIL_RE.test(value.trim());
+}
+
+function TextField({ label, value, onChange, placeholder, hint, error, maxLength, required }) {
+  return (
+    <div>
+      <label className="block text-xs font-semibold text-slate-700 mb-1.5">{label}{required && ' *'}</label>
+      <input
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        maxLength={maxLength}
+        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 ${
+          error ? 'border-red-300 focus:ring-red-400' : 'border-slate-200 focus:ring-sky-500'
+        }`}
+      />
+      {error ? (
+        <p className="text-xs text-red-600 mt-1">{error}</p>
+      ) : hint ? (
+        <p className="text-xs text-slate-400 mt-1">{hint}</p>
+      ) : null}
+    </div>
+  );
 }
 
 // <input type="color"> only accepts a full 6-digit hex, so a 3-digit shorthand
@@ -65,6 +102,16 @@ export default function BrandingPage() {
     faviconUrl: '',
     primaryColor: '',
     accentColor: '',
+    legalEntityName: '',
+    registeredAddress: '',
+    gstin: '',
+    bankName: '',
+    bankAccountName: '',
+    bankAccountNumber: '',
+    bankIfsc: '',
+    supportEmail: '',
+    supportPhone: '',
+    website: '',
   });
 
   useEffect(() => {
@@ -78,6 +125,21 @@ export default function BrandingPage() {
           faviconUrl: b.faviconUrl || '',
           primaryColor: b.primaryColor || '',
           accentColor: b.accentColor || '',
+          // gstin/bankName/bankAccountName/bankAccountNumber/bankIfsc are
+          // owner-only on read (src/routes/tenantBranding.ts) — this page is
+          // itself owner-gated above, so GET always returns them here, but
+          // default to '' the same as every other field in case a future
+          // caller of this same load path isn't.
+          legalEntityName: b.legalEntityName || '',
+          registeredAddress: b.registeredAddress || '',
+          gstin: b.gstin || '',
+          bankName: b.bankName || '',
+          bankAccountName: b.bankAccountName || '',
+          bankAccountNumber: b.bankAccountNumber || '',
+          bankIfsc: b.bankIfsc || '',
+          supportEmail: b.supportEmail || '',
+          supportPhone: b.supportPhone || '',
+          website: b.website || '',
         });
       })
       .catch(e => setError(e.message || 'Failed to load branding'))
@@ -90,7 +152,13 @@ export default function BrandingPage() {
 
   const primaryColorValid = isValidHexOrEmpty(form.primaryColor);
   const accentColorValid = isValidHexOrEmpty(form.accentColor);
-  const canSave = form.displayName.trim().length > 0 && primaryColorValid && accentColorValid && !saving;
+  const gstinValid = isValidGstinOrEmpty(form.gstin);
+  const bankIfscValid = isValidIfscOrEmpty(form.bankIfsc);
+  const supportEmailValid = isValidEmailOrEmpty(form.supportEmail);
+  const canSave = form.displayName.trim().length > 0
+    && primaryColorValid && accentColorValid
+    && gstinValid && bankIfscValid && supportEmailValid
+    && !saving;
 
   async function handleSave(e) {
     e.preventDefault();
@@ -104,6 +172,16 @@ export default function BrandingPage() {
         faviconUrl: form.faviconUrl.trim(),
         primaryColor: form.primaryColor.trim(),
         accentColor: form.accentColor.trim(),
+        legalEntityName: form.legalEntityName.trim(),
+        registeredAddress: form.registeredAddress.trim(),
+        gstin: form.gstin.trim(),
+        bankName: form.bankName.trim(),
+        bankAccountName: form.bankAccountName.trim(),
+        bankAccountNumber: form.bankAccountNumber.trim(),
+        bankIfsc: form.bankIfsc.trim(),
+        supportEmail: form.supportEmail.trim(),
+        supportPhone: form.supportPhone.trim(),
+        website: form.website.trim(),
       };
       await apiFetch('/api/tenant-branding', { method: 'PUT', body: JSON.stringify(body) });
       // Re-applies CSS vars/title/favicon immediately so the owner sees their
@@ -216,6 +294,99 @@ export default function BrandingPage() {
               <button type="submit" disabled={!canSave}
                 className="px-4 py-2 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50">
                 {saving ? 'Saving…' : 'Save Branding'}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {!loading && (
+          <form onSubmit={handleSave} className="max-w-2xl bg-white rounded-xl border border-slate-200 p-6 space-y-6 mt-6">
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">Billing &amp; invoice identity</h2>
+              <p className="text-slate-500 mt-1 text-sm">
+                What your clients see on invoices and performance reports — your legal name, address, tax ID, and bank
+                details, instead of ours. Required before you can generate an invoice; a GST invoice also needs GSTIN
+                and bank details filled in.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <TextField
+                label="Legal entity name" value={form.legalEntityName}
+                onChange={v => update('legalEntityName', v)}
+                placeholder="Acme Recruiting Pvt Ltd" maxLength={200}
+                hint="Printed on every invoice and email as the sender."
+              />
+              <TextField
+                label="GSTIN" value={form.gstin}
+                onChange={v => update('gstin', v.toUpperCase())}
+                placeholder="22AAAAA0000A1Z5" maxLength={15}
+                error={!gstinValid ? 'Enter a valid 15-character GSTIN, or leave blank.' : ''}
+                hint={gstinValid ? 'Leave blank if you don’t have one (e.g. a non-Indian entity).' : ''}
+              />
+            </div>
+
+            <TextField
+              label="Registered address" value={form.registeredAddress}
+              onChange={v => update('registeredAddress', v)}
+              placeholder="Street, city, state, PIN" maxLength={500}
+              required
+            />
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <TextField
+                label="Support email" value={form.supportEmail}
+                onChange={v => update('supportEmail', v)}
+                placeholder="billing@youragency.com" maxLength={200}
+                error={!supportEmailValid ? 'Enter a valid email address, or leave blank.' : ''}
+                hint={supportEmailValid ? 'Used as the invoice email’s sender address, and shown on reports.' : ''}
+              />
+              <TextField
+                label="Support phone" value={form.supportPhone}
+                onChange={v => update('supportPhone', v)}
+                placeholder="+91 98765 43210" maxLength={30}
+              />
+            </div>
+
+            <TextField
+              label="Website" value={form.website}
+              onChange={v => update('website', v)}
+              placeholder="youragency.com" maxLength={300}
+              hint="Shown on performance report PDFs."
+            />
+
+            <div>
+              <h3 className="text-sm font-semibold text-slate-800 mb-1">Bank details</h3>
+              <p className="text-xs text-slate-500 mb-3">Only needed for GST invoices, and only visible to you — never shown to other team members.</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <TextField
+                  label="Bank name" value={form.bankName}
+                  onChange={v => update('bankName', v)}
+                  placeholder="HDFC Bank" maxLength={200}
+                />
+                <TextField
+                  label="Account holder name" value={form.bankAccountName}
+                  onChange={v => update('bankAccountName', v)}
+                  placeholder="Acme Recruiting Pvt Ltd" maxLength={200}
+                />
+                <TextField
+                  label="Account number" value={form.bankAccountNumber}
+                  onChange={v => update('bankAccountNumber', v)}
+                  placeholder="1234 5678 9012" maxLength={34}
+                />
+                <TextField
+                  label="IFSC" value={form.bankIfsc}
+                  onChange={v => update('bankIfsc', v.toUpperCase())}
+                  placeholder="HDFC0000001" maxLength={11}
+                  error={!bankIfscValid ? 'Enter a valid IFSC code (e.g. HDFC0000001), or leave blank.' : ''}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button type="submit" disabled={!canSave}
+                className="px-4 py-2 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50">
+                {saving ? 'Saving…' : 'Save Billing Details'}
               </button>
             </div>
           </form>
