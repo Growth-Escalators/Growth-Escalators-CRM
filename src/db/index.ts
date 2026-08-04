@@ -113,4 +113,7 @@ export {
   wizmatchOutreachEvents,
   wizmatchSuppressionEvents,
   tenantIntegrations,
+  // Subscription billing (reselling this CRM to other agencies)
+  plans,
+  subscriptions,
 } from './schema';

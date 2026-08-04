@@ -174,3 +174,74 @@ export async function getSingleActiveTenantWithFeature(
   }
   return matches[0] ?? null;
 }
+
+// ---------------------------------------------------------------------------
+// Subscription-billing entitlement enforcement (added alongside
+// src/services/paymentGateway/ + the plans/subscriptions tables).
+//
+// Everything above this line is read-only from the app's perspective — until
+// now nothing wrote `tenants.settings.features` (see the module doc comment
+// at the top of this file). Subscription billing is the first writer: when a
+// tenant's subscription activates, its plan's `feature_entitlements` (see
+// `plans` in src/db/schema.ts) should take effect immediately rather than
+// waiting on a PLAN_DEFAULTS lookup keyed off the coarse `tenants.plan`
+// string, which has no notion of a purchased plan row.
+// ---------------------------------------------------------------------------
+
+/**
+ * Merges `features` into a tenant's `settings.features`, preserving every
+ * other key already in `settings` (and any feature flags not present in this
+ * call). This is a partial merge, not a replace — so activating a plan's
+ * entitlements can never silently clear a flag set by some other, unrelated
+ * write to `settings` in the future.
+ */
+export async function setTenantFeatures(
+  tenantId: string,
+  features: Partial<TenantFeatureFlags>,
+): Promise<void> {
+  const [tenant] = await db
+    .select({ settings: tenants.settings })
+    .from(tenants)
+    .where(eq(tenants.id, tenantId))
+    .limit(1);
+  if (!tenant) throw new Error(`[tenant-features] no tenant found for id=${tenantId}`);
+
+  const existingSettings =
+    tenant.settings && typeof tenant.settings === 'object' && !Array.isArray(tenant.settings)
+      ? (tenant.settings as Record<string, unknown>)
+      : {};
+  const existingFeatures =
+    existingSettings.features &&
+    typeof existingSettings.features === 'object' &&
+    !Array.isArray(existingSettings.features)
+      ? (existingSettings.features as Partial<TenantFeatureFlags>)
+      : {};
+
+  const nextSettings = {
+    ...existingSettings,
+    features: { ...existingFeatures, ...features },
+  };
+
+  await db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+}
+
+/**
+ * Applies a plan's `feature_entitlements` jsonb column (src/db/schema.ts's
+ * `plans` table) onto a tenant's `settings.features`. Called by
+ * subscriptionEventProcessor.ts when a subscription transitions to
+ * `active`.
+ *
+ * `entitlements` arrives as `unknown` straight out of jsonb and is narrowed
+ * defensively: a malformed/empty plan row degrades to a no-op rather than
+ * throwing and aborting the webhook that is activating billing — losing an
+ * entitlement update is recoverable (replay the webhook, or fix the plan row
+ * and re-apply), but failing the whole webhook 500s a call Cashfree/Razorpay
+ * will retry indefinitely.
+ */
+export async function applyPlanEntitlementsToTenant(
+  tenantId: string,
+  entitlements: unknown,
+): Promise<void> {
+  if (!entitlements || typeof entitlements !== 'object' || Array.isArray(entitlements)) return;
+  await setTenantFeatures(tenantId, entitlements as Partial<TenantFeatureFlags>);
+}
