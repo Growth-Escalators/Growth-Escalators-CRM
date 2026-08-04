@@ -3,8 +3,19 @@ import { db, billingClients, userPermissions } from '../db/index';
 import { eq, and, isNotNull } from 'drizzle-orm';
 import PDFDocument from 'pdfkit';
 import { getTenantDocumentIdentity, GENERIC_DEFAULT_BRANDING } from '../services/tenantBrandingDefaults';
+import { DEFAULT_TENANT_SLUG } from '../config/constants';
 
 const router = Router();
+
+// There is no per-tenant WhatsApp Business number yet — every send below
+// goes out through GE's own META_PHONE_NUMBER_ID/META_ACCESS_TOKEN. Same
+// invariant as canSendWhatsApp() in routes/inbox.ts: only GE's own tenant
+// may use the shared WhatsApp number; a non-GE tenant's report send must be
+// blocked rather than delivered under GE's identity.
+function canSendWhatsApp(req: Request): boolean {
+  return req.user!.tenantSlug === DEFAULT_TENANT_SLUG;
+}
+const WHATSAPP_NOT_CONFIGURED_FOR_TENANT = "WhatsApp sending isn't configured for your workspace";
 
 // What these report PDFs need of a tenant's identity — deliberately lighter
 // than billing.ts's invoice gate: a report is a lower-stakes marketing
@@ -343,6 +354,14 @@ router.post('/send-pdf', async (req: Request, res: Response) => {
     const phoneNumber = client.phone;
     let whatsappResult = null;
     if (phoneNumber && process.env.META_PHONE_NUMBER_ID) {
+      // Tenant gate — see canSendWhatsApp() above. Checked only once a send
+      // would actually be attempted, so a client with no phone number (any
+      // tenant) keeps generating its PDF exactly as before.
+      if (!canSendWhatsApp(req)) {
+        res.status(403).json({ error: WHATSAPP_NOT_CONFIGURED_FOR_TENANT });
+        return;
+      }
+
       const cleanPhone = phoneNumber.replace(/\D/g, '');
       // Upload media first
       const formData = new FormData();

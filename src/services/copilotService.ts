@@ -1,6 +1,6 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
-import { sendWhatsAppMessage } from './growthOSSetup';
+import { sendWhatsAppMessage, canSendGrowthOSWhatsApp } from './growthOSSetup';
 
 // ---------------------------------------------------------------------------
 // Trigger detection
@@ -43,8 +43,18 @@ export async function handleCopilotMessage(from: string, messageText: string): P
     // Step 3 — call Claude
     const response = await callClaude(String(clientName), client, context, messageText);
 
-    // Step 4 — send WhatsApp reply
-    await sendWhatsAppMessage(from, response);
+    // Step 4 — send WhatsApp reply. Growth OS has no per-tenant WhatsApp
+    // identity yet — see the guard comment in growthOSSetup.ts. This poller
+    // sweeps founder_whatsapp across every tenant's growth_os_clients with
+    // no tenant filter (by design, so it can find the inbound message
+    // regardless of which client sent it), so the reply itself is the only
+    // point that must gate to GE's own tenant. The conversation is still
+    // logged for every tenant (Step 5 below); only delivery is gated.
+    if (await canSendGrowthOSWhatsApp(tenantId)) {
+      await sendWhatsAppMessage(from, response);
+    } else {
+      logger.info(`[copilot] WhatsApp reply skipped for ${clientName} — not GE's own tenant`);
+    }
 
     // Step 5 — log conversation
     const tokensUsed = response.length; // approximate
