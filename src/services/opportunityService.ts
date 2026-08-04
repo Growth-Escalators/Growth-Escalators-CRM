@@ -1,6 +1,6 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
-import { type GrowthOSClient, sendWhatsAppMessage } from './growthOSSetup';
+import { type GrowthOSClient, sendWhatsAppMessage, canSendGrowthOSWhatsApp } from './growthOSSetup';
 
 // ---------------------------------------------------------------------------
 // Industry benchmarks
@@ -146,6 +146,19 @@ async function saveOpportunityReport(report: OpportunityReport): Promise<void> {
 
 export async function sendMoneyOnTableWhatsApp(report: OpportunityReport, founderWA: string): Promise<void> {
   if (!founderWA) return;
+
+  // Growth OS has no per-tenant WhatsApp identity yet — see the guard
+  // comment in growthOSSetup.ts. The opportunity report itself is still
+  // calculated and saved for every tenant (calculateMoneyOnTable above);
+  // only this delivery step is gated. (No caller wires this function up
+  // today — routes/growthOS.ts's /opportunity/generate only calls
+  // calculateMoneyOnTable — but it's gated here too so the same landmine
+  // sendCompetitorWhatsApp/sendHealthScoreWhatsApp were fixed for can't
+  // reappear the moment someone wires the send in.)
+  if (!(await canSendGrowthOSWhatsApp(report.tenant_id))) {
+    logger.info(`[opportunity] WhatsApp delivery skipped for ${report.client_name} — not GE's own tenant`);
+    return;
+  }
 
   const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`;
   const date = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
