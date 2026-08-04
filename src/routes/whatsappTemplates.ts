@@ -1,11 +1,40 @@
-import { Router, type Request, type Response } from 'express';
+import { Router, type Request, type Response, type NextFunction } from 'express';
 import { db } from '../db/index';
 import { waTemplates } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { pool } from '../db/index';
 import logger from '../utils/logger';
+import { DEFAULT_TENANT_SLUG } from '../config/constants';
 
 const router = Router();
+
+// ---------------------------------------------------------------------------
+// GE-tenant-only gate: this router registers/manages WhatsApp message
+// template definitions against GE's own shared WhatsApp Business Account
+// with Meta — there is no per-tenant WABA yet (that lands with the
+// meta-oauth-connect work). Restrict the whole router to GE's own tenant
+// until real per-tenant WABAs exist.
+// ---------------------------------------------------------------------------
+let _geTenantIdPromise: Promise<string | null> | null = null;
+async function resolveGeTenantId(): Promise<string | null> {
+  if (!_geTenantIdPromise) {
+    _geTenantIdPromise = pool.query(`SELECT id FROM tenants WHERE slug = $1 LIMIT 1`, [DEFAULT_TENANT_SLUG])
+      .then(r => (r.rows[0] as { id?: string } | undefined)?.id ?? null)
+      .catch(() => null);
+  }
+  const id = await _geTenantIdPromise;
+  if (!id) _geTenantIdPromise = null; // allow retry on next request if the lookup failed
+  return id;
+}
+
+router.use(async (req: Request, res: Response, next: NextFunction) => {
+  const geTenantId = await resolveGeTenantId();
+  if (!geTenantId || req.user?.tenantId !== geTenantId) {
+    res.status(403).json({ error: 'Not available for this tenant' });
+    return;
+  }
+  next();
+});
 
 // ---------------------------------------------------------------------------
 // Default template bodies — used to seed the body column on first run
