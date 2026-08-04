@@ -18,6 +18,7 @@ const BENCHMARKS = {
 export interface OpportunityReport {
   client_name: string;
   ad_account_id: string;
+  tenant_id: string | null;
   week_start: string;
   cart_abandonment_opportunity: number;
   winback_opportunity: number;
@@ -40,12 +41,20 @@ export async function calculateMoneyOnTable(client: GrowthOSClient): Promise<Opp
   const weekStartStr = weekStart.toISOString().slice(0, 10);
 
   const aov = BENCHMARKS.avgOrderValue;
+  // H-growth-os (tenant isolation fix): this previously aggregated
+  // payments/contacts/sequences with NO tenant filter at all, so every
+  // client's "money on table" number was actually pooled across every
+  // tenant's data — a growth-escalators admin generating a report for
+  // "Paraiso" would have any other tenant's contacts and payments
+  // baked into the total. tenant_id already exists NOT NULL on all three
+  // tables (Drizzle schema.ts) — this was a missing WHERE, not a schema gap.
+  const tenantId = client.tenant_id;
 
   const [paymentsRes, contactsRes, lapsedRes, seqRes] = await Promise.all([
-    pool.query(`SELECT COUNT(*) AS cnt FROM payments WHERE created_at >= date_trunc('month', NOW())`).catch(() => ({ rows: [{ cnt: '0' }] })),
-    pool.query(`SELECT COUNT(*) AS cnt, MIN(created_at) AS earliest FROM contacts`).catch(() => ({ rows: [{ cnt: '0', earliest: null }] })),
-    pool.query(`SELECT COUNT(*) AS cnt FROM contacts WHERE updated_at < NOW() - INTERVAL '90 days'`).catch(() => ({ rows: [{ cnt: '0' }] })),
-    pool.query(`SELECT COUNT(*) AS cnt, array_agg(name) AS names FROM sequences WHERE is_active = true`).catch(() => ({ rows: [{ cnt: '0', names: [] }] })),
+    pool.query(`SELECT COUNT(*) AS cnt FROM payments WHERE created_at >= date_trunc('month', NOW()) AND tenant_id = $1`, [tenantId]).catch(() => ({ rows: [{ cnt: '0' }] })),
+    pool.query(`SELECT COUNT(*) AS cnt, MIN(created_at) AS earliest FROM contacts WHERE tenant_id = $1`, [tenantId]).catch(() => ({ rows: [{ cnt: '0', earliest: null }] })),
+    pool.query(`SELECT COUNT(*) AS cnt FROM contacts WHERE updated_at < NOW() - INTERVAL '90 days' AND tenant_id = $1`, [tenantId]).catch(() => ({ rows: [{ cnt: '0' }] })),
+    pool.query(`SELECT COUNT(*) AS cnt, array_agg(name) AS names FROM sequences WHERE is_active = true AND tenant_id = $1`, [tenantId]).catch(() => ({ rows: [{ cnt: '0', names: [] }] })),
   ]);
 
   const ordersThisMonth = Number((paymentsRes.rows[0] as { cnt: string }).cnt ?? 0);
@@ -101,6 +110,7 @@ export async function calculateMoneyOnTable(client: GrowthOSClient): Promise<Opp
   const report: OpportunityReport = {
     client_name: client.client_name,
     ad_account_id: client.ad_account_id,
+    tenant_id: client.tenant_id,
     week_start: weekStartStr,
     cart_abandonment_opportunity,
     winback_opportunity,
@@ -119,10 +129,10 @@ export async function calculateMoneyOnTable(client: GrowthOSClient): Promise<Opp
 async function saveOpportunityReport(report: OpportunityReport): Promise<void> {
   try {
     await pool.query(
-      `INSERT INTO money_on_table (client_name, ad_account_id, week_start, cart_abandonment_opportunity, winback_opportunity, whatsapp_optin_opportunity, email_sequence_opportunity, upsell_opportunity, total_opportunity, detail)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      `INSERT INTO money_on_table (client_name, ad_account_id, tenant_id, week_start, cart_abandonment_opportunity, winback_opportunity, whatsapp_optin_opportunity, email_sequence_opportunity, upsell_opportunity, total_opportunity, detail)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
       [
-        report.client_name, report.ad_account_id, report.week_start,
+        report.client_name, report.ad_account_id, report.tenant_id, report.week_start,
         report.cart_abandonment_opportunity, report.winback_opportunity,
         report.whatsapp_optin_opportunity, report.email_sequence_opportunity,
         report.upsell_opportunity, report.total_opportunity,

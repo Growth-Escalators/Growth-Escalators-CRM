@@ -109,14 +109,58 @@ export async function ensureGrowthOSTables(): Promise<void> {
       );
     `);
 
-    // Seed default clients
+    // -------------------------------------------------------------------
+    // Tenant isolation fix (security audit, 2026-08-03): none of the 6
+    // tables above ever had a tenant_id column — any authenticated user of
+    // ANY tenant could read/write every other tenant's Growth OS data via
+    // src/routes/growthOS.ts, and calculateMoneyOnTable() pooled every
+    // tenant's payments/contacts/sequences into one number.
+    //
+    // Nullable for now (NOT a DB NOT NULL constraint yet) — same posture as
+    // migration 0035 for the SEO tables: add nullable, backfill, tighten
+    // later once verified. "Must have a tenant" is enforced at the
+    // application layer instead: every INSERT into these 6 tables (routes/
+    // growthOS.ts, opportunityService.ts, brandHealthService.ts,
+    // creativeIntelligenceService.ts, competitorService.ts,
+    // copilotService.ts) now sets tenant_id explicitly.
+    //
+    // Backfill assumption — NEEDS HUMAN VERIFICATION BEFORE MERGE: every
+    // pre-existing row is assumed to belong to the growth-escalators
+    // tenant. That's the only tenant this module has ever been wired to as
+    // far as this fix could verify (single hardcoded WhatsApp number, no
+    // per-tenant routing anywhere in this module) — but absence of evidence
+    // that other tenants' data ever flowed through here is not proof
+    // it didn't.
+    await pool.query(`ALTER TABLE growth_os_clients ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id)`);
+    await pool.query(`ALTER TABLE brand_health_scores ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id)`);
+    await pool.query(`ALTER TABLE money_on_table ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id)`);
+    await pool.query(`ALTER TABLE creative_intelligence ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id)`);
+    await pool.query(`ALTER TABLE competitor_pulse ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id)`);
+    await pool.query(`ALTER TABLE copilot_conversations ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id)`);
+
+    const defaultTenantResult = await pool.query(`SELECT id FROM tenants WHERE slug = 'growth-escalators' LIMIT 1`);
+    const defaultTenantId = (defaultTenantResult.rows[0] as { id?: string } | undefined)?.id ?? null;
+
+    // Seed default clients — stamped with the default tenant at insert time
+    // so freshly-seeded rows never rely on the backfill pass below.
     await pool.query(`
-      INSERT INTO growth_os_clients (client_name, ad_account_id, founder_whatsapp, founder_name, monthly_ad_spend, target_roas, industry, competitors)
+      INSERT INTO growth_os_clients (client_name, ad_account_id, founder_whatsapp, founder_name, monthly_ad_spend, target_roas, industry, competitors, tenant_id)
       VALUES
-        ('Paraiso', 'act_689363376592426', '917733888883', 'Jatin', 150000, 3.0, 'D2C Fashion / Lifestyle', '["Style Jaipur","Fab India"]'),
-        ('GE Agency', 'act_323237510625803', '917733888883', 'Jatin', 50000, 3.0, 'marketing', '[]')
+        ('Paraiso', 'act_689363376592426', '917733888883', 'Jatin', 150000, 3.0, 'D2C Fashion / Lifestyle', '["Style Jaipur","Fab India"]', $1),
+        ('GE Agency', 'act_323237510625803', '917733888883', 'Jatin', 50000, 3.0, 'marketing', '[]', $1)
       ON CONFLICT (client_name) DO NOTHING;
-    `);
+    `, [defaultTenantId]);
+
+    if (defaultTenantId) {
+      await pool.query(`UPDATE growth_os_clients SET tenant_id = $1 WHERE tenant_id IS NULL`, [defaultTenantId]);
+      await pool.query(`UPDATE brand_health_scores SET tenant_id = $1 WHERE tenant_id IS NULL`, [defaultTenantId]);
+      await pool.query(`UPDATE money_on_table SET tenant_id = $1 WHERE tenant_id IS NULL`, [defaultTenantId]);
+      await pool.query(`UPDATE creative_intelligence SET tenant_id = $1 WHERE tenant_id IS NULL`, [defaultTenantId]);
+      await pool.query(`UPDATE competitor_pulse SET tenant_id = $1 WHERE tenant_id IS NULL`, [defaultTenantId]);
+      await pool.query(`UPDATE copilot_conversations SET tenant_id = $1 WHERE tenant_id IS NULL`, [defaultTenantId]);
+    } else {
+      logger.warn('[growth-os] growth-escalators tenant not found — skipping tenant_id backfill');
+    }
 
     // Ensure Paraiso has latest config (ON CONFLICT above skips existing rows)
     await pool.query(`
@@ -148,11 +192,20 @@ export interface GrowthOSClient {
   competitors: string[];
   industry: string;
   is_active: boolean;
+  tenant_id: string | null;
 }
 
-export async function getActiveGrowthOSClients(): Promise<GrowthOSClient[]> {
+// `tenantId` is OPTIONAL BY DESIGN, same posture as jobQueue.ts's
+// JobTenantScope: system-internal callers (worker.ts's scheduled crons) sweep
+// every active client across every tenant, unscoped, on purpose. Only the
+// HTTP layer (routes/growthOS.ts, mounted with requireAuth) passes a scope,
+// derived from req.user.tenantId — that's what closes the aggregation-pooling
+// risk for admin-triggered manual runs (POST /health/generate, etc).
+export async function getActiveGrowthOSClients(tenantId?: string): Promise<GrowthOSClient[]> {
   try {
-    const result = await pool.query(`SELECT * FROM growth_os_clients WHERE is_active = true ORDER BY client_name`);
+    const result = tenantId
+      ? await pool.query(`SELECT * FROM growth_os_clients WHERE is_active = true AND tenant_id = $1 ORDER BY client_name`, [tenantId])
+      : await pool.query(`SELECT * FROM growth_os_clients WHERE is_active = true ORDER BY client_name`);
     return (result.rows as Array<Record<string, unknown>>).map(r => ({
       id: r.id as string,
       client_name: r.client_name as string,
@@ -164,6 +217,7 @@ export async function getActiveGrowthOSClients(): Promise<GrowthOSClient[]> {
       competitors: (r.competitors as string[] | null) ?? [],
       industry: (r.industry as string) ?? 'general',
       is_active: r.is_active as boolean,
+      tenant_id: (r.tenant_id as string | null) ?? null,
     }));
   } catch (e) {
     logger.error('[growth-os] getActiveGrowthOSClients failed:', e);

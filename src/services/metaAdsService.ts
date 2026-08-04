@@ -264,6 +264,24 @@ export async function ensureClientBenchmarksTable(): Promise<void> {
       UNIQUE(ad_account_id, month)
     )
   `);
+
+  // H-reports (tenant isolation fix, audit 2026-08-03): client_benchmarks had
+  // no tenant_id at all — reports.ts's "agency average" query pooled every
+  // tenant's benchmark rows into one number, and the per-client benchmark
+  // lookup could in principle match another tenant's ad_account_id. Nullable
+  // for now (not NOT NULL) — same posture as migration 0035 for the SEO
+  // tables: add nullable, backfill, tighten later once verified. Backfill
+  // assumption — NEEDS HUMAN VERIFICATION BEFORE MERGE: every pre-existing
+  // row is assumed to belong to the growth-escalators tenant, same as the
+  // Growth OS backfill above.
+  await pool.query(`ALTER TABLE client_benchmarks ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id)`);
+  const defaultTenantResult = await pool.query(`SELECT id FROM tenants WHERE slug = 'growth-escalators' LIMIT 1`);
+  const defaultTenantId = (defaultTenantResult.rows[0] as { id?: string } | undefined)?.id;
+  if (defaultTenantId) {
+    await pool.query(`UPDATE client_benchmarks SET tenant_id = $1 WHERE tenant_id IS NULL`, [defaultTenantId]);
+  } else {
+    logger.warn('[benchmarks] growth-escalators tenant not found — skipping client_benchmarks tenant_id backfill');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -289,17 +307,23 @@ export async function calculateMonthlyBenchmarks(): Promise<void> {
     return;
   }
 
-  // Get all active accounts from marketing_accounts
+  // Get all active accounts from marketing_accounts. tenant_id is selected
+  // here (marketing_accounts.tenant_id is NOT NULL already) so it can be
+  // stamped onto the client_benchmarks row below — this cron itself stays
+  // unscoped-by-design (it sweeps every tenant's accounts on a schedule,
+  // same posture as worker.ts's Growth OS crons), the fix is that every row
+  // it writes is now attributed instead of landing with tenant_id NULL.
   const accounts = await pool.query(
     `SELECT
        CASE WHEN account_id LIKE 'act_%' THEN account_id ELSE 'act_' || account_id END AS account_id,
        COALESCE(client_name, account_name) AS name,
        currency,
-       COALESCE(exchange_rate, 1) AS exchange_rate
+       COALESCE(exchange_rate, 1) AS exchange_rate,
+       tenant_id
      FROM marketing_accounts WHERE is_active = true`
   );
 
-  for (const acc of accounts.rows as Array<{ account_id: string; name: string; currency: string; exchange_rate: number }>) {
+  for (const acc of accounts.rows as Array<{ account_id: string; name: string; currency: string; exchange_rate: number; tenant_id: string | null }>) {
     try {
       const insights = await fetchAccountInsights(acc.account_id, token, acc.name, acc.currency, Number(acc.exchange_rate));
       if (!insights?.thisMonth) continue;
@@ -320,8 +344,8 @@ export async function calculateMonthlyBenchmarks(): Promise<void> {
       } catch { /* non-critical */ }
 
       await pool.query(`
-        INSERT INTO client_benchmarks (ad_account_id, client_name, month, avg_roas, avg_ctr, total_spend, total_revenue, total_purchases, top_creative_type)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        INSERT INTO client_benchmarks (ad_account_id, client_name, month, avg_roas, avg_ctr, total_spend, total_revenue, total_purchases, top_creative_type, tenant_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         ON CONFLICT (ad_account_id, month) DO UPDATE SET
           avg_roas = EXCLUDED.avg_roas,
           avg_ctr = EXCLUDED.avg_ctr,
@@ -329,8 +353,9 @@ export async function calculateMonthlyBenchmarks(): Promise<void> {
           total_revenue = EXCLUDED.total_revenue,
           total_purchases = EXCLUDED.total_purchases,
           top_creative_type = EXCLUDED.top_creative_type,
+          tenant_id = EXCLUDED.tenant_id,
           created_at = NOW()
-      `, [acc.account_id, acc.name, month, m.roas, m.ctr, m.spend, m.revenue, m.purchases, topCreativeType]);
+      `, [acc.account_id, acc.name, month, m.roas, m.ctr, m.spend, m.revenue, m.purchases, topCreativeType, acc.tenant_id]);
     } catch { /* skip failing accounts */ }
   }
 

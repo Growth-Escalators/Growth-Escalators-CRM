@@ -35,6 +35,7 @@ export async function handleCopilotMessage(from: string, messageText: string): P
 
     const client = clientRes.rows[0] as Record<string, unknown>;
     const clientName = String(client.client_name);
+    const tenantId = (client.tenant_id as string | null) ?? null;
 
     // Step 2 — gather context
     const context = await gatherContext(clientName);
@@ -48,8 +49,8 @@ export async function handleCopilotMessage(from: string, messageText: string): P
     // Step 5 — log conversation
     const tokensUsed = response.length; // approximate
     await pool.query(
-      `INSERT INTO copilot_conversations (client_name, wa_phone, message, response, tokens_used) VALUES ($1,$2,$3,$4,$5)`,
-      [clientName, phone, messageText, response, tokensUsed]
+      `INSERT INTO copilot_conversations (client_name, wa_phone, message, response, tokens_used, tenant_id) VALUES ($1,$2,$3,$4,$5,$6)`,
+      [clientName, phone, messageText, response, tokensUsed, tenantId]
     ).catch(e => logger.error('[copilot] log failed:', e));
 
     logger.info(`[copilot] Handled message from ${phone} for ${clientName}`);

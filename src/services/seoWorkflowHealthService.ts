@@ -122,6 +122,60 @@ export async function ensureSeoTables(): Promise<void> {
   for (const s of stmts) {
     await pool.query(s).catch(e => logger.warn(`[seo-tables] ${e instanceof Error ? e.message : String(e)}`));
   }
+
+  // -------------------------------------------------------------------
+  // Ensure-hook / migration drift fix (audit 2026-08-03). Migration 0035
+  // already added `tenant_id NOT NULL` to these 8 SEO automation tables,
+  // but this ensure-hook ran its own CREATE TABLE / ALTER TABLE for the same
+  // tables and never mentioned tenant_id — so a fresh boot (new
+  // environment, or this ensure-hook running before migration 0035 in some
+  // deploy ordering) could recreate the exact cross-tenant gap the
+  // migration closed. This mirrors migration 0035's own approach table by
+  // table (nullable column -> backfill -> NOT NULL -> FK -> index), using
+  // the SAME constraint/index names the migration used, so whichever
+  // mechanism runs first the other is a no-op, not a conflict.
+  //
+  // Resolved defensively (not via seoTenantContext's
+  // resolveDefaultSeoTenantId(), which throws if the tenant row isn't found
+  // yet) because this runs at process boot, before any seed step is
+  // guaranteed to have inserted the growth-escalators tenant row — a throw
+  // here would take down the whole boot sequence, not just SEO tables.
+  const defaultSeoTenantResult = await pool.query(`SELECT id FROM tenants WHERE slug = 'growth-escalators' LIMIT 1`).catch(() => ({ rows: [] as Array<{ id?: string }> }));
+  const defaultSeoTenantId = defaultSeoTenantResult.rows[0]?.id ?? null;
+
+  const tenantScopedTables = [
+    'keyword_rankings',
+    'backlink_data',
+    'content_gap_analysis',
+    'seo_opportunities',
+    'site_health_metrics',
+    'brand_mentions',
+    'seo_weekly_metrics',
+    'seo_alerts_log',
+  ];
+
+  for (const table of tenantScopedTables) {
+    await pool.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS tenant_id UUID`)
+      .catch(e => logger.warn(`[seo-tables] tenant_id column add failed for ${table}: ${e instanceof Error ? e.message : String(e)}`));
+
+    if (defaultSeoTenantId) {
+      await pool.query(`UPDATE ${table} SET tenant_id = $1 WHERE tenant_id IS NULL`, [defaultSeoTenantId])
+        .catch(e => logger.warn(`[seo-tables] tenant_id backfill failed for ${table}: ${e instanceof Error ? e.message : String(e)}`));
+      await pool.query(`ALTER TABLE ${table} ALTER COLUMN tenant_id SET NOT NULL`)
+        .catch(e => logger.warn(`[seo-tables] tenant_id NOT NULL failed for ${table}: ${e instanceof Error ? e.message : String(e)}`));
+      await pool.query(`
+        DO $$ BEGIN
+          ALTER TABLE ${table} ADD CONSTRAINT ${table}_tenant_id_tenants_id_fk FOREIGN KEY (tenant_id) REFERENCES tenants(id);
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+      `).catch(e => logger.warn(`[seo-tables] tenant_id FK failed for ${table}: ${e instanceof Error ? e.message : String(e)}`));
+    } else {
+      logger.warn(`[seo-tables] growth-escalators tenant not found — leaving ${table}.tenant_id nullable for now`);
+    }
+
+    await pool.query(`CREATE INDEX IF NOT EXISTS ${table}_tenant_id_idx ON ${table}(tenant_id)`)
+      .catch(e => logger.warn(`[seo-tables] tenant_id index failed for ${table}: ${e instanceof Error ? e.message : String(e)}`));
+  }
+
   // Looker Studio views
   const views = [
     `CREATE OR REPLACE VIEW seo_looker_weekly AS

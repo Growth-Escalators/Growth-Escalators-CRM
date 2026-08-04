@@ -78,17 +78,21 @@ async function fetchWeeklyAdMetrics(adAccountId: string, weekOf: string) {
   };
 }
 
-async function fetchCompletedTasksForWeek(weekOf: string): Promise<Array<{ id: unknown; name: unknown; status: string; completedAt: unknown; url: string }>> {
+async function fetchCompletedTasksForWeek(weekOf: string, tenantId: string): Promise<Array<{ id: unknown; name: unknown; status: string; completedAt: unknown; url: string }>> {
   const { start, end } = weekRange(weekOf);
   try {
     const { pool } = await import('../db/index');
+    // H-reports (tenant isolation fix, audit 2026-08-03): tasks.tenant_id is
+    // already NOT NULL in schema.ts — this query was just missing the WHERE,
+    // so any tenant's weekly report showed every tenant's completed tasks.
     const r = await pool.query(
       `SELECT id, title, status, updated_at
        FROM tasks
        WHERE status = 'done'
          AND updated_at >= $1 AND updated_at <= $2
+         AND tenant_id = $3
        ORDER BY updated_at DESC`,
-      [start, end],
+      [start, end, tenantId],
     );
     return (r.rows as Array<{ id: string; title: string; status: string; updated_at: Date }>).map(t => ({
       id: t.id,
@@ -143,7 +147,7 @@ router.get('/generate', async (req: Request, res: Response) => {
 
     const [adMetrics, completedTasks] = await Promise.all([
       client.metaAdAccountId ? fetchWeeklyAdMetrics(client.metaAdAccountId, weekOf) : Promise.resolve(null),
-      fetchCompletedTasksForWeek(weekOf),
+      fetchCompletedTasksForWeek(weekOf, tenantId),
     ]);
 
     // --- Benchmark comparisons ---
@@ -158,21 +162,29 @@ router.get('/generate', async (req: Request, res: Response) => {
         const { pool } = await import('../db/index');
         const benchResult = await pool.query(
           `SELECT avg_roas, avg_ctr, total_spend, total_revenue, top_creative_type
-           FROM client_benchmarks WHERE ad_account_id = $1 ORDER BY month DESC LIMIT 1`,
-          [clientAdAccountId]
+           FROM client_benchmarks WHERE ad_account_id = $1 AND tenant_id = $2 ORDER BY month DESC LIMIT 1`,
+          [clientAdAccountId, tenantId]
         );
         if (benchResult.rows.length > 0) benchmark = benchResult.rows[0] as Record<string, unknown>;
       }
     } catch { /* benchmarks not yet populated */ }
 
-    // Agency average benchmark
+    // Agency average benchmark — H-reports (tenant isolation fix): this
+    // previously averaged EVERY tenant's client_benchmarks rows together
+    // with no WHERE at all, so "your agency average" leaked other tenants'
+    // ROAS/CTR into the number. Both the MAX(month) subquery and the outer
+    // average now scope to the caller's tenant, so "latest month" means
+    // latest month for THIS tenant, not whichever tenant most recently ran
+    // the benchmark cron.
     try {
       const { pool } = await import('../db/index');
       const avgResult = await pool.query(
         `SELECT ROUND(AVG(avg_roas)::numeric, 2) AS avg_roas,
                 ROUND(AVG(avg_ctr)::numeric, 2) AS avg_ctr
          FROM client_benchmarks
-         WHERE month = (SELECT MAX(month) FROM client_benchmarks)`
+         WHERE tenant_id = $1
+           AND month = (SELECT MAX(month) FROM client_benchmarks WHERE tenant_id = $1)`,
+        [tenantId]
       );
       if (avgResult.rows.length > 0) agencyAvg = avgResult.rows[0] as Record<string, unknown>;
     } catch { /* non-critical */ }
@@ -284,11 +296,11 @@ router.post('/send-pdf', async (req: Request, res: Response) => {
     const { start, end } = weekRange(weekOf);
     const [adMetrics, completedTasks] = await Promise.all([
       client.metaAdAccountId ? fetchWeeklyAdMetrics(client.metaAdAccountId, weekOf) : Promise.resolve(null),
-      fetchCompletedTasksForWeek(weekOf),
+      fetchCompletedTasksForWeek(weekOf, tenantId),
     ]);
 
     // Fetch benchmark + agency avg + trends for PDF
-    const pdfExtra = await fetchReportExtras(client.metaAdAccountId, start, adMetrics, String(client.name || ''));
+    const pdfExtra = await fetchReportExtras(client.metaAdAccountId, start, adMetrics, String(client.name || ''), tenantId);
 
     // Generate PDF buffer
     const pdfBuffer = await generateReportPDF({
@@ -377,11 +389,11 @@ router.get('/pdf', async (req: Request, res: Response) => {
     const { start, end } = weekRange(weekOf);
     const [adMetrics, completedTasks] = await Promise.all([
       client.metaAdAccountId ? fetchWeeklyAdMetrics(client.metaAdAccountId, weekOf) : Promise.resolve(null),
-      fetchCompletedTasksForWeek(weekOf),
+      fetchCompletedTasksForWeek(weekOf, tenantId),
     ]);
 
     // Fetch benchmark + agency avg + trends for PDF
-    const pdfExtra = await fetchReportExtras(client.metaAdAccountId, start, adMetrics, String(client.name || ''));
+    const pdfExtra = await fetchReportExtras(client.metaAdAccountId, start, adMetrics, String(client.name || ''), tenantId);
 
     const pdfBuffer = await generateReportPDF({
       client, weekOf, weekStart: start, weekEnd: end,
@@ -415,6 +427,7 @@ async function fetchReportExtras(
   weekStart: Date,
   adMetrics: Record<string, unknown> | null,
   clientName: string,
+  tenantId: string,
 ): Promise<ReportExtras> {
   let benchmark: Record<string, unknown> | null = null;
   let agencyAvg: Record<string, unknown> | null = null;
@@ -426,21 +439,24 @@ async function fetchReportExtras(
       const { pool } = await import('../db/index');
       const benchResult = await pool.query(
         `SELECT avg_roas, avg_ctr, total_spend, total_revenue, top_creative_type
-         FROM client_benchmarks WHERE ad_account_id = $1 ORDER BY month DESC LIMIT 1`,
-        [adAccountId]
+         FROM client_benchmarks WHERE ad_account_id = $1 AND tenant_id = $2 ORDER BY month DESC LIMIT 1`,
+        [adAccountId, tenantId]
       );
       if (benchResult.rows.length > 0) benchmark = benchResult.rows[0] as Record<string, unknown>;
     }
   } catch { /* benchmarks not yet populated */ }
 
-  // Agency average benchmark
+  // Agency average benchmark — see the identical fix + rationale in the
+  // /generate handler above (H-reports, tenant isolation fix).
   try {
     const { pool } = await import('../db/index');
     const avgResult = await pool.query(
       `SELECT ROUND(AVG(avg_roas)::numeric, 2) AS avg_roas,
               ROUND(AVG(avg_ctr)::numeric, 2) AS avg_ctr
        FROM client_benchmarks
-       WHERE month = (SELECT MAX(month) FROM client_benchmarks)`
+       WHERE tenant_id = $1
+         AND month = (SELECT MAX(month) FROM client_benchmarks WHERE tenant_id = $1)`,
+      [tenantId]
     );
     if (avgResult.rows.length > 0) agencyAvg = avgResult.rows[0] as Record<string, unknown>;
   } catch { /* non-critical */ }

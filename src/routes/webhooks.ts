@@ -2,16 +2,49 @@ import logger from '../utils/logger';
 import crypto from 'crypto';
 import { Router } from 'express';
 import { eq, count, desc, sql } from 'drizzle-orm';
-import { db, processedEvents, jobs, messages, contacts, contactChannels } from '../db/index';
+import { db, processedEvents, jobs, messages, contacts, contactChannels, tenants } from '../db/index';
 import { insertJob } from '../services/jobQueue';
 import { validateMetaWebhook } from '../middleware/validateWebhook';
 import { processBooking } from '../services/bookingService';
 import { emitNewMessage, emitStatusUpdate } from './inbox';
 import {
+  defaultResolvePreferredTenantId,
   extractFacebookLeadgenChanges,
   processFacebookLeadgenChange,
   verifyMetaLeadSignature,
 } from '../services/facebookLeadForms';
+import { DEFAULT_TENANT_SLUG } from '../config/constants';
+
+// ---------------------------------------------------------------------------
+// Tenant attribution for webhook-originated jobs (residual gap from QA-4).
+//
+// jobQueue.ts's tenantPredicate() treats a job's NULL tenant_id as visible to
+// EVERY authenticated tenant ("own tenant OR NULL") — a deliberate compromise
+// at the time because these jobs are inserted with tenant_id hardcoded to
+// null. That was fine with a single real tenant; with three (growth-
+// escalators, wizmatch, and a third real tenant) a NULL-tenant job is
+// readable by anyone.
+//
+// Every one of these integrations (Cal.com booking, WhatsApp inbound, Tally
+// forms, Chatwoot) is wired to exactly one tenant today — same posture as
+// bookingService.ts (hardcodes 'growth-escalators') and jobDrainer.ts's
+// processFormSubmitJob() (resolves DEFAULT_TENANT_SLUG). This resolves that
+// same default tenant at job-insert time instead of leaving tenant_id null,
+// so the "own OR NULL" fallback in jobQueue.ts stops being load-bearing for
+// these job types. Memoized — this tenant row does not change mid-process.
+let cachedDefaultTenantId: string | null = null;
+export async function resolveDefaultTenantId(): Promise<string | null> {
+  if (cachedDefaultTenantId) return cachedDefaultTenantId;
+  const [tenant] = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.slug, DEFAULT_TENANT_SLUG)).limit(1);
+  if (!tenant) return null;
+  cachedDefaultTenantId = tenant.id;
+  return cachedDefaultTenantId;
+}
+
+// Test-only escape hatch — mirrors seoTenantContext's __resetSeoTenantCacheForTests.
+export function __resetDefaultTenantCacheForTests(): void {
+  cachedDefaultTenantId = null;
+}
 
 // Webhook signature verification helper. Fails CLOSED when the secret is
 // unset — a missing secret previously meant every request was accepted
@@ -98,8 +131,12 @@ router.post('/meta-leads', async (req, res) => {
       const message = error instanceof Error ? error.message : String(error);
       logger.error({ error: message, change }, '[facebook-leads webhook] failed');
       try {
+        // Reuse the same page/form -> tenant resolution processFacebookLeadgenChange()
+        // itself uses (env-driven FACEBOOK_LEAD_FORM_TENANT_MAP / FACEBOOK_PAGE_TENANT_MAP /
+        // WIZMATCH_FACEBOOK_*), instead of leaving the failure-audit job's tenant_id null.
+        const preferredTenantId = await defaultResolvePreferredTenantId(change);
         await insertJob(
-          null,
+          preferredTenantId,
           'facebook_lead_failed',
           { change, error: message, payload: req.body },
           `facebook_lead_failed:${change.leadgenId}:${Date.now()}`,
@@ -168,20 +205,24 @@ router.post('/meta-wa', validateMetaWebhook, async (req, res) => {
   }
 
   // Process each message independently — idempotency per message id
+  // Tenant resolution hoisted above the loop: there's no per-tenant WABA
+  // routing today (single WHATSAPP_PHONE_NUMBER_ID/META_PHONE_NUMBER_ID env
+  // var, no per-tenant mapping anywhere in this codebase), so this resolves
+  // the same default tenant used elsewhere for this exact class of
+  // single-integration surface (see resolveDefaultTenantId() above) — and
+  // now attributes it to the job too, instead of leaving tenant_id null.
+  const tenantId = await resolveDefaultTenantId();
   let queued = 0;
   for (const message of value.messages) {
     const eventId = `meta_wa:${message.id}`;
     if (await isAlreadyProcessed(eventId)) continue;
     await markProcessed(eventId, 'meta_wa');
-    await insertJob(null, 'inbound_wa', req.body, eventId);
+    await insertJob(tenantId, 'inbound_wa', req.body, eventId);
     queued++;
 
     // Also save directly to messages table for inbox real-time display
     try {
       const phone = message.from as string;
-      // Find tenant (look up via WABA or default to first tenant)
-      const tenantResult = await db.execute(sql`SELECT id FROM tenants LIMIT 1`);
-      const tenantId = (tenantResult.rows[0] as { id: string } | undefined)?.id;
       if (!tenantId) continue;
 
       // Find contact by WhatsApp channel
@@ -284,7 +325,11 @@ router.post('/calcom', async (req, res) => {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error('[calcom webhook] processBooking failed:', message);
-    await insertJob(null, 'booking_failed', { uid, error: message, payload: req.body }, `booking_failed:${uid}`);
+    // Same tenant bookingService.ts's processBooking() itself resolves to
+    // (hardcoded 'growth-escalators' — this integration has no per-tenant
+    // Cal.com routing today) — attribute the failure-audit job to it too.
+    const tenantId = await resolveDefaultTenantId();
+    await insertJob(tenantId, 'booking_failed', { uid, error: message, payload: req.body }, `booking_failed:${uid}`);
     res.status(200).json({ status: 'error', error: message });
   }
 });
@@ -311,7 +356,11 @@ router.post('/tally', async (req, res) => {
   }
 
   await markProcessed(eventId, 'tally');
-  const { job } = await insertJob(null, 'form_submit', req.body, eventId);
+  // Same tenant jobDrainer.ts's processFormSubmitJob() resolves this job to
+  // once drained (DEFAULT_TENANT_SLUG) — resolved here too so the job is
+  // attributed from the moment it's queued, not just once it's processed.
+  const tenantId = await resolveDefaultTenantId();
+  const { job } = await insertJob(tenantId, 'form_submit', req.body, eventId);
   res.status(200).json({ status: 'queued', jobId: job.id });
 });
 
@@ -337,7 +386,13 @@ router.post('/chatwoot', async (req, res) => {
   }
 
   await markProcessed(eventId, 'chatwoot');
-  const { job } = await insertJob(null, 'chatwoot_event', req.body, eventId);
+  // No per-tenant Chatwoot account/inbox mapping exists anywhere in this
+  // codebase (unlike Facebook lead forms' page/form -> tenant config) — this
+  // integration has zero evidence of being wired to more than one tenant, so
+  // it defaults the same way every other single-tenant integration in this
+  // file does rather than leaving tenant_id null.
+  const tenantId = await resolveDefaultTenantId();
+  const { job } = await insertJob(tenantId, 'chatwoot_event', req.body, eventId);
   res.status(200).json({ status: 'queued', jobId: job.id });
 });
 

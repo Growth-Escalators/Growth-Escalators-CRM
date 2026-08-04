@@ -13,9 +13,10 @@ const router = Router();
 // ---------------------------------------------------------------------------
 // GET /api/growth-os/clients
 // ---------------------------------------------------------------------------
-router.get('/clients', async (_req: Request, res: Response) => {
+router.get('/clients', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
   try {
-    const result = await pool.query(`SELECT * FROM growth_os_clients ORDER BY client_name`);
+    const result = await pool.query(`SELECT * FROM growth_os_clients WHERE tenant_id = $1 ORDER BY client_name`, [tenantId]);
     res.json({ clients: result.rows });
   } catch (e) {
     logger.error('[growth-os] clients fetch failed:', e);
@@ -27,23 +28,36 @@ router.get('/clients', async (_req: Request, res: Response) => {
 // POST /api/growth-os/clients — add or update
 // ---------------------------------------------------------------------------
 router.post('/clients', async (req: Request, res: Response) => {
-  const user = (req as Request & { user?: { role: string } }).user;
+  const user = req.user;
   if (!isAdminTier(user?.role)) { res.status(403).json({ error: 'Admin only' }); return; }
+  const tenantId = user!.tenantId;
 
   const { client_name, ad_account_id, founder_whatsapp, founder_name, monthly_ad_spend, target_roas, industry, competitors } = req.body as Record<string, unknown>;
   if (!client_name || !ad_account_id) { res.status(400).json({ error: 'client_name and ad_account_id required' }); return; }
 
   try {
-    await pool.query(
-      `INSERT INTO growth_os_clients (client_name, ad_account_id, founder_whatsapp, founder_name, monthly_ad_spend, target_roas, industry, competitors)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+    // client_name carries a global UNIQUE constraint (pre-existing, not
+    // scoped per-tenant — changing that is a separate schema decision, out
+    // of scope here). The `WHERE growth_os_clients.tenant_id = $9` guard on
+    // the conflict branch means a name collision with ANOTHER tenant's
+    // client is a no-op (0 rows), not a cross-tenant overwrite — surfaced
+    // to the caller as 409 below rather than a silent 200.
+    const result = await pool.query(
+      `INSERT INTO growth_os_clients (client_name, ad_account_id, founder_whatsapp, founder_name, monthly_ad_spend, target_roas, industry, competitors, tenant_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        ON CONFLICT (client_name) DO UPDATE SET
          ad_account_id=$2, founder_whatsapp=$3, founder_name=$4, monthly_ad_spend=$5,
-         target_roas=$6, industry=$7, competitors=$8`,
+         target_roas=$6, industry=$7, competitors=$8
+       WHERE growth_os_clients.tenant_id = $9
+       RETURNING id`,
       [client_name, ad_account_id, founder_whatsapp ?? null, founder_name ?? null,
        monthly_ad_spend ?? 0, target_roas ?? 2.5, industry ?? 'general',
-       JSON.stringify(competitors ?? [])]
+       JSON.stringify(competitors ?? []), tenantId]
     );
+    if (result.rows.length === 0) {
+      res.status(409).json({ error: 'A client with this name already exists under a different tenant' });
+      return;
+    }
     res.json({ ok: true, message: 'Client saved' });
   } catch (e) {
     logger.error('[growth-os] client save failed:', e);
@@ -54,13 +68,15 @@ router.post('/clients', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/growth-os/health/all
 // ---------------------------------------------------------------------------
-router.get('/health/all', async (_req: Request, res: Response) => {
+router.get('/health/all', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
   try {
     const result = await pool.query(`
       SELECT DISTINCT ON (client_name) *
       FROM brand_health_scores
+      WHERE tenant_id = $1
       ORDER BY client_name, score_date DESC
-    `);
+    `, [tenantId]);
     res.json({ scores: result.rows });
   } catch (e) {
     logger.error('[growth-os] health/all failed:', e);
@@ -72,11 +88,12 @@ router.get('/health/all', async (_req: Request, res: Response) => {
 // GET /api/growth-os/health/:clientName
 // ---------------------------------------------------------------------------
 router.get('/health/:clientName', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
   try {
     const { clientName } = req.params;
     const result = await pool.query(
-      `SELECT * FROM brand_health_scores WHERE client_name = $1 ORDER BY score_date DESC LIMIT 30`,
-      [clientName]
+      `SELECT * FROM brand_health_scores WHERE client_name = $1 AND tenant_id = $2 ORDER BY score_date DESC LIMIT 30`,
+      [clientName, tenantId]
     );
     res.json({ scores: result.rows, latest: result.rows[0] ?? null });
   } catch (e) {
@@ -89,14 +106,15 @@ router.get('/health/:clientName', async (req: Request, res: Response) => {
 // POST /api/growth-os/health/generate — admin only
 // ---------------------------------------------------------------------------
 router.post('/health/generate', async (req: Request, res: Response) => {
-  const user = (req as Request & { user?: { role: string } }).user;
+  const user = req.user;
   if (!isAdminTier(user?.role)) { res.status(403).json({ error: 'Admin only' }); return; }
+  const tenantId = user!.tenantId;
 
   res.json({ status: 'generating', message: 'Health score generation started. Check /health/all shortly.' });
 
   setImmediate(async () => {
     try {
-      const clients = await getActiveGrowthOSClients();
+      const clients = await getActiveGrowthOSClients(tenantId);
       for (const client of clients) {
         const score = await calculateBrandHealth(client);
         if (client.founder_whatsapp) await sendHealthScoreWhatsApp(score, client.founder_whatsapp);
@@ -113,11 +131,12 @@ router.post('/health/generate', async (req: Request, res: Response) => {
 // GET /api/growth-os/opportunity/:clientName
 // ---------------------------------------------------------------------------
 router.get('/opportunity/:clientName', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
   try {
     const { clientName } = req.params;
     const result = await pool.query(
-      `SELECT * FROM money_on_table WHERE client_name = $1 ORDER BY created_at DESC LIMIT 8`,
-      [clientName]
+      `SELECT * FROM money_on_table WHERE client_name = $1 AND tenant_id = $2 ORDER BY created_at DESC LIMIT 8`,
+      [clientName, tenantId]
     );
     res.json({ reports: result.rows, latest: result.rows[0] ?? null });
   } catch (e) {
@@ -130,14 +149,15 @@ router.get('/opportunity/:clientName', async (req: Request, res: Response) => {
 // POST /api/growth-os/opportunity/generate
 // ---------------------------------------------------------------------------
 router.post('/opportunity/generate', async (req: Request, res: Response) => {
-  const user = (req as Request & { user?: { role: string } }).user;
+  const user = req.user;
   if (!isAdminTier(user?.role)) { res.status(403).json({ error: 'Admin only' }); return; }
+  const tenantId = user!.tenantId;
 
   res.json({ status: 'generating', message: 'Opportunity calculation started.' });
 
   setImmediate(async () => {
     try {
-      const clients = await getActiveGrowthOSClients();
+      const clients = await getActiveGrowthOSClients(tenantId);
       for (const client of clients) {
         await calculateMoneyOnTable(client);
         await new Promise(r => setTimeout(r, 2000));
@@ -153,15 +173,16 @@ router.post('/opportunity/generate', async (req: Request, res: Response) => {
 // GET /api/growth-os/creatives/:adAccountId
 // ---------------------------------------------------------------------------
 router.get('/creatives/:adAccountId', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
   try {
     const { adAccountId } = req.params;
     const { status } = req.query as { status?: string };
 
-    let query = `SELECT * FROM creative_intelligence WHERE ad_account_id = $1`;
-    const params: unknown[] = [adAccountId];
+    let query = `SELECT * FROM creative_intelligence WHERE ad_account_id = $1 AND tenant_id = $2`;
+    const params: unknown[] = [adAccountId, tenantId];
 
     if (status) {
-      query += ` AND fatigue_status = $2`;
+      query += ` AND fatigue_status = $3`;
       params.push(status);
     }
 
@@ -179,16 +200,17 @@ router.get('/creatives/:adAccountId', async (req: Request, res: Response) => {
 // POST /api/growth-os/creatives/scan
 // ---------------------------------------------------------------------------
 router.post('/creatives/scan', async (req: Request, res: Response) => {
-  const user = (req as Request & { user?: { role: string } }).user;
+  const user = req.user;
   if (!isAdminTier(user?.role)) { res.status(403).json({ error: 'Admin only' }); return; }
+  const tenantId = user!.tenantId;
 
   res.json({ status: 'scanning', message: 'Creative intelligence scan started.' });
 
   setImmediate(async () => {
     try {
-      const clients = await getActiveGrowthOSClients();
+      const clients = await getActiveGrowthOSClients(tenantId);
       for (const client of clients) {
-        await trackCreativePerformance(client.ad_account_id);
+        await trackCreativePerformance(client.ad_account_id, client.tenant_id);
         await new Promise(r => setTimeout(r, 3000));
       }
       logger.info('[growth-os] Manual creative scan complete');
@@ -202,11 +224,12 @@ router.post('/creatives/scan', async (req: Request, res: Response) => {
 // GET /api/growth-os/competitor/:clientName
 // ---------------------------------------------------------------------------
 router.get('/competitor/:clientName', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
   try {
     const { clientName } = req.params;
     const result = await pool.query(
-      `SELECT * FROM competitor_pulse WHERE client_name = $1 ORDER BY created_at DESC LIMIT 10`,
-      [clientName]
+      `SELECT * FROM competitor_pulse WHERE client_name = $1 AND tenant_id = $2 ORDER BY created_at DESC LIMIT 10`,
+      [clientName, tenantId]
     );
     res.json({ pulse: result.rows, latest: result.rows[0] ?? null });
   } catch (e) {
@@ -219,11 +242,12 @@ router.get('/competitor/:clientName', async (req: Request, res: Response) => {
 // GET /api/growth-os/copilot/:clientName
 // ---------------------------------------------------------------------------
 router.get('/copilot/:clientName', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
   try {
     const { clientName } = req.params;
     const result = await pool.query(
-      `SELECT * FROM copilot_conversations WHERE client_name = $1 ORDER BY created_at DESC LIMIT 20`,
-      [clientName]
+      `SELECT * FROM copilot_conversations WHERE client_name = $1 AND tenant_id = $2 ORDER BY created_at DESC LIMIT 20`,
+      [clientName, tenantId]
     );
     res.json({ conversations: result.rows.reverse() }); // Chronological order
   } catch (e) {
@@ -236,14 +260,15 @@ router.get('/copilot/:clientName', async (req: Request, res: Response) => {
 // POST /api/growth-os/competitor/run
 // ---------------------------------------------------------------------------
 router.post('/competitor/run', async (req: Request, res: Response) => {
-  const user = (req as Request & { user?: { role: string } }).user;
+  const user = req.user;
   if (!isAdminTier(user?.role)) { res.status(403).json({ error: 'Admin only' }); return; }
+  const tenantId = user!.tenantId;
 
   res.json({ status: 'running', message: 'Competitor pulse started.' });
 
   setImmediate(async () => {
     try {
-      const clients = await getActiveGrowthOSClients();
+      const clients = await getActiveGrowthOSClients(tenantId);
       for (const client of clients) {
         await runCompetitorPulse(client);
         await new Promise(r => setTimeout(r, 3000));
