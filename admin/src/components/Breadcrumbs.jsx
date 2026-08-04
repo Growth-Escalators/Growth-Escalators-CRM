@@ -10,6 +10,7 @@ const ROUTE_LABELS = {
   pipelines: 'Pipeline',
   settings: 'Settings',
   permissions: 'Permissions',
+  branding: 'Branding',
   automations: 'Automations',
   emails: 'Email Templates',
   billing: 'Billing',

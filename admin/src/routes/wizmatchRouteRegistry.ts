@@ -2,7 +2,7 @@ import type { ComponentType } from 'react';
 import {
   Home, Users, Kanban, CheckSquare, MessageSquare, Target, Brain, MapPin, Mail,
   CreditCard, Receipt, Shield, ClipboardList, Settings, Search, Zap, Network,
-  FileText, UserCheck, Briefcase, BarChart3,
+  FileText, UserCheck, Briefcase, BarChart3, Palette,
 } from 'lucide-react';
 
 /**
@@ -49,6 +49,7 @@ export type WizmatchPermissionFlag =
   | 'canContracts'
   | 'isAdmin'
   | 'isAdminTier'
+  | 'isOwner'
   | 'canStaffing'
   | 'staffingPhaseA'
   | 'staffingPhaseB'
@@ -296,6 +297,14 @@ export const WIZMATCH_ROUTES: WizmatchRouteDefinition[] = [
     id: 'more-audit', label: 'Audit', path: '/wizmatch/settings/audit', icon: ClipboardList,
     group: 'more.administration', moreSection: 'Administration', permission: 'isAdmin',
     breadcrumb: { label: 'Audit' }, legacyAliases: [], searchVisible: true,
+  },
+  {
+    // Owner-only, not admin-tier — mirrors the PUT /api/tenant-branding
+    // route's own check (src/routes/tenantBranding.ts), not the looser
+    // isAdmin/isAdminTier predicates the other Administration entries use.
+    id: 'more-branding', label: 'Branding', path: '/wizmatch/settings/branding', icon: Palette,
+    group: 'more.administration', moreSection: 'Administration', permission: 'isOwner',
+    breadcrumb: { label: 'Branding' }, legacyAliases: [], searchVisible: true,
   },
   {
     // Was "Configuration", which promised a general settings page. The route
