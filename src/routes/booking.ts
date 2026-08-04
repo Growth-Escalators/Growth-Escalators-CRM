@@ -33,17 +33,19 @@ async function getTenantId(): Promise<string> {
 
 // ---------------------------------------------------------------------------
 // POST /book/funnels  — create funnel + members in one call
+// Auth-gated (see src/index.ts mount) — tenantId is derived from the
+// authenticated caller, never trusted from the request body.
 // ---------------------------------------------------------------------------
 router.post('/funnels', async (req: Request, res: Response) => {
-  const { tenantId, name, slug, members } = req.body as {
-    tenantId: string;
+  const tenantId = req.user!.tenantId;
+  const { name, slug, members } = req.body as {
     name: string;
     slug: string;
     members: { memberName: string; calcomUrl: string; weight: number }[];
   };
 
-  if (!tenantId || !name || !slug || !Array.isArray(members) || members.length === 0) {
-    res.status(400).json({ error: 'tenantId, name, slug, and members[] are required' });
+  if (!name || !slug || !Array.isArray(members) || members.length === 0) {
+    res.status(400).json({ error: 'name, slug, and members[] are required' });
     return;
   }
 
@@ -69,13 +71,11 @@ router.post('/funnels', async (req: Request, res: Response) => {
 
 // ---------------------------------------------------------------------------
 // GET /book/funnels  — list all funnels for a tenant
+// Auth-gated (see src/index.ts mount) — tenantId is derived from the
+// authenticated caller, never trusted from the query string.
 // ---------------------------------------------------------------------------
 router.get('/funnels', async (req: Request, res: Response) => {
-  const tenantId = req.query['tenantId'] as string | undefined;
-  if (!tenantId) {
-    res.status(400).json({ error: 'tenantId query param is required' });
-    return;
-  }
+  const tenantId = req.user!.tenantId;
 
   try {
     const rows = await db
@@ -102,14 +102,12 @@ router.get('/funnels', async (req: Request, res: Response) => {
 
 // ---------------------------------------------------------------------------
 // GET /book/funnels/:slug/stats
+// Auth-gated (see src/index.ts mount) — tenantId is derived from the
+// authenticated caller, never trusted from the query string.
 // ---------------------------------------------------------------------------
 router.get('/funnels/:slug/stats', async (req: Request, res: Response) => {
   const slug = String(req.params['slug']);
-  const tenantId = req.query['tenantId'] as string | undefined;
-  if (!tenantId) {
-    res.status(400).json({ error: 'tenantId query param is required' });
-    return;
-  }
+  const tenantId = req.user!.tenantId;
 
   try {
     const stats = await getFunnelStats(slug, tenantId);
@@ -122,18 +120,20 @@ router.get('/funnels/:slug/stats', async (req: Request, res: Response) => {
 
 // ---------------------------------------------------------------------------
 // POST /book/funnels/:slug/members  — add a member to an existing funnel
+// Auth-gated (see src/index.ts mount) — tenantId is derived from the
+// authenticated caller, never trusted from the request body.
 // ---------------------------------------------------------------------------
 router.post('/funnels/:slug/members', async (req: Request, res: Response) => {
   const slug = String(req.params['slug']);
-  const { tenantId, memberName, calcomUrl, weight } = req.body as {
-    tenantId: string;
+  const tenantId = req.user!.tenantId;
+  const { memberName, calcomUrl, weight } = req.body as {
     memberName: string;
     calcomUrl: string;
     weight: number;
   };
 
-  if (!tenantId || !memberName || !calcomUrl || weight === undefined) {
-    res.status(400).json({ error: 'tenantId, memberName, calcomUrl, and weight are required' });
+  if (!memberName || !calcomUrl || weight === undefined) {
+    res.status(400).json({ error: 'memberName, calcomUrl, and weight are required' });
     return;
   }
 
@@ -159,9 +159,17 @@ router.post('/funnels/:slug/members', async (req: Request, res: Response) => {
 
 // ---------------------------------------------------------------------------
 // PATCH /book/funnels/:slug/members/:memberId  — update calcomUrl / weight / isActive
+// Auth-gated (see src/index.ts mount). Previously had NO tenant check of any
+// kind — any caller who guessed/enumerated a memberId could edit another
+// tenant's funnel member. Scoped now: the member must belong to a funnel that
+// (a) has the given :slug AND (b) belongs to the authenticated caller's
+// tenant; the update itself is additionally filtered on the member's own
+// tenantId as belt-and-suspenders.
 // ---------------------------------------------------------------------------
 router.patch('/funnels/:slug/members/:memberId', async (req: Request, res: Response) => {
+  const slug = String(req.params['slug']);
   const memberId = String(req.params['memberId']);
+  const tenantId = req.user!.tenantId;
   const { calcomUrl, weight, isActive } = req.body as {
     calcomUrl?: string;
     weight?: number;
@@ -179,10 +187,27 @@ router.patch('/funnels/:slug/members/:memberId', async (req: Request, res: Respo
   }
 
   try {
+    const [funnel] = await db
+      .select({ id: funnels.id })
+      .from(funnels)
+      .where(and(eq(funnels.slug, slug), eq(funnels.tenantId, tenantId)))
+      .limit(1);
+
+    if (!funnel) {
+      res.status(404).json({ error: `Funnel not found: ${slug}` });
+      return;
+    }
+
     const [updated] = await db
       .update(funnelMembers)
       .set(partial)
-      .where(eq(funnelMembers.id, memberId))
+      .where(
+        and(
+          eq(funnelMembers.id, memberId),
+          eq(funnelMembers.funnelId, funnel.id),
+          eq(funnelMembers.tenantId, tenantId),
+        ),
+      )
       .returning();
 
     if (!updated) {
@@ -198,14 +223,12 @@ router.patch('/funnels/:slug/members/:memberId', async (req: Request, res: Respo
 
 // ---------------------------------------------------------------------------
 // POST /book/funnels/:slug/reset  — reset all assignment counts
+// Auth-gated (see src/index.ts mount) — tenantId is derived from the
+// authenticated caller, never trusted from the request body.
 // ---------------------------------------------------------------------------
 router.post('/funnels/:slug/reset', async (req: Request, res: Response) => {
   const slug = String(req.params['slug']);
-  const { tenantId } = req.body as { tenantId: string };
-  if (!tenantId) {
-    res.status(400).json({ error: 'tenantId is required' });
-    return;
-  }
+  const tenantId = req.user!.tenantId;
 
   try {
     await resetFunnelCounts(slug, tenantId);
