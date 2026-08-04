@@ -132,7 +132,37 @@ describe('requireTenantFeature — route enforcement (real getTenantFeatures/com
   });
 
   describe('gstBilling — the /api/billing route group', () => {
-    it('a reseller-pilot tenant (gstBilling explicitly off) gets 403', async () => {
+    // DENY-PATH CONTROL — client_basic still has gstBilling off by plan
+    // default, so the gate itself (not just the reseller_pilot flip below)
+    // stays exercised: a tenant with the feature genuinely off must still
+    // 403.
+    it('a client_basic tenant (gstBilling off) gets 403', async () => {
+      mockTenantRow({ plan: 'client_basic', settings: {} });
+      const { baseUrl, close } = await startApp('gstBilling', {
+        id: 'user-1',
+        tenantId: 'client-basic-tenant-id',
+        role: 'admin',
+      });
+      try {
+        const res = await fetch(`${baseUrl}/protected`);
+        expect(res.status).toBe(403);
+        expect(await res.json()).toEqual({
+          error: 'feature_not_enabled',
+          message: "This feature ('gstBilling') is not enabled for your account.",
+        });
+      } finally {
+        await close();
+      }
+    });
+
+    // Reseller readiness Round 3 (2026-08-04): a reseller_pilot tenant now
+    // has gstBilling ON by plan default (tenantFeatures.ts's
+    // PLAN_DEFAULTS.reseller_pilot) — it used to be off, which meant every
+    // reseller tenant was permanently 403'd out of /api/billing despite the
+    // tenant-driven invoice branding work existing specifically so pilots
+    // could bill their own clients. This test used to assert a 403 here;
+    // that was the bug, not the intended behaviour.
+    it('a reseller-pilot tenant (gstBilling on by plan default) is unaffected — normal 200', async () => {
       mockTenantRow({ plan: 'reseller_pilot', settings: {} });
       const { baseUrl, close } = await startApp('gstBilling', {
         id: 'user-1',
@@ -141,7 +171,8 @@ describe('requireTenantFeature — route enforcement (real getTenantFeatures/com
       });
       try {
         const res = await fetch(`${baseUrl}/protected`);
-        expect(res.status).toBe(403);
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual({ ok: true });
       } finally {
         await close();
       }

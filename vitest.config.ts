@@ -9,7 +9,16 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['src/__tests__/**/*.test.ts', 'src/__tests__/**/*.test.js'],
+    // admin/src/lib/**/__tests__ — pure-logic frontend tests (no JSX, no
+    // DOM rendering) for admin SPA modules like lib/auth.js. These only
+    // touch `window.location`/`localStorage` as plain globals the test
+    // stubs itself, so the existing 'node' environment is sufficient; no
+    // jsdom/testing-library dependency needed for this.
+    include: [
+      'src/__tests__/**/*.test.ts',
+      'src/__tests__/**/*.test.js',
+      'admin/src/**/__tests__/**/*.test.js',
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'text-summary'],

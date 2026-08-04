@@ -41,6 +41,22 @@ describe('computeTenantFeatures (pure, per-plan defaults)', () => {
     });
   });
 
+  // Reseller readiness Round 3 (2026-08-04): gstBilling flipped on for this
+  // plan so a reseller_pilot tenant can invoice its own clients — see the
+  // PLAN_DEFAULTS.reseller_pilot doc-comment in tenantFeatures.ts for why
+  // `/api/billing` (gated behind requireTenantFeature('gstBilling')) needs
+  // to be reachable for this plan.
+  it('reseller_pilot — crmAutomation and gstBilling on; wizmatch/seo/d2c off', async () => {
+    const { computeTenantFeatures } = await import('../services/tenantFeatures');
+    expect(computeTenantFeatures('reseller_pilot', {})).toEqual({
+      wizmatch: false,
+      seo: false,
+      crmAutomation: true,
+      gstBilling: true,
+      d2c: false,
+    });
+  });
+
   it('unknown/null plan — fails closed to everything off', async () => {
     const { computeTenantFeatures } = await import('../services/tenantFeatures');
     expect(computeTenantFeatures('some_future_plan', {})).toEqual({

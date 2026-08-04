@@ -77,13 +77,16 @@ describe('validateTenantSlug', () => {
 });
 
 describe('reseller_pilot plan defaults (extends PLAN_DEFAULTS from PR #115, does not duplicate it)', () => {
-  it('crmAutomation on; wizmatch/seo/gstBilling/d2c off', async () => {
+  // Reseller readiness Round 3 (2026-08-04): gstBilling flipped on — a
+  // reseller_pilot tenant needs it to reach /api/billing and invoice its own
+  // clients (see tenantFeatures.ts's PLAN_DEFAULTS.reseller_pilot comment).
+  it('crmAutomation and gstBilling on; wizmatch/seo/d2c off', async () => {
     const { computeTenantFeatures } = await import('../services/tenantFeatures');
     expect(computeTenantFeatures('reseller_pilot', {})).toEqual({
       wizmatch: false,
       seo: false,
       crmAutomation: true,
-      gstBilling: false,
+      gstBilling: true,
       d2c: false,
     });
   });
@@ -166,7 +169,7 @@ describe('ensureTenant', () => {
       slug: 'acme-marketing',
       plan: 'reseller_pilot',
       isActive: true,
-      settings: { features: { wizmatch: false, seo: false, crmAutomation: true, gstBilling: false, d2c: false } },
+      settings: { features: { wizmatch: false, seo: false, crmAutomation: true, gstBilling: true, d2c: false } },
     });
   });
 

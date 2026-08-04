@@ -4,6 +4,7 @@ import {
   getTenantConfig,
   getTenantSlug,
   getProductHome,
+  hasExplicitTenantSignal,
   isKnownTenantSlug,
   setActiveTenantSlug,
   setAuthPermissions,
@@ -30,7 +31,18 @@ export default function LoginPage() {
   // `?tenant=<slug>` link (see getTenantSlug), and picking "Growth
   // Escalators" or "Wizmatch" there would silently log them into the wrong
   // tenant — so the picker is hidden entirely for any other slug.
-  const showProductPicker = isKnownTenantSlug(tenantSlug);
+  //
+  // isKnownTenantSlug(tenantSlug) alone isn't enough: getTenantSlug() falls
+  // all the way back to a SILENT 'growth-escalators' default when nothing
+  // (no `?tenant=`, no wizmatch-flavoured hostname/path, nothing in
+  // localStorage yet) was actually asked for — e.g. a reseller landing on
+  // the bare crm.growthescalators.com/login in a fresh browser. Without the
+  // hasExplicitTenantSignal() check, that silent default looked identical to
+  // "growth-escalators was explicitly requested", so the GE/Wizmatch picker
+  // (and the fact that "Wizmatch" is even an option) leaked to a third party
+  // who never asked for it. Only render the picker when a real signal
+  // pointed at one of the two known products.
+  const showProductPicker = hasExplicitTenantSignal() && isKnownTenantSlug(tenantSlug);
 
   function handleTenantChange(nextSlug) {
     setTenantSlug(nextSlug);
