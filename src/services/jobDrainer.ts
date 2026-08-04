@@ -15,15 +15,25 @@
 // them, because they are simply pending jobs it will now pick up. No separate
 // backfill script is needed.
 //
-// SCOPE — deliberately `form_submit` ONLY.
+// SCOPE — `form_submit` and `sequence_step`.
 // The other queued types (`inbound_wa`, `chatwoot_event`, `booking_processed`,
-// `hot_lead_alert`, `facebook_lead_failed`, `sequence_step`) were handled by n8n
-// workflow logic that does not exist in this repo and cannot be read. Guessing
-// at it would risk creating wrong records from real customer data. Those jobs
-// are LEFT PENDING and untouched, which is the honest default: they keep their
+// `hot_lead_alert`, `facebook_lead_failed`) were handled by n8n workflow logic
+// that does not exist in this repo and cannot be read. Guessing at it would
+// risk creating wrong records from real customer data. Those jobs are LEFT
+// PENDING and untouched, which is the honest default: they keep their
 // payloads and can be handled once their intended behaviour is established.
 // `inbound_wa` is already safe regardless — `webhooks.ts` also writes those
 // straight to the `messages` table, so the inbox was never affected.
+//
+// `sequence_step` ADDED 2026-08-04 (fix: sequences never send, for anyone).
+// `src/workers/sequenceWorker.ts` enqueues one `sequence_step` job per due
+// sequence step, but until now nothing drained that job type — they
+// accumulated forever and no sequence email ever went out, in every
+// environment, regardless of AUTOMATED_EMAILS_ENABLED. Unlike the n8n types
+// above, the step-execution logic for this one DOES exist in this repo
+// (`emailService.ts`'s `sendSequenceEmail`, already used by the manual-send
+// route `POST /email/send`) — this file just reuses it instead of
+// reimplementing sending. See `processSequenceStepJob` below.
 //
 // Deliberately NOT a replacement for the HTTP endpoint: that stays, so any
 // external consumer keeps working.
@@ -32,7 +42,8 @@ import { eq } from 'drizzle-orm';
 import { db, contacts } from '../db/index';
 import { findOrCreateContact } from './contactService';
 import { getPendingJobs, claimJob, completeJob, failJob } from './jobQueue';
-import { getSingleActiveTenantWithFeature } from './tenantFeatures';
+import { getDefaultIngestTenant } from './tenantFeatures';
+import { sendSequenceEmail, automatedEmailsEnabled } from './emailService';
 import logger from '../utils/logger';
 
 const POLL_INTERVAL_MS = 60_000;
@@ -99,12 +110,13 @@ export async function processFormSubmitJob(jobId: string, payload: unknown): Pro
   const parsed = parseTallySubmission(payload);
   if (!parsed.email) return 'skipped';
 
-  // Tenant-feature-gated (PR: tenant feature gating) — replaces the old
-  // hardcoded eq(tenants.slug, DEFAULT_TENANT_SLUG) lookup. Today only
-  // growth-escalators has the "crmAutomation" feature enabled (see
-  // tenantFeatures.ts PLAN_DEFAULTS), so this resolves to the exact same
-  // tenant as before.
-  const tenant = await getSingleActiveTenantWithFeature('crmAutomation');
+  // Pinned to GE's own tenant (PR: fix lead-theft-by-slug-order) — this
+  // recovers website leads submitted through GE's OWN Tally forms, so the
+  // destination tenant is GE, full stop. Must NOT be resolved by scanning
+  // every active tenant for "crmAutomation" — a reseller_pilot tenant also
+  // has that flag on, and if its slug sorted before growth-escalators, GE's
+  // own recovered leads would silently land in the reseller's CRM instead.
+  const tenant = await getDefaultIngestTenant('crmAutomation');
   if (!tenant) throw new Error('no active tenant has the "crmAutomation" feature enabled');
 
   const channels: { channelType: 'email' | 'whatsapp'; channelValue: string; isPrimary?: boolean }[] = [
@@ -138,6 +150,132 @@ export async function processFormSubmitJob(jobId: string, payload: unknown): Pro
   }).where(eq(contacts.id, contact.id));
 
   return created ? 'created' : 'updated';
+}
+
+// ---------------------------------------------------------------------------
+// sequence_step processing — reuses emailService.ts's sendSequenceEmail
+// (already used by the manual-send route) rather than reimplementing sending.
+// ---------------------------------------------------------------------------
+
+type SequenceStepPayload = {
+  enrolmentId?: string;
+  contactId?: string;
+  tenantId?: string;
+  sequenceId?: string;
+  stepIndex?: number;
+  stepDefinition?: { templateName?: string; channel?: string; [key: string]: unknown };
+  scheduledFor?: string;
+};
+
+/**
+ * Executes one `sequence_step` job by calling the SAME `sendSequenceEmail`
+ * used by the manual-send route (`POST /email/send` in routes/email.ts) —
+ * this is the "step-execution logic that already exists" referenced in the
+ * PR: template lookup, contact/email-channel resolution, the
+ * AUTOMATED_EMAILS_ENABLED kill switch, and the WizMatch outreach-policy
+ * re-check all live there already, so this function does not duplicate any
+ * of it.
+ *
+ * Tenant-correct: `tenantId` comes off the job's OWN payload (set by
+ * sequenceWorker.ts from `enrolment.tenantId`), falling back to the job
+ * row's `tenant_id` column — never a global/default tenant, since sequences
+ * belong to whichever tenant enrolled the contact (Growth CRM or WizMatch).
+ */
+export async function processSequenceStepJob(
+  jobId: string,
+  payload: unknown,
+  jobTenantId: string | null,
+): Promise<'sent' | 'blocked' | 'skipped'> {
+  const p = (payload ?? {}) as SequenceStepPayload;
+  const tenantId = p.tenantId || jobTenantId || undefined;
+  const contactId = p.contactId;
+  const templateName = p.stepDefinition?.templateName;
+
+  if (!tenantId || !contactId || !templateName) {
+    throw new Error(
+      `sequence_step job ${jobId} missing tenantId/contactId/stepDefinition.templateName in payload`,
+    );
+  }
+
+  const result = await sendSequenceEmail(contactId, templateName, tenantId);
+  if (result.success) return 'sent';
+
+  // "automated_emails_disabled" is a steady-state / transient condition, not
+  // a permanent fact about THIS job — the kill switch may be turned on
+  // later, and drainSequenceStepsOnce() already checks it up front so
+  // pending jobs are never even claimed while it's off (see below). Reaching
+  // this branch means the flag flipped off mid-batch: throw so failJob's
+  // backoff retries it, rather than marking a suppressed send "done" and
+  // losing it forever once sending is turned on.
+  if (result.reason === 'automated_emails_disabled') {
+    throw new Error('sequence_step send suppressed — AUTOMATED_EMAILS_ENABLED is off');
+  }
+
+  if (result.reason && result.reason.startsWith('outreach_blocked')) {
+    logger.info(
+      { jobId, tenantId, contactId, reason: result.reason },
+      '[job-drainer] sequence_step blocked by outreach policy — not retrying',
+    );
+    return 'blocked';
+  }
+
+  // Terminal, non-retryable conditions for this specific job (contact
+  // deleted, no email channel, unknown template) — retrying will not fix
+  // any of these, so mark it done rather than burning retry attempts.
+  logger.warn(
+    { jobId, tenantId, contactId, templateName, reason: result.reason },
+    '[job-drainer] sequence_step not sent — marking done',
+  );
+  return 'skipped';
+}
+
+export async function drainSequenceStepsOnce(): Promise<{
+  processed: number;
+  sent: number;
+  blocked: number;
+  skipped: number;
+  failed: number;
+}> {
+  const stats = { processed: 0, sent: 0, blocked: 0, skipped: 0, failed: 0 };
+
+  // Preserve the existing send gating exactly: while AUTOMATED_EMAILS_ENABLED
+  // is off, don't even claim sequence_step jobs — they stay untouched and
+  // pending, so nothing is lost or dead-lettered while sending is
+  // intentionally disabled. This mirrors the fail-closed convention used
+  // throughout the mailer (see emailService.ts / multiDomainMailer.ts).
+  if (!automatedEmailsEnabled()) {
+    return stats;
+  }
+
+  // Unscoped fetch, same posture as the form_submit drain above: each job
+  // carries its own tenantId (see processSequenceStepJob), so tenant
+  // correctness is enforced per-job, not by scoping the queue read.
+  const jobs = await getPendingJobs('sequence_step', BATCH_SIZE);
+  for (const job of jobs) {
+    try {
+      const claimed = await claimJob(job.id);
+      // Another worker won the race — leave it alone.
+      if (!claimed) continue;
+      const outcome = await processSequenceStepJob(job.id, job.payload, job.tenantId);
+      await completeJob(job.id);
+      stats.processed += 1;
+      if (outcome === 'sent') stats.sent += 1;
+      if (outcome === 'blocked') stats.blocked += 1;
+      if (outcome === 'skipped') stats.skipped += 1;
+    } catch (error) {
+      // A single bad job (malformed payload, transport error, suppressed
+      // send) must never wedge the loop — failJob applies the existing
+      // backoff / dead-letter policy and we move on to the next job.
+      const message = error instanceof Error ? error.message : String(error);
+      await failJob(job.id, message).catch(() => {});
+      stats.failed += 1;
+      logger.error({ jobId: job.id, err: message }, '[job-drainer] sequence_step failed');
+    }
+  }
+  if (stats.processed || stats.failed) {
+    logger.info(stats, '[job-drainer] sequence_step batch complete');
+  }
+  return stats;
 }
 
 export async function drainOnce(): Promise<{ processed: number; created: number; failed: number; skipped: number }> {
@@ -176,8 +314,14 @@ export function startJobDrainer(): void {
     return;
   }
   if (timer) return;
-  logger.info(`[job-drainer] started (form_submit only, every ${POLL_INTERVAL_MS / 1000}s)`);
-  const tick = () => { void drainOnce().catch((e) => logger.error({ err: e?.message }, '[job-drainer] loop error')); };
+  logger.info(`[job-drainer] started (form_submit + sequence_step, every ${POLL_INTERVAL_MS / 1000}s)`);
+  const tick = () => {
+    // Two independent drains per tick — a failure/throw in one type must
+    // never suppress the other. Each function already isolates per-job
+    // failures internally (see drainSequenceStepsOnce's try/catch per job).
+    void drainOnce().catch((e) => logger.error({ err: e?.message }, '[job-drainer] form_submit loop error'));
+    void drainSequenceStepsOnce().catch((e) => logger.error({ err: e?.message }, '[job-drainer] sequence_step loop error'));
+  };
   tick();
   timer = setInterval(tick, POLL_INTERVAL_MS);
 }

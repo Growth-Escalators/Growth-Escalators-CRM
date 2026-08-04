@@ -30,7 +30,7 @@ import {
   recordPendingOrder,
   type CashfreeWebhookBody,
 } from './cashfreeEventProcessor';
-import { getSingleActiveTenantWithFeature } from './tenantFeatures';
+import { getDefaultIngestTenant } from './tenantFeatures';
 import { SLACK_SALES_BD_CHANNEL } from '../config/constants';
 import {
   getUpstashClient,
@@ -206,12 +206,13 @@ export async function dispatch(event: QueueEvent): Promise<void> {
         tags?: string[]; metadata?: Record<string, unknown>;
       };
       if (!p.name || !p.email) return;
-      // Tenant-feature-gated (PR: tenant feature gating) — replaces the old
-      // hardcoded eq(tenants.slug, DEFAULT_TENANT_SLUG) lookup. Today only
-      // growth-escalators has the "crmAutomation" feature enabled (see
-      // tenantFeatures.ts PLAN_DEFAULTS), so this resolves to the exact same
-      // tenant as before.
-      const tenant = await getSingleActiveTenantWithFeature('crmAutomation');
+      // Pinned to GE's own tenant (PR: fix lead-theft-by-slug-order) — this
+      // queue drains events from GE's OWN edge infrastructure, so the
+      // destination tenant is GE, full stop. Must NOT be resolved by scanning
+      // every active tenant for "crmAutomation" (see tenantFeatures.ts
+      // getSingleActiveTenantWithFeature's docstring for the lead-theft bug
+      // that pattern caused).
+      const tenant = await getDefaultIngestTenant('crmAutomation');
       if (!tenant) return;
 
       const cleanPhone = (p.phone || '').replace(/\D/g, '');

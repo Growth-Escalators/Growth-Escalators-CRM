@@ -210,12 +210,97 @@ describe('getSingleActiveTenantWithFeature', () => {
     await expect(getSingleActiveTenantWithFeature('gstBilling')).resolves.toBeNull();
   });
 
-  it('deterministically picks the first by slug (and does not throw) when more than one tenant qualifies', async () => {
+  // BUG HISTORY (fixed 2026-08-04): this helper used to deterministically
+  // pick the first qualifying tenant by slug and silently return it — which
+  // is exactly the "lead theft by slug order" bug (a reseller_pilot tenant
+  // sorting before growth-escalators silently absorbed GE's own crmAutomation
+  // call sites). It now throws instead of guessing, so an ambiguous match
+  // fails loudly rather than routing data to an arbitrary tenant.
+  it('throws loudly instead of picking an arbitrary tenant when more than one qualifies', async () => {
     mockTenantRows([
       { id: 'b-id', slug: 'bravo', plan: 'client_basic', settings: { features: { seo: true } } },
       { id: 'a-id', slug: 'alpha', plan: 'client_basic', settings: { features: { seo: true } } },
     ]);
     const { getSingleActiveTenantWithFeature } = await import('../services/tenantFeatures');
-    await expect(getSingleActiveTenantWithFeature('seo')).resolves.toEqual({ id: 'a-id', slug: 'alpha' });
+    await expect(getSingleActiveTenantWithFeature('seo')).rejects.toThrow(/ambiguous tenant resolution/);
+  });
+});
+
+describe('getDefaultIngestTenant — pinned resolution for GE-own-infra ingestion (Bug 1 fix)', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  /**
+   * Simulates the real WHERE clause: getDefaultIngestTenant() queries
+   * `.where(eq(tenants.slug, DEFAULT_TENANT_SLUG)).limit(...)`, so this mock
+   * inspects the BOUND VALUE of the condition drizzle builds (same technique
+   * the "only queries isActive tenants" test above uses for a boolean bound
+   * value) and filters the fixture by slug — exactly what Postgres would do.
+   * This makes the regression test below meaningful: it fails if the
+   * implementation reverts to scanning + sorting every active tenant in JS
+   * (the Bug 1 pattern) instead of filtering by slug in the query itself.
+   */
+  function mockTenantsBySlugQuery(
+    rows: Array<{ id: string; slug: string; plan: string; settings: unknown; isActive: boolean }>,
+  ) {
+    const where = vi.fn((condition: { queryChunks?: Array<{ value?: unknown }> }) => {
+      const boundValues = (condition.queryChunks ?? [])
+        .filter((c) => c && typeof c === 'object' && 'value' in c && !Array.isArray(c.value))
+        .map((c) => c.value);
+      const matched = rows.filter((r) => boundValues.includes(r.slug));
+      return { limit: vi.fn().mockResolvedValue(matched) };
+    });
+    const from = vi.fn().mockReturnValue({ where });
+    const select = vi.fn().mockReturnValue({ from });
+    vi.doMock('../db/index', () => ({ db: { select } }));
+    return { where };
+  }
+
+  it('THE REGRESSION TEST: picks growth-escalators even when a reseller tenant sorts BEFORE it alphabetically', async () => {
+    // "acme-agency" sorts before "growth-escalators" — this is exactly the
+    // slug ordering that made the old getSingleActiveTenantWithFeature('crmAutomation')
+    // silently route GE's own inbound website leads to the reseller instead
+    // of GE. reseller_pilot also has crmAutomation: true (PLAN_DEFAULTS), so
+    // a feature-scan alone cannot tell them apart — only pinning by slug can.
+    mockTenantsBySlugQuery([
+      { id: 'reseller-id', slug: 'acme-agency', plan: 'reseller_pilot', settings: {}, isActive: true },
+      { id: 'ge-id', slug: 'growth-escalators', plan: 'agency_internal', settings: {}, isActive: true },
+    ]);
+    const { getDefaultIngestTenant } = await import('../services/tenantFeatures');
+    await expect(getDefaultIngestTenant('crmAutomation')).resolves.toEqual({ id: 'ge-id', slug: 'growth-escalators' });
+  });
+
+  it('returns null (fails closed) when the GE tenant is inactive, rather than falling through to another tenant', async () => {
+    mockTenantsBySlugQuery([
+      { id: 'reseller-id', slug: 'acme-agency', plan: 'reseller_pilot', settings: {}, isActive: true },
+      { id: 'ge-id', slug: 'growth-escalators', plan: 'agency_internal', settings: {}, isActive: false },
+    ]);
+    const { getDefaultIngestTenant } = await import('../services/tenantFeatures');
+    await expect(getDefaultIngestTenant('crmAutomation')).resolves.toBeNull();
+  });
+
+  it('returns null (fails closed) when the requested feature is off for GE, rather than falling through to another tenant', async () => {
+    mockTenantsBySlugQuery([
+      { id: 'ge-id', slug: 'growth-escalators', plan: 'agency_internal', settings: { features: { crmAutomation: false } }, isActive: true },
+    ]);
+    const { getDefaultIngestTenant } = await import('../services/tenantFeatures');
+    await expect(getDefaultIngestTenant('crmAutomation')).resolves.toBeNull();
+  });
+
+  it('returns null when no tenant with DEFAULT_TENANT_SLUG exists at all', async () => {
+    mockTenantsBySlugQuery([
+      { id: 'reseller-id', slug: 'acme-agency', plan: 'reseller_pilot', settings: {}, isActive: true },
+    ]);
+    const { getDefaultIngestTenant } = await import('../services/tenantFeatures');
+    await expect(getDefaultIngestTenant('crmAutomation')).resolves.toBeNull();
+  });
+
+  it('defaults the feature argument to crmAutomation', async () => {
+    mockTenantsBySlugQuery([
+      { id: 'ge-id', slug: 'growth-escalators', plan: 'agency_internal', settings: {}, isActive: true },
+    ]);
+    const { getDefaultIngestTenant } = await import('../services/tenantFeatures');
+    await expect(getDefaultIngestTenant()).resolves.toEqual({ id: 'ge-id', slug: 'growth-escalators' });
   });
 });

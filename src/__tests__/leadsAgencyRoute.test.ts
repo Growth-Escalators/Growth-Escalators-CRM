@@ -1,10 +1,16 @@
-// Tenant-feature-gating PR — src/routes/leads.ts had no dedicated test file
-// before this PR. This is both (a) proof that the tenant resolution used by
-// POST /api/leads/agency now goes through getSingleActiveTenantWithFeature
-// instead of the old hardcoded eq(tenants.slug, DEFAULT_TENANT_SLUG) lookup,
-// with identical behavior for today's single-tenant reality, and (b) the
-// illustrative "route-level gate" example called for in the PR: the route
-// now cleanly declines (503) rather than 500ing when no tenant qualifies.
+// Tenant-feature-gating PR (#115) — src/routes/leads.ts had no dedicated test
+// file before that PR, which wired tenant resolution through
+// getSingleActiveTenantWithFeature.
+//
+// UPDATED 2026-08-04 (fix: lead-theft by slug order). That helper picked the
+// FIRST qualifying tenant by slug when more than one matched — so a
+// reseller_pilot tenant (which also has crmAutomation: true) sorting before
+// growth-escalators would silently steal GE's own inbound agency leads. This
+// route ingests leads from GE's OWN white-label landing page, so it must be
+// pinned to GE's tenant explicitly — it now goes through
+// getDefaultIngestTenant instead. See tenantFeatures.test.ts for the unit
+// coverage of the slug-pinning itself; this file proves the ROUTE wires to
+// the correct (pinned) helper and behaves correctly for its return values.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import express from 'express';
@@ -12,11 +18,12 @@ import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 
 const findOrCreateContact = vi.fn();
+const getDefaultIngestTenant = vi.fn();
 const getSingleActiveTenantWithFeature = vi.fn();
 const sendSlackMessage = vi.fn().mockResolvedValue(undefined);
 
 vi.mock('../services/contactService', () => ({ findOrCreateContact }));
-vi.mock('../services/tenantFeatures', () => ({ getSingleActiveTenantWithFeature }));
+vi.mock('../services/tenantFeatures', () => ({ getDefaultIngestTenant, getSingleActiveTenantWithFeature }));
 vi.mock('../services/slackService', () => ({ sendSlackMessage }));
 vi.mock('../utils/logger', () => ({ default: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 
@@ -56,8 +63,8 @@ describe('POST /api/leads/agency — tenant resolution + route-level gate', () =
     if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  it("resolves via getSingleActiveTenantWithFeature('crmAutomation') and files the contact under that tenant — matches today's DEFAULT_TENANT_SLUG target", async () => {
-    getSingleActiveTenantWithFeature.mockResolvedValue({ id: 'ge-tenant-id', slug: 'growth-escalators' });
+  it("resolves via getDefaultIngestTenant('crmAutomation') and files the contact under that tenant", async () => {
+    getDefaultIngestTenant.mockResolvedValue({ id: 'ge-tenant-id', slug: 'growth-escalators' });
     await startServer();
 
     const res = await fetch(`${baseUrl}/api/leads/agency`, {
@@ -67,12 +74,12 @@ describe('POST /api/leads/agency — tenant resolution + route-level gate', () =
     });
 
     expect(res.status).toBe(200);
-    expect(getSingleActiveTenantWithFeature).toHaveBeenCalledWith('crmAutomation');
+    expect(getDefaultIngestTenant).toHaveBeenCalledWith('crmAutomation');
     expect(findOrCreateContact).toHaveBeenCalledWith('ge-tenant-id', expect.objectContaining({ firstName: 'Asha' }));
   });
 
-  it('declines cleanly (503) instead of a raw 500 when no active tenant has crmAutomation enabled', async () => {
-    getSingleActiveTenantWithFeature.mockResolvedValue(null);
+  it('declines cleanly (503) instead of a raw 500 when GE\'s tenant does not have crmAutomation enabled', async () => {
+    getDefaultIngestTenant.mockResolvedValue(null);
     await startServer();
 
     const res = await fetch(`${baseUrl}/api/leads/agency`, {
@@ -85,22 +92,24 @@ describe('POST /api/leads/agency — tenant resolution + route-level gate', () =
     expect(findOrCreateContact).not.toHaveBeenCalled();
   });
 
-  it('would automatically pick up a second tenant if one were onboarded with crmAutomation enabled', async () => {
-    getSingleActiveTenantWithFeature.mockResolvedValue({ id: 'second-tenant-id', slug: 'second-agency' });
+  // THE REGRESSION GUARD for Bug 1 at this call site: this route must never
+  // fall back to the old slug-scan helper, which is exactly what silently
+  // routed GE's own inbound leads to a reseller tenant that sorted first.
+  it('never calls getSingleActiveTenantWithFeature (the bug-class helper) — this route is pinned, not feature-scanned', async () => {
+    getDefaultIngestTenant.mockResolvedValue({ id: 'ge-tenant-id', slug: 'growth-escalators' });
     await startServer();
 
-    const res = await fetch(`${baseUrl}/api/leads/agency`, {
+    await fetch(`${baseUrl}/api/leads/agency`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(validBody),
     });
 
-    expect(res.status).toBe(200);
-    expect(findOrCreateContact).toHaveBeenCalledWith('second-tenant-id', expect.any(Object));
+    expect(getSingleActiveTenantWithFeature).not.toHaveBeenCalled();
   });
 
   it('still validates required fields before ever resolving a tenant', async () => {
-    getSingleActiveTenantWithFeature.mockResolvedValue({ id: 'ge-tenant-id', slug: 'growth-escalators' });
+    getDefaultIngestTenant.mockResolvedValue({ id: 'ge-tenant-id', slug: 'growth-escalators' });
     await startServer();
 
     const res = await fetch(`${baseUrl}/api/leads/agency`, {
@@ -110,6 +119,6 @@ describe('POST /api/leads/agency — tenant resolution + route-level gate', () =
     });
 
     expect(res.status).toBe(400);
-    expect(getSingleActiveTenantWithFeature).not.toHaveBeenCalled();
+    expect(getDefaultIngestTenant).not.toHaveBeenCalled();
   });
 });

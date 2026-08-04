@@ -30,6 +30,7 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../db/index';
 import { tenants } from '../db/schema';
+import { DEFAULT_TENANT_SLUG } from '../config/constants';
 import logger from '../utils/logger';
 
 export interface TenantFeatureFlags {
@@ -150,29 +151,82 @@ export async function getActiveTenantsWithFeature(
 
 /**
  * Convenience for call sites that (today) only ever attribute work to ONE
- * tenant — a single inbound lead, a single memoized SEO context — rather than
- * a cron sweep. Returns null when no active tenant has the feature on.
+ * tenant — a single memoized SEO context, a single billing sweep — rather
+ * than a cron sweep over every qualifying tenant. Returns null when no
+ * active tenant has the feature on.
  *
- * If more than one tenant qualifies, this is a genuinely ambiguous case for a
- * single-attribution call site (which tenant does this webhook/lead belong
- * to?) — it deterministically picks the first by slug and logs a warning
- * rather than throwing, since these call sites already have a
- * "resolve exactly one tenant or fail" contract to preserve. Proper
- * per-request tenant routing for these surfaces (e.g. a tenant hint on the
- * inbound payload) is a follow-up, not solved by this helper.
+ * BUG HISTORY (fixed 2026-08-04): this used to deterministically pick the
+ * FIRST qualifying tenant by slug when more than one matched, on the theory
+ * that these call sites already have a "resolve exactly one tenant or fail"
+ * contract to preserve. That was wrong for any call site ingesting data that
+ * arrives from GE's OWN infrastructure (inbound website leads, the edge
+ * queue, the job drainer) rather than genuinely being "whichever tenant has
+ * this feature" — the instant a second tenant (e.g. a `reseller_pilot`
+ * tenant, which also has `crmAutomation: true`) sorted before
+ * `growth-escalators` by slug, GE's own inbound leads silently routed to the
+ * reseller instead. See src/services/tenantFeatures.ts's getDefaultIngestTenant()
+ * for the fix for THOSE call sites: they now pin DEFAULT_TENANT_SLUG
+ * explicitly instead of resolving through this feature-scan.
+ *
+ * What's left calling this helper (worker.ts's gstBilling sweep,
+ * seoTenantContext.ts's SEO tenant memo) are genuinely single-tenant-by-
+ * feature lookups where guessing is not an option — so ambiguity here now
+ * throws loudly instead of silently picking a winner. "Returning an
+ * arbitrary one" is the bug class; a caller that hits this needs a human to
+ * resolve which tenant should actually own the feature, not code that
+ * guesses.
  */
 export async function getSingleActiveTenantWithFeature(
   feature: keyof TenantFeatureFlags,
 ): Promise<ActiveTenantRef | null> {
   const matches = await getActiveTenantsWithFeature(feature);
   if (matches.length > 1) {
-    logger.warn(
-      { feature, tenantSlugs: matches.map((t) => t.slug) },
-      '[tenant-features] multiple active tenants have this feature enabled for a single-attribution call site — using the first by slug',
+    const tenantSlugs = matches.map((t) => t.slug).sort();
+    logger.error(
+      { feature, tenantSlugs },
+      '[tenant-features] multiple active tenants have this feature enabled for a single-attribution call site — refusing to guess which one owns this data',
     );
-    return [...matches].sort((a, b) => a.slug.localeCompare(b.slug))[0];
+    throw new Error(
+      `[tenant-features] ambiguous tenant resolution for feature="${feature}": ${tenantSlugs.length} active tenants qualify (${tenantSlugs.join(', ')}) and this call site can only attribute work to one. Resolve the ambiguity (per-tenant settings.features override, or a narrower call site) rather than picking one arbitrarily.`,
+    );
   }
   return matches[0] ?? null;
+}
+
+/**
+ * Resolves GE's OWN tenant (DEFAULT_TENANT_SLUG), for ingestion surfaces that
+ * receive data arriving from GE's own website/edge infrastructure — the
+ * agency-lead capture route, the edge queue drainer, the job drainer's
+ * form_submit recovery, and the daily intelligence collector. These are NOT
+ * "which tenant currently has this feature enabled" lookups: the data's
+ * ORIGIN is always GE's own infra, so the destination tenant must be pinned
+ * explicitly by slug rather than resolved by scanning every active tenant for
+ * a feature flag (see getSingleActiveTenantWithFeature's docstring for the
+ * bug that pattern caused — a reseller_pilot tenant sorting before
+ * growth-escalators silently stole GE's own inbound leads).
+ *
+ * Still fails closed the same way the old feature-scan did: returns null (not
+ * GE's row) when GE's tenant is inactive or does not have `feature` enabled,
+ * so flipping crmAutomation off for GE still turns ingestion off rather than
+ * silently falling through to some other tenant.
+ */
+export async function getDefaultIngestTenant(
+  feature: keyof TenantFeatureFlags = 'crmAutomation',
+): Promise<ActiveTenantRef | null> {
+  const [row] = await db
+    .select({
+      id: tenants.id,
+      slug: tenants.slug,
+      plan: tenants.plan,
+      settings: tenants.settings,
+      isActive: tenants.isActive,
+    })
+    .from(tenants)
+    .where(eq(tenants.slug, DEFAULT_TENANT_SLUG))
+    .limit(1);
+  if (!row || !row.isActive) return null;
+  if (!computeTenantFeatures(row.plan, row.settings)[feature]) return null;
+  return { id: row.id, slug: row.slug };
 }
 
 // ---------------------------------------------------------------------------
