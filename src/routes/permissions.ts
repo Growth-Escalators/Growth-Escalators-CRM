@@ -88,12 +88,23 @@ router.get('/users', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 router.get('/users/:userId', async (req: Request, res: Response) => {
   const myUserId = req.user!.id;
+  const tenantId = req.user!.tenantId;
   const targetUserId = req.params.userId as string;
   const [myPerms] = await db.select().from(userPermissions)
     .where(eq(userPermissions.userId, myUserId)).limit(1);
   if (!myPerms?.isOwner) { res.status(403).json({ error: 'owner only' }); return; }
 
   try {
+    // Target user must belong to the caller's own tenant — without this, an
+    // owner of one tenant could read another tenant's user permissions by
+    // guessing/enumerating a userId GUID (IDOR).
+    const [targetUser] = await db.select({ tenantId: users.tenantId }).from(users)
+      .where(eq(users.id, targetUserId)).limit(1);
+    if (!targetUser || targetUser.tenantId !== tenantId) {
+      res.status(404).json({ error: 'user not found' });
+      return;
+    }
+
     const [p] = await db.select().from(userPermissions)
       .where(eq(userPermissions.userId, targetUserId)).limit(1);
     res.json({ permissions: p ?? null });
@@ -142,6 +153,16 @@ router.put('/users/:userId', async (req: Request, res: Response) => {
   }
 
   try {
+    // Target user must belong to the caller's own tenant — without this, an
+    // owner of one tenant could edit (or create) permissions for another
+    // tenant's user by GUID (IDOR).
+    const [targetUser] = await db.select({ tenantId: users.tenantId }).from(users)
+      .where(eq(users.id, targetUserId)).limit(1);
+    if (!targetUser || targetUser.tenantId !== tenantId) {
+      res.status(404).json({ error: 'user not found' });
+      return;
+    }
+
     const sanitized = sanitizePerms(req.body as Record<string, unknown>);
     const [existing] = await db.select().from(userPermissions)
       .where(eq(userPermissions.userId, targetUserId)).limit(1);
@@ -295,6 +316,17 @@ router.delete('/users/:userId', async (req: Request, res: Response) => {
     res.status(400).json({ error: 'Cannot remove yourself' });
     return;
   }
+
+  // Target user must belong to the caller's own tenant — without this, an
+  // owner of one tenant could deactivate / strip permissions from another
+  // tenant's user by GUID (IDOR).
+  const [targetUser] = await db.select({ tenantId: users.tenantId }).from(users)
+    .where(eq(users.id, targetUserId)).limit(1);
+  if (!targetUser || targetUser.tenantId !== tenantId) {
+    res.status(404).json({ error: 'user not found' });
+    return;
+  }
+
   const [targetPerms] = await db.select().from(userPermissions)
     .where(eq(userPermissions.userId, targetUserId)).limit(1);
   if (targetPerms?.isOwner) {
@@ -309,8 +341,11 @@ router.delete('/users/:userId', async (req: Request, res: Response) => {
       SET is_active = false, token_version = COALESCE(token_version, 1) + 1
       WHERE id = ${targetUserId} AND tenant_id = ${tenantId}
     `);
-    // Remove granular permissions
-    await db.delete(userPermissions).where(eq(userPermissions.userId, targetUserId));
+    // Remove granular permissions — scoped by tenant_id, matching the
+    // deactivation UPDATE above (targetUserId is already verified to belong
+    // to this tenant, but keep the predicate explicit as defense in depth).
+    await db.delete(userPermissions)
+      .where(and(eq(userPermissions.userId, targetUserId), eq(userPermissions.tenantId, tenantId)));
 
     res.json({ removed: true });
   } catch (e: unknown) {

@@ -33,14 +33,20 @@ export async function enrolContact(
   }
   const sequence = seqRows[0];
 
-  // Check doNotContact
+  // Contact must belong to this tenant — without this filter, a caller could
+  // enrol a contact belonging to a DIFFERENT tenant into this tenant's
+  // sequence (IDOR). Treat a cross-tenant / nonexistent contactId identically.
   const contactRows = await db
     .select()
     .from(contacts)
-    .where(eq(contacts.id, contactId))
+    .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)))
     .limit(1);
 
-  if (contactRows.length > 0 && contactRows[0].doNotContact) {
+  if (contactRows.length === 0) {
+    throw new Error('Contact not found: ' + contactId);
+  }
+
+  if (contactRows[0].doNotContact) {
     throw new Error('Contact is marked do not contact');
   }
 
@@ -89,12 +95,16 @@ export async function enrolContact(
 
 // ---------------------------------------------------------------------------
 // cancelEnrolment
+// tenantId is required and enforced in the WHERE clause — without it, any
+// authenticated user of any tenant could cancel any other tenant's enrolment
+// by GUID alone (IDOR). A cross-tenant or nonexistent enrolmentId both return
+// undefined so the caller can treat them identically (404, not a silent no-op).
 // ---------------------------------------------------------------------------
-export async function cancelEnrolment(enrolmentId: string): Promise<Enrolment> {
+export async function cancelEnrolment(enrolmentId: string, tenantId: string): Promise<Enrolment | undefined> {
   const [updated] = await db
     .update(sequenceEnrolments)
     .set({ status: 'cancelled', completedAt: new Date() })
-    .where(eq(sequenceEnrolments.id, enrolmentId))
+    .where(and(eq(sequenceEnrolments.id, enrolmentId), eq(sequenceEnrolments.tenantId, tenantId)))
     .returning();
   return updated;
 }

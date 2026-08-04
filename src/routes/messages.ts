@@ -7,13 +7,16 @@ const router = Router();
 // ---------------------------------------------------------------------------
 // POST /messages
 // Creates a message record. Called by n8n after sending a WhatsApp or email.
-// Body: tenantId, contactId, channel, direction, content, templateName?,
+// tenantId is always the authenticated caller's own tenant — never trust a
+// client-supplied tenantId, or one tenant could write messages into another's
+// contact history (IDOR).
+// Body: contactId, channel, direction, content, templateName?,
 //       externalId?, status?
 // ---------------------------------------------------------------------------
 router.post('/', async (req, res) => {
-  const { tenantId, contactId, channel, direction, content, templateName, externalId, status } =
+  const tenantId = req.user!.tenantId;
+  const { contactId, channel, direction, content, templateName, externalId, status } =
     req.body as {
-      tenantId: string;
       contactId: string;
       channel: string;
       direction: string;
@@ -23,8 +26,8 @@ router.post('/', async (req, res) => {
       status?: string;
     };
 
-  if (!tenantId || !contactId || !channel || !direction || !content) {
-    res.status(400).json({ error: 'tenantId, contactId, channel, direction, content are required' });
+  if (!contactId || !channel || !direction || !content) {
+    res.status(400).json({ error: 'contactId, channel, direction, content are required' });
     return;
   }
 
