@@ -37,6 +37,7 @@ import blockersRouter from './routes/blockers';
 import onboardingRouter from './routes/onboarding';
 import billingRouter from './routes/billing';
 import permissionsRouter from './routes/permissions';
+import platformTenantsRouter from './routes/platformTenants';
 import tenantBrandingRouter from './routes/tenantBranding';
 import tenantIntegrationsRouter from './routes/tenantIntegrations';
 import tenantFeaturesRouter from './routes/tenantFeatures';
@@ -323,6 +324,12 @@ app.use('/api/onboarding', requireAuth, onboardingRouter);
 app.use('/api/billing', requireStrictAuth, requireTenantFeature('gstBilling'), billingRouter);
 app.use('/api/subscriptions', requireAuth, subscriptionsRouter);
 app.use('/api/permissions', requireStrictAuth, permissionsRouter);
+// requirePlatformSuperadmin is enforced INSIDE platformTenantsRouter itself
+// (router.use(...) at the top of src/routes/platformTenants.ts) rather than
+// here — requireStrictAuth just needs to establish req.user before the
+// router's own gate re-checks the DB-backed superadmin flag. See that
+// file's header comment for why the gate lives on the router.
+app.use('/api/platform/tenants', requireStrictAuth, platformTenantsRouter);
 app.use('/api/tenant-branding', requireStrictAuth, tenantBrandingRouter);
 app.use('/api/tenant-integrations', requireStrictAuth, tenantIntegrationsRouter);
 // Read-only feature-flag mirror for the admin nav (navEntries.js) — see

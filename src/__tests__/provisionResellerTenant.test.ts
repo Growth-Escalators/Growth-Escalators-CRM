@@ -164,6 +164,11 @@ describe('ensureTenant', () => {
     expect(result).toEqual({ id: 'new-tenant-id', alreadyExisted: false });
     expect(insert).toHaveBeenCalledTimes(1);
     expect(values).toHaveBeenCalledTimes(1);
+    // gstBilling is forced `true` explicitly by ensureTenant (src/services/
+    // tenantProvisioning.ts) regardless of what PLAN_DEFAULTS.reseller_pilot
+    // says — belt-and-suspenders so this holds independent of a sibling
+    // change to PLAN_DEFAULTS itself. Every other flag still comes straight
+    // from computeTenantFeatures('reseller_pilot', {}).
     expect(values.mock.calls[0][0]).toMatchObject({
       name: 'Acme Marketing Co',
       slug: 'acme-marketing',
