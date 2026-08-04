@@ -17,10 +17,27 @@ export const TENANTS = {
 
 export const TENANT_OPTIONS = Object.values(TENANTS);
 
+// Reseller readiness (2026-08) — this USED to fold every slug that wasn't
+// 'wizmatch'/'wm' down to 'growth-escalators', so a reseller's own
+// `?tenant=acme-media` link rendered as (and authenticated against) Growth
+// Escalators' tenant. Only fold the two products' own aliases now; anything
+// else passes through unchanged (lowercased/trimmed) so arbitrary reseller
+// slugs work end to end. Absent/empty input still defaults to
+// 'growth-escalators' — the no-slug-supplied case is unchanged.
 export function normalizeTenantSlug(value) {
   const slug = String(value || '').toLowerCase().trim();
+  if (!slug) return 'growth-escalators';
   if (slug === 'wizmatch' || slug === 'wm') return 'wizmatch';
-  return 'growth-escalators';
+  if (slug === 'growth' || slug === 'growth-escalators' || slug === 'ge') return 'growth-escalators';
+  return slug;
+}
+
+// True only for the two code-defined product variants (Growth Escalators /
+// Wizmatch UI+routing). A reseller slug is a real, valid tenant but is not
+// "known" in this sense — used to decide whether the GE/Wizmatch product
+// picker (meaningless for a reseller) should render.
+export function isKnownTenantSlug(slug) {
+  return Object.prototype.hasOwnProperty.call(TENANTS, normalizeTenantSlug(slug));
 }
 
 export function productForTenant(slug = getTenantSlug()) {
@@ -87,8 +104,36 @@ export function getTenantSlug(explicit) {
 // getTenantConfig below for the fetched-branding merge that layers the
 // tenant's own display name/logo/colors on top of whichever product variant
 // they're using.
+// Reseller readiness (2026-08) — unknown slugs used to silently fall back to
+// TENANTS['growth-escalators'], which meant a reseller session (a) showed
+// "Growth Escalators" on the login page and (b) shared GE's `ge_crm_*`
+// storage prefix, so logging into a reseller tenant in the same browser as a
+// GE session silently overwrote GE's token/user/permissions (and vice
+// versa). A reseller slug now gets its own neutral, slug-scoped config —
+// storagePrefix included — so it never collides with GE's or Wizmatch's.
 function baseTenantConfig(slug) {
-  return TENANTS[normalizeTenantSlug(slug)] || TENANTS['growth-escalators'];
+  const normalized = normalizeTenantSlug(slug);
+  const known = TENANTS[normalized];
+  if (known) return known;
+  const label = prettifySlug(normalized) || 'Workspace';
+  return {
+    slug: normalized,
+    label,
+    shortLabel: shortLabelFromName(label) || 'W',
+    subtitle: 'CRM Dashboard',
+    storagePrefix: `crm_${normalized.replace(/-/g, '_')}`,
+  };
+}
+
+// "acme-media" -> "Acme Media" — neutral fallback display label for a
+// reseller tenant that has no `tenant_branding` row (yet, or ever) and isn't
+// one of the two hardcoded TENANTS entries.
+function prettifySlug(slug) {
+  return String(slug || '')
+    .split('-')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
 }
 
 // Best-effort initials from a display name, for the round logo badge when no
