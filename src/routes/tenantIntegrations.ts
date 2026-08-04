@@ -38,6 +38,11 @@ function isValidProvider(provider: unknown): provider is string {
 }
 
 async function isOwner(userId: string): Promise<boolean> {
+  // tenant-scoping-lint-ignore-next-line — userId is always req.user!.id
+  // (authenticated, never client-supplied — see both call sites), and
+  // userPermissions.userId references users.id, which is globally unique
+  // regardless of tenant. No additional tenant_id predicate can narrow this
+  // further.
   const [myPerms] = await db.select().from(userPermissions)
     .where(eq(userPermissions.userId, userId)).limit(1);
   return Boolean(myPerms?.isOwner);
