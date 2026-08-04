@@ -1,5 +1,6 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
+import { DEFAULT_TENANT_SLUG } from '../config/constants';
 import type { AgencyDailyData } from './intelligenceDataCollector';
 
 // ---------------------------------------------------------------------------
@@ -91,13 +92,46 @@ export async function ensureIntelligenceTable(): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS idx_ai_reports_date ON ai_intelligence_reports(report_date DESC);
   `);
+
+  // ---------------------------------------------------------------------
+  // Tenant isolation fix (security audit, 2026-08-04): this table never had
+  // a tenant_id column — every tenant's admin dashboard called the same
+  // unscoped /api/intelligence/* routes and got GE's own AI coaching
+  // reports back verbatim (incl. GE staff names, GE-only business
+  // context). Same posture as growthOSSetup.ts's Phase 0 fix: nullable
+  // column (application layer enforces "must have a tenant" from here on),
+  // backfill existing rows to the GE tenant — the only tenant this module
+  // has ever generated reports for (single hardcoded agency prompt, one
+  // GE-global cron in worker.ts, no per-tenant routing anywhere in this
+  // module).
+  // ---------------------------------------------------------------------
+  await pool.query(`ALTER TABLE ai_intelligence_reports ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id)`);
+  const defaultTenantId = await resolveDefaultTenantId();
+  if (defaultTenantId) {
+    await pool.query(`UPDATE ai_intelligence_reports SET tenant_id = $1 WHERE tenant_id IS NULL`, [defaultTenantId]);
+  } else {
+    logger.warn(`[intelligence] ${DEFAULT_TENANT_SLUG} tenant not found — skipping tenant_id backfill`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// resolveDefaultTenantId — GE's tenant id, used to stamp report writes that
+// have no authenticated caller to derive a tenant from (the worker.ts cron).
+// ---------------------------------------------------------------------------
+async function resolveDefaultTenantId(): Promise<string | null> {
+  try {
+    const result = await pool.query(`SELECT id FROM tenants WHERE slug = $1 LIMIT 1`, [DEFAULT_TENANT_SLUG]);
+    return (result.rows[0] as { id?: string } | undefined)?.id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
 // analyzeWithClaude — coaching mode
 // ---------------------------------------------------------------------------
 
-export async function analyzeWithClaude(data: AgencyDailyData): Promise<Analysis> {
+export async function analyzeWithClaude(data: AgencyDailyData, tenantId?: string): Promise<Analysis> {
   const apiKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
   const hasApiKey = !!apiKey && apiKey.length > 10;
   if (!hasApiKey) {
@@ -258,7 +292,7 @@ Respond ONLY with valid JSON in this exact format:
     tokensUsed,
   };
 
-  await saveReport(data, analysis);
+  await saveReport(data, analysis, tenantId);
   return analysis;
 }
 
@@ -373,14 +407,17 @@ Provide your coaching report as JSON.`;
 // Persist to DB
 // ---------------------------------------------------------------------------
 
-async function saveReport(data: AgencyDailyData, analysis: Analysis): Promise<void> {
+async function saveReport(data: AgencyDailyData, analysis: Analysis, tenantId?: string): Promise<void> {
   try {
+    // Caller-supplied tenantId (from the admin who triggered /generate) wins;
+    // otherwise this is the GE-global worker.ts cron — stamp GE's tenant.
+    const resolvedTenantId = tenantId ?? await resolveDefaultTenantId();
     await pool.query(`
       INSERT INTO ai_intelligence_reports
         (report_date, report_type, raw_data, analysis, wins, problems, actions,
          anomalies, predictions, ads_score, seo_score, sales_score, ops_score,
-         overall_score, tokens_used)
-      VALUES ($1, 'daily', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         overall_score, tokens_used, tenant_id)
+      VALUES ($1, 'daily', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       ON CONFLICT DO NOTHING
     `, [
       new Date().toISOString().slice(0, 10),
@@ -401,6 +438,7 @@ async function saveReport(data: AgencyDailyData, analysis: Analysis): Promise<vo
       analysis.scores.ops,
       analysis.scores.overall,
       analysis.tokensUsed,
+      resolvedTenantId,
     ]);
   } catch (e) {
     logger.error('[intelligence] Failed to save report to DB:', e);

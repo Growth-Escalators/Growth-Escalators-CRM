@@ -18,53 +18,67 @@ const router = Router();
 // ---------------------------------------------------------------------------
 router.get('/diagnose', async (req, res) => {
   try {
+    // Tenant isolation (security audit, 2026-08-04): this route had no admin
+    // check at all and every query below was unscoped — ANY authenticated
+    // user of ANY tenant could read global counts (all tenants' pipelines,
+    // purchase events with contact_id + amount, funnel configs) and the
+    // auto-fix block below would silently place OTHER tenants' orphan deals
+    // into pipelines. Admin-gate it, same posture as /backfill-all in this
+    // file, and scope every query to the caller's own tenant.
+    const user = req.user as { role: string } | undefined;
+    if (user?.role !== 'admin') {
+      res.status(403).json({ error: 'Admin only' });
+      return;
+    }
+    const tenantId = req.user!.tenantId;
+
     const results: Record<string, unknown> = {};
 
     // 1. Check pipeline_contacts table exists
     try {
-      const pcCount = await pool.query('SELECT COUNT(*)::int AS count FROM pipeline_contacts');
+      const pcCount = await pool.query('SELECT COUNT(*)::int AS count FROM pipeline_contacts WHERE tenant_id = $1', [tenantId]);
       results.pipeline_contacts_rows = pcCount.rows[0].count;
     } catch (e) {
       results.pipeline_contacts_error = (e as Error).message;
     }
 
     // 2. Check slo_purchase events
-    const eventsCount = await pool.query("SELECT COUNT(*)::int AS count FROM events WHERE event_type = 'slo_purchase'");
+    const eventsCount = await pool.query("SELECT COUNT(*)::int AS count FROM events WHERE event_type = 'slo_purchase' AND tenant_id = $1", [tenantId]);
     results.slo_purchase_events = eventsCount.rows[0].count;
 
     // 3. Check events with contact_id
-    const withContact = await pool.query("SELECT COUNT(*)::int AS count FROM events WHERE event_type = 'slo_purchase' AND contact_id IS NOT NULL");
+    const withContact = await pool.query("SELECT COUNT(*)::int AS count FROM events WHERE event_type = 'slo_purchase' AND contact_id IS NOT NULL AND tenant_id = $1", [tenantId]);
     results.slo_events_with_contact = withContact.rows[0].count;
 
     // 4. Check unplaced
     try {
       const unplaced = await pool.query(`
         SELECT COUNT(*)::int AS count FROM events e
-        WHERE e.event_type = 'slo_purchase' AND e.contact_id IS NOT NULL
+        WHERE e.event_type = 'slo_purchase' AND e.contact_id IS NOT NULL AND e.tenant_id = $1
           AND NOT EXISTS (SELECT 1 FROM pipeline_contacts pc WHERE pc.contact_id = e.contact_id)
-      `);
+      `, [tenantId]);
       results.unplaced_contacts = unplaced.rows[0].count;
     } catch (e) {
       results.unplaced_query_error = (e as Error).message;
     }
 
     // 5. Check active pipelines
-    const pipesList = await pool.query("SELECT id, name, stages FROM pipelines WHERE is_active = true ORDER BY name");
+    const pipesList = await pool.query("SELECT id, name, stages FROM pipelines WHERE is_active = true AND tenant_id = $1 ORDER BY name", [tenantId]);
     results.active_pipelines = pipesList.rows.map((p: Record<string, unknown>) => ({
       id: p.id, name: p.name, stages_count: Array.isArray(p.stages) ? (p.stages as string[]).length : 0,
       stages: p.stages,
     }));
 
     // 6. Check deals without pipeline
-    const noPipeline = await pool.query('SELECT COUNT(*)::int AS count FROM deals WHERE pipeline_id IS NULL');
+    const noPipeline = await pool.query('SELECT COUNT(*)::int AS count FROM deals WHERE pipeline_id IS NULL AND tenant_id = $1', [tenantId]);
     results.deals_without_pipeline = noPipeline.rows[0].count;
 
     // 7. Sample recent events with payload
     const samples = await pool.query(`
       SELECT e.contact_id, e.payload, e.created_at
-      FROM events e WHERE e.event_type = 'slo_purchase'
+      FROM events e WHERE e.event_type = 'slo_purchase' AND e.tenant_id = $1
       ORDER BY e.created_at DESC LIMIT 5
-    `);
+    `, [tenantId]);
     results.recent_purchases = samples.rows.map((r: Record<string, unknown>) => ({
       contact_id: r.contact_id,
       amount: (r.payload as Record<string, unknown>)?.amount,
@@ -74,7 +88,7 @@ router.get('/diagnose', async (req, res) => {
     }));
 
     // 8. Check funnel_configs
-    const configs = await pool.query("SELECT slug, pipeline_name, base_price FROM funnel_configs WHERE is_active = true");
+    const configs = await pool.query("SELECT slug, pipeline_name, base_price FROM funnel_configs WHERE is_active = true AND tenant_id = $1", [tenantId]);
     results.funnel_configs = configs.rows;
 
     // 9. CAPI status
@@ -94,9 +108,9 @@ router.get('/diagnose', async (req, res) => {
                  c.metadata, c.tags
           FROM deals d
           JOIN contacts c ON c.id = d.contact_id
-          WHERE d.pipeline_id IS NULL
+          WHERE d.pipeline_id IS NULL AND d.tenant_id = $1
           ORDER BY d.created_at DESC
-        `);
+        `, [tenantId]);
 
         const fixResults: Array<{ dealId: string; success: boolean; error?: string }> = [];
         for (const deal of orphanDeals.rows as Array<Record<string, unknown>>) {
@@ -614,6 +628,20 @@ router.post('/backfill-all', async (req, res) => {
 // ---------------------------------------------------------------------------
 router.post('/backfill-from-deals', async (req, res) => {
   try {
+    // Tenant isolation (security audit, 2026-08-04): this route had NO admin
+    // check and the query below was entirely unscoped — any authenticated
+    // user of any tenant could sweep and auto-place EVERY tenant's purchase
+    // contacts, and pipelineService.placePipelineContact would DM GE's sales
+    // Slack channel for every "agency" segment placement it found, including
+    // other tenants' contacts. Admin-gate + tenant-scope, same posture as
+    // /diagnose and /backfill-all above.
+    const user = req.user as { role: string } | undefined;
+    if (user?.role !== 'admin') {
+      res.status(403).json({ error: 'Admin only' });
+      return;
+    }
+    const tenantId = req.user!.tenantId;
+
     const { placePipelineContact } = await import('../services/pipelineService');
 
     // Step 1: Find ALL contacts with purchase evidence that aren't in a pipeline
@@ -632,7 +660,8 @@ router.post('/backfill-from-deals', async (req, res) => {
         d.pipeline_id
       FROM contacts c
       LEFT JOIN deals d ON d.contact_id = c.id
-      WHERE (
+      WHERE c.tenant_id = $1
+      AND (
         -- Has a deal (any deal = purchase evidence)
         d.id IS NOT NULL
         -- OR has slo_buyer tag
@@ -644,7 +673,7 @@ router.post('/backfill-from-deals', async (req, res) => {
         SELECT 1 FROM pipeline_contacts pc WHERE pc.contact_id = c.id
       )
       ORDER BY c.id, d.created_at DESC
-    `);
+    `, [tenantId]);
 
     if (purchaseContacts.length === 0) {
       res.json({ message: 'All purchase contacts are already in pipelines', total: 0, placed: 0, failed: 0, events_created: 0 });

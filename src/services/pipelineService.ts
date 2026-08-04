@@ -1,7 +1,23 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { sendSlackDM } from './slackService';
-import { SLACK_SAKCHAM } from '../config/constants';
+import { SLACK_SAKCHAM, DEFAULT_TENANT_SLUG } from '../config/constants';
+
+// ---------------------------------------------------------------------------
+// resolveGeTenantId — used to guard the hot-lead Slack DM below so it only
+// fires for GE's own tenant's placements.
+// ---------------------------------------------------------------------------
+let _geTenantIdPromise: Promise<string | null> | null = null;
+async function resolveGeTenantId(): Promise<string | null> {
+  if (!_geTenantIdPromise) {
+    _geTenantIdPromise = pool.query(`SELECT id FROM tenants WHERE slug = $1 LIMIT 1`, [DEFAULT_TENANT_SLUG])
+      .then(r => (r.rows[0] as { id?: string } | undefined)?.id ?? null)
+      .catch(() => null);
+  }
+  const id = await _geTenantIdPromise;
+  if (!id) _geTenantIdPromise = null; // allow retry on next call if the lookup failed
+  return id;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -267,26 +283,37 @@ export async function placePipelineContact(params: {
 
   // ---------------------------------------------------------------------------
   // 5. Agency segment: fire hot lead DM to Sakcham
+  //
+  // Tenant isolation (security audit, 2026-08-04): this DM fired for EVERY
+  // "agency" placement regardless of tenant — a reseller tenant's contact
+  // buying an agency-segment product would DM GE's own salesperson with that
+  // contact's name + phone. Sakcham is GE staff, not a reseller's contact —
+  // only fire when the placement belongs to GE's own tenant.
   // ---------------------------------------------------------------------------
   if (segment === 'agency' || segment === 'agency_owner') {
-    const contactInfo = await pool.query(
-      `SELECT first_name, last_name,
-              (SELECT channel_value FROM contact_channels
-               WHERE contact_id = $1 AND channel_type = 'whatsapp' LIMIT 1) AS phone
-       FROM contacts WHERE id = $1 LIMIT 1`,
-      [contactId],
-    );
-    if (contactInfo.rows.length > 0) {
-      const row = contactInfo.rows[0] as { first_name: string; last_name: string | null; phone: string | null };
-      const name = `${row.first_name}${row.last_name ? ' ' + row.last_name : ''}`;
-      const phone = row.phone ?? 'unknown';
-      const msg =
-        `🏢 *Agency buyer:* ${name} | ${phone} | Bought: ₹${amount}` +
-        (bump2 ? ' | Includes audit call ⚡' : '') +
-        `\n*Stage:* ${stageName}\nFollow up within 24 hours.`;
-      sendSlackDM(SLACK_SAKCHAM, msg).catch(e =>
-        logger.error({ e }, '[pipeline] Sakcham DM failed'),
+    const geTenantId = await resolveGeTenantId();
+    if (tenantId !== geTenantId) {
+      logger.info({ contactId, tenantId }, '[pipeline] agency hot-lead DM skipped — not GE tenant');
+    } else {
+      const contactInfo = await pool.query(
+        `SELECT first_name, last_name,
+                (SELECT channel_value FROM contact_channels
+                 WHERE contact_id = $1 AND channel_type = 'whatsapp' LIMIT 1) AS phone
+         FROM contacts WHERE id = $1 LIMIT 1`,
+        [contactId],
       );
+      if (contactInfo.rows.length > 0) {
+        const row = contactInfo.rows[0] as { first_name: string; last_name: string | null; phone: string | null };
+        const name = `${row.first_name}${row.last_name ? ' ' + row.last_name : ''}`;
+        const phone = row.phone ?? 'unknown';
+        const msg =
+          `🏢 *Agency buyer:* ${name} | ${phone} | Bought: ₹${amount}` +
+          (bump2 ? ' | Includes audit call ⚡' : '') +
+          `\n*Stage:* ${stageName}\nFollow up within 24 hours.`;
+        sendSlackDM(SLACK_SAKCHAM, msg).catch(e =>
+          logger.error({ e }, '[pipeline] Sakcham DM failed'),
+        );
+      }
     }
   }
 

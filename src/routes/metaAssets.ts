@@ -1,9 +1,40 @@
-import { Router, type Request, type Response } from 'express';
+import { Router, type Request, type Response, type NextFunction } from 'express';
 import { fetchWithRetry } from '../utils/fetchWithRetry';
+import { pool } from '../db/index';
+import { DEFAULT_TENANT_SLUG } from '../config/constants';
 
 const router = Router();
 
 const META_API_BASE = 'https://graph.facebook.com/v21.0';
+
+// ---------------------------------------------------------------------------
+// GE-tenant-only gate (security audit, 2026-08-04): every route in this file
+// reads from GE's GLOBAL META_ACCESS_TOKEN env var — there is no per-tenant
+// Meta credential yet (that lands with the meta-oauth-connect work), so any
+// authenticated user of ANY tenant could read GE's own Facebook Pages /
+// Business Manager assets and post engagement data. Block every other tenant
+// with a 403. Remove this gate once real per-tenant Meta credentials exist.
+// ---------------------------------------------------------------------------
+let _geTenantIdPromise: Promise<string | null> | null = null;
+async function resolveGeTenantId(): Promise<string | null> {
+  if (!_geTenantIdPromise) {
+    _geTenantIdPromise = pool.query(`SELECT id FROM tenants WHERE slug = $1 LIMIT 1`, [DEFAULT_TENANT_SLUG])
+      .then(r => (r.rows[0] as { id?: string } | undefined)?.id ?? null)
+      .catch(() => null);
+  }
+  const id = await _geTenantIdPromise;
+  if (!id) _geTenantIdPromise = null; // allow retry on next request if the lookup failed
+  return id;
+}
+
+router.use(async (req: Request, res: Response, next: NextFunction) => {
+  const geTenantId = await resolveGeTenantId();
+  if (!geTenantId || req.user?.tenantId !== geTenantId) {
+    res.status(403).json({ error: 'Not available for this tenant' });
+    return;
+  }
+  next();
+});
 
 function getToken(): string | null {
   return process.env.META_ACCESS_TOKEN || process.env.META_ADS_TOKEN || null;

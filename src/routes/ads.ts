@@ -1,8 +1,41 @@
-import { Router, type Request, type Response } from 'express';
+import { Router, type Request, type Response, type NextFunction } from 'express';
 import { pool } from '../db/index';
 import { fetchWithRetry } from '../utils/fetchWithRetry';
+import { DEFAULT_TENANT_SLUG } from '../config/constants';
 
 const router = Router();
+
+// ---------------------------------------------------------------------------
+// GE-tenant-only gate (security audit, 2026-08-04): every route in this file
+// (accounts, campaigns, insights, managed ad_accounts, Slack digests/alerts,
+// creative intelligence) runs on GE's GLOBAL Meta token and the unscoped
+// `ad_accounts` table (GE client names). Any authenticated user of ANY
+// tenant could read or drive GE's ad data via a valid JWT. Per-tenant Meta
+// isn't wired up yet (that's the meta-oauth-connect work) so scoping
+// individual queries wouldn't be meaningful — block every other tenant with
+// a 403 instead. Remove this gate once real per-tenant Meta credentials and
+// a per-tenant ad_accounts model exist.
+// ---------------------------------------------------------------------------
+let _geTenantIdPromise: Promise<string | null> | null = null;
+async function resolveGeTenantId(): Promise<string | null> {
+  if (!_geTenantIdPromise) {
+    _geTenantIdPromise = pool.query(`SELECT id FROM tenants WHERE slug = $1 LIMIT 1`, [DEFAULT_TENANT_SLUG])
+      .then(r => (r.rows[0] as { id?: string } | undefined)?.id ?? null)
+      .catch(() => null);
+  }
+  const id = await _geTenantIdPromise;
+  if (!id) _geTenantIdPromise = null; // allow retry on next request if the lookup failed
+  return id;
+}
+
+router.use(async (req: Request, res: Response, next: NextFunction) => {
+  const geTenantId = await resolveGeTenantId();
+  if (!geTenantId || req.user?.tenantId !== geTenantId) {
+    res.status(403).json({ error: 'Not available for this tenant' });
+    return;
+  }
+  next();
+});
 
 const META_API_BASE = 'https://graph.facebook.com/v19.0';
 
