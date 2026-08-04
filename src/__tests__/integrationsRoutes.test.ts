@@ -4,10 +4,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // own unit tests in metaOAuthService.test.ts) and assert: (a) routes always
 // scope by req.user!.tenantId, never a client-supplied id, and (b) each
 // response shape/status matches the contract described in the route file.
+//
+// NOTE: GET /meta/connect used to be tested here too, but it moved OUT of
+// this authenticated router into its own unauthenticated
+// src/routes/integrationsMetaConnect.ts (see that file's header comment for
+// why) — its tests moved with it, to integrationsMetaConnectRoute.test.ts.
 const mockGetMetaOAuthConfig = vi.fn();
-const mockSignOAuthState = vi.fn();
-const mockBuildMetaAuthorizeUrl = vi.fn();
-const mockUpsertPendingMetaState = vi.fn();
 const mockGetTenantIntegration = vi.fn();
 const mockDisconnectMetaIntegration = vi.fn();
 const mockDecryptMetaCredentials = vi.fn();
@@ -17,15 +19,13 @@ const mockSaveMetaCredentials = vi.fn();
 
 vi.mock('../services/metaOAuthService', () => ({
   getMetaOAuthConfig: (...a: unknown[]) => mockGetMetaOAuthConfig(...a),
-  signOAuthState: (...a: unknown[]) => mockSignOAuthState(...a),
-  buildMetaAuthorizeUrl: (...a: unknown[]) => mockBuildMetaAuthorizeUrl(...a),
-  upsertPendingMetaState: (...a: unknown[]) => mockUpsertPendingMetaState(...a),
   getTenantIntegration: (...a: unknown[]) => mockGetTenantIntegration(...a),
   disconnectMetaIntegration: (...a: unknown[]) => mockDisconnectMetaIntegration(...a),
   decryptMetaCredentials: (...a: unknown[]) => mockDecryptMetaCredentials(...a),
   refreshLongLivedToken: (...a: unknown[]) => mockRefreshLongLivedToken(...a),
   isNearExpiry: (...a: unknown[]) => mockIsNearExpiry(...a),
   saveMetaCredentials: (...a: unknown[]) => mockSaveMetaCredentials(...a),
+  META_OAUTH_NOT_CONFIGURED_MESSAGE: 'test: meta oauth not configured',
 }));
 
 import integrationsRouter from '../routes/integrations';
@@ -57,43 +57,6 @@ async function invokeRoute(path: string, method: 'get' | 'post' | 'delete', req:
 describe('routes/integrations.ts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  describe('GET /meta/connect', () => {
-    it('503s with a clear message when META_OAUTH_CLIENT_ID/SECRET are not configured', async () => {
-      mockGetMetaOAuthConfig.mockReturnValue(null);
-      const { req, res, statusFn, jsonFn } = makeReqRes();
-      await invokeRoute('/meta/connect', 'get', req, res);
-      expect(statusFn).toHaveBeenCalledWith(503);
-      expect(jsonFn).toHaveBeenCalledWith(expect.objectContaining({ error: 'meta_oauth_not_configured' }));
-      expect(mockUpsertPendingMetaState).not.toHaveBeenCalled();
-    });
-
-    it('persists a pending state scoped to the caller tenant, then redirects to Meta', async () => {
-      mockGetMetaOAuthConfig.mockReturnValue({ clientId: 'c', clientSecret: 's', redirectUri: 'https://x/callback' });
-      mockSignOAuthState.mockReturnValue('signed-state-token');
-      mockBuildMetaAuthorizeUrl.mockReturnValue('https://www.facebook.com/v19.0/dialog/oauth?...');
-      const { req, res, redirectFn } = makeReqRes({ user: { tenantId: 'tenant-A', role: 'admin' } });
-
-      await invokeRoute('/meta/connect', 'get', req, res);
-
-      expect(mockUpsertPendingMetaState).toHaveBeenCalledWith('tenant-A', expect.any(String));
-      const signedArgs = mockSignOAuthState.mock.calls[0][0];
-      expect(signedArgs.tenantId).toBe('tenant-A');
-      expect(redirectFn).toHaveBeenCalledWith('https://www.facebook.com/v19.0/dialog/oauth?...');
-    });
-
-    it('a different tenant gets its own nonce/state bound to ITS tenantId, not a shared one', async () => {
-      mockGetMetaOAuthConfig.mockReturnValue({ clientId: 'c', clientSecret: 's', redirectUri: 'https://x/callback' });
-      mockSignOAuthState.mockReturnValue('state-token');
-      mockBuildMetaAuthorizeUrl.mockReturnValue('https://redirect');
-
-      await invokeRoute('/meta/connect', 'get', makeReqRes({ user: { tenantId: 'tenant-A', role: 'admin' } }).req, makeReqRes().res);
-      await invokeRoute('/meta/connect', 'get', makeReqRes({ user: { tenantId: 'tenant-B', role: 'admin' } }).req, makeReqRes().res);
-
-      expect(mockUpsertPendingMetaState).toHaveBeenNthCalledWith(1, 'tenant-A', expect.any(String));
-      expect(mockUpsertPendingMetaState).toHaveBeenNthCalledWith(2, 'tenant-B', expect.any(String));
-    });
   });
 
   describe('GET /meta — tenant scoping on view', () => {

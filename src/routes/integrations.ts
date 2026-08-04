@@ -1,11 +1,13 @@
 // ---------------------------------------------------------------------------
-// Third-party integration management — connect/list/disconnect/refresh.
+// Third-party integration management — list/disconnect/refresh.
 //
 // Mounted at /api/integrations with requireAuth + requireRole('admin') in
 // src/index.ts (there is no "owner" role in this codebase — 'admin' is the
-// closest analogue, see PR body). The OAuth *callback* route lives in the
-// separate, unauthenticated src/routes/integrationsMetaCallback.ts — Meta
-// redirects the raw browser there and cannot carry an Authorization header,
+// closest analogue, see PR body). Two routes live OUTSIDE this authenticated
+// router because they're reached by a real top-level browser navigation
+// rather than an AJAX call, which can't carry an Authorization header:
+//   - GET /api/integrations/meta/connect  → src/routes/integrationsMetaConnect.ts
+//   - GET /api/integrations/meta/callback → src/routes/integrationsMetaCallback.ts
 // mirroring the existing /api/social/oauth vs /api/social split.
 //
 // Every query below is scoped by req.user!.tenantId, taken from the
@@ -14,18 +16,15 @@
 // ---------------------------------------------------------------------------
 import logger from '../utils/logger';
 import { Router } from 'express';
-import crypto from 'crypto';
 import {
   getMetaOAuthConfig,
-  signOAuthState,
-  buildMetaAuthorizeUrl,
-  upsertPendingMetaState,
   getTenantIntegration,
   disconnectMetaIntegration,
   decryptMetaCredentials,
   refreshLongLivedToken,
   isNearExpiry,
   saveMetaCredentials,
+  META_OAUTH_NOT_CONFIGURED_MESSAGE,
 } from '../services/metaOAuthService';
 
 const router = Router();
@@ -74,47 +73,19 @@ router.get('/meta', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/integrations/meta/connect — start the OAuth flow.
-//
-// SCAFFOLDING NOTE: this 503s until Jatin sets META_OAUTH_CLIENT_ID /
-// META_OAUTH_CLIENT_SECRET for a Meta Developer App created specifically for
-// this product's multi-tenant connect flow — see PR body.
-// ---------------------------------------------------------------------------
-router.get('/meta/connect', async (req, res) => {
-  try {
-    const config = getMetaOAuthConfig();
-    if (!config) {
-      res.status(503).json({
-        error: 'meta_oauth_not_configured',
-        message: 'META_OAUTH_CLIENT_ID / META_OAUTH_CLIENT_SECRET are not set — the Meta Developer App for this connect flow has not been created yet.',
-      });
-      return;
-    }
-
-    const tenantId = req.user!.tenantId;
-    const nonce = crypto.randomBytes(16).toString('hex');
-    await upsertPendingMetaState(tenantId, nonce);
-
-    const state = signOAuthState({ tenantId, nonce, iat: Date.now() });
-    const authorizeUrl = buildMetaAuthorizeUrl(config, state);
-    res.redirect(authorizeUrl);
-  } catch (e) {
-    logger.error('[integrations] meta connect failed:', e);
-    res.status(500).json({ error: 'failed to start meta connect flow' });
-  }
-});
-
-// ---------------------------------------------------------------------------
 // POST /api/integrations/meta/refresh — manually trigger a long-lived-token
 // refresh for the caller's tenant. Nothing schedules this automatically yet
 // (no cron wiring in this PR — see PR body); this route exists so the
-// refresh mechanics are exercisable/testable ahead of that follow-up.
+// refresh mechanics are exercisable/testable ahead of that follow-up. Unlike
+// /meta/connect, this is a plain AJAX call from an already-loaded settings
+// page — no browser redirect is involved — so it has no reason to live
+// outside the authenticated router.
 // ---------------------------------------------------------------------------
 router.post('/meta/refresh', async (req, res) => {
   try {
     const config = getMetaOAuthConfig();
     if (!config) {
-      res.status(503).json({ error: 'meta_oauth_not_configured', message: 'META_OAUTH_CLIENT_ID / META_OAUTH_CLIENT_SECRET are not set' });
+      res.status(503).json({ error: 'meta_oauth_not_configured', message: META_OAUTH_NOT_CONFIGURED_MESSAGE });
       return;
     }
 

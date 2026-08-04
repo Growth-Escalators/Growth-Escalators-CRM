@@ -8,6 +8,7 @@ import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import { SkeletonCard } from '../components/SkeletonLoader.jsx';
 import { useToast } from '../components/wizmatch/Toast.jsx';
 import { apiFetch } from '../lib/api.js';
+import { getAuthToken } from '../lib/auth.js';
 import { Plug, AlertTriangle, CheckCircle2, Clock, XCircle, ShieldOff } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -21,10 +22,12 @@ import { Plug, AlertTriangle, CheckCircle2, Clock, XCircle, ShieldOff } from 'lu
 // a manual-token-paste flow against Growth Escalators' own single shared
 // Meta Business account, and are untouched by this file.
 //
-// `/api/integrations/meta/connect` 503s until Jatin registers a Meta
-// Developer App and sets META_OAUTH_CLIENT_ID / META_OAUTH_CLIENT_SECRET —
-// that's expected right now, not a bug, so the "unavailable" state below is
-// the normal state until then.
+// `/api/integrations/meta/connect` reuses the existing single-account Meta
+// Developer App's credentials (`META_APP_ID` / `META_APP_SECRET`, already
+// configured in Railway) unless dedicated `META_OAUTH_CLIENT_ID` /
+// `META_OAUTH_CLIENT_SECRET` are set for a future standalone app — see
+// src/services/metaOAuthService.ts. The "unavailable" state below is now the
+// EXCEPTIONAL case (neither pair configured), not the expected default.
 // ---------------------------------------------------------------------------
 
 const STATUS_META = {
@@ -152,15 +155,17 @@ export default function IntegrationsPage() {
 
   useEffect(() => { loadStatus(); }, [loadStatus]);
 
-  // Forward-compatible handling for a redirect BACK into this page after the
-  // OAuth callback completes. Nothing in the backend sends users here yet —
-  // `GET /api/integrations/meta/callback` (src/routes/integrationsMetaCallback.ts)
-  // currently responds with raw JSON only, by design, since "there's no
-  // admin-UI redirect target configured" (see that file's header comment).
-  // This just means today's callback never lands the browser back on
-  // ?meta=connected — but once that follow-up redirect is added (mirroring
-  // POST_OAUTH_HOST in src/routes/social.ts), this page already knows what
-  // to do with it, and this block stays a safe no-op until then.
+  // Handles the return trip from GET /api/integrations/meta/connect
+  // (src/routes/integrationsMetaConnect.ts), which redirects back here with
+  // `?meta=error&reason=...&message=...` on a failure that happens BEFORE
+  // Meta is ever reached (e.g. the OAuth app not configured) — a real
+  // top-level navigation can't inspect a JSON error body the way apiFetch
+  // could, so the backend redirects instead. `?meta=connected` is NOT sent
+  // yet: the actual OAuth callback (src/routes/integrationsMetaCallback.ts)
+  // still responds with raw JSON by design (see that file's header comment)
+  // rather than redirecting back here — that's a separate follow-up. This
+  // branch is forward-compatible with it already, so wiring it up later
+  // needs no frontend change.
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const metaParam = params.get('meta');
@@ -169,7 +174,11 @@ export default function IntegrationsPage() {
       showSuccess('Meta Ads account connected');
       loadStatus();
     } else if (metaParam === 'error') {
-      showError(params.get('message') || "Meta connection didn't complete");
+      if (params.get('reason') === 'not_configured') {
+        setUnavailable(true);
+      } else {
+        showError(params.get('message') || "Meta connection didn't complete");
+      }
     }
     navigate(location.pathname, { replace: true });
     // Intentionally run once on mount only — re-running on every loadStatus
@@ -178,46 +187,21 @@ export default function IntegrationsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function handleConnect() {
+  function handleConnect() {
     setConnecting(true);
     setUnavailable(false);
-    try {
-      // NOTE FOR THE NEXT PERSON HERE: `/api/integrations/meta/connect` is a
-      // real GET route that ends in `res.redirect(authorizeUrl)` once Meta
-      // OAuth is configured — but it's mounted behind header-only
-      // `requireAuth` (src/index.ts), unlike the existing
-      // `/api/social/oauth/facebook/start` flow, which is deliberately
-      // mounted WITHOUT requireAuth and reads the JWT from a `?token=` query
-      // param specifically because a top-level browser navigation can't
-      // attach a custom Authorization header (see that route's own comment:
-      // "no auth — browser redirects can't send headers").
-      //
-      // Calling it via apiFetch (below) is correct and fully testable for
-      // TODAY's actual state: META_OAUTH_CLIENT_ID/SECRET aren't set, so this
-      // always 503s before ever reaching res.redirect(), and that's exactly
-      // the case this handler is built to show gracefully. But apiFetch is
-      // NOT sufficient once Jatin sets those env vars: a same-origin fetch()
-      // silently follows the resulting 302 in the background rather than
-      // navigating the browser, and it will fail once it reaches Meta's
-      // cross-origin, non-CORS OAuth dialog. Before this can go live, the
-      // backend needs the same accommodation `/api/social/oauth` already has
-      // (accept `?token=` and drop requireAuth) so this button can do a real
-      // `window.location.href` navigation instead. Flagged in the PR body —
-      // deliberately not fixed here since it's a backend/auth-boundary change,
-      // not UI plumbing.
-      await apiFetch('/api/integrations/meta/connect');
-      // No throw means the backend returned some 2xx JSON instead of the
-      // redirect we expected — refresh status rather than assume anything.
-      await loadStatus();
-    } catch (err) {
-      if (err.status === 503) {
-        setUnavailable(true);
-      } else {
-        showError(err.message || "Couldn't start the Meta connect flow");
-      }
-    } finally {
-      setConnecting(false);
-    }
+    // GET /api/integrations/meta/connect ends in a real `res.redirect(...)` —
+    // either to Meta's consent screen, or (see the useEffect above) back to
+    // this page with `?meta=error` on failure. That's a real top-level
+    // browser navigation, which apiFetch (AJAX) cannot carry: a same-origin
+    // fetch() silently follows a 302 in the background rather than
+    // navigating the browser, and would fail once it reached Meta's
+    // cross-origin, non-CORS OAuth dialog. Mirrors exactly how
+    // SocialPage.jsx starts `/api/social/oauth/facebook/start`. The token
+    // has to travel as a `?token=` query param rather than an Authorization
+    // header for the same reason a real navigation can't set custom headers
+    // (see integrationsMetaConnect.ts's header comment).
+    window.location.href = `/api/integrations/meta/connect?token=${getAuthToken()}`;
   }
 
   async function runDisconnect() {
