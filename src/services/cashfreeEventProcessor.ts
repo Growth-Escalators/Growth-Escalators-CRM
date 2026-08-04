@@ -4,6 +4,7 @@ import { findOrCreateContact, normalizeChannelValue } from './contactService';
 import { sendPurchaseEvent } from './metaCapi';
 import { sendSlackMessage } from './slackService';
 import { getFunnelConfig, stageForAmount, labelForStage, renderTemplate } from './funnelConfigService';
+import { canSendGrowthOSWhatsApp } from './growthOSSetup';
 import { SLACK_SALES_BD_CHANNEL } from '../config/constants';
 import logger from '../utils/logger';
 
@@ -250,18 +251,34 @@ export async function processCashfreeEvent(
 
   const waTemplateName = funnelConfig?.wa_template_name || 'ge_welcome_d2c';
   if (phone && process.env.META_PHONE_NUMBER_ID && process.env.META_ACCESS_TOKEN) {
-    const cleanPhone = phone.replace(/\D/g, '');
-    // 5s timeout so a hung Graph API call can't pin the worker's event loop —
-    // this fetch is fire-and-forget and other cron jobs queue behind it.
-    fetch(`https://graph.facebook.com/v19.0/${process.env.META_PHONE_NUMBER_ID}/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.META_ACCESS_TOKEN}` },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp', to: cleanPhone, type: 'template',
-        template: { name: waTemplateName, language: { code: 'en' } },
-      }),
-      signal: AbortSignal.timeout(5000),
-    }).catch(e => logger.error('[cashfree] WhatsApp template error:', e));
+    // Gate the outbound send to GE's own tenant — see canSendGrowthOSWhatsApp()
+    // in growthOSSetup.ts, the same guard used by brandHealthService.ts /
+    // competitorService.ts / opportunityService.ts / copilotService.ts for
+    // sends over GE's shared META_PHONE_NUMBER_ID/META_ACCESS_TOKEN. `tenant`
+    // above is always resolved from the growth-escalators slug today (D2C
+    // purchases aren't wired up per-tenant elsewhere yet), so this can't
+    // change behavior yet — it's defensive for when D2C reaches resellers.
+    // Kept as a .then()/.catch() chain (not awaited) so it stays fire-and-
+    // forget like the rest of this block, and doesn't delay the Slack/email/
+    // sequence-enrolment side-effects below it.
+    canSendGrowthOSWhatsApp(tenant.id).then((allowed) => {
+      if (!allowed) {
+        logger.info(`[cashfree] WhatsApp delivery skipped for ${name} — not GE's own tenant`);
+        return;
+      }
+      const cleanPhone = phone.replace(/\D/g, '');
+      // 5s timeout so a hung Graph API call can't pin the worker's event loop —
+      // this fetch is fire-and-forget and other cron jobs queue behind it.
+      fetch(`https://graph.facebook.com/v19.0/${process.env.META_PHONE_NUMBER_ID}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.META_ACCESS_TOKEN}` },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp', to: cleanPhone, type: 'template',
+          template: { name: waTemplateName, language: { code: 'en' } },
+        }),
+        signal: AbortSignal.timeout(5000),
+      }).catch(e => logger.error('[cashfree] WhatsApp template error:', e));
+    }).catch(e => logger.error('[cashfree] WhatsApp tenant guard error:', e));
   }
 
   const slackEmoji = funnelConfig?.slack_emoji || '💰';
