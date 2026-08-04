@@ -3,6 +3,7 @@ import { db, billingClients } from '../db/index';
 import { eq, and, sql } from 'drizzle-orm';
 import { requirePermission } from '../middleware/rbac';
 import logger from '../utils/logger';
+import { getTenantDocumentIdentity, GENERIC_DEFAULT_BRANDING } from '../services/tenantBrandingDefaults';
 
 const router = Router();
 
@@ -421,7 +422,13 @@ router.get('/:clientId/quick-update', requirePermission('REPORTS_VIEW'), async (
       }
     } catch {}
 
-    const text = `📊 Growth Escalators — ${client.name}\n\nMeta Ads (last 7 days):\n• ${adsText}\n\nSEO:\n• ${seoText}\n\nBilling:\n• ${billingText}`;
+    // Tenant's own brand name, not a hardcoded "Growth Escalators" — falls
+    // back to the same generic placeholder tenant_branding uses everywhere
+    // else when a tenant has no branding row configured yet.
+    const identity = await getTenantDocumentIdentity(tenantId);
+    const brandName = identity?.displayName || GENERIC_DEFAULT_BRANDING.displayName;
+
+    const text = `📊 ${brandName} — ${client.name}\n\nMeta Ads (last 7 days):\n• ${adsText}\n\nSEO:\n• ${seoText}\n\nBilling:\n• ${billingText}`;
 
     res.json({ text, clientName: client.name });
   } catch (e) {

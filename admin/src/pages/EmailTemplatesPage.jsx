@@ -2,6 +2,24 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { apiFetch } from '../lib/api.js';
 import { useToast } from '../components/wizmatch/Toast.jsx';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
+import { getTenantBranding, getTenantSlug } from '../lib/auth.js';
+
+// Tenant-driven defaults, replacing what used to be a hardcoded personal
+// name ("Jatin from Growth Escalators") and a hardcoded personal inbox —
+// wrong for every tenant except GE, and wrong for GE too once someone other
+// than that one person owns the account. Reads whatever tenant_branding row
+// is already cached (see admin/src/lib/branding.js); falls back to a neutral
+// generic label/blank inbox rather than any hardcoded identity.
+function currentTenantBranding() {
+  return getTenantBranding(getTenantSlug());
+}
+function defaultFromName() {
+  const branding = currentTenantBranding();
+  return branding?.displayName ? `${branding.displayName} Team` : 'Team';
+}
+function defaultTestSendEmail() {
+  return currentTenantBranding()?.supportEmail || '';
+}
 
 const TYPE_META = {
   sequence: { label: 'Sequence', color: '#16a34a', bg: '#dcfce7' },
@@ -43,7 +61,7 @@ function StatCard({ label, value, color = '#2563eb' }) {
 function NewTemplateModal({ onClose, onCreate }) {
   const [form, setForm] = useState({
     name: '', displayName: '', type: 'sequence', subject: '',
-    fromName: 'Jatin from Growth Escalators', bodyText: '',
+    fromName: defaultFromName(), bodyText: '',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -113,7 +131,7 @@ function NewTemplateModal({ onClose, onCreate }) {
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-1">Body (plain text)</label>
             <textarea value={form.bodyText} onChange={set('bodyText')} rows={6} aria-label="Email body (plain text)"
-              placeholder={'Hi {{firstName}},\n\nYour email body here...\n\nJatin\nGrowth Escalators'}
+              placeholder={`Hi {{firstName}},\n\nYour email body here...\n\n${defaultFromName()}`}
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
         </div>
@@ -132,7 +150,7 @@ function NewTemplateModal({ onClose, onCreate }) {
 // ─── Send Test Modal ──────────────────────────────────────────────────────────
 function SendTestModal({ template, onClose }) {
   const vars = detectVariables((template.bodyText || '') + ' ' + (template.subject || ''));
-  const [toEmail, setToEmail] = useState('jatin@growthescalators.com');
+  const [toEmail, setToEmail] = useState(defaultTestSendEmail());
   const [varValues, setVarValues] = useState(() => {
     const defaults = { firstName: 'Rahul', email: 'rahul@example.com', bookingUrl: 'https://api.growthescalators.com/book/d2c-strategy', appointmentTime: '10:00 AM IST, March 25', meetingLink: 'https://meet.google.com/example', companyName: 'Test Brand', followupNotes: 'We discussed Meta ads strategy' };
     const obj = {};
@@ -258,7 +276,7 @@ export default function EmailTemplatesPage() {
       displayName: t.displayName || '',
       type: t.type || 'sequence',
       subject: t.subject,
-      fromName: t.fromName || 'Jatin from Growth Escalators',
+      fromName: t.fromName || defaultFromName(),
       bodyHtml: t.bodyHtml || '',
       bodyText: t.bodyText || '',
     });

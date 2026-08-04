@@ -168,8 +168,14 @@ export function sortAccountsForReport(accounts: AccountInsights[]): AccountInsig
 }
 
 // Legacy combined-message report — kept for any other consumer. The 9:30 AM
-// cron now sends per-account messages via buildAccountReport().
-export function buildDailyReport(accounts: AccountInsights[]): string {
+// cron now sends per-account messages via buildAccountReport(). Only ever
+// called from the manual dev scripts under src/scripts/ (sampleRunAll.ts,
+// sampleMetaAdsLive.ts, testSlackFlows.ts) — never a live route or the
+// production cron — so tenantDisplayName is optional and defaults to the
+// same generic placeholder tenant_branding uses for an unconfigured tenant
+// (GENERIC_DEFAULT_BRANDING.displayName in tenantBrandingDefaults.ts),
+// rather than hardcoding "Growth Escalators" for every caller.
+export function buildDailyReport(accounts: AccountInsights[], tenantDisplayName?: string): string {
   const dateStr = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
   let msg = `📊 *Meta Ads Daily Report — ${dateStr}*\n\n`;
 
@@ -200,7 +206,7 @@ export function buildDailyReport(accounts: AccountInsights[]): string {
     msg += buildAccountReport(a) + '\n';
   }
 
-  msg += `_Powered by Growth Escalators · ${new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}_`;
+  msg += `_Powered by ${tenantDisplayName || 'Client Workspace'} · ${new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}_`;
   return msg;
 }
 
