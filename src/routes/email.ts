@@ -126,7 +126,7 @@ router.post('/manual', async (req, res) => {
   }
 
   const toName = [contactRow.firstName, contactRow.lastName].filter(Boolean).join(' ');
-  const result = await sendManualEmail(emailChannel.channelValue, toName, subject, body);
+  const result = await sendManualEmail(emailChannel.channelValue, toName, subject, body, tenantId);
 
   // Log to messages table
   await db.insert(messages).values({

@@ -30,7 +30,12 @@ export interface SendParams {
   tenantId: string;
 }
 
-interface TenantSmtpCredentials {
+// Exported so `emailService.ts` (CRM transactional/notification/invoice
+// email) can reuse the exact same tenant-SMTP lookup + shape-validation
+// logic for its own send functions, rather than re-implementing it — see
+// `emailService.ts`'s own doc comment on `sendTransactionalEmail`. Zero
+// behavior change here: the function body is untouched, only its visibility.
+export interface TenantSmtpCredentials {
   host: string;
   port: number;
   user: string;
@@ -58,7 +63,7 @@ function isTenantSmtpCredentials(v: unknown): v is TenantSmtpCredentials {
  * rather than silently falling through — see
  * `tenantIntegrationsService.getDecryptedCredentials`.
  */
-async function getTenantSmtpCredentials(tenantId: string): Promise<TenantSmtpCredentials | null> {
+export async function getTenantSmtpCredentials(tenantId: string): Promise<TenantSmtpCredentials | null> {
   const creds = await getDecryptedCredentials<Partial<TenantSmtpCredentials>>(tenantId, 'email_smtp');
   if (!creds) return null;
   if (!isTenantSmtpCredentials(creds)) {
