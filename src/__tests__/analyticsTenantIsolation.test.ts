@@ -1,12 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Security audit (2026-08-04): GET /api/analytics/team-performance and
-// GET /api/analytics/attribution were both unscoped. team-performance backs
-// onto a hardcoded GE staff roster (TEAM_MEMBERS_BASE — Jatin/Sakcham/Keshav
-// growthescalators.com emails) with no tenant dimension, so it's gated to
-// GE's own tenant instead of being made per-tenant. attribution queries
-// `contacts`, which genuinely has tenant_id, so it's now properly scoped by
-// req.user.tenantId instead of being gated.
+// GET /api/analytics/team-performance and GET /api/analytics/attribution
+// were both unscoped. team-performance backs onto a hardcoded GE staff
+// roster with no tenant dimension, so it's gated to GE's own tenant instead
+// of being made per-tenant. attribution queries `contacts`, which genuinely
+// has tenant_id, so it's now properly scoped by req.user.tenantId instead
+// of being gated.
 
 const GE_TENANT_ID = 'tenant-ge-aaaaaaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const RESELLER_TENANT_ID = 'tenant-reseller-bbbb-bbbb-bbbb-bbbbbbbbbbbb';

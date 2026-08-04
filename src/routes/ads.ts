@@ -6,15 +6,11 @@ import { DEFAULT_TENANT_SLUG } from '../config/constants';
 const router = Router();
 
 // ---------------------------------------------------------------------------
-// GE-tenant-only gate (security audit, 2026-08-04): every route in this file
-// (accounts, campaigns, insights, managed ad_accounts, Slack digests/alerts,
-// creative intelligence) runs on GE's GLOBAL Meta token and the unscoped
-// `ad_accounts` table (GE client names). Any authenticated user of ANY
-// tenant could read or drive GE's ad data via a valid JWT. Per-tenant Meta
-// isn't wired up yet (that's the meta-oauth-connect work) so scoping
-// individual queries wouldn't be meaningful — block every other tenant with
-// a 403 instead. Remove this gate once real per-tenant Meta credentials and
-// a per-tenant ad_accounts model exist.
+// GE-tenant-only gate: this router runs on GE's shared Meta credentials and
+// account config, with no per-tenant model yet (that lands with the
+// meta-oauth-connect work) — scoping individual queries wouldn't be
+// meaningful in the meantime. Restrict the whole router to GE's own tenant
+// until real per-tenant Meta credentials exist.
 // ---------------------------------------------------------------------------
 let _geTenantIdPromise: Promise<string | null> | null = null;
 async function resolveGeTenantId(): Promise<string | null> {

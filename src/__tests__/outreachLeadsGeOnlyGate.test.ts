@@ -1,13 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Security audit (2026-08-04): checkInternalSecret() in outreachLeads.ts
-// accepted ANY admin-tier JWT regardless of tenant — outreach_leads is a
-// GE-internal outbound-sales tool with no per-tenant data model, so a
-// reseller tenant's admin with a valid JWT could read GE's entire outbound
-// pipeline (company names, emails, reply content) via /dashboard, /replied,
-// /active, /funnel, etc. These tests assert a reseller admin now gets 403,
-// a GE admin is unaffected, and the internal-secret path (n8n workflows,
-// which carries no JWT / tenant at all) still works exactly as before.
+// checkInternalSecret() in outreachLeads.ts previously accepted any
+// admin-tier JWT regardless of tenant — outreach_leads is a GE-internal
+// outbound-sales tool with no per-tenant data model. These tests assert a
+// reseller admin now gets 403, a GE admin is unaffected, and the
+// internal-secret path (automation, no JWT/tenant involved) still works
+// exactly as before.
 
 const GE_TENANT_ID = 'tenant-ge-aaaaaaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const RESELLER_TENANT_ID = 'tenant-reseller-bbbb-bbbb-bbbb-bbbbbbbbbbbb';

@@ -8,11 +8,10 @@ const router = Router();
 
 // ---------------------------------------------------------------------------
 // GE-tenant-only gate — used by /team-performance below. That route reads
-// TEAM_MEMBERS_BASE, a hardcoded GE staff roster (names + growthescalators.com
-// emails) with no tenant dimension at all; scoping the underlying `tasks`
-// query by tenant_id would just return GE staff names with all-zero counts
-// to every reseller, still leaking GE's internal team structure. Block
-// instead. See src/services/teamPerformanceService.ts.
+// a hardcoded GE staff roster with no tenant dimension at all; scoping the
+// underlying `tasks` query by tenant_id would still surface the roster
+// itself (with all-zero counts) to every reseller. Block instead. See
+// src/services/teamPerformanceService.ts.
 // ---------------------------------------------------------------------------
 let _geTenantIdPromise: Promise<string | null> | null = null;
 async function resolveGeTenantId(): Promise<string | null> {

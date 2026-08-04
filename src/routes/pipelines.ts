@@ -18,13 +18,9 @@ const router = Router();
 // ---------------------------------------------------------------------------
 router.get('/diagnose', async (req, res) => {
   try {
-    // Tenant isolation (security audit, 2026-08-04): this route had no admin
-    // check at all and every query below was unscoped — ANY authenticated
-    // user of ANY tenant could read global counts (all tenants' pipelines,
-    // purchase events with contact_id + amount, funnel configs) and the
-    // auto-fix block below would silently place OTHER tenants' orphan deals
-    // into pipelines. Admin-gate it, same posture as /backfill-all in this
-    // file, and scope every query to the caller's own tenant.
+    // Tenant isolation: admin-gate this diagnostic route and scope every
+    // query — including the auto-fix block below, which mutates data — to
+    // the caller's own tenant. Same posture as /backfill-all in this file.
     const user = req.user as { role: string } | undefined;
     if (user?.role !== 'admin') {
       res.status(403).json({ error: 'Admin only' });
@@ -628,13 +624,8 @@ router.post('/backfill-all', async (req, res) => {
 // ---------------------------------------------------------------------------
 router.post('/backfill-from-deals', async (req, res) => {
   try {
-    // Tenant isolation (security audit, 2026-08-04): this route had NO admin
-    // check and the query below was entirely unscoped — any authenticated
-    // user of any tenant could sweep and auto-place EVERY tenant's purchase
-    // contacts, and pipelineService.placePipelineContact would DM GE's sales
-    // Slack channel for every "agency" segment placement it found, including
-    // other tenants' contacts. Admin-gate + tenant-scope, same posture as
-    // /diagnose and /backfill-all above.
+    // Tenant isolation: admin-gate this sweep and scope it to the caller's
+    // own tenant. Same posture as /diagnose and /backfill-all above.
     const user = req.user as { role: string } | undefined;
     if (user?.role !== 'admin') {
       res.status(403).json({ error: 'Admin only' });

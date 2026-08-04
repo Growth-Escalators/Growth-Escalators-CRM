@@ -1,14 +1,21 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 
-// Security audit (2026-08-04): ai_intelligence_reports had no tenant_id
-// column at all — every /api/intelligence/* read route (today, reports,
-// scores, actions, status/:id) was unscoped, so EVERY tenant's admin
-// dashboard rendered GE's own AI coaching reports verbatim (including GE
-// staff names and GE-only business context). These tests assert every read
-// route now filters by the caller's tenant_id, and that POST /generate
-// stamps new report rows with the CALLING admin's own tenant.
+// ai_intelligence_reports had no tenant_id column at all — every
+// /api/intelligence/* read route (today, reports, scores, actions,
+// status/:id) was unscoped, so every tenant's admin dashboard rendered
+// GE's own AI coaching reports verbatim. These tests assert every read
+// route now filters by the caller's tenant_id.
+//
+// The read fix alone was incomplete: the underlying data collection this
+// module uses is not tenant-parameterized (it always operates on GE's own
+// business data), so a tenant-scoped write is not the same as a
+// tenant-scoped *source*. POST /generate and POST /run-cron/:name (which
+// both trigger that unparameterized collection/cron layer) are therefore
+// restricted to GE's own tenant — a reseller simply cannot trigger
+// generation, rather than being able to generate a report whose content
+// isn't theirs but whose row now legitimately reads back as theirs.
 
-const TENANT_A = 'tenant-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'; // e.g. GE
+const TENANT_A = 'tenant-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'; // GE — resolveGeTenantId() below resolves to this id
 const TENANT_B = 'tenant-bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'; // reseller
 
 type Row = Record<string, unknown>;
@@ -44,8 +51,25 @@ vi.mock('../services/intelligenceAnalyzer', () => ({
 vi.mock('../services/intelligenceDelivery', () => ({
   deliverDailyIntelligence: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock('../services/directoryScraperService', () => ({
+  runAllScrapers: vi.fn().mockResolvedValue({ total: 0, imported: 0 }),
+}));
+vi.mock('../services/metaAdsService', () => ({
+  calculateMonthlyBenchmarks: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock('../services/systemHealthMonitor', () => ({
+  checkAllSystems: vi.fn().mockResolvedValue({}),
+  logCronStart: vi.fn().mockResolvedValue(null),
+  logCronSuccess: vi.fn().mockResolvedValue(undefined),
+  logCronFailure: vi.fn().mockResolvedValue(undefined),
+}));
 
 function fakeFilteredRead(sqlText: string, params: unknown[]): { rows: Row[] } {
+  // resolveGeTenantId()'s lookup — matched by SQL text, not call order, so
+  // it behaves the same whether or not an earlier test already warmed the
+  // module-level cache in routes/intelligence.ts.
+  if (sqlText.includes('FROM tenants WHERE slug')) return { rows: [{ id: TENANT_A }] };
+  if (sqlText.includes('INSERT INTO ai_intelligence_reports')) return { rows: [{ id: 'new-report-id' }] };
   if (!sqlText.includes('ai_intelligence_reports')) return { rows: [] };
   const matchedTenant = [TENANT_A, TENANT_B].find((t) => params.includes(t));
   if (!matchedTenant) return { rows: [...REPORTS[TENANT_A], ...REPORTS[TENANT_B]] }; // simulates the pre-fix leak
@@ -87,7 +111,7 @@ beforeEach(() => {
   mockPoolQuery.mockImplementation(async (sqlText: string, params: unknown[] = []) => fakeFilteredRead(sqlText, params));
 });
 
-describe('routes/intelligence.ts — tenant isolation', () => {
+describe('routes/intelligence.ts — read routes are tenant-scoped', () => {
   it('GET /reports never returns GE\'s report to a reseller tenant', async () => {
     const handler = invokeRouteHandler(router, '/reports', 'get');
     const res = mockRes();
@@ -138,22 +162,52 @@ describe('routes/intelligence.ts — tenant isolation', () => {
     const [, params] = mockPoolQuery.mock.calls[0];
     expect(params).toEqual(['r-a', TENANT_B]);
   });
+});
 
-  it('POST /generate stamps the placeholder report row with the calling admin\'s own tenant', async () => {
-    // One-time override for the placeholder INSERT only — the persistent
-    // fakeFilteredRead implementation (set in beforeEach) stays active for
-    // any later call, so the background setImmediate continuation (which
-    // fires after this test's own assertions, and may interleave with
-    // later tests) always gets a real resolved promise back instead of a
-    // reset mock's bare `undefined`.
-    mockPoolQuery.mockImplementationOnce(async () => ({ rows: [{ id: 'new-report-id' }] }));
+describe('routes/intelligence.ts — POST /generate is GE-tenant-only', () => {
+  it('a reseller tenant admin gets 403 and no report row is ever created', async () => {
     const handler = invokeRouteHandler(router, '/generate', 'post');
     const res = mockRes();
     await handler(reqAs(TENANT_B), res);
 
+    expect(res.statusCode).toBe(403);
+    expect(mockPoolQuery.mock.calls.every(([sql]) => !String(sql).includes('INSERT INTO ai_intelligence_reports'))).toBe(true);
+  });
+
+  it('GE\'s own tenant is unaffected and the placeholder report row is stamped with GE\'s tenant', async () => {
+    // The persistent fakeFilteredRead implementation (set in beforeEach)
+    // handles both the GE-tenant-id lookup and the placeholder INSERT by
+    // SQL text, so it stays correct for the background setImmediate
+    // continuation too (which fires after this test's own assertions, and
+    // may interleave with later tests) — no per-call mock ordering to get
+    // wrong.
+    const handler = invokeRouteHandler(router, '/generate', 'post');
+    const res = mockRes();
+    await handler(reqAs(TENANT_A), res);
+
     expect(res.body.status).toBe('generating');
-    const [sql, params] = mockPoolQuery.mock.calls[0];
+    const insertCall = mockPoolQuery.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO ai_intelligence_reports'));
+    expect(insertCall).toBeDefined();
+    const [sql, params] = insertCall!;
     expect(sql).toMatch(/tenant_id/);
-    expect(params).toContain(TENANT_B);
+    expect(params).toContain(TENANT_A);
+  });
+});
+
+describe('routes/intelligence.ts — POST /run-cron/:name is GE-tenant-only', () => {
+  it('a reseller tenant admin gets 403, the cron never runs', async () => {
+    const handler = invokeRouteHandler(router, '/run-cron/:name', 'post');
+    const res = mockRes();
+    await handler(reqAs(TENANT_B, { params: { name: 'Directory Scrapers' } }), res);
+
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('GE\'s own tenant is unaffected', async () => {
+    const handler = invokeRouteHandler(router, '/run-cron/:name', 'post');
+    const res = mockRes();
+    await handler(reqAs(TENANT_A, { params: { name: 'Directory Scrapers' } }), res);
+
+    expect(res.body.ok).toBe(true);
   });
 });

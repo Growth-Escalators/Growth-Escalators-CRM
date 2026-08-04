@@ -1,12 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Security audit (2026-08-04): placePipelineContact() fired a Slack DM to
-// GE's own salesperson (SLACK_SAKCHAM) for EVERY "agency"/"agency_owner"
-// segment placement, regardless of which tenant made the purchase — a
-// reseller tenant's contact would DM GE staff with that contact's name and
-// phone number. The fix guards the DM behind "does this placement belong to
-// GE's own tenant". These tests assert the DM fires for GE placements and
-// is skipped entirely for a reseller tenant's placement.
+// placePipelineContact()'s internal "agency" hot-lead notification is
+// GE-specific and must only fire for GE's own tenant, regardless of which
+// tenant made the placement. These tests assert the notification fires for
+// GE placements and is skipped entirely for a reseller tenant's placement.
 
 const GE_TENANT_ID = 'tenant-ge-aaaaaaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const RESELLER_TENANT_ID = 'tenant-reseller-bbbb-bbbb-bbbb-bbbbbbbbbbbb';

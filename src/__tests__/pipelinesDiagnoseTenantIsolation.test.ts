@@ -1,13 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Security audit (2026-08-04): GET /api/pipelines/diagnose and
-// POST /api/pipelines/backfill-from-deals had NO admin check at all and
-// every underlying query was unscoped by tenant — any authenticated user of
-// ANY tenant could read every tenant's pipeline/purchase counts, and the
-// "auto-fix" block in /diagnose (and the whole body of /backfill-from-deals)
-// would silently place OTHER tenants' orphan deals into pipelines via
-// placePipelineContact(). These tests assert both routes are now
-// admin-gated AND every query/mutation is scoped to the caller's own
+// GET /api/pipelines/diagnose and POST /api/pipelines/backfill-from-deals
+// had no admin check and every underlying query was unscoped by tenant,
+// including a mutation path (auto-placing orphan deals via
+// placePipelineContact()). These tests assert both routes are now
+// admin-gated and every query/mutation is scoped to the caller's own
 // tenant_id — never touching or returning the other tenant's rows.
 
 const TENANT_A = 'tenant-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'; // e.g. GE

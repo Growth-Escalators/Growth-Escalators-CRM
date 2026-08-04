@@ -26,13 +26,10 @@ import { DEFAULT_TENANT_SLUG } from '../config/constants';
 const router = Router();
 
 // ---------------------------------------------------------------------------
-// GE-tenant-only gate (security audit, 2026-08-04): outreach_leads is a
-// GE-internal outbound-sales tool with no per-tenant data model at all — the
-// JWT branch below used to accept ANY admin-tier user regardless of which
-// tenant they belonged to, so a reseller admin with a valid JWT could read
-// GE's entire outbound pipeline (company names, emails, reply content,
-// funnel metrics) via /dashboard, /replied, /active, etc. The internal-secret
-// path (n8n workflows) is unaffected — only GE controls that secret.
+// GE-tenant-only gate: outreach_leads is a GE-internal outbound-sales tool
+// with no per-tenant data model. The JWT admin-tier auth branch below is
+// restricted to GE's own tenant; the separate internal-secret path (used by
+// automation, not a user session) is unaffected.
 // ---------------------------------------------------------------------------
 let _geTenantIdPromise: Promise<string | null> | null = null;
 async function resolveGeTenantId(): Promise<string | null> {

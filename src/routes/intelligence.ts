@@ -5,8 +5,31 @@ import { collectDailyData } from '../services/intelligenceDataCollector';
 import { analyzeWithClaude, ensureIntelligenceTable } from '../services/intelligenceAnalyzer';
 import { deliverDailyIntelligence } from '../services/intelligenceDelivery';
 import { isAdminTier } from '../middleware/rbac';
+import { DEFAULT_TENANT_SLUG } from '../config/constants';
 
 const router = Router();
+
+// ---------------------------------------------------------------------------
+// GE-tenant-only gate: used by the generation-triggering routes below
+// (POST /generate, POST /run-cron/:name). The read routes above are
+// tenant-scoped by the caller's own tenant_id, but the underlying data
+// collection and whitelisted cron jobs are not tenant-parameterized at all
+// — they always operate on GE's own business data, regardless of who
+// triggers them. Restrict triggering to GE's own tenant until that
+// collection layer is made tenant-aware; a reseller then simply has no
+// reports to generate, which is correct.
+// ---------------------------------------------------------------------------
+let _geTenantIdPromise: Promise<string | null> | null = null;
+async function resolveGeTenantId(): Promise<string | null> {
+  if (!_geTenantIdPromise) {
+    _geTenantIdPromise = pool.query(`SELECT id FROM tenants WHERE slug = $1 LIMIT 1`, [DEFAULT_TENANT_SLUG])
+      .then(r => (r.rows[0] as { id?: string } | undefined)?.id ?? null)
+      .catch(() => null);
+  }
+  const id = await _geTenantIdPromise;
+  if (!id) _geTenantIdPromise = null; // allow retry on next request if the lookup failed
+  return id;
+}
 
 // Ensure table exists at startup
 ensureIntelligenceTable().catch(e => logger.error('[intelligence] table bootstrap failed:', e));
@@ -158,6 +181,11 @@ router.post('/run-cron/:name', async (req: Request, res: Response) => {
     res.status(403).json({ error: 'Admin only' });
     return;
   }
+  const geTenantId = await resolveGeTenantId();
+  if (!geTenantId || req.user?.tenantId !== geTenantId) {
+    res.status(403).json({ error: 'Not available for this tenant' });
+    return;
+  }
 
   const rawName = req.params.name;
   const name = Array.isArray(rawName) ? rawName[0] : rawName;
@@ -211,7 +239,10 @@ router.get('/status/:id', async (req: Request, res: Response) => {
   }
 });
 
-// In-memory flag
+// In-memory flag. Shared module-level state would normally mean one
+// tenant's in-flight generation blocks every other tenant's — moot here
+// since the GE-tenant-only gate below means only one tenant can ever reach
+// this code path at all.
 let _generating = false;
 let _generatingStartedAt: number | null = null;
 const GENERATION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
@@ -225,12 +256,15 @@ router.post('/generate', async (req: Request, res: Response) => {
     res.status(403).json({ error: 'Admin only' });
     return;
   }
+  const geTenantId = await resolveGeTenantId();
+  if (!geTenantId || req.user?.tenantId !== geTenantId) {
+    res.status(403).json({ error: 'Not available for this tenant' });
+    return;
+  }
 
-  // Tenant isolation (security audit, 2026-08-04): stamp every report this
-  // handler creates with the CALLING admin's own tenant, and scope the
-  // "today's report already exists" recovery path to that tenant too — the
-  // old unscoped DELETE would wipe out every tenant's report for the day,
-  // not just the caller's.
+  // Tenant isolation: stamp every report this handler creates with the
+  // calling admin's own tenant, and scope the "today's report already
+  // exists" recovery path to that tenant too.
   const tenantId = req.user!.tenantId;
 
   // Auto-reset if stuck for more than 5 minutes

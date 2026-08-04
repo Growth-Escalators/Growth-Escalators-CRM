@@ -8,12 +8,10 @@ const router = Router();
 const META_API_BASE = 'https://graph.facebook.com/v21.0';
 
 // ---------------------------------------------------------------------------
-// GE-tenant-only gate (security audit, 2026-08-04): every route in this file
-// reads from GE's GLOBAL META_ACCESS_TOKEN env var — there is no per-tenant
-// Meta credential yet (that lands with the meta-oauth-connect work), so any
-// authenticated user of ANY tenant could read GE's own Facebook Pages /
-// Business Manager assets and post engagement data. Block every other tenant
-// with a 403. Remove this gate once real per-tenant Meta credentials exist.
+// GE-tenant-only gate: this router reads from GE's shared Meta credentials —
+// there is no per-tenant Meta credential yet (that lands with the
+// meta-oauth-connect work). Restrict it to GE's own tenant until real
+// per-tenant credentials exist.
 // ---------------------------------------------------------------------------
 let _geTenantIdPromise: Promise<string | null> | null = null;
 async function resolveGeTenantId(): Promise<string | null> {

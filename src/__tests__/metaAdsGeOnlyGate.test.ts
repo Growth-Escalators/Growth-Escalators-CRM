@@ -1,14 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Security audit (2026-08-04): src/routes/metaAssets.ts (GE's Facebook Pages
-// / Business Manager assets) and src/routes/ads.ts (ad_accounts, campaigns,
-// insights — GE client names) both ran on GE's GLOBAL META_ACCESS_TOKEN with
-// no tenant check at all — any authenticated user of ANY tenant could read
-// GE's own Meta assets and ad performance. Both routers are now gated to
-// GE's own tenant via a `router.use(...)` middleware. These tests exercise
-// that middleware directly (the first non-route layer registered on each
-// router) rather than mocking the Graph API, since the gate itself is the
-// thing being verified.
+// src/routes/metaAssets.ts and src/routes/ads.ts both run on GE's shared
+// Meta credentials with no per-tenant model or tenant check. Both routers
+// are now gated to GE's own tenant via a `router.use(...)` middleware.
+// These tests exercise that middleware directly (the first non-route layer
+// registered on each router) rather than mocking the Graph API, since the
+// gate itself is the thing being verified.
 
 const GE_TENANT_ID = 'tenant-ge-aaaaaaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const RESELLER_TENANT_ID = 'tenant-reseller-bbbb-bbbb-bbbb-bbbbbbbbbbbb';

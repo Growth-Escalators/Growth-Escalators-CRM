@@ -284,11 +284,8 @@ export async function placePipelineContact(params: {
   // ---------------------------------------------------------------------------
   // 5. Agency segment: fire hot lead DM to Sakcham
   //
-  // Tenant isolation (security audit, 2026-08-04): this DM fired for EVERY
-  // "agency" placement regardless of tenant — a reseller tenant's contact
-  // buying an agency-segment product would DM GE's own salesperson with that
-  // contact's name + phone. Sakcham is GE staff, not a reseller's contact —
-  // only fire when the placement belongs to GE's own tenant.
+  // Tenant isolation: this internal notification is GE-specific — only
+  // fire it when the placement belongs to GE's own tenant.
   // ---------------------------------------------------------------------------
   if (segment === 'agency' || segment === 'agency_owner') {
     const geTenantId = await resolveGeTenantId();
