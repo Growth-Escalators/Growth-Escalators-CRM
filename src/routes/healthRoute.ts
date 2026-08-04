@@ -80,7 +80,14 @@ router.get('/health', async (_req, res) => {
   if (dbStatus === 'error') overallStatus = 'unhealthy';
   else if (stuckStatus === 'warning') overallStatus = 'degraded';
 
-  res.json({
+  // HTTP status must track overallStatus, not always 200 — this is what makes
+  // Railway's healthcheckPath (railway.json) able to see a DB outage at all.
+  // Only a hard failure (DB unreachable) returns 503; "degraded" (stuck jobs)
+  // stays 200 because it's still serving traffic and should not trigger a
+  // deploy failure or restart on a transient backlog.
+  const httpStatus = overallStatus === 'unhealthy' ? 503 : 200;
+
+  res.status(httpStatus).json({
     status: overallStatus,
     timestamp: new Date().toISOString(),
     uptime: Math.floor(process.uptime()),
