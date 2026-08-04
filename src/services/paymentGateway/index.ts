@@ -7,8 +7,8 @@ export { registerPaymentGatewayAdapter, getPaymentGatewayAdapter } from './regis
 // self-registering call (see mockAdapter.ts), (2) add one import line here.
 // getPaymentGatewayAdapter()'s lookup logic in registry.ts never changes.
 //
-// Both 'cashfree' and 'razorpay' are mock-backed for now — the real
-// adapters land via two separate, parallel PRs and will re-register the
-// same provider keys, replacing these entries (see registry.ts's overwrite
-// note). That's an expected small reconciliation at merge time, not a bug.
+// 'cashfree' is still mock-backed until its own adapter PR lands; 'razorpay'
+// is now the real adapter (see registry.ts's overwrite note — importing
+// mockAdapter first and razorpayAdapter second means the real one wins).
 import './mockAdapter';
+import './razorpayAdapter';

@@ -14,6 +14,7 @@
 // verification once it happens).
 import { createHmac, timingSafeEqual } from 'crypto';
 import type { NormalizedSubscriptionEvent, PaymentGatewayAdapter, SubscriptionProvider } from './types';
+import { registerPaymentGatewayAdapter } from './registry';
 
 const NAME: SubscriptionProvider = 'razorpay';
 const API_BASE = 'https://api.razorpay.com/v1';
@@ -277,3 +278,10 @@ export class RazorpaySubscriptionAdapter implements PaymentGatewayAdapter {
     throw new UnsupportedRazorpayWebhookEventError(event || '(missing event field)');
   }
 }
+
+// Self-registers at import time (see registry.ts's overwrite note), replacing
+// the mock adapter mockAdapter.ts registered for 'razorpay'. Config is
+// resolved lazily per-call (see config() above), so constructing this
+// eagerly here is safe even before RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET are
+// set — it only throws once an operation is actually invoked.
+registerPaymentGatewayAdapter(new RazorpaySubscriptionAdapter());
