@@ -2,6 +2,16 @@ import { Router, type Request, type Response } from 'express';
 import { db, messages, contacts, contactChannels, waTemplates } from '../db/index';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import type { Server as SocketServer } from 'socket.io';
+import { DEFAULT_TENANT_SLUG } from '../config/constants';
+
+// There is no per-tenant WhatsApp Business number yet — every send goes out
+// through GE's own META_PHONE_NUMBER_ID/META_ACCESS_TOKEN. Until per-tenant
+// WABA provisioning exists, a non-GE tenant must be blocked from sending
+// rather than have its message silently leave under GE's shared identity.
+function canSendWhatsApp(req: Request): boolean {
+  return req.user!.tenantSlug === DEFAULT_TENANT_SLUG;
+}
+const WHATSAPP_NOT_CONFIGURED_FOR_TENANT = "WhatsApp sending isn't configured for your workspace";
 
 const router = Router();
 
@@ -108,6 +118,11 @@ router.post('/conversations/:contactId/send', async (req: Request, res: Response
       .limit(1);
     if (!channel) { res.status(400).json({ error: 'contact has no WhatsApp number' }); return; }
 
+    if (!canSendWhatsApp(req)) {
+      res.status(403).json({ error: WHATSAPP_NOT_CONFIGURED_FOR_TENANT });
+      return;
+    }
+
     const phone = channel.channelValue.replace(/\D/g, '');
     const phoneNumberId = process.env.META_PHONE_NUMBER_ID;
     const accessToken = process.env.META_ACCESS_TOKEN;
@@ -167,6 +182,11 @@ router.post('/conversations/:contactId/send-template', async (req: Request, res:
       .where(and(eq(contactChannels.contactId, contactId), eq(contactChannels.tenantId, tenantId), eq(contactChannels.channelType, 'whatsapp')))
       .limit(1);
     if (!channel) { res.status(400).json({ error: 'contact has no WhatsApp number' }); return; }
+
+    if (!canSendWhatsApp(req)) {
+      res.status(403).json({ error: WHATSAPP_NOT_CONFIGURED_FOR_TENANT });
+      return;
+    }
 
     const phone = channel.channelValue.replace(/\D/g, '');
     const phoneNumberId = process.env.META_PHONE_NUMBER_ID;

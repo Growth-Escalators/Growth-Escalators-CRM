@@ -1,6 +1,7 @@
 import { sendSlackMessage, sendSlackDM } from './slackService';
 import logger from '../utils/logger';
 import { SLACK_SOD_EOD_CHANNEL, SLACK_JATIN } from '../config/constants';
+import { CRM_BASE_URL } from '../config/crmLinks';
 import type { Analysis } from './intelligenceAnalyzer';
 import type { AgencyDailyData } from './intelligenceDataCollector';
 
@@ -142,7 +143,7 @@ export async function deliverDailyIntelligence(analysis: Analysis, data: AgencyD
 
   // Scores summary
   msg += `📊 Ads:${analysis.scores.ads} SEO:${analysis.scores.seo} Sales:${analysis.scores.sales} Ops:${analysis.scores.ops}\n`;
-  msg += `_Full coaching report + fix prompts: crm.growthescalators.com/intelligence_`;
+  msg += `_Full coaching report + fix prompts: ${CRM_BASE_URL}/intelligence_`;
 
   // AI coaching report goes to Jatin DM only — not to #sod-eod channel
   try {

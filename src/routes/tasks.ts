@@ -3,6 +3,8 @@ import { Router } from 'express';
 import { eq, and, inArray, desc, asc, isNull, sql } from 'drizzle-orm';
 import { db, tasks, contacts, deals, taskChecklistItems, users, pool } from '../db/index';
 import { sendSlackDM, MEMBER_MAP } from '../services/slackService';
+import { DEFAULT_TENANT_SLUG } from '../config/constants';
+import { CRM_BASE_URL } from '../config/crmLinks';
 
 const router = Router();
 
@@ -21,15 +23,18 @@ function isPriority(v: unknown): v is Priority {
   return typeof v === 'string' && (PRIORITIES as readonly string[]).includes(v);
 }
 
-const CRM_BASE_URL =
-  process.env.CRM_BASE_URL || 'https://crm.growthescalators.com';
-
 // Resolve a users.id (or email/clickupId stored in tasks.assignedTo) to a Slack ID.
 // MEMBER_MAP is keyed by ClickUp user id; the users table stores email + name. We look up the user, then match
 // by name (case-insensitive) against MEMBER_MAP entries — this is the cheapest mapping that works without a
 // schema change.
-async function resolveSlackIdForAssignee(assignedTo: string | null | undefined): Promise<string | null> {
+//
+// MEMBER_MAP is GE's own staff roster, so this mapping is only meaningful for
+// GE's own tenant — every other tenant's assignedTo/mention names are scoped
+// to that tenant's own people and must never be matched against it (a name
+// collision would otherwise route a DM into GE's Slack workspace).
+async function resolveSlackIdForAssignee(assignedTo: string | null | undefined, tenantSlug: string | undefined): Promise<string | null> {
   if (!assignedTo) return null;
+  if (tenantSlug !== DEFAULT_TENANT_SLUG) return null;
   // Direct match: assignedTo might already be a ClickUp ID present in MEMBER_MAP.
   if (MEMBER_MAP[assignedTo]) return MEMBER_MAP[assignedTo].slackId;
 
@@ -87,8 +92,9 @@ async function sendAssignmentDM(opts: {
   taskId: string;
   title: string;
   dueAt: Date | null;
+  tenantSlug: string | undefined;
 }): Promise<void> {
-  const slackId = await resolveSlackIdForAssignee(opts.assignedTo);
+  const slackId = await resolveSlackIdForAssignee(opts.assignedTo, opts.tenantSlug);
   if (!slackId) return;
   const text = `📝 You've been assigned: "${opts.title}" — due ${formatDueDate(opts.dueAt)}. Open: ${CRM_BASE_URL}/tasks?id=${opts.taskId}`;
   // Operational notification — respects kill switch (allowDuringPause: false).
@@ -290,6 +296,7 @@ router.post('/', async (req, res) => {
         taskId: String((inserted as { id: string }).id),
         title: title.trim(),
         dueAt: dueAtDate,
+        tenantSlug: req.user!.tenantSlug,
       });
     }
 
@@ -420,6 +427,7 @@ router.patch('/:id', async (req, res) => {
         taskId: id,
         title: (patch.title as string) || existing.title,
         dueAt: (patch.dueAt as Date | null) ?? existing.dueAt ?? null,
+        tenantSlug: req.user!.tenantSlug,
       });
     }
 
@@ -680,6 +688,7 @@ router.post('/bulk-update', async (req, res) => {
           taskId: row.id,
           title: row.title,
           dueAt: row.due_at ?? null,
+          tenantSlug: req.user!.tenantSlug,
         });
       }
     }
@@ -969,7 +978,7 @@ router.post('/:id/comments', async (req, res) => {
           .from(users)
           .where(inArray(users.id, mentions));
         for (const m of ms) {
-          const slackId = await resolveSlackIdForAssignee(m.id);
+          const slackId = await resolveSlackIdForAssignee(m.id, req.user!.tenantSlug);
           if (!slackId) continue;
           const text = `💬 You were mentioned on "${parent.title}": ${body.trim().slice(0, 200)} — ${CRM_BASE_URL}/tasks?id=${id}`;
           sendSlackDM(slackId, text, undefined, { allowDuringPause: false }).catch(() => {});
