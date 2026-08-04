@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db, contacts } from '../db/index';
 import { findOrCreateContact } from '../services/contactService';
 import { sendSlackMessage } from '../services/slackService';
-import { getSingleActiveTenantWithFeature } from '../services/tenantFeatures';
+import { getDefaultIngestTenant } from '../services/tenantFeatures';
 import { SLACK_SALES_BD_CHANNEL } from '../config/constants';
 import logger from '../utils/logger';
 
@@ -32,14 +32,15 @@ router.post('/agency', async (req: Request, res: Response): Promise<void> => {
   }
 
   try {
-    // Route-level tenant-feature gate (PR: tenant feature gating) — replaces
-    // the old hardcoded eq(tenants.slug, DEFAULT_TENANT_SLUG) lookup. Today
-    // only growth-escalators has the "crmAutomation" feature enabled (see
-    // tenantFeatures.ts PLAN_DEFAULTS), so this resolves to the exact same
-    // tenant as before and the response is unchanged for existing callers.
-    // A second tenant onboarding this generic lead-capture capability would
-    // now be picked up automatically — no code change needed here.
-    const tenant = await getSingleActiveTenantWithFeature('crmAutomation');
+    // Pinned to GE's own tenant (PR: fix lead-theft-by-slug-order) — this
+    // route receives leads arriving from GE's OWN white-label landing page,
+    // so the destination tenant is GE, full stop. It must NOT be resolved by
+    // scanning every active tenant for "crmAutomation" — a reseller_pilot
+    // tenant also has that flag on, and if its slug sorted before
+    // growth-escalators, GE's own inbound leads would silently route to the
+    // reseller instead (see tenantFeatures.ts getSingleActiveTenantWithFeature's
+    // docstring for the bug this replaced).
+    const tenant = await getDefaultIngestTenant('crmAutomation');
     if (!tenant) {
       res.status(503).json({ error: 'agency lead intake is not enabled for any tenant' });
       return;

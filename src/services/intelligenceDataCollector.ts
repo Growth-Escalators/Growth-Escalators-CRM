@@ -1,7 +1,7 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { resolveDefaultSeoTenantId } from './seoTenantContext';
-import { getSingleActiveTenantWithFeature } from './tenantFeatures';
+import { getDefaultIngestTenant } from './tenantFeatures';
 
 // ---------------------------------------------------------------------------
 // SEO Workflow Health types + collector (exported so worker can call directly)
@@ -355,14 +355,15 @@ type Queryable = { query: (text: string, values?: unknown[]) => Promise<import('
 
 async function _collectDailyDataInner(client: Queryable, errors: string[]): Promise<AgencyDailyData> {
 
-  // Resolve tenant ID — tenant-feature-gated (PR: tenant feature gating),
-  // replaces the old `SELECT id FROM tenants WHERE slug = DEFAULT_TENANT_SLUG`
-  // lookup. Today only growth-escalators has the "crmAutomation" feature
-  // enabled (see tenantFeatures.ts PLAN_DEFAULTS), so this resolves to the
-  // exact same tenant as before.
+  // Resolve tenant ID — pinned to GE's own tenant (PR: fix
+  // lead-theft-by-slug-order). This report is GE's own daily intelligence
+  // digest over GE's own marketing/CRM data, so the tenant is GE, full stop —
+  // it must NOT be resolved by scanning every active tenant for
+  // "crmAutomation" (see tenantFeatures.ts getSingleActiveTenantWithFeature's
+  // docstring for the lead-theft bug that pattern caused elsewhere).
   let tenantId = '';
   try {
-    const tenant = await getSingleActiveTenantWithFeature('crmAutomation');
+    const tenant = await getDefaultIngestTenant('crmAutomation');
     tenantId = tenant?.id ?? '';
     logger.info(`[intel-collector] Tenant resolved: ${tenantId}`);
   } catch (e) {
