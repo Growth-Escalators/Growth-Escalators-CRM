@@ -4,7 +4,7 @@ import { logout, getUser, getPermissions, apiFetch } from '../lib/api.js';
 import { getTenantConfig, getTenantFeatureFlags, getTenantSlug } from '../lib/auth.js';
 import { refreshTenantBranding } from '../lib/branding.js';
 import { refreshTenantFeatures } from '../lib/tenantFeatures.js';
-import { ChevronRight, Menu, X, Wrench, Receipt, Settings as SettingsIcon, MoreHorizontal } from 'lucide-react';
+import { ChevronRight, Menu, X, Wrench, Receipt, Settings as SettingsIcon, MoreHorizontal, Building2 } from 'lucide-react';
 import { GROUP_LABELS, getVisibleEntries, groupForPath } from './navEntries.js';
 import CommandPalette from './CommandPalette.jsx';
 import { closedStaffingPhases, normalizeStaffingAccess } from '../lib/staffingAccess.js';
@@ -407,10 +407,24 @@ export default function Sidebar() {
           <X className="w-5 h-5" />
         </button>
 
-        {/* Logo */}
+        {/* Logo — a tenant's OWN configured logoUrl (from tenant_branding) is
+            always used when set, including GE's own (seeded to /ge-mark.png
+            via tenantBrandingDefaults.ts, not hardcoded here). Any tenant
+            without a configured logo — most resellers — gets a neutral
+            initials/building badge instead of silently inheriting GE's mark. */}
         <div className="px-5 py-5 border-b border-white/10">
           <div className="flex items-center gap-3">
-            <img src={tenant.logoUrl || '/ge-mark.png'} alt={tenant.shortLabel} className="w-9 h-9 rounded-lg border border-white/20" />
+            {tenant.logoUrl ? (
+              <img src={tenant.logoUrl} alt={tenant.shortLabel} className="w-9 h-9 rounded-lg border border-white/20" />
+            ) : (
+              <div
+                role="img"
+                aria-label={tenant.shortLabel}
+                className="w-9 h-9 rounded-lg border border-white/20 bg-white/10 flex items-center justify-center shrink-0"
+              >
+                <Building2 className="w-5 h-5 text-white/80" aria-hidden="true" />
+              </div>
+            )}
             <div>
               <p className="text-white font-semibold text-[13.5px] leading-tight">{tenant.label}</p>
               <p className="text-primary-300 text-[11.5px]">{tenant.productLabel || tenant.subtitle}</p>

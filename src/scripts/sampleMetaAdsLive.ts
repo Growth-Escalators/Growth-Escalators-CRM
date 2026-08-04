@@ -8,7 +8,7 @@
 import { Client } from 'pg';
 import { fetchAccountInsights, buildDailyReport } from '../services/metaAdsService';
 import { sendSlackMessage } from '../services/slackService';
-import { SLACK_PERF_MARKETING_CHANNEL } from '../config/constants';
+import { SLACK_PERF_MARKETING_CHANNEL, DEFAULT_TENANT_SLUG } from '../config/constants';
 
 async function main(): Promise<void> {
   const url = process.env.DATABASE_PUBLIC_URL || process.env.DATABASE_URL;
@@ -60,7 +60,22 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const report = buildDailyReport(insights);
+  // This script runs the same pipeline as the live cron for whichever tenant
+  // owns this deployment, so look up its real tenant_branding.display_name
+  // instead of hardcoding "Growth Escalators" — falls back to null (→
+  // buildDailyReport's own generic default) if the seed hasn't run yet.
+  let tenantDisplayName: string | undefined;
+  try {
+    const brandRes = await client.query<{ display_name: string }>(
+      `SELECT tb.display_name FROM tenant_branding tb JOIN tenants t ON t.id = tb.tenant_id WHERE t.slug = $1 LIMIT 1`,
+      [DEFAULT_TENANT_SLUG],
+    );
+    tenantDisplayName = brandRes.rows[0]?.display_name;
+  } catch {
+    // best-effort — a missing/renamed table must never block the sample send
+  }
+
+  const report = buildDailyReport(insights, tenantDisplayName);
   const namesLine = result.rows.map(r => r.client_name).join(', ');
   const now = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
 

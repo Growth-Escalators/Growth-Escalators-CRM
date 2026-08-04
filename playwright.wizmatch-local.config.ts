@@ -21,6 +21,8 @@ export default defineConfig({
     'wizmatch-delete-detail-local.spec.ts',
     'wizmatch-matching-ux-local.spec.ts',
     'wizmatch-india-only-local.spec.ts',
+    'tenant-branding-sidebar-local.spec.ts',
+    'tenant-branding-email-templates-local.spec.ts',
   ],
   fullyParallel: false,
   workers: 1,
