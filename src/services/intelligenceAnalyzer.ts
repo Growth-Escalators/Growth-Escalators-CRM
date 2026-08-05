@@ -370,11 +370,6 @@ ${wf.workflows.map(w =>
 
 SYSTEM ERRORS (last 24h): ${syserrSummary}
 
-## Creative Intelligence
-- ${data.creativeIntel?.fatiguingCount || 0} creatives fatiguing/saturated
-- Best performing type: ${data.creativeIntel?.bestType || 'N/A'}
-- Total tracked: ${data.creativeIntel?.totalTracked || 0}
-
 ## Outreach Velocity
 - Enriched today: ${data.outreachVelocity?.enrichedToday || 0}
 - Replies today: ${data.outreachVelocity?.repliedToday || 0}

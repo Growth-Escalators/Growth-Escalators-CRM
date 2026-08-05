@@ -43,7 +43,7 @@ export interface SystemHealthReport {
 
 // ---------------------------------------------------------------------------
 // GE-tenant-only gate — same invariant as canSendWhatsApp() in
-// routes/inbox.ts and canSendGrowthOSWhatsApp() in services/growthOSSetup.ts:
+// routes/inbox.ts and canSendGrowthOSWhatsApp() in services/whatsappSendGuard.ts:
 // System Health's platform-global subsystems (infra/third-party-credential
 // health, cron scheduler health) describe GE's own operational stack, not
 // anything a reseller tenant owns or configured. checkAllSystems() below
@@ -83,12 +83,10 @@ const CRON_WINDOWS: Record<string, number> = {
   'Overdue Invoice Check': 1500,
   // Intelligence & reporting
   'Meta Ads Daily Report': 1500, 'Meta Token Check': 10080,
-  'Growth OS Health Scores': 1500, 'Creative Intelligence': 360,
-  'Competitor Pulse': 10080,
   'Monthly Client Benchmarks': 44640,
   // Ops
   'Audit Booking Follow-up': 360, 'Weekly Data Cleanup': 10080,
-  'Co-Pilot Poller': 5, 'Pipeline Placement': 1,
+  'Pipeline Placement': 1,
   'System Health Check': 60, 'Late Attendance Check': 1500,
 };
 

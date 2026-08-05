@@ -313,20 +313,6 @@ const TOOLS = [
     },
   },
   {
-    name: 'run_growth_os',
-    description: 'Run a Growth OS analysis. ALWAYS confirm with user before calling this.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        action: {
-          type: 'string',
-          enum: ['health_scores', 'money_on_table', 'creative_scan', 'competitor_pulse'],
-        },
-      },
-      required: ['action'],
-    },
-  },
-  {
     name: 'generate_invoices',
     description: 'Generate draft invoices for all active retainer clients. ALWAYS confirm with user before calling this.',
     input_schema: { type: 'object', properties: {} },
@@ -403,27 +389,6 @@ async function executeTool(
         const data = await resp.json() as { success?: boolean; error?: string };
         await logAction('trigger_seo_workflow', { workflow: workflowName, id: workflowId }, req);
         return JSON.stringify({ success: data.success, workflow: workflowName, message: resp.ok ? 'Workflow triggered successfully' : `Failed: ${data.error}` });
-      }
-
-      case 'run_growth_os': {
-        const action = input.action as string;
-        const actionMap: Record<string, string> = {
-          health_scores: '/api/growth-os/health/generate',
-          money_on_table: '/api/growth-os/opportunity/generate',
-          creative_scan: '/api/growth-os/creatives/scan',
-          competitor_pulse: '/api/growth-os/competitor/run',
-        };
-        const endpoint = actionMap[action];
-        if (!endpoint) return JSON.stringify({ error: `Unknown Growth OS action: ${action}` });
-
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
-        const resp = await fetch(`${baseUrl}${endpoint}`, {
-          method: 'POST',
-          headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(15000),
-        });
-        await logAction('run_growth_os', { action }, req);
-        return JSON.stringify({ success: resp.ok, action, message: resp.ok ? `${action} triggered successfully` : 'Trigger failed' });
       }
 
       case 'generate_invoices': {

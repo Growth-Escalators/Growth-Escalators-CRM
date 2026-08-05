@@ -524,27 +524,6 @@ console.log('[cron] SEO workflow health check — PAUSED 2026-05-03');
 console.log('[cron] workflow self-healing — PAUSED 2026-05-03');
 
 // ---------------------------------------------------------------------------
-// Growth OS — Brand Health Score — Daily 8:00 AM IST (2:30 UTC)
-//
-// Sweeps every tenant's active clients on purpose (see
-// getActiveGrowthOSClients's comment). sendHealthScoreWhatsApp gates its own
-// WhatsApp delivery to GE's own tenant (canSendGrowthOSWhatsApp in
-// growthOSSetup.ts) — score calculation + save still run for every tenant.
-// ---------------------------------------------------------------------------
-cron.schedule('30 2 * * *', () => safeCron('Growth OS Health Scores', async () => {
-  const { getActiveGrowthOSClients } = await import('./services/growthOSSetup');
-  const { calculateBrandHealth, sendHealthScoreWhatsApp } = await import('./services/brandHealthService');
-  const clients = await getActiveGrowthOSClients();
-  for (const client of clients) {
-    const score = await calculateBrandHealth(client);
-    if (client.founder_whatsapp) await sendHealthScoreWhatsApp(score, client.founder_whatsapp);
-    await new Promise(r => setTimeout(r, 3000));
-  }
-  console.log('[CRON] Growth OS health scores done');
-}), { timezone: 'UTC' });
-console.log('[cron] Growth OS health scores scheduled — daily 8:00 AM IST');
-
-// ---------------------------------------------------------------------------
 // Meta Ads Daily Report — 9:30 AM IST (4:00 UTC), Mon-Sat
 // Uses dedicated Meta Ads service with circuit breaker + proper API parsing
 // ---------------------------------------------------------------------------
@@ -606,94 +585,6 @@ if (META_ADS_REPORT_SLACK_ENABLED) cron.schedule('0 4 * * 1-6', () => safeCron('
   console.log(`[CRON] Meta Ads report sent: ${sent}/${insights.length} accounts`);
 }), { timezone: 'UTC' });
 console.log('[cron] Meta Ads daily report scheduled — 9:30 AM IST Mon-Sat');
-
-// PAUSED 2026-05-03 — Money on Table. Re-enable by uncommenting.
-/*
-cron.schedule('0 3 * * 1', () => safeCron('Money on Table', async () => {
-  const { getActiveGrowthOSClients } = await import('./services/growthOSSetup');
-  const { calculateMoneyOnTable } = await import('./services/opportunityService');
-  const clients = await getActiveGrowthOSClients();
-  for (const client of clients) {
-    await calculateMoneyOnTable(client);
-    await new Promise(r => setTimeout(r, 3000));
-  }
-  console.log('[CRON] Money on table done');
-}), { timezone: 'UTC' });
-console.log('[cron] Money on table scheduled — Mondays 8:30 AM IST');
-*/
-console.log('[cron] Money on table — PAUSED 2026-05-03');
-
-// Growth OS — Creative Intelligence — Every 6 hours
-cron.schedule('0 */6 * * *', () => safeCron('Creative Intelligence', async () => {
-  const { getActiveGrowthOSClients } = await import('./services/growthOSSetup');
-  const { trackCreativePerformance } = await import('./services/creativeIntelligenceService');
-  const clients = await getActiveGrowthOSClients();
-  for (const client of clients) {
-    await trackCreativePerformance(client.ad_account_id);
-    await new Promise(r => setTimeout(r, 5000));
-  }
-  console.log('[CRON] Creative intelligence done');
-}), { timezone: 'UTC' });
-console.log('[cron] Creative intelligence scheduled — every 6 hours');
-
-// Growth OS — Competitor Pulse — Every Friday 9:00 AM IST (3:30 UTC)
-// Same cross-tenant sweep + same WhatsApp-delivery-only gate as the health
-// score cron above — see runCompetitorPulse -> sendCompetitorWhatsApp.
-cron.schedule('30 3 * * 5', () => safeCron('Competitor Pulse', async () => {
-  const { getActiveGrowthOSClients } = await import('./services/growthOSSetup');
-  const { runCompetitorPulse } = await import('./services/competitorService');
-  const clients = await getActiveGrowthOSClients();
-  for (const client of clients) {
-    await runCompetitorPulse(client);
-    await new Promise(r => setTimeout(r, 5000));
-  }
-  console.log('[CRON] Competitor pulse done');
-}), { timezone: 'UTC' });
-console.log('[cron] Competitor pulse scheduled — Fridays 9:00 AM IST');
-
-// Growth OS — Co-Pilot: poll unprocessed inbound messages from Growth OS founders — every 10 minutes
-cron.schedule('*/10 * * * *', () => safeCron('Co-Pilot Poller', async () => {
-    const { pool: dbPool } = await import('./db/index');
-    const { isCopilotMessage, handleCopilotMessage } = await import('./services/copilotService');
-
-    // Find messages from Growth OS founder phones in last 5 minutes not yet replied to
-    const founderPhones = await dbPool.query(
-      `SELECT DISTINCT replace(founder_whatsapp, '+', '') AS phone FROM growth_os_clients WHERE is_active = true AND founder_whatsapp IS NOT NULL`
-    ).catch(() => ({ rows: [] }));
-
-    if ((founderPhones.rows as unknown[]).length === 0) return;
-
-    const phones = (founderPhones.rows as Array<{ phone: string }>).map(r => r.phone);
-
-    // Check each phone for recent unhandled inbound messages
-    for (const phone of phones) {
-      const msgs = await dbPool.query(
-        `SELECT m.id, m.content, cc.channel_value AS phone
-         FROM messages m
-         JOIN contact_channels cc ON cc.contact_id = m.contact_id AND cc.channel_type = 'whatsapp'
-         WHERE m.direction = 'inbound'
-           AND m.channel = 'whatsapp'
-           AND replace(cc.channel_value, '+', '') = $1
-           AND m.created_at >= NOW() - INTERVAL '3 minutes'
-           AND NOT EXISTS (
-             SELECT 1 FROM copilot_conversations cp
-             WHERE cp.wa_phone = $1
-               AND cp.created_at >= m.created_at
-           )
-         ORDER BY m.created_at ASC LIMIT 5`,
-        [phone]
-      ).catch(() => ({ rows: [] }));
-
-      for (const msg of msgs.rows as Array<{ id: string; content: string; phone: string }>) {
-        if (isCopilotMessage(msg.content)) {
-          await handleCopilotMessage(phone, msg.content).catch(e =>
-            console.error('[CRON] Co-pilot message handling failed:', e)
-          );
-        }
-      }
-    }
-}), { timezone: 'UTC' });
-console.log('[cron] Co-pilot message poller scheduled — every 10 minutes');
 
 // ---------------------------------------------------------------------------
 // Pipeline placement job — every 5 minutes
