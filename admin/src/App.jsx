@@ -27,6 +27,7 @@ const ProvisionTenantPage = lazy(() => import('./pages/ProvisionTenantPage.jsx')
 const TenantsListPage = lazy(() => import('./pages/TenantsListPage.jsx'));
 const AdsPage = lazy(() => import('./pages/AdsPage.jsx'));
 const MetaAssetsPage = lazy(() => import('./pages/MetaAssetsPage.jsx'));
+const ReportsPage = lazy(() => import('./pages/ReportsPage.jsx'));
 const SocialPage = lazy(() => import('./pages/SocialPage.jsx'));
 const InboxPage = lazy(() => import('./pages/InboxPage.jsx'));
 const AuditPage = lazy(() => import('./pages/AuditPage.jsx'));
@@ -342,7 +343,7 @@ export default function App() {
             <Route path="/settings/tenants" element={<PrivateRoute><TenantsListPage /></PrivateRoute>} />
             <Route path="/ads" element={<PrivateRoute><AdsPage /></PrivateRoute>} />
             <Route path="/meta-assets" element={<PrivateRoute><MetaAssetsPage /></PrivateRoute>} />
-            <Route path="/reports" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/reports" element={<PrivateRoute><ReportsPage /></PrivateRoute>} />
             <Route path="/social" element={<PrivateRoute><SocialPage /></PrivateRoute>} />
             <Route path="/inbox" element={<PrivateRoute><InboxPage /></PrivateRoute>} />
             <Route path="/marketing" element={<Navigate to="/ads?tab=accounts" replace />} />
