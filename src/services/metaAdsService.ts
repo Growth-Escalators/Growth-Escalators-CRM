@@ -278,8 +278,8 @@ export async function ensureClientBenchmarksTable(): Promise<void> {
   // for now (not NOT NULL) — same posture as migration 0035 for the SEO
   // tables: add nullable, backfill, tighten later once verified. Backfill
   // assumption — NEEDS HUMAN VERIFICATION BEFORE MERGE: every pre-existing
-  // row is assumed to belong to the growth-escalators tenant, same as the
-  // Growth OS backfill above.
+  // row is assumed to belong to the growth-escalators tenant, same backfill
+  // posture used elsewhere in this security-audit pass.
   await pool.query(`ALTER TABLE client_benchmarks ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id)`);
   const defaultTenantResult = await pool.query(`SELECT id FROM tenants WHERE slug = 'growth-escalators' LIMIT 1`);
   const defaultTenantId = (defaultTenantResult.rows[0] as { id?: string } | undefined)?.id;
@@ -317,8 +317,9 @@ export async function calculateMonthlyBenchmarks(): Promise<void> {
   // here (marketing_accounts.tenant_id is NOT NULL already) so it can be
   // stamped onto the client_benchmarks row below — this cron itself stays
   // unscoped-by-design (it sweeps every tenant's accounts on a schedule,
-  // same posture as worker.ts's Growth OS crons), the fix is that every row
-  // it writes is now attributed instead of landing with tenant_id NULL.
+  // same posture other unscoped-by-design crons in worker.ts use), the fix
+  // is that every row it writes is now attributed instead of landing with
+  // tenant_id NULL.
   const accounts = await pool.query(
     `SELECT
        CASE WHEN account_id LIKE 'act_%' THEN account_id ELSE 'act_' || account_id END AS account_id,

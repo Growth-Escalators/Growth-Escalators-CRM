@@ -174,7 +174,7 @@ describe('CRON_WINDOWS consistency', () => {
 // ---------------------------------------------------------------------------
 // 5. CRM redirect path list validation
 // ---------------------------------------------------------------------------
-const CRM_REDIRECTS = ['/login', '/dashboard', '/contacts', '/pipeline', '/inbox', '/ads', '/seo', '/intelligence', '/billing', '/settings', '/reports', '/growth-os', '/links', '/social-scheduling'];
+const CRM_REDIRECTS = ['/login', '/dashboard', '/contacts', '/pipeline', '/inbox', '/ads', '/seo', '/intelligence', '/billing', '/settings', '/reports', '/links', '/social-scheduling'];
 
 describe('CRM Path Redirects', () => {
   it('includes /login', () => {

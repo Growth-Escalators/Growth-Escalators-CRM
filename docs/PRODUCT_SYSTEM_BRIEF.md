@@ -71,7 +71,7 @@ Growth is the original CRM profile. It keeps the classic shared CRM routes:
 - `/pipelines/settings`
 
 Growth also has marketing-specific modules such as ads, Meta assets, social, SEO, analytics,
-Growth OS, clients, reports, links, funnels, and outbound.
+clients, reports, links, funnels, and outbound.
 
 ### Wizmatch
 
@@ -154,10 +154,9 @@ processed-event records depending on the flow.
 
 Growth-specific modules support agency work:
 
-- Meta ads accounts, campaigns, insights, creative intelligence, and alerts
+- Meta ads accounts, campaigns, insights, and alerts
 - Social account connection, post scheduling, media library, and lead-form status
 - SEO workflows, rankings, backlinks, content gaps, content decay, alerts, and digests
-- Growth OS health/opportunity/copilot views
 - Intelligence reports and chat
 - Outreach lead discovery and outbound prospect management
 

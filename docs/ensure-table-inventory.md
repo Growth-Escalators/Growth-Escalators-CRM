@@ -1,7 +1,7 @@
 # `ensure*` table inventory (M10 — Fable review 2026-07-16)
 
 **Finding:** three parallel schema-management mechanisms coexist in this repo — Drizzle
-`schema.ts` + journaled migrations (the source of truth for ~110 tables), and 41 tables
+`schema.ts` + journaled migrations (the source of truth for ~110 tables), and 35 tables
 created ad hoc by `ensure*()` functions (raw `CREATE TABLE IF NOT EXISTS` run at server
 boot, one per table/group). The `ensure*` tables are invisible to `drizzle-kit generate`,
 have no FK constraints by construction (nothing in `schema.ts` references them), and their
@@ -16,7 +16,7 @@ whatever the ad hoc SQL actually created over time), and doing 41 of those in on
 trades quality for speed on a guarded path. Treat the "Recommended order" section as the
 punch list for follow-up PRs, highest-value first.
 
-## Full inventory (41 tables, 32 `ensure*()` functions)
+## Full inventory (35 tables, 31 `ensure*()` functions)
 
 | Table | Created by | Notes |
 |---|---|---|
@@ -28,7 +28,6 @@ punch list for follow-up PRs, highest-value first.
 | `expense_categories`, `team_payroll`, `expenses`, `income_entries`, `team_attendance`, `team_leaves` | `ensureFinanceTables` (`services/financeService.ts`) | money-adjacent — no tenant_id confirmed, worth an audit |
 | `purchase_delivery_log` | `ensureDeliveryLogTable` (`services/funnelConfigService.ts`) | cited in H13/M25 fixes this same effort |
 | `funnel_configs` | `ensureFunnelConfigTable` (`services/funnelConfigService.ts`) | |
-| `growth_os_clients`, `brand_health_scores`, `money_on_table`, `creative_intelligence`, `competitor_pulse`, `copilot_conversations` | `ensureGrowthOSTables` (`services/growthOSSetup.ts`) | |
 | `outreach_processed_replies` | `ensureProcessedRepliesTable` (`services/imapService.ts`) | |
 | `ai_intelligence_reports` | `ensureIntelligenceTable` (`services/intelligenceAnalyzer.ts`) | |
 | `ad_accounts`, `client_benchmarks` | `metaAdsService.ts` | |

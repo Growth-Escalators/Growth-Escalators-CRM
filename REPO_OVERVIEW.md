@@ -282,7 +282,6 @@ The backend exposes **40+ route groups** under `/api/`:
 |-------|------|---------|
 | `/api/intelligence` | `requireAuth` | AI intelligence dashboard |
 | `/api/intelligence` (chat) | `requireAuth` | AI chat interface |
-| `/api/growth-os` | `requireAuth` | Growth OS client management |
 
 ### Funnel & Public
 | Route | Auth | Purpose |

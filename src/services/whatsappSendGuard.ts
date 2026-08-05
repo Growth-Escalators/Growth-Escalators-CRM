@@ -3,22 +3,21 @@ import logger from '../utils/logger';
 import { DEFAULT_TENANT_SLUG } from '../config/constants';
 
 // ---------------------------------------------------------------------------
-// Growth OS client → GE-tenant guard for the shared WhatsApp send path
+// GE-tenant guard for the shared WhatsApp send path
 // ---------------------------------------------------------------------------
-// There is no per-tenant WhatsApp Business number for Growth OS yet — every
-// send below goes out through GE's own META_PHONE_NUMBER_ID/META_ACCESS_TOKEN
-// (see sendWhatsAppMessage below). Same invariant as canSendWhatsApp() in
-// routes/inbox.ts: only a Growth OS client that belongs to GE's own tenant
-// may be delivered to over that shared identity — a reseller tenant's client
-// must have its WhatsApp step silently skipped rather than sent under GE's
-// identity.
+// Extracted from the now-deleted Growth OS feature (services/growthOSSetup.ts)
+// because two non-Growth-OS callers depend on it: assetDeliveryService.ts's
+// D2C post-purchase asset delivery (sendWhatsAppMessage) and
+// cashfreeEventProcessor.ts's purchase-confirmation WhatsApp send
+// (canSendGrowthOSWhatsApp — name kept verbatim from the extraction, not
+// renamed, to keep that payment-adjacent change a pure import-path repoint).
 //
-// Resolved from the client's `tenant_id` (not `req.user.tenantSlug`) because
-// this guard also has to protect the daily/weekly Growth OS crons in
-// worker.ts, which sweep every tenant's active clients with no `req` at all
-// (see getActiveGrowthOSClients's tenantId-optional comment above) — so the
-// check has to live where both the HTTP route and the cron actually call
-// through, not duplicated at each caller.
+// There is no per-tenant WhatsApp Business number yet — every send below
+// goes out through GE's own META_PHONE_NUMBER_ID/META_ACCESS_TOKEN. Same
+// invariant as canSendWhatsApp() in routes/inbox.ts: only a caller resolved
+// to GE's own tenant may be delivered to over that shared identity — a
+// reseller tenant's send must be silently skipped rather than sent under
+// GE's identity.
 let _geTenantIdPromise: Promise<string | null> | null = null;
 async function resolveGeTenantId(): Promise<string | null> {
   if (!_geTenantIdPromise) {
@@ -52,7 +51,7 @@ export async function sendWhatsAppMessage(to: string, text: string): Promise<boo
   const accessToken = process.env.META_ACCESS_TOKEN;
 
   if (!phoneNumberId || !accessToken) {
-    logger.warn('[growth-os] WhatsApp not configured — WHATSAPP_PHONE_NUMBER_ID or META_ACCESS_TOKEN missing');
+    logger.warn('[whatsapp-send] WhatsApp not configured — WHATSAPP_PHONE_NUMBER_ID or META_ACCESS_TOKEN missing');
     return false;
   }
 
@@ -72,13 +71,13 @@ export async function sendWhatsAppMessage(to: string, text: string): Promise<boo
     });
     if (!res.ok) {
       const err = await res.text().catch(() => '');
-      logger.error(`[growth-os] WhatsApp send failed ${res.status}:`, err.slice(0, 200));
+      logger.error(`[whatsapp-send] WhatsApp send failed ${res.status}:`, err.slice(0, 200));
       return false;
     }
-    logger.info(`[growth-os] WhatsApp sent to ${phone}`);
+    logger.info(`[whatsapp-send] WhatsApp sent to ${phone}`);
     return true;
   } catch (e) {
-    logger.error('[growth-os] WhatsApp send error:', e instanceof Error ? e.message : String(e));
+    logger.error('[whatsapp-send] WhatsApp send error:', e instanceof Error ? e.message : String(e));
     return false;
   }
 }

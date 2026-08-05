@@ -341,7 +341,6 @@ Format: `inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs fon
 | Analytics | `/analytics` | Charts dashboard |
 | SEO | `/seo` | SEO monitoring table |
 | Intelligence | `/intelligence` | Chat interface + automation cards |
-| Growth OS | `/growth-os` | Dashboard with widgets |
 | WhatsApp Templates | `/whatsapp-templates` | Template list + editor |
 
 ### Task Pages (2)
