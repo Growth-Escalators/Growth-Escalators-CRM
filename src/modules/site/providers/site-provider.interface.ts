@@ -174,6 +174,18 @@ export interface SiteRef {
   readonly domain: string;
   readonly platform: SitePlatform;
   /**
+   * Which `tenant_integrations.provider` row holds this site's credentials —
+   * the value of `seo_sites.credential_provider`. A POINTER, never a secret.
+   *
+   * Absent from the first draft of this interface, which meant the registry
+   * column was written by the admin and read by nobody: one adapter fell back
+   * to `adapterConfig.credentialProvider`, another hardcoded its own platform
+   * name, and a tenant with two WordPress integrations had no way to say which
+   * one a given site uses. Adapters default to their platform name when this
+   * is unset, so the common single-integration case needs no configuration.
+   */
+  readonly credentialProvider?: string | null;
+  /**
    * Non-secret settings only, e.g. `{ repo: 'org/site', branch: 'main',
    * credentialRef: 'env:GIT_DEPLOY_KEY_ORG_SITE' }`. A `*Ref`-suffixed key is
    * a scheme-prefixed POINTER (the convention ADR-007 D-7 established for
@@ -239,6 +251,19 @@ export interface ApprovedSiteChange {
   readonly approvedAt: Date;
   /** Safe to retry publishChange with the same value when capabilities.supportsIdempotentPublish. */
   readonly publishRequestId: string;
+  /**
+   * The original change, carried forward so publish does not depend on the
+   * staging process still being alive.
+   *
+   * This is not a convenience. Staging happens when a change is proposed;
+   * publishing happens after a human approves, which is hours later and
+   * routinely in a different process (this repo redeploys on every push to
+   * main). An adapter that kept `redirectFrom` in an in-process Map at stage
+   * time therefore finds that Map empty at publish time, and silently creates
+   * no redirects for a change an operator approved — a failure with no error
+   * and no log line. Passing the change through is what closes that.
+   */
+  readonly change?: SiteChangeInput;
 }
 
 export type SitePublishResult =
@@ -275,8 +300,18 @@ export interface SiteProvider {
   /** Create or update a provider-side staged version of `change`. Never publishes. */
   stageChange(site: SiteRef, change: SiteChangeInput): Promise<SiteStageResult>;
 
-  /** Run whatever pre-publish checks this provider can perform against a staged change. Never publishes. */
-  verifyChange(site: SiteRef, staged: SiteStageResult): Promise<SiteVerifyResult>;
+  /**
+   * Run whatever pre-publish checks this provider can perform against a staged
+   * change. Never publishes.
+   *
+   * `change` is optional only so a caller holding nothing but a stagedRef can
+   * still ask for a re-verify. Callers that have it MUST pass it: several
+   * checks (a canonical the platform cannot write, a redirect that has to be
+   * validated, structured data staged without its theme snippet) are about
+   * what was *requested*, and neither `SiteStageResult` nor the provider's own
+   * memory reliably still holds that by the time verification runs.
+   */
+  verifyChange(site: SiteRef, staged: SiteStageResult, change?: SiteChangeInput): Promise<SiteVerifyResult>;
 
   /**
    * Publish an approved, staged change. Returns a union rather than always a

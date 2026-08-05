@@ -93,7 +93,7 @@ export class MockSiteProvider implements SiteProvider {
     return result;
   }
 
-  async verifyChange(site: SiteRef, staged: SiteStageResult): Promise<SiteVerifyResult> {
+  async verifyChange(site: SiteRef, staged: SiteStageResult, _change?: SiteChangeInput): Promise<SiteVerifyResult> {
     this.assertSiteRef(site);
     const key = this.keyFor(site);
     this.applyScenario(key, 'verifyChange');

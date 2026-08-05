@@ -103,6 +103,40 @@ import {
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
+/** Cap on the stage-time fallback Map — see droppedFieldsByStagedRef. */
+const MAX_DROPPED_FIELD_ENTRIES = 500;
+
+/**
+ * The warnings for fields a caller asked for that this platform cannot write.
+ *
+ * Pure, and shared by stageChange (which records them as a fallback) and
+ * verifyChange (which recomputes them from the caller's change). One function
+ * rather than two copies, because the two paths disagreeing would mean an
+ * operator saw a different set of caveats depending on whether verification
+ * happened to run in the same process as staging.
+ */
+function computeUnwritableFieldIssues(
+  capabilities: SiteProviderCapabilities,
+  change: SiteChangeInput,
+): SiteVerifyIssue[] {
+  const dropped: SiteVerifyIssue[] = [];
+  if (!capabilities.writesCanonical && change.canonicalUrl !== undefined) {
+    dropped.push({
+      severity: 'warning',
+      code: 'canonical_not_writable',
+      message: 'wordpress cannot write a canonical URL without an SEO plugin (Yoast/RankMath) — canonicalUrl was not applied',
+    });
+  }
+  if (!capabilities.writesRedirects && change.redirectFrom !== undefined && change.redirectFrom.length > 0) {
+    dropped.push({
+      severity: 'warning',
+      code: 'redirects_not_writable',
+      message: 'wordpress cannot write redirects without a redirect plugin — redirectFrom was not applied',
+    });
+  }
+  return dropped;
+}
+
 /**
  * Decrypted shape of the `tenant_integrations` payload this adapter expects
  * for whichever provider name it resolves (see DEVIATION 1 above). An
@@ -172,6 +206,9 @@ export class WordPressSiteProvider implements SiteProvider {
   // See DEVIATION 2 above. Keyed by `${tenantId}:${siteId}:${stagedRef}` so
   // no two sites/tenants can ever read each other's warnings — same
   // isolation rule mock.provider.ts uses for its own per-site state.
+  // Fallback only — see DEVIATION 2. Bounded because an unbounded Map keyed by
+  // a per-change ref grows for the life of the process; a long-running worker
+  // staging changes all day would leak steadily.
   private readonly droppedFieldsByStagedRef = new Map<string, readonly SiteVerifyIssue[]>();
 
   constructor(deps: WordPressSiteProviderDeps = {}) {
@@ -257,7 +294,7 @@ export class WordPressSiteProvider implements SiteProvider {
     return { stagedRef, previewUrl, diff: undefined, createdAt: new Date() };
   }
 
-  async verifyChange(site: SiteRef, staged: SiteStageResult): Promise<SiteVerifyResult> {
+  async verifyChange(site: SiteRef, staged: SiteStageResult, change?: SiteChangeInput): Promise<SiteVerifyResult> {
     this.assertSiteRef(site);
     if (!staged.stagedRef || staged.stagedRef.trim().length === 0) {
       throw new SiteProviderError('invalid_input', this.identity.name, 'staged.stagedRef is required');
@@ -273,8 +310,15 @@ export class WordPressSiteProvider implements SiteProvider {
       },
     ];
 
-    const dropped = this.droppedFieldsByStagedRef.get(this.stagedKey(site, staged.stagedRef));
-    if (dropped) issues.push(...dropped);
+    // Recomputed from the caller's change when one is supplied, and only read
+    // from stage-time memory otherwise. Verification usually runs in a
+    // different process from staging, where that Map is empty — deriving these
+    // warnings from it alone meant they silently vanished exactly when an
+    // operator was about to approve the change.
+    const dropped = change
+      ? computeUnwritableFieldIssues(this.capabilities, change)
+      : (this.droppedFieldsByStagedRef.get(this.stagedKey(site, staged.stagedRef)) ?? []);
+    issues.push(...dropped);
 
     const baseUrl = this.resolveBaseUrl(site);
     const credentials = await this.loadWordPressCredentials(site);
@@ -413,6 +457,12 @@ export class WordPressSiteProvider implements SiteProvider {
 
   /** See DEVIATION 1 above. */
   private resolveCredentialProviderName(site: SiteRef): string {
+    // `site.credentialProvider` (the seo_sites.credential_provider column) is
+    // the real pointer. adapterConfig is still consulted second because this
+    // adapter shipped reading it there before the interface carried the field,
+    // and a site row configured that way must keep working.
+    const fromRef = typeof site.credentialProvider === 'string' ? site.credentialProvider.trim() : '';
+    if (fromRef.length > 0) return fromRef;
     const configured = this.getCredentialProviderConfig(site);
     return configured && configured.trim().length > 0 ? configured.trim() : 'wordpress';
   }
@@ -567,22 +617,12 @@ export class WordPressSiteProvider implements SiteProvider {
 
   /** Records, for later pickup by verifyChange, which fields this platform cannot write and therefore silently dropped. See DEVIATION 2 above. */
   private recordDroppedFields(site: SiteRef, stagedRef: string, change: SiteChangeInput): void {
-    const dropped: SiteVerifyIssue[] = [];
-    if (!this.capabilities.writesCanonical && change.canonicalUrl !== undefined) {
-      dropped.push({
-        severity: 'warning',
-        code: 'canonical_not_writable',
-        message: 'wordpress cannot write a canonical URL without an SEO plugin (Yoast/RankMath) — canonicalUrl was not applied',
-      });
-    }
-    if (!this.capabilities.writesRedirects && change.redirectFrom !== undefined && change.redirectFrom.length > 0) {
-      dropped.push({
-        severity: 'warning',
-        code: 'redirects_not_writable',
-        message: 'wordpress cannot write redirects without a redirect plugin — redirectFrom was not applied',
-      });
-    }
+    const dropped = computeUnwritableFieldIssues(this.capabilities, change);
     const key = this.stagedKey(site, stagedRef);
+    if (this.droppedFieldsByStagedRef.size >= MAX_DROPPED_FIELD_ENTRIES && !this.droppedFieldsByStagedRef.has(key)) {
+      const oldest = this.droppedFieldsByStagedRef.keys().next().value;
+      if (oldest !== undefined) this.droppedFieldsByStagedRef.delete(oldest);
+    }
     if (dropped.length > 0) this.droppedFieldsByStagedRef.set(key, dropped);
     else this.droppedFieldsByStagedRef.delete(key);
   }

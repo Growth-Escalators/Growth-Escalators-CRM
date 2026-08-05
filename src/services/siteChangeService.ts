@@ -631,6 +631,11 @@ function toSiteRef(site: SeoSite): SiteRef {
     tenantId: site.tenantId,
     domain: site.domain,
     platform: site.platform as SitePlatform,
+    // Without this the registry's credential_provider column is written by the
+    // admin and read by nobody — each adapter would guess its own default and
+    // a tenant with two integrations for one platform could not say which site
+    // uses which.
+    credentialProvider: site.credentialProvider,
     adapterConfig: site.adapterConfig,
   };
 }
@@ -723,7 +728,10 @@ export async function verifySiteChange(tenantId: string, id: string): Promise<Si
   let issues: SiteVerifyIssue[] = [];
   let passed = false;
   try {
-    const result = await provider.verifyChange(siteRef, staged);
+    // The change is passed explicitly rather than left to the provider's own
+    // stage-time memory: verification frequently runs in a different process
+    // from staging, where that memory is empty.
+    const result = await provider.verifyChange(siteRef, staged, toProviderInput(change));
     issues = [...result.issues];
     // Recompute rather than trusting `passed`: `passed` is defined as "no
     // blocking issue", and a provider that returns passed:true alongside a
@@ -865,6 +873,10 @@ export async function publishApprovedChange(tenantId: string, id: string): Promi
       approvedBy: change.approvedBy as string,
       approvedAt: change.approvedAt as Date,
       publishRequestId,
+      // Carried forward so an adapter's publish-time work that depends on the
+      // original request — Shopify's redirectFrom, most importantly — does not
+      // quietly do nothing when publish runs in a process that never staged it.
+      change: toProviderInput(change),
     };
 
     let result: SitePublishResult;

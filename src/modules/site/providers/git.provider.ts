@@ -131,10 +131,13 @@ export class GitSiteProvider implements SiteProvider {
   }
 
   /** verifiesOffline is true for this platform, so these are real structural checks, not a placeholder warning. */
-  async verifyChange(site: SiteRef, staged: SiteStageResult): Promise<SiteVerifyResult> {
+  async verifyChange(site: SiteRef, staged: SiteStageResult, suppliedChange?: SiteChangeInput): Promise<SiteVerifyResult> {
     this.assertSiteRef(site);
 
-    const change = this.stagedInputsByKey.get(this.stagedInputKey(site, staged.stagedRef));
+    // The caller's change wins over stage-time memory. Verification often runs
+    // in a different process from staging (and the memory cap can evict an
+    // entry regardless), so the Map is a fallback, not the source of truth.
+    const change = suppliedChange ?? this.stagedInputsByKey.get(this.stagedInputKey(site, staged.stagedRef));
     if (!change) {
       // Not a throw: an unrecognised stagedRef (never staged here, staged
       // against a different site, or evicted by the cap) is a legitimate,
@@ -146,7 +149,7 @@ export class GitSiteProvider implements SiteProvider {
           {
             severity: 'blocking',
             code: 'unknown_staged_ref',
-            message: `no staged input recorded for stagedRef "${staged.stagedRef}" — call stageChange first`,
+            message: `no staged input recorded for stagedRef "${staged.stagedRef}" and none supplied — call stageChange first`,
           },
         ],
         verifiedAt: new Date(),

@@ -1,27 +1,24 @@
 // Shopify Admin REST implementation of SiteProvider. Talks to the real
 // Shopify API — no mock behaviour lives here (that's mock.provider.ts).
 //
-// TWO GAPS IN THE SHARED INTERFACE THIS FILE WORKS AROUND (site-provider.
-// interface.ts is not this file's to edit — flagged upstream, not patched
-// here):
-//   1. SiteRef carries no credential-pointer field (the seo_sites DB row has
-//      `credential_provider`, but the adapter-facing SiteRef shape does not
-//      expose it). Every site therefore resolves credentials through the
-//      fixed `tenant_integrations.provider` key 'shopify' — see
-//      requireCredentials() below.
-//   2. Neither SiteStageResult nor ApprovedSiteChange carries the original
-//      SiteChangeInput forward. Two things this adapter must still know at
-//      verify/publish time — whether a (never-written, since writesCanonical
-//      is false) canonicalUrl was requested, whether structuredData was
-//      staged, and which redirectFrom URLs to create at publish — have
-//      nowhere else to live. `stagedMemory` below is a small in-process Map
-//      keyed by stagedRef, populated by stageChange and read by
-//      verifyChange/publishChange. This works for the same-process
-//      stage-then-publish flow this repo drives today; it does NOT survive a
-//      process restart or a publish handled by a different provider
-//      instance. If that ever becomes a real requirement, the fix is to add
-//      the missing fields to the shared interface, not to grow this map into
-//      a database.
+// TWO GAPS IN THE SHARED INTERFACE, BOTH SINCE CLOSED (this file was written
+// before the interface carried these; the notes are kept because they explain
+// why the fallbacks below still exist):
+//   1. RESOLVED — SiteRef now carries `credentialProvider`, the
+//      `seo_sites.credential_provider` pointer. requireCredentials() reads it
+//      and falls back to the literal 'shopify', so a single-integration tenant
+//      configures nothing and a two-store tenant can separate them.
+//   2. RESOLVED — `verifyChange` now takes the original SiteChangeInput and
+//      `ApprovedSiteChange` carries it too, so the things this adapter needs
+//      at verify/publish time (was a canonicalUrl requested, was
+//      structuredData staged, which redirectFrom URLs to create) arrive with
+//      the call. `stagedMemory` below is kept only as a fallback for a caller
+//      that holds nothing but a stagedRef — it is NO LONGER load-bearing,
+//      which matters because it never survived a process restart, and staging
+//      (at proposal time) and publishing (after a human approves, hours later,
+//      routinely after a redeploy) are usually different processes. Reading
+//      redirects from it alone meant an approved change's redirects were
+//      silently never created.
 //
 // Credential hygiene: the access token is read from getDecryptedCredentials
 // and used only as a request header value. It is never interpolated into a
@@ -218,7 +215,7 @@ export class ShopifySiteProvider implements SiteProvider {
     };
   }
 
-  async verifyChange(site: SiteRef, staged: SiteStageResult): Promise<SiteVerifyResult> {
+  async verifyChange(site: SiteRef, staged: SiteStageResult, change?: SiteChangeInput): Promise<SiteVerifyResult> {
     this.assertSiteRef(site);
     if (!staged.stagedRef || staged.stagedRef.trim().length === 0) {
       throw new SiteProviderError('invalid_input', this.identity.name, 'staged.stagedRef is required');
@@ -249,8 +246,15 @@ export class ShopifySiteProvider implements SiteProvider {
         });
       }
 
+      // The caller-supplied change wins over stage-time memory: verification
+      // often runs in a different process from staging, where that Map is
+      // empty. Memory stays as the fallback for a caller that only holds a
+      // stagedRef.
       const memory = this.stagedMemory.get(staged.stagedRef);
-      if (memory?.canonicalUrlSupplied) {
+      const canonicalUrlSupplied = change ? change.canonicalUrl !== undefined : memory?.canonicalUrlSupplied === true;
+      const structuredDataSupplied = change ? change.structuredData !== undefined : memory?.structuredDataSupplied === true;
+
+      if (canonicalUrlSupplied) {
         issues.push({
           severity: 'warning',
           code: 'canonical_not_writable',
@@ -258,7 +262,7 @@ export class ShopifySiteProvider implements SiteProvider {
         });
       }
       const themeSnippetInstalled = site.adapterConfig?.themeSnippetInstalled === true;
-      if (memory?.structuredDataSupplied && !themeSnippetInstalled) {
+      if (structuredDataSupplied && !themeSnippetInstalled) {
         issues.push({
           severity: 'warning',
           code: 'theme_snippet_missing',
@@ -313,8 +317,15 @@ export class ShopifySiteProvider implements SiteProvider {
     // instant the redirect took effect (redirects apply immediately; publish
     // is what was staged). So they are created here, after the page write
     // above succeeds, never in stageChange.
+    // `approved.change` first, stage-time memory only as a fallback. This is
+    // the case that made carrying the change forward necessary rather than
+    // merely tidy: staging happens when a change is proposed, publishing after
+    // a human approves it hours later — routinely in a process that redeployed
+    // in between. Reading redirects from memory alone meant an approved
+    // change's redirects were simply never created, with no error and no log.
     const memory = this.stagedMemory.get(pageId);
-    for (const fromUrl of memory?.redirectFrom ?? []) {
+    const redirectFrom = approved.change?.redirectFrom ?? memory?.redirectFrom ?? [];
+    for (const fromUrl of redirectFrom) {
       try {
         const redirectRes = await this.call(shop, accessToken, 'POST', 'redirects.json', {
           redirect: { path: toPath(fromUrl), target: `/pages/${updatedPage.handle}` },
@@ -361,9 +372,15 @@ export class ShopifySiteProvider implements SiteProvider {
     }
   }
 
-  /** See file-header GAP 1 — 'shopify' is the fixed tenant_integrations.provider key every site resolves through. */
+  /**
+   * Resolves credentials through `site.credentialProvider` (the
+   * `seo_sites.credential_provider` pointer), defaulting to 'shopify' so the
+   * common single-integration case needs no configuration. A tenant running
+   * two Shopify stores can point each site at its own integration row.
+   */
   private async requireCredentials(site: SiteRef): Promise<ShopifyCredentials> {
-    const creds = await this.loadCredentialsImpl(site.tenantId, 'shopify');
+    const providerKey = site.credentialProvider?.trim() || 'shopify';
+    const creds = await this.loadCredentialsImpl(site.tenantId, providerKey);
     if (!creds || !creds.shop || !creds.accessToken) {
       throw new SiteProviderError('missing_configuration', this.identity.name, `no shopify credentials configured for site ${site.id}`);
     }

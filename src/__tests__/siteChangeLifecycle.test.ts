@@ -27,7 +27,9 @@ import { getSeoSiteById, type SeoSite } from '../services/seoSiteRegistry';
 import { GitSiteProvider, ShopifySiteProvider, WordPressSiteProvider, resetSiteProvider, setSiteProvider } from '../modules/site/providers';
 import type { SitePlatform } from '../modules/site/providers/site-provider.interface';
 import {
+  approveSiteChange,
   createSiteChange,
+  publishApprovedChange,
   stageSiteChange,
   verifySiteChange,
 } from '../services/siteChangeService';
@@ -329,5 +331,130 @@ describe('propose → stage → verify → awaiting_approval', () => {
     await expect(stageSiteChange(TENANT, proposed.id)).rejects.toMatchObject({
       code: 'unsupported_platform',
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// the cross-process case
+// ---------------------------------------------------------------------------
+
+describe('stage and publish in different processes', () => {
+  // The realistic sequence: a cron proposes and stages a change; a human
+  // approves it hours later; the publish runs afterwards — by which point this
+  // repo has very likely redeployed, so the provider instance that staged the
+  // change no longer exists. Anything an adapter kept only in an in-process
+  // Map at stage time is gone.
+  //
+  // Both tests below swap in a BRAND NEW provider instance between staging and
+  // the later call, which is what makes them regression tests rather than
+  // restatements of the happy path: before the change was carried forward on
+  // ApprovedSiteChange/verifyChange, both of these failed silently — no error,
+  // no log, just work that quietly did not happen.
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetSiteProvider();
+  });
+
+  it('still creates an approved Shopify change\'s redirects', async () => {
+    installFakeTable();
+    vi.mocked(getSeoSiteById).mockResolvedValue(site('shopify', { themeSnippetInstalled: true }));
+
+    const calls: Array<{ url: string; method: string }> = [];
+    const makeFetch = () =>
+      vi.fn(async (url: Parameters<typeof fetch>[0], init?: RequestInit) => {
+        const u = String(url);
+        calls.push({ url: u, method: init?.method ?? 'GET' });
+        if (u.includes('redirects.json')) return jsonResponse(201, { redirect: { id: 9 } });
+        if (u.includes('metafields')) return jsonResponse(201, { metafield: { id: 1 } });
+        const published = init?.method === 'PUT';
+        return jsonResponse(init?.method === 'POST' ? 201 : 200, {
+          page: { id: 111, handle: 'about-us', published_at: published ? '2026-08-05T00:00:00Z' : null },
+        });
+      }) as unknown as typeof fetch;
+
+    const loadCredentials = async () => ({ shop: 'example.myshopify.com', accessToken: 'x' });
+    setSiteProvider('shopify', new ShopifySiteProvider({ fetchImpl: makeFetch(), loadCredentials }));
+
+    const proposed = await createSiteChange(TENANT, {
+      siteId: SITE,
+      changeKind: 'page_create',
+      payload: { ...GOOD_PAYLOAD, redirectFrom: ['https://example.com/old-about'] },
+      createdBy: USER,
+    });
+    await stageSiteChange(TENANT, proposed.id);
+    await verifySiteChange(TENANT, proposed.id);
+    await approveSiteChange(TENANT, proposed.id, { userId: USER });
+
+    // The redeploy. Everything the staging instance remembered is now gone.
+    resetSiteProvider('shopify');
+    setSiteProvider('shopify', new ShopifySiteProvider({ fetchImpl: makeFetch(), loadCredentials }));
+
+    const published = await publishApprovedChange(TENANT, proposed.id);
+
+    expect(published?.status).toBe('published');
+    expect(calls.some((c) => c.method === 'POST' && c.url.includes('redirects.json'))).toBe(true);
+  });
+
+  it('still warns that WordPress cannot write a supplied canonical', async () => {
+    installFakeTable();
+    vi.mocked(getSeoSiteById).mockResolvedValue(site('wordpress', { baseUrl: 'https://example.com' }));
+
+    const makeFetch = () =>
+      vi.fn(async (_url: Parameters<typeof fetch>[0], init?: RequestInit) =>
+        jsonResponse(init?.method === 'POST' ? 201 : 200, {
+          id: 42,
+          status: 'draft',
+          link: 'https://example.com/about-us/',
+          slug: 'about-us',
+        }),
+      ) as unknown as typeof fetch;
+    const loadCredentials = (async () => ({ username: 'svc', applicationPassword: 'x' })) as never;
+
+    setSiteProvider('wordpress', new WordPressSiteProvider({ fetchImpl: makeFetch(), loadCredentials }));
+    const proposed = await createSiteChange(TENANT, {
+      siteId: SITE,
+      changeKind: 'page_create',
+      payload: { ...GOOD_PAYLOAD, canonicalUrl: 'https://example.com/about-us' },
+      createdBy: USER,
+    });
+    await stageSiteChange(TENANT, proposed.id);
+
+    resetSiteProvider('wordpress');
+    setSiteProvider('wordpress', new WordPressSiteProvider({ fetchImpl: makeFetch(), loadCredentials }));
+
+    const verified = await verifySiteChange(TENANT, proposed.id);
+
+    // The caveat an operator needs in order to approve honestly: WordPress
+    // took the change but dropped the canonical on the floor.
+    expect(verified.verifyIssues).toContainEqual(
+      expect.objectContaining({ severity: 'warning', code: 'canonical_not_writable' }),
+    );
+  });
+
+  it('resolves credentials through the site\'s credential_provider pointer, not a hardcoded key', async () => {
+    installFakeTable();
+    const configured = site('shopify', { themeSnippetInstalled: true });
+    vi.mocked(getSeoSiteById).mockResolvedValue({ ...configured, credentialProvider: 'shopify_second_store' });
+
+    const loadCredentials = vi.fn(async () => ({ shop: 'two.myshopify.com', accessToken: 'x' }));
+    const fetchImpl = vi.fn(async (url: Parameters<typeof fetch>[0], init?: RequestInit) =>
+      String(url).includes('metafields')
+        ? jsonResponse(201, { metafield: { id: 1 } })
+        : jsonResponse(init?.method === 'POST' ? 201 : 200, { page: { id: 111, handle: 'about-us', published_at: null } }),
+    ) as unknown as typeof fetch;
+    setSiteProvider('shopify', new ShopifySiteProvider({ fetchImpl, loadCredentials }));
+
+    const proposed = await createSiteChange(TENANT, {
+      siteId: SITE,
+      changeKind: 'page_create',
+      payload: GOOD_PAYLOAD,
+      createdBy: USER,
+    });
+    await stageSiteChange(TENANT, proposed.id);
+
+    // Without this, seo_sites.credential_provider is a column the admin can
+    // set and nothing reads — a tenant with two stores silently gets whichever
+    // one the adapter's default happened to name.
+    expect(loadCredentials).toHaveBeenCalledWith(TENANT, 'shopify_second_store');
   });
 });
