@@ -1,12 +1,13 @@
 import logger from '../utils/logger';
 import { Router, type Request, type Response } from 'express';
-import { db, socialAccounts, socialPosts, userPermissions } from '../db/index';
+import { db, socialAccounts, socialPosts } from '../db/index';
 import { eq, and, lte, gte, sql } from 'drizzle-orm';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import { uploadToR2, deleteFromR2, listR2Objects, isAllowedUploadContent } from '../utils/r2';
 import { getFacebookLeadFormsStatus, subscribeFacebookPageToLeadgen } from '../services/facebookLeadForms';
+import { requirePerm } from '../middleware/requirePerm';
 
 const router = Router();
 
@@ -48,11 +49,6 @@ function decrypt(encoded: string): string {
   } catch {
     return '';
   }
-}
-
-async function getPerms(userId: string) {
-  const [p] = await db.select().from(userPermissions).where(eq(userPermissions.userId, userId)).limit(1);
-  return p;
 }
 
 // Post to Facebook Page
@@ -148,7 +144,7 @@ export async function publishSocialPost(postId: string): Promise<void> {
 // ---------------------------------------------------------------------------
 // GET /api/social/accounts
 // ---------------------------------------------------------------------------
-router.get('/accounts', async (req: Request, res: Response) => {
+router.get('/accounts', requirePerm('social.view'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   try {
     const rows = await db.select().from(socialAccounts).where(eq(socialAccounts.tenantId, tenantId));
@@ -163,7 +159,7 @@ router.get('/accounts', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/social/lead-forms/status
 // ---------------------------------------------------------------------------
-router.get('/lead-forms/status', async (req: Request, res: Response) => {
+router.get('/lead-forms/status', requirePerm('social.view'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const checkMeta = req.query.checkMeta === 'true';
   try {
@@ -177,7 +173,7 @@ router.get('/lead-forms/status', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // POST /api/social/lead-forms/accounts/:id/subscribe
 // ---------------------------------------------------------------------------
-router.post('/lead-forms/accounts/:id/subscribe', async (req: Request, res: Response) => {
+router.post('/lead-forms/accounts/:id/subscribe', requirePerm('social.lead_forms.manage'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   try {
     const result = await subscribeFacebookPageToLeadgen(tenantId, String(req.params.id));
@@ -190,7 +186,7 @@ router.post('/lead-forms/accounts/:id/subscribe', async (req: Request, res: Resp
 // ---------------------------------------------------------------------------
 // POST /api/social/accounts/connect-facebook
 // ---------------------------------------------------------------------------
-router.post('/accounts/connect-facebook', async (req: Request, res: Response) => {
+router.post('/accounts/connect-facebook', requirePerm('social.connect'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const { pageId, pageName, accessToken } = req.body;
   if (!pageId || !pageName || !accessToken) {
@@ -249,7 +245,7 @@ router.post('/accounts/connect-facebook', async (req: Request, res: Response) =>
 // ---------------------------------------------------------------------------
 // DELETE /api/social/accounts/:id
 // ---------------------------------------------------------------------------
-router.delete('/accounts/:id', async (req: Request, res: Response) => {
+router.delete('/accounts/:id', requirePerm('social.connect'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const accountId = req.params.id as string;
   try {
@@ -265,7 +261,7 @@ router.delete('/accounts/:id', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // POST /api/social/posts
 // ---------------------------------------------------------------------------
-router.post('/posts', async (req: Request, res: Response) => {
+router.post('/posts', requirePerm('social.post'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const { socialAccountIds, content, mediaUrls, scheduledAt } = req.body;
 
@@ -313,7 +309,7 @@ router.post('/posts', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/social/posts?status=scheduled
 // ---------------------------------------------------------------------------
-router.get('/posts', async (req: Request, res: Response) => {
+router.get('/posts', requirePerm('social.view'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const status = req.query.status as string | undefined;
 
@@ -335,7 +331,7 @@ router.get('/posts', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // DELETE /api/social/posts/:id — cancel scheduled post
 // ---------------------------------------------------------------------------
-router.delete('/posts/:id', async (req: Request, res: Response) => {
+router.delete('/posts/:id', requirePerm('social.post'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const postId = req.params.id as string;
 
@@ -356,7 +352,7 @@ router.delete('/posts/:id', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // POST /api/social/upload — upload media to R2
 // ---------------------------------------------------------------------------
-router.post('/upload', upload.single('file'), async (req: Request, res: Response) => {
+router.post('/upload', requirePerm('social.library.manage'), upload.single('file'), async (req: Request, res: Response) => {
   const file = req.file;
   if (!file) { res.status(400).json({ error: 'file required (images or videos only)' }); return; }
 
@@ -384,7 +380,7 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
 // ---------------------------------------------------------------------------
 // GET /api/social/calendar?month=2026-03
 // ---------------------------------------------------------------------------
-router.get('/calendar', async (req: Request, res: Response) => {
+router.get('/calendar', requirePerm('social.view'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
 
@@ -419,7 +415,7 @@ router.get('/calendar', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/social/library — list all files in R2 bucket
 // ---------------------------------------------------------------------------
-router.get('/library', async (req: Request, res: Response) => {
+router.get('/library', requirePerm('social.view'), async (req: Request, res: Response) => {
   try {
     const typeFilter = (req.query.type as string) || 'all';
     const searchQuery = (req.query.search as string || '').toLowerCase();
@@ -445,7 +441,7 @@ router.get('/library', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // DELETE /api/social/library/:key — delete file from R2
 // ---------------------------------------------------------------------------
-router.delete('/library/:key', async (req: Request, res: Response) => {
+router.delete('/library/:key', requirePerm('social.library.manage'), async (req: Request, res: Response) => {
   const key = decodeURIComponent(req.params.key as string);
   try {
     await deleteFromR2(key);

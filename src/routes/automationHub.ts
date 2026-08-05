@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import { db } from '../db/index';
 import { sql } from 'drizzle-orm';
+import { requirePerm } from '../middleware/requirePerm';
 
 const router = Router();
 
 // GET /api/automations/hub-stats
-router.get('/hub-stats', async (req, res) => {
+router.get('/hub-stats', requirePerm('automations.view'), async (req, res) => {
   const tenantId = req.user!.tenantId;
 
   const [
