@@ -48,7 +48,19 @@ the store, the route and `credentialEncryption` **are all on main today**. What 
 `process.env`. So the correct sequence is rotate the app password and **update** the Railway vars;
 deleting them silently stops WordPress publishing until this branch ships.
 
-**Verification:** build 0 · admin build 0 · `npm test` 2982 passing against the unchanged
+**Three things closed after the lanes reported** (`c16ae900`, `1bf31de0`). The UI lane found that
+`SITE_CHANGE_ACTIONS` had no retry while the state machine's only path out of `publish_failed` is
+`retry_publish` — so a failed publish was a dead end whose sole enabled action was `reject`, on the
+one status meaning a client's site did NOT get an approved change. It also caught that my route
+wiring omitted `AppLayout` (the known `SEOPage` defect, on the page being sold). And re-reading the
+plan rather than my summary of it: **the Phase 4 exit criterion "per-site Serper cap returns 429
+with `site_daily_serper_cap_exhausted`" had never been delivered** — `guardedSerperCall` skips and
+continues, which is right for a cron sweep and useless on a route. `evaluateSeoSpend()` is the
+route-side pre-flight; `POST /competitor-brief` now returns the guard's own status and block code,
+and passes `tenantId`/`siteId` explicitly instead of falling back to `resolveDefaultSeoTenantId()`
+— a latent C2 throw that would have 500'd that route the moment a second tenant got `seo:true`.
+
+**Verification:** build 0 · admin build 0 · `npm test` 2989 passing against the unchanged
 7-file/21-failure env-dependent baseline · `lint:tenant-scoping` zero new findings · `0049` applied
 to local dev only.
 
