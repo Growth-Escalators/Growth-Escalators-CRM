@@ -2,6 +2,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { pool } from '../db/index';
 import { fetchWithRetry } from '../utils/fetchWithRetry';
 import { DEFAULT_TENANT_SLUG } from '../config/constants';
+import { requirePermission } from '../middleware/rbac';
 
 const router = Router();
 
@@ -40,13 +41,19 @@ const FALLBACK_AD_ACCOUNTS = [
   { id: 'act_689363376592426', name: 'Paraiso' },
 ];
 
-async function getAdAccounts(): Promise<Array<{ id: string; name: string }>> {
+// Tenant-scoped — marketing_accounts has a tenant_id column (see
+// src/routes/marketing.ts, which already filters by it), but this helper
+// previously queried across every tenant's rows with no filter at all, so
+// every tenant's Ads tab showed every other tenant's ad accounts (and, by
+// extension, their campaigns/spend once an account id leaked through).
+async function getAdAccounts(tenantId: string): Promise<Array<{ id: string; name: string }>> {
   try {
     const result = await pool.query(
       `SELECT
          CASE WHEN account_id LIKE 'act_%' THEN account_id ELSE 'act_' || account_id END AS id,
          COALESCE(client_name, account_name) AS name
-       FROM marketing_accounts WHERE is_active = true ORDER BY account_name`
+       FROM marketing_accounts WHERE is_active = true AND tenant_id = $1 ORDER BY account_name`,
+      [tenantId],
     );
     if (result.rows.length > 0) return result.rows as Array<{ id: string; name: string }>;
   } catch { /* fall through to fallback */ }
@@ -191,7 +198,7 @@ function parseInsightRow(row: Record<string, unknown>) {
 // ---------------------------------------------------------------------------
 // GET /api/ads/accounts
 // ---------------------------------------------------------------------------
-router.get('/accounts', async (_req: Request, res: Response) => {
+router.get('/accounts', requirePermission('ADS_VIEW'), async (req: Request, res: Response) => {
   const token = getToken();
   if (!token) {
     res.json({ accounts: [], error: 'token_missing' });
@@ -199,7 +206,7 @@ router.get('/accounts', async (_req: Request, res: Response) => {
   }
 
   try {
-    const adAccounts = await getAdAccounts();
+    const adAccounts = await getAdAccounts(req.user!.tenantId);
     const results = await Promise.all(
       adAccounts.map(async (acct) => {
         const url = `${META_API_BASE}/${acct.id}?fields=name,currency,account_status,spend_cap&access_token=${token}`;
@@ -240,7 +247,7 @@ interface ManagedAccountRow {
 }
 
 // GET /api/ads/managed-accounts — list every row in ad_accounts with status
-router.get('/managed-accounts', async (_req: Request, res: Response) => {
+router.get('/managed-accounts', requirePermission('ADS_MANAGE'), async (_req: Request, res: Response) => {
   try {
     const result = await pool.query<ManagedAccountRow>(
       `SELECT account_id, client_name, account_name, currency,
@@ -257,7 +264,7 @@ router.get('/managed-accounts', async (_req: Request, res: Response) => {
 
 // POST /api/ads/managed-accounts — add a new ad account
 // Body: { account_id, client_name, account_name?, currency?, exchange_rate? }
-router.post('/managed-accounts', async (req: Request, res: Response) => {
+router.post('/managed-accounts', requirePermission('ADS_MANAGE'), async (req: Request, res: Response) => {
   const { account_id, client_name, account_name, currency, exchange_rate } = req.body as {
     account_id?: string; client_name?: string; account_name?: string;
     currency?: string; exchange_rate?: number;
@@ -287,7 +294,7 @@ router.post('/managed-accounts', async (req: Request, res: Response) => {
 });
 
 // PATCH /api/ads/managed-accounts/:accountId — Active <-> Pause toggle
-router.patch('/managed-accounts/:accountId', async (req: Request, res: Response) => {
+router.patch('/managed-accounts/:accountId', requirePermission('ADS_MANAGE'), async (req: Request, res: Response) => {
   const accountId = req.params.accountId as string;
   const { is_active } = req.body as { is_active?: boolean };
   if (typeof is_active !== 'boolean') {
@@ -310,7 +317,7 @@ router.patch('/managed-accounts/:accountId', async (req: Request, res: Response)
 });
 
 // DELETE /api/ads/managed-accounts/:accountId — remove the row entirely
-router.delete('/managed-accounts/:accountId', async (req: Request, res: Response) => {
+router.delete('/managed-accounts/:accountId', requirePermission('ADS_MANAGE'), async (req: Request, res: Response) => {
   const accountId = req.params.accountId as string;
   try {
     const result = await pool.query(
@@ -330,7 +337,7 @@ router.delete('/managed-accounts/:accountId', async (req: Request, res: Response
 // ---------------------------------------------------------------------------
 // GET /api/ads/campaigns?accountId=act_xxx&dateRange=last_7d
 // ---------------------------------------------------------------------------
-router.get('/campaigns', async (req: Request, res: Response) => {
+router.get('/campaigns', requirePermission('ADS_VIEW'), async (req: Request, res: Response) => {
   const token = getToken();
   if (!token) { res.json({ campaigns: [], error: 'token_missing' }); return; }
 
@@ -355,7 +362,7 @@ router.get('/campaigns', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/ads/insights?accountId=act_xxx&dateRange=last_7d&level=campaign
 // ---------------------------------------------------------------------------
-router.get('/insights', async (req: Request, res: Response) => {
+router.get('/insights', requirePermission('ADS_VIEW'), async (req: Request, res: Response) => {
   const token = getToken();
   if (!token) { res.json({ insights: [], error: 'token_missing' }); return; }
 
@@ -401,7 +408,7 @@ router.get('/insights', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/ads/adsets?accountId=act_xxx&campaignId=xxx&dateRange=last_7d
 // ---------------------------------------------------------------------------
-router.get('/adsets', async (req: Request, res: Response) => {
+router.get('/adsets', requirePermission('ADS_VIEW'), async (req: Request, res: Response) => {
   const token = getToken();
   if (!token) { res.json({ insights: [], error: 'token_missing' }); return; }
 
@@ -448,7 +455,7 @@ router.get('/adsets', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/ads/ads?accountId=act_xxx&adsetId=xxx&dateRange=last_7d
 // ---------------------------------------------------------------------------
-router.get('/ads', async (req: Request, res: Response) => {
+router.get('/ads', requirePermission('ADS_VIEW'), async (req: Request, res: Response) => {
   const token = getToken();
   if (!token) { res.json({ insights: [], error: 'token_missing' }); return; }
 
@@ -497,7 +504,7 @@ router.get('/ads', async (req: Request, res: Response) => {
 // Body: { status: 'ACTIVE' | 'PAUSED' }
 // Required for Meta App Review (ads_management permission).
 // ---------------------------------------------------------------------------
-router.post('/campaigns/:id/status', async (req: Request, res: Response) => {
+router.post('/campaigns/:id/status', requirePermission('ADS_MANAGE'), async (req: Request, res: Response) => {
   const token = getToken();
   if (!token) { res.status(400).json({ error: { message: 'Meta Ads token not configured' } }); return; }
 
@@ -516,7 +523,11 @@ router.post('/campaigns/:id/status', async (req: Request, res: Response) => {
   try {
     const url = `${META_API_BASE.replace('/v19.0', '/v21.0')}/${campaignId}`;
     const body = new URLSearchParams({ status });
-    const r = await fetch(url, {
+    // Was a bare fetch() with no timeout — every other handler in this file
+    // uses fetchWithRetry with a 15s AbortSignal.timeout. This call reaches
+    // the live Meta API to pause/activate a real campaign, so it should be
+    // no less resilient than the read-only calls around it.
+    const r = await fetchWithRetry(url, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -542,7 +553,7 @@ router.post('/campaigns/:id/status', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // POST /api/ads/slack-digest — send performance summary to Slack
 // ---------------------------------------------------------------------------
-router.post('/slack-digest', async (req: Request, res: Response) => {
+router.post('/slack-digest', requirePermission('ADS_MANAGE'), async (req: Request, res: Response) => {
   const token = getToken();
   if (!token) { res.json({ sent: false, error: 'Meta Ads token not configured' }); return; }
 
@@ -552,7 +563,7 @@ router.post('/slack-digest', async (req: Request, res: Response) => {
 
   try {
     const { sendSlackMessage, CHANNELS } = await import('../services/slackService');
-    const adAccounts = await getAdAccounts();
+    const adAccounts = await getAdAccounts(req.user!.tenantId);
 
     const allInsights: Array<{ accountName: string; spend: number; purchases: number; roas: number; impressions: number }> = [];
 
@@ -603,7 +614,7 @@ router.post('/slack-digest', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // POST /api/ads/slack-alert — send specific alert type to Slack
 // ---------------------------------------------------------------------------
-router.post('/slack-alert', async (req: Request, res: Response) => {
+router.post('/slack-alert', requirePermission('ADS_MANAGE'), async (req: Request, res: Response) => {
   const token = getToken();
   if (!token) { res.json({ sent: false, error: 'Meta Ads token not configured' }); return; }
 
@@ -617,7 +628,7 @@ router.post('/slack-alert', async (req: Request, res: Response) => {
 
   try {
     const { sendSlackDM, SLACK_MEMBERS } = await import('../services/slackService');
-    const adAccounts = await getAdAccounts();
+    const adAccounts = await getAdAccounts(req.user!.tenantId);
     const alerts: string[] = [];
 
     for (const acct of adAccounts) {
@@ -661,7 +672,7 @@ router.post('/slack-alert', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/ads/creative-intelligence — all tracked creatives with tags
 // ---------------------------------------------------------------------------
-router.get('/creative-intelligence', async (_req: Request, res: Response) => {
+router.get('/creative-intelligence', requirePermission('ADS_VIEW'), async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(`
       SELECT ad_id, ad_name, campaign_name,
@@ -682,7 +693,7 @@ router.get('/creative-intelligence', async (_req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/ads/creative-patterns — what types of creatives work best
 // ---------------------------------------------------------------------------
-router.get('/creative-patterns', async (_req: Request, res: Response) => {
+router.get('/creative-patterns', requirePermission('ADS_VIEW'), async (_req: Request, res: Response) => {
   try {
     const { getCreativePatterns } = await import('../services/creativeIntelligenceService');
     const patterns = await getCreativePatterns();
@@ -695,7 +706,7 @@ router.get('/creative-patterns', async (_req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/ads/creative-fatigue — fatiguing creatives with context
 // ---------------------------------------------------------------------------
-router.get('/creative-fatigue', async (_req: Request, res: Response) => {
+router.get('/creative-fatigue', requirePermission('ADS_VIEW'), async (_req: Request, res: Response) => {
   try {
     const { getFatiguingCreativesWithContext } = await import('../services/creativeIntelligenceService');
     const fatiguing = await getFatiguingCreativesWithContext();
@@ -716,7 +727,7 @@ const CREATE_SETTINGS_TABLE = `
 // ---------------------------------------------------------------------------
 // GET /api/ads/settings
 // ---------------------------------------------------------------------------
-router.get('/settings', async (req: Request, res: Response) => {
+router.get('/settings', requirePermission('ADS_VIEW'), async (req: Request, res: Response) => {
   try {
     const tenantId = (req as any).user?.tenantId;
     if (!tenantId) { res.json({ roasThresholds: {}, slackAutomations: {} }); return; }
@@ -741,7 +752,7 @@ router.get('/settings', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // PATCH /api/ads/settings
 // ---------------------------------------------------------------------------
-router.patch('/settings', async (req: Request, res: Response) => {
+router.patch('/settings', requirePermission('ADS_MANAGE'), async (req: Request, res: Response) => {
   try {
     const tenantId = (req as any).user?.tenantId;
     if (!tenantId) { res.json({ ok: false }); return; }
@@ -769,7 +780,7 @@ router.patch('/settings', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // POST /api/ads/ai-insights — Claude Sonnet-powered performance analysis
 // ---------------------------------------------------------------------------
-router.post('/ai-insights', async (req: Request, res: Response) => {
+router.post('/ai-insights', requirePermission('ADS_MANAGE'), async (req: Request, res: Response) => {
   try {
     const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
     if (!ANTHROPIC_KEY) { res.json({ insights: [] }); return; }

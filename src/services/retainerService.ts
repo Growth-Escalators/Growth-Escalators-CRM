@@ -1,5 +1,6 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
+import { COMPANY_GSTIN } from '../config/constants';
 
 // ---------------------------------------------------------------------------
 // Bootstrap retainer tables on startup
@@ -124,13 +125,25 @@ export async function generateInvoiceFromRetainer(
   const dueDate = new Date(today);
   dueDate.setDate(dueDate.getDate() + 5);
 
+  // client_state_code: client_retainers only stores the state name (billing_state),
+  // not a GST state code, so mirror it from the linked billing_clients row when
+  // this retainer has one (src/routes/billing.ts and
+  // src/services/recurringInvoiceService.ts both set clientStateCode from that
+  // row's stateCode). Standalone retainers with no client_id fall back to null
+  // rather than fabricating a code.
+  let clientStateCode: string | null = null;
+  if (r.client_id) {
+    const clientRes = await pool.query(`SELECT state_code FROM billing_clients WHERE id = $1`, [r.client_id]);
+    clientStateCode = (clientRes.rows[0] as { state_code: string | null } | undefined)?.state_code ?? null;
+  }
+
   const invResult = await pool.query(`
     INSERT INTO invoices (
       tenant_id, client_id, invoice_number, invoice_type, status,
       invoice_date, due_date, subtotal,
       cgst_rate, cgst_amount, sgst_rate, sgst_amount, igst_rate, igst_amount,
       total_amount, amount_paid, amount_due, amount_in_words,
-      client_gstin, client_state, company_gstin,
+      client_gstin, client_state, client_state_code, company_gstin,
       tax_type, sac_code, financial_year, series_number,
       retainer_id, billing_address_line1, billing_address_line2,
       billing_city, billing_state, billing_pincode, billing_country,
@@ -140,17 +153,17 @@ export async function generateInvoiceFromRetainer(
       $5, $6, $7,
       $8, $9, $10, $11, $12, $13,
       $14, 0, $14, $15,
-      $16, $17, process.env.COMPANY_GSTIN ?? '08DRYPA4899F2ZZ',
-      $18, '9983', $19, $20,
-      $21, $22, $23, $24, $25, $26, $27,
-      $28, $29
+      $16, $17, $18, $19,
+      $20, '9983', $21, $22,
+      $23, $24, $25, $26, $27, $28, $29,
+      $30, $31
     ) RETURNING id
   `, [
     tenantId, r.client_id, invoiceNumber, invoiceType,
     today.toISOString(), dueDate.toISOString(), subtotal,
     cgstRate, cgstAmount, sgstRate, sgstAmount, igstRate, igstAmount,
     totalAmount, words,
-    r.gstin, r.billing_state,
+    r.gstin, r.billing_state, clientStateCode, COMPANY_GSTIN,
     taxType, financialYear, seriesNumber,
     retainerId, r.billing_address_line1, r.billing_address_line2,
     r.billing_city, r.billing_state, r.billing_pincode, r.billing_country,
