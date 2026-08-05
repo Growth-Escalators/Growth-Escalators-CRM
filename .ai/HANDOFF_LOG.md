@@ -59,6 +59,24 @@ left untouched; retiring it is a follow-up that should happen *after* the rotati
 `npm run lint:tenant-scoping` zero new findings, baseline unchanged at 70 · migration `0048` applied
 to local dev only.
 
+**One real bug found by the lanes themselves, fixed in `f06c6557`.** Two of the three adapter lanes
+independently flagged that `verifyChange` receives only a `SiteStageResult` and `ApprovedSiteChange`
+carries nothing about the original request, so all three had parked stage-time context in an
+in-process Map. That is fine only if staging and publishing share a process — and they don't: a
+change is staged when proposed and published after a human approves it hours later, by which point
+this repo has usually redeployed. On the *normal* path this meant an approved Shopify change's
+`redirectFrom` URLs were never created and WordPress's "cannot write your canonical" warning
+vanished from verification, both silently. `verifyChange` now takes the change and
+`ApprovedSiteChange` carries it; the Maps are fallbacks, and WordPress's is bounded (it was
+unevicted). Also: `SiteRef` gained `credentialProvider`, because `seo_sites.credential_provider` was
+written by the admin and read by nobody — one adapter looked in `adapterConfig`, the other hardcoded
+its platform name. Three regression tests, each verified red against the unfixed service.
+
+**Method note worth keeping.** The lanes' reports arrived after the phase was committed and green.
+Two of them contained the same finding, described as an interface limitation they had worked around
+rather than as a bug — it only reads as a bug once you know the deploy cadence. Read lane reports
+for the workarounds, not just the deviations: a workaround is a defect that hasn't been priced yet.
+
 **Next:** Phase 4 (approval UI + wiring the cost guard onto real routes). The drift sweep (Phase 5)
 already has its storage and its extractor — `seo_site_snapshots` and `extractSeoElements`/
 `diffSeoElements` — so that phase is now mostly wiring.
