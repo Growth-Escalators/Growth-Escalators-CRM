@@ -195,4 +195,54 @@ describe('billing.ts route fixes', () => {
       expect(statusFn).toHaveBeenCalledWith(404);
     });
   });
+
+  describe('GET /monthly-tracker permission gate (previously the only GET route in this file with no check at all)', () => {
+    it('rejects with 403 when the caller lacks billingView and is not owner', async () => {
+      mockPerms({ billingView: false, isOwner: false });
+      const { default: router } = await import('../routes/billing');
+      const { req, res, statusFn } = makeReqRes('user-1', 'tenant-a');
+
+      await invokeRoute(router, '/monthly-tracker', 'get', req, res);
+
+      expect(statusFn).toHaveBeenCalledWith(403);
+    });
+
+    it('proceeds past the permission check when the caller has billingView', async () => {
+      mockPerms({ billingView: true, isOwner: false });
+      mockDbSelect.mockReturnValueOnce({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue([]), // no active clients — trivially succeeds
+        }),
+      });
+      const { default: router } = await import('../routes/billing');
+      const { req, res, statusFn, jsonFn } = makeReqRes('user-1', 'tenant-a');
+
+      await invokeRoute(router, '/monthly-tracker', 'get', req, res);
+
+      expect(statusFn).not.toHaveBeenCalledWith(403);
+      expect(jsonFn).toHaveBeenCalled();
+    });
+  });
+
+  describe('GET /retainers/:id permission gate (the list route already had it — only the single-item GET was missing it)', () => {
+    it('rejects with 403 when the caller lacks billingView and is not owner', async () => {
+      mockPerms({ billingView: false, isOwner: false });
+      const { default: router } = await import('../routes/billing');
+      const { req, res, statusFn } = makeReqRes('user-1', 'tenant-a', { id: 'retainer-1' });
+
+      await invokeRoute(router, '/retainers/:id', 'get', req, res);
+
+      expect(statusFn).toHaveBeenCalledWith(403);
+    });
+
+    it('proceeds past the permission check when the caller has billingView', async () => {
+      mockPerms({ billingView: true, isOwner: false });
+      const { default: router } = await import('../routes/billing');
+      const { req, res, statusFn } = makeReqRes('user-1', 'tenant-a', { id: 'retainer-1' });
+
+      await invokeRoute(router, '/retainers/:id', 'get', req, res);
+
+      expect(statusFn).not.toHaveBeenCalledWith(403);
+    });
+  });
 });

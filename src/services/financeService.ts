@@ -259,11 +259,22 @@ export async function calculatePnL(tenantId: string, month: string): Promise<{
 }> {
   const firstDay = `${month}-01`;
 
-  // Revenue from billing
+  // Revenue from billing — a fully 'paid' invoice contributes its full
+  // total_amount, but a 'partially_paid' invoice must only contribute what
+  // was actually collected (amount_paid), not the invoice's face value.
+  // Summing total_amount for both statuses previously overstated revenue:
+  // a ₹1,00,000 invoice with only ₹10,000 collected reported the full
+  // ₹1,00,000 as revenue.
   let invoiceRevenue = 0;
   try {
     const billingR = await pool.query(
-      `SELECT COALESCE(SUM(total_amount), 0)::int AS total
+      `SELECT COALESCE(SUM(
+         CASE
+           WHEN status = 'paid' THEN total_amount
+           WHEN status = 'partially_paid' THEN amount_paid
+           ELSE 0
+         END
+       ), 0)::int AS total
        FROM invoices
        WHERE tenant_id = $1 AND status IN ('paid', 'partially_paid')
          AND invoice_date >= $2 AND invoice_date < ($2::date + INTERVAL '1 month')`,

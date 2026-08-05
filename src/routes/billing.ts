@@ -782,6 +782,11 @@ router.patch('/invoices/:id/payment-status', async (req: Request, res: Response)
 // ---------------------------------------------------------------------------
 router.get('/monthly-tracker', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
+  const userId = req.user!.id;
+  // Was the only GET route in this file with no permission check at all —
+  // matches the billingView gate every other GET route here uses.
+  const p = await getPerms(userId);
+  if (!p?.billingView && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
   const months = Math.min(Number(req.query.months) || 3, 12);
 
   try {
@@ -1160,6 +1165,11 @@ router.get('/retainers', async (req: Request, res: Response) => {
 
 router.get('/retainers/:id', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
+  const userId = req.user!.id;
+  // The list route (GET /retainers) already checks this — the single-item
+  // GET was the one route in the retainer CRUD block missing it.
+  const p = await getPerms(userId);
+  if (!p?.billingView && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
   try {
     const { pool } = await import('../db/index');
     const r = await pool.query(`SELECT * FROM client_retainers WHERE id = $1 AND tenant_id = $2`, [req.params.id, tenantId]);
