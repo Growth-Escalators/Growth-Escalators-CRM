@@ -316,6 +316,13 @@
       "when": 1785842107847,
       "tag": "0044_happy_dragon_man",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1785906152154,
+      "tag": "0045_quiet_black_bird",
+      "breakpoints": true
     }
   ]
 }
