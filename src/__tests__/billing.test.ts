@@ -140,6 +140,17 @@ vi.mock('../db/index', () => ({
   db: { execute: (...args: unknown[]) => mockDbExecute(...args) },
 }));
 
+// invoiceNumberService.ts now derives the series prefix per-tenant via
+// resolveTenantShortCode() (tenant-derived invoice prefix fix) instead of
+// hardcoding 'GE' — that call goes through db.select(), which this file
+// doesn't mock (only db.execute() above, for the invoice_series queries this
+// suite is actually about). Stub it to 'GE' so these SELECT/INSERT shape
+// assertions are unaffected — prefix content itself is covered separately in
+// src/__tests__/invoiceNumberService.test.ts.
+vi.mock('../services/tenantBrandingDefaults', () => ({
+  resolveTenantShortCode: vi.fn().mockResolvedValue('GE'),
+}));
+
 // drizzle-orm's sql`` tagged template doesn't stringify usefully via
 // String(); the literal text lives in .queryChunks as StringChunk objects
 // (shape { value: string[] }) interleaved with raw parameter values.

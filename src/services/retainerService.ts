@@ -12,6 +12,16 @@ export async function ensureRetainerTables(): Promise<void> {
       tenant_id UUID NOT NULL,
       client_id UUID,
       client_name VARCHAR(200) NOT NULL,
+      -- retainer_number's UNIQUE constraint is intentionally still global
+      -- (NOT tenant-scoped) — narrowing it to (tenant_id, retainer_number)
+      -- would need a migration, which per AGENTS.md's guardrails needs its
+      -- own explicit, separately-flagged sign-off, not a silent bundle into
+      -- an otherwise-non-schema fix. Instead, getNextRetainerNumber() below
+      -- now embeds a tenant-derived short code into the number itself
+      -- (RET/<code>/<year>/<seq>) so two tenants' numbers are different
+      -- strings and don't collide on this constraint even though it's
+      -- global. See tenantBrandingDefaults.ts's resolveTenantShortCode for
+      -- the documented residual-collision caveat (same-named tenants).
       retainer_number VARCHAR(50) UNIQUE NOT NULL,
       status VARCHAR(20) DEFAULT 'active',
       billing_address_line1 VARCHAR(200),
@@ -65,17 +75,36 @@ export async function ensureRetainerTables(): Promise<void> {
 // ---------------------------------------------------------------------------
 // Generate next retainer number
 // ---------------------------------------------------------------------------
-export async function getNextRetainerNumber(): Promise<string> {
+// Previously `RET/${year}/${seq}` with NO tenant scoping at all — not even
+// in this lookup query (it matched across every tenant's rows) — so the
+// second tenant to generate a retainer in a given year could easily collide
+// with an already-issued number on client_retainers.retainer_number's
+// (global) UNIQUE NOT NULL constraint.
+//
+// Fixed by embedding a tenant-derived short code into the number itself
+// (`RET/<code>/<year>/<seq>`) rather than migrating the UNIQUE constraint to
+// (tenant_id, retainer_number) — see the comment on that column in
+// ensureRetainerTables() above for why a schema change is deliberately not
+// bundled into this fix. The lookup query is now also tenant_id-scoped (it
+// wasn't before), so each tenant's sequence counts independently instead of
+// sharing one global counter.
+//
+// This changes the FORMAT of newly-generated numbers (including Growth
+// Escalators' own, which now reads RET/GE/<year>/<seq> instead of
+// RET/<year>/<seq>) but never renumbers anything already issued.
+export async function getNextRetainerNumber(tenantId: string): Promise<string> {
   const now = new Date();
   const year = now.getFullYear();
+  const { resolveTenantShortCode } = await import('./tenantBrandingDefaults');
+  const code = await resolveTenantShortCode(tenantId);
   const result = await pool.query(
-    `SELECT retainer_number FROM client_retainers WHERE retainer_number LIKE $1 ORDER BY id DESC LIMIT 1`,
-    [`RET/${year}/%`],
+    `SELECT retainer_number FROM client_retainers WHERE tenant_id = $1 AND retainer_number LIKE $2 ORDER BY id DESC LIMIT 1`,
+    [tenantId, `RET/${code}/${year}/%`],
   );
-  if (result.rows.length === 0) return `RET/${year}/001`;
+  if (result.rows.length === 0) return `RET/${code}/${year}/001`;
   const last = (result.rows[0] as { retainer_number: string }).retainer_number;
-  const seq = parseInt(last.split('/')[2] ?? '0', 10) + 1;
-  return `RET/${year}/${String(seq).padStart(3, '0')}`;
+  const seq = parseInt(last.split('/')[3] ?? '0', 10) + 1;
+  return `RET/${code}/${year}/${String(seq).padStart(3, '0')}`;
 }
 
 // ---------------------------------------------------------------------------

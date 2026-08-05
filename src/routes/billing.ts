@@ -1282,7 +1282,7 @@ router.post('/retainers', async (req: Request, res: Response) => {
     const { pool } = await import('../db/index');
     const { getNextRetainerNumber } = await import('../services/retainerService');
     const { lineItems, ...fields } = req.body;
-    const retainerNumber = fields.retainerNumber || await getNextRetainerNumber();
+    const retainerNumber = fields.retainerNumber || await getNextRetainerNumber(tenantId);
 
     const r = await pool.query(`
       INSERT INTO client_retainers (tenant_id, client_id, client_name, retainer_number, status,

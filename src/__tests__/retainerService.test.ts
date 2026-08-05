@@ -28,6 +28,11 @@ vi.mock('../services/amountInWordsService', () => ({
   amountInWords: () => 'Eleven Thousand Eight Hundred Rupees Only',
 }));
 
+const mockResolveTenantShortCode = vi.fn();
+vi.mock('../services/tenantBrandingDefaults', () => ({
+  resolveTenantShortCode: (...args: unknown[]) => mockResolveTenantShortCode(...args),
+}));
+
 const RETAINER_ROW = {
   id: 42,
   tenant_id: 'tenant-a',
@@ -81,6 +86,7 @@ function setupPoolMock(opts: { clientId?: string | null; stateCode?: string | nu
 
 beforeEach(() => {
   mockPoolQuery.mockReset();
+  mockResolveTenantShortCode.mockReset();
 });
 
 describe('retainerService.generateInvoiceFromRetainer', () => {
@@ -140,5 +146,54 @@ describe('retainerService.generateInvoiceFromRetainer', () => {
     // subtotal 10000 -> cgst 900, sgst 900, total 11800 (matches $7 subtotal,
     // $8 cgstRate, $9 cgstAmount, $10 sgstRate, $11 sgstAmount, $14 total)
     expect(params).toEqual(expect.arrayContaining([10000, 9, 900, 9, 900, 11800]));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getNextRetainerNumber — tenant scoping fix
+// ---------------------------------------------------------------------------
+// retainer_number previously had NO tenant scoping at all — not even in this
+// lookup query — so the second tenant to generate a retainer in a given
+// year could collide with an already-issued number on client_retainers'
+// (global) UNIQUE NOT NULL retainer_number constraint. Fixed by embedding a
+// tenant-derived short code into the number itself (RET/<code>/<year>/<seq>)
+// and by tenant-scoping the lookup query, rather than migrating the UNIQUE
+// constraint (a schema change, deliberately out of scope / separately
+// flagged per AGENTS.md).
+describe('retainerService.getNextRetainerNumber', () => {
+  const year = new Date().getFullYear();
+
+  beforeEach(() => {
+    mockPoolQuery.mockReset();
+    mockResolveTenantShortCode.mockReset();
+  });
+
+  it('embeds a tenant-derived code and starts a fresh tenant at 001', async () => {
+    mockResolveTenantShortCode.mockResolvedValue('ACM');
+    mockPoolQuery.mockResolvedValue({ rows: [] });
+
+    const { getNextRetainerNumber } = await import('../services/retainerService');
+    const number = await getNextRetainerNumber('tenant-acme');
+
+    expect(number).toBe(`RET/ACM/${year}/001`);
+    expect(mockResolveTenantShortCode).toHaveBeenCalledWith('tenant-acme');
+  });
+
+  it('scopes the lookup query by tenant_id AND the tenant-derived code, so two tenants never share a counter', async () => {
+    mockResolveTenantShortCode.mockImplementation(async (tenantId: string) =>
+      (tenantId === 'tenant-ge' ? 'GE' : 'ACM'));
+    mockPoolQuery.mockImplementation(async (sqlText: string, params: unknown[]) => {
+      expect(String(sqlText)).toMatch(/tenant_id\s*=\s*\$1/);
+      if (params[0] === 'tenant-ge') return { rows: [{ retainer_number: `RET/GE/${year}/002` }] };
+      return { rows: [] };
+    });
+
+    const { getNextRetainerNumber } = await import('../services/retainerService');
+    const geNext = await getNextRetainerNumber('tenant-ge');
+    const acmeNext = await getNextRetainerNumber('tenant-acme');
+
+    expect(geNext).toBe(`RET/GE/${year}/003`);
+    expect(acmeNext).toBe(`RET/ACM/${year}/001`);
+    expect(geNext).not.toBe(acmeNext);
   });
 });

@@ -8,6 +8,15 @@ import { apiFetch, getUser } from '../lib/api.js';
 import { getAuthToken } from '../lib/auth.js';
 import { ClipboardList, Download, Filter, ChevronLeft, ChevronRight } from 'lucide-react';
 
+// Two underlying tables feed this page's merged /api/audit/events response
+// (see src/routes/audit.ts): `audit_events` (logins, ad-account changes) and
+// `audit_logs` (billing/outreach/wizmatch actions, e.g. invoice_sent). Each
+// row is tagged with which one it came from so that's visible on screen.
+const SOURCE_LABELS = {
+  audit_events: 'Access',
+  audit_logs: 'Activity',
+};
+
 const ACTION_COLORS = {
   LOGIN: 'bg-sky-100 text-sky-700',
   LOGOUT: 'bg-slate-100 text-slate-600',
@@ -143,11 +152,12 @@ export default function AuditPage() {
                     <th className="px-4 py-3 text-xs font-semibold text-slate-500">Resource</th>
                     <th className="px-4 py-3 text-xs font-semibold text-slate-500">Details</th>
                     <th className="px-4 py-3 text-xs font-semibold text-slate-500">IP</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-500">Source</th>
                   </tr>
                 </thead>
                 <tbody>
                   {events.length === 0 && (
-                    <tr><td colSpan={6}>
+                    <tr><td colSpan={7}>
                       <EmptyState icon={ClipboardList} title="No audit events" description="Actions will be logged here automatically." />
                     </td></tr>
                   )}
@@ -170,6 +180,11 @@ export default function AuditPage() {
                         {evt.metadata && typeof evt.metadata === 'object' ? JSON.stringify(evt.metadata) : '—'}
                       </td>
                       <td className="px-4 py-3 text-xs text-slate-600 font-mono">{evt.ip_address || '—'}</td>
+                      <td className="px-4 py-3">
+                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-500" title={evt.source || ''}>
+                          {SOURCE_LABELS[evt.source] || evt.source || '—'}
+                        </span>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
