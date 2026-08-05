@@ -2,6 +2,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { fetchWithRetry } from '../utils/fetchWithRetry';
 import { pool } from '../db/index';
 import { DEFAULT_TENANT_SLUG } from '../config/constants';
+import { requirePerm } from '../middleware/requirePerm';
 
 const router = Router();
 
@@ -41,8 +42,12 @@ function getToken(): string | null {
 // ---------------------------------------------------------------------------
 // GET /api/meta/pages — lists Facebook Pages the user manages.
 // Backs the Meta Assets admin page for the App Review `pages_show_list` flow.
+//
+// Gated on 'ads.view' — there is no dedicated 'meta_assets.*' key; Facebook
+// Pages/Business Manager/post data is part of the same Ads/Marketing module
+// in the registry as the rest of src/routes/ads.ts.
 // ---------------------------------------------------------------------------
-router.get('/pages', async (_req: Request, res: Response) => {
+router.get('/pages', requirePerm('ads.view'), async (_req: Request, res: Response) => {
   const token = getToken();
   if (!token) {
     res.json({ data: [], error: 'token_missing' });
@@ -70,7 +75,7 @@ router.get('/pages', async (_req: Request, res: Response) => {
 // GET /api/meta/businesses — lists Business Manager assets for the user.
 // Backs the Meta Assets admin page for the App Review `business_management` flow.
 // ---------------------------------------------------------------------------
-router.get('/businesses', async (_req: Request, res: Response) => {
+router.get('/businesses', requirePerm('ads.view'), async (_req: Request, res: Response) => {
   const token = getToken();
   if (!token) {
     res.json({ data: [], error: 'token_missing' });
@@ -115,7 +120,7 @@ router.get('/businesses', async (_req: Request, res: Response) => {
 // This endpoint is what powers the `pages_read_engagement` screencast for
 // Meta App Review.
 // ---------------------------------------------------------------------------
-router.get('/pages/:pageId/posts', async (req: Request, res: Response) => {
+router.get('/pages/:pageId/posts', requirePerm('ads.view'), async (req: Request, res: Response) => {
   const token = getToken();
   if (!token) {
     res.status(503).json({ error: { message: 'META_ACCESS_TOKEN not configured' } });

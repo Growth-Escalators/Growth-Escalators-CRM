@@ -1,13 +1,23 @@
 import { Router, type Request, type Response } from 'express';
 import { db, contacts, deals } from '../db/index';
 import { sql } from 'drizzle-orm';
+import { requirePerm } from '../middleware/requirePerm';
 
 const router = Router();
 
 // ---------------------------------------------------------------------------
 // GET /api/search?q=query&types=contacts,deals
+//
+// This is a cross-module search (contacts, deals, and — for the Wizmatch
+// tenant — companies/requirements/submissions) and there is no dedicated
+// 'search.*' key in the registry. Judgment call: gate on 'contacts.view' as
+// the baseline, since contact/deal records are the primary result types for
+// every tenant. This is a reasonable default, not a considered design — a
+// future refinement might want its own 'search.view' key (e.g. once
+// Wizmatch-only search results need their own permission), which this PR
+// deliberately does not add speculatively.
 // ---------------------------------------------------------------------------
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', requirePerm('contacts.view'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const isWizmatchTenant = req.user!.tenantSlug === 'wizmatch';
   const q = (req.query.q as string || '').trim();
