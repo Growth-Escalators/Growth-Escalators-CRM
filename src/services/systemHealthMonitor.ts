@@ -27,7 +27,6 @@ export interface CronJobStatus {
 
 export interface SystemHealthReport {
   overallScore: number;
-  outreach: SubsystemHealth;
   seo: SubsystemHealth;
   crm: SubsystemHealth;
   infrastructure: SubsystemHealth;
@@ -46,17 +45,12 @@ const CRON_WINDOWS: Record<string, number> = {
   // Intelligence & reporting
   'Meta Ads Daily Report': 1500, 'Meta Token Check': 10080,
   'Growth OS Health Scores': 1500, 'Creative Intelligence': 360,
-  'Competitor Pulse': 10080, 'Daily Archive': 1500,
+  'Competitor Pulse': 10080,
   'Monthly Client Benchmarks': 44640,
-  // Outreach
-  'Outreach CRM Sync': 60, 'Reset Stuck Enriching Leads': 120,
-  'Weekly Outreach Summary': 10080, 'Saleshandy Auto-Upload': 60,
-  'Outreach Funnel Snapshot': 1500, 'Saleshandy Stats Poll': 1500,
   // Ops
   'Audit Booking Follow-up': 360, 'Weekly Data Cleanup': 10080,
   'Co-Pilot Poller': 5, 'Pipeline Placement': 1,
   'System Health Check': 60, 'Late Attendance Check': 1500,
-  'Directory Scrapers': 1500,
 };
 
 // Alert rate limiting — 12h cooldown + 5-minute startup grace period
@@ -137,8 +131,7 @@ export async function logCronFailure(logId: number, durationMs: number, error: s
 // Main health check
 // ---------------------------------------------------------------------------
 export async function checkAllSystems(): Promise<SystemHealthReport> {
-  const [outreach, seo, crm, infra, cronJobs] = await Promise.all([
-    checkOutreach().catch(() => ({ status: 'CRITICAL' as const, metrics: { error: 'check failed' } })),
+  const [seo, crm, infra, cronJobs] = await Promise.all([
     checkSeo().catch(() => ({ status: 'WARNING' as const, metrics: { error: 'check failed' } })),
     checkCrm().catch(() => ({ status: 'HEALTHY' as const, metrics: { error: 'check failed' } })),
     checkInfrastructure().catch(() => ({ status: 'CRITICAL' as const, metrics: { error: 'check failed' } })),
@@ -147,11 +140,13 @@ export async function checkAllSystems(): Promise<SystemHealthReport> {
 
   // Score weights — PAUSED subsystems are excluded from the average so a paused
   // SEO doesn't drag the score below 50 and trigger a low_score alert.
+  // Rebalanced 2026-08 (Outreach subsystem removed): infra/seo/crm scaled up
+  // from 30/20/15 (out of 85) to 40/25/20 (still out of 85) to keep the same
+  // relative weighting after dropping the fourth subsystem.
   const weights: Array<{ status: SubsystemStatus; full: number }> = [
-    { status: infra.status,    full: 30 },
-    { status: outreach.status, full: 20 },
-    { status: seo.status,      full: 20 },
-    { status: crm.status,      full: 15 },
+    { status: infra.status, full: 40 },
+    { status: seo.status,   full: 25 },
+    { status: crm.status,   full: 20 },
   ];
   const earnable = weights.filter(w => w.status !== 'PAUSED').reduce((s, w) => s + w.full, 0);
   let earned = 0;
@@ -170,48 +165,12 @@ export async function checkAllSystems(): Promise<SystemHealthReport> {
   let score = subsystemScore + cronScore;
   if (infra.status === 'CRITICAL') score = Math.min(score, 29);
 
-  return { overallScore: score, outreach, seo, crm, infrastructure: infra, cronJobs, checkedAt: new Date().toISOString() };
+  return { overallScore: score, seo, crm, infrastructure: infra, cronJobs, checkedAt: new Date().toISOString() };
 }
 
 // ---------------------------------------------------------------------------
 // Subsystem checks
 // ---------------------------------------------------------------------------
-async function checkOutreach(): Promise<SubsystemHealth> {
-  const r = await pool.query(`
-    SELECT
-      COUNT(*) FILTER (WHERE created_at::date = CURRENT_DATE) AS discovered_today,
-      COUNT(*) FILTER (WHERE status = 'Enriching' AND updated_at < NOW() - INTERVAL '60 minutes') AS stuck,
-      COUNT(*) FILTER (WHERE status = 'Active') AS active,
-      COUNT(*) FILTER (WHERE saleshandy_uploaded = true) AS uploaded,
-      COUNT(*) FILTER (WHERE reply_category IS NOT NULL AND updated_at::date = CURRENT_DATE) AS replies_today,
-      MAX(created_at) AS last_discovery
-    FROM outreach_leads
-  `);
-  const m = r.rows[0] as Record<string, string>;
-  const discoveredToday = parseInt(m.discovered_today ?? '0');
-  const stuck = parseInt(m.stuck ?? '0');
-  const lastDiscovery = m.last_discovery ? new Date(m.last_discovery) : null;
-  const hoursSinceDiscovery = lastDiscovery ? (Date.now() - lastDiscovery.getTime()) / 3600000 : 999;
-
-  // Auto-heal: reset stuck leads regardless of pause state.
-  if (stuck > 0) {
-    await pool.query(`UPDATE outreach_leads SET status='New', retry_count=0, updated_at=NOW() WHERE status='Enriching' AND updated_at < NOW() - INTERVAL '60 minutes'`).catch(() => {});
-  }
-
-  // When discovery/enrichment is paused, ignore the discovery freshness signal —
-  // those crons aren't running by design. Score only on the bits still active
-  // (CRM Sync, Saleshandy Auto-Upload, Audit Booking, Reset Stuck).
-  let status: SubsystemStatus = 'HEALTHY';
-  if (isPaused('outreachEnrichment')) {
-    if (stuck > 0) status = 'WARNING';
-  } else {
-    if (stuck > 0) status = 'WARNING';
-    if (hoursSinceDiscovery > 48) status = 'CRITICAL';
-  }
-
-  return { status, metrics: { discoveredToday, stuck, active: parseInt(m.active ?? '0'), uploaded: parseInt(m.uploaded ?? '0'), repliesToday: parseInt(m.replies_today ?? '0'), hoursSinceDiscovery: Math.round(hoursSinceDiscovery), enrichmentPaused: isPaused('outreachEnrichment') } };
-}
-
 async function checkSeo(): Promise<SubsystemHealth> {
   if (isPaused('seo')) {
     return { status: 'PAUSED', metrics: { paused: true } };
@@ -363,13 +322,6 @@ export async function sendCriticalAlerts(report: SystemHealthReport): Promise<vo
   if (report.infrastructure.status === 'CRITICAL' && canAlert('infra_down')) {
     await sendSlackDM(SLACK_JATIN,
       `🔴 *CRITICAL*: Infrastructure issue detected. Check Railway dashboard.`,
-    ).catch(() => {});
-  }
-
-  const stuck = report.outreach.metrics.stuck as number ?? 0;
-  if (stuck > 0 && canAlert('enrichment_stuck')) {
-    await sendSlackDM(SLACK_JATIN,
-      `⚠️ *OUTREACH STUCK*: ${stuck} leads stuck in Enriching >1h. Auto-reset triggered.`,
     ).catch(() => {});
   }
 

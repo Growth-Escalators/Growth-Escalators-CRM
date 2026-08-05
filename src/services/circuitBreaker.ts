@@ -50,5 +50,4 @@ export class CircuitBreaker {
 
 // Pre-configured breakers for external APIs
 export const metaApiBreaker = new CircuitBreaker('Meta API', 3, 120_000);
-export const saleshandyBreaker = new CircuitBreaker('Saleshandy', 3, 60_000);
 export const slackBreaker = new CircuitBreaker('Slack', 5, 60_000);

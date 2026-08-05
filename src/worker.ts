@@ -22,7 +22,7 @@ import { checkSpendAlerts } from './services/spendAlertService';
 import { collectDailyData } from './services/intelligenceDataCollector';
 import { analyzeWithClaude } from './services/intelligenceAnalyzer';
 import { deliverDailyIntelligence } from './services/intelligenceDelivery';
-import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_PERF_MARKETING_CHANNEL, SLACK_SEO_CHANNEL, SLACK_OUTREACH_CHANNEL, SLACK_SOD_EOD_CHANNEL, DEFAULT_TENANT_SLUG, WIZMATCH_LEADS_CHANNEL, WIZMATCH_SYSTEM_CHANNEL } from './config/constants';
+import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_PERF_MARKETING_CHANNEL, SLACK_SEO_CHANNEL, SLACK_SOD_EOD_CHANNEL, DEFAULT_TENANT_SLUG, WIZMATCH_LEADS_CHANNEL, WIZMATCH_SYSTEM_CHANNEL } from './config/constants';
 import { isPaused } from './config/featureFlags';
 import { getWizmatchAutomationStatus, WIZMATCH_STAFFING_REMINDER_CRON } from './services/wizmatchAutomation';
 import { getActiveTenantsWithFeature, getSingleActiveTenantWithFeature } from './services/tenantFeatures';
@@ -41,25 +41,19 @@ console.log(RUNNING_STANDALONE
 
 // Startup: validate critical environment variables
 const _missingEnvVars: string[] = [];
-if (!process.env.SERPER_API_KEY) _missingEnvVars.push('SERPER_API_KEY (SEO rank tracking, backlinks, content gaps, outreach directory scraping will not work)');
+if (!process.env.SERPER_API_KEY) _missingEnvVars.push('SERPER_API_KEY (SEO rank tracking, backlinks, content gaps will not work)');
 if (!process.env.META_ADS_TOKEN && !process.env.META_ACCESS_TOKEN) _missingEnvVars.push('META_ADS_TOKEN (Meta Ads daily report will not work)');
-if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_API_KEY) _missingEnvVars.push('ANTHROPIC_API_KEY (AI intelligence + outreach icebreaker/reply classifier will use fallback mode)');
+if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_API_KEY) _missingEnvVars.push('ANTHROPIC_API_KEY (AI intelligence + reply classifier will use fallback mode)');
 if (!process.env.META_PIXEL_ID) _missingEnvVars.push('META_PIXEL_ID (Meta CAPI conversions will not fire — get from Events Manager)');
-// Outreach-critical env vars
-if (!process.env.GOOGLE_PLACES_API_KEY) _missingEnvVars.push('GOOGLE_PLACES_API_KEY (daily outreach lead discovery will not run)');
-if (!process.env.HUNTER_API_KEY) _missingEnvVars.push('HUNTER_API_KEY (outreach enrichment email-finder primary source disabled)');
-if (!process.env.SNOVIO_API_KEY && !process.env.SNOV_API_KEY) _missingEnvVars.push('SNOVIO_API_KEY (outreach enrichment email-finder secondary source disabled)');
-if (!process.env.SALESHANDY_API_KEY) _missingEnvVars.push('SALESHANDY_API_KEY (outreach upload-to-sequence automation will not work)');
-if (!process.env.SALESHANDY_SEQUENCE_ID) _missingEnvVars.push('SALESHANDY_SEQUENCE_ID (outreach upload target sequence missing)');
-if (!process.env.OUTREACH_INTERNAL_SECRET) _missingEnvVars.push('OUTREACH_INTERNAL_SECRET (n8n ↔ backend auth for outreach endpoints disabled)');
+if (!process.env.SNOVIO_API_KEY && !process.env.SNOV_API_KEY) _missingEnvVars.push('SNOVIO_API_KEY (Wizmatch contact-discovery email-finder secondary source disabled)');
+if (!process.env.OUTREACH_INTERNAL_SECRET) _missingEnvVars.push('OUTREACH_INTERNAL_SECRET (Wizmatch internal-endpoint auth fallback disabled)');
 if (!process.env.MEETING_BOOKING_URL) _missingEnvVars.push('MEETING_BOOKING_URL (INTERESTED-reply drafts will not include a self-book link)');
-if (!process.env.MAX_DAILY_UPLOADS) _missingEnvVars.push('MAX_DAILY_UPLOADS (default 200) (uploadToSaleshandy daily cap safety-net)');
 const _missingPurelymailSlots: string[] = [];
 for (let i = 1; i <= 6; i++) {
   if (!process.env[`PURELYMAIL_PASS_${i}`]) _missingPurelymailSlots.push(String(i));
 }
 if (_missingPurelymailSlots.length > 0) {
-  _missingEnvVars.push(`PURELYMAIL_PASS_${_missingPurelymailSlots.join(',')} (outreach IMAP reply polling will skip these inboxes)`);
+  _missingEnvVars.push(`PURELYMAIL_PASS_${_missingPurelymailSlots.join(',')} (Wizmatch multi-domain sender will skip these inboxes)`);
 }
 if (_missingEnvVars.length > 0) {
   console.warn('[worker] ⚠️ MISSING ENV VARS:');
@@ -72,23 +66,14 @@ if (_missingEnvVars.length > 0) {
 // Track all setInterval timers for graceful shutdown
 const _intervals: ReturnType<typeof setInterval>[] = [];
 
-// One-time startup: ensure enrichment columns + reply alert columns + self-healing columns + funnel metrics
+// One-time startup: ensure self-healing columns + website cache + attendance columns
 // Each failure is logged (was previously a silent .catch(() => {})) — a
 // failed schema-bootstrap here left zero evidence, so the FIRST symptom was
 // a cron throwing "column does not exist" hours later with no link back to
 // the actual boot-time failure.
-import('./services/outreachEnrichmentService').then(m => m.ensureEnrichmentColumns()).catch(e => console.error('[worker] ensureEnrichmentColumns failed:', e instanceof Error ? e.message : e));
-import('./services/outreachAlertService').then(m => m.ensureOutreachAlertColumns()).catch(e => console.error('[worker] ensureOutreachAlertColumns failed:', e instanceof Error ? e.message : e));
 import('./services/workflowSelfHealingService').then(m => m.ensureSelfHealingColumns()).catch(e => console.error('[worker] ensureSelfHealingColumns failed:', e instanceof Error ? e.message : e));
-import('./services/outreachFunnelMetrics').then(m => m.ensureOutreachFunnelTable()).catch(e => console.error('[worker] ensureOutreachFunnelTable failed:', e instanceof Error ? e.message : e));
 import('./services/websiteCacheService').then(m => m.ensureWebsiteCacheTable()).catch(e => console.error('[worker] ensureWebsiteCacheTable failed:', e instanceof Error ? e.message : e));
 import('./services/attendanceColumns').then(m => m.ensureAttendanceColumns()).catch(e => console.error('[worker] ensureAttendanceColumns failed:', e instanceof Error ? e.message : e));
-pool.query(`
-  UPDATE outreach_leads SET status = 'New', updated_at = NOW()
-  WHERE status = 'Enriching' AND updated_at < NOW() - INTERVAL '30 minutes'
-`).then(r => {
-  if (r.rowCount && r.rowCount > 0) console.log(`[worker] Reset ${r.rowCount} stuck Enriching lead(s) to New on startup`);
-}).catch(() => {});
 
 // ---------------------------------------------------------------------------
 // Background workers
@@ -282,36 +267,25 @@ console.log('[cron] blocker alerts — disabled (folded into morning briefing)')
 // can be flipped back from Railway without a code change or a deploy.
 //
 // All default OFF (fail-closed, matching this repo's flag convention). Parsing
-// lives in utils/slackDigestFlag so the service-level gate in
-// saleshandyStatsService cannot drift from the cron-level gates here.
+// lives in utils/slackDigestFlag.
 //
 //   SOD_EOD_SLACK_ENABLED=true            -> SOD/EOD digests + team prompts
 //   META_ADS_REPORT_SLACK_ENABLED=true    -> Meta Ads daily "ad account overview"
 //
 // 2026-07-31 (second pass) — the owner asked for the rest of the recurring
-// Growth Escalators Slack traffic off too. These five were ungated and, apart
-// from Saleshandy, unconditional:
+// Growth Escalators Slack traffic off too. These were ungated:
 //   MORNING_BRIEFING_SLACK_ENABLED=true   -> Mon-Sat 09:30 IST DM x3
 //   SOCIAL_PROMPT_SLACK_ENABLED=true      -> Mon-Sat 09:30 IST #social-media-posting
-//   OUTREACH_SUMMARY_SLACK_ENABLED=true   -> Monday 08:00 IST DM
 //   SEO_DIGEST_SLACK_ENABLED=true         -> Friday 17:00 IST #seo, one post per client
-//   SALESHANDY_ALERT_SLACK_ENABLED=true   -> nightly deliverability DM (see below)
-//
-// NOTE on Saleshandy: its cron is NOT gated, because pollSaleshandyStats also
-// writes today's sent/open/bounce/click that snapshotTodaysFunnel reads 30
-// minutes later. Gating the cron would silently break the funnel numbers, so
-// only the two sendSlackDM calls inside the service are gated.
 const SOD_EOD_SLACK_ENABLED = slackDigestEnabled('SOD_EOD_SLACK_ENABLED');
 const META_ADS_REPORT_SLACK_ENABLED = slackDigestEnabled('META_ADS_REPORT_SLACK_ENABLED');
 const MORNING_BRIEFING_SLACK_ENABLED = slackDigestEnabled('MORNING_BRIEFING_SLACK_ENABLED');
 const SOCIAL_PROMPT_SLACK_ENABLED = slackDigestEnabled('SOCIAL_PROMPT_SLACK_ENABLED');
-const OUTREACH_SUMMARY_SLACK_ENABLED = slackDigestEnabled('OUTREACH_SUMMARY_SLACK_ENABLED');
 const SEO_DIGEST_SLACK_ENABLED = slackDigestEnabled('SEO_DIGEST_SLACK_ENABLED');
 if (!SOD_EOD_SLACK_ENABLED) console.log('[cron] SOD/EOD Slack digests DISABLED (set SOD_EOD_SLACK_ENABLED=true to re-enable)');
 if (!META_ADS_REPORT_SLACK_ENABLED) console.log('[cron] Meta Ads daily report DISABLED (set META_ADS_REPORT_SLACK_ENABLED=true to re-enable)');
 if (!MORNING_BRIEFING_SLACK_ENABLED) console.log('[cron] Morning briefing DMs DISABLED (set MORNING_BRIEFING_SLACK_ENABLED=true to re-enable)');
 if (!SOCIAL_PROMPT_SLACK_ENABLED) console.log('[cron] Social media prompt DISABLED (set SOCIAL_PROMPT_SLACK_ENABLED=true to re-enable)');
-if (!OUTREACH_SUMMARY_SLACK_ENABLED) console.log('[cron] Weekly outreach summary DM DISABLED (set OUTREACH_SUMMARY_SLACK_ENABLED=true to re-enable)');
 if (!SEO_DIGEST_SLACK_ENABLED) console.log('[cron] SEO weekly digest DISABLED (set SEO_DIGEST_SLACK_ENABLED=true to re-enable)');
 
 if (MORNING_BRIEFING_SLACK_ENABLED) cron.schedule('0 4 * * 1-6', () => safeCron('Morning Briefing', async () => {
@@ -810,103 +784,6 @@ _intervals.push(PLACEMENT_INTERVAL);
 console.log('[cron] Pipeline placement job scheduled — every 5 minutes');
 
 // ---------------------------------------------------------------------------
-// Outreach Daily Digest — DISABLED (folded into Evening Summary)
-// Posts pipeline stats to #outreach / #sales-bd channel
-// ---------------------------------------------------------------------------
-/* DISABLED — outreach stats now in Evening Summary DMs
-cron.schedule('30 14 * * 1-6', () => safeCron('Outreach Daily Digest', async () => {
-  const { sendSlackMessage } = await import('./services/slackService');
-  const today = new Date().toISOString().slice(0, 10);
-  const dateStr = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
-
-  const statusResult = await pool.query(
-    `SELECT status, COUNT(*)::int AS count FROM outreach_leads GROUP BY status ORDER BY count DESC`,
-  );
-  const sc: Record<string, number> = {};
-  for (const row of statusResult.rows as Array<{ status: string; count: number }>) {
-    sc[row.status] = row.count;
-  }
-
-  const todayResult = await pool.query(
-    `SELECT COUNT(*)::int AS count FROM outreach_leads WHERE created_at::date = $1`, [today],
-  );
-  const leadsToday = (todayResult.rows[0] as { count: number }).count;
-
-  const ownerResult = await pool.query(
-    `SELECT LOWER(assigned_to) AS owner, COUNT(*)::int AS count
-     FROM outreach_leads WHERE status IN ('New','Enriching','Active')
-     GROUP BY LOWER(assigned_to)`,
-  );
-  const owners: Record<string, number> = {};
-  for (const row of ownerResult.rows as Array<{ owner: string; count: number }>) {
-    owners[row.owner || 'unassigned'] = row.count;
-  }
-
-  const repliesResult = await pool.query(
-    `SELECT COUNT(*)::int AS count FROM outreach_leads WHERE status = 'Replied' AND updated_at::date = $1`, [today],
-  );
-  const repliesToday = (repliesResult.rows[0] as { count: number }).count;
-
-  const total = Object.values(sc).reduce((a, b) => a + b, 0);
-
-  let msg = `📬 *Outreach Daily Digest — ${dateStr}*\n\n`;
-  msg += `*Pipeline Status*\n`;
-  msg += `New: ${sc.New ?? 0} · Enriching: ${sc.Enriching ?? 0} · Active: ${sc.Active ?? 0} · Replied: ${sc.Replied ?? 0}\n`;
-  msg += `Closed: ${sc.Closed ?? 0} · Not Found: ${sc.Not_Found ?? 0} · Duplicate: ${sc.Duplicate ?? 0}\n\n`;
-  msg += `*By Owner*\n`;
-  msg += `Jatin: ${owners.jatin ?? 0} active · Sakcham: ${owners.saksham ?? owners.sakcham ?? 0} active\n\n`;
-  msg += `*Today*\n`;
-  msg += `Leads added: ${leadsToday} · Replies: ${repliesToday}\n`;
-  msg += `Total in pipeline: ${total}\n`;
-
-  await sendSlackMessage(SLACK_OUTREACH_CHANNEL, msg);
-  console.log('[CRON] Outreach digest sent');
-}), { timezone: 'UTC' });
-DISABLED — end of outreach daily digest */
-console.log('[cron] Outreach daily digest — disabled (folded into evening summary)');
-
-// ---------------------------------------------------------------------------
-// Outreach: backend enrichment — every 10 minutes
-// Bypasses n8n WF-01 and enriches leads directly from backend
-// ---------------------------------------------------------------------------
-// PAUSED 2026-05-03 — Outreach Enrichment (Hunter+Snov+Apollo+reacher). Re-enable by uncommenting.
-/*
-const ENRICHMENT_INTERVAL = setInterval(() => safeCron('Outreach Enrichment', async () => {
-  const { enrichStuckLeads } = await import('./services/outreachEnrichmentService');
-  await enrichStuckLeads();
-  // Task 6: check for INTERESTED leads unanswered >90 minutes
-  const { checkReplySpeedAlerts } = await import('./services/outreachAlertService');
-  await checkReplySpeedAlerts();
-}), 5 * 60_000); // every 5 minutes
-_intervals.push(ENRICHMENT_INTERVAL);
-console.log('[cron] Outreach enrichment scheduled — every 5 minutes');
-*/
-console.log('[cron] Outreach enrichment — PAUSED 2026-05-03');
-
-// ---------------------------------------------------------------------------
-// Outreach: reset stuck Enriching leads — every 2 hours
-// Leads stuck in Enriching for >1 hour get reset to New for WF-01 retry
-// ---------------------------------------------------------------------------
-cron.schedule('0 */2 * * *', () => safeCron('Reset Stuck Enriching Leads', async () => {
-  const result = await pool.query(`
-    UPDATE outreach_leads
-    SET status = 'New', updated_at = NOW()
-    WHERE status = 'Enriching'
-      AND updated_at < NOW() - INTERVAL '1 hour'
-    RETURNING id, company
-  `);
-  if (result.rows.length > 0) {
-    console.log(`[CRON] Reset ${result.rows.length} stuck Enriching lead(s) to New`);
-    const { sendSlackMessage } = await import('./services/slackService');
-    await sendSlackMessage(SLACK_OUTREACH_CHANNEL,
-      `🔄 Reset ${result.rows.length} stuck lead(s) from Enriching → New for retry:\n` +
-      result.rows.slice(0, 10).map((r: { company: string }) => `• ${r.company}`).join('\n'),
-    ).catch(() => {});
-  }
-}), { timezone: 'UTC' });
-console.log('[cron] Outreach stuck lead reset scheduled — every 2 hours');
-
-// ---------------------------------------------------------------------------
 // Audit booking follow-up check — every 6 hours
 // Alerts Jatin if bump2 buyers haven't booked within 48 hours
 // ---------------------------------------------------------------------------
@@ -916,256 +793,7 @@ cron.schedule('0 */6 * * *', () => safeCron('Audit Booking Follow-up', async () 
 }), { timezone: 'UTC' });
 console.log('[cron] Audit booking follow-up scheduled — every 6 hours');
 
-// ---------------------------------------------------------------------------
-// Saleshandy auto-upload — every 15 minutes
-// ---------------------------------------------------------------------------
-const SALESHANDY_INTERVAL = setInterval(() => safeCron('Saleshandy Auto-Upload', async () => {
-  const { uploadToSaleshandy } = await import('./services/outreachEnrichmentService');
-  await uploadToSaleshandy();
-}), 15 * 60_000);
-_intervals.push(SALESHANDY_INTERVAL);
-console.log('[cron] Saleshandy auto-upload scheduled — every 15 minutes');
-
-// ---------------------------------------------------------------------------
-// Outreach → CRM Sync — every 30 minutes
-// Creates CRM contacts + deals from Active outreach leads
-// ---------------------------------------------------------------------------
-import('./services/outreachCrmSyncService').then(m => m.ensureOutreachCrmSetup()).catch(() => {});
 import('./services/systemHealthMonitor').then(m => m.ensureCronJobLogsTable()).catch(() => {});
-const CRM_SYNC_INTERVAL = setInterval(() => safeCron('Outreach CRM Sync', async () => {
-  const { syncOutreachToCrm } = await import('./services/outreachCrmSyncService');
-  await syncOutreachToCrm();
-}), 30 * 60_000);
-_intervals.push(CRM_SYNC_INTERVAL);
-console.log('[cron] Outreach CRM sync scheduled — every 30 minutes');
-
-// ---------------------------------------------------------------------------
-// Daily Lead Discovery — 7:00 AM IST (1:30 UTC)
-// Runs 3 searches per day, rotating through the list
-// ---------------------------------------------------------------------------
-const DISCOVERY_QUERIES = [
-  // UK — major cities × keyword variations
-  { query: 'performance marketing agency', location: 'Birmingham', country: 'UK' },
-  { query: 'performance marketing agency', location: 'Leeds', country: 'UK' },
-  { query: 'performance marketing agency', location: 'Bristol', country: 'UK' },
-  { query: 'digital marketing agency', location: 'Edinburgh', country: 'UK' },
-  { query: 'ppc agency', location: 'Liverpool', country: 'UK' },
-  { query: 'meta ads agency', location: 'Manchester', country: 'UK' },
-  { query: 'google ads agency', location: 'Glasgow', country: 'UK' },
-  { query: 'paid social agency', location: 'Newcastle', country: 'UK' },
-  { query: 'ecommerce marketing agency', location: 'Nottingham', country: 'UK' },
-  { query: 'shopify marketing agency', location: 'Sheffield', country: 'UK' },
-  { query: 'facebook ads agency', location: 'Cardiff', country: 'UK' },
-  { query: 'D2C marketing agency', location: 'Belfast', country: 'UK' },
-  { query: 'paid media agency', location: 'Southampton', country: 'UK' },
-  { query: 'growth marketing agency', location: 'Brighton', country: 'UK' },
-  // AU — expanded cities
-  { query: 'performance marketing agency', location: 'Sydney', country: 'AU' },
-  { query: 'digital marketing agency', location: 'Brisbane', country: 'AU' },
-  { query: 'ppc agency', location: 'Perth', country: 'AU' },
-  { query: 'meta ads agency', location: 'Melbourne', country: 'AU' },
-  { query: 'google ads agency', location: 'Adelaide', country: 'AU' },
-  { query: 'ecommerce marketing agency', location: 'Gold Coast', country: 'AU' },
-  { query: 'paid social agency', location: 'Canberra', country: 'AU' },
-  { query: 'shopify agency', location: 'Hobart', country: 'AU' },
-  // CA — expanded cities
-  { query: 'performance marketing agency', location: 'Vancouver', country: 'CA' },
-  { query: 'digital marketing agency', location: 'Calgary', country: 'CA' },
-  { query: 'meta ads agency', location: 'Toronto', country: 'CA' },
-  { query: 'ppc agency', location: 'Montreal', country: 'CA' },
-  { query: 'google ads agency', location: 'Ottawa', country: 'CA' },
-  { query: 'ecommerce marketing agency', location: 'Edmonton', country: 'CA' },
-  { query: 'paid media agency', location: 'Winnipeg', country: 'CA' },
-  // US — expanded cities + niche keywords
-  { query: 'meta ads agency', location: 'New York', country: 'US' },
-  { query: 'performance marketing agency', location: 'Austin', country: 'US' },
-  { query: 'digital advertising agency', location: 'Chicago', country: 'US' },
-  { query: 'ecommerce marketing agency', location: 'Miami', country: 'US' },
-  { query: 'google ads agency', location: 'Los Angeles', country: 'US' },
-  { query: 'shopify marketing agency', location: 'San Francisco', country: 'US' },
-  { query: 'paid social agency', location: 'Denver', country: 'US' },
-  { query: 'D2C marketing agency', location: 'Atlanta', country: 'US' },
-  { query: 'facebook ads agency', location: 'Dallas', country: 'US' },
-  { query: 'growth marketing agency', location: 'Seattle', country: 'US' },
-  { query: 'ppc management agency', location: 'Boston', country: 'US' },
-  { query: 'performance media agency', location: 'Nashville', country: 'US' },
-  { query: 'paid advertising agency', location: 'Portland', country: 'US' },
-  { query: 'digital ads agency', location: 'Phoenix', country: 'US' },
-  { query: 'meta advertising agency', location: 'Charlotte', country: 'US' },
-  // NZ
-  { query: 'digital marketing agency', location: 'Auckland', country: 'NZ' },
-  { query: 'ppc agency', location: 'Wellington', country: 'NZ' },
-  // IE
-  { query: 'performance marketing agency', location: 'Dublin', country: 'IE' },
-  { query: 'paid social agency', location: 'Cork', country: 'IE' },
-  // EU — Berlin / Amsterdam / Stockholm / Copenhagen (English-speaking agency scene)
-  { query: 'performance marketing agency', location: 'Berlin', country: 'DE' },
-  { query: 'ecommerce marketing agency', location: 'Berlin', country: 'DE' },
-  { query: 'paid social agency', location: 'Munich', country: 'DE' },
-  { query: 'ppc agency', location: 'Hamburg', country: 'DE' },
-  { query: 'performance marketing agency', location: 'Amsterdam', country: 'NL' },
-  { query: 'shopify agency', location: 'Amsterdam', country: 'NL' },
-  { query: 'paid media agency', location: 'Rotterdam', country: 'NL' },
-  { query: 'performance marketing agency', location: 'Stockholm', country: 'SE' },
-  { query: 'ecommerce agency', location: 'Stockholm', country: 'SE' },
-  { query: 'digital marketing agency', location: 'Gothenburg', country: 'SE' },
-  { query: 'performance marketing agency', location: 'Copenhagen', country: 'DK' },
-  { query: 'paid social agency', location: 'Copenhagen', country: 'DK' },
-  { query: 'performance marketing agency', location: 'Oslo', country: 'NO' },
-  { query: 'ecommerce marketing agency', location: 'Helsinki', country: 'FI' },
-  // UK tier-2 + niche
-  { query: 'CRO agency', location: 'London', country: 'UK' },
-  { query: 'lifecycle marketing agency', location: 'London', country: 'UK' },
-  { query: 'retention agency', location: 'London', country: 'UK' },
-  { query: 'TikTok ads agency', location: 'London', country: 'UK' },
-  { query: 'amazon marketing agency', location: 'London', country: 'UK' },
-  { query: 'klaviyo email agency', location: 'London', country: 'UK' },
-  { query: 'email marketing agency', location: 'Manchester', country: 'UK' },
-  { query: 'performance creative agency', location: 'London', country: 'UK' },
-  { query: 'youtube ads agency', location: 'London', country: 'UK' },
-  { query: 'influencer marketing agency', location: 'London', country: 'UK' },
-  { query: 'direct response agency', location: 'London', country: 'UK' },
-  { query: 'B2B marketing agency', location: 'London', country: 'UK' },
-  { query: 'SaaS marketing agency', location: 'London', country: 'UK' },
-  { query: 'dtc agency', location: 'London', country: 'UK' },
-  { query: 'subscription marketing agency', location: 'London', country: 'UK' },
-  // US tier-2 + niche
-  { query: 'CRO agency', location: 'New York', country: 'US' },
-  { query: 'lifecycle marketing agency', location: 'New York', country: 'US' },
-  { query: 'retention agency', location: 'Los Angeles', country: 'US' },
-  { query: 'TikTok ads agency', location: 'Los Angeles', country: 'US' },
-  { query: 'amazon marketing agency', location: 'New York', country: 'US' },
-  { query: 'klaviyo email agency', location: 'New York', country: 'US' },
-  { query: 'email marketing agency', location: 'Chicago', country: 'US' },
-  { query: 'youtube ads agency', location: 'Los Angeles', country: 'US' },
-  { query: 'influencer marketing agency', location: 'Los Angeles', country: 'US' },
-  { query: 'B2B marketing agency', location: 'San Francisco', country: 'US' },
-  { query: 'SaaS marketing agency', location: 'San Francisco', country: 'US' },
-  { query: 'subscription marketing agency', location: 'Austin', country: 'US' },
-  { query: 'performance marketing agency', location: 'Minneapolis', country: 'US' },
-  { query: 'digital marketing agency', location: 'Indianapolis', country: 'US' },
-  { query: 'paid social agency', location: 'Salt Lake City', country: 'US' },
-  { query: 'ecommerce marketing agency', location: 'San Diego', country: 'US' },
-  { query: 'ppc agency', location: 'Orlando', country: 'US' },
-  { query: 'google ads agency', location: 'Las Vegas', country: 'US' },
-  { query: 'facebook ads agency', location: 'Tampa', country: 'US' },
-  { query: 'shopify marketing agency', location: 'Brooklyn', country: 'US' },
-  // AU niche
-  { query: 'shopify agency', location: 'Sydney', country: 'AU' },
-  { query: 'TikTok ads agency', location: 'Melbourne', country: 'AU' },
-  { query: 'klaviyo email agency', location: 'Sydney', country: 'AU' },
-  { query: 'CRO agency', location: 'Melbourne', country: 'AU' },
-  { query: 'B2B marketing agency', location: 'Sydney', country: 'AU' },
-  // CA niche
-  { query: 'shopify agency', location: 'Toronto', country: 'CA' },
-  { query: 'klaviyo email agency', location: 'Toronto', country: 'CA' },
-  { query: 'TikTok ads agency', location: 'Vancouver', country: 'CA' },
-];
-
-// PAUSED 2026-05-03 — Daily Lead Discovery (Google Places). Re-enable by uncommenting.
-/*
-cron.schedule('30 1 * * *', () => safeCron('Daily Lead Discovery', async () => {
-  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-  if (!apiKey) { console.log('[CRON] Discovery: GOOGLE_PLACES_API_KEY not set'); return; }
-
-  const QUERIES_PER_DAY = 5;
-  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
-  const startIdx = (dayOfYear * QUERIES_PER_DAY) % DISCOVERY_QUERIES.length;
-  const todayQueries = Array.from({ length: QUERIES_PER_DAY }, (_, i) =>
-    DISCOVERY_QUERIES[(startIdx + i) % DISCOVERY_QUERIES.length]);
-
-  let totalInserted = 0;
-  let totalApiCalls = 0;
-  const countryCounts: Record<string, number> = {};
-  const { insertOutreachLead } = await import('./services/outreachLeadsService');
-
-  type Place = { name: string; formatted_address?: string; rating?: number; user_ratings_total?: number };
-
-  for (const q of todayQueries) {
-    try {
-      const fullQuery = encodeURIComponent(`${q.query} ${q.location}`);
-      const baseUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${fullQuery}&key=${apiKey}`;
-
-      // Paginate up to 3 pages (60 results max) via next_page_token.
-      // Places requires ~2s delay before pagetoken becomes active.
-      const allPlaces: Place[] = [];
-      let nextToken: string | undefined;
-      for (let page = 0; page < 3; page++) {
-        const url = page === 0 ? baseUrl : `${baseUrl}&pagetoken=${nextToken}`;
-        if (page > 0) await new Promise(r => setTimeout(r, 2500));
-        const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
-        totalApiCalls++;
-        if (!res.ok) break;
-        const data = await res.json() as { results?: Place[]; next_page_token?: string };
-        allPlaces.push(...(data.results ?? []));
-        nextToken = data.next_page_token;
-        if (!nextToken) break;
-      }
-
-      for (const p of allPlaces) {
-        const fitScore = Math.min(100, 50 + (p.rating ?? 0) * 5 + Math.min((p.user_ratings_total ?? 0), 10) * 2);
-        if (fitScore < 40) continue;
-
-        const result = await insertOutreachLead({
-          company: p.name,
-          address: p.formatted_address ?? null,
-          country: q.country,
-          fitScore,
-          sourceDetail: `auto_discovery: ${q.query} in ${q.location}`,
-        });
-        if (result.inserted) {
-          totalInserted++;
-          countryCounts[q.country] = (countryCounts[q.country] ?? 0) + 1;
-        }
-      }
-      await new Promise(r => setTimeout(r, 2000));
-    } catch (e) {
-      console.error(`[discovery] ${q.query} ${q.location} failed:`, e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  if (totalApiCalls > 0) {
-    try {
-      const { incrementDiscoveryCost } = await import('./services/outreachFunnelMetrics');
-      await incrementDiscoveryCost(totalApiCalls);
-    } catch (err) {
-      console.error('[CRON] discovery cost track failed:', err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  if (totalInserted > 0) {
-    const { sendSlackMessage } = await import('./services/slackService');
-    const totalPipeline = await pool.query(`SELECT COUNT(*)::int AS c FROM outreach_leads`);
-    const parts = Object.entries(countryCounts).map(([c, n]) => `${c}: ${n}`).join(', ');
-    await sendSlackMessage(SLACK_OUTREACH_CHANNEL,
-      `🔍 *Discovery*: Found ${totalInserted} new leads today (${parts}). Total pipeline: ${(totalPipeline.rows[0] as { c: number }).c} leads.`,
-    ).catch(() => {});
-  }
-  console.log(`[CRON] Daily discovery: ${totalInserted} new leads, ${totalApiCalls} Places calls`);
-}), { timezone: 'UTC' });
-console.log('[cron] Daily lead discovery scheduled — 7:00 AM IST');
-*/
-console.log('[cron] Daily lead discovery — PAUSED 2026-05-03');
-
-// ---------------------------------------------------------------------------
-// Outreach Funnel Snapshot — 23:55 IST (18:25 UTC)
-// Captures daily funnel counts for ROI tracking on /outreach-dashboard
-// ---------------------------------------------------------------------------
-cron.schedule('25 18 * * *', () => safeCron('Outreach Funnel Snapshot', async () => {
-  const { snapshotTodaysFunnel } = await import('./services/outreachFunnelMetrics');
-  await snapshotTodaysFunnel();
-}), { timezone: 'UTC' });
-console.log('[cron] Outreach funnel snapshot scheduled — 23:55 IST');
-
-// ---------------------------------------------------------------------------
-// Saleshandy Stats Poll — 23:50 IST (18:20 UTC), just before funnel snapshot
-// Populates today's sent/open/bounce/click before snapshotTodaysFunnel runs
-// ---------------------------------------------------------------------------
-cron.schedule('20 18 * * *', () => safeCron('Saleshandy Stats Poll', async () => {
-  const { pollSaleshandyStats } = await import('./services/saleshandyStatsService');
-  await pollSaleshandyStats();
-}), { timezone: 'UTC' });
-console.log('[cron] Saleshandy stats poll scheduled — 23:50 IST');
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
@@ -1212,8 +840,7 @@ console.log('[cron] SEO weekly email scheduled — Thursdays 10:30 AM IST');
 // Console + GA4 for growthescalators.com. Auth: GOOGLE_SEO_OAUTH_REFRESH_TOKEN
 // + GCP_OAUTH_CLIENT_ID/SECRET env vars in Railway (falls back to the local
 // ~/.ge-seo/oauth_credentials.json file, unused here, or a service account —
-// see getAuth() in the script). Doesn't collide with Weekly Outreach Summary
-// (2:30 UTC, same day) — 15 min offset.
+// see getAuth() in the script).
 // Writes docs/seo/state/growthescalators.{json,md} to the container's local
 // filesystem — that's ephemeral on Railway (reset on every deploy/restart),
 // which is fine: it's a state cache Claude reads mid-session, not the source
@@ -1233,19 +860,6 @@ cron.schedule('45 2 * * 1', () => safeCron('GE SEO Pull', async () => {
   if (stderr) console.warn(`[CRON] GE SEO Pull stderr:\n${stderr}`);
 }), { timezone: 'UTC' });
 console.log('[cron] GE SEO pull scheduled — Mondays 8:15 AM IST (2:45 UTC)');
-
-// ---------------------------------------------------------------------------
-// Task 7: Weekly Outreach Performance Summary — Monday 8:00 AM IST (2:30 UTC)
-// Posts pipeline stats + reply activity to Jatin's Slack DM
-// ---------------------------------------------------------------------------
-// Gated by OUTREACH_SUMMARY_SLACK_ENABLED (default OFF). Pure Slack — the
-// summary is computed for the message and nothing else, so gating the whole
-// cron loses no data.
-if (OUTREACH_SUMMARY_SLACK_ENABLED) cron.schedule('30 2 * * 1', () => safeCron('Weekly Outreach Summary', async () => {
-  const { sendWeeklyOutreachSummary } = await import('./services/outreachAlertService');
-  await sendWeeklyOutreachSummary();
-}), { timezone: 'UTC' });
-console.log('[cron] Weekly outreach summary scheduled — Mondays 8:00 AM IST (2:30 UTC)');
 
 // ---------------------------------------------------------------------------
 // Backend PageSpeed Monitor — Sunday 7:30 AM IST (2:00 UTC)
@@ -1424,14 +1038,6 @@ cron.schedule('30 4 15 * *', () => safeCron('SEO Content Gap Analysis', async ()
 }), { timezone: 'UTC' });
 console.log('[cron] SEO content gap analysis scheduled — 15th of month at 10:00 AM IST');
 
-// Directory Scrapers — Daily 11 AM IST (5:30 UTC) — Clutch, GoodFirms, Upwork, LinkedIn
-cron.schedule('30 5 * * *', () => safeCron('Directory Scrapers', async () => {
-  const { runAllScrapers } = await import('./services/directoryScraperService');
-  const result = await runAllScrapers();
-  console.log(`[CRON] Directory scrapers: ${result.total} found, ${result.imported} new leads imported`);
-}), { timezone: 'UTC' });
-console.log('[cron] Directory scrapers scheduled — daily 11:00 AM IST');
-
 // PAUSED 2026-05-03 — Finance Monthly Generation (recurring expenses). Re-enable by uncommenting.
 /*
 cron.schedule('30 3 1 * *', () => safeCron('Finance Monthly Generation', async () => {
@@ -1457,9 +1063,6 @@ cron.schedule('30 20 * * 6', () => safeCron('Weekly Data Cleanup', async () => {
   const r2 = await pool.query(`DELETE FROM ai_intelligence_reports WHERE created_at < NOW() - INTERVAL '180 days'`);
   totalDeleted += r2.rowCount ?? 0;
 
-  const r3 = await pool.query(`DELETE FROM outreach_errors WHERE created_at < NOW() - INTERVAL '30 days'`);
-  totalDeleted += r3.rowCount ?? 0;
-
   console.log(`[CRON] Weekly cleanup: deleted ${totalDeleted} old records`);
 
   if (totalDeleted > 100) {
@@ -1470,25 +1073,6 @@ cron.schedule('30 20 * * 6', () => safeCron('Weekly Data Cleanup', async () => {
   }
 }), { timezone: 'UTC' });
 console.log('[cron] Weekly data cleanup scheduled — Sundays 2:00 AM IST');
-
-// ---------------------------------------------------------------------------
-// Daily Archive — 3:00 AM IST (21:30 UTC previous day)
-// ---------------------------------------------------------------------------
-cron.schedule('30 21 * * *', () => safeCron('Daily Archive', async () => {
-  await pool.query(`CREATE TABLE IF NOT EXISTS outreach_leads_archive (LIKE outreach_leads INCLUDING ALL)`).catch(() => {});
-  const r = await pool.query(`
-    WITH moved AS (
-      DELETE FROM outreach_leads
-      WHERE status = 'Closed' AND updated_at < NOW() - INTERVAL '365 days'
-      RETURNING *
-    )
-    INSERT INTO outreach_leads_archive SELECT * FROM moved
-    RETURNING id
-  `).catch(() => ({ rowCount: 0 }));
-  const archived = r.rowCount ?? 0;
-  if (archived > 0) console.log(`[CRON] Archived ${archived} closed outreach leads`);
-}), { timezone: 'UTC' });
-console.log('[cron] Daily archive scheduled — 3:00 AM IST');
 
 // ---------------------------------------------------------------------------
 // System Health Monitor — every 30 minutes

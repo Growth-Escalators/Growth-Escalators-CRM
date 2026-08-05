@@ -164,10 +164,6 @@ router.get('/system-health', async (_req: Request, res: Response) => {
 // is a 'run anything now' surface).
 // ---------------------------------------------------------------------------
 const RUN_CRON_WHITELIST: Record<string, () => Promise<unknown>> = {
-  'Directory Scrapers': async () => {
-    const { runAllScrapers } = await import('../services/directoryScraperService');
-    return runAllScrapers();
-  },
   'Monthly Client Benchmarks': async () => {
     const { calculateMonthlyBenchmarks } = await import('../services/metaAdsService');
     await calculateMonthlyBenchmarks();
