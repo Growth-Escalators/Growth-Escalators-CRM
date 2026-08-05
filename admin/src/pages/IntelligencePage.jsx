@@ -458,7 +458,7 @@ function HistoryTable({ reports }) {
 // ---------------------------------------------------------------------------
 // System Health Tab
 // ---------------------------------------------------------------------------
-const RUNNABLE_CRONS = new Set(['Directory Scrapers', 'Monthly Client Benchmarks']);
+const RUNNABLE_CRONS = new Set(['Monthly Client Benchmarks']);
 
 function SystemHealthTab() {
   const [health, setHealth] = useState(null);
@@ -528,7 +528,6 @@ function SystemHealthTab() {
       {/* Subsystem cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { name: 'Outreach', data: health.outreach },
           { name: 'SEO', data: health.seo },
           { name: 'CRM', data: health.crm },
           { name: 'Infrastructure', data: health.infrastructure },

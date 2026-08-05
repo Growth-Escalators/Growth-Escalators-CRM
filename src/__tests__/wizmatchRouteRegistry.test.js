@@ -78,13 +78,11 @@ describe('wizmatchRouteRegistry', () => {
   // The last one is what makes this reversible rather than a deletion.
   const ROUTABLE_BUT_HIDDEN = [
     ['more-inbox', '/wizmatch/inbox'],
-    ['more-outreach', '/wizmatch/outreach'],
     ['more-templates-email', '/wizmatch/emails'],
     ['more-templates-wa', '/wizmatch/whatsapp-templates'],
     ['more-contacts', '/wizmatch/contacts'],
     ['more-pipeline', '/wizmatch/pipeline'],
     ['more-tasks', '/wizmatch/tasks'],
-    ['more-discovery', '/wizmatch/discover'],
     ['more-provider-runs', '/wizmatch/system?tab=sourcing'],
     ['more-billing', '/wizmatch/billing'],
     ['more-expenses', '/wizmatch/finance'],

@@ -60,8 +60,6 @@ export const WIZMATCH_SHARED_ROUTE_MAP = {
   '/finance': '/wizmatch/finance',
   '/emails': '/wizmatch/emails',
   '/whatsapp-templates': '/wizmatch/whatsapp-templates',
-  '/discover': '/wizmatch/discover',
-  '/outreach-dashboard': '/wizmatch/outreach',
   '/intelligence': '/wizmatch/intelligence',
   '/settings/permissions': '/wizmatch/settings/permissions',
   '/settings/audit': '/wizmatch/settings/audit',

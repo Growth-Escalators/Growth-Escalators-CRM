@@ -30,13 +30,15 @@ the selected path before a production-sensitive change.
 - **Candidate / supply funnel** — intake talent → match to open roles → place. (Separate workflow;
   the Cockpit deliberately excludes it.)
 
-**B) There are TWO separate senders — do not confuse them.**
+**B) There used to be TWO separate senders — now there is one.**
 - **Wizmatch outreach → your own mailer.** `sendColdEmail()` in `multiDomainMailer.ts` sends via
   Purelymail SMTP directly (per-inbox cap, suppression, HMAC unsubscribe). Called from
   `routes/wizmatch.ts` (signal send + the PR #24 contact send). **This is the Cockpit's Send stage.**
-- **Growth outreach → Saleshandy (external SaaS).** `outreachEnrichmentService.ts` uploads
-  `outreach_leads` to a Saleshandy sequence; `saleshandyStatsService.ts` polls stats. This is the
-  *Growth Escalators* agency's sender, a different product/tenant. Not part of the Cockpit.
+- ~~**Growth outreach → Saleshandy (external SaaS).**~~ **Removed (2026-08).** The owner retired the
+  Saleshandy/Google-Places outreach pipeline entirely — `outreachEnrichmentService.ts`,
+  `saleshandyStatsService.ts`, `outreachLeadsService.ts`, and the rest of the backend/frontend it
+  powered are deleted. `outreach_leads` and its sibling tables are left orphaned (not dropped) per
+  the removal PR's DB note. Not part of the Cockpit, and no longer part of Growth Escalators either.
 
 ---
 
@@ -173,8 +175,8 @@ Reference data: `wizmatchPrimes` (prime vendors).
 - **Worker behavior differs by job:** signal scoring calls `scoreSignalById()` in-process. RemoteOK
   and TheirStack ingestion use the protected public API through `WIZMATCH_API_BASE_URL`; never assume
   every job follows the same transport.
-- **Two senders:** Wizmatch = `multiDomainMailer` (Purelymail SMTP); Growth = Saleshandy. Metrics like
-  `saleshandy_uploaded` belong to the Growth funnel, not Wizmatch.
+- **One sender now:** Wizmatch = `multiDomainMailer` (Purelymail SMTP). Growth's Saleshandy sender
+  (and the `saleshandy_uploaded` metric it fed) was removed 2026-08 — see section 0(B).
 - **CONTACT is manual + cost-guarded** by design (never auto-spends): needs a cost-guard token and
   human review before a contact is used.
 - **Sending is gated off** (`WIZMATCH_SENDING_ENABLED=false`) until explicitly enabled.

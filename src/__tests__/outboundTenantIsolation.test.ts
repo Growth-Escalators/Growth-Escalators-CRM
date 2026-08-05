@@ -17,7 +17,7 @@ vi.mock('../db/index', () => ({
 vi.mock('../services/contactService', () => ({
   findOrCreateContact: vi.fn(),
 }));
-vi.mock('../services/outreachEnrichmentService', () => ({
+vi.mock('../services/replyClassifierService', () => ({
   classifyReplyWithAI: vi.fn(),
 }));
 

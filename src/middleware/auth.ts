@@ -180,9 +180,9 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 // did not.
 //
 // A stale/revoked token DEGRADES TO ANONYMOUS rather than 401: this is
-// *optional* auth, mounted on a route that legitimately serves unauthenticated
-// callers (`/api/outreach/leads`, which authorises by OUTREACH_INTERNAL_SECRET
-// and reads no `req.user` at all today). Rejecting outright would break that
+// *optional* auth, meant for routes that legitimately serve unauthenticated
+// callers but still want to recognise a caller's identity when a valid token
+// happens to be present. Rejecting outright would break the unauthenticated
 // contract for any client holding a stale token; refusing to populate
 // `req.user` removes the privilege without changing the route's reachability.
 // The DB lookup reuses the same 30s-TTL cache as requireAuth, so this adds no

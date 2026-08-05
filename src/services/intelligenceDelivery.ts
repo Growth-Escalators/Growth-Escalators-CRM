@@ -44,7 +44,6 @@ export async function deliverDailyIntelligence(analysis: Analysis, data: AgencyD
     const hEmo = health.overallScore >= 80 ? '🟢' : health.overallScore >= 50 ? '🟡' : '🔴';
     msg += `${hEmo} *System Health: ${health.overallScore}/100*\n`;
     const subsystems = [
-      { name: 'Outreach', s: health.outreach },
       { name: 'SEO', s: health.seo },
       { name: 'CRM', s: health.crm },
       { name: 'Infra', s: health.infrastructure },

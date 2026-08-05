@@ -4220,11 +4220,11 @@ router.post('/classify-reply', requireInternalToken, async (req: Request, res: R
   }
 
   try {
-    // Reuse the existing Haiku classifier from outreachEnrichmentService
+    // Reuse the existing Haiku classifier from replyClassifierService
     // Signature: classifyReplyWithAI(replyBody, originalIcebreaker, companyName)
     // Returns: { category, confidence, summary, draftReply }
     // Categories: INTERESTED | NOT_NOW | NOT_INTERESTED | UNSUBSCRIBE | UNCATEGORIZED
-    const { classifyReplyWithAI } = await import('../services/outreachEnrichmentService');
+    const { classifyReplyWithAI } = await import('../services/replyClassifierService');
     const result = await classifyReplyWithAI(reply_text, '', contact_email);
 
     // Map outreach categories to Wizmatch signal status

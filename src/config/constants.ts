@@ -8,7 +8,6 @@ export const SLACK_GENERAL_CHANNEL = process.env.SLACK_GENERAL_CHANNEL ?? 'C0748
 export const SLACK_SALES_BD_CHANNEL = process.env.SLACK_SALES_BD_CHANNEL ?? 'C0AMPEF302G';
 export const SLACK_PERF_MARKETING_CHANNEL = process.env.SLACK_PERF_MARKETING_CHANNEL ?? 'C0ALLQG0SUS';
 export const SLACK_SEO_CHANNEL = process.env.SLACK_SEO_CHANNEL ?? 'C09TUDJPS2X';
-export const SLACK_OUTREACH_CHANNEL = process.env.SLACK_OUTREACH_CHANNEL ?? 'C0AMPEF302G'; // defaults to #sales-bd until dedicated #outreach channel is created
 export const SLACK_SOCIAL_MEDIA_CHANNEL = process.env.SLACK_SOCIAL_MEDIA_CHANNEL ?? 'C0BA1F33BL0';
 
 // -- Slack User IDs ----------------------------------------------------------

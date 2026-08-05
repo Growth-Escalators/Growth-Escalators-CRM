@@ -906,7 +906,6 @@ export function WizmatchDashboardPage({ demoMode = false }) {
                 ['/wizmatch/pipeline', 'Pipeline'],
                 ['/wizmatch/tasks', 'Tasks'],
                 ['/wizmatch/inbox', 'Inbox'],
-                ['/wizmatch/outreach', 'Outreach'],
                 ['/wizmatch/intelligence', 'AI Intelligence'],
               ].map(([href, label]) => (
                 <a key={href} href={href} className="flex items-center justify-between rounded-md border border-neutral-100 bg-white px-3 py-2 text-sm font-semibold text-neutral-800 transition hover:border-primary-300 hover:text-primary-700">

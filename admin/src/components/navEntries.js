@@ -1,6 +1,6 @@
 import {
   Calendar, Home, Users, Kanban, CheckSquare, MessageSquare, TrendingUp,
-  Megaphone, Share2, Target, Search, FileText, Brain, MapPin, Zap, Mail,
+  Megaphone, Share2, Search, FileText, Brain, Zap, Mail,
   Link as LinkIcon, CreditCard, Receipt, Shield, ShieldCheck, ClipboardList, Settings,
   Briefcase, Building2, Palette, Plug, UserPlus,
 } from 'lucide-react';
@@ -120,7 +120,6 @@ export function computeFlags(role, perms = {}, tenantSlug = 'growth-escalators',
     canFinance:    isAdmin || !!perms.billingView || !!perms.isOwner,
     canContracts:  ['admin', 'manager_ops', 'team_lead', 'sales'].includes(role) || !!perms.contractsView,
     canSequences:  ['admin', 'manager_ops', 'team_lead', 'sales'].includes(role),
-    canDiscovery:  ['admin', 'manager_ops', 'team_lead', 'sales'].includes(role),
     canMarketing:  ['admin', 'manager_ads'].includes(role),
     canSEO:        ['admin', 'manager_ops', 'manager_ads'].includes(role),
     canWizmatch:   product === 'wizmatch' && isAdminTier,
@@ -214,11 +213,6 @@ export const NAV_ENTRIES = [
     visible: f => f.canSocial,
   },
   {
-    id: 'outreach', label: 'Outreach', to: '/outreach-dashboard',
-    icon: Target, section: 'Marketing', group: null,
-    visible: f => f.isAdminTier,
-  },
-  {
     id: 'outbound', label: 'Outbound', to: '/outbound',
     icon: Briefcase, section: 'Marketing', group: null,
     visible: f => f.isAdminTier,
@@ -237,11 +231,6 @@ export const NAV_ENTRIES = [
   },
 
   // ── TOOLS (collapsible) ───────────────────────────────────────
-  {
-    id: 'discover', label: 'Lead Discovery', to: '/discover',
-    icon: MapPin, section: 'Tools', group: 'tools', newTab: true,
-    visible: f => f.canDiscovery,
-  },
   {
     id: 'growth-os', label: 'Growth OS', to: '/growth-os',
     icon: Zap, section: 'Tools', group: 'tools', newTab: true,
