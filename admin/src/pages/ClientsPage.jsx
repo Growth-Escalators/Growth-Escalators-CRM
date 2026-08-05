@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar.jsx';
 import { apiFetch } from '../lib/api.js';
 import { safeLower } from '../lib/safe.js';
-import { useToast } from '../components/wizmatch/Toast.jsx';
 import {
   Briefcase, Search, Plus, AlertTriangle, TrendingUp, Trophy,
   Building2,
@@ -166,7 +165,6 @@ function CardSkeleton() {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function ClientsPage() {
   const navigate = useNavigate();
-  const { showError } = useToast();
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -221,10 +219,11 @@ export default function ClientsPage() {
             </div>
             <button
               type="button"
-              onClick={() => showError('Add client flow not built yet — win a deal in Pipeline to auto-create a client.')}
+              onClick={() => navigate('/pipeline?newDeal=1')}
+              title="There's no direct client-creation form yet — this opens Pipeline's Add Deal flow, and winning that deal auto-creates the client record"
               className="ml-auto inline-flex items-center gap-1.5 px-3 py-2 bg-sky-600 text-white text-sm font-semibold rounded-lg hover:bg-sky-700 transition-colors"
             >
-              <Plus className="w-4 h-4" /> Add Client
+              <Plus className="w-4 h-4" /> Add Client via Pipeline
             </button>
           </div>
 
@@ -295,6 +294,15 @@ export default function ClientsPage() {
                   ? 'Won deals in your sales pipeline auto-create clients here. Move a deal to the “Won” stage to onboard your first one.'
                   : 'Try clearing the search or switching the status filter.'}
               </p>
+              {clients.length === 0 && (
+                <button
+                  type="button"
+                  onClick={() => navigate('/pipeline?newDeal=1')}
+                  className="mt-4 inline-flex items-center gap-1.5 px-3 py-2 bg-sky-600 text-white text-sm font-semibold rounded-lg hover:bg-sky-700 transition-colors"
+                >
+                  <Plus className="w-4 h-4" /> Go to Pipeline
+                </button>
+              )}
             </div>
           )}
 

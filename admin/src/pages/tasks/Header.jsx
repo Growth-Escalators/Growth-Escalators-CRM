@@ -6,7 +6,7 @@
 // + a preview-chip popover. Header forwards `team` so the parser can resolve
 // @-mentions against real users.
 
-import React from 'react';
+import React, { useRef } from 'react';
 import { Sun, LayoutGrid, List as ListIcon, Calendar, Plus, BarChart3 } from 'lucide-react';
 import FilterBar from './FilterBar.jsx';
 import QuickCapture from './QuickCapture.jsx';
@@ -62,6 +62,8 @@ export default function Header({
   team, currentUser,
   density, onDensityChange,
 }) {
+  const quickCaptureRef = useRef(null);
+
   return (
     <header className="bg-white shrink-0 border-b border-slate-200">
       <div className="px-5 py-3 flex items-center gap-4">
@@ -76,13 +78,14 @@ export default function Header({
           <p className="text-[10px] text-slate-500 mt-1">{todayLabel()}</p>
         </div>
 
-        <QuickCapture onCreate={onCreate} team={team} />
+        <QuickCapture ref={quickCaptureRef} onCreate={onCreate} team={team} />
 
         <div className="ml-auto flex items-center gap-2">
           <ViewSwitcher value={subView} onChange={onSubView} isAdmin={currentUser?.role === 'admin'} />
           <DensityMenu value={density} onChange={onDensityChange} />
           <button
             type="button"
+            onClick={() => quickCaptureRef.current?.focus()}
             className="inline-flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium px-3 py-1.5 rounded-lg"
             aria-label="Create new task"
             title="Create new task"

@@ -5,8 +5,12 @@
 //
 // Parsing lives in ./lib/parser.js (pure function, easy to test). This file
 // is presentation-only.
+//
+// Exposes an imperative `focus()` via ref so Header's "New task" button can
+// jump the user straight into this input rather than duplicating a second
+// task-creation surface.
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { parseQuickCapture } from './lib/parser.js';
 import { displayAssignee } from './lib/format.js';
@@ -34,9 +38,13 @@ function AssigneeChip({ assigneeId, team }) {
   );
 }
 
-export default function QuickCapture({ onCreate, team = [] }) {
+const QuickCapture = forwardRef(function QuickCapture({ onCreate, team = [] }, ref) {
   const [text, setText] = useState('');
   const inputRef = useRef(null);
+
+  useImperativeHandle(ref, () => ({
+    focus: () => inputRef.current?.focus(),
+  }));
 
   const parsed = useMemo(() => {
     if (!text.trim()) return null;
@@ -122,4 +130,6 @@ export default function QuickCapture({ onCreate, team = [] }) {
       )}
     </form>
   );
-}
+});
+
+export default QuickCapture;

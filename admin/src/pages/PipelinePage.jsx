@@ -561,6 +561,21 @@ export default function PipelinePage() {
     if (dealId) setSelectedDealId(dealId);
   }, []);
 
+  // Deep-link: /pipeline?newDeal=1 opens Add Deal directly. Used by the
+  // ClientsPage "Add Client" CTA — there's no direct client-creation form,
+  // winning a deal here is what auto-creates the client record. Waits for
+  // the active pipeline + its stages to be loaded so it has a real stage to
+  // default into, then strips the param so refresh/back doesn't reopen it.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('newDeal') !== '1') return;
+    if (!activePipelineId || kanbanStages.length === 0) return;
+    setAddDealModal({ pipelineId: activePipelineId, stageName: kanbanStages[0]?.stageName ?? '' });
+    params.delete('newDeal');
+    const rest = params.toString();
+    window.history.replaceState({}, '', `${window.location.pathname}${rest ? `?${rest}` : ''}`);
+  }, [activePipelineId, kanbanStages]);
+
   const activePipeline = pipelinesList.find((p) => p.id === activePipelineId);
   const totalDeals = kanbanStages.reduce((s, st) => s + (Array.isArray(st.deals) ? st.deals.length : 0), 0);
   const totalValue = kanbanStages.reduce((s, st) => s + Number(st.totalValue ?? 0), 0);
