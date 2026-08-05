@@ -63,19 +63,29 @@
  *   passed as `[]` here — this guard is purely a spend cap, not a credential
  *   check, and never logs `SERPER_API_KEY` or any other credential.
  *
- * - SITE-PAUSED NOT CHECKED HERE: `evaluateSeoCostGuard` also supports
- *   `sitePaused`, but honouring it would need a second DB read (the full
- *   `SeoSite` row, not just its id, since only the id is threaded through
- *   here). None of the four call sites asked for that, so `sitePaused` is
- *   left at its default (falsy) — a paused site still gets tenant/site
- *   Serper-cap enforcement today, just not an immediate hard stop. Flagging
- *   this as a gap for whichever lane owns site pausing.
+ * - SITE-PAUSED / PLAN-LIMITS ARE OPT-IN VIA `spendContext`: `evaluateSeoCostGuard`
+ *   also supports `sitePaused` and `planLimits`, but honouring them costs a
+ *   plan-lookup DB read plus (per site) a site-status DB read — too expensive
+ *   to do unconditionally inside a per-keyword loop. `GuardedSerperCallCtx`
+ *   accepts an optional `spendContext` closure (build one with
+ *   `createSeoSpendContextResolver` below, once per run) that supplies both.
+ *   When a caller doesn't pass one, this guard falls back to its previous
+ *   behaviour — never paused, env-default caps only — so every existing call
+ *   site keeps working unchanged until it's wired up. Previously this note
+ *   flagged `sitePaused` as an unconditional gap; it and `planLimits` are now
+ *   closeable per call site instead.
  */
 
 import logger from '../utils/logger';
-import { evaluateSeoCostGuard, type SeoCostGuardEstimatedCalls, type SeoCostGuardEvaluation } from './seoCostGuard';
+import { pool } from '../db/index';
+import {
+  evaluateSeoCostGuard,
+  type SeoCostGuardEstimatedCalls,
+  type SeoCostGuardEvaluation,
+  type SeoCostGuardPlanLimits,
+} from './seoCostGuard';
 import { fetchSeoCostGuardUsage, recordSeoApiUsage } from './seoCostGuardUsage';
-import { getSeoSiteByDomain } from './seoSiteRegistry';
+import { getSeoSiteByDomain, getSeoSiteById } from './seoSiteRegistry';
 
 // A guarded call always represents exactly one Serper search — none of the
 // four call sites batch multiple queries into a single HTTP call.
@@ -86,6 +96,16 @@ const SERPER_CALL_ESTIMATE: SeoCostGuardEstimatedCalls = {
   gscCalls: 0,
   publishes: 0,
 };
+
+/**
+ * What `createSeoSpendContextResolver` returns. Exported so call sites can
+ * thread it through their own helper signatures without re-spelling the shape
+ * — four services and one route pass it down from their entry point to the
+ * function that actually spends.
+ */
+export type SeoSpendContextResolver = (
+  siteId: string | null,
+) => Promise<{ sitePaused: boolean; planLimits: SeoCostGuardPlanLimits }>;
 
 export interface GuardedSerperCallCtx {
   tenantId: string;
@@ -109,6 +129,15 @@ export interface GuardedSerperCallCtx {
   operation: string;
   /** Human-readable context for log lines only — a keyword or domain. Never a credential. */
   label: string;
+  /**
+   * Optional per-run resolver from `createSeoSpendContextResolver(tenantId)`
+   * below, supplying `evaluateSeoCostGuard`'s `sitePaused`/`planLimits`
+   * inputs. Omitted by existing call sites for now — see the module doc's
+   * SITE-PAUSED / PLAN-LIMITS note. Omitting it keeps this call's previous
+   * behaviour (never paused, env-default caps only), so passing it is
+   * strictly additive and safe to roll out call site by call site.
+   */
+  spendContext?: SeoSpendContextResolver;
 }
 
 /**
@@ -139,6 +168,11 @@ async function resolveEvaluation(ctx: GuardedSerperCallCtx, now: Date): Promise<
   const siteId = ctx.siteId ?? null;
   try {
     const usage = await fetchSeoCostGuardUsage(ctx.tenantId, siteId, now);
+    // No spendContext -> previous behaviour: never paused, env-default caps
+    // only (see GuardedSerperCallCtx.spendContext's doc).
+    const spend = ctx.spendContext
+      ? await ctx.spendContext(siteId)
+      : { sitePaused: false, planLimits: undefined };
     return evaluateSeoCostGuard({
       tenantId: ctx.tenantId,
       // SeoCostGuardInput.siteId is typed as a required string, but only used
@@ -151,6 +185,8 @@ async function resolveEvaluation(ctx: GuardedSerperCallCtx, now: Date): Promise<
       estimate: SERPER_CALL_ESTIMATE,
       usage,
       providerEnv: { missing: [] },
+      sitePaused: spend.sitePaused,
+      planLimits: spend.planLimits,
       now,
     });
   } catch (err) {
@@ -263,5 +299,113 @@ export function createSeoSiteIdResolver(tenantId: string): (domain: string) => P
     const siteId = site?.id ?? null;
     cache.set(domain, siteId);
     return siteId;
+  };
+}
+
+/**
+ * Per-run cache for the two DB reads `evaluateSeoCostGuard`'s `sitePaused`
+ * and `planLimits` inputs need — a tenant-level plan-limits lookup and a
+ * per-site status lookup — kept out of the hot per-keyword path the same way
+ * `createSeoSiteIdResolver` above keeps `getSeoSiteByDomain` out of it. Build
+ * one with this function once per run and pass the returned closure as
+ * `GuardedSerperCallCtx.spendContext` at every guarded call in that run.
+ *
+ * - PLAN LOOKUP — once per run, period: the plan cannot change mid-run, so
+ *   it is fetched at most once, lazily, on the first call that needs it, and
+ *   every call after that (for any siteId, including null) reuses the same
+ *   result. It is memoised as the in-flight `Promise` itself, not a value
+ *   assigned after `await`, so two calls racing before the first lookup
+ *   settles still share one query instead of each firing their own.
+ * - SITE-STATUS LOOKUP — cached per site id, not per run, because (unlike
+ *   the plan) a site's paused/active status genuinely can change mid-run
+ *   (an operator pausing a site while a sweep is in flight). Re-checking it
+ *   on every call would put a DB read straight back in the hot path this
+ *   file exists to keep it out of, so it's checked once per site id per run
+ *   instead — the same one-read-per-key-per-run tradeoff
+ *   `createSeoSiteIdResolver` already makes for site-id resolution.
+ *
+ * FAIL SAFE, NOT FAIL OPEN — a lookup this resolver can't complete must
+ * never be read as "no restriction":
+ * - Plan lookup fails -> resolves to `{}` (no overrides), which makes
+ *   `evaluateSeoCostGuard` fall through to its env-default caps — the exact
+ *   same result as "tenant has no active subscription" today. Never treated
+ *   as "unlimited"; a broken plan query must degrade to the pre-existing
+ *   cap, not remove it.
+ * - Site lookup fails, OR returns no row for this tenant/site id -> treated
+ *   as PAUSED. A site this resolver cannot positively confirm is `active`
+ *   must not be allowed to keep spending — reading "unknown" as "active"
+ *   would turn a transient DB hiccup into free rein for a site that may have
+ *   been paused for billing or abuse specifically to stop this spend.
+ */
+export function createSeoSpendContextResolver(
+  tenantId: string,
+): (siteId: string | null) => Promise<{ sitePaused: boolean; planLimits: SeoCostGuardPlanLimits }> {
+  let planLimits: Promise<SeoCostGuardPlanLimits> | null = null;
+  const sitePausedCache = new Map<string, boolean>();
+
+  const loadPlanLimits = async (): Promise<SeoCostGuardPlanLimits> => {
+    try {
+      // Same table join and "most recently created active subscription
+      // wins" resolution as seoSites.ts's getSeoSiteLimit — not reused
+      // directly because that helper is route-local and returns only
+      // limits.seoSites, not the full jsonb bag this guard needs.
+      const { rows } = await pool.query(
+        `SELECT p.limits AS limits
+           FROM subscriptions s
+           JOIN plans p ON p.id = s.plan_id
+          WHERE s.tenant_id = $1 AND s.status = 'active'
+          ORDER BY s.created_at DESC
+          LIMIT 1`,
+        [tenantId],
+      );
+      const limits = rows[0]?.limits as Record<string, unknown> | undefined;
+      if (!limits) return {}; // no active subscription — env defaults apply, not unlimited
+      const resolved: SeoCostGuardPlanLimits = {};
+      if (typeof limits.seoSerperCallsPerSiteDay === 'number') {
+        resolved.seoSerperCallsPerSiteDay = limits.seoSerperCallsPerSiteDay;
+      }
+      if (typeof limits.seoPublishesPerSiteDay === 'number') {
+        resolved.seoPublishesPerSiteDay = limits.seoPublishesPerSiteDay;
+      }
+      return resolved;
+    } catch (err) {
+      logger.error(
+        { err: err instanceof Error ? err.message : String(err), tenantId },
+        '[seoSerperGuard] plan-limits lookup failed — falling back to env-default SEO caps for this run (fail safe, never unlimited)',
+      );
+      return {};
+    }
+  };
+
+  const loadSitePaused = async (siteId: string): Promise<boolean> => {
+    try {
+      const site = await getSeoSiteById(tenantId, siteId);
+      if (!site) {
+        logger.error(
+          { tenantId, siteId },
+          '[seoSerperGuard] site-status lookup returned no row for this tenant/site — treating as paused (fail safe, not open)',
+        );
+        return true;
+      }
+      return site.status !== 'active';
+    } catch (err) {
+      logger.error(
+        { err: err instanceof Error ? err.message : String(err), tenantId, siteId },
+        '[seoSerperGuard] site-status lookup failed — treating as paused (fail safe, not open)',
+      );
+      return true;
+    }
+  };
+
+  return async (siteId: string | null) => {
+    if (!planLimits) planLimits = loadPlanLimits();
+    const resolvedPlanLimits = await planLimits;
+
+    if (!siteId) return { sitePaused: false, planLimits: resolvedPlanLimits };
+
+    if (!sitePausedCache.has(siteId)) {
+      sitePausedCache.set(siteId, await loadSitePaused(siteId));
+    }
+    return { sitePaused: sitePausedCache.get(siteId)!, planLimits: resolvedPlanLimits };
   };
 }

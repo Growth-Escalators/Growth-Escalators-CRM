@@ -2,7 +2,12 @@ import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { resolveDefaultSeoTenantId } from './seoTenantContext';
 import { listSeoSiteDomains } from './seoSiteRegistry';
-import { createSeoSiteIdResolver, guardedSerperCall } from './seoSerperGuard';
+import {
+  createSeoSiteIdResolver,
+  createSeoSpendContextResolver,
+  guardedSerperCall,
+  type SeoSpendContextResolver,
+} from './seoSerperGuard';
 
 // ---------------------------------------------------------------------------
 // Bootstrap content calendar table (idempotent — safe to call every run)
@@ -68,10 +73,16 @@ const SERPER_API_KEY = process.env.SERPER_API_KEY;
 
 interface SerperResult { title: string; link: string; snippet: string; position?: number }
 
-async function serperSearch(query: string, num: number, tenantId: string, siteId: string | null): Promise<SerperResult[]> {
+async function serperSearch(
+  query: string,
+  num: number,
+  tenantId: string,
+  siteId: string | null,
+  spendContext?: SeoSpendContextResolver,
+): Promise<SerperResult[]> {
   if (!SERPER_API_KEY) return [];
   return guardedSerperCall(
-    { tenantId, siteId, operation: 'content_gap_search', label: `content-gap "${query}"` },
+    { tenantId, siteId, spendContext, operation: 'content_gap_search', label: `content-gap "${query}"` },
     async (markSpent) => {
       try {
         const res = await fetch(SERPER_API_URL, {
@@ -87,7 +98,11 @@ async function serperSearch(query: string, num: number, tenantId: string, siteId
       } catch { return []; }
     },
     () => {
-      logger.warn(`[content-gap] SEO Serper daily cap reached — skipping query "${query}"`);
+      // Neutral on purpose: the guard blocks for several reasons (daily cap,
+      // per-site cap, paused site, plan limit) and logs the precise one
+      // itself. Naming a cause here would be a guess, and it was a wrong
+      // one — this line claimed "daily cap reached" for a paused site.
+      logger.warn(`[content-gap] skipped by the SEO spend guard — query "${query}" (reason logged above)`);
       return [];
     },
   );
@@ -133,6 +148,8 @@ export async function runContentGapAnalysis(tenantId?: string): Promise<{ gaps: 
   // once per keyword/competitor search below — see createSeoSiteIdResolver's
   // doc in seoSerperGuard.ts.
   const resolveSiteId = createSeoSiteIdResolver(tid);
+  // See rankTrackingService for why this is per-run, not per-call.
+  const resolveSpendContext = createSeoSpendContextResolver(tid);
 
   // Get all clients with keywords and domain
   const clientsR = await pool.query(`
@@ -176,7 +193,7 @@ export async function runContentGapAnalysis(tenantId?: string): Promise<{ gaps: 
 
       // 1. Check client's own ranking
       await delay(2000);
-      const ownResults = await serperSearch(keyword, 20, tid, clientSiteId);
+      const ownResults = await serperSearch(keyword, 20, tid, clientSiteId, resolveSpendContext);
       let ourPosition: number | null = null;
       let ourUrl: string | null = null;
       for (const r of ownResults) {
@@ -194,7 +211,7 @@ export async function runContentGapAnalysis(tenantId?: string): Promise<{ gaps: 
 
       for (const compDomain of competitorDomains.slice(0, 3)) {
         await delay(2000);
-        const compResults = await serperSearch(`site:${compDomain} ${keyword}`, 5, tid, clientSiteId);
+        const compResults = await serperSearch(`site:${compDomain} ${keyword}`, 5, tid, clientSiteId, resolveSpendContext);
         for (const r of compResults) {
           competitorUrls.push(r.link);
           // Extract topics from titles

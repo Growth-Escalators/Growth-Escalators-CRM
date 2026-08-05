@@ -29,7 +29,17 @@ function withRequestId(data: Record<string, unknown>): Record<string, unknown> {
   return requestId ? { ...data, requestId } : data;
 }
 
-// Wrapper that accepts console.error-style args: logger.error('msg', data)
+// Wrapper accepting BOTH call styles, because the codebase uses both:
+//   console-style — logger.warn('message', data)
+//   pino-style    — logger.warn({ err, id }, 'message')
+//
+// Only `error` handled the pino form originally. `warn`, `info` and `debug`
+// fell through to `String(msg)`, which renders an object as the literal
+// "[object Object]" and DISCARDS the message argument entirely — so 31 warn
+// and 15 info call sites across the repo were logging a useless line with no
+// message and no structured fields. Found via a cost-guard test whose output
+// showed `WARN: [object Object]` where a blocked-spend reason should have
+// been: precisely the log you need when money is being refused.
 const logger = {
   error(msg: unknown, ...args: unknown[]) {
     if (typeof msg === 'string' && args.length > 0) {
@@ -43,6 +53,8 @@ const logger = {
   warn(msg: unknown, ...args: unknown[]) {
     if (typeof msg === 'string' && args.length > 0) {
       pinoLogger.warn(withRequestId({ data: args.length === 1 ? args[0] : args }), msg);
+    } else if (typeof msg === 'object' && msg !== null) {
+      pinoLogger.warn(withRequestId(msg as Record<string, unknown>), args[0] as string);
     } else {
       pinoLogger.warn(withRequestId({}), String(msg));
     }
@@ -50,6 +62,8 @@ const logger = {
   info(msg: unknown, ...args: unknown[]) {
     if (typeof msg === 'string' && args.length > 0) {
       pinoLogger.info(withRequestId({ data: args.length === 1 ? args[0] : args }), msg);
+    } else if (typeof msg === 'object' && msg !== null) {
+      pinoLogger.info(withRequestId(msg as Record<string, unknown>), args[0] as string);
     } else {
       pinoLogger.info(withRequestId({}), String(msg));
     }
@@ -57,6 +71,8 @@ const logger = {
   debug(msg: unknown, ...args: unknown[]) {
     if (typeof msg === 'string' && args.length > 0) {
       pinoLogger.debug(withRequestId({ data: args.length === 1 ? args[0] : args }), msg);
+    } else if (typeof msg === 'object' && msg !== null) {
+      pinoLogger.debug(withRequestId(msg as Record<string, unknown>), args[0] as string);
     } else {
       pinoLogger.debug(withRequestId({}), String(msg));
     }

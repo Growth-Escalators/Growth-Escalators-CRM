@@ -19,8 +19,10 @@ vi.mock('../services/seoCostGuardUsage', () => ({
 }));
 
 const mockGetSeoSiteByDomain = vi.fn();
+const mockGetSeoSiteById = vi.fn();
 vi.mock('../services/seoSiteRegistry', () => ({
   getSeoSiteByDomain: (...args: unknown[]) => mockGetSeoSiteByDomain(...args),
+  getSeoSiteById: (...args: unknown[]) => mockGetSeoSiteById(...args),
 }));
 
 const mockLoggerWarn = vi.fn();
@@ -29,8 +31,8 @@ vi.mock('../utils/logger', () => ({
   default: { info: vi.fn(), warn: (...args: unknown[]) => mockLoggerWarn(...args), error: (...args: unknown[]) => mockLoggerError(...args) },
 }));
 
-import { emptySeoCostGuardUsage, type SeoCostGuardUsage } from '../services/seoCostGuard';
-import { createSeoSiteIdResolver, guardedSerperCall } from '../services/seoSerperGuard';
+import { emptySeoCostGuardUsage, getSeoCostGuardConfig, type SeoCostGuardUsage } from '../services/seoCostGuard';
+import { createSeoSiteIdResolver, createSeoSpendContextResolver, guardedSerperCall } from '../services/seoSerperGuard';
 
 function baseCtx(overrides: Partial<{ tenantId: string; siteId: string | null; operation: string; label: string }> = {}) {
   return { tenantId: 'tenant-1', siteId: 'site-1', operation: 'rank_check', label: 'test-label', ...overrides };
@@ -215,5 +217,155 @@ describe('createSeoSiteIdResolver', () => {
     const resolveForRun2 = createSeoSiteIdResolver('tenant-1');
     await resolveForRun2('a.com');
     expect(mockGetSeoSiteByDomain).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('createSeoSpendContextResolver', () => {
+  it('blocks with site_paused and never runs the call when the site is paused', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [] }); // no active subscription
+    mockGetSeoSiteById.mockResolvedValueOnce({ id: 'site-1', status: 'paused' });
+    mockFetchUsage.mockResolvedValueOnce(emptySeoCostGuardUsage());
+    const spendContext = createSeoSpendContextResolver('tenant-1');
+    const run = vi.fn();
+
+    const result = await guardedSerperCall({ ...baseCtx(), spendContext }, run, () => 'blocked-fallback');
+
+    expect(result).toBe('blocked-fallback');
+    expect(run).not.toHaveBeenCalled();
+    const [meta] = mockLoggerWarn.mock.calls[0];
+    expect(meta).toMatchObject({ blockCode: 'site_paused' });
+  });
+
+  it('blocks with site_paused and never runs the call when the site is archived', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [] });
+    mockGetSeoSiteById.mockResolvedValueOnce({ id: 'site-1', status: 'archived' });
+    mockFetchUsage.mockResolvedValueOnce(emptySeoCostGuardUsage());
+    const spendContext = createSeoSpendContextResolver('tenant-1');
+    const run = vi.fn();
+
+    const result = await guardedSerperCall({ ...baseCtx(), spendContext }, run, () => 'blocked-fallback');
+
+    expect(result).toBe('blocked-fallback');
+    expect(run).not.toHaveBeenCalled();
+    const [meta] = mockLoggerWarn.mock.calls[0];
+    expect(meta).toMatchObject({ blockCode: 'site_paused' });
+  });
+
+  it('does not block, and runs the call, when the site is active', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [] });
+    mockGetSeoSiteById.mockResolvedValueOnce({ id: 'site-1', status: 'active' });
+    mockFetchUsage.mockResolvedValueOnce(emptySeoCostGuardUsage());
+    const spendContext = createSeoSpendContextResolver('tenant-1');
+    const run = vi.fn(async (markSpent: () => void) => { markSpent(); return 'ok'; });
+
+    const result = await guardedSerperCall({ ...baseCtx(), spendContext }, run, () => 'blocked-fallback');
+
+    expect(result).toBe('ok');
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it('treats a failed site-status lookup as paused (fail safe, not open) and never runs the call', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [] });
+    mockGetSeoSiteById.mockRejectedValueOnce(new Error('connection terminated'));
+    mockFetchUsage.mockResolvedValueOnce(emptySeoCostGuardUsage());
+    const spendContext = createSeoSpendContextResolver('tenant-1');
+    const run = vi.fn();
+
+    const result = await guardedSerperCall({ ...baseCtx(), spendContext }, run, () => 'blocked-fallback');
+
+    expect(result).toBe('blocked-fallback');
+    expect(run).not.toHaveBeenCalled();
+    const [meta] = mockLoggerWarn.mock.calls[0];
+    expect(meta).toMatchObject({ blockCode: 'site_paused' });
+  });
+
+  it('treats a missing site row (no row for this tenant/site id) as paused', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [] });
+    mockGetSeoSiteById.mockResolvedValueOnce(null);
+    mockFetchUsage.mockResolvedValueOnce(emptySeoCostGuardUsage());
+    const spendContext = createSeoSpendContextResolver('tenant-1');
+
+    const result = await guardedSerperCall({ ...baseCtx(), spendContext }, vi.fn(), () => 'blocked-fallback');
+
+    expect(result).toBe('blocked-fallback');
+  });
+
+  it('enforces a plan limit that is lower than the env default', async () => {
+    const config = getSeoCostGuardConfig();
+    // Sanity check the fixture actually exercises an override, not a
+    // coincidence: 1 must be below whatever the env default happens to be.
+    expect(config.maxSerperCallsPerSiteDay).toBeGreaterThan(1);
+
+    mockPoolQuery.mockResolvedValueOnce({ rows: [{ limits: { seoSerperCallsPerSiteDay: 1 } }] });
+    mockGetSeoSiteById.mockResolvedValueOnce({ id: 'site-1', status: 'active' });
+    mockFetchUsage.mockResolvedValueOnce({ ...emptySeoCostGuardUsage(), siteDaySerperCalls: 1 });
+    const spendContext = createSeoSpendContextResolver('tenant-1');
+    const run = vi.fn();
+
+    const result = await guardedSerperCall({ ...baseCtx(), spendContext }, run, () => 'blocked-by-plan');
+
+    expect(result).toBe('blocked-by-plan');
+    expect(run).not.toHaveBeenCalled();
+    const [meta] = mockLoggerWarn.mock.calls[0];
+    expect(meta).toMatchObject({ blockCode: 'site_daily_serper_cap_exhausted' });
+  });
+
+  it('applies a plan limit that is higher than the env default', async () => {
+    const config = getSeoCostGuardConfig();
+    const usageAboveEnvDefault = config.maxSerperCallsPerSiteDay + 5;
+
+    mockPoolQuery.mockResolvedValueOnce({ rows: [{ limits: { seoSerperCallsPerSiteDay: usageAboveEnvDefault + 10 } }] });
+    mockGetSeoSiteById.mockResolvedValueOnce({ id: 'site-1', status: 'active' });
+    mockFetchUsage.mockResolvedValueOnce({ ...emptySeoCostGuardUsage(), siteDaySerperCalls: usageAboveEnvDefault });
+    const spendContext = createSeoSpendContextResolver('tenant-1');
+    const run = vi.fn(async (markSpent: () => void) => { markSpent(); return 'ok'; });
+
+    // Usage is already above the env default cap — without the plan override
+    // taking effect this would block; the point of this test is that it doesn't.
+    const result = await guardedSerperCall({ ...baseCtx(), spendContext }, run, () => 'blocked');
+
+    expect(result).toBe('ok');
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it('falls back to env-default caps — never unlimited — when the plan lookup fails', async () => {
+    const config = getSeoCostGuardConfig();
+    mockPoolQuery.mockRejectedValueOnce(new Error('connection terminated'));
+    mockGetSeoSiteById.mockResolvedValueOnce({ id: 'site-1', status: 'active' });
+    // Usage sits exactly at the env default cap: a broken plan lookup must
+    // still enforce that default, not fall through to "no limit".
+    mockFetchUsage.mockResolvedValueOnce({ ...emptySeoCostGuardUsage(), siteDaySerperCalls: config.maxSerperCallsPerSiteDay });
+    const spendContext = createSeoSpendContextResolver('tenant-1');
+    const run = vi.fn();
+
+    const result = await guardedSerperCall({ ...baseCtx(), spendContext }, run, () => 'blocked-by-default-cap');
+
+    expect(result).toBe('blocked-by-default-cap');
+    expect(run).not.toHaveBeenCalled();
+    const [meta] = mockLoggerWarn.mock.calls[0];
+    expect(meta).toMatchObject({ blockCode: 'site_daily_serper_cap_exhausted' });
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: 'tenant-1' }),
+      expect.stringContaining('plan-limits lookup failed'),
+    );
+  });
+
+  it('runs exactly one plan-limits DB query per run, no matter how many calls share the resolver', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [{ limits: {} }] });
+    mockGetSeoSiteById.mockResolvedValue({ id: 'some-site', status: 'active' });
+    mockFetchUsage.mockResolvedValue(emptySeoCostGuardUsage());
+    const spendContext = createSeoSpendContextResolver('tenant-1');
+    const run = vi.fn(async (markSpent: () => void) => { markSpent(); return 'ok'; });
+
+    await guardedSerperCall({ ...baseCtx(), siteId: 'site-1', spendContext }, run, () => 'blocked');
+    await guardedSerperCall({ ...baseCtx(), siteId: 'site-2', spendContext }, run, () => 'blocked');
+    await guardedSerperCall({ ...baseCtx(), siteId: 'site-1', spendContext }, run, () => 'blocked');
+
+    // One plan query total across three calls — the whole point of the cache.
+    expect(mockPoolQuery).toHaveBeenCalledOnce();
+    // Site status IS re-checked per distinct site id (it can change mid-run),
+    // but the repeated site-1 call hits the per-site-id cache: two reads for
+    // two distinct ids, not three.
+    expect(mockGetSeoSiteById).toHaveBeenCalledTimes(2);
   });
 });

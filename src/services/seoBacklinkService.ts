@@ -2,7 +2,12 @@ import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { resolveDefaultSeoTenantId } from './seoTenantContext';
 import { listSeoSiteDomains } from './seoSiteRegistry';
-import { createSeoSiteIdResolver, guardedSerperCall } from './seoSerperGuard';
+import {
+  createSeoSiteIdResolver,
+  createSeoSpendContextResolver,
+  guardedSerperCall,
+  type SeoSpendContextResolver,
+} from './seoSerperGuard';
 
 /**
  * Backend-native backlink monitoring.
@@ -57,6 +62,8 @@ export async function runBacklinkCheck(tenantId?: string): Promise<{ found: numb
   // resolver from seoSerperGuard.ts for consistency with the other three
   // guarded call sites.
   const resolveSiteId = createSeoSiteIdResolver(tid);
+  // See rankTrackingService for why this is per-run, not per-call.
+  const resolveSpendContext = createSeoSpendContextResolver(tid);
 
   for (const domain of domains) {
     try {
@@ -67,7 +74,7 @@ export async function runBacklinkCheck(tenantId?: string): Promise<{ found: numb
       // failed (non-OK response or a network error) — counted as an error,
       // matching this loop's behaviour before this guard existed.
       const results = await guardedSerperCall<SerperResult[] | null | undefined>(
-        { tenantId: tid, siteId, operation: 'backlink_search', label: `backlinks ${domain}` },
+        { tenantId: tid, siteId, spendContext: resolveSpendContext, operation: 'backlink_search', label: `backlinks ${domain}` },
         async (markSpent) => {
           try {
             // Search for pages linking to this domain (excluding the domain itself)
@@ -93,7 +100,11 @@ export async function runBacklinkCheck(tenantId?: string): Promise<{ found: numb
           }
         },
         () => {
-          logger.warn(`[backlinks] SEO Serper daily cap reached — skipping ${domain}`);
+          // Neutral on purpose: the guard blocks for several reasons (daily cap,
+          // per-site cap, paused site, plan limit) and logs the precise one
+          // itself. Naming a cause here would be a guess, and it was a wrong
+          // one — this line claimed "daily cap reached" for a paused site.
+          logger.warn(`[backlinks] skipped by the SEO spend guard — ${domain} (reason logged above)`);
           return undefined;
         },
       );

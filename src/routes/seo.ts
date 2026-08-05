@@ -550,10 +550,15 @@ router.post('/competitor-brief', async (req: Request, res: Response) => {
     // no way to interpret. The cron path (runCompetitorContentAnalysis) keeps
     // the opposite behaviour — skip and continue — because a sweep that
     // aborted on the first capped keyword would be worse than a partial one.
-    const { evaluateSeoSpend } = await import('../services/seoSerperGuard');
+    const { evaluateSeoSpend, createSeoSpendContextResolver } = await import('../services/seoSerperGuard');
     const evaluation = await evaluateSeoSpend({
       tenantId,
       siteId: site?.id ?? null,
+      // Without this the paused-site and plan-limit checks are inert: a site
+      // paused for billing or abuse would keep spending, and every tenant
+      // would silently get the global env defaults regardless of the plan
+      // they bought.
+      spendContext: createSeoSpendContextResolver(tenantId),
       operation: 'serper_search',
       label: 'competitor-brief',
     });

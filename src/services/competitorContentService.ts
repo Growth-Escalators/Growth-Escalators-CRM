@@ -1,7 +1,12 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { resolveDefaultSeoTenantId } from './seoTenantContext';
-import { createSeoSiteIdResolver, guardedSerperCall } from './seoSerperGuard';
+import {
+  createSeoSiteIdResolver,
+  createSeoSpendContextResolver,
+  guardedSerperCall,
+  type SeoSpendContextResolver,
+} from './seoSerperGuard';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,6 +37,7 @@ export async function fetchCompetitorPages(
   keyword: string,
   tenantId?: string,
   siteId?: string | null,
+  spendContext?: SeoSpendContextResolver,
 ): Promise<CompetitorPage[]> {
   const apiKey = process.env.SERPER_API_KEY;
   if (!apiKey) {
@@ -58,7 +64,7 @@ export async function fetchCompetitorPages(
   }
 
   return guardedSerperCall(
-    { tenantId: tid, siteId: siteId ?? null, operation: 'competitor_search', label: `competitor-content "${keyword}"` },
+    { tenantId: tid, siteId: siteId ?? null, spendContext, operation: 'competitor_search', label: `competitor-content "${keyword}"` },
     async (markSpent) => {
       try {
         const res = await fetch('https://google.serper.dev/search', {
@@ -93,7 +99,11 @@ export async function fetchCompetitorPages(
       }
     },
     () => {
-      logger.warn(`[competitor-content] SEO Serper daily cap reached — skipping "${keyword}"`);
+      // Neutral on purpose: the guard blocks for several reasons (daily cap,
+      // per-site cap, paused site, plan limit) and logs the precise one
+      // itself. Naming a cause here would be a guess, and it was a wrong
+      // one — this line claimed "daily cap reached" for a paused site.
+      logger.warn(`[competitor-content] skipped by the SEO spend guard — "${keyword}" (reason logged above)`);
       return [];
     },
   );
@@ -245,11 +255,13 @@ export async function runCompetitorContentAnalysis(tenantId?: string): Promise<{
     // per domain for this run — several keyword rows can share the same
     // client_domain (see createSeoSiteIdResolver's doc in seoSerperGuard.ts).
     const resolveSiteId = createSeoSiteIdResolver(tid);
+    // See rankTrackingService for why this is per-run, not per-call.
+    const resolveSpendContext = createSeoSpendContextResolver(tid);
 
     for (const kw of keywords) {
       try {
         const siteId = await resolveSiteId(kw.client_domain);
-        const competitors = await fetchCompetitorPages(kw.keyword, tid, siteId);
+        const competitors = await fetchCompetitorPages(kw.keyword, tid, siteId, resolveSpendContext);
         if (competitors.length === 0) {
           logger.warn(`[competitor-content] No competitors found for "${kw.keyword}"`);
           errors++;

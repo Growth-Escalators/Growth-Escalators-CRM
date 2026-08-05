@@ -2,7 +2,12 @@ import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { resolveDefaultSeoTenantId } from './seoTenantContext';
 import { listSeoSiteDomains } from './seoSiteRegistry';
-import { createSeoSiteIdResolver, guardedSerperCall } from './seoSerperGuard';
+import {
+  createSeoSiteIdResolver,
+  createSeoSpendContextResolver,
+  guardedSerperCall,
+  type SeoSpendContextResolver,
+} from './seoSerperGuard';
 
 // ---------------------------------------------------------------------------
 // Serper.dev API configuration
@@ -94,6 +99,7 @@ async function checkSerperRank(
   targetDomain: string,
   tenantId: string,
   siteId: string | null,
+  spendContext?: SeoSpendContextResolver,
 ): Promise<{ position: number | null; url: string | null; featuredSnippet: boolean }> {
   const empty = { position: null, url: null, featuredSnippet: false };
   if (!SERPER_API_KEY) {
@@ -106,7 +112,7 @@ async function checkSerperRank(
   // it falls back to onBlocked() below — which is `empty`, matching what the
   // old bare try/catch here used to return on any failure.
   return guardedSerperCall(
-    { tenantId, siteId, operation: 'rank_check', label: `rank-tracking "${keyword}" (${targetDomain})` },
+    { tenantId, siteId, spendContext, operation: 'rank_check', label: `rank-tracking "${keyword}" (${targetDomain})` },
     async (markSpent) => {
       const res = await fetch(SERPER_API_URL, {
         method: 'POST',
@@ -147,7 +153,11 @@ async function checkSerperRank(
       return { position: null, url: null, featuredSnippet };
     },
     () => {
-      logger.warn(`[rank-tracking] SEO Serper daily cap reached — skipping "${keyword}"`);
+      // Neutral on purpose: the guard blocks for several reasons (daily cap,
+      // per-site cap, paused site, plan limit) and logs the precise one
+      // itself. Naming a cause here would be a guess, and it was a wrong
+      // one — this line claimed "daily cap reached" for a paused site.
+      logger.warn(`[rank-tracking] skipped by the SEO spend guard — "${keyword}" (reason logged above)`);
       return empty;
     },
   );
@@ -210,11 +220,15 @@ export async function runRankChecks(tenantId?: string): Promise<{ checked: numbe
   // domain for this whole run (not once per keyword) — see
   // createSeoSiteIdResolver's doc in seoSerperGuard.ts.
   const resolveSiteId = createSeoSiteIdResolver(tid);
+  // Paused-site and plan-limit enforcement. Created once per run alongside
+  // the site-id resolver and for the same reason: both cache per run, so a
+  // loop over N keywords costs one plan query, not N.
+  const resolveSpendContext = createSeoSpendContextResolver(tid);
 
   for (const kw of keywords) {
     try {
       const siteId = await resolveSiteId(kw.clientDomain);
-      const { position, url, featuredSnippet } = await checkSerperRank(kw.keyword, kw.clientDomain, tid, siteId);
+      const { position, url, featuredSnippet } = await checkSerperRank(kw.keyword, kw.clientDomain, tid, siteId, resolveSpendContext);
       const previousPosition = await getPreviousPosition(tid, kw.projectName, kw.keyword);
       const positionChange = (previousPosition != null && position != null)
         ? previousPosition - position
