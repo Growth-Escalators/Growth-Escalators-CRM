@@ -37,6 +37,7 @@ import blockersRouter from './routes/blockers';
 import onboardingRouter from './routes/onboarding';
 import billingRouter from './routes/billing';
 import permissionsRouter from './routes/permissions';
+import rolesRouter from './routes/roles';
 import platformTenantsRouter from './routes/platformTenants';
 import tenantBrandingRouter from './routes/tenantBranding';
 import tenantIntegrationsRouter from './routes/tenantIntegrations';
@@ -320,6 +321,11 @@ app.use('/api/onboarding', requireAuth, onboardingRouter);
 app.use('/api/billing', requireStrictAuth, requireTenantFeature('gstBilling'), billingRouter);
 app.use('/api/subscriptions', requireAuth, subscriptionsRouter);
 app.use('/api/permissions', requireStrictAuth, permissionsRouter);
+// New, NOT-YET-ENFORCED RBAC foundation (roles / role_permissions /
+// user_permission_overrides) — see src/routes/roles.ts's own header. Reads
+// no `PERMISSION_MAP` state, writes no `user_permissions` row; entirely
+// separate from `/api/permissions` above.
+app.use('/api/roles', requireStrictAuth, rolesRouter);
 // requirePlatformSuperadmin is enforced INSIDE platformTenantsRouter itself
 // (router.use(...) at the top of src/routes/platformTenants.ts) rather than
 // here — requireStrictAuth just needs to establish req.user before the

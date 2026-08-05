@@ -21,6 +21,7 @@ const ContractsLaunchPage = lazy(() => import('./pages/ContractsLaunchPage.jsx')
 const SignContractPage = lazy(() => import('./pages/SignContractPage.jsx'));
 const FinancePage = lazy(() => import('./pages/FinancePage.jsx'));
 const PermissionsPage = lazy(() => import('./pages/PermissionsPage.jsx'));
+const AccessControlPage = lazy(() => import('./pages/AccessControlPage.jsx'));
 const BrandingPage = lazy(() => import('./pages/BrandingPage.jsx'));
 const IntegrationsPage = lazy(() => import('./pages/IntegrationsPage.jsx'));
 const ProvisionTenantPage = lazy(() => import('./pages/ProvisionTenantPage.jsx'));
@@ -335,6 +336,7 @@ export default function App() {
             <Route path="/contracts" element={<PrivateRoute><ContractsLaunchPage /></PrivateRoute>} />
             <Route path="/finance" element={<PrivateRoute><FinancePage /></PrivateRoute>} />
             <Route path="/settings/permissions" element={<PrivateRoute><PermissionsPage /></PrivateRoute>} />
+            <Route path="/settings/access-control" element={<PrivateRoute><AccessControlPage /></PrivateRoute>} />
             <Route path="/settings/branding" element={<PrivateRoute><BrandingPage /></PrivateRoute>} />
             <Route path="/settings/audit" element={<PrivateRoute><AuditPage /></PrivateRoute>} />
             <Route path="/settings/integrations" element={<PrivateRoute><IntegrationsPage /></PrivateRoute>} />
