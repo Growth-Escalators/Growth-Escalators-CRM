@@ -8,8 +8,8 @@
 >
 > To re-deploy: open n8n UI → Settings → Workflows → Import → upload the
 > JSON, then toggle the workflow active. The Express endpoints these
-> workflows call (e.g. `/api/outreach/imap/fetch-replies`,
-> `/api/seo-workflows/trigger-all`) still exist and are ready.
+> workflows call (e.g. `/api/seo-workflows/trigger-all`) still exist and
+> are ready.
 
 Import these into n8n **in order** after deploying n8n on Railway.
 See `DEPLOY_N8N_RAILWAY.md` for deployment steps.
