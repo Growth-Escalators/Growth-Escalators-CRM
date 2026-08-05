@@ -292,6 +292,14 @@ export const NAV_ENTRIES = [
     visible: f => f.isAdmin,
   },
   {
+    // New roles/role_permissions/user_permission_overrides system — NOT yet
+    // enforced (see Wave 3 shadow-mode rollout). Distinct from `permissions`
+    // above, which manages the live user_permissions/users.role system.
+    id: 'access-control', label: 'Access Control (Beta)', to: '/settings/access-control',
+    icon: ShieldCheck, section: 'Settings', group: 'settings',
+    visible: f => f.isOwner,
+  },
+  {
     id: 'branding', label: 'Branding', to: '/settings/branding',
     icon: Palette, section: 'Settings', group: 'settings',
     visible: f => f.isOwner,
