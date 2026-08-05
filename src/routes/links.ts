@@ -44,9 +44,9 @@ function toApi(row: ShortLinkRow) {
 }
 
 // ── GET /api/links ────────────────────────────────────────────────────────
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const rows = await listShortLinksDb();
+    const rows = await listShortLinksDb(req.user!.tenantId);
     res.json({ ok: true, count: rows.length, links: rows.map(toApi) });
   } catch (e) {
     logger.error({ err: e }, '[links] list failed');
@@ -59,7 +59,7 @@ router.get('/:slug', async (req: Request, res: Response): Promise<void> => {
   const slug = String(req.params.slug || '');
   // Stats endpoint shares the same path pattern; route below handles /:slug/stats explicitly.
   try {
-    const hit = await lookupShortLinkDb(slug);
+    const hit = await lookupShortLinkDb(req.user!.tenantId, slug);
     if (!hit) { res.status(404).json({ error: `Short link "${slug}" not found` }); return; }
     res.json({ ok: true, link: toApi(hit) });
   } catch (e) {
@@ -71,7 +71,7 @@ router.get('/:slug', async (req: Request, res: Response): Promise<void> => {
 router.get('/:slug/stats', async (req: Request, res: Response): Promise<void> => {
   const slug = String(req.params.slug || '');
   try {
-    const hit = await lookupShortLinkDb(slug);
+    const hit = await lookupShortLinkDb(req.user!.tenantId, slug);
     if (!hit) { res.status(404).json({ error: `Short link "${slug}" not found` }); return; }
     res.json({
       ok: true,
@@ -113,6 +113,7 @@ router.post('/create', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req as Request & { user?: { id: number } }).user?.id ?? null;
     const row = await createShortLinkDb({
+      tenantId: req.user!.tenantId,
       slug: inputSlug,
       destination: dest,
       description: description ?? title,
@@ -122,7 +123,7 @@ router.post('/create', async (req: Request, res: Response): Promise<void> => {
     res.json({ ok: true, link: toApi(row) });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (msg.includes('duplicate key') || msg.includes('short_links_pkey')) {
+    if (msg.includes('duplicate key') || msg.includes('short_links_tenant_slug_pkey')) {
       res.status(409).json({ error: `Slug "${inputSlug}" is already taken` });
       return;
     }
@@ -140,7 +141,7 @@ router.patch('/:slug', async (req: Request, res: Response): Promise<void> => {
     tags?: string[];
   };
   try {
-    const updated = await updateShortLinkDb(slug, {
+    const updated = await updateShortLinkDb(req.user!.tenantId, slug, {
       destination: destination ?? longUrl,
       description: description ?? title,
       tags,
@@ -156,7 +157,7 @@ router.patch('/:slug', async (req: Request, res: Response): Promise<void> => {
 router.delete('/:slug', async (req: Request, res: Response): Promise<void> => {
   const slug = String(req.params.slug || '');
   try {
-    const deleted = await deleteShortLinkDb(slug);
+    const deleted = await deleteShortLinkDb(req.user!.tenantId, slug);
     if (!deleted) { res.status(404).json({ error: `Short link "${slug}" not found` }); return; }
     res.json({ ok: true });
   } catch (e) {
