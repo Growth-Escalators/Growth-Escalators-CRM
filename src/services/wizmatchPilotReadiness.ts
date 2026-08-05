@@ -411,10 +411,18 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
     // Escalators', owner-approved. Additive ADD COLUMN only (ten nullable
     // text columns on the existing tenant_branding table), no ALTER of any
     // other table, no new table.
+    // 45 = SEO tenant hardening (Phase 1 of the multi-tenant SEO platform,
+    // owner-authorised 2026-08-05). Backfills orphaned
+    // `seo_content_calendar.tenant_id` values (the old column default was a
+    // sentinel UUID with no matching `tenants` row, so the FK could not be
+    // added without repairing them first), then constrains the column NOT NULL
+    // + FK; adds three nullable approval columns to `client_pages`; adds a
+    // nullable `tenant_id` to `seo_workflow_logs`; DROPs the four unused
+    // `seo_looker_*` views. SEO tables only — no Wizmatch surface touched.
     // Bump this ONLY alongside an explicit authorisation for the migration in
     // question — the point of the mark is that an unreviewed migration showing
     // up in a hardening pass still gets surfaced.
-    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 44;
+    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 45;
     const unauthorised = sqlFiles
       .map((f) => ({ file: f, idx: parseInt(f.slice(0, 4), 10) }))
       .filter((m) => Number.isFinite(m.idx) && m.idx > AUTHORISED_MIGRATION_HIGH_WATER_MARK)

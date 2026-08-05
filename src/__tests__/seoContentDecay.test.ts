@@ -57,9 +57,12 @@ describe('seoContentDecayService', () => {
     vi.mocked(pool.query)
       // 1. Pre-flight: recent rows exist
       .mockResolvedValueOnce({ rows: [{ cnt: 10 }] } as any)
-      // 2. Learning loop: computeOpportunityTypeSuccessRates() — no history yet
+      // 2. Learning loop: computeOpportunityTypeSuccessRates() own-tenant query — no history yet
       .mockResolvedValueOnce({ rows: [] } as any)
-      // 3. Decayed keywords CTE query
+      // 3. Learning loop: platform-priors tenant list (default includePlatformPriors:true) —
+      //    no other active tenants, matching the single-tenant production reality today.
+      .mockResolvedValueOnce({ rows: [] } as any)
+      // 4. Decayed keywords CTE query
       .mockResolvedValueOnce({
         rows: [{
           client_domain: 'aarohaom.com',
@@ -71,13 +74,13 @@ describe('seoContentDecayService', () => {
           url_ranking: null,
         }],
       } as any)
-      // 4. Dedup check — no existing opportunity
+      // 5. Dedup check — no existing opportunity
       .mockResolvedValueOnce({ rows: [] } as any)
-      // 5. INSERT RETURNING id
+      // 6. INSERT RETURNING id
       .mockResolvedValueOnce({ rows: [{ id: 'abc-123' }] } as any)
-      // 6. Content-calendar insert (linked to the new opportunity)
+      // 7. Content-calendar insert (linked to the new opportunity)
       .mockResolvedValueOnce({ rows: [] } as any)
-      // 7. Top-100 fallout query — nothing lost
+      // 8. Top-100 fallout query — nothing lost
       .mockResolvedValueOnce({ rows: [] } as any);
 
     const result = await runContentDecayDetection();
@@ -106,9 +109,11 @@ describe('seoContentDecayService', () => {
     vi.mocked(pool.query)
       // 1. Pre-flight: recent rows exist
       .mockResolvedValueOnce({ rows: [{ cnt: 10 }] } as any)
-      // 2. Learning loop: computeOpportunityTypeSuccessRates() — no history yet
+      // 2. Learning loop: computeOpportunityTypeSuccessRates() own-tenant query — no history yet
       .mockResolvedValueOnce({ rows: [] } as any)
-      // 3. Decayed keywords CTE query
+      // 3. Learning loop: platform-priors tenant list — no other active tenants.
+      .mockResolvedValueOnce({ rows: [] } as any)
+      // 4. Decayed keywords CTE query
       .mockResolvedValueOnce({
         rows: [{
           client_domain: 'aarohaom.com',
@@ -120,9 +125,9 @@ describe('seoContentDecayService', () => {
           url_ranking: null,
         }],
       } as any)
-      // 4. Dedup check — existing opportunity found (skip INSERT)
+      // 5. Dedup check — existing opportunity found (skip INSERT)
       .mockResolvedValueOnce({ rows: [{ id: 'existing-opp' }] } as any)
-      // 5. Top-100 fallout query — nothing lost
+      // 6. Top-100 fallout query — nothing lost
       .mockResolvedValueOnce({ rows: [] } as any);
 
     const result = await runContentDecayDetection();
@@ -143,11 +148,13 @@ describe('seoContentDecayService', () => {
     vi.mocked(pool.query)
       // 1. Pre-flight: recent rows exist
       .mockResolvedValueOnce({ rows: [{ cnt: 10 }] } as any)
-      // 2. Learning loop: computeOpportunityTypeSuccessRates() — no history yet
+      // 2. Learning loop: computeOpportunityTypeSuccessRates() own-tenant query — no history yet
       .mockResolvedValueOnce({ rows: [] } as any)
-      // 3. Decayed keywords CTE — nothing decayed
+      // 3. Learning loop: platform-priors tenant list — no other active tenants.
       .mockResolvedValueOnce({ rows: [] } as any)
-      // 4. Top-100 fallout query — one lost page
+      // 4. Decayed keywords CTE — nothing decayed
+      .mockResolvedValueOnce({ rows: [] } as any)
+      // 5. Top-100 fallout query — one lost page
       .mockResolvedValueOnce({
         rows: [{
           client_domain: 'aarohaom.com',
@@ -157,11 +164,11 @@ describe('seoContentDecayService', () => {
           recorded_date: '2026-04-01',
         }],
       } as any)
-      // 5. Dedup check for lost_ranking — not exists
+      // 6. Dedup check for lost_ranking — not exists
       .mockResolvedValueOnce({ rows: [] } as any)
-      // 6. INSERT RETURNING id for lost_ranking
+      // 7. INSERT RETURNING id for lost_ranking
       .mockResolvedValueOnce({ rows: [{ id: 'lost-uuid' }] } as any)
-      // 7. Content-calendar insert (linked to the new opportunity)
+      // 8. Content-calendar insert (linked to the new opportunity)
       .mockResolvedValueOnce({ rows: [] } as any);
 
     const result = await runContentDecayDetection();
@@ -189,11 +196,17 @@ describe('seoContentDecayService', () => {
     vi.mocked(pool.query)
       // 1. Pre-flight: recent rows exist
       .mockResolvedValueOnce({ rows: [{ cnt: 10 }] } as any)
-      // 2. Learning loop: strong historical performance for content_decay (successRate 0.8, sampleSize 12)
+      // 2. Learning loop: own-tenant query — strong historical performance for content_decay
+      //    (successRate 10/12 = 0.8333, sampleSize 12; already >= MIN_SAMPLE_SIZE_FOR_ADJUSTMENT
+      //    so the platform-prior blend below is a no-op for this type — own data is used as-is)
       .mockResolvedValueOnce({
         rows: [{ opportunity_type: 'content_decay', sample_size: 12, successes: 10 }],
       } as any)
-      // 3. Decayed keywords CTE query — drop of 15, impact 'high' (>20? no, 15 -> medium), impactWeight 2
+      // 3. Learning loop: platform-priors tenant list — no other active tenants. Still queried
+      //    unconditionally (includePlatformPriors defaults true), even though content_decay's
+      //    own sample already clears the threshold and won't be blended.
+      .mockResolvedValueOnce({ rows: [] } as any)
+      // 4. Decayed keywords CTE query — drop of 15, impact 'high' (>20? no, 15 -> medium), impactWeight 2
       .mockResolvedValueOnce({
         rows: [{
           client_domain: 'aarohaom.com',
@@ -205,13 +218,13 @@ describe('seoContentDecayService', () => {
           url_ranking: null,
         }],
       } as any)
-      // 4. Dedup check — no existing opportunity
+      // 5. Dedup check — no existing opportunity
       .mockResolvedValueOnce({ rows: [] } as any)
-      // 5. INSERT RETURNING id
+      // 6. INSERT RETURNING id
       .mockResolvedValueOnce({ rows: [{ id: 'abc-456' }] } as any)
-      // 6. Content-calendar insert
+      // 7. Content-calendar insert
       .mockResolvedValueOnce({ rows: [] } as any)
-      // 7. Top-100 fallout query — nothing lost
+      // 8. Top-100 fallout query — nothing lost
       .mockResolvedValueOnce({ rows: [] } as any);
 
     await runContentDecayDetection();

@@ -1016,9 +1016,26 @@ export const clientPages = pgTable(
     metaDescription: text('meta_description'),
     content: text('content'),
     createdAt: timestamp('created_at').defaultNow(),
+    // Approval metadata (migration 0045). A staged page change must carry who
+    // approved it and when — `publishApprovedChange()` refuses to publish a row
+    // whose approved_by/approved_at are unset, which is what makes the
+    // hard-stop-before-publish rule enforced code rather than convention.
+    // Deliberately reusing the existing (currently never-written)
+    // `published_date` / `last_updated` columns instead of adding
+    // `published_at` / `updated_at`, to avoid two near-identical column pairs.
+    approvedBy: uuid('approved_by'),
+    approvedAt: timestamp('approved_at'),
+    rejectedReason: text('rejected_reason'),
   },
   (t) => ({
     tenantIdIdx: index('client_pages_tenant_id_idx').on(t.tenantId),
+    // NOTE: a UNIQUE (tenant_id, client_domain, page_slug) index is NOT added
+    // here on purpose. Duplicates demonstrably exist in prod — that is why
+    // publishPendingToWordPress() dedupes in JavaScript — so creating the index
+    // would abort the migration and, since Railway migrates on boot, stop the
+    // API from starting. It needs a DELETE-dedupe first, which is irreversible
+    // data loss against a database that currently has no backups. Deferred to
+    // its own migration + explicit sign-off (needed by Phase 3, not Phase 1).
   }),
 );
 
@@ -2431,7 +2448,13 @@ export const seoContentCalendar = pgTable(
   'seo_content_calendar',
   {
     id: serial('id').primaryKey(),
-    tenantId: uuid('tenant_id').default('00000000-0000-0000-0000-000000000001'),
+    // Was `.default('00000000-…0001')` — a sentinel that is NOT a real row in
+    // `tenants`, so every calendar row written before migration 0045 pointed at
+    // a tenant that does not exist. Migration 0045 backfills those to the
+    // growth-escalators tenant BEFORE adding this FK; adding the FK without
+    // that backfill aborts the migration, and Railway applies migrations on
+    // boot, so the API would fail to start (this is how 0035 broke prod).
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
     clientDomain: text('client_domain').notNull(),
     keyword: text('keyword').notNull(),
     contentType: text('content_type').notNull().default('blog'),
@@ -2449,7 +2472,19 @@ export const seoContentCalendar = pgTable(
     updatedAt: timestamp('updated_at').defaultNow(),
   },
   (t) => ({
+    // NOTE: the 3-column unique index is deliberately KEPT alongside the new
+    // tenant-scoped one. Running code still does
+    // `ON CONFLICT (client_domain, keyword, content_type)`; dropping this index
+    // in the same migration that adds the 4-column one would make every
+    // in-flight POST throw `no unique or exclusion constraint matching` until
+    // the new code deploys. Drop it in a LATER migration, after the conflict
+    // target has moved. Until then two tenants still collide on the same
+    // (domain, keyword, type) — the 4-column index is what eventually fixes that.
     uniqueIdx: uniqueIndex('seo_content_calendar_unique_idx').on(t.clientDomain, t.keyword, t.contentType),
+    tenantUniqueIdx: uniqueIndex('seo_content_calendar_tenant_unique_idx').on(
+      t.tenantId, t.clientDomain, t.keyword, t.contentType,
+    ),
+    tenantIdIdx: index('seo_content_calendar_tenant_id_idx').on(t.tenantId),
     statusIdx: index('seo_calendar_status_idx').on(t.status),
     clientIdx: index('seo_calendar_client_idx').on(t.clientDomain),
   }),

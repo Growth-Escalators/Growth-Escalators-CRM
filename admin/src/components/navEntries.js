@@ -101,15 +101,16 @@ export function computeFlags(role, perms = {}, tenantSlug = 'growth-escalators',
     // src/services/tenantFeatures.ts — so this is a no-op for GE's own
     // tenant) hides it.
     //
-    // wizmatch/seo/d2c do NOT get the same treatment here: as of this
-    // writing only `gstBilling` (/api/billing) and `wizmatch` (/api/wizmatch)
-    // are actually wired to requireTenantFeature (grep src/index.ts), and
-    // the wizmatch nav is already isolated by `product === 'wizmatch'` below
-    // — Wizmatch is its own tenant (wizmatch_internal), never a reseller's.
-    // seo/d2c back no route requireTenantFeature currently gates, so there is
-    // nothing to hide yet; add the same `!== false` pattern here if/when one
-    // of their routes gets a requireTenantFeature mount, rather than
-    // assuming this comment still covers it.
+    // wizmatch/d2c do NOT get the same treatment here: as of this writing
+    // `gstBilling` (/api/billing), `seo` (/api/seo, /api/seo-workflows), and
+    // `wizmatch` (/api/wizmatch) are the only ones actually wired to
+    // requireTenantFeature (grep src/index.ts), and the wizmatch nav is
+    // already isolated by `product === 'wizmatch'` below — Wizmatch is its
+    // own tenant (wizmatch_internal), never a reseller's. d2c backs no route
+    // requireTenantFeature currently gates, so there is nothing to hide yet;
+    // add the same `!== false` pattern here if/when one of its routes gets a
+    // requireTenantFeature mount, rather than assuming this comment still
+    // covers it.
     canBilling:    (!!perms.billingView || !!perms.isOwner) && tenantFeatures.gstBilling !== false,
     // Expenses (/finance) and Funnels (/funnels) used to ride on canBilling,
     // but their APIs (src/routes/finance.ts, src/routes/funnel.ts) carry NO
@@ -122,7 +123,18 @@ export function computeFlags(role, perms = {}, tenantSlug = 'growth-escalators',
     canSequences:  ['admin', 'manager_ops', 'team_lead', 'sales'].includes(role),
     canDiscovery:  ['admin', 'manager_ops', 'team_lead', 'sales'].includes(role),
     canMarketing:  ['admin', 'manager_ads'].includes(role),
-    canSEO:        ['admin', 'manager_ops', 'manager_ads'].includes(role),
+    // `tenantFeatures.seo !== false` layers the PLAN entitlement on top:
+    // `/api/seo` and `/api/seo-workflows` are now also mounted behind
+    // `requireTenantFeature('seo')` (src/index.ts), so a reseller/client
+    // tenant without that flag gets a 403 from every one of those endpoints
+    // regardless of role. `!== false` (not `=== true`) is deliberate — see
+    // canBilling above: tenantFeatures starts as `{}` before the
+    // /api/tenant-features/me fetch resolves, and an unresolved fetch must
+    // never hide a nav entry that would otherwise be visible; only an
+    // explicit `false` (agency_internal's own default is `true` — see
+    // PLAN_DEFAULTS in src/services/tenantFeatures.ts — so this is a no-op
+    // for GE's own tenant) hides it.
+    canSEO:        ['admin', 'manager_ops', 'manager_ads'].includes(role) && tenantFeatures.seo !== false,
     canWizmatch:   product === 'wizmatch' && isAdminTier,
     canStaffing:   product === 'wizmatch' && perms.staffingPilotAccess === true && ['admin', 'manager_ops', 'team_lead', 'sales', 'staff'].includes(role),
     // H-11 / D-38: nav visibility for the Duplicate Companies entry (and any

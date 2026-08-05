@@ -6,6 +6,86 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-08-05 — SEO Phase 1: tenant leaks closed, add-on feature-gated, SiteAdapter + cost-guard groundwork — Claude
+
+Branch `fix/wizmatch-scoring-pipeline`, rebased onto `origin/main` (36 commits). Not committed to
+`main`, not pushed. First execution phase of the multi-tenant/multi-platform SEO plan
+(`~/.claude/plans/can-you-check-the-atomic-cascade.md`). Built with five parallel lanes under
+exclusive file ownership; build/test run centrally only.
+
+**Tenant-isolation fixes (the real ones):**
+- `src/routes/seo.ts` — `PATCH /content-calendar/:id` propagated a write to
+  `seo_opportunities.published_url` scoped **by id alone**, so it could overwrite another tenant's
+  row. Now scoped by `tenant_id`. All six `/content-calendar` endpoints (GET list, GET summary,
+  PATCH, POST, DELETE) were entirely unscoped and now filter/stamp `tenant_id`; DELETE also gained
+  a `404` on zero rows affected so a tenant mismatch can't report success.
+- `src/services/seoDigestService.ts` — `computeOpportunityTypeSuccessRates()` aggregated
+  `seo_opportunities` across **all** tenants, so one tenant's outcomes biased another's
+  prioritisation. Now tenant-scoped, with opt-out-able cross-tenant "platform priors" blended in
+  only below the 10-sample threshold (deliberate product decision: shared-by-default, per-tenant
+  opt-out via `settings.seo.contributePriors`; **requires disclosure in the reseller contract**).
+
+**SEO becomes a sellable per-tenant add-on:**
+- `src/index.ts` — `/api/seo` and `/api/seo-workflows` now mount `requireTenantFeature('seo')`.
+- `admin/src/components/navEntries.js` — `canSEO` also requires `tenantFeatures.seo !== false`
+  (the `!== false` convention is deliberate: flags load async, an unresolved fetch must not hide nav).
+- **Behaviour change, not additive:** `reseller_pilot`/`client_basic`/`wizmatch_internal` default to
+  `seo: false`, so such a tenant hitting `/api/seo` now gets 403.
+
+**Migration `0045_typical_toro.sql`** (hand-edited after `db:generate` — drizzle's output was unsafe):
+- drizzle emitted `SET NOT NULL` + FK on `seo_content_calendar.tenant_id` with **no backfill**. That
+  column defaulted to sentinel `00000000-…0001`, which is **not a row in `tenants`** (verified), so
+  every pre-existing row pointed at a nonexistent tenant and the migration would have aborted —
+  and Railway migrates on boot, so the API would not have started (the 0035 failure mode). Added a
+  guarded backfill to the growth-escalators tenant plus a `RAISE EXCEPTION` if anything is still
+  unattributable, then DROP DEFAULT → SET NOT NULL → FK.
+- Added the 4-column tenant-scoped unique index **alongside** the old 3-column one. The old one is
+  deliberately NOT dropped: running code still does `ON CONFLICT (client_domain, keyword,
+  content_type)`, and dropping it here would 500 every in-flight POST. Drop it in a later migration
+  after the conflict target moves.
+- `client_pages` — added `approved_by` / `approved_at` / `rejected_reason` (reusing the existing
+  never-written `published_date`/`last_updated` rather than adding near-duplicate columns).
+  **UNIQUE (tenant_id, client_domain, page_slug) deliberately NOT added** — duplicates provably exist
+  (that is why `publishPendingToWordPress()` dedupes in JS), so it would abort the migration; the
+  required DELETE-dedupe is irreversible loss against a DB with no backups. Deferred + documented.
+- `seo_workflow_logs` — nullable `tenant_id` + index (raw-only table, hand-written, existence-guarded).
+- **Dropped the four `seo_looker_*` views** and removed their DDL from `ensureSeoTables()`
+  (`src/services/seoWorkflowHealthService.ts`) so boot can't recreate them. They selected/filtered no
+  `tenant_id` and were rebuildable via the **unauthenticated** `GET /api/system/health/seo-data`.
+  Owner confirmed no Looker Studio consumer.
+
+**Groundwork landed early (Phases 3 & 4):**
+- `src/modules/site/providers/` (new) — `SiteAdapter` seam: interface + capability matrix for
+  git/WordPress/Shopify + mock + fail-closed allow-list factory, copying the
+  `src/modules/outreach/providers/` convention (ADR-007 forbids a generic cross-domain framework).
+  Callers branch on capabilities, never `identity.name`. `unauthorised_publish` backs the
+  hard-stop-before-publish rule. Behind `SITE_ADAPTER_ENABLED` (default false) + `SITE_PROVIDER`.
+- `src/services/seoCostGuard.ts` (new) — per-tenant/per-site replacement for the in-memory **global**
+  `SEO_SERPER_DAILY_CAP`. Pure `getSeoCostGuardConfig(env)` + pure DB-free
+  `evaluateSeoCostGuard(input)`, mirroring `wizmatchCostGuard`'s impure-fetch/pure-evaluate split.
+  Plan `limits` jsonb can override caps, making the per-site add-on enforceable with no billing code.
+  **Intentionally incomplete:** no DB fetch function yet — its `seo_api_usage` table is a later migration.
+
+**Two pre-existing migration guardrails were tripped and satisfied properly, not bypassed:**
+`wizmatchScopeBoundaryPR8B.test.ts`'s reviewed allowlist and
+`wizmatchPilotReadiness.ts`'s `AUTHORISED_MIGRATION_HIGH_WATER_MARK` (44→45), both with written
+justifications. The readiness test's sentinel probe was moved 0045→0046 — leaving it at 0045 would
+have made that test silently vacuous rather than failing.
+
+**Verify:** `npm run build` exit 0. `npm test` — **7 failed files / 21 failures, byte-identical to a
+clean `origin/main` baseline** (verified by testing `origin/main` in a detached HEAD, and confirmed
+CI green on the same SHA `e2c7fa20`, so they are local-env-dependent, not regressions); **55 new
+tests passing** (2688 vs 2633). `npm run lint:tenant-scoping` — zero new findings, and baselined
+findings dropped 80→79.
+
+**Next:** Phase 2 (`seo_sites` registry, `site_id` backfill, killing the 9 hardcoded client-domain
+lists, and converting SEO crons to `getActiveTenantsWithFeature('seo')` loops). That last item is a
+**production blocker and must land before any second tenant gets `seo:true`** —
+`resolveDefaultSeoTenantId()` throws when 2+ active tenants have the feature, which would break every
+SEO cron including GE's own.
+
+---
+
 ## 2026-08-03 — Platform-superadmin primitive: schema + middleware + audit-logging (scaffolding only) — Claude
 
 **PR #112** (`feat/platform-superadmin-role`), open, not merged. Security-audit finding: no

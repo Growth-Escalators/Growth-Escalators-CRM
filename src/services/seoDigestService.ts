@@ -20,6 +20,26 @@ import { resolveDefaultSeoTenantId } from './seoTenantContext';
 // the priority-score nudge in seoContentGapService.ts / seoContentDecayService.ts
 // / competitorContentService.ts, and the AI-prompt context in
 // contentGenerationService.ts / competitorContentService.ts — reads from this.
+//
+// TENANT ISOLATION + CROSS-TENANT PRIORS — deliberate product decision, not
+// a bug. A tenant's own measured outcomes are ALWAYS scoped by tenant_id in
+// computeOpportunityTypeSuccessRates() below — that predicate is
+// non-negotiable. Separately, and ONLY to fill the gap while a tenant's own
+// sample is below MIN_SAMPLE_SIZE_FOR_ADJUSTMENT, that function blends in a
+// "platform prior": the same success-rate computation run across every
+// OTHER active tenant that has not opted out. This is intentional
+// network-wide learning ("shared by default") so a brand-new reseller
+// client gets a useful prioritization signal from day one instead of having
+// no signal at all for months while it accumulates its own 10+ measured
+// outcomes. Opt-out is per tenant via `tenants.settings.seo.contributePriors
+// === false`; absent is opted-in, matching the shared-by-default decision.
+//
+// Practically: a reseller's SEO learning-loop numbers can, by default, be
+// influenced by other tenants' aggregate (never row-level) outcome data.
+// THIS MUST BE DISCLOSED in the reseller contract/ToS — a future reader who
+// doesn't know this is deliberate will otherwise correctly flag it as a
+// tenant-isolation bug. If the disclosure requirement ever changes, flip the
+// `includePlatformPriors` default below rather than removing the mechanism.
 // ---------------------------------------------------------------------------
 export interface OpportunityTypeSuccessStats {
   successRate: number; // 0..1
@@ -28,36 +48,140 @@ export interface OpportunityTypeSuccessStats {
 
 const SUCCESSFUL_OUTCOMES = ['recovered', 'improved'];
 
-export async function computeOpportunityTypeSuccessRates(): Promise<Record<string, OpportunityTypeSuccessStats>> {
+// Below this many measured outcomes for a given opportunity_type, a tenant's
+// OWN data isn't trusted enough to move prioritization alone — see the
+// blending rule in computeOpportunityTypeSuccessRates() below, and the
+// no-op guard in applySuccessRateAdjustment() further down.
+const MIN_SAMPLE_SIZE_FOR_ADJUSTMENT = 10;
+
+// Whether a tenant has opted OUT of contributing its outcomes to other
+// tenants' platform-wide priors. Mirrors tenantFeatures.ts's defensive
+// narrowing of the `settings` jsonb column (typeof/array checks, never a
+// blind cast) so malformed or absent settings never throw — they just
+// resolve to the shared-by-default outcome (opted in).
+function tenantOptedIntoPriors(settings: unknown): boolean {
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) return true;
+  const seo = (settings as Record<string, unknown>).seo;
+  if (!seo || typeof seo !== 'object' || Array.isArray(seo)) return true;
+  return (seo as Record<string, unknown>).contributePriors !== false;
+}
+
+/**
+ * Tenant-scoped historical success rates per opportunity_type, optionally
+ * blended with an opt-out-able platform-wide prior when the tenant's own
+ * sample is too small to trust yet. See the big comment block above this
+ * function for why cross-tenant blending exists and the disclosure
+ * requirement it carries.
+ *
+ * `tenantId` defaults to resolveDefaultSeoTenantId() when omitted. That
+ * default exists ONLY so the current call sites — all four still calling
+ * this with zero args as of this change: seoContentGapService.ts:86,
+ * contentGenerationService.ts:166 and :295, competitorContentService.ts:112
+ * and :203, seoContentDecayService.ts:40 — keep compiling and keep behaving
+ * the same as before (scoped to the single SEO tenant that exists in
+ * production today) rather than the pre-fix behaviour of aggregating across
+ * every tenant. Those call sites should be updated to pass their own
+ * resolved tenantId explicitly as a follow-up; the optional default is a
+ * transitional safety net, not the intended long-term shape (see PR notes /
+ * report for this change).
+ */
+export async function computeOpportunityTypeSuccessRates(
+  tenantId?: string,
+  opts: { includePlatformPriors?: boolean } = {},
+): Promise<Record<string, OpportunityTypeSuccessStats>> {
+  const includePlatformPriors = opts.includePlatformPriors ?? true;
   try {
-    const result = await pool.query(`
+    const resolvedTenantId = tenantId ?? await resolveDefaultSeoTenantId();
+
+    // The tenant's own outcomes — always scoped, non-negotiable.
+    const ownResult = await pool.query(`
       SELECT
         opportunity_type,
         COUNT(*)::int AS sample_size,
         COUNT(*) FILTER (WHERE outcome = ANY($1::text[]))::int AS successes
       FROM seo_opportunities
-      WHERE outcome IS NOT NULL AND opportunity_type IS NOT NULL
+      WHERE outcome IS NOT NULL AND opportunity_type IS NOT NULL AND tenant_id = $2
       GROUP BY opportunity_type
-    `, [SUCCESSFUL_OUTCOMES]);
+    `, [SUCCESSFUL_OUTCOMES, resolvedTenantId]);
 
-    const rates: Record<string, OpportunityTypeSuccessStats> = {};
-    for (const row of result.rows as Array<{ opportunity_type: string; sample_size: number; successes: number }>) {
+    const own: Record<string, OpportunityTypeSuccessStats> = {};
+    for (const row of ownResult.rows as Array<{ opportunity_type: string; sample_size: number; successes: number }>) {
       const sampleSize = Number(row.sample_size);
-      rates[row.opportunity_type] = {
+      own[row.opportunity_type] = {
         successRate: sampleSize > 0 ? Number(row.successes) / sampleSize : 0,
         sampleSize,
       };
     }
-    return rates;
+
+    if (!includePlatformPriors) return own;
+
+    // Platform-wide prior: the same aggregation, run across every OTHER
+    // active tenant that has not opted out. Isolated in its own try/catch so
+    // a failure here degrades to "tenant-own data only" instead of losing
+    // the (already-successful) own-tenant numbers above.
+    let priors: Record<string, OpportunityTypeSuccessStats> = {};
+    try {
+      const tenantRows = await pool.query(`SELECT id, settings FROM tenants WHERE is_active = true`);
+      const eligibleTenantIds = (tenantRows.rows as Array<{ id: string; settings: unknown }>)
+        .filter((t) => t.id !== resolvedTenantId && tenantOptedIntoPriors(t.settings))
+        .map((t) => t.id);
+
+      if (eligibleTenantIds.length > 0) {
+        const priorResult = await pool.query(`
+          SELECT
+            opportunity_type,
+            COUNT(*)::int AS sample_size,
+            COUNT(*) FILTER (WHERE outcome = ANY($1::text[]))::int AS successes
+          FROM seo_opportunities
+          WHERE outcome IS NOT NULL AND opportunity_type IS NOT NULL AND tenant_id = ANY($2::uuid[])
+          GROUP BY opportunity_type
+        `, [SUCCESSFUL_OUTCOMES, eligibleTenantIds]);
+
+        for (const row of priorResult.rows as Array<{ opportunity_type: string; sample_size: number; successes: number }>) {
+          const sampleSize = Number(row.sample_size);
+          priors[row.opportunity_type] = {
+            successRate: sampleSize > 0 ? Number(row.successes) / sampleSize : 0,
+            sampleSize,
+          };
+        }
+      }
+    } catch (priorErr) {
+      logger.warn('[seo-digest] platform-prior computation failed, falling back to tenant-own data:', priorErr instanceof Error ? priorErr.message : String(priorErr));
+      priors = {};
+    }
+
+    // Blend rule (deliberately simple — a reader must be able to tell where
+    // a number came from just by looking at it):
+    //   weight_own = ownSampleSize / MIN_SAMPLE_SIZE_FOR_ADJUSTMENT (capped
+    //     implicitly below 1 by the branch guard, since this only runs when
+    //     ownSampleSize < MIN_SAMPLE_SIZE_FOR_ADJUSTMENT)
+    //   blendedRate = weight_own * ownRate + (1 - weight_own) * priorRate
+    //   blendedSampleSize = ownSampleSize + priorSampleSize
+    // So the tenant's own data linearly dominates as its sample grows toward
+    // the threshold (at the threshold, own data is used unblended — see the
+    // guard below), and the reported sampleSize is always the honest total
+    // evidence behind the number (own + borrowed), never inflated or hidden.
+    const allTypes = new Set([...Object.keys(own), ...Object.keys(priors)]);
+    const blended: Record<string, OpportunityTypeSuccessStats> = {};
+    for (const type of allTypes) {
+      const o = own[type] ?? { successRate: 0, sampleSize: 0 };
+      const p = priors[type];
+      if (o.sampleSize >= MIN_SAMPLE_SIZE_FOR_ADJUSTMENT || !p || p.sampleSize === 0) {
+        blended[type] = o;
+        continue;
+      }
+      const weightOwn = o.sampleSize / MIN_SAMPLE_SIZE_FOR_ADJUSTMENT;
+      blended[type] = {
+        successRate: weightOwn * o.successRate + (1 - weightOwn) * p.successRate,
+        sampleSize: o.sampleSize + p.sampleSize,
+      };
+    }
+    return blended;
   } catch (e) {
     logger.warn('[seo-digest] computeOpportunityTypeSuccessRates failed:', e instanceof Error ? e.message : String(e));
     return {};
   }
 }
-
-// Below this many measured outcomes for a given opportunity_type, we don't trust
-// the signal enough to move prioritization — return the score unadjusted.
-const MIN_SAMPLE_SIZE_FOR_ADJUSTMENT = 10;
 
 /**
  * Nudge a priority score using historical success-rate data for its opportunity
@@ -166,9 +290,10 @@ export async function sendWeeklyOpportunityDigest(): Promise<{ sent: boolean }> 
     }
 
     // Learning loop: "what's working" — the opportunity type with the best measured
-    // track record, if any type has a trustworthy sample yet. Computed once (this
-    // data isn't per-client) and appended to every client's message below.
-    const successRates = await computeOpportunityTypeSuccessRates();
+    // track record, if any type has a trustworthy sample yet. Computed once per
+    // tenant (this data isn't per client-domain within a tenant) and appended to
+    // every client's message below.
+    const successRates = await computeOpportunityTypeSuccessRates(tenantId);
     const bestPerformingType = Object.entries(successRates)
       .filter(([, stats]) => stats.sampleSize >= MIN_SAMPLE_SIZE_FOR_ADJUSTMENT)
       .sort((a, b) => b[1].successRate - a[1].successRate)[0];

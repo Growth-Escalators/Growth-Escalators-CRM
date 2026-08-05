@@ -224,6 +224,14 @@ describe('PR 8B scope boundary — PR 9/10 must not have started', () => {
       + 'text columns on the existing tenant_branding table); no ALTER of any other table, no new table. '
       + 'Carries no outreach, sequence, reply, or Smartlead/reply-ingestion data of any kind. Unrelated '
       + 'to PR 9/10 (Smartlead / reply ingestion).',
+    45: 'SEO tenant hardening (Phase 1 of the multi-tenant SEO platform work, owner-approved). '
+      + 'Backfills + constrains `seo_content_calendar.tenant_id` (it previously defaulted to a sentinel '
+      + 'UUID that is not a real `tenants` row, so every existing row pointed at a nonexistent tenant), '
+      + 'adds three nullable approval columns to `client_pages`, adds a nullable `tenant_id` to '
+      + '`seo_workflow_logs`, and DROPs the four unused `seo_looker_*` views (no consumer; they selected '
+      + 'no tenant_id and were rebuildable via an unauthenticated route). Touches only SEO tables. '
+      + 'Carries no outreach, sequence, reply, or provider data. Unrelated to PR 9/10 (Smartlead / '
+      + 'reply ingestion).',
   };
 
   it('every migration past 0037 is in the reviewed out-of-scope allowlist', () => {

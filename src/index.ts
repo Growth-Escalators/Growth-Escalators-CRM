@@ -358,8 +358,12 @@ app.use('/api/meta', requireAuth, metaAssetsRouter);
 app.use('/api/search', requireAuth, searchRouter);
 app.use('/api/audit', requireAuth, auditRouter);
 app.use('/api/analytics', requireAuth, analyticsRouter);
-app.use('/api/seo', requireAuth, seoRouter);
-app.use('/api/seo-workflows', requireAuth, seoWorkflowsRouter);
+// seo entitlement (src/services/tenantFeatures.ts) — SEO automation (rank
+// tracking, content decay, digests, backlinks, ...) is a Growth-Escalators-
+// internal product surface; a reseller-pilot or client tenant has no reason
+// to reach it. See requireTenantFeature.ts for the fail-closed contract.
+app.use('/api/seo', requireAuth, requireTenantFeature('seo'), seoRouter);
+app.use('/api/seo-workflows', requireAuth, requireTenantFeature('seo'), seoWorkflowsRouter);
 app.use('/api/finance', requireAuth, financeRouter);
 app.use('/api/intelligence', requireAuth, intelligenceRouter);
 app.use('/api/growth-os', requireAuth, growthOSRouter);
