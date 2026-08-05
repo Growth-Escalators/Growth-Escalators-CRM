@@ -45,7 +45,18 @@ function statusBadgeClass(status) {
 }
 
 function emptyForm() {
-  return { label: '', domain: '', platform: 'unknown', gscProperty: '', ga4PropertyId: '', riskProfile: 'standard', autoPublishAllowed: false };
+  return {
+    label: '', domain: '', platform: 'unknown', gscProperty: '', ga4PropertyId: '',
+    riskProfile: 'standard', autoPublishAllowed: false,
+    // `credentialProvider` points at a `tenant_integrations` row (a pointer,
+    // never a secret) — it is its own top-level column on seo_sites, NOT an
+    // adapterConfig key (adapterConfig.credentialProvider would trip the
+    // server's /credential/i secret-key guard). `adapterConfig` itself is the
+    // non-secret per-platform settings bag (repo/branch/host for git,
+    // baseUrl for wordpress, themeSnippetInstalled for shopify).
+    credentialProvider: '',
+    adapterConfig: {},
+  };
 }
 
 // `autoPublishAllowed` is the switch that lets the system edit/publish to a
@@ -127,6 +138,14 @@ export default function SiteRegistryPanel({ onSitesChanged }) {
       ga4PropertyId: site.ga4PropertyId || '',
       riskProfile: site.riskProfile || 'standard',
       autoPublishAllowed: !!site.autoPublishAllowed,
+      credentialProvider: site.credentialProvider || '',
+      // Copy, not the same reference — and the FULL object, including any
+      // keys this form has no field for (a future platform's setting,
+      // something set directly via the API). Every write below goes through
+      // setAdapterConfigField, which only ever touches one named key at a
+      // time, so those unknown keys ride along untouched into the submit
+      // body instead of being silently dropped on save.
+      adapterConfig: site.adapterConfig && typeof site.adapterConfig === 'object' ? { ...site.adapterConfig } : {},
     });
     setFormError(null);
     setShowForm(true);
@@ -137,6 +156,28 @@ export default function SiteRegistryPanel({ onSitesChanged }) {
     setEditingSite(null);
     setForm(emptyForm());
     setFormError(null);
+  }
+
+  function setAdapterConfigField(key, value) {
+    setForm((f) => ({ ...f, adapterConfig: { ...f.adapterConfig, [key]: value } }));
+  }
+
+  // Trims the string fields this form manages and drops any it cleared back
+  // to empty, so an unset optional field (git's `host`) reads to the
+  // provider as genuinely absent rather than as an empty string — see
+  // git.provider.ts's resolveAdapterConfig, which treats `host: ''` as
+  // invalid config, not "use the default". Everything else already in
+  // form.adapterConfig (unknown keys — see openEditForm) passes through as-is.
+  function buildSubmitAdapterConfig() {
+    const cfg = { ...form.adapterConfig };
+    for (const key of ['repo', 'branch', 'host', 'baseUrl']) {
+      if (typeof cfg[key] === 'string') {
+        const trimmed = cfg[key].trim();
+        if (trimmed) cfg[key] = trimmed;
+        else delete cfg[key];
+      }
+    }
+    return cfg;
   }
 
   async function handleSubmit(e) {
@@ -157,6 +198,8 @@ export default function SiteRegistryPanel({ onSitesChanged }) {
             ga4PropertyId: form.ga4PropertyId.trim() || null,
             riskProfile: form.riskProfile,
             autoPublishAllowed: !!form.autoPublishAllowed,
+            credentialProvider: form.credentialProvider.trim() || null,
+            adapterConfig: buildSubmitAdapterConfig(),
           }
         : {
             label: form.label.trim(),
@@ -165,6 +208,8 @@ export default function SiteRegistryPanel({ onSitesChanged }) {
             gscProperty: form.gscProperty.trim() || undefined,
             ga4PropertyId: form.ga4PropertyId.trim() || undefined,
             riskProfile: form.riskProfile,
+            credentialProvider: form.credentialProvider.trim() || undefined,
+            adapterConfig: buildSubmitAdapterConfig(),
           };
       await apiFetch(isEdit ? `/api/seo-sites/${editingSite.id}` : '/api/seo-sites', {
         method: isEdit ? 'PATCH' : 'POST',
@@ -286,6 +331,101 @@ export default function SiteRegistryPanel({ onSitesChanged }) {
                 />
               </div>
             </div>
+
+            {/* Platform-conditional adapter config — the settings the site
+                adapters (src/modules/site/providers/*.provider.ts) actually
+                read at call time. Nothing renders for 'unknown'. Credentials
+                themselves are NEVER collected here (see the inline notes
+                below) — only a pointer to a saved Integrations connection. */}
+            {form.platform === 'git' && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-3">
+                <p className="text-xs font-semibold text-slate-600">Git adapter configuration</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="site-adapter-repo" className="block text-xs text-slate-500 mb-1">Repository</label>
+                    <input
+                      id="site-adapter-repo" type="text" value={form.adapterConfig.repo || ''} placeholder="org/site"
+                      onChange={(e) => setAdapterConfigField('repo', e.target.value)}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="site-adapter-branch" className="block text-xs text-slate-500 mb-1">Branch</label>
+                    <input
+                      id="site-adapter-branch" type="text" value={form.adapterConfig.branch || ''} placeholder="main"
+                      onChange={(e) => setAdapterConfigField('branch', e.target.value)}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="site-adapter-host" className="block text-xs text-slate-500 mb-1">Host (optional, defaults to github.com)</label>
+                    <input
+                      id="site-adapter-host" type="text" value={form.adapterConfig.host || ''} placeholder="github.com"
+                      onChange={(e) => setAdapterConfigField('host', e.target.value)}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400">
+                  This adapter never pushes or merges on its own — a human always merges the compare link it hands off. No credential is needed here.
+                </p>
+              </div>
+            )}
+
+            {form.platform === 'wordpress' && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-3">
+                <p className="text-xs font-semibold text-slate-600">WordPress adapter configuration</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="site-adapter-base-url" className="block text-xs text-slate-500 mb-1">Base URL</label>
+                    <input
+                      id="site-adapter-base-url" type="text" value={form.adapterConfig.baseUrl || ''} placeholder="https://example.com"
+                      onChange={(e) => setAdapterConfigField('baseUrl', e.target.value)}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="site-credential-provider" className="block text-xs text-slate-500 mb-1">Credential provider (optional)</label>
+                    <input
+                      id="site-credential-provider" type="text" value={form.credentialProvider} placeholder="wordpress"
+                      onChange={(e) => setForm((f) => ({ ...f, credentialProvider: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400">
+                  This is only where to point the adapter and which saved connection to use — not the connection itself. Connect the WordPress application password on the Integrations page.
+                </p>
+              </div>
+            )}
+
+            {form.platform === 'shopify' && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-3">
+                <p className="text-xs font-semibold text-slate-600">Shopify adapter configuration</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="flex items-center gap-2 pt-5">
+                    <input
+                      id="site-theme-snippet-installed" type="checkbox"
+                      checked={!!form.adapterConfig.themeSnippetInstalled}
+                      onChange={(e) => setAdapterConfigField('themeSnippetInstalled', e.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                    />
+                    <label htmlFor="site-theme-snippet-installed" className="text-xs text-slate-600">Theme snippet installed</label>
+                  </div>
+                  <div>
+                    <label htmlFor="site-credential-provider" className="block text-xs text-slate-500 mb-1">Credential provider (optional)</label>
+                    <input
+                      id="site-credential-provider" type="text" value={form.credentialProvider} placeholder="shopify"
+                      onChange={(e) => setForm((f) => ({ ...f, credentialProvider: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Structured data is written to a metafield but only renders on-page once the theme snippet above is installed and checked. Connect the Shopify access token on the Integrations page — not here.
+                </p>
+              </div>
+            )}
 
             {/* Auto-publish only appears once a site exists to edit — a brand
                 new site has never been observed yet, so there is nothing to

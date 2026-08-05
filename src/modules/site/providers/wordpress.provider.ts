@@ -35,17 +35,16 @@
 // "I make factual errors in these briefs, flag them rather than forcing them
 // to fit")
 // ============================================================================
-// 1. CREDENTIAL RESOLUTION. The brief describes reading `site.credentialProvider`
-//    directly, but `SiteRef` (site-provider.interface.ts) has no such
-//    top-level field — only `seo_sites`' own row shape (`SeoSite` in
-//    src/services/seoSiteRegistry.ts) has `credentialProvider`, and nothing in
-//    the codebase yet maps a `SeoSite` row onto a `SiteRef` (that mapping is
-//    presumably a route-layer concern for later work). `SiteRef.adapterConfig`
-//    IS documented as the non-secret settings bag a provider reads at call
-//    time, so this adapter reads `site.adapterConfig.credentialProvider` —
-//    itself just a non-secret pointer name, exactly like the DB column it
-//    will eventually be filled from — and falls back to the brief's own
-//    documented default of `'wordpress'` when absent. See
+// 1. CREDENTIAL RESOLUTION — RESOLVED, note kept for the history. When this
+//    adapter was written, `SiteRef` had no `credentialProvider` field, so it
+//    read `adapterConfig.credentialProvider` instead. `SiteRef` now carries
+//    the field (it maps straight from `seo_sites.credential_provider`), and
+//    the adapterConfig fallback has been REMOVED — not merely superseded. It
+//    was unreachable code that looked like a feature:
+//    `seoSiteRegistry.assertNoSecretKeys()` rejects any adapterConfig key
+//    matching /pass|secret|token|key|credential|auth/i with a 400 and has done
+//    since the registry's first commit, and the registry is the only writer of
+//    that column — so no row could ever have held it. See
 //    `resolveCredentialProviderName`.
 // 2. VERIFY-TIME CAPABILITY WARNINGS. The brief asks `verifyChange` to warn
 //    when a staged change supplied a `canonicalUrl`/`redirectFrom` this
@@ -233,9 +232,11 @@ export class WordPressSiteProvider implements SiteProvider {
     if (!isSafeFetchUrl(baseUrl)) {
       return { status: 'misconfigured', reason: `adapterConfig.baseUrl is not a safe http(s) URL: ${baseUrl}` };
     }
-    const credentialProvider = this.getCredentialProviderConfig(site);
-    if (credentialProvider !== undefined && credentialProvider.trim().length === 0) {
-      return { status: 'misconfigured', reason: 'adapterConfig.credentialProvider is set but empty' };
+    // A blank (rather than absent) pointer is a misconfiguration worth naming:
+    // absent means "use the default", blank means somebody meant to set it and
+    // saved an empty box.
+    if (typeof site.credentialProvider === 'string' && site.credentialProvider.trim().length === 0) {
+      return { status: 'misconfigured', reason: 'credentialProvider is set but empty' };
     }
     return { status: 'ready' };
   }
@@ -450,21 +451,29 @@ export class WordPressSiteProvider implements SiteProvider {
     return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
   }
 
-  private getCredentialProviderConfig(site: SiteRef): string | undefined {
-    const value = site.adapterConfig?.credentialProvider;
-    return typeof value === 'string' ? value : undefined;
-  }
 
   /** See DEVIATION 1 above. */
+  /**
+   * Resolves which `tenant_integrations` row holds this site's credentials.
+   *
+   * `site.credentialProvider` (the `seo_sites.credential_provider` column) is
+   * the only source. An earlier version of this method also fell back to
+   * `adapterConfig.credentialProvider`, on the reasoning that this adapter had
+   * shipped reading it there and existing rows must keep working. That
+   * reasoning was wrong, and the fallback was dead code that looked like a
+   * feature: `seoSiteRegistry.assertNoSecretKeys()` rejects any adapterConfig
+   * key matching /pass|secret|token|key|credential|auth/i with a 400, and it
+   * has done so since the registry's first commit — so no row has ever been
+   * able to hold that key, and the registry is the only writer of the column.
+   *
+   * Removed rather than left in, because the failure mode of keeping it is
+   * that someone debugging a credential problem sets
+   * `adapterConfig.credentialProvider`, gets an unexplained 400, and has no
+   * way to tell that the path they were aiming at never existed.
+   */
   private resolveCredentialProviderName(site: SiteRef): string {
-    // `site.credentialProvider` (the seo_sites.credential_provider column) is
-    // the real pointer. adapterConfig is still consulted second because this
-    // adapter shipped reading it there before the interface carried the field,
-    // and a site row configured that way must keep working.
     const fromRef = typeof site.credentialProvider === 'string' ? site.credentialProvider.trim() : '';
-    if (fromRef.length > 0) return fromRef;
-    const configured = this.getCredentialProviderConfig(site);
-    return configured && configured.trim().length > 0 ? configured.trim() : 'wordpress';
+    return fromRef.length > 0 ? fromRef : 'wordpress';
   }
 
   /** Re-validated on every call, not cached from getConfigStatus — adapterConfig is admin-editable and could change between a readiness check and a call. */

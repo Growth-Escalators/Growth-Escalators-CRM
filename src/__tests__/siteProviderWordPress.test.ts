@@ -109,11 +109,25 @@ describe('WordPressSiteProvider — getConfigStatus (sync, never resolves creden
   });
 
   it('reports misconfigured for an explicitly-blank credentialProvider pointer', () => {
+    // Reads the top-level SiteRef field, not adapterConfig. The adapterConfig
+    // path this test used to exercise was unreachable in production:
+    // seoSiteRegistry.assertNoSecretKeys() 400s any adapterConfig key matching
+    // /credential/i, and has since the registry's first commit.
+    const { provider } = makeProvider({});
+    const status = provider.getConfigStatus(
+      siteRef({ credentialProvider: '   ', adapterConfig: { baseUrl: 'https://example.com' } }),
+    );
+    expect(status.status).toBe('misconfigured');
+  });
+
+  it('ignores a credentialProvider smuggled into adapterConfig', () => {
+    // Belt-and-braces on the removal: even if such a row somehow existed, the
+    // adapter must not honour it — there is exactly one pointer now.
     const { provider } = makeProvider({});
     const status = provider.getConfigStatus(
       siteRef({ adapterConfig: { baseUrl: 'https://example.com', credentialProvider: '   ' } }),
     );
-    expect(status.status).toBe('misconfigured');
+    expect(status).toEqual({ status: 'ready' });
   });
 
   it('is ready with a safe baseUrl and no credentialProvider override (defaults apply later, at call time)', () => {
@@ -134,7 +148,7 @@ describe('WordPressSiteProvider — credential resolution', () => {
     await expect(provider.stageChange(siteRef(), change())).rejects.toMatchObject({ code: 'missing_configuration' });
   });
 
-  it('resolves the credential provider name from adapterConfig.credentialProvider, defaulting to "wordpress"', async () => {
+  it('resolves the credential provider name from site.credentialProvider, defaulting to "wordpress"', async () => {
     const loadCredentials = vi.fn(async () => FAKE_CREDENTIALS);
     const { provider } = makeProvider({
       loadCredentials: loadCredentials as unknown as WordPressSiteProviderDeps['loadCredentials'],
@@ -145,7 +159,7 @@ describe('WordPressSiteProvider — credential resolution', () => {
 
     loadCredentials.mockClear();
     await provider.stageChange(
-      siteRef({ adapterConfig: { baseUrl: 'https://example.com', credentialProvider: 'wordpress-client-x' } }),
+      siteRef({ credentialProvider: 'wordpress-client-x', adapterConfig: { baseUrl: 'https://example.com' } }),
       change(),
     );
     expect(loadCredentials).toHaveBeenCalledWith('tenant-a', 'wordpress-client-x');
