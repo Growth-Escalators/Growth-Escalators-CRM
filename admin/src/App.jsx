@@ -9,6 +9,7 @@ import { normalizeStaffingAccess } from './lib/staffingAccess.js';
 import { ToastProvider } from './components/wizmatch/Toast.jsx';
 
 const LoginPage = lazy(() => import('./pages/LoginPage.jsx'));
+const AcceptInvitePage = lazy(() => import('./pages/AcceptInvitePage.jsx'));
 const ContactsPage = lazy(() => import('./pages/ContactsPage.jsx'));
 const PipelinePage = lazy(() => import('./pages/PipelinePage.jsx'));
 const PipelineManagerPage = lazy(() => import('./pages/PipelineManagerPage.jsx'));
@@ -317,6 +318,8 @@ export default function App() {
         <Suspense fallback={<RouteFallback />}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            {/* Public invite-acceptance page — an invited teammate has no CRM login yet; the token in the URL is the authorization */}
+            <Route path="/accept-invite" element={<AcceptInvitePage />} />
             {/* Public signing page — external signers have no CRM login; the token in the URL is the authorization */}
             <Route path="/sign/:token" element={<SignContractPage />} />
             {import.meta.env.DEV && <Route path="/__qa/query-boundary" element={<QueryBoundaryQaPage />} />}

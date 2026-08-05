@@ -945,6 +945,43 @@ export const passwordResetTokens = pgTable('password_reset_tokens', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+// ---------------------------------------------------------------------------
+// TABLE 35a — user_invites
+//
+// Invite-by-email (replaces the old "generate a temp password, print it once,
+// admin copies it into Slack/WhatsApp" flow — see src/routes/permissions.ts's
+// POST /users). Deliberately its own table rather than a new `users` column:
+// a user's "pending" state is fully derived from "does a row exist here",
+// which needs zero backfill/migration story for the ~all existing users who
+// have none. `tokenHash` stores a SHA-256 of the mailed token (mirrors
+// src/modules/esign/contract-signing-link.ts's hashSigningToken) rather than
+// the raw value — a link sent by email is more likely to end up in a log/
+// screenshot than the 6-digit `password_reset_tokens` code, so hashing it at
+// rest costs nothing and is strictly safer.
+//
+// Lifecycle: created on invite/resend (deleting any prior row for the same
+// user first — same "delete old, insert new" shape as
+// password_reset_tokens's forgot-password flow, and what makes "resend
+// invalidates the old link" true for free). Deleted on accept. A user has at
+// most one outstanding row at a time; its mere existence IS the "pending"
+// flag the admin UI reads (see GET /api/permissions/users's LEFT JOIN).
+// ---------------------------------------------------------------------------
+export const userInvites = pgTable(
+  'user_invites',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull().references(() => users.id),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    tokenHash: text('token_hash').notNull(),
+    expiresAt: timestamp('expires_at').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    userIdx: uniqueIndex('user_invites_user_id_uniq').on(t.userId),
+    tenantIdx: index('user_invites_tenant_id_idx').on(t.tenantId),
+  }),
+);
+
 // ===========================================================================
 // SEO AUTOMATION TABLES (Phase 2 upgrade)
 // ===========================================================================

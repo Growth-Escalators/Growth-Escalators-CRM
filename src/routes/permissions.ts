@@ -5,6 +5,10 @@ import { and, eq, sql } from 'drizzle-orm';
 import { hash } from '@node-rs/argon2';
 import { resolveStaffingAccess } from '../services/wizmatchStaffingAccess';
 import { generatePassword } from '../utils/password';
+import { createInviteToken, hasPendingInvite, sendInviteEmail } from '../services/userInvites';
+import { resolveTenantSeatLimit, countActiveTenantUsers } from '../services/seatLimits';
+import { reassignUserRecords, type ReassignableUser } from '../services/userReassignment';
+import logger from '../utils/logger';
 
 const router = Router();
 
@@ -73,12 +77,19 @@ router.get('/users', async (req: Request, res: Response) => {
   if (!myPerms?.isOwner) { res.status(403).json({ error: 'owner only' }); return; }
 
   try {
+    // LEFT JOIN user_invites: a user has at most one outstanding invite row
+    // (created/resend always deletes any prior one first — see
+    // src/services/userInvites.ts), so its mere existence IS the "pending"
+    // flag the AddUserModal/PermissionsPage UI reads to show a "Resend
+    // invite" affordance instead of joining and risking row duplication.
     const allUsers = await db.execute(sql`
       SELECT u.id, u.name, u.email, u.role,
              up.id as permissions_id,
-             up.is_owner
+             up.is_owner,
+             (ui.id IS NOT NULL) as pending
       FROM users u
       LEFT JOIN user_permissions up ON up.user_id = u.id
+      LEFT JOIN user_invites ui ON ui.user_id = u.id
       WHERE u.tenant_id = ${tenantId}
         AND (u.is_active IS NULL OR u.is_active = true)
       ORDER BY u.name
@@ -193,10 +204,15 @@ router.put('/users/:userId', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/permissions/users — create a new team member (admin/owner only)
-// Body: { name, email, role, password? } — password auto-generated if omitted
-// Returns the new user + the plaintext password ONCE (so admin can share it).
-// User can change their password later via /auth/forgot-password.
+// POST /api/permissions/users — invite a new team member (admin/owner only)
+// Body: { name, email, role }
+//
+// Creates the user with a random, unguessable, never-disclosed password (via
+// generatePassword() — the same generator this route used to hand back in
+// the response, now never returned) and emails them an invite link instead
+// of printing a password for the admin to copy/paste. The account is
+// effectively unusable until the invitee opens the link and sets their own
+// password via POST /auth/accept-invite — see src/services/userInvites.ts.
 // ---------------------------------------------------------------------------
 router.post('/users', async (req: Request, res: Response) => {
   const myUserId = req.user!.id;
@@ -207,8 +223,8 @@ router.post('/users', async (req: Request, res: Response) => {
   const meIsAdmin = myPerms?.isOwner || req.user!.role === 'admin';
   if (!meIsAdmin) { res.status(403).json({ error: 'admin only' }); return; }
 
-  const { name, email, role, password: rawPassword } = req.body as {
-    name?: string; email?: string; role?: string; password?: string;
+  const { name, email, role } = req.body as {
+    name?: string; email?: string; role?: string;
   };
 
   if (!name || !email) { res.status(400).json({ error: 'name and email are required' }); return; }
@@ -218,10 +234,6 @@ router.post('/users', async (req: Request, res: Response) => {
   const newRole = role || 'staff';
   if (!VALID_ROLES.includes(newRole)) {
     res.status(400).json({ error: `role must be one of: ${VALID_ROLES.join(', ')}` });
-    return;
-  }
-  if (rawPassword && rawPassword.length < 8) {
-    res.status(400).json({ error: 'password must be at least 8 characters' });
     return;
   }
 
@@ -234,9 +246,30 @@ router.post('/users', async (req: Request, res: Response) => {
     return;
   }
 
+  // Seat-limit enforcement (src/services/seatLimits.ts) — a tenant with no
+  // active subscription/plan (true for virtually every tenant today) has no
+  // cap at all, so this is a no-op for them.
   try {
-    const plaintextPassword = rawPassword || generatePassword();
-    const passwordHash = await hash(plaintextPassword);
+    const seatLimit = await resolveTenantSeatLimit(tenantId);
+    if (seatLimit !== null) {
+      const activeCount = await countActiveTenantUsers(tenantId);
+      if (activeCount + 1 > seatLimit) {
+        res.status(403).json({
+          error: `Seat limit reached (${seatLimit} user${seatLimit === 1 ? '' : 's'} on your current plan) — upgrade your plan to add more team members.`,
+        });
+        return;
+      }
+    }
+  } catch (e: unknown) {
+    logger.error('[permissions] seat-limit check failed:', e);
+    res.status(500).json({ error: 'Could not verify seat availability. Please try again.' });
+    return;
+  }
+
+  try {
+    // Never usable to log in until the invitee sets their own password via
+    // accept-invite — generatePassword() is never returned to the caller.
+    const passwordHash = await hash(generatePassword());
 
     // db.execute() on node-postgres returns { rows, rowCount } (pg shape) — NOT
     // an iterable. The previous `const [inserted] = await db.execute(...)`
@@ -261,13 +294,65 @@ router.post('/users', async (req: Request, res: Response) => {
       ON CONFLICT (user_id) DO NOTHING
     `).catch(() => { /* table may not have unique constraint; ignore */ });
 
-    res.json({
-      ok: true,
-      user: inserted,
-      temporaryPassword: plaintextPassword,
-      note: 'Share this password securely with the user. They can change it any time via the "Forgot password" flow on the login page.',
-    });
+    const token = await createInviteToken(inserted.id, tenantId);
+    let emailSent = false;
+    try {
+      const result = await sendInviteEmail(token, tenantId, inserted.name, inserted.email);
+      emailSent = result.success;
+    } catch (e: unknown) {
+      // Non-fatal: the user + invite token both exist, so "Resend invite"
+      // can retry — mirrors esign's sendSignInvite catch-and-log posture.
+      logger.error('[permissions] invite email failed:', e);
+    }
+
+    res.json({ ok: true, user: inserted, invited: true, emailSent });
   } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/permissions/users/:userId/resend-invite — re-issue a fresh
+// invite token/email for a user stuck in pending state. Owner/admin only,
+// same tenant-scoping IDOR guard as GET/PUT /users/:userId.
+// ---------------------------------------------------------------------------
+router.post('/users/:userId/resend-invite', async (req: Request, res: Response) => {
+  const myUserId = req.user!.id;
+  const tenantId = req.user!.tenantId;
+  const targetUserId = req.params.userId as string;
+
+  const [myPerms] = await db.select().from(userPermissions)
+    .where(eq(userPermissions.userId, myUserId)).limit(1);
+  const meIsAdmin = myPerms?.isOwner || req.user!.role === 'admin';
+  if (!meIsAdmin) { res.status(403).json({ error: 'admin only' }); return; }
+
+  try {
+    const [targetUser] = await db.select({ id: users.id, name: users.name, email: users.email, tenantId: users.tenantId })
+      .from(users).where(eq(users.id, targetUserId)).limit(1);
+    if (!targetUser || targetUser.tenantId !== tenantId) {
+      res.status(404).json({ error: 'user not found' });
+      return;
+    }
+
+    if (!(await hasPendingInvite(targetUserId))) {
+      res.status(400).json({ error: 'this user has already accepted their invite (or was never invited)' });
+      return;
+    }
+
+    // createInviteToken deletes the prior row first, so the old link is
+    // invalidated the instant the new one is minted.
+    const token = await createInviteToken(targetUserId, tenantId);
+    let emailSent = false;
+    try {
+      const result = await sendInviteEmail(token, tenantId, targetUser.name, targetUser.email);
+      emailSent = result.success;
+    } catch (e: unknown) {
+      logger.error('[permissions] resend-invite email failed:', e);
+    }
+
+    res.json({ ok: true, emailSent });
+  } catch (e: unknown) {
+    logger.error('[permissions] resend-invite error:', e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });
@@ -303,12 +388,68 @@ router.patch('/users/:userId/role', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/permissions/users/:userId/reassign — bulk-reassign a user's
+// contacts/deals/tasks to a teammate. Owner only (offboarding-adjacent,
+// same gate as DELETE below). Body: { toUserId }.
+//
+// Both :userId (source) and toUserId (target) must belong to the caller's
+// own tenant — mirrors the existing IDOR guard pattern in this file for
+// GET/PUT /users/:userId (look up by id, then compare tenantId, rather than
+// trusting a WHERE tenant_id predicate the caller could route around).
+// ---------------------------------------------------------------------------
+router.post('/users/:userId/reassign', async (req: Request, res: Response) => {
+  const myUserId = req.user!.id;
+  const tenantId = req.user!.tenantId;
+  const fromUserId = req.params.userId as string;
+  const { toUserId } = req.body as { toUserId?: string };
+
+  const [myPerms] = await db.select().from(userPermissions)
+    .where(eq(userPermissions.userId, myUserId)).limit(1);
+  if (!myPerms?.isOwner) { res.status(403).json({ error: 'owner only' }); return; }
+
+  if (!toUserId) { res.status(400).json({ error: 'toUserId is required' }); return; }
+  if (toUserId === fromUserId) { res.status(400).json({ error: 'cannot reassign a user to themselves' }); return; }
+
+  try {
+    const [fromUser] = await db.select({ id: users.id, tenantId: users.tenantId, name: users.name, email: users.email })
+      .from(users).where(eq(users.id, fromUserId)).limit(1);
+    if (!fromUser || fromUser.tenantId !== tenantId) {
+      res.status(404).json({ error: 'user not found' });
+      return;
+    }
+
+    const [toUser] = await db.select({ id: users.id, tenantId: users.tenantId, name: users.name, email: users.email })
+      .from(users).where(eq(users.id, toUserId)).limit(1);
+    if (!toUser || toUser.tenantId !== tenantId) {
+      res.status(404).json({ error: 'target user not found' });
+      return;
+    }
+
+    const counts = await reassignUserRecords(
+      tenantId,
+      fromUser as ReassignableUser,
+      toUser as ReassignableUser,
+    );
+    res.json({ reassigned: counts });
+  } catch (e: unknown) {
+    logger.error('[permissions] reassign error:', e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // DELETE /api/permissions/users/:userId — remove a team member
+// Optional body: { reassignToUserId } — if given, that user's contacts/
+// deals/tasks are reassigned to reassignToUserId BEFORE deactivating (same
+// tenant-scoped reassignUserRecords() the standalone endpoint above uses).
+// Reassignment is opt-in, never forced: omitting the field leaves the
+// departing user's records exactly as they were.
 // ---------------------------------------------------------------------------
 router.delete('/users/:userId', async (req: Request, res: Response) => {
   const myUserId = req.user!.id;
   const tenantId = req.user!.tenantId;
   const targetUserId = req.params.userId as string;
+  const { reassignToUserId } = (req.body ?? {}) as { reassignToUserId?: string };
 
   // Only owners can remove users
   const [myPerms] = await db.select().from(userPermissions)
@@ -327,7 +468,7 @@ router.delete('/users/:userId', async (req: Request, res: Response) => {
   // Target user must belong to the caller's own tenant — without this, an
   // owner of one tenant could deactivate / strip permissions from another
   // tenant's user by GUID (IDOR).
-  const [targetUser] = await db.select({ tenantId: users.tenantId }).from(users)
+  const [targetUser] = await db.select({ tenantId: users.tenantId, name: users.name, email: users.email }).from(users)
     .where(eq(users.id, targetUserId)).limit(1);
   if (!targetUser || targetUser.tenantId !== tenantId) {
     res.status(404).json({ error: 'user not found' });
@@ -339,6 +480,31 @@ router.delete('/users/:userId', async (req: Request, res: Response) => {
   if (targetPerms?.isOwner) {
     res.status(400).json({ error: 'Cannot remove the owner' });
     return;
+  }
+
+  let reassigned: { contacts: number; deals: number; tasks: number } | undefined;
+  if (reassignToUserId) {
+    if (reassignToUserId === targetUserId) {
+      res.status(400).json({ error: 'cannot reassign a user to themselves' });
+      return;
+    }
+    const [reassignTarget] = await db.select({ id: users.id, tenantId: users.tenantId, name: users.name, email: users.email })
+      .from(users).where(eq(users.id, reassignToUserId)).limit(1);
+    if (!reassignTarget || reassignTarget.tenantId !== tenantId) {
+      res.status(404).json({ error: 'reassign target user not found' });
+      return;
+    }
+    try {
+      reassigned = await reassignUserRecords(
+        tenantId,
+        { id: targetUserId, name: targetUser.name, email: targetUser.email },
+        reassignTarget as ReassignableUser,
+      );
+    } catch (e: unknown) {
+      logger.error('[permissions] reassign-before-deactivate error:', e);
+      res.status(500).json({ error: 'Failed to reassign records — deactivation was NOT performed. Please try again.' });
+      return;
+    }
   }
 
   try {
@@ -354,7 +520,7 @@ router.delete('/users/:userId', async (req: Request, res: Response) => {
     await db.delete(userPermissions)
       .where(and(eq(userPermissions.userId, targetUserId), eq(userPermissions.tenantId, tenantId)));
 
-    res.json({ removed: true });
+    res.json({ removed: true, reassigned });
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
