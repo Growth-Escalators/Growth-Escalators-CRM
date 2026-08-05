@@ -7,15 +7,15 @@ import EmptyState from '../components/EmptyState.jsx';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import { SkeletonCard } from '../components/SkeletonLoader.jsx';
 import { useToast } from '../components/wizmatch/Toast.jsx';
-import { apiFetch } from '../lib/api.js';
+import { apiFetch, getPermissions } from '../lib/api.js';
 import { getAuthToken } from '../lib/auth.js';
-import { Plug, AlertTriangle, CheckCircle2, Clock, XCircle, ShieldOff } from 'lucide-react';
+import { Plug, AlertTriangle, CheckCircle2, Clock, XCircle, ShieldOff, Globe, ShoppingBag } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Tenant Integrations settings page.
 //
-// First (and so far only) provider wired up here is the NEW, per-tenant Meta
-// OAuth connect flow shipped in PR #122 (src/routes/integrations.ts +
+// The first provider wired up here was the per-tenant Meta OAuth connect
+// flow shipped in PR #122 (src/routes/integrations.ts +
 // src/services/metaOAuthService.ts). This is deliberately a SEPARATE surface
 // from the existing "Connect Facebook" buttons on SocialPage.jsx /
 // MetaAssetsPage.jsx — those call `/api/social/accounts/connect-facebook`,
@@ -28,6 +28,17 @@ import { Plug, AlertTriangle, CheckCircle2, Clock, XCircle, ShieldOff } from 'lu
 // `META_OAUTH_CLIENT_SECRET` are set for a future standalone app — see
 // src/services/metaOAuthService.ts. The "unavailable" state below is now the
 // EXCEPTIONAL case (neither pair configured), not the expected default.
+//
+// WordPress and Shopify (Phase 4, site-adapter credentials) are a SEPARATE
+// backend surface again: `src/routes/tenantIntegrations.ts`, mounted at
+// `/api/tenant-integrations` and backed by `tenantIntegrationsService.ts`'s
+// encrypted `tenant_integrations` table — not the Meta OAuth flow above, and
+// not `/api/integrations`. GET is readable by any authenticated tenant
+// member; PUT (save credentials) and DELETE (disconnect) are owner-only.
+// Critically, GET never returns a stored credential value — only
+// `status`/`metadata`/timestamps (see `PublicIntegration`) — so this page can
+// only ever show connected/not-connected state and a form to REPLACE
+// credentials; it can never pre-fill an existing secret.
 // ---------------------------------------------------------------------------
 
 const STATUS_META = {
@@ -120,10 +131,265 @@ function MetaIntegrationCard({ integration, connecting, unavailable, onConnect, 
   );
 }
 
+function formattedDate(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+// Shared "owner only" explanation shown in place of a credential form —
+// never a form that would just 403 on submit. Wording differs slightly by
+// connection state so a non-owner isn't told "connect" when one already has.
+function OwnerOnlyNotice({ connected }) {
+  return (
+    <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+      <p className="text-sm text-slate-600">
+        {connected
+          ? 'A tenant owner has connected this integration. Only an owner can view its status or replace its credentials.'
+          : 'Only the tenant owner can connect this integration.'}
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// WordPress — credentials are a WP "Application Password"
+// (WordPressCredentials: { username, applicationPassword }), never the
+// account login password. See src/modules/site/providers/wordpress.provider.ts.
+// ---------------------------------------------------------------------------
+function WordPressIntegrationCard({ integration, isOwner, saving, error, onSave, onDisconnect }) {
+  const status = integration?.status === 'connected' ? 'connected' : 'disconnected';
+  const info = statusInfo(status);
+  const StatusIcon = info.icon;
+  const updatedAt = formattedDate(integration?.updatedAt);
+
+  const [username, setUsername] = useState('');
+  const [applicationPassword, setApplicationPassword] = useState('');
+  const canSubmit = username.trim().length > 0 && applicationPassword.trim().length > 0 && !saving;
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!canSubmit) return;
+    const ok = await onSave({ username: username.trim(), applicationPassword: applicationPassword.trim() });
+    // Never leave a submitted secret sitting in the form — clear on success;
+    // leave it in place on failure so the owner can fix a typo and retry.
+    if (ok) {
+      setUsername('');
+      setApplicationPassword('');
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
+            <Globe className="w-5 h-5 text-slate-600" />
+          </div>
+          <div>
+            <p className="font-semibold text-slate-900">WordPress</p>
+            <p className="text-sm text-slate-500 mt-0.5 max-w-lg">
+              Connect this tenant's WordPress site so staged SEO page changes can be published there.
+            </p>
+          </div>
+        </div>
+        <span className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${info.badge}`}>
+          <StatusIcon className={`w-3.5 h-3.5 ${info.iconColor}`} />
+          {info.label}
+        </span>
+      </div>
+
+      {status === 'connected' && updatedAt && (
+        <p className="mt-3 text-xs text-slate-500">Last updated {updatedAt}</p>
+      )}
+
+      {!isOwner ? (
+        <OwnerOnlyNotice connected={status === 'connected'} />
+      ) : (
+        <>
+          {status === 'connected' && (
+            <div className="mt-4 flex items-center gap-3">
+              <button
+                onClick={onDisconnect}
+                className="px-4 py-2 text-sm border border-slate-200 rounded-lg text-slate-600 hover:border-red-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+              >
+                Disconnect
+              </button>
+              <span className="text-xs text-slate-500">To use a different WordPress account, disconnect first, then reconnect below.</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="mt-4 space-y-3 max-w-md">
+            <div>
+              <label htmlFor="wp-username" className="block text-xs font-semibold text-slate-700 mb-1.5">WordPress username</label>
+              <input
+                id="wp-username"
+                type="text"
+                autoComplete="off"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="admin"
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+              />
+            </div>
+            <div>
+              <label htmlFor="wp-app-password" className="block text-xs font-semibold text-slate-700 mb-1.5">Application password</label>
+              <input
+                id="wp-app-password"
+                type="password"
+                autoComplete="off"
+                value={applicationPassword}
+                onChange={(e) => setApplicationPassword(e.target.value)}
+                placeholder="xxxx xxxx xxxx xxxx xxxx xxxx"
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+              />
+              <p className="text-xs text-slate-400 mt-1">
+                This is a WordPress <strong>Application Password</strong> — generate one under WP admin →
+                Users → your profile → Application Passwords. It is <strong>not</strong> your WordPress
+                account login password; using your login password here would store a far more sensitive
+                credential than this integration needs.
+              </p>
+            </div>
+            {error && <p className="text-sm text-red-600">{error}</p>}
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                disabled={!canSubmit}
+                className="px-4 py-2 bg-sky-600 text-white rounded-lg text-sm font-medium hover:bg-sky-700 disabled:opacity-50 transition-colors"
+              >
+                {saving ? 'Saving…' : status === 'connected' ? 'Replace credentials' : 'Connect WordPress'}
+              </button>
+            </div>
+          </form>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Shopify — credentials are a custom-app Admin API access token
+// (ShopifyCredentials: { shop, accessToken }). See
+// src/modules/site/providers/shopify.provider.ts.
+// ---------------------------------------------------------------------------
+function ShopifyIntegrationCard({ integration, isOwner, saving, error, onSave, onDisconnect }) {
+  const status = integration?.status === 'connected' ? 'connected' : 'disconnected';
+  const info = statusInfo(status);
+  const StatusIcon = info.icon;
+  const updatedAt = formattedDate(integration?.updatedAt);
+
+  const [shop, setShop] = useState('');
+  const [accessToken, setAccessToken] = useState('');
+  const canSubmit = shop.trim().length > 0 && accessToken.trim().length > 0 && !saving;
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!canSubmit) return;
+    const ok = await onSave({ shop: shop.trim(), accessToken: accessToken.trim() });
+    if (ok) {
+      setShop('');
+      setAccessToken('');
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-lg bg-[#eaf6df] flex items-center justify-center flex-shrink-0">
+            <ShoppingBag className="w-5 h-5 text-[#5e8e3e]" />
+          </div>
+          <div>
+            <p className="font-semibold text-slate-900">Shopify</p>
+            <p className="text-sm text-slate-500 mt-0.5 max-w-lg">
+              Connect this tenant's Shopify store so staged SEO page changes can be published there.
+            </p>
+          </div>
+        </div>
+        <span className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${info.badge}`}>
+          <StatusIcon className={`w-3.5 h-3.5 ${info.iconColor}`} />
+          {info.label}
+        </span>
+      </div>
+
+      {status === 'connected' && updatedAt && (
+        <p className="mt-3 text-xs text-slate-500">Last updated {updatedAt}</p>
+      )}
+
+      {!isOwner ? (
+        <OwnerOnlyNotice connected={status === 'connected'} />
+      ) : (
+        <>
+          {status === 'connected' && (
+            <div className="mt-4 flex items-center gap-3">
+              <button
+                onClick={onDisconnect}
+                className="px-4 py-2 text-sm border border-slate-200 rounded-lg text-slate-600 hover:border-red-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+              >
+                Disconnect
+              </button>
+              <span className="text-xs text-slate-500">To use a different Shopify store, disconnect first, then reconnect below.</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="mt-4 space-y-3 max-w-md">
+            <div>
+              <label htmlFor="shopify-shop" className="block text-xs font-semibold text-slate-700 mb-1.5">Shop domain</label>
+              <input
+                id="shopify-shop"
+                type="text"
+                autoComplete="off"
+                value={shop}
+                onChange={(e) => setShop(e.target.value)}
+                placeholder="your-store.myshopify.com"
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+              />
+              <p className="text-xs text-slate-400 mt-1">Your Shopify admin URL — either the bare handle or the full myshopify.com hostname.</p>
+            </div>
+            <div>
+              <label htmlFor="shopify-token" className="block text-xs font-semibold text-slate-700 mb-1.5">Admin API access token</label>
+              <input
+                id="shopify-token"
+                type="password"
+                autoComplete="off"
+                value={accessToken}
+                onChange={(e) => setAccessToken(e.target.value)}
+                placeholder="shpat_…"
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+              />
+              <p className="text-xs text-slate-400 mt-1">
+                From a custom app's Admin API access token in Shopify admin → Settings → Apps and sales
+                channels → Develop apps.
+              </p>
+            </div>
+            {error && <p className="text-sm text-red-600">{error}</p>}
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                disabled={!canSubmit}
+                className="px-4 py-2 bg-sky-600 text-white rounded-lg text-sm font-medium hover:bg-sky-700 disabled:opacity-50 transition-colors"
+              >
+                {saving ? 'Saving…' : status === 'connected' ? 'Replace credentials' : 'Connect Shopify'}
+              </button>
+            </div>
+          </form>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function IntegrationsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { showSuccess, showError } = useToast();
+
+  // Defense-in-depth, same convention as BrandingPage.jsx: the nav/route can
+  // hide owner-only affordances, but a non-owner can still land here via
+  // direct URL — the PUT/DELETE routes in tenantIntegrations.ts 403 any
+  // non-owner regardless of what this check does.
+  const isOwner = getPermissions()?.isOwner === true;
 
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
@@ -135,9 +401,21 @@ export default function IntegrationsPage() {
   const [disconnectBusy, setDisconnectBusy] = useState(false);
   const [disconnectErr, setDisconnectErr] = useState(null);
 
-  const loadStatus = useCallback(async () => {
-    setLoading(true);
-    setForbidden(false);
+  const [wordpressIntegration, setWordpressIntegration] = useState(null);
+  const [wpSaving, setWpSaving] = useState(false);
+  const [wpError, setWpError] = useState(null);
+  const [wpConfirmDisconnect, setWpConfirmDisconnect] = useState(false);
+  const [wpDisconnectBusy, setWpDisconnectBusy] = useState(false);
+  const [wpDisconnectErr, setWpDisconnectErr] = useState(null);
+
+  const [shopifyIntegration, setShopifyIntegration] = useState(null);
+  const [shopifySaving, setShopifySaving] = useState(false);
+  const [shopifyError, setShopifyError] = useState(null);
+  const [shopifyConfirmDisconnect, setShopifyConfirmDisconnect] = useState(false);
+  const [shopifyDisconnectBusy, setShopifyDisconnectBusy] = useState(false);
+  const [shopifyDisconnectErr, setShopifyDisconnectErr] = useState(null);
+
+  const loadMetaStatus = useCallback(async () => {
     try {
       const data = await apiFetch('/api/integrations');
       const meta = (data?.integrations || []).find((row) => row.provider === 'meta') || null;
@@ -148,12 +426,100 @@ export default function IntegrationsPage() {
       // clean explanation instead of a console error.
       if (err.status === 403) setForbidden(true);
       else showError(err.message || 'Failed to load integration status');
-    } finally {
-      setLoading(false);
     }
   }, [showError]);
 
+  // WordPress/Shopify credential status — a SEPARATE backend surface from
+  // Meta above (`/api/tenant-integrations`, requireStrictAuth only, not
+  // requireRole('admin')). Never returns a credential value, only
+  // status/metadata/timestamps — see the file-header comment.
+  const loadTenantIntegrations = useCallback(async () => {
+    try {
+      const data = await apiFetch('/api/tenant-integrations');
+      const rows = data?.integrations || [];
+      setWordpressIntegration(rows.find((row) => row.provider === 'wordpress') || null);
+      setShopifyIntegration(rows.find((row) => row.provider === 'shopify') || null);
+    } catch (err) {
+      showError(err.message || 'Failed to load WordPress/Shopify integration status');
+    }
+  }, [showError]);
+
+  const loadStatus = useCallback(async () => {
+    setLoading(true);
+    setForbidden(false);
+    await Promise.all([loadMetaStatus(), loadTenantIntegrations()]);
+    setLoading(false);
+  }, [loadMetaStatus, loadTenantIntegrations]);
+
   useEffect(() => { loadStatus(); }, [loadStatus]);
+
+  // No optimistic updates for WordPress/Shopify — always refetch the real
+  // server state in a `finally`, whether the PUT/DELETE succeeded or not.
+  async function saveWordPress(credentials) {
+    setWpSaving(true);
+    setWpError(null);
+    try {
+      await apiFetch('/api/tenant-integrations/wordpress', { method: 'PUT', body: JSON.stringify({ credentials }) });
+      showSuccess('WordPress connected');
+      return true;
+    } catch (err) {
+      const msg = err.status === 403 ? 'Only the tenant owner can connect WordPress.' : (err.message || 'Failed to save WordPress credentials');
+      setWpError(msg);
+      showError(msg);
+      return false;
+    } finally {
+      setWpSaving(false);
+      await loadTenantIntegrations();
+    }
+  }
+
+  async function runWordPressDisconnect() {
+    setWpDisconnectBusy(true);
+    setWpDisconnectErr(null);
+    try {
+      await apiFetch('/api/tenant-integrations/wordpress', { method: 'DELETE' });
+      setWpConfirmDisconnect(false);
+      showSuccess('WordPress disconnected');
+    } catch (err) {
+      setWpDisconnectErr(err.message || 'Failed to disconnect');
+    } finally {
+      setWpDisconnectBusy(false);
+      await loadTenantIntegrations();
+    }
+  }
+
+  async function saveShopify(credentials) {
+    setShopifySaving(true);
+    setShopifyError(null);
+    try {
+      await apiFetch('/api/tenant-integrations/shopify', { method: 'PUT', body: JSON.stringify({ credentials }) });
+      showSuccess('Shopify connected');
+      return true;
+    } catch (err) {
+      const msg = err.status === 403 ? 'Only the tenant owner can connect Shopify.' : (err.message || 'Failed to save Shopify credentials');
+      setShopifyError(msg);
+      showError(msg);
+      return false;
+    } finally {
+      setShopifySaving(false);
+      await loadTenantIntegrations();
+    }
+  }
+
+  async function runShopifyDisconnect() {
+    setShopifyDisconnectBusy(true);
+    setShopifyDisconnectErr(null);
+    try {
+      await apiFetch('/api/tenant-integrations/shopify', { method: 'DELETE' });
+      setShopifyConfirmDisconnect(false);
+      showSuccess('Shopify disconnected');
+    } catch (err) {
+      setShopifyDisconnectErr(err.message || 'Failed to disconnect');
+    } finally {
+      setShopifyDisconnectBusy(false);
+      await loadTenantIntegrations();
+    }
+  }
 
   // Handles the return trip from GET /api/integrations/meta/connect
   // (src/routes/integrationsMetaConnect.ts), which redirects back here with
@@ -244,13 +610,31 @@ export default function IntegrationsPage() {
               description="Managing integrations requires an admin account. Contact your admin if you need this."
             />
           ) : (
-            <MetaIntegrationCard
-              integration={integration}
-              connecting={connecting}
-              unavailable={unavailable}
-              onConnect={handleConnect}
-              onDisconnect={() => setConfirmDisconnect(true)}
-            />
+            <div className="space-y-6">
+              <MetaIntegrationCard
+                integration={integration}
+                connecting={connecting}
+                unavailable={unavailable}
+                onConnect={handleConnect}
+                onDisconnect={() => setConfirmDisconnect(true)}
+              />
+              <WordPressIntegrationCard
+                integration={wordpressIntegration}
+                isOwner={isOwner}
+                saving={wpSaving}
+                error={wpError}
+                onSave={saveWordPress}
+                onDisconnect={() => setWpConfirmDisconnect(true)}
+              />
+              <ShopifyIntegrationCard
+                integration={shopifyIntegration}
+                isOwner={isOwner}
+                saving={shopifySaving}
+                error={shopifyError}
+                onSave={saveShopify}
+                onDisconnect={() => setShopifyConfirmDisconnect(true)}
+              />
+            </div>
           )}
         </div>
 
@@ -264,6 +648,30 @@ export default function IntegrationsPage() {
           error={disconnectErr}
           onConfirm={runDisconnect}
           onCancel={() => { setConfirmDisconnect(false); setDisconnectErr(null); }}
+        />
+
+        <ConfirmDialog
+          open={wpConfirmDisconnect}
+          title="Disconnect WordPress?"
+          impactSummary="This tenant's WordPress site adapter will stop working — staged SEO changes can no longer be published there until reconnected."
+          confirmLabel="Disconnect"
+          danger
+          loading={wpDisconnectBusy}
+          error={wpDisconnectErr}
+          onConfirm={runWordPressDisconnect}
+          onCancel={() => { setWpConfirmDisconnect(false); setWpDisconnectErr(null); }}
+        />
+
+        <ConfirmDialog
+          open={shopifyConfirmDisconnect}
+          title="Disconnect Shopify?"
+          impactSummary="This tenant's Shopify site adapter will stop working — staged SEO changes can no longer be published there until reconnected."
+          confirmLabel="Disconnect"
+          danger
+          loading={shopifyDisconnectBusy}
+          error={shopifyDisconnectErr}
+          onConfirm={runShopifyDisconnect}
+          onCancel={() => { setShopifyConfirmDisconnect(false); setShopifyDisconnectErr(null); }}
         />
       </main>
     </div>

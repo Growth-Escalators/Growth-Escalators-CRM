@@ -2,6 +2,7 @@ import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { resolveDefaultSeoTenantId } from './seoTenantContext';
 import { listSeoSiteDomains } from './seoSiteRegistry';
+import { createSeoSiteIdResolver, guardedSerperCall } from './seoSerperGuard';
 
 // ---------------------------------------------------------------------------
 // Serper.dev API configuration
@@ -91,58 +92,65 @@ async function getKeywordsToTrack(tenantId: string): Promise<KeywordToTrack[]> {
 async function checkSerperRank(
   keyword: string,
   targetDomain: string,
+  tenantId: string,
+  siteId: string | null,
 ): Promise<{ position: number | null; url: string | null; featuredSnippet: boolean }> {
+  const empty = { position: null, url: null, featuredSnippet: false };
   if (!SERPER_API_KEY) {
-    return { position: null, url: null, featuredSnippet: false };
+    return empty;
   }
 
-  const { checkAndIncrementSeoSerperCap } = await import('./seoWorkflowHealthService');
-  if (!checkAndIncrementSeoSerperCap()) {
-    logger.warn(`[rank-tracking] SEO Serper daily cap reached — skipping "${keyword}"`);
-    return { position: null, url: null, featuredSnippet: false };
-  }
+  // guardedSerperCall never throws (see seoSerperGuard.ts) — any error from
+  // the fetch/parsing below (including a malformed URL from `new URL(...)`)
+  // is caught inside it, spend is recorded once markSpent() has fired, and
+  // it falls back to onBlocked() below — which is `empty`, matching what the
+  // old bare try/catch here used to return on any failure.
+  return guardedSerperCall(
+    { tenantId, siteId, operation: 'rank_check', label: `rank-tracking "${keyword}" (${targetDomain})` },
+    async (markSpent) => {
+      const res = await fetch(SERPER_API_URL, {
+        method: 'POST',
+        headers: {
+          'X-API-KEY': SERPER_API_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ q: keyword, gl: 'in', hl: 'en', num: 100 }),
+        signal: AbortSignal.timeout(15000),
+      });
+      markSpent(); // the request left — Serper bills this regardless of what happens next
 
-  try {
-    const res = await fetch(SERPER_API_URL, {
-      method: 'POST',
-      headers: {
-        'X-API-KEY': SERPER_API_KEY,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ q: keyword, gl: 'in', hl: 'en', num: 100 }),
-      signal: AbortSignal.timeout(15000),
-    });
-
-    if (!res.ok) {
-      logger.warn(`[rank-tracking] Serper API ${res.status} for "${keyword}"`);
-      return { position: null, url: null, featuredSnippet: false };
-    }
-
-    const data = await res.json() as SerperResponse;
-    const organics = data.organic ?? [];
-
-    // Check featured snippet
-    const featuredSnippet = data.answerBox?.domain === targetDomain;
-
-    // Find target domain in organic results
-    const cleanDomain = targetDomain.replace(/^www\./, '');
-    for (const result of organics) {
-      const resultDomain = (result.domain ?? new URL(result.link).hostname).replace(/^www\./, '');
-      if (resultDomain === cleanDomain || resultDomain.endsWith(`.${cleanDomain}`)) {
-        return {
-          position: result.position,
-          url: result.link,
-          featuredSnippet,
-        };
+      if (!res.ok) {
+        logger.warn(`[rank-tracking] Serper API ${res.status} for "${keyword}"`);
+        return empty;
       }
-    }
 
-    // Domain not found in top 100
-    return { position: null, url: null, featuredSnippet };
-  } catch (e) {
-    logger.warn(`[rank-tracking] Serper error for "${keyword}":`, e instanceof Error ? e.message : String(e));
-    return { position: null, url: null, featuredSnippet: false };
-  }
+      const data = await res.json() as SerperResponse;
+      const organics = data.organic ?? [];
+
+      // Check featured snippet
+      const featuredSnippet = data.answerBox?.domain === targetDomain;
+
+      // Find target domain in organic results
+      const cleanDomain = targetDomain.replace(/^www\./, '');
+      for (const result of organics) {
+        const resultDomain = (result.domain ?? new URL(result.link).hostname).replace(/^www\./, '');
+        if (resultDomain === cleanDomain || resultDomain.endsWith(`.${cleanDomain}`)) {
+          return {
+            position: result.position,
+            url: result.link,
+            featuredSnippet,
+          };
+        }
+      }
+
+      // Domain not found in top 100
+      return { position: null, url: null, featuredSnippet };
+    },
+    () => {
+      logger.warn(`[rank-tracking] SEO Serper daily cap reached — skipping "${keyword}"`);
+      return empty;
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -198,9 +206,15 @@ export async function runRankChecks(tenantId?: string): Promise<{ checked: numbe
   const keywords = await getKeywordsToTrack(tid);
   logger.info(`[rank-tracking] checking ${keywords.length} keywords via Serper.dev`);
 
+  // Resolves a keyword's clientDomain to its seo_sites id, once per unique
+  // domain for this whole run (not once per keyword) — see
+  // createSeoSiteIdResolver's doc in seoSerperGuard.ts.
+  const resolveSiteId = createSeoSiteIdResolver(tid);
+
   for (const kw of keywords) {
     try {
-      const { position, url, featuredSnippet } = await checkSerperRank(kw.keyword, kw.clientDomain);
+      const siteId = await resolveSiteId(kw.clientDomain);
+      const { position, url, featuredSnippet } = await checkSerperRank(kw.keyword, kw.clientDomain, tid, siteId);
       const previousPosition = await getPreviousPosition(tid, kw.projectName, kw.keyword);
       const positionChange = (previousPosition != null && position != null)
         ? previousPosition - position

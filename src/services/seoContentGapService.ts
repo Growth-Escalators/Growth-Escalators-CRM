@@ -2,6 +2,7 @@ import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { resolveDefaultSeoTenantId } from './seoTenantContext';
 import { listSeoSiteDomains } from './seoSiteRegistry';
+import { createSeoSiteIdResolver, guardedSerperCall } from './seoSerperGuard';
 
 // ---------------------------------------------------------------------------
 // Bootstrap content calendar table (idempotent — safe to call every run)
@@ -67,24 +68,29 @@ const SERPER_API_KEY = process.env.SERPER_API_KEY;
 
 interface SerperResult { title: string; link: string; snippet: string; position?: number }
 
-async function serperSearch(query: string, num = 10): Promise<SerperResult[]> {
+async function serperSearch(query: string, num: number, tenantId: string, siteId: string | null): Promise<SerperResult[]> {
   if (!SERPER_API_KEY) return [];
-  const { checkAndIncrementSeoSerperCap } = await import('./seoWorkflowHealthService');
-  if (!checkAndIncrementSeoSerperCap()) {
-    logger.warn(`[content-gap] SEO Serper daily cap reached — skipping query "${query}"`);
-    return [];
-  }
-  try {
-    const res = await fetch(SERPER_API_URL, {
-      method: 'POST',
-      headers: { 'X-API-KEY': SERPER_API_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ q: query, gl: 'in', hl: 'en', num }),
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!res.ok) return [];
-    const data = await res.json() as { organic?: SerperResult[] };
-    return data.organic ?? [];
-  } catch { return []; }
+  return guardedSerperCall(
+    { tenantId, siteId, operation: 'content_gap_search', label: `content-gap "${query}"` },
+    async (markSpent) => {
+      try {
+        const res = await fetch(SERPER_API_URL, {
+          method: 'POST',
+          headers: { 'X-API-KEY': SERPER_API_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ q: query, gl: 'in', hl: 'en', num }),
+          signal: AbortSignal.timeout(15000),
+        });
+        markSpent(); // the request left — record it even if the response is non-OK or parsing below fails
+        if (!res.ok) return [];
+        const data = await res.json() as { organic?: SerperResult[] };
+        return data.organic ?? [];
+      } catch { return []; }
+    },
+    () => {
+      logger.warn(`[content-gap] SEO Serper daily cap reached — skipping query "${query}"`);
+      return [];
+    },
+  );
 }
 
 function delay(ms: number): Promise<void> { return new Promise(r => setTimeout(r, ms)); }
@@ -123,6 +129,11 @@ export async function runContentGapAnalysis(tenantId?: string): Promise<{ gaps: 
   const { computeOpportunityTypeSuccessRates, applySuccessRateAdjustment } = await import('./seoDigestService');
   const successRates = await computeOpportunityTypeSuccessRates();
 
+  // Resolves each client's own domain to its seo_sites id once per run, not
+  // once per keyword/competitor search below — see createSeoSiteIdResolver's
+  // doc in seoSerperGuard.ts.
+  const resolveSiteId = createSeoSiteIdResolver(tid);
+
   // Get all clients with keywords and domain
   const clientsR = await pool.query(`
     SELECT project_name, primary_keywords, competitors, client_domain
@@ -149,6 +160,12 @@ export async function runContentGapAnalysis(tenantId?: string): Promise<{ gaps: 
       })
       .filter(Boolean) as string[];
 
+    // Resolved once per client, reused for every keyword/competitor search
+    // below for this client — every search in this block is guarding spend
+    // attributable to analysing client.client_domain, even the ones whose
+    // Serper query text targets a competitor's `site:` filter.
+    const clientSiteId = await resolveSiteId(client.client_domain);
+
     for (const keyword of keywords.slice(0, 8)) { // Max 8 keywords per client per run
       // Check if already analyzed in last 30 days
       const existing = await pool.query(
@@ -159,7 +176,7 @@ export async function runContentGapAnalysis(tenantId?: string): Promise<{ gaps: 
 
       // 1. Check client's own ranking
       await delay(2000);
-      const ownResults = await serperSearch(keyword, 20);
+      const ownResults = await serperSearch(keyword, 20, tid, clientSiteId);
       let ourPosition: number | null = null;
       let ourUrl: string | null = null;
       for (const r of ownResults) {
@@ -177,7 +194,7 @@ export async function runContentGapAnalysis(tenantId?: string): Promise<{ gaps: 
 
       for (const compDomain of competitorDomains.slice(0, 3)) {
         await delay(2000);
-        const compResults = await serperSearch(`site:${compDomain} ${keyword}`, 5);
+        const compResults = await serperSearch(`site:${compDomain} ${keyword}`, 5, tid, clientSiteId);
         for (const r of compResults) {
           competitorUrls.push(r.link);
           // Extract topics from titles

@@ -267,6 +267,19 @@ describe('PR 8B scope boundary — PR 9/10 must not have started', () => {
       + 'TABLE where a pre-existing table would have skipped it. Touches only SEO tables. Carries no '
       + 'outreach, sequence, reply, or provider data. Unrelated to PR 9/10 (Smartlead / reply '
       + 'ingestion).',
+    49: 'seo_api_usage spend ledger (Phase 4 of the multi-tenant SEO platform work, owner-approved). '
+      + 'One NEW table recording one row per billable SEO API call (tenant_id, nullable site_id, '
+      + 'provider, operation, calls, cost_cents) — the backing store seoCostGuard.ts has carried an '
+      + 'explicit "INTENTIONALLY MISSING, needs a migration" note for since Phase 1. It replaces an '
+      + 'in-memory process-lifetime global counter that reset on every deploy and let tenants starve '
+      + "each other. Purely additive: no ALTER of an existing table, no DROP, no SET NOT NULL. NOTE: "
+      + 'drizzle-kit additionally emitted a DROP + re-ADD of the site_changes_approved_requires_approver '
+      + 'CHECK with byte-identical text (a snapshot artefact of 0048 having moved that constraint into '
+      + 'its own duplicate_object-guarded DO block); BOTH statements were deleted by hand, so the '
+      + 'human-approval hard stop is never dropped. Verified post-migration against local Postgres: the '
+      + 'constraint is still present and still rejects an approved-status row with no approver. Touches '
+      + 'only SEO tables. Carries no outreach, sequence, reply, or provider data. Unrelated to PR 9/10 '
+      + '(Smartlead / reply ingestion).',
   };
 
   it('every migration past 0037 is in the reviewed out-of-scope allowlist', () => {

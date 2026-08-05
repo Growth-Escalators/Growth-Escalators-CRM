@@ -333,6 +333,18 @@ export const NAV_ENTRIES = [
     visible: f => f.canSEO,
   },
   {
+    // Same `canSEO` gate as the SEO entry above — deliberately not a narrower
+    // one. Whether a user may actually approve a change is decided per row by
+    // the backend (`siteChangeCapabilities.ts`) and rendered from the row's
+    // own `capabilities`, so a non-admin who reaches this page sees the queue
+    // with every decision control disabled and explained, rather than being
+    // hidden from the queue's existence. Hiding it here would only mean a
+    // second, weaker copy of a rule the server already enforces.
+    id: 'seo-approvals', label: 'SEO Approvals', to: '/seo/approvals',
+    icon: CheckSquare, section: 'Settings', group: 'settings',
+    visible: f => f.canSEO,
+  },
+  {
     id: 'pipeline-manager', label: 'Pipeline Manager', to: '/pipelines/settings',
     icon: Settings, section: 'Settings', group: 'settings',
     visible: f => f.isAdmin,

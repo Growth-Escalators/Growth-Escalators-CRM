@@ -2,6 +2,7 @@ import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { resolveDefaultSeoTenantId } from './seoTenantContext';
 import { listSeoSiteDomains } from './seoSiteRegistry';
+import { createSeoSiteIdResolver, guardedSerperCall } from './seoSerperGuard';
 
 /**
  * Backend-native backlink monitoring.
@@ -50,32 +51,55 @@ export async function runBacklinkCheck(tenantId?: string): Promise<{ found: numb
   let found = 0;
   let errors = 0;
 
-  const { checkAndIncrementSeoSerperCap } = await import('./seoWorkflowHealthService');
+  // Resolves each domain to its seo_sites id once per run — domains here are
+  // already a deduplicated list from listSeoSiteDomains, so this never
+  // actually re-resolves the same domain twice, but reuses the shared
+  // resolver from seoSerperGuard.ts for consistency with the other three
+  // guarded call sites.
+  const resolveSiteId = createSeoSiteIdResolver(tid);
 
   for (const domain of domains) {
     try {
-      if (!checkAndIncrementSeoSerperCap()) {
-        logger.warn(`[backlinks] SEO Serper daily cap reached — skipping ${domain}`);
-        continue;
-      }
+      const siteId = await resolveSiteId(domain);
 
-      // Search for pages linking to this domain (excluding the domain itself)
-      const query = `link:${domain} -site:${domain}`;
-      const res = await fetch(SERPER_API_URL, {
-        method: 'POST',
-        headers: { 'X-API-KEY': SERPER_API_KEY, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ q: query, gl: 'in', hl: 'en', num: 30 }),
-        signal: AbortSignal.timeout(15000),
-      });
+      // undefined = the guard blocked this call (daily cap reached) — skip,
+      // not counted as an error. null = the Serper call itself ran but
+      // failed (non-OK response or a network error) — counted as an error,
+      // matching this loop's behaviour before this guard existed.
+      const results = await guardedSerperCall<SerperResult[] | null | undefined>(
+        { tenantId: tid, siteId, operation: 'backlink_search', label: `backlinks ${domain}` },
+        async (markSpent) => {
+          try {
+            // Search for pages linking to this domain (excluding the domain itself)
+            const query = `link:${domain} -site:${domain}`;
+            const res = await fetch(SERPER_API_URL, {
+              method: 'POST',
+              headers: { 'X-API-KEY': SERPER_API_KEY, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ q: query, gl: 'in', hl: 'en', num: 30 }),
+              signal: AbortSignal.timeout(15000),
+            });
+            markSpent(); // the request left — record it even if the response is non-OK or parsing below fails
 
-      if (!res.ok) {
-        logger.warn(`[backlinks] Serper API ${res.status} for ${domain}`);
-        errors++;
-        continue;
-      }
+            if (!res.ok) {
+              logger.warn(`[backlinks] Serper API ${res.status} for ${domain}`);
+              return null;
+            }
 
-      const data = await res.json() as { organic?: SerperResult[] };
-      const results = data.organic ?? [];
+            const data = await res.json() as { organic?: SerperResult[] };
+            return data.organic ?? [];
+          } catch (e) {
+            logger.warn(`[backlinks] Serper error for ${domain}:`, e instanceof Error ? e.message : String(e));
+            return null;
+          }
+        },
+        () => {
+          logger.warn(`[backlinks] SEO Serper daily cap reached — skipping ${domain}`);
+          return undefined;
+        },
+      );
+
+      if (results === undefined) continue;
+      if (results === null) { errors++; continue; }
 
       for (const result of results) {
         const sourceDomain = result.domain ?? new URL(result.link).hostname;

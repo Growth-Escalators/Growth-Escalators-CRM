@@ -145,6 +145,25 @@ vi.mock('../services/seoSiteRegistry', () => ({
 // instead of resolveDefaultSeoTenantId() — see systemHealth.ts's module comment.
 const mockGetDefaultIngestTenant = vi.fn();
 
+// The per-tenant Serper cost guard sits in front of every Serper call now.
+// Left unmocked it would issue its own pool.query for usage, consuming from
+// the same mocked query stream these tests use to assert what the service
+// bound — so the guard is stubbed to "no usage recorded, always allow". This
+// suite is about tenant scoping, not about spend caps (seoSerperGuard.test.ts
+// covers those).
+vi.mock('../services/seoCostGuardUsage', () => ({
+  fetchSeoCostGuardUsage: vi.fn().mockResolvedValue({
+    monthCostCents: 0,
+    dayCostCents: 0,
+    tenantDaySerperCalls: 0,
+    siteDaySerperCalls: 0,
+    tenantDayPagespeedCalls: 0,
+    tenantDayGscCalls: 0,
+    siteDayPublishes: 0,
+  }),
+  recordSeoApiUsage: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('../services/tenantFeatures', () => ({
   getDefaultIngestTenant: (...args: unknown[]) => mockGetDefaultIngestTenant(...args),
 }));
@@ -172,6 +191,13 @@ beforeEach(() => {
   mockDbExecute.mockReset();
   mockResolveTenant.mockReset();
   mockGetSeoSiteByDomain.mockReset();
+  // MUST resolve, not merely be defined. createSeoSiteIdResolver() calls
+  // `getSeoSiteByDomain(...).catch(...)`, so a mock returning `undefined`
+  // throws a synchronous TypeError on `.catch` exactly like a missing mock
+  // would — and that throw is swallowed by the per-keyword try/catch in
+  // runRankChecks, silently turning a `checked` into an `errors` and skipping
+  // the INSERT this suite asserts on. Individual tests override it.
+  mockGetSeoSiteByDomain.mockResolvedValue(null);
   mockNormaliseDomain.mockReset().mockImplementation((...args: unknown[]) => args[0] as string);
   mockListSeoSiteDomains.mockReset();
   mockGetDefaultIngestTenant.mockReset();

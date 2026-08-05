@@ -56,6 +56,7 @@ import auditRouter from './routes/audit';
 import seoRouter from './routes/seo';
 import seoWorkflowsRouter from './routes/seoWorkflows';
 import seoSitesRouter from './routes/seoSites';
+import siteChangesRouter from './routes/siteChanges';
 import financeRouter from './routes/finance';
 import intelligenceRouter from './routes/intelligence';
 import growthOSRouter from './routes/growthOS';
@@ -368,6 +369,10 @@ app.use('/api/seo-workflows', requireAuth, requireTenantFeature('seo'), seoWorkf
 // The site registry. Same gate as the rest of SEO — a tenant without the
 // add-on cannot enumerate or register sites.
 app.use('/api/seo-sites', requireAuth, requireTenantFeature('seo'), seoSitesRouter);
+// Staged changes to live client websites + the human approval queue. Same
+// gate again: the approval surface is worthless to a tenant without the
+// add-on, and the routes behind it can reach a client's real website.
+app.use('/api/seo-changes', requireAuth, requireTenantFeature('seo'), siteChangesRouter);
 app.use('/api/finance', requireAuth, financeRouter);
 app.use('/api/intelligence', requireAuth, intelligenceRouter);
 app.use('/api/growth-os', requireAuth, growthOSRouter);

@@ -397,6 +397,14 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
     // connect-flow scaffolding (src/services/metaOAuthService.ts) reuses this
     // same table (provider='meta') rather than adding its own — no new
     // migration needed for that scaffolding.
+    // 49 = adds seo_api_usage, the per-tenant/per-site spend ledger seoCostGuard.ts
+    // has had an explicit "INTENTIONALLY MISSING — needs a migration" note for
+    // since Phase 1. One NEW table, purely additive. NOTE: drizzle-kit also
+    // emitted a DROP + re-ADD of site_changes_approved_requires_approver with
+    // byte-identical CHECK text (a snapshot-representation artefact of 0048
+    // moving that constraint into its own DO block); both statements were
+    // deleted by hand — the human-approval hard stop is not dropped and
+    // re-added for a no-op rewrite. SEO tables only — no Wizmatch surface.
     // Bump this ONLY alongside an explicit authorisation for the migration in
     // question — the point of the mark is that an unreviewed migration showing
     // up in a hardening pass still gets surfaced.
@@ -448,10 +456,18 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
     // of the human-approval hard stop — no row can sit in an approved-or-later
     // status without both an approver and an approval timestamp. SEO tables
     // only — no Wizmatch surface touched.
+    // 49 = adds seo_api_usage, the per-tenant/per-site spend ledger seoCostGuard.ts
+    // has had an explicit "INTENTIONALLY MISSING — needs a migration" note for
+    // since Phase 1. One NEW table, purely additive. NOTE: drizzle-kit also
+    // emitted a DROP + re-ADD of site_changes_approved_requires_approver with
+    // byte-identical CHECK text (a snapshot-representation artefact of 0048
+    // moving that constraint into its own DO block); both statements were
+    // deleted by hand — the human-approval hard stop is not dropped and
+    // re-added for a no-op rewrite. SEO tables only — no Wizmatch surface.
     // Bump this ONLY alongside an explicit authorisation for the migration in
     // question — the point of the mark is that an unreviewed migration showing
     // up in a hardening pass still gets surfaced.
-    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 48;
+    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 49;
     const unauthorised = sqlFiles
       .map((f) => ({ file: f, idx: parseInt(f.slice(0, 4), 10) }))
       .filter((m) => Number.isFinite(m.idx) && m.idx > AUTHORISED_MIGRATION_HIGH_WATER_MARK)

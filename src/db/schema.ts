@@ -3655,3 +3655,57 @@ export const seoSiteSnapshots = pgTable(
     tenantDriftIdx: index('seo_site_snapshots_tenant_drift_idx').on(t.tenantId, t.driftKind),
   }),
 );
+
+// ---------------------------------------------------------------------------
+// TABLE — seo_api_usage (migration 0049)
+//
+// The per-tenant/per-site spend ledger behind seoCostGuard.ts. That file has
+// carried an explicit "INTENTIONALLY MISSING" note since Phase 1 saying its
+// usage fetch could not be written because this table did not exist and adding
+// it needs a migration. This is that table.
+//
+// It replaces an in-memory, process-lifetime global counter
+// (`checkAndIncrementSeoSerperCap`), which was fine for one internal tenant and
+// cannot survive being sold per site: a single shared counter lets tenants
+// starve each other, resets on every deploy, and gives no way to quote an
+// agency a fixed price without absorbing unbounded tail risk.
+//
+// One row per billable call — deliberately append-only rather than a running
+// per-day counter. A counter cannot answer "what did this client actually cost
+// us last month", which is the question that makes the add-on priceable, and a
+// counter that resets on deploy is exactly what this replaces.
+// ---------------------------------------------------------------------------
+export const seoApiUsage = pgTable(
+  'seo_api_usage',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // Nullable: some spend is genuinely tenant-level, not attributable to one
+    // site (a GSC token refresh, an account-wide quota probe). Recording those
+    // against an arbitrary site would corrupt per-site cost, which is the
+    // number the pricing rests on.
+    siteId: uuid('site_id').references(() => seoSites.id),
+    // 'serper' | 'pagespeed' | 'gsc' | 'ga4' | 'llm' | 'publish' — plain text,
+    // matching the repo convention and seoCostGuard's own free-form labels.
+    provider: text('provider').notNull(),
+    // e.g. 'serper_search' | 'pagespeed_check' | 'gsc_pull' | 'publish'.
+    operation: text('operation').notNull(),
+    // Usually 1. Present because some providers bill per batch, and counting
+    // requests when the vendor counts records would undercount the cap.
+    calls: integer('calls').notNull().default(1),
+    // Integer paise/cents — never a float. Money in floating point accumulates
+    // error exactly where a cap is supposed to be exact.
+    costCents: integer('cost_cents').notNull().default(0),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    // Drives every aggregate in SeoCostGuardUsage: the month/day cost sums and
+    // the tenant-scoped per-provider daily call counts.
+    tenantCreatedIdx: index('seo_api_usage_tenant_created_idx').on(t.tenantId, t.createdAt),
+    // The per-site caps (siteDaySerperCalls, siteDayPublishes).
+    siteCreatedIdx: index('seo_api_usage_site_created_idx').on(t.siteId, t.createdAt),
+    tenantProviderCreatedIdx: index('seo_api_usage_tenant_provider_created_idx').on(
+      t.tenantId, t.provider, t.createdAt,
+    ),
+  }),
+);

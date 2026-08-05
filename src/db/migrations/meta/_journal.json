@@ -344,6 +344,13 @@
       "when": 1785917261977,
       "tag": "0048_familiar_cable",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1785919975247,
+      "tag": "0049_curvy_santa_claus",
+      "breakpoints": true
     }
   ]
 }
