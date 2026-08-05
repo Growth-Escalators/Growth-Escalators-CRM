@@ -24,7 +24,20 @@ import {
 } from './siteChangeService';
 
 /** The actions the approvals UI can offer. Deliberately NOT the same list as SiteChangeEvent — these are operator intents, not state-machine edges. */
-export const SITE_CHANGE_ACTIONS = ['stage', 'verify', 'approve', 'reject', 'publish', 'complete_handoff'] as const;
+export const SITE_CHANGE_ACTIONS = [
+  'stage',
+  'verify',
+  'approve',
+  'reject',
+  'publish',
+  // The state machine's only forward path out of `publish_failed` is
+  // `retry_publish` back to `approved`. Omitting it from this list left a
+  // failed publish with `reject` as its sole enabled action — a dead end an
+  // operator could see but not clear, on the one status that means a client's
+  // site did not get a change somebody already approved.
+  'retry_publish',
+  'complete_handoff',
+] as const;
 export type SiteChangeAction = (typeof SITE_CHANGE_ACTIONS)[number];
 
 export interface SiteChangeCapability {
@@ -114,6 +127,16 @@ export function computeSiteChangeCapabilities(change: SiteChange, actor: SiteCha
       if (!change.stagedRef) return 'this change was approved but never staged';
       return null;
     }),
+    // Admin-gated like the other decisions: a retry re-enters `approved` and
+    // is therefore one step from touching a live site. It does NOT re-ask for
+    // approval — the original approver and timestamp survive the round trip —
+    // which is exactly why it must not be available to someone who could not
+    // have approved it in the first place.
+    retry_publish: gate('retry_publish', true, () =>
+      change.status !== 'publish_failed'
+        ? 'only a change whose publish failed can be retried'
+        : null,
+    ),
     complete_handoff: gate('complete_handoff', true, () =>
       change.status !== 'handoff_required'
         ? 'only a git change awaiting a human merge can be marked complete'

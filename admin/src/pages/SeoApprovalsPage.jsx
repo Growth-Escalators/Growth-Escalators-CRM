@@ -80,7 +80,10 @@ const STATUS_FILTERS = [
 // never hide-and-guess" convention TodayDecisionWorkbench.jsx's CompanyCard
 // uses, so an operator always sees the full shape of what a change could do
 // next, not just what it can do right now.
-const ACTION_ORDER = ['stage', 'verify', 'approve', 'reject', 'publish', 'complete_handoff'];
+const ACTION_ORDER = ['stage', 'verify', 'approve', 'reject', 'publish', 'retry_publish', 'complete_handoff'];
+
+// Actions whose URL segment differs from the action name.
+const ENDPOINT_BY_ACTION = { complete_handoff: 'handoff-complete', retry_publish: 'retry-publish' };
 
 const ACTIONS = {
   stage: { label: 'Stage', confirmLabel: 'Stage', dialogTitle: 'Stage this change?' },
@@ -88,6 +91,10 @@ const ACTIONS = {
   approve: { label: 'Approve', confirmLabel: 'Approve', dialogTitle: 'Approve this change?' },
   reject: { label: 'Reject', confirmLabel: 'Reject', dialogTitle: 'Reject this change?' },
   publish: { label: 'Publish', confirmLabel: 'Publish', dialogTitle: 'Publish this change to the live site?' },
+  // Without this, a publish_failed change had `reject` as its only enabled
+  // action — a dead end on the one status meaning a client's site did not
+  // get a change somebody already approved.
+  retry_publish: { label: 'Retry Publish', confirmLabel: 'Retry', dialogTitle: 'Retry publishing this change?' },
   complete_handoff: { label: 'Mark Handoff Complete', confirmLabel: 'Mark complete', dialogTitle: 'Mark this handoff as complete?' },
 };
 
@@ -101,6 +108,7 @@ const PRIMARY_ACTION_BY_STATUS = {
   verification_failed: 'stage',
   awaiting_approval: 'approve',
   approved: 'publish',
+  publish_failed: 'retry_publish',
   handoff_required: 'complete_handoff',
 };
 
@@ -543,11 +551,15 @@ export default function SeoApprovalsPage() {
     const { action, change } = dialog;
     setSubmitting(true);
     try {
-      const endpoint = `/api/seo-changes/${change.id}/${action === 'complete_handoff' ? 'handoff-complete' : action}`;
+      const endpoint = `/api/seo-changes/${change.id}/${ENDPOINT_BY_ACTION[action] ?? action}`;
       let body;
       if (action === 'approve') body = { reason: reason || undefined, version: change.version };
       else if (action === 'reject') body = { reason, version: change.version };
       else if (action === 'complete_handoff') body = { liveUrl: liveUrl || undefined, version: change.version };
+      // retry_publish is a decision endpoint too — it returns the change to
+      // `approved`, one step from a live site — so it carries the same
+      // stale-write precondition as the others.
+      else if (action === 'retry_publish') body = { version: change.version };
       // stage / verify / publish take no body — the endpoints described in
       // the frozen contract accept none, matching how this repo's other
       // no-body POSTs are already called (e.g. the workflow "Run Now" POSTs

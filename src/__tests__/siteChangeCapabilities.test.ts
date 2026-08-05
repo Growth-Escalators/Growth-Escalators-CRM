@@ -177,6 +177,59 @@ describe('publish', () => {
   });
 });
 
+describe('retry_publish', () => {
+  it('is the way out of publish_failed, so that status is not a dead end', () => {
+    // Before this action existed, `reject` was the ONLY enabled action on a
+    // publish_failed change — an operator could see that a client's site had
+    // not received an approved change, and could do nothing about it but
+    // throw the change away.
+    const caps = computeSiteChangeCapabilities(
+      change({ status: 'publish_failed', approvedBy: 'u', approvedAt: new Date() }),
+      { role: 'admin' },
+    );
+    expect(caps.retry_publish.enabled).toBe(true);
+  });
+
+  it('leaves no status an operator can reach but not act on', () => {
+    // The general form of the bug above: a status an operator can reach but
+    // cannot leave. Four statuses are legitimately actionless and are named
+    // here rather than the assertion being loosened, so a NEW stuck status
+    // still fails this test:
+    //   rejected / superseded — terminal by design.
+    //   publishing            — a publish is in flight; the process moves it
+    //                           to published/handoff_required/publish_failed.
+    //                           An operator control here would race it.
+    //   published             — done. Its only remaining transition is
+    //                           `supersede`, which happens automatically when
+    //                           a newer proposal for the same target is
+    //                           created — not something an operator invokes.
+    const ACTIONLESS_BY_DESIGN = ['rejected', 'superseded', 'publishing', 'published'];
+    const stuck: string[] = [];
+    for (const status of SITE_CHANGE_STATUSES) {
+      if (ACTIONLESS_BY_DESIGN.includes(status)) continue;
+      const caps = computeSiteChangeCapabilities(
+        change({ status, approvedBy: 'u', approvedAt: new Date(), stagedRef: 'staged-1' }),
+        { role: 'admin' },
+      );
+      if (!SITE_CHANGE_ACTIONS.some((a) => caps[a].enabled)) stuck.push(status);
+    }
+    expect(stuck).toEqual([]);
+  });
+
+  it('is offered only on publish_failed, and only to an admin', () => {
+    const offered: string[] = [];
+    for (const status of SITE_CHANGE_STATUSES) {
+      for (const role of ROLES) {
+        const c = change({ status, approvedBy: 'u', approvedAt: new Date() });
+        if (computeSiteChangeCapabilities(c, { role }).retry_publish.enabled) offered.push(`${status}/${role}`);
+      }
+    }
+    // Admin-gated because a retry re-enters `approved` without re-asking for
+    // approval — the original approver survives the round trip.
+    expect(offered).toEqual(['publish_failed/admin']);
+  });
+});
+
 describe('terminal statuses', () => {
   it.each<SiteChangeStatus>(['rejected', 'superseded'])('disable every action on a %s change', (status) => {
     const caps = computeSiteChangeCapabilities(change({ status }), { role: 'admin' });

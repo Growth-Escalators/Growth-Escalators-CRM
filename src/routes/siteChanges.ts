@@ -12,7 +12,8 @@
  *     route file does not compute capabilities itself.
  *   - `stage`/`verify` are open to any authenticated tenant member (the
  *     capabilities module gates them with `requiresDecisionRole: false`).
- *     `approve`/`reject`/`publish`/`handoff-complete`, and creating a new
+ *     `approve`/`reject`/`publish`/`retry-publish`/`handoff-complete`, and
+ *     creating a new
  *     proposal, are `admin`-only — `publish` most of all, since it is the one
  *     call that reaches a client's live website and the whole point of
  *     siteChangeService.ts's three-layer hard stop is that this is never an
@@ -44,6 +45,7 @@ import {
   rejectSiteChange,
   publishApprovedChange,
   completeSiteChangeHandoff,
+  retrySiteChangePublish,
   SiteChangeError,
   isSiteChangeStatus,
   SITE_CHANGE_STATUSES,
@@ -383,6 +385,31 @@ router.post('/:id/publish', requireAdmin, async (req: Request, res: Response) =>
 // ---------------------------------------------------------------------------
 // POST /api/seo-changes/:id/handoff-complete — admin-only. { liveUrl?, version }
 // ---------------------------------------------------------------------------
+/**
+ * Returns a failed publish to `approved` so it can be attempted again.
+ *
+ * A separate, explicit call rather than something the publish route retries
+ * for itself: an automatic retry loop against a live client website is how one
+ * bad publish becomes fifty. Admin-gated because it re-enters `approved`, one
+ * step from touching a live site — and it deliberately does NOT re-ask for
+ * approval, since the original approver and timestamp survive the round trip.
+ */
+router.post('/:id/retry-publish', requireAdmin, async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  try {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const version = readRequiredVersion(body, res);
+    if (version === null) return;
+
+    const change = await retrySiteChangePublish(tenantId, req.params.id as string, {
+      expectedVersion: version,
+    });
+    res.json({ change: toSiteChangeDTO(change, actorFrom(req)) });
+  } catch (e) {
+    handleServiceError(e, res);
+  }
+});
+
 router.post('/:id/handoff-complete', requireAdmin, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   try {
