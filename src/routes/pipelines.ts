@@ -10,13 +10,14 @@ import {
   normalizePipelineStages,
   serializePipelineStages,
 } from '../services/pipelineStages';
+import { requirePerm } from '../middleware/requirePerm';
 
 const router = Router();
 
 // ---------------------------------------------------------------------------
 // GET /api/pipelines/diagnose — debug pipeline placement issues (admin only)
 // ---------------------------------------------------------------------------
-router.get('/diagnose', async (req, res) => {
+router.get('/diagnose', requirePerm('pipeline.view'), async (req, res) => {
   try {
     // Tenant isolation: admin-gate this diagnostic route and scope every
     // query — including the auto-fix block below, which mutates data — to
@@ -146,7 +147,7 @@ router.get('/diagnose', async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /api/pipelines/_health — production verification (Phase 2)
 // ---------------------------------------------------------------------------
-router.get('/_health', async (req, res) => {
+router.get('/_health', requirePerm('pipeline.view'), async (req, res) => {
   try {
     const { pool: dbPool } = await import('../db/index');
     const r = await dbPool.query(`
@@ -164,7 +165,7 @@ router.get('/_health', async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /api/pipelines — list all active pipelines for tenant
 // ---------------------------------------------------------------------------
-router.get('/', async (req, res) => {
+router.get('/', requirePerm('pipeline.view'), async (req, res) => {
   try {
   const tenantId = req.user!.tenantId;
 
@@ -205,7 +206,7 @@ router.get('/', async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/pipelines — create a new pipeline
 // ---------------------------------------------------------------------------
-router.post('/', async (req, res) => {
+router.post('/', requirePerm('pipeline.manage'), async (req, res) => {
   const tenantId = req.user!.tenantId;
   const { name, slug, stages, color, sortOrder } = req.body as {
     name?: string;
@@ -239,7 +240,7 @@ router.post('/', async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/pipelines/reorder — bulk update sortOrder
 // ---------------------------------------------------------------------------
-router.post('/reorder', async (req, res) => {
+router.post('/reorder', requirePerm('pipeline.manage'), async (req, res) => {
   try {
   const tenantId = req.user!.tenantId;
   const { pipelineIds } = req.body as { pipelineIds?: string[] };
@@ -264,9 +265,9 @@ router.post('/reorder', async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/pipelines/duplicate/:id
 // ---------------------------------------------------------------------------
-router.post('/duplicate/:id', async (req, res) => {
+router.post('/duplicate/:id', requirePerm('pipeline.manage'), async (req, res) => {
   try {
-  const { id } = req.params;
+  const { id } = req.params as { id: string };
   const tenantId = req.user!.tenantId;
   const existing = await db.select().from(pipelines)
     .where(and(eq(pipelines.id, id), eq(pipelines.tenantId, tenantId)))
@@ -295,9 +296,9 @@ router.post('/duplicate/:id', async (req, res) => {
 // ---------------------------------------------------------------------------
 // DELETE /api/pipelines/:id
 // ---------------------------------------------------------------------------
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requirePerm('pipeline.manage'), async (req, res) => {
   try {
-  const { id } = req.params;
+  const { id } = req.params as { id: string };
   const tenantId = req.user!.tenantId;
   const countResult = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -319,9 +320,9 @@ router.delete('/:id', async (req, res) => {
 // ---------------------------------------------------------------------------
 // PATCH /api/pipelines/:id — update pipeline
 // ---------------------------------------------------------------------------
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', requirePerm('pipeline.manage'), async (req, res) => {
   try {
-  const { id } = req.params;
+  const { id } = req.params as { id: string };
   const tenantId = req.user!.tenantId;
   const { name, stages, color, isActive, sortOrder, stageConfig } = req.body;
 
@@ -368,9 +369,9 @@ router.patch('/:id', async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /api/pipelines/:id/stage-config — fetch stage_config JSONB for a pipeline
 // ---------------------------------------------------------------------------
-router.get('/:id/stage-config', async (req, res) => {
+router.get('/:id/stage-config', requirePerm('pipeline.view'), async (req, res) => {
   const tenantId = req.user!.tenantId;
-  const { id } = req.params;
+  const { id } = req.params as { id: string };
   try {
     const r = await pool.query(
       `SELECT stage_config FROM pipelines WHERE id = $1 AND tenant_id = $2`,
@@ -386,9 +387,9 @@ router.get('/:id/stage-config', async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /api/pipelines/:id/analytics — funnel metrics + by-stage breakdown
 // ---------------------------------------------------------------------------
-router.get('/:id/analytics', async (req, res) => {
+router.get('/:id/analytics', requirePerm('pipeline.view'), async (req, res) => {
   const tenantId = req.user!.tenantId;
-  const { id } = req.params;
+  const { id } = req.params as { id: string };
   const days = parseInt((req.query.days as string) || '90', 10);
   try {
     const pipelineRows = await db
@@ -458,9 +459,9 @@ router.get('/:id/analytics', async (req, res) => {
 // GET /api/pipelines/:id/deals — kanban data: deals grouped by stage
 // Each stage returns: stageName, deals array with enriched contact info
 // ---------------------------------------------------------------------------
-router.get('/:id/deals', async (req, res) => {
+router.get('/:id/deals', requirePerm('pipeline.view'), async (req, res) => {
   try {
-  const { id } = req.params;
+  const { id } = req.params as { id: string };
   const tenantId = req.user!.tenantId;
   const { includeArchived } = req.query as Record<string, string>;
 
@@ -552,7 +553,7 @@ router.get('/:id/deals', async (req, res) => {
 // One-time catch-up for historical purchases that were never placed.
 // Admin-only. Does NOT re-send WhatsApp/email (those were already sent or attempted).
 // ---------------------------------------------------------------------------
-router.post('/backfill-all', async (req, res) => {
+router.post('/backfill-all', requirePerm('pipeline.backfill'), async (req, res) => {
   try {
     const user = req.user as { role: string } | undefined;
     if (user?.role !== 'admin') {
@@ -622,7 +623,7 @@ router.post('/backfill-all', async (req, res) => {
 // Creates missing events, then places contacts into correct pipelines.
 // This handles the case where the webhook was broken and no events were logged.
 // ---------------------------------------------------------------------------
-router.post('/backfill-from-deals', async (req, res) => {
+router.post('/backfill-from-deals', requirePerm('pipeline.backfill'), async (req, res) => {
   try {
     // Tenant isolation: admin-gate this sweep and scope it to the caller's
     // own tenant. Same posture as /diagnose and /backfill-all above.
