@@ -65,8 +65,15 @@ const CRON_WINDOWS: Record<string, number> = {
   // A registered job that has never logged a run simply does not appear (the
   // query joins against cron_job_logs), so listing the env-gated
   // 'SEO Weekly Digest' cannot produce a permanently-overdue phantom row.
-  'GE SEO Pull': 10080, 'SEO Weekly Email': 10080,
+  'SEO Weekly Email': 10080,
   'PageSpeed Monitor': 10080, 'Rank Tracking': 10080,
+  // Daily — a drift sweep that silently stops running is worse than one that
+  // never existed, because the dashboard keeps implying pages are being watched.
+  'SEO Drift Sweep': 2880,
+  // Weekly. Renamed from 'GE SEO Pull' when it stopped being a subprocess
+  // writing to an ephemeral filesystem — the old name is gone, so a stale
+  // entry here would report a cron that no longer exists as healthy.
+  'SEO GSC Pull': 10080,
   'SEO Alert Triggers': 1500, 'SEO Backlink Monitor': 10080,
   'SEO Content Decay': 10080, 'SEO Weekly Digest': 10080,
   'SEO Indexing Reminder': 10080,

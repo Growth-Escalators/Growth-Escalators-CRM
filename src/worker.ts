@@ -1330,33 +1330,39 @@ cron.schedule('0 5 * * 4', () => safeCron('SEO Weekly Email', async () => {
 console.log('[cron] SEO weekly email scheduled — Thursdays 10:30 AM IST');
 
 // ---------------------------------------------------------------------------
-// GE SEO Pull — Monday 8:15 AM IST (2:45 UTC)
-// Runs scripts/ge-seo-pull.ts (a standalone CLI script, not a shared service
-// module — spawned as a subprocess rather than imported) to pull Search
-// Console + GA4 for growthescalators.com. Auth: GOOGLE_SEO_OAUTH_REFRESH_TOKEN
-// + GCP_OAUTH_CLIENT_ID/SECRET env vars in Railway (falls back to the local
-// ~/.ge-seo/oauth_credentials.json file, unused here, or a service account —
-// see getAuth() in the script). Doesn't collide with Weekly Outreach Summary
-// (2:30 UTC, same day) — 15 min offset.
-// Writes docs/seo/state/growthescalators.{json,md} to the container's local
-// filesystem — that's ephemeral on Railway (reset on every deploy/restart),
-// which is fine: it's a state cache Claude reads mid-session, not the source
-// of truth (GSC/GA4 are). Out of scope to persist it anywhere else.
 // ---------------------------------------------------------------------------
-cron.schedule('45 2 * * 1', () => safeCron('GE SEO Pull', async () => {
+// SEO GSC Pull — Monday 8:15 AM IST (2:45 UTC)
+//
+// REPLACES the old 'GE SEO Pull', which spawned `npx tsx scripts/ge-seo-pull.ts`
+// as a subprocess and wrote docs/seo/state/growthescalators.{json,md} to the
+// container's local filesystem. Three things were wrong with that, in order:
+//
+//   1. Railway's filesystem is EPHEMERAL — wiped on every deploy and restart —
+//      so the data was routinely gone before anyone read it, and there was no
+//      history at all.
+//   2. It was hardcoded to one property (growthescalators.com), so it could
+//      never work for a second tenant. That is the whole product now.
+//   3. Spawning `npx tsx` from a worker needs devDependencies present at
+//      runtime and gives no typed errors — a failure surfaced as stderr text.
+//
+// Now an importable service writing to Postgres, per tenant via
+// seoTenantSweep like every other SEO cron. GA4 is deliberately a SEPARATE
+// cron (below): they were one job, so a GA4 failure lost the GSC data too.
+//
+// scripts/ge-seo-pull.ts is intentionally left in place — it still works as a
+// manual CLI (`npm run ge:seo`) and deleting it is not this change.
+// ---------------------------------------------------------------------------
+cron.schedule('45 2 * * 1', () => safeCron('SEO GSC Pull', async () => {
   if (isPaused('seo')) return;
-  const { execFile } = await import('child_process');
-  const { promisify } = await import('util');
-  const execFileAsync = promisify(execFile);
-  const { stdout, stderr } = await execFileAsync('npx', ['tsx', 'scripts/ge-seo-pull.ts'], {
-    cwd: process.cwd(),
-    timeout: 5 * 60 * 1000, // 5 min — GSC + GA4 pull is a handful of API calls
-    env: process.env,
-  });
-  if (stdout) console.log(`[CRON] GE SEO Pull:\n${stdout}`);
-  if (stderr) console.warn(`[CRON] GE SEO Pull stderr:\n${stderr}`);
+  const { runSeoSearchConsolePull } = await import('./services/seoSearchConsoleService');
+  await seoTenantSweep(
+    { workflowId: 'seo-gsc-pull', workflowName: 'SEO GSC Pull' },
+    (tenantId) => runSeoSearchConsolePull(tenantId),
+    (r) => r.rows,
+    (r) => `${r.sites} sites, ${r.rows} rows, ${r.errors} errors`,
+  );
 }), { timezone: 'UTC' });
-console.log('[cron] GE SEO pull scheduled — Mondays 8:15 AM IST (2:45 UTC)');
+console.log('[cron] SEO GSC pull scheduled — Mondays 8:15 AM IST (2:45 UTC)');
 
 // ---------------------------------------------------------------------------
 // Task 7: Weekly Outreach Performance Summary — Monday 8:00 AM IST (2:30 UTC)
@@ -1399,6 +1405,37 @@ cron.schedule('30 3 * * 2', () => safeCron('Rank Tracking', async () => {
   );
 }), { timezone: 'UTC' });
 console.log('[cron] Rank tracking scheduled — Tuesdays 9:00 AM IST (Serper.dev)');
+
+// ---------------------------------------------------------------------------
+// SEO Drift Sweep — Daily 7:30 AM IST (2:00 UTC)
+//
+// Reads each tracked page as a crawler would and compares it to the last
+// snapshot. This is the detector for "the client edited the page behind the
+// agency's back" — the failure an agency cannot otherwise see until rankings
+// have already stalled for months.
+//
+// Scheduled BEFORE the other SEO crons, not after: rank tracking and content
+// decay both reason about pages that are assumed live and unchanged, so a
+// sweep that runs first means those jobs work against a set whose drift is
+// already known rather than one nobody has checked today.
+//
+// Per-tenant via seoTenantSweep like every other SEO cron — runSeoDriftSweep
+// is single-tenant per call by convention (the service takes an optional
+// tenantId; the fan-out lives here, which is what keeps
+// resolveDefaultSeoTenantId out of the cron block — see
+// src/__tests__/seoCronTenantSweep.test.ts).
+// ---------------------------------------------------------------------------
+cron.schedule('0 2 * * *', () => safeCron('SEO Drift Sweep', async () => {
+  if (isPaused('seo')) return;
+  const { runSeoDriftSweep } = await import('./services/siteDriftService');
+  await seoTenantSweep(
+    { workflowId: 'seo-drift-sweep', workflowName: 'SEO Drift Sweep' },
+    (tenantId) => runSeoDriftSweep(tenantId),
+    (r) => r.drifts,
+    (r) => `${r.sites} sites, ${r.urls} urls, ${r.drifts} drifts, ${r.alerts} alerts, ${r.errors} errors`,
+  );
+}), { timezone: 'UTC' });
+console.log('[cron] SEO drift sweep scheduled — daily 7:30 AM IST');
 
 // SEO Alert Triggers — Daily 9 AM IST (3:30 UTC) — runs directly (no n8n dependency)
 cron.schedule('30 3 * * *', () => safeCron('SEO Alert Triggers', async () => {
