@@ -6,6 +6,49 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-08-05 — SEO Phase 5: drift sweep, GSC to Postgres, and caps that actually fire — Claude
+
+Branch `fix/wizmatch-scoring-pipeline`, commits `b7aaa9b0`, `26a8d434`, `44f2a015`. Not pushed.
+
+**The drift sweep** — daily, per tenant, hash-compare-first so "nothing changed" costs one integer
+comparison. `unexpected_edit` is the one it exists for. `seoDriftClassifier.ts` holds the pure
+logic: a 48-hour attribution window (a CDN can lag a publish by hours, and misattributing our own
+change burns trust in the alert), and severity ordering so a page that went `noindex` AND had its
+title edited reports as the noindex. **Known gap, stated not papered over:** the plan's third URL
+source (top GSC URLs by impressions) is NOT implemented — no per-URL GSC table exists and the lane
+correctly refused to invent one.
+
+**`GE SEO Pull` is gone.** It spawned `npx tsx` and wrote to Railway's ephemeral filesystem, so the
+data was routinely gone before anyone read it. Now `SEO GSC Pull`, importable, per-tenant, writing
+to existing Postgres tables. The stale `GE SEO Pull` entry in `CRON_WINDOWS` was removed — left in,
+it would report a nonexistent cron as perpetually overdue.
+
+**Three defects found by reading test OUTPUT rather than assertions:**
+
+1. `logger.warn`/`.info`/`.debug` were **discarding their message**. The wrapper takes console-style
+   `(msg, data)`; `error` also had a branch for pino-style `({fields}, msg)`, the other three did
+   not — they fell through to `String(msg)`, rendering `[object Object]` and dropping the message.
+   **31 warn + 15 info call sites repo-wide** were emitting useless lines. Fixed in the wrapper.
+2. The paused-site and plan-limit caps were **implementable but not enforced** — `spendContext` was
+   optional and nothing passed it. Now threaded through all four spend sites and the route, with a
+   test proving a paused site never calls `fetch`.
+3. Four services logged "SEO Serper daily cap reached" for any block, including a paused site.
+   Guessing a cause in a log is worse than not naming one.
+
+**Also removed** an unreachable credential path in `wordpress.provider.ts` — a fallback to
+`adapterConfig.credentialProvider` justified by a comment I wrote claiming existing rows depended on
+it. `assertNoSecretKeys` has 400'd any `/credential/i` key since the registry's first commit, so no
+such row could ever have existed.
+
+**Verification:** build 0 · admin build 0 · `npm test` 3044 passing against the unchanged
+7-file/21-failure baseline · `lint:tenant-scoping` zero new findings.
+
+**Still owner-gated:** the branch push (blocked by the permission classifier), Railway backups
+(dashboard-only — the CLI has no backup subcommand and the GraphQL reads return Not Authorized), and
+the credential rotation.
+
+---
+
 ## 2026-08-05 — SEO Phase 4: the approval queue, a spend ledger that guards, and a log redactor — Claude
 
 Branch `fix/wizmatch-scoring-pipeline`, commit `95b10e7e`. Not on `main`, not pushed. Seven parallel
