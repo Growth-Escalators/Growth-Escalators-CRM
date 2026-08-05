@@ -155,7 +155,6 @@ v2/
 │
 ├── docs/                      # Architecture / DB / deployment runbooks
 ├── n8n-workflows/             # Reference JSON exports of n8n workflows
-├── public/admin/              # Compiled admin SPA (committed; served by API)
 ├── railway.json               # API service Nixpacks config
 ├── railway.worker.json        # Worker service Nixpacks config
 ├── nixpacks.toml              # ★ actual build config (Railway uses this)
