@@ -255,6 +255,18 @@ describe('PR 8B scope boundary — PR 9/10 must not have started', () => {
       + 'never fails on data, and the 4-column index still enforces per-tenant uniqueness. Touches '
       + 'only SEO tables. Carries no outreach, sequence, reply, or provider data. Unrelated to PR 9/10 '
       + '(Smartlead / reply ingestion).',
+    48: 'site_changes + seo_site_snapshots (Phase 3 of the multi-tenant SEO platform work, '
+      + 'owner-approved). Two NEW tables: `site_changes` records one proposed edit to a live client '
+      + 'website per row and is where the human-approval hard stop is enforced; `seo_site_snapshots` '
+      + 'is the append-only drift record (extracted SEO elements plus a hash, never page HTML). '
+      + 'Purely additive: no ALTER of an existing table, no DROP, no SET NOT NULL, no unique index '
+      + 'over pre-existing rows. Carries the `site_changes_approved_requires_approver` CHECK — the '
+      + 'database-level half of the invariant that nothing publishes to a live site without a '
+      + 'recorded human approver and timestamp. Every statement is IF NOT EXISTS / '
+      + 'duplicate_object-guarded, including the CHECK, which drizzle-kit emitted inline in CREATE '
+      + 'TABLE where a pre-existing table would have skipped it. Touches only SEO tables. Carries no '
+      + 'outreach, sequence, reply, or provider data. Unrelated to PR 9/10 (Smartlead / reply '
+      + 'ingestion).',
   };
 
   it('every migration past 0037 is in the reviewed out-of-scope allowlist', () => {

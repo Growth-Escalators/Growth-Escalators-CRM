@@ -14,6 +14,7 @@ import { MockSiteProvider, type MockSiteScenario } from '../modules/site/provide
 import {
   getSiteProvider,
   listKnownSiteProviders,
+  listSelectableSiteProviderValues,
   resetSiteProvider,
   setSiteProvider,
 } from '../modules/site/providers';
@@ -299,15 +300,46 @@ describe('site provider factory/registry', () => {
   });
 
   it('lists only providers that actually have a builder', () => {
-    expect(listKnownSiteProviders()).toEqual(['mock']);
+    expect(listKnownSiteProviders()).toEqual(['mock', 'git', 'wordpress', 'shopify']);
   });
 
   it('never selects a live/real provider merely because the adapter module was imported', () => {
-    // Import-time only — no env set, no call made. If construction happened at
-    // import time this would already have thrown before the test even started.
-    expect(listKnownSiteProviders()).not.toContain('git');
-    expect(listKnownSiteProviders()).not.toContain('wordpress');
-    expect(listKnownSiteProviders()).not.toContain('shopify');
+    // Import-time only — no env set, no call made. Having a builder registered
+    // is not the same as having one constructed: with both env gates unset,
+    // every platform must still refuse to hand back an adapter.
+    for (const platform of ['git', 'wordpress', 'shopify'] as const) {
+      expect(() => getSiteProvider(platform)).toThrow(SiteProviderError);
+    }
+  });
+
+  it('refuses to let SITE_PROVIDER name a platform adapter', () => {
+    // `SITE_PROVIDER=wordpress` would route git and Shopify sites through the
+    // WordPress adapter too — the cross-wiring the per-platform Map exists to
+    // prevent, reintroduced through the env. Rejected explicitly.
+    process.env.SITE_ADAPTER_ENABLED = 'true';
+    for (const name of ['git', 'wordpress', 'shopify']) {
+      process.env.SITE_PROVIDER = name;
+      resetSiteProvider();
+      try {
+        getSiteProvider('git');
+        throw new Error(`expected SITE_PROVIDER=${name} to be rejected`);
+      } catch (err) {
+        expect(err).toBeInstanceOf(SiteProviderError);
+        expect((err as SiteProviderError).code).toBe('unknown_provider');
+      }
+    }
+  });
+
+  it('gives each platform its own real adapter under SITE_PROVIDER=platform', () => {
+    process.env.SITE_ADAPTER_ENABLED = 'true';
+    process.env.SITE_PROVIDER = 'platform';
+    expect(getSiteProvider('git').identity.name).toBe('git');
+    expect(getSiteProvider('wordpress').identity.name).toBe('wordpress');
+    expect(getSiteProvider('shopify').identity.name).toBe('shopify');
+  });
+
+  it('exposes the selectable values so docs and tests cannot drift from the implementation', () => {
+    expect(listSelectableSiteProviderValues()).toEqual(['platform', 'mock']);
   });
 
   it('fails closed with missing_configuration when SITE_ADAPTER_ENABLED is unset', () => {

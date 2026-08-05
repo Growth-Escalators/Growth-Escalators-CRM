@@ -458,20 +458,20 @@ describe('assessWizmatchPilotReadiness — safety properties', () => {
 
   it('warns when a migration ABOVE the authorised high-water mark appears', () => {
     // The sentinel must still catch an unreviewed migration — moving the mark
-    // (now 0047, dropping the legacy calendar index) must not turn it off. The
-    // probe therefore always sits ONE ABOVE the current mark, and exercises the
-    // real filesystem branch rather than a stub. If you bump the mark again,
-    // bump this probe with it — a probe at or below the mark would make this
-    // test vacuous.
+    // (now 0048, adding site_changes + seo_site_snapshots) must not turn it
+    // off. The probe therefore always sits ONE ABOVE the current mark, and
+    // exercises the real filesystem branch rather than a stub. If you bump the
+    // mark again, bump this probe with it — a probe at or below the mark would
+    // make this test vacuous.
     const migrationsDir = join(repoRoot, 'src', 'db', 'migrations');
-    const probe = join(migrationsDir, '0048__readiness_sentinel_probe.sql');
+    const probe = join(migrationsDir, '0049__readiness_sentinel_probe.sql');
     writeFileSync(probe, '-- temporary probe written and removed by wizmatchPilotReadiness.test.ts\n');
     try {
       const report = assessWizmatchPilotReadiness({ env: baseEnv(), repoRoot });
       const migrationFinding = report.findings.find((f) => f.code === 'migration:status');
       expect(migrationFinding?.severity).toBe('warning');
       expect(migrationFinding?.message).toMatch(/beyond the authorised high-water mark/);
-      expect(migrationFinding?.message).toContain('0048__readiness_sentinel_probe.sql');
+      expect(migrationFinding?.message).toContain('0049__readiness_sentinel_probe.sql');
     } finally {
       rmSync(probe, { force: true });
     }

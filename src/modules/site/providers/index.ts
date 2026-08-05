@@ -14,32 +14,68 @@
 // This module therefore keeps one singleton PER PLATFORM in a Map, keyed by
 // SitePlatform, rather than the single `let singleton` outreach uses.
 //
-// A consequence: SITE_PROVIDER is not "the" provider name the way
-// OUTREACH_PROVIDER is. With only 'mock' buildable in this PR there is no
-// real per-platform default to select between yet, so SITE_PROVIDER is
-// currently a single allow-list override applied uniformly to every
-// platform's slot — for staging a rollout onto one substitute (e.g. forcing
-// every platform onto 'mock' in a lower environment) before any real
-// git/wordpress/shopify adapter exists. When real per-platform builders land,
-// this becomes a per-platform default lookup with SITE_PROVIDER only forcing
-// an override — an additive change to this file, not a redesign of it.
+// ---------------------------------------------------------------------------
+// WHY SITE_PROVIDER CANNOT NAME A PLATFORM ADAPTER
+//
+// When only 'mock' had a builder, SITE_PROVIDER was a harmless uniform
+// override. With three real adapters registered it stops being harmless: a
+// well-meaning `SITE_PROVIDER=wordpress` would route every git and Shopify
+// site's calls through the WordPress adapter too — the exact cross-wiring the
+// per-platform Map exists to prevent, reintroduced through the env.
+//
+// So the two axes are kept separate:
+//   - PLATFORM_BUILDERS decides WHICH adapter a platform gets. Not
+//     configurable, because "which adapter publishes a WordPress site" is not
+//     an operational choice.
+//   - SITE_PROVIDER decides whether real adapters are used at all, and accepts
+//     only two values: 'platform' (each platform uses its own real adapter) or
+//     'mock' (every platform uses the in-memory mock — for a lower environment
+//     or a staged rollout). A platform NAME is rejected with an explicit
+//     message rather than quietly honoured.
+//
+// Both gates still fail closed and neither ever falls back to the other.
+// ---------------------------------------------------------------------------
+import { GitSiteProvider } from './git.provider';
 import { MockSiteProvider } from './mock.provider';
+import { ShopifySiteProvider } from './shopify.provider';
+import { WordPressSiteProvider } from './wordpress.provider';
 import { SiteProviderError, type SitePlatform, type SiteProvider } from './site-provider.interface';
 
-const KNOWN_PROVIDERS = ['mock'] as const;
+/** Every provider that has a builder in this file. */
+const KNOWN_PROVIDERS = ['mock', 'git', 'wordpress', 'shopify'] as const;
 export type KnownSiteProviderName = (typeof KNOWN_PROVIDERS)[number];
 
-function isKnownProvider(name: string): name is KnownSiteProviderName {
-  return (KNOWN_PROVIDERS as readonly string[]).includes(name);
+/**
+ * The values SITE_PROVIDER accepts. Deliberately NOT the same list as
+ * KNOWN_PROVIDERS — see the header.
+ */
+const SELECTABLE_SITE_PROVIDER_VALUES = ['platform', 'mock'] as const;
+type SelectableSiteProviderValue = (typeof SELECTABLE_SITE_PROVIDER_VALUES)[number];
+
+/** Which real adapter each platform uses. Not configurable — see the header. */
+const PLATFORM_BUILDERS: Readonly<Record<SitePlatform, KnownSiteProviderName>> = Object.freeze({
+  git: 'git',
+  wordpress: 'wordpress',
+  shopify: 'shopify',
+});
+
+function isSelectable(value: string): value is SelectableSiteProviderValue {
+  return (SELECTABLE_SITE_PROVIDER_VALUES as readonly string[]).includes(value);
 }
 
 function buildProvider(name: KnownSiteProviderName): SiteProvider {
   switch (name) {
     case 'mock':
       return new MockSiteProvider();
+    case 'git':
+      return new GitSiteProvider();
+    case 'wordpress':
+      return new WordPressSiteProvider();
+    case 'shopify':
+      return new ShopifySiteProvider();
     default: {
-      // Exhaustiveness guard — unreachable while KNOWN_PROVIDERS has one
-      // member, but keeps this switch honest if a second name is ever added.
+      // Exhaustiveness guard — keeps this switch honest if a fifth name is
+      // ever added to KNOWN_PROVIDERS without a builder.
       const _exhaustive: never = name;
       throw new SiteProviderError('unknown_provider', String(_exhaustive), 'no builder registered');
     }
@@ -57,7 +93,7 @@ const singletons = new Map<SitePlatform, SiteProvider>();
  * Fails closed in two stages, neither of which ever falls back to mock or to
  * any other provider:
  *  1. `SITE_ADAPTER_ENABLED` (default false) gates the feature as a whole.
- *  2. `SITE_PROVIDER` must name a provider on the allow-list (KNOWN_PROVIDERS).
+ *  2. `SITE_PROVIDER` must be 'platform' or 'mock'.
  */
 export function getSiteProvider(platform: SitePlatform): SiteProvider {
   const existing = singletons.get(platform);
@@ -72,11 +108,16 @@ export function getSiteProvider(platform: SitePlatform): SiteProvider {
   if (!raw) {
     throw new SiteProviderError('unknown_provider', platform, 'SITE_PROVIDER is not set');
   }
-  if (!isKnownProvider(raw)) {
-    throw new SiteProviderError('unknown_provider', raw, `"${raw}" is not a recognised site provider`);
+  if (!isSelectable(raw)) {
+    throw new SiteProviderError(
+      'unknown_provider',
+      raw,
+      `"${raw}" is not a valid SITE_PROVIDER — use 'platform' (each platform uses its own adapter) `
+        + `or 'mock'. Naming one platform's adapter here would route every platform's sites through it.`,
+    );
   }
 
-  const provider = buildProvider(raw);
+  const provider = buildProvider(raw === 'mock' ? 'mock' : PLATFORM_BUILDERS[platform]);
   singletons.set(platform, provider);
   return provider;
 }
@@ -99,5 +140,10 @@ export function listKnownSiteProviders(): readonly string[] {
   return KNOWN_PROVIDERS;
 }
 
-export { MockSiteProvider };
+/** The values SITE_PROVIDER accepts — exported so tests and docs cannot drift from the implementation. */
+export function listSelectableSiteProviderValues(): readonly string[] {
+  return SELECTABLE_SITE_PROVIDER_VALUES;
+}
+
+export { GitSiteProvider, MockSiteProvider, ShopifySiteProvider, WordPressSiteProvider };
 export type { SiteProvider };

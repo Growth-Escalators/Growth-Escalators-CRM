@@ -6,6 +6,65 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-08-05 — SEO Phase 3: the SiteAdapter, staged changes, and the human-approval hard stop — Claude
+
+Branch `fix/wizmatch-scoring-pipeline`. Not on `main`, not pushed. Third execution phase of the
+multi-tenant SEO plan (`~/.claude/plans/can-you-check-the-atomic-cascade.md`). Three parallel lanes
+(one per platform adapter) under exclusive file ownership; the contract, the schema, the service and
+all verification were owned centrally.
+
+**What this phase is actually about.** Phases 1–2 made the SEO system multi-tenant. This one gives it
+the ability to *change a client's live website* — which means the whole phase is really about one
+invariant: **nothing publishes without a recorded human approval.** That is now enforced at three
+independent layers, deliberately:
+
+1. **The database** — migration `0048`'s `site_changes_approved_requires_approver` CHECK rejects any
+   row in `approved`/`publishing`/`published`/`handoff_required`/`publish_failed` without both
+   `approved_by` and `approved_at`. Verified empirically against local Postgres: all five statuses
+   rejected without an approver, accepted with one (probe run inside a transaction, rolled back).
+2. **`siteChangeService.publishApprovedChange()`** — the sole caller of `provider.publishChange()`
+   anywhere in `src/`, and it runs `assertSiteChangeApproved()` first. `siteChangeService.test.ts`
+   walks `src/` and fails if a second caller ever appears, so "sole caller" is a test, not a comment.
+3. **Each adapter** — all three re-check `approved.approvedBy` before their first network call.
+   Tested by asserting the injected fetch was never called.
+
+**A dead path the tests found.** The transition table originally allowed `publish_failed →
+publishing` for retries, but `assertSiteChangeApproved` requires status *exactly* `approved`, so that
+edge was unreachable. The tempting fix — loosen the assertion to accept `publish_failed` too — was
+rejected: the assertion's value is that it names one status. Retry is now an explicit
+`retry_publish` transition back through `approved`, which preserves the original approval record and
+leaves the retry visible in the row's history.
+
+**A hazard created by this phase's own success.** Phase 1's factory took a single global
+`SITE_PROVIDER` name, harmless while `mock` was the only builder. With three real adapters
+registered, `SITE_PROVIDER=wordpress` would have routed git and Shopify sites through the WordPress
+adapter — the exact cross-wiring the per-platform singleton Map exists to prevent, reintroduced
+through the env. `SITE_PROVIDER` now accepts only `platform` (each platform uses its own adapter) or
+`mock`; a platform name is rejected with an explicit message.
+
+**New files:** `src/modules/site/liveSnapshot.ts` (shared live-page reader + `extractSeoElements`,
+SSRF-guarded on *every* redirect hop, 2 MB body cap, no new dependency),
+`src/modules/site/providers/{git,wordpress,shopify}.provider.ts`, `src/services/siteChangeService.ts`,
+migration `0048` (`site_changes` + `seo_site_snapshots`), and five test files (+189 tests).
+
+**WordPress is written but stays gated.** The adapter reads credentials *only* via
+`getDecryptedCredentials(tenantId, …)` and contains zero `process.env` reads — the leaked
+`WP_AGEDDENTISTRY_*` application passwords are unreachable from it by construction, and a test greps
+the module source to keep it that way. The legacy `programmaticSeoService.publishToWordPress()` was
+left untouched; retiring it is a follow-up that should happen *after* the rotation, not before.
+`SITE_ADAPTER_ENABLED` still defaults false, so none of this is reachable in production yet.
+
+**Verification:** `npm run build` exit 0 · `npm run admin:build` exit 0 · `npm test` **7 failed files
+/ 21 failures — the exact pre-existing env-dependent baseline**, 2865 passing (was 2700) ·
+`npm run lint:tenant-scoping` zero new findings, baseline unchanged at 70 · migration `0048` applied
+to local dev only.
+
+**Next:** Phase 4 (approval UI + wiring the cost guard onto real routes). The drift sweep (Phase 5)
+already has its storage and its extractor — `seo_site_snapshots` and `extractSeoElements`/
+`diffSeoElements` — so that phase is now mostly wiring.
+
+---
+
 ## 2026-08-05 — SEO Phase 2: site registry, de-hardcoding, and the per-tenant cron sweep (the C2 blocker) — Claude
 
 Branch `fix/wizmatch-scoring-pipeline`. Not on `main`, not pushed. Second execution phase of the

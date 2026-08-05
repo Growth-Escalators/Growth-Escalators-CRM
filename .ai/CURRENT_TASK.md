@@ -2,6 +2,46 @@
 
 ## Active task
 
+**MULTI-TENANT SEO PLATFORM — PHASES 1–3 BUILT LOCALLY, NOTHING PUSHED (2026-08-05).**
+
+Branch `fix/wizmatch-scoring-pipeline`, local only. Plan:
+`~/.claude/plans/can-you-check-the-atomic-cascade.md`. Turning the single-property SEO learning loop
+into a multi-tenant, multi-platform service an agency can be sold as a per-site add-on.
+
+- **Phase 1** (`e0c0f248`) — tenant leaks closed, SEO gated behind `requireTenantFeature('seo')`,
+  adapter contract + cost-guard groundwork. Migration `0045`.
+- **Phase 2** (`0f8b4d55`) — `seo_sites` registry, nine hardcoded client-domain arrays deleted, and
+  **the C2 blocker fixed**: every SEO cron now sweeps per tenant, so enabling the add-on for a second
+  agency no longer kills every SEO cron for every tenant including GE's own. Migrations `0046`/`0047`.
+- **Phase 3** (uncommitted at time of writing) — `SiteAdapter` implementations for git/WordPress/
+  Shopify, `site_changes` + `seo_site_snapshots` (migration `0048`), and `siteChangeService.ts`.
+
+**The invariant that governs everything from here:** nothing publishes to a client's live website
+without a recorded human approval. Three independent enforcement layers (DB CHECK, service-level
+assertion on the sole caller of `publishChange`, per-adapter re-check). Do not add a second caller of
+`provider.publishChange()` — a test fails if you do. Do not weaken
+`assertSiteChangeApproved`'s "status must be exactly `approved`".
+
+**Gates as of Phase 3:** build exit 0 · admin build exit 0 · `npm test` 2865 passing with the 7-file /
+21-failure pre-existing env-dependent baseline (see memory `project_local_test_env_failures`) ·
+`lint:tenant-scoping` zero new findings.
+
+**Blocked / owner-gated, unchanged:**
+- **Credential rotation** (Priority-1, checklist at `feat+contracts-esign/SECRETS-ROTATION.md`) —
+  the WordPress adapter is written but must not be enabled, and the legacy
+  `programmaticSeoService.publishToWordPress()` must not be retired, until this lands.
+- **Push/merge** — nothing pushed. This repo auto-deploys on push to `main`.
+- **The 3-client SEO data purge** — still gated on restore-testing a backup first.
+- `SITE_ADAPTER_ENABLED` defaults false and must stay false in production until Phase 4's approval UI
+  exists — there is currently no way for a human to approve anything through a UI.
+
+**Next:** Phase 4 (approval UI + cost guard wired onto real routes), then Phase 5 (drift sweep — its
+storage and extractor already exist).
+
+---
+
+## Prior entry — TWO-USER PILOT OPERATIONALLY READY (superseded above)
+
 **TWO-USER PILOT OPERATIONALLY READY (2026-07-29) — independently verified.**
 
 > **PILOT READY FOR LIMITED INTERNAL USE — TWO USERS · EXPLICIT CONFIG REDEPLOY PENDING**

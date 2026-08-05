@@ -3450,3 +3450,208 @@ export const seoSites = pgTable(
     tenantDomainUniq: uniqueIndex('seo_sites_tenant_id_domain_uniq').on(t.tenantId, t.domain),
   }),
 );
+
+// ---------------------------------------------------------------------------
+// TABLE — site_changes (migration 0048)
+//
+// One row per PROPOSED edit to a live client website. This is the table the
+// human-approval hard stop is enforced on.
+//
+// WHY NOT EXTEND `client_pages`. Three reasons, each sufficient on its own:
+//  1. `client_pages` is a page INVENTORY — one row per page that exists. A
+//     change is a proposal EVENT: many per page over time, each with its own
+//     approval identity and timestamps, and a terminal `superseded` state when
+//     a newer proposal replaces it. Folding an event log into an inventory
+//     table loses the history that the 14–28 day outcome scoring reads.
+//  2. `client_pages.page_url` is NOT NULL, so a change to a page that does not
+//     exist yet would need a fabricated URL. The programmatic-SEO code already
+//     fabricates one (`https://…/${slug}/` before WordPress has assigned
+//     anything) — that is a workaround, not a pattern to institutionalise.
+//  3. Not every change is a page. A 301, a robots.txt edit and a Shopify
+//     metafield are all changes with no page row to hang off — hence
+//     `change_kind` below and a NULLABLE `page_url`.
+//
+// `site_id` is NOT NULL here, unlike the nullable `site_id` retrofitted onto
+// the ten legacy SEO tables: this table is new, so there is no pre-existing
+// row that predates the registry and nothing to backfill.
+// ---------------------------------------------------------------------------
+export const siteChanges = pgTable(
+  'site_changes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    siteId: uuid('site_id').notNull().references(() => seoSites.id),
+
+    // 'page_create' | 'page_update' | 'redirect' | 'robots_txt' | 'metafield'.
+    // Plain text, not pgEnum — repo convention for status-like columns.
+    changeKind: text('change_kind').notNull().default('page_update'),
+    // Nullable on purpose — see reason 3 in the docblock above.
+    pageUrl: text('page_url'),
+
+    // See nextSiteChangeStatus() in src/services/siteChangeService.ts — that
+    // pure function is the ONLY thing allowed to compute a new value here, and
+    // its exhaustive switch is the authoritative list of legal values.
+    status: text('status').notNull().default('proposed'),
+
+    // Optimistic-concurrency token. The approval UI sends the version it
+    // rendered; a write whose version no longer matches is rejected rather
+    // than silently overwriting a decision someone else just made. Without
+    // this, two operators with the page open both click approve and the second
+    // one's stale view wins.
+    version: integer('version').notNull().default(1),
+
+    // The vendor-neutral SiteChangeInput (title/metaTitle/metaDescription/
+    // canonicalUrl/bodyHtml/structuredData/redirectFrom). Stored whole so the
+    // approval UI can render exactly what was proposed, months later, even if
+    // the generating service has changed shape since.
+    payload: jsonb('payload').notNull().default({}),
+
+    // ---- staging (provider-side, pre-publish) ----
+    // Opaque provider handle: a git branch name, a WP draft post id, a Shopify
+    // unpublished page id.
+    stagedRef: text('staged_ref'),
+    // Only ever set when the provider's capabilities.stagesRemoteDraft.
+    previewUrl: text('preview_url'),
+    // Only ever set when the provider's capabilities.producesReviewableDiff.
+    // Text, not jsonb: it is a unified diff meant to be rendered verbatim.
+    diff: text('diff'),
+    stagedAt: timestamp('staged_at'),
+
+    // ---- verification ----
+    verifyPassed: boolean('verify_passed'),
+    // SiteVerifyIssue[] — severity/code/message. Kept even on a pass, because
+    // warnings are exactly what an approver needs to see before deciding.
+    verifyIssues: jsonb('verify_issues').notNull().default([]),
+    verifiedAt: timestamp('verified_at'),
+
+    // ---- the human decision (the hard stop) ----
+    // The CHECK constraint below is the database-level half of the invariant:
+    // no row can sit in an approved-or-later status without both of these set.
+    // assertSiteChangeApproved() is the application-level half. Two independent
+    // enforcement points, because this is the one invariant whose failure means
+    // the system edited a client's live website with nobody's consent.
+    approvedBy: uuid('approved_by').references(() => users.id),
+    approvedAt: timestamp('approved_at'),
+    rejectedBy: uuid('rejected_by').references(() => users.id),
+    rejectedAt: timestamp('rejected_at'),
+    // Free-text reason captured at approve/reject time. Required by the UI on
+    // reject; optional on approve.
+    decisionReason: text('decision_reason'),
+
+    // ---- publish ----
+    // Set once when a publish attempt starts, and reused verbatim on retry so
+    // a provider with capabilities.supportsIdempotentPublish can recognise the
+    // same request. UNIQUE (nulls distinct) so a second concurrent attempt
+    // cannot claim a different id for the same change.
+    publishRequestId: uuid('publish_request_id'),
+    publishedAt: timestamp('published_at'),
+    liveUrl: text('live_url'),
+    // Provider-side id of the published object (WP post id, Shopify page id).
+    externalRef: text('external_ref'),
+    // The full SitePublishResult union, including the git handoff branch and
+    // compare URL — the human doing the merge needs those, and they have no
+    // natural column.
+    publishResult: jsonb('publish_result'),
+    lastError: text('last_error'),
+    lastErrorAt: timestamp('last_error_at'),
+
+    // ---- outcome ----
+    // When the drift sweep confirmed this change actually went live. THIS is
+    // what starts the observation-window clock that outcome scoring reads —
+    // not publishedAt. A publish that silently failed to render must not be
+    // scored as if it shipped, which is the whole point of the sweep.
+    verifiedLiveAt: timestamp('verified_live_at'),
+    supersededByChangeId: uuid('superseded_by_change_id'),
+
+    // 'cron' | 'admin' | 'agent' — where the proposal came from.
+    source: text('source').notNull().default('admin'),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantIdIdx: index('site_changes_tenant_id_idx').on(t.tenantId),
+    siteIdIdx: index('site_changes_site_id_idx').on(t.siteId),
+    // The approval queue's own query: one tenant's changes in one status,
+    // newest first.
+    tenantStatusIdx: index('site_changes_tenant_status_idx').on(t.tenantId, t.status),
+    // Drives the drift sweep's "was this URL changed by us recently?" join.
+    sitePageIdx: index('site_changes_site_page_idx').on(t.siteId, t.pageUrl),
+    publishRequestIdUniq: uniqueIndex('site_changes_publish_request_id_uniq').on(t.publishRequestId),
+    // Self-reference, declared here rather than inline because the table is
+    // still being defined at column-declaration time.
+    supersededByFk: foreignKey({
+      columns: [t.supersededByChangeId],
+      foreignColumns: [t.id],
+      name: 'site_changes_superseded_by_change_id_fkey',
+    }),
+    // The hard stop, in the database. A row can only reach an approved-or-later
+    // status with a recorded human and a recorded time. An UPDATE that sets
+    // status='approved' without them fails outright rather than quietly
+    // producing a publishable change.
+    approvalRequiresApprover: check(
+      'site_changes_approved_requires_approver',
+      sql`${t.status} NOT IN ('approved', 'publishing', 'published', 'handoff_required', 'publish_failed')
+          OR (${t.approvedBy} IS NOT NULL AND ${t.approvedAt} IS NOT NULL)`,
+    ),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE — seo_site_snapshots (migration 0048)
+//
+// Append-only record of what each tracked URL actually looked like, each time
+// the drift sweep read it. This is the table behind the differentiator: the
+// detector for "the client edited the page behind the agency's back".
+//
+// NEVER STORE FULL HTML HERE. `elements` holds the extracted SEO surface
+// (SeoElements in src/modules/site/liveSnapshot.ts) plus a hash — roughly
+// 400 bytes a row. Full HTML would be ~80 KB a row, which for three sites
+// sweeping daily is ~17 GB/year against a few MB. The hash is what makes the
+// common case (nothing changed) a single integer comparison rather than a
+// document diff.
+// ---------------------------------------------------------------------------
+export const seoSiteSnapshots = pgTable(
+  'seo_site_snapshots',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    siteId: uuid('site_id').notNull().references(() => seoSites.id),
+    pageUrl: text('page_url').notNull(),
+    fetchedAt: timestamp('fetched_at').notNull().defaultNow(),
+    // 404/410 is a legitimate, meaningful reading (drift_kind 'page_gone'),
+    // not an error to discard — so it is stored like any other status.
+    httpStatus: integer('http_status').notNull(),
+    // sha256 of the extracted elements, from hashSeoElements().
+    contentHash: text('content_hash').notNull(),
+    // SeoElements: metaTitle/metaDescription/canonicalUrl/robots/h1/h1Count/
+    // jsonLdTypes/wordCount/internalLinkCount/externalLinkCount.
+    elements: jsonb('elements').notNull().default({}),
+
+    // NULL when nothing changed since the previous snapshot. Otherwise:
+    // 'verified_live' (matched one of our approved, recently-published
+    // changes), 'unexpected_edit' (changed with no approved change behind it —
+    // the sellable one), 'page_gone', 'noindex_added', 'canonical_changed',
+    // 'structured_data_removed'.
+    driftKind: text('drift_kind'),
+    // 'info' | 'warning' | 'critical'. noindex/canonical/JSON-LD loss are
+    // higher severity than a copy edit because they cost rankings silently.
+    driftSeverity: text('drift_severity'),
+    // Which SeoElements fields differed, from diffSeoElements().
+    changedFields: text('changed_fields').array().default([]),
+    // Set only for 'verified_live' — the approved change this drift matched.
+    matchedChangeId: uuid('matched_change_id').references(() => siteChanges.id),
+    // Set once a Slack/email alert has gone out, so a persistent drift alerts
+    // once rather than every sweep.
+    alertedAt: timestamp('alerted_at'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantIdIdx: index('seo_site_snapshots_tenant_id_idx').on(t.tenantId),
+    siteIdIdx: index('seo_site_snapshots_site_id_idx').on(t.siteId),
+    // The sweep's hot path: the most recent snapshot for one URL on one site.
+    sitePageFetchedIdx: index('seo_site_snapshots_site_page_fetched_idx').on(t.siteId, t.pageUrl, t.fetchedAt),
+    // The admin's "what drifted on my sites?" query.
+    tenantDriftIdx: index('seo_site_snapshots_tenant_drift_idx').on(t.tenantId, t.driftKind),
+  }),
+);

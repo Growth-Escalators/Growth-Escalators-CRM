@@ -440,10 +440,18 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
     // INDEX IF EXISTS — dropping an index never fails on data, and the
     // 4-column index still enforces per-tenant uniqueness. SEO tables only —
     // no Wizmatch surface touched.
+    // 48 = adds site_changes + seo_site_snapshots (Phase 3 of the multi-tenant
+    // SEO platform work). Two NEW tables, purely additive: no ALTER of an
+    // existing table, no DROP, no SET NOT NULL, no unique index over rows that
+    // already exist. site_changes carries a CHECK constraint
+    // (site_changes_approved_requires_approver) that is the database-level half
+    // of the human-approval hard stop — no row can sit in an approved-or-later
+    // status without both an approver and an approval timestamp. SEO tables
+    // only — no Wizmatch surface touched.
     // Bump this ONLY alongside an explicit authorisation for the migration in
     // question — the point of the mark is that an unreviewed migration showing
     // up in a hardening pass still gets surfaced.
-    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 47;
+    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 48;
     const unauthorised = sqlFiles
       .map((f) => ({ file: f, idx: parseInt(f.slice(0, 4), 10) }))
       .filter((m) => Number.isFinite(m.idx) && m.idx > AUTHORISED_MIGRATION_HIGH_WATER_MARK)
