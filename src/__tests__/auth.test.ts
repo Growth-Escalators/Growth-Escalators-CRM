@@ -9,6 +9,11 @@ vi.mock('../db/index', () => ({
     select: (...args: unknown[]) => mockDbSelect(...args),
   },
   users: { id: 'id', tokenVersion: 'token_version', tenantId: 'tenant_id', isActive: 'is_active' },
+  // Plain placeholder, same convention as `users` above — currentIdentity()
+  // now LEFT JOINs `tenants` onto the users lookup (tenant-suspension kill
+  // switch); `eq(tenants.id, users.tenantId)` never actually inspects these
+  // shapes in a mocked `.leftJoin()`/`.where()` chain, only real Drizzle does.
+  tenants: { id: 'id', isActive: 'is_active' },
 }));
 
 function makeRes() {
@@ -35,16 +40,28 @@ function signToken(overrides: Record<string, unknown> = {}) {
 // The identity row `currentIdentity` (formerly `currentTokenVersion`) reads.
 // `tenantId` defaults to the value `signToken` puts in the JWT so every
 // pre-existing test keeps exercising the matching-tenant happy path; the H-1
-// tenant-binding tests below pass a differing value explicitly.
+// tenant-binding tests below pass a differing value explicitly. `tenantIsActive`
+// defaults to `true` so every pre-existing test (written before the
+// tenant-suspension check existed) keeps exercising the "tenant active" path
+// unchanged; the tenant-suspension tests below pass `false` explicitly.
+//
+// Chain now includes `.leftJoin(...)` between `.from(...)` and `.where(...)`,
+// matching currentIdentity()'s real query shape after the tenant-suspension
+// kill switch was added (src/middleware/auth.ts).
 function mockTokenVersionRow(
   tokenVersion: number | null,
   tenantId: string | null = 'tenant-1',
   isActive: boolean | null = true,
+  tenantIsActive: boolean | null = true,
 ) {
   mockDbSelect.mockReturnValue({
     from: vi.fn().mockReturnValue({
-      where: vi.fn().mockReturnValue({
-        limit: vi.fn().mockResolvedValue(tokenVersion === null ? [] : [{ tokenVersion, tenantId, isActive }]),
+      leftJoin: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          limit: vi.fn().mockResolvedValue(
+            tokenVersion === null ? [] : [{ tokenVersion, tenantId, isActive, tenantIsActive }],
+          ),
+        }),
       }),
     }),
   });
@@ -138,8 +155,10 @@ describe('requireAuth / verifyAuthToken / requireStrictAuth', () => {
     it('fails closed (401) when the tokenVersion DB lookup throws', async () => {
       mockDbSelect.mockReturnValue({
         from: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            limit: vi.fn().mockRejectedValue(new Error('connection reset')),
+          leftJoin: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              limit: vi.fn().mockRejectedValue(new Error('connection reset')),
+            }),
           }),
         }),
       });
@@ -475,6 +494,128 @@ describe('requireAuth — deactivated users', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Platform-superadmin tenant suspend/reactivate (PATCH
+// /api/platform/tenants/:tenantId/status, src/routes/platformTenants.ts).
+//
+// Same gap as the user-level `requireAuth — deactivated users` block above,
+// one level up: login already refused a suspended tenant's users
+// (`src/routes/auth.ts` INNER JOINs tenants and requires `t.is_active`), but
+// nothing re-checked `tenants.is_active` per request — so writing
+// `tenants.isActive = false` was a database-only gesture that left every
+// already-issued token in that tenant working until its natural 7-day expiry.
+// This is the regression guard for the fix: `currentIdentity` now LEFT JOINs
+// `tenants` onto the same single-row lookup and `identityMismatch` treats
+// `tenantIsActive === false` as its own distinguished reason, which
+// `requireAuth` turns into a 403 with a plain "workspace suspended" message
+// instead of the opaque generic 401 every other mismatch reason gets.
+// ---------------------------------------------------------------------------
+describe('requireAuth — suspended tenants (platform-superadmin suspend/reactivate)', () => {
+  const originalSecret = process.env.JWT_SECRET;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    process.env.JWT_SECRET = TEST_SECRET;
+  });
+  afterEach(() => { process.env.JWT_SECRET = originalSecret; });
+
+  it('leaves an ACTIVE tenant unaffected (happy path unchanged by the new check)', async () => {
+    const { requireAuth } = await import('../middleware/auth');
+    mockTokenVersionRow(3, 'tenant-1', true, true);
+    const req = makeReq(`Bearer ${signToken({ tokenVersion: 3 })}`);
+    const res = makeRes();
+    const next = vi.fn();
+    await requireAuth(req, res, next);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(req.user?.id).toBe('user-1');
+  });
+
+  it('rejects an existing, otherwise-valid token with 403 + a clear message once the tenant is suspended — not just at login', async () => {
+    const { requireAuth } = await import('../middleware/auth');
+    // token_version AND tenant claim both still match — only tenants.is_active
+    // flipped, exactly what PATCH .../status {isActive:false} does. This token
+    // was issued and valid BEFORE the suspension; nothing about the token
+    // itself changed.
+    mockTokenVersionRow(3, 'tenant-1', true, false);
+    const req = makeReq(`Bearer ${signToken({ tokenVersion: 3 })}`);
+    const res = makeRes();
+    const next = vi.fn();
+    await requireAuth(req, res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(403);
+    expect((res.body as { error: string; message: string }).error).toBe('workspace suspended');
+    expect((res.body as { error: string; message: string }).message).toMatch(/suspended/i);
+  });
+
+  it('is distinguishable from the generic mismatch response — 403, not the opaque 401 every other reason gets', async () => {
+    const { requireAuth } = await import('../middleware/auth');
+    mockTokenVersionRow(3, 'tenant-1', true, false);
+    const req = makeReq(`Bearer ${signToken({ tokenVersion: 3 })}`);
+    const res = makeRes();
+    await requireAuth(req, res, vi.fn());
+    expect(res.statusCode).not.toBe(401);
+    expect((res.body as { error: string }).error).not.toBe('session expired — please log in again');
+  });
+
+  it('reactivating (tenantIsActive back to true) restores access once the identity is re-read', async () => {
+    // Request 1 — tenant suspended, rejected.
+    mockTokenVersionRow(3, 'tenant-1', true, false);
+    const { requireAuth: requireAuthBlocked } = await import('../middleware/auth');
+    const blockedReq = makeReq(`Bearer ${signToken({ tokenVersion: 3 })}`);
+    const blockedRes = makeRes();
+    const blockedNext = vi.fn();
+    await requireAuthBlocked(blockedReq, blockedRes, blockedNext);
+    expect(blockedRes.statusCode).toBe(403);
+    expect(blockedNext).not.toHaveBeenCalled();
+
+    // Request 2 — same token, tenant reactivated. `vi.resetModules()` forces a
+    // fresh module instance (and therefore a fresh, empty identityCache), the
+    // same as what happens once the real 30s cache TTL elapses (see
+    // currentIdentity's own cache-TTL comment) or on any server process that
+    // hasn't cached this user yet — access is restored without requiring the
+    // caller to log in again or mint a new token.
+    vi.resetModules();
+    mockTokenVersionRow(3, 'tenant-1', true, true);
+    const { requireAuth: requireAuthRestored } = await import('../middleware/auth');
+    const restoredReq = makeReq(`Bearer ${signToken({ tokenVersion: 3 })}`);
+    const restoredRes = makeRes();
+    const restoredNext = vi.fn();
+    await requireAuthRestored(restoredReq, restoredRes, restoredNext);
+    expect(restoredNext).toHaveBeenCalledTimes(1);
+    expect(restoredRes.statusCode).toBe(200);
+  });
+
+  it('treats a NULL tenantIsActive as ACTIVE, matching login\'s own semantics (`t.is_active IS NULL OR t.is_active = true`)', async () => {
+    const { requireAuth } = await import('../middleware/auth');
+    mockTokenVersionRow(3, 'tenant-1', true, null);
+    const req = makeReq(`Bearer ${signToken({ tokenVersion: 3 })}`);
+    const res = makeRes();
+    const next = vi.fn();
+    await requireAuth(req, res, next);
+    expect(next).toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('degrades a suspended tenant to anonymous in optionalAuth rather than surfacing an error (same posture as deactivated users)', async () => {
+    const { optionalAuth } = await import('../middleware/auth');
+    mockTokenVersionRow(3, 'tenant-1', true, false);
+    const req = makeReq(`Bearer ${signToken({ tokenVersion: 3 })}`);
+    const res = makeRes();
+    const next = vi.fn();
+    await optionalAuth(req, res, next);
+    expect((req as unknown as { user?: unknown }).user).toBeUndefined();
+    expect(next).toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('refuses a suspended tenant in the socket handshake verifier too', async () => {
+    const { verifyAuthTokenForHandshake } = await import('../middleware/auth');
+    mockTokenVersionRow(3, 'tenant-1', true, false);
+    expect(await verifyAuthTokenForHandshake(signToken({ tokenVersion: 3 }))).toBeNull();
+  });
+});
+
 // QA run 2026-07-30 — Socket.io handshake parity (security-lane finding A1).
 //
 // `verifyAuthToken` is claims-only and never touches the database. The
@@ -530,7 +671,9 @@ describe('verifyAuthTokenForHandshake — socket lane parity (A1)', () => {
     const { verifyAuthTokenForHandshake } = await import('../middleware/auth');
     mockDbSelect.mockReturnValue({
       from: vi.fn().mockReturnValue({
-        where: vi.fn().mockReturnValue({ limit: vi.fn().mockRejectedValue(new Error('connection reset')) }),
+        leftJoin: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({ limit: vi.fn().mockRejectedValue(new Error('connection reset')) }),
+        }),
       }),
     });
     expect(await verifyAuthTokenForHandshake(signToken({ tokenVersion: 3 }))).toBeNull();

@@ -2,7 +2,7 @@ import {
   Calendar, Home, Users, Kanban, CheckSquare, MessageSquare, TrendingUp,
   Megaphone, Share2, Search, FileText, Brain, Zap, Mail,
   Link as LinkIcon, CreditCard, Receipt, Shield, ShieldCheck, ClipboardList, Settings,
-  Briefcase, Building2, Palette, Plug, UserPlus,
+  Briefcase, Building2, Palette, Plug, UserPlus, Building,
 } from 'lucide-react';
 import { WIZMATCH_ROUTES, evaluateWizmatchPermission } from '../routes/wizmatchRouteRegistry.ts';
 import { companyPolicyUiEnabled } from '../lib/companyPolicyFlag.js';
@@ -320,6 +320,16 @@ export const NAV_ENTRIES = [
     // reseller-tenant). See src/routes/platformTenants.ts.
     id: 'provision-tenant', label: 'Provision Tenant', to: '/settings/provision-tenant',
     icon: UserPlus, section: 'Settings', group: 'settings',
+    visible: f => f.isPlatformSuperadmin,
+  },
+  {
+    // Platform-superadmin only — the natural follow-up to "Provision Tenant"
+    // above: lists every existing tenant and lets a superadmin suspend/
+    // reactivate a workspace, change its plan, or toggle its feature flags.
+    // See src/routes/platformTenants.ts (GET /, GET /:tenantId, PATCH
+    // /:tenantId/status|features|plan) and admin/src/pages/TenantsListPage.jsx.
+    id: 'tenants', label: 'Tenants', to: '/settings/tenants',
+    icon: Building, section: 'Settings', group: 'settings',
     visible: f => f.isPlatformSuperadmin,
   },
 ];
