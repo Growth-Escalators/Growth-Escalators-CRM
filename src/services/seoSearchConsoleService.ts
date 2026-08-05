@@ -269,6 +269,20 @@ function buildDefaultGscClient(): SeoSearchConsoleClient {
 // UTC-clocked container (Railway) the local/UTC distinction is a no-op anyway.
 // ---------------------------------------------------------------------------
 const GSC_WINDOW_DAYS = 28;
+
+/**
+ * Monday of the week containing `now`, as an ISO date string.
+ *
+ * `week_start` is a WEEK LABEL, not the query window's start — see the call
+ * site for why conflating the two silently empties both readers of this table.
+ */
+function isoWeekStart(now: Date): string {
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  // getUTCDay(): 0 = Sunday. Shift so Monday is the week's first day.
+  const dayOffset = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - dayOffset);
+  return d.toISOString().slice(0, 10);
+}
 const GSC_QUERY_ROW_LIMIT = 25; // matches the script's topQueries rowLimit
 
 function isoDaysAgo(n: number, now: Date): string {
@@ -460,7 +474,24 @@ export async function runSeoSearchConsolePull(
         siteId: site.id,
         domain: site.domain,
         label: site.label,
-        weekStart: range.startDate,
+        // NOT range.startDate. The GSC query window is 28 days (a longer window
+        // gives a stabler average position), but `week_start` labels WHICH WEEK
+        // this row reports — and both readers depend on that reading:
+        //
+        //   seoWeeklyEmailService: WHERE week_start >= CURRENT_DATE - 14
+        //     — a 28-day-ago window start is never inside 14 days, so every
+        //       row would be filtered out and the weekly email would stay
+        //       empty even though the table finally has a writer.
+        //   seoDigestService: JOINs last_week.week_start_date =
+        //     this_week.week_start_date - INTERVAL '7 days'
+        //     — window starts drift by however long the gap between runs was,
+        //       so a single missed run silently breaks the week-over-week
+        //       comparison until the next one.
+        //
+        // Anchoring to the Monday of the run's own week fixes both: rows are
+        // exactly 7 days apart regardless of when the cron actually fired, and
+        // they land inside the email's recency filter.
+        weekStart: isoWeekStart(new Date()),
         totalClicks: Math.round(totals?.clicks ?? 0),
         totalImpressions: Math.round(totals?.impressions ?? 0),
         avgPosition: totals?.position ?? null,

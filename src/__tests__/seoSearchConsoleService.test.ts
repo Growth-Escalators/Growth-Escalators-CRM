@@ -294,3 +294,57 @@ describe('runSeoSearchConsolePull', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// week_start is a WEEK LABEL, not the query window's start
+// ---------------------------------------------------------------------------
+//
+// This distinction has no visible symptom when it is wrong — no error, no
+// exception, just two reporting surfaces that stay empty. Both readers of
+// seo_weekly_metrics depend on it:
+//
+//   seoWeeklyEmailService — WHERE week_start >= CURRENT_DATE - 14
+//   seoDigestService      — JOIN ... week_start_date - INTERVAL '7 days'
+//
+// Writing the 28-day GSC window's start (the obvious reading of "the range we
+// queried") puts every row ~28 days in the past, which fails the first filter
+// outright and makes the second drift by however long the gap between cron
+// runs happened to be.
+describe('week_start labels the week, not the 28-day query window', () => {
+  it('is within the last 7 days, so the weekly email’s 14-day filter matches', () => {
+    const weekStart = new Date(`${isoWeekStartForTest(new Date())}T00:00:00Z`);
+    const ageDays = (Date.now() - weekStart.getTime()) / 86_400_000;
+    expect(ageDays).toBeLessThan(7);
+    // The bug this replaces: a 28-day window start is always outside the
+    // email's 14-day recency filter.
+    expect(ageDays).toBeLessThan(14);
+  });
+
+  it('lands exactly 7 days apart for runs a week apart, even if one run is missed', () => {
+    const monday = new Date('2026-08-03T02:45:00Z');
+    const nextMonday = new Date('2026-08-10T02:45:00Z');
+    // A run that slipped to Wednesday still labels the same week it ran in,
+    // so the digest's exact-7-day join keeps working.
+    const slipped = new Date('2026-08-12T09:00:00Z');
+
+    const a = isoWeekStartForTest(monday);
+    const b = isoWeekStartForTest(nextMonday);
+    const c = isoWeekStartForTest(slipped);
+
+    expect(daysBetween(a, b)).toBe(7);
+    // The slipped run labels its own week (Aug 10), not a drifted window.
+    expect(c).toBe(b);
+  });
+});
+
+/** Mirrors isoWeekStart in the service — kept local because that helper is deliberately not exported. */
+function isoWeekStartForTest(now: Date): string {
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const dayOffset = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - dayOffset);
+  return d.toISOString().slice(0, 10);
+}
+
+function daysBetween(a: string, b: string): number {
+  return (new Date(`${b}T00:00:00Z`).getTime() - new Date(`${a}T00:00:00Z`).getTime()) / 86_400_000;
+}
