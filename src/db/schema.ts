@@ -14,6 +14,7 @@ import {
   uniqueIndex,
   foreignKey,
   check,
+  primaryKey,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import {
@@ -495,6 +496,15 @@ export const users = pgTable(
     // remember to treat as equivalent.
     isPlatformSuperadmin: boolean('is_platform_superadmin').notNull().default(false),
     createdAt: timestamp('created_at').defaultNow().notNull(),
+    // Tenant-customizable RBAC foundation (see src/config/permissions.ts,
+    // src/services/permissionResolver.ts). Nullable and NOT backfilled by
+    // this migration — every user's authorization continues to flow through
+    // the existing `role` text column + PERMISSION_MAP
+    // (src/middleware/rbac.ts) exactly as today. Backfilling this column is a
+    // separate, explicitly-approved follow-up
+    // (src/scripts/backfillRolesFromPermissionMap.ts), and nothing reads it
+    // yet — adding it here is additive-only schema, not a behavior change.
+    roleId: uuid('role_id').references(() => roles.id),
   },
   (t) => ({
     tenantEmailIdx: uniqueIndex('users_tenant_email_unique').on(t.tenantId, t.email),
@@ -3291,5 +3301,86 @@ export const subscriptions = pgTable(
     providerSubscriptionUniq: uniqueIndex('subscriptions_provider_subscription_uniq').on(
       t.paymentProvider, t.providerSubscriptionId,
     ),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE — roles (foundation for tenant-customizable RBAC)
+//
+// Additive-only, not wired into any route yet. Today's authorization still
+// runs entirely on `users.role` (plain text) + PERMISSION_MAP
+// (src/middleware/rbac.ts) — this table exists so a tenant can eventually
+// define its own roles instead of being locked into the 8 GE-shaped,
+// hardcoded ones. See src/config/permissions.ts for the permission-key
+// registry these roles are composed from, and
+// src/services/permissionResolver.ts for how a user's effective permissions
+// are computed. `is_system` distinguishes the 8 built-in roles seeded by
+// src/scripts/backfillRolesFromPermissionMap.ts (mirroring PERMISSION_MAP's
+// existing role names: admin, manager_ops, manager_ads, team_lead, sales,
+// staff, creative_assistant, viewer) from any tenant-authored custom role —
+// an eventual admin UI should block renaming/deleting system roles, since
+// the legacy-parity cutover depends on their `key` staying stable.
+// ---------------------------------------------------------------------------
+export const roles = pgTable(
+  'roles',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    key: text('key').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
+    isSystem: boolean('is_system').notNull().default(false),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantKeyUniq: uniqueIndex('roles_tenant_key_unique').on(t.tenantId, t.key),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE — role_permissions (join table: permission keys granted by a role)
+//
+// `permission` is free text matching a key from the `PERMISSIONS` registry
+// (src/config/permissions.ts), not a DB enum — the registry is the single
+// source of truth for valid keys and is expected to grow; a DB enum would
+// need its own migration for every new permission. Composite primary key —
+// no surrogate id needed for a pure join row.
+// ---------------------------------------------------------------------------
+export const rolePermissions = pgTable(
+  'role_permissions',
+  {
+    roleId: uuid('role_id').notNull().references(() => roles.id),
+    permission: text('permission').notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.roleId, t.permission] }),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE — user_permission_overrides (per-user grant/revoke on top of a role)
+//
+// Effective permissions = the user's role's role_permissions, UNION any
+// 'grant' overrides here, MINUS any 'revoke' overrides here — see
+// getEffectivePermissions in src/services/permissionResolver.ts. One row per
+// (user, permission): a user can only have a single standing override for a
+// given permission at a time, enforced by the unique index below.
+// ---------------------------------------------------------------------------
+export const userPermissionOverrides = pgTable(
+  'user_permission_overrides',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull().references(() => users.id),
+    permission: text('permission').notNull(),
+    effect: text('effect').notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    createdBy: uuid('created_by').references(() => users.id),
+  },
+  (t) => ({
+    userPermissionUniq: uniqueIndex('user_permission_overrides_user_permission_unique').on(
+      t.userId, t.permission,
+    ),
+    effectChk: check('user_permission_overrides_effect_chk', sql`effect IN ('grant','revoke')`),
   }),
 );

@@ -116,4 +116,9 @@ export {
   // Subscription billing (reselling this CRM to other agencies)
   plans,
   subscriptions,
+  // Tenant-customizable RBAC foundation (additive only — see
+  // src/config/permissions.ts, src/services/permissionResolver.ts)
+  roles,
+  rolePermissions,
+  userPermissionOverrides,
 } from './schema';

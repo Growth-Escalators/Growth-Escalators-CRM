@@ -224,6 +224,13 @@ describe('PR 8B scope boundary — PR 9/10 must not have started', () => {
       + 'text columns on the existing tenant_branding table); no ALTER of any other table, no new table. '
       + 'Carries no outreach, sequence, reply, or Smartlead/reply-ingestion data of any kind. Unrelated '
       + 'to PR 9/10 (Smartlead / reply ingestion).',
+    45: 'roles / role_permissions / user_permission_overrides — foundation for tenant-customizable RBAC '
+      + '(replacing the static, GE-shaped PERMISSION_MAP in src/middleware/rbac.ts over time). Additive '
+      + 'CREATE TABLE only (three new tables) plus one nullable `users.role_id` ADD COLUMN with an FK to '
+      + 'the new `roles` table — no ALTER/DROP of any existing column, no backfill in this migration. '
+      + 'Not wired into any route or auth check by this PR; PERMISSION_MAP keeps gating every existing '
+      + 'route exactly as today. Carries no outreach, sequence, reply, or Smartlead/reply-ingestion data '
+      + 'of any kind. Unrelated to PR 9/10 (Smartlead / reply ingestion).',
   };
 
   it('every migration past 0037 is in the reviewed out-of-scope allowlist', () => {
