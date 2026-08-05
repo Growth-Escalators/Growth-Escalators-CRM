@@ -537,9 +537,44 @@ router.post('/competitor-brief', async (req: Request, res: Response) => {
   if (!keyword || !clientDomain) { res.status(400).json({ error: 'keyword and clientDomain required' }); return; }
 
   try {
+    const tenantId = req.user!.tenantId;
+
+    // Resolve the site so spend is attributed to it, and so the per-SITE cap
+    // applies rather than only the tenant-wide one. A domain with no
+    // registered site still runs — it just gets tenant-level caps only.
+    const { getSeoSiteByDomain } = await import('../services/seoSiteRegistry');
+    const site = await getSeoSiteByDomain(tenantId, clientDomain).catch(() => null);
+
+    // Pre-flight the cost guard so an exhausted cap comes back as a real
+    // refusal with a code, not as an empty competitor list the operator has
+    // no way to interpret. The cron path (runCompetitorContentAnalysis) keeps
+    // the opposite behaviour — skip and continue — because a sweep that
+    // aborted on the first capped keyword would be worse than a partial one.
+    const { evaluateSeoSpend } = await import('../services/seoSerperGuard');
+    const evaluation = await evaluateSeoSpend({
+      tenantId,
+      siteId: site?.id ?? null,
+      operation: 'serper_search',
+      label: 'competitor-brief',
+    });
+    if (!evaluation || !evaluation.allowed) {
+      // A null evaluation means the guard itself failed — fail closed, same
+      // as guardedSerperCall does.
+      res.status(evaluation?.httpStatus ?? 503).json({
+        error: evaluation?.blockCode ?? 'cost_guard_unavailable',
+        message: evaluation?.blockReasons.join(' ') ?? 'Spend guard could not be evaluated.',
+        budget: evaluation?.budget,
+      });
+      return;
+    }
+
     const { fetchCompetitorPages, analyzeCompetitorContent } = await import('../services/competitorContentService');
-    const competitors = await fetchCompetitorPages(keyword);
-    const analysis = await analyzeCompetitorContent(keyword, clientDomain, competitors, req.user!.tenantId);
+    // tenantId/siteId passed explicitly. Without them this fell back to
+    // resolveDefaultSeoTenantId(), which THROWS once a second tenant has the
+    // SEO feature enabled — the C2 blocker every cron was converted away from
+    // in Phase 2, still latent on this route until now.
+    const competitors = await fetchCompetitorPages(keyword, tenantId, site?.id ?? null);
+    const analysis = await analyzeCompetitorContent(keyword, clientDomain, competitors, tenantId);
     res.json({ keyword, clientDomain, competitors, analysis });
   } catch (e) {
     logger.error('[seo] competitor-brief error:', e);

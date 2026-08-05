@@ -1388,7 +1388,7 @@ cron.schedule('0 2 * * 0', () => safeCron('PageSpeed Monitor', async () => {
 console.log('[cron] PageSpeed monitor scheduled — Sundays 7:30 AM IST');
 
 // RE-ENABLED 2026-07 (seo-learning-loop) — Serper calls now go through
-// checkAndIncrementSeoSerperCap() (seoWorkflowHealthService.ts) before this fires.
+// the per-tenant Serper cost guard (guardedSerperCall, seoSerperGuard.ts) before this fires.
 cron.schedule('30 3 * * 2', () => safeCron('Rank Tracking', async () => {
   const { runRankChecks } = await import('./services/rankTrackingService');
   await seoTenantSweep(
@@ -1414,7 +1414,7 @@ cron.schedule('30 3 * * *', () => safeCron('SEO Alert Triggers', async () => {
 console.log('[cron] SEO alert triggers scheduled — daily 9:00 AM IST (backend-native)');
 
 // RE-ENABLED 2026-07 (seo-learning-loop) — Serper calls now go through
-// checkAndIncrementSeoSerperCap() (seoWorkflowHealthService.ts) before this fires.
+// the per-tenant Serper cost guard (guardedSerperCall, seoSerperGuard.ts) before this fires.
 cron.schedule('30 3 * * 5', () => safeCron('SEO Backlink Monitor', async () => {
   const { runBacklinkCheck } = await import('./services/seoBacklinkService');
   await seoTenantSweep(
@@ -1506,7 +1506,7 @@ cron.schedule('30 3 1,15 * *', () => safeCron('Competitor Content Analysis', asy
 console.log('[cron] Competitor content analysis scheduled — 1st & 15th of month at 9:00 AM IST');
 
 // RE-ENABLED 2026-07 (seo-learning-loop) — Serper calls now go through
-// checkAndIncrementSeoSerperCap() (seoWorkflowHealthService.ts) before this fires.
+// the per-tenant Serper cost guard (guardedSerperCall, seoSerperGuard.ts) before this fires.
 cron.schedule('30 4 15 * *', () => safeCron('SEO Content Gap Analysis', async () => {
   const { runContentGapAnalysis } = await import('./services/seoContentGapService');
   await seoTenantSweep(

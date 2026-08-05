@@ -15,7 +15,7 @@
 export const PAUSED_FEATURES = {
   // Flag-guarded (toggleable via this file alone)
   // seo: re-enabled 2026-07 (seo-learning-loop) — Serper calls are now capped via
-  // checkAndIncrementSeoSerperCap() (seoWorkflowHealthService.ts) before this flips
+  // the per-tenant Serper cost guard (guardedSerperCall, seoSerperGuard.ts) before this flips
   // any cron back on. SEO Weekly Email/Digest, PageSpeed, SEO Alert Triggers,
   // Competitor Content Analysis are gated by this flag; Rank Tracking / Backlink
   // Monitor / Content Decay / Content Gap Analysis were also uncommented in

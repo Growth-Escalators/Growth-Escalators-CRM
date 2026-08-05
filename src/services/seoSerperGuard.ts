@@ -117,6 +117,24 @@ export interface GuardedSerperCallCtx {
  * so `guardedSerperCall` can fail closed without a try/catch of its own at
  * every call site.
  */
+/**
+ * Pre-flight the spend guard WITHOUT running anything, for callers that need
+ * to report a refusal rather than absorb it.
+ *
+ * `guardedSerperCall` is built for crons: when the cap is hit it calls
+ * `onBlocked()` and the run continues with fewer results, which is the right
+ * behaviour for a sweep and deliberately tells the caller nothing. A route is
+ * the opposite case — an operator clicked a button and is owed a real answer,
+ * so it needs the block code and the HTTP status to hand back.
+ *
+ * Returns `null` when the guard itself could not be evaluated. Callers must
+ * treat that as a refusal (fail closed), the same way `guardedSerperCall`
+ * does — the error has already been logged here.
+ */
+export async function evaluateSeoSpend(ctx: GuardedSerperCallCtx): Promise<SeoCostGuardEvaluation | null> {
+  return resolveEvaluation(ctx, new Date());
+}
+
 async function resolveEvaluation(ctx: GuardedSerperCallCtx, now: Date): Promise<SeoCostGuardEvaluation | null> {
   const siteId = ctx.siteId ?? null;
   try {

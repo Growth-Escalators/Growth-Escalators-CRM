@@ -9,20 +9,20 @@
  * counter lets tenants starve each other, resets on every deploy/restart, and gives no
  * way to quote an agency a fixed price without absorbing unbounded tail risk.
  *
- * `checkAndIncrementSeoSerperCap` has NOT been touched or removed by this file — it
- * keeps guarding the existing single-tenant call sites until they're migrated onto
- * this guard. That migration, plus wiring this guard into routes/services, is other
- * lanes' work, not this file's.
+ * `checkAndIncrementSeoSerperCap` is still present in seoWorkflowHealthService.ts
+ * but now has ZERO callers: all four Serper spend sites (rankTracking, seoBacklink,
+ * seoContentGap, competitorContent) moved onto `guardedSerperCall`
+ * (seoSerperGuard.ts) in Phase 4. It is left in place only because three comments
+ * in worker.ts/featureFlags.ts still describe it as the mechanism; removing it is a
+ * separate cleanup, not a behaviour change.
  *
  * ---------------------------------------------------------------------------
  * INTENTIONALLY MISSING (do not add here without a migration + explicit sign-off):
  *
- * 1. `fetchSeoCostGuardUsage(pool, tenantId, siteId, now)` — the DB-touching usage
- *    fetch, mirroring `fetchWizmatchCostGuardUsage`. It needs a backing table
- *    (`seo_api_usage`, tracking tenant_id/site_id/provider/operation/cost_cents/
- *    created_at) that does not exist yet. Adding it means a schema migration, which
- *    is a guarded path (see AGENTS.md) — out of scope until that's approved. This
- *    file deliberately does NOT `import { pool }`.
+ * 1. `fetchSeoCostGuardUsage(pool, tenantId, siteId, now)` — DONE, but NOT here.
+ *    It lives in `seoCostGuardUsage.ts`, backed by the `seo_api_usage` table
+ *    added in migration 0049. It is a separate file precisely so THIS file stays
+ *    pure: it deliberately still does NOT `import { pool }`, and must not start.
  * 2. `getSeoProviderEnvStatus(env)` — a pure helper that would compute
  *    `SeoCostGuardProviderEnvStatus.missing` from env (SERPER_API_KEY, a PageSpeed/
  *    Google API key, GSC service-account credentials, an LLM key). Not built yet;
