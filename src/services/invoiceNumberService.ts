@@ -1,5 +1,6 @@
 import { db } from '../db/index';
 import { sql } from 'drizzle-orm';
+import { resolveTenantShortCode } from './tenantBrandingDefaults';
 
 // Computed in IST (Asia/Kolkata), not server-local time. Railway runs
 // containers in UTC, which put the Indian financial-year boundary (April 1)
@@ -34,7 +35,15 @@ export async function peekNextInvoiceNumber(
   type: 'gst' | 'non_gst',
 ): Promise<{ number: string; series: number; financialYear: string }> {
   const fy = getCurrentFinancialYear();
-  const prefix = type === 'gst' ? 'GE/GST' : 'GE/INV';
+  // Tenant-derived series prefix (was hardcoded 'GE/GST'/'GE/INV' regardless
+  // of tenant — see tenantBrandingDefaults.ts's resolveTenantShortCode for
+  // the derivation and its documented backward-compat/uniqueness tradeoffs).
+  // Purely a formatting concern: invoice_series' upsert key is
+  // (tenant_id, series_type, financial_year) — see schema.ts's
+  // invoice_series_tenant_type_fy_uniq_idx — so this never affects sequence
+  // numbering, only the rendered prefix text.
+  const code = await resolveTenantShortCode(tenantId);
+  const prefix = type === 'gst' ? `${code}/GST` : `${code}/INV`;
 
   const result = await db.execute(sql`
     SELECT last_number FROM invoice_series
@@ -61,7 +70,12 @@ export async function getNextInvoiceNumber(
   type: 'gst' | 'non_gst',
 ): Promise<{ number: string; series: number; financialYear: string }> {
   const fy = getCurrentFinancialYear();
-  const prefix = type === 'gst' ? 'GE/GST' : 'GE/INV';
+  // Tenant-derived series prefix — see peekNextInvoiceNumber() above for the
+  // full rationale. Existing invoices already issued keep their
+  // already-persisted invoiceNumber text; this only changes what NEW numbers
+  // look like going forward.
+  const code = await resolveTenantShortCode(tenantId);
+  const prefix = type === 'gst' ? `${code}/GST` : `${code}/INV`;
 
   // Atomic upsert — INSERT or increment in a single statement.
   // PostgreSQL guarantees concurrent calls get distinct numbers.
