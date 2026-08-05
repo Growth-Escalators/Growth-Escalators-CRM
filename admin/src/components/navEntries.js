@@ -111,6 +111,11 @@ export function computeFlags(role, perms = {}, tenantSlug = 'growth-escalators',
     // of their routes gets a requireTenantFeature mount, rather than
     // assuming this comment still covers it.
     canBilling:    (!!perms.billingView || !!perms.isOwner) && tenantFeatures.gstBilling !== false,
+    // Client Reports (/reports → ReportsPage.jsx, backed by src/routes/
+    // reports.ts). Mirrors the backend's own gate exactly — every handler in
+    // reports.ts rejects unless `p?.reportsView || p?.isOwner` — so the nav
+    // entry and the API agree on who can even open the page.
+    canClientReports: !!perms.reportsView || !!perms.isOwner,
     // Expenses (/finance) and Funnels (/funnels) used to ride on canBilling,
     // but their APIs (src/routes/finance.ts, src/routes/funnel.ts) carry NO
     // billingView check — they work for any authenticated admin, and /finance
@@ -262,6 +267,11 @@ export const NAV_ENTRIES = [
     id: 'contracts', label: 'Contracts', to: '/contracts',
     icon: FileText, section: 'Finance', group: 'finance',
     visible: f => f.canContracts,
+  },
+  {
+    id: 'reports', label: 'Reports', to: '/reports',
+    icon: FileText, section: 'Finance', group: 'finance',
+    visible: f => f.canClientReports,
   },
   {
     id: 'expenses', label: 'Expenses', to: '/finance',
