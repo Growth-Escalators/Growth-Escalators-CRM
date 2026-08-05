@@ -50,6 +50,46 @@ $1/month**.
 
 ---
 
+## 1b. BEFORE MERGING — a migration-number collision will stop the API booting
+
+**Pushing the branch is safe. Merging it to `main` as-is is not.**
+
+While this branch was being built, `main` advanced and independently used the
+same two migration numbers for unrelated work:
+
+| Number | `origin/main` | this branch |
+|---|---|---|
+| `0045` | `quiet_black_bird` — creates `role_permissions` | `typical_toro` — SEO tenant hardening |
+| `0046` | `sloppy_zeigeist` — creates `user_invites` | `glossy_leo` — the `seo_sites` registry |
+
+`0047`–`0049` on this branch are free; only these two collide.
+
+**Why it matters.** A merge conflicts on three files that cannot be resolved by
+picking a side — `meta/_journal.json`, `meta/0045_snapshot.json` and
+`meta/0046_snapshot.json` exist on both sides with different content. The
+snapshots are the chain `db:generate` diffs against, so a bad resolution
+silently produces wrong SQL on the *next* migration, not this one. And Railway
+applies migrations on boot, so a broken journal means the API does not start.
+This is exactly risk R1 from the original plan, arrived at from the other
+direction: the plan said "rebase first, next is 0045" — that was true when it
+was written, and `main` has moved twice since.
+
+**The remedy**, in order:
+1. Commit or stash your eight working-tree files (six `.claude/agents/*`
+   deletions, `.gitignore`, `CLAUDE.md`). A rebase must not run over unrelated
+   dirty files.
+2. `git fetch origin && git rebase origin/main`.
+3. Renumber this branch's five migrations to `0047`–`0051`, rebuilding
+   `meta/_journal.json` entries and renaming each `meta/*_snapshot.json` to
+   match. The SQL bodies do not change — only the numbers and the journal.
+4. `npm run build && npm test`, then apply to a scratch database and confirm
+   all five apply cleanly in order.
+
+An agent did not do this because AGENTS.md forbids rebasing while unrelated
+dirty files are present, and step 1 is your call, not an agent's.
+
+---
+
 ## 2. Push the branch
 
 **17 commits** are sitting local on `fix/wizmatch-scoring-pipeline`.
