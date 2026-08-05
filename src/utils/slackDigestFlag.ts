@@ -5,9 +5,7 @@
 // an unset, empty or unrecognised value reads as OFF. A `!== 'false'` style
 // test would turn a typo'd variable into a daily DM to the team.
 //
-// Callers: src/worker.ts (cron registration) and
-// src/services/saleshandyStatsService.ts (which cannot gate its whole cron
-// because the same function also writes the funnel stats).
+// Callers: src/worker.ts (cron registration).
 
 const TRUTHY = ['1', 'true', 'yes', 'on'];
 
