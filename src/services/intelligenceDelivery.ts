@@ -49,10 +49,11 @@ export async function deliverDailyIntelligence(analysis: Analysis, data: AgencyD
       { name: 'Infra', s: health.infrastructure },
     ];
     for (const sub of subsystems) {
+      if (!sub.s) continue; // omitted for non-GE tenants — this caller has no tenant context, so always the full report
       const icon = sub.s.status === 'HEALTHY' ? '✅' : sub.s.status === 'WARNING' ? '⚠️' : '🔴';
       msg += `   ${icon} ${sub.name}: ${sub.s.status}\n`;
     }
-    const failedCrons = health.cronJobs.filter(c => !c.healthy);
+    const failedCrons = (health.cronJobs ?? []).filter(c => !c.healthy);
     if (failedCrons.length > 0) {
       msg += `   ⏰ ${failedCrons.length} cron job(s) overdue\n`;
     }
