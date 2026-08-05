@@ -92,7 +92,7 @@ dirty files are present, and step 1 is your call, not an agent's.
 
 ## 2. Push the branch
 
-**17 commits** are sitting local on `fix/wizmatch-scoring-pipeline`.
+**21 commits** are sitting local on `fix/wizmatch-scoring-pipeline`.
 
 ```bash
 git push origin fix/wizmatch-scoring-pipeline
@@ -156,7 +156,7 @@ This is irreversible. It is last on the list for that reason.
 
 ## Not on this list
 
-Everything else is done and verified: Phases 1–5 of the multi-tenant SEO
-platform, the approval queue, the drift sweep, the per-tenant cost guard, and
-the n8n retirement. See `.ai/HANDOFF_LOG.md` for the narrative and
+Everything else is done and verified: Phases 1–6 of the multi-tenant SEO
+platform — the approval queue, the drift sweep, the per-tenant cost guard, the
+GSC/GA4 pulls, and the n8n retirement. See `.ai/HANDOFF_LOG.md` for the narrative and
 `.ai/CURRENT_TASK.md` for current state.
