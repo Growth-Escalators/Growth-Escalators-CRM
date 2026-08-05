@@ -1,7 +1,8 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { fetchWithRetry } from '../utils/fetchWithRetry';
-import { type GrowthOSClient, sendWhatsAppMessage, canSendGrowthOSWhatsApp } from './growthOSSetup';
+import { type GrowthOSClient } from './growthOSSetup';
+import { sendWhatsAppMessage, canSendGrowthOSWhatsApp } from './whatsappSendGuard';
 import { resolveDefaultSeoTenantId } from './seoTenantContext';
 
 // ---------------------------------------------------------------------------

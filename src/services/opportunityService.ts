@@ -1,6 +1,7 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
-import { type GrowthOSClient, sendWhatsAppMessage, canSendGrowthOSWhatsApp } from './growthOSSetup';
+import { type GrowthOSClient } from './growthOSSetup';
+import { sendWhatsAppMessage, canSendGrowthOSWhatsApp } from './whatsappSendGuard';
 
 // ---------------------------------------------------------------------------
 // Industry benchmarks

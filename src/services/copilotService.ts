@@ -1,6 +1,6 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
-import { sendWhatsAppMessage, canSendGrowthOSWhatsApp } from './growthOSSetup';
+import { sendWhatsAppMessage, canSendGrowthOSWhatsApp } from './whatsappSendGuard';
 
 // ---------------------------------------------------------------------------
 // Trigger detection

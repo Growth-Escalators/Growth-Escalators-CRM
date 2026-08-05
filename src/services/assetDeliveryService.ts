@@ -1,6 +1,6 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
-import { sendWhatsAppMessage } from './growthOSSetup';
+import { sendWhatsAppMessage } from './whatsappSendGuard';
 import { sendSlackDM } from './slackService';
 import { SLACK_JATIN } from '../config/constants';
 import { getFunnelConfig, renderTemplate, type FunnelConfig } from './funnelConfigService';

@@ -43,17 +43,17 @@ describe('services/growthOSSetup.ts — canSendGrowthOSWhatsApp', () => {
   });
 
   it("resolves true for GE's own tenant id", async () => {
-    const { canSendGrowthOSWhatsApp } = await import('../services/growthOSSetup');
+    const { canSendGrowthOSWhatsApp } = await import('../services/whatsappSendGuard');
     await expect(canSendGrowthOSWhatsApp(GE_TENANT_ID)).resolves.toBe(true);
   });
 
   it('resolves false for a reseller tenant id', async () => {
-    const { canSendGrowthOSWhatsApp } = await import('../services/growthOSSetup');
+    const { canSendGrowthOSWhatsApp } = await import('../services/whatsappSendGuard');
     await expect(canSendGrowthOSWhatsApp(RESELLER_TENANT_ID)).resolves.toBe(false);
   });
 
   it('fails closed for a null/undefined tenant id (never GE)', async () => {
-    const { canSendGrowthOSWhatsApp } = await import('../services/growthOSSetup');
+    const { canSendGrowthOSWhatsApp } = await import('../services/whatsappSendGuard');
     await expect(canSendGrowthOSWhatsApp(null)).resolves.toBe(false);
     await expect(canSendGrowthOSWhatsApp(undefined)).resolves.toBe(false);
   });
@@ -61,7 +61,7 @@ describe('services/growthOSSetup.ts — canSendGrowthOSWhatsApp', () => {
   it('fails closed if the GE tenant lookup itself comes back empty', async () => {
     mockPoolQuery.mockReset();
     mockPoolQuery.mockResolvedValue({ rows: [] }); // no tenants row at all
-    const { canSendGrowthOSWhatsApp } = await import('../services/growthOSSetup');
+    const { canSendGrowthOSWhatsApp } = await import('../services/whatsappSendGuard');
     await expect(canSendGrowthOSWhatsApp(GE_TENANT_ID)).resolves.toBe(false);
   });
 });

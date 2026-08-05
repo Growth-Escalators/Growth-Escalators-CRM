@@ -88,7 +88,7 @@ vi.mock('../db/index', () => ({
 // copilotWhatsAppGuard.test.ts) — mocked out here so this test stays focused
 // on gatherContext's tenant scoping and doesn't need to also stand up the
 // `tenants` lookup canSendGrowthOSWhatsApp depends on.
-vi.mock('../services/growthOSSetup', () => ({
+vi.mock('../services/whatsappSendGuard', () => ({
   sendWhatsAppMessage: vi.fn().mockResolvedValue(true),
   canSendGrowthOSWhatsApp: vi.fn().mockResolvedValue(false),
 }));
