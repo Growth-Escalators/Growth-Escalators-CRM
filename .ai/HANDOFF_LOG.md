@@ -6,6 +6,58 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-08-05 — SEO Phase 4: the approval queue, a spend ledger that guards, and a log redactor — Claude
+
+Branch `fix/wizmatch-scoring-pipeline`, commit `95b10e7e`. Not on `main`, not pushed. Seven parallel
+lanes; the contract, schema, shared wiring and all verification owned centrally.
+
+**Shipped.** `/api/seo-changes` (list/stage/verify/approve/reject/publish/preview) with every row
+carrying backend-computed `capabilities`, so the UI cannot offer a button the API will refuse —
+`siteChangeCapabilities.ts` is the one calculation, and PR 8A's "the workbench showed actions a
+staff member's role always 403s" is the defect it exists to prevent recurring. `SeoApprovalsPage.jsx`
+with three preview tiers chosen by capability, never by platform name. Migration `0049` for
+`seo_api_usage`. Four real Serper spend sites moved off the in-memory global cap. WordPress and
+Shopify credential entry in the admin — until now the only way to store one was a raw API call.
+
+**Two things worth carrying forward.**
+
+`drizzle-kit` emitted a DROP + re-ADD of `site_changes_approved_requires_approver` with
+byte-identical CHECK text — a snapshot artefact of 0048 having moved that constraint into its own
+guarded DO block. Both statements deleted by hand; 0049 documents that a re-emission should be
+deleted again, but that a DROP with a *different* body is a real change needing a human. Verified
+against local Postgres afterwards that the constraint still rejects an approved row with no approver.
+
+The approvals route logged provider errors verbatim while carefully keeping them out of the
+response body — and a test fixture proved the point by putting a token in one. Refusing to return
+text because an adapter "might have embedded a token" while writing that same text into retained
+logs is half a control. `src/utils/redactSecrets.ts` is the other half. **Its own first test passed
+for the wrong reason**: an 18-character fixture matched the `Bearer|Basic|Token` rule's 8-character
+minimum, so it went green while the real six-character token still leaked. The test now pins the
+exact route fixture byte-for-byte.
+
+**A vitest trap, twice now.** `rankTracking.test.ts` had `vi.mock` calls nested inside three `it()`
+blocks under a "re-apply mocks after resetModules" comment. They hoist, and the last registration in
+source order wins for every import — so they silently overrode the top-level factory for the whole
+file, and adding the missing mock at the top changed nothing. `vi.resetModules()` clears the module
+cache, not the mock registry. The file's own header comment warned about this exact trap.
+
+**Correction to the record.** Earlier notes implied the WordPress fix was "store a credential in
+`tenant_integrations`, then delete the `WP_AGEDDENTISTRY_*` vars". Verified against `origin/main`:
+the store, the route and `credentialEncryption` **are all on main today**. What is NOT on main is any
+*consumer* — `programmaticSeoService.publishToWordPress()` is still the only reader and it reads
+`process.env`. So the correct sequence is rotate the app password and **update** the Railway vars;
+deleting them silently stops WordPress publishing until this branch ships.
+
+**Verification:** build 0 · admin build 0 · `npm test` 2982 passing against the unchanged
+7-file/21-failure env-dependent baseline · `lint:tenant-scoping` zero new findings · `0049` applied
+to local dev only.
+
+**Also added** `docs/go-live/RAILWAY_BACKUP_PLAN.md` — read-only investigation, nothing on Railway
+created, modified or restarted. Its own headline finding is honest: the backup/PITR state could not
+be read through the API or CLI at all, so the first step is a dashboard look, not a change.
+
+---
+
 ## 2026-08-05 — SEO Phase 3: the SiteAdapter, staged changes, and the human-approval hard stop — Claude
 
 Branch `fix/wizmatch-scoring-pipeline`. Not on `main`, not pushed. Third execution phase of the

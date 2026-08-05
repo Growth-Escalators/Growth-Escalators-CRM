@@ -13,8 +13,11 @@ into a multi-tenant, multi-platform service an agency can be sold as a per-site 
 - **Phase 2** (`0f8b4d55`) — `seo_sites` registry, nine hardcoded client-domain arrays deleted, and
   **the C2 blocker fixed**: every SEO cron now sweeps per tenant, so enabling the add-on for a second
   agency no longer kills every SEO cron for every tenant including GE's own. Migrations `0046`/`0047`.
-- **Phase 3** (uncommitted at time of writing) — `SiteAdapter` implementations for git/WordPress/
+- **Phase 3** (`7fc5e72c`, `035b96a5`, `f06c6557`) — `SiteAdapter` implementations for git/WordPress/
   Shopify, `site_changes` + `seo_site_snapshots` (migration `0048`), and `siteChangeService.ts`.
+- **Phase 4** (`95b10e7e`) — `/api/seo-changes` + the approvals UI, `seo_api_usage` (migration
+  `0049`), the per-tenant Serper cost guard wired into the four real spend sites, WordPress/Shopify
+  credential entry in the admin, and `src/utils/redactSecrets.ts`.
 
 **The invariant that governs everything from here:** nothing publishes to a client's live website
 without a recorded human approval. Three independent enforcement layers (DB CHECK, service-level
@@ -35,8 +38,15 @@ assertion on the sole caller of `publishChange`, per-adapter re-check). Do not a
 - `SITE_ADAPTER_ENABLED` defaults false and must stay false in production until Phase 4's approval UI
   exists — there is currently no way for a human to approve anything through a UI.
 
-**Next:** Phase 4 (approval UI + cost guard wired onto real routes), then Phase 5 (drift sweep — its
-storage and extractor already exist).
+**Next:** Phase 5 (drift sweep — its storage, extractor and differ all exist; mostly wiring), then
+Phase 6 (n8n retirement + the gated 3-client data purge).
+
+**Credential correction, verified against `origin/main`:** the `tenant_integrations` store, its
+route and `credentialEncryption` are all on `main` today. What is missing there is a *consumer* —
+`programmaticSeoService.publishToWordPress()` is still the only reader of WordPress credentials and
+it reads `process.env`. So the WordPress remediation is: rotate the application password and
+**update** the `WP_AGEDDENTISTRY_*` Railway vars. Deleting them silently stops WordPress publishing
+until this branch ships.
 
 ---
 
