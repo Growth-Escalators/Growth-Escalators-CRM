@@ -13,7 +13,7 @@ import { decisionWorkbenchUiEnabled } from '../lib/decisionWorkbenchFlag.js';
 //
 // Role hierarchy (low → high trust):
 //   staff < sales < team_lead < manager_ops/manager_ads < admin
-// `team_lead` = full operational tools (Outreach, AI Intelligence, Growth OS,
+// `team_lead` = full operational tools (Outreach, AI Intelligence,
 // Meta Ads) but NOT financial/security tools (Billing, Permissions, Audit).
 function productForTenantSlug(tenantSlug = 'growth-escalators') {
   return String(tenantSlug || '').toLowerCase().trim() === 'wizmatch' ? 'wizmatch' : 'growth';
@@ -49,7 +49,7 @@ export function computeFlags(role, perms = {}, tenantSlug = 'growth-escalators',
   const product = productForTenantSlug(tenantSlug);
   // Narrow-scope role: only Tasks + Inbox + Meta Ads + Social + (always-on)
   // Content link and My Attendance. Everything else (Contacts, Pipeline,
-  // Clients, Billing, Sequences, Discovery, Outreach, Growth OS, Intelligence,
+  // Clients, Billing, Sequences, Discovery, Outreach, Intelligence,
   // SEO, Analytics, Reports, etc.) stays hidden.
   const isCreativeAssistant = role === 'creative_assistant';
   return {
@@ -236,11 +236,6 @@ export const NAV_ENTRIES = [
   },
 
   // ── TOOLS (collapsible) ───────────────────────────────────────
-  {
-    id: 'growth-os', label: 'Growth OS', to: '/growth-os',
-    icon: Zap, section: 'Tools', group: 'tools', newTab: true,
-    visible: f => f.isAdminTier,
-  },
   {
     id: 'emails', label: 'Email Templates', to: '/emails',
     icon: Mail, section: 'Tools', group: 'tools', newTab: true,

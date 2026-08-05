@@ -36,7 +36,6 @@ const DashboardPage = lazy(() => import('./pages/DashboardPage.jsx'));
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage.jsx'));
 const SEOPage = lazy(() => import('./pages/SEOPage.jsx'));
 const IntelligencePage = lazy(() => import('./pages/IntelligencePage.jsx'));
-const GrowthOSPage = lazy(() => import('./pages/GrowthOSPage.jsx'));
 const WhatsAppTemplatesPage = lazy(() => import('./pages/WhatsAppTemplatesPage.jsx'));
 const OutboundPage = lazy(() => import('./pages/OutboundPage.jsx'));
 const LinksPage = lazy(() => import('./pages/LinksPage.jsx'));
@@ -352,7 +351,6 @@ export default function App() {
             <Route path="/analytics" element={<PrivateRoute><AnalyticsPage /></PrivateRoute>} />
             <Route path="/seo" element={<PrivateRoute><SEOPage /></PrivateRoute>} />
             <Route path="/intelligence" element={<PrivateRoute><IntelligencePage /></PrivateRoute>} />
-            <Route path="/growth-os" element={<PrivateRoute><GrowthOSPage /></PrivateRoute>} />
             <Route path="/whatsapp-templates" element={<PrivateRoute><WhatsAppTemplatesPage /></PrivateRoute>} />
             <Route path="/outbound" element={<PrivateRoute><OutboundPage /></PrivateRoute>} />
             <Route path="/links" element={<PrivateRoute><LinksPage /></PrivateRoute>} />

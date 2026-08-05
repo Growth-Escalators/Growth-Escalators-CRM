@@ -4,10 +4,10 @@ import React from 'react';
 //
 // Two things worth knowing before editing:
 //
-// 1. `tone`. Most of the admin is light, but a few pages are dark (GrowthOS is
-//    bg-slate-950 with slate-800 cards). These used to be hardcoded bg-white /
-//    border-slate-200, so a dark page loaded as a stack of white boxes on
-//    black. Pass tone="dark" there.
+// 1. `tone`. Most of the admin is light, but a dark-toned page (e.g.
+//    bg-slate-950 with slate-800 cards) needs tone="dark" — otherwise the
+//    skeleton falls back to hardcoded bg-white / border-slate-200 and loads
+//    as a stack of white boxes on black.
 //
 // 2. Widths are DETERMINISTIC, derived from the row/column index. They used to
 //    come from Math.random(), which re-rolled on every render — so a skeleton
