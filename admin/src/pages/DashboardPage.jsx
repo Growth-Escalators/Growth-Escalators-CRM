@@ -8,7 +8,7 @@ import { safeLower } from '../lib/safe.js';
 import { KpiTile, Card, Badge } from '../components/ui/index.js';
 import {
   Users, TrendingUp, DollarSign, Receipt, BarChart2, Kanban,
-  FileText, Share2, MessageSquare, Brain, Search, Activity,
+  FileText, MessageSquare, Brain, Search, Activity,
   AlertTriangle, CheckCircle, ArrowUp, ArrowDown, RefreshCw,
   Clock, Zap, Target, CreditCard, ChevronRight, ChevronDown,
   Sparkles, AlertCircle
@@ -150,7 +150,6 @@ export default function DashboardPage() {
   // Intelligence (admin)
   const [intelligence, setIntelligence] = useState(null);
   const [seoOverview, setSeoOverview] = useState([]);
-  const [outreach, setOutreach] = useState(null);
   const [cronHealth, setCronHealth] = useState(null);
   const [pendingLeaves, setPendingLeaves] = useState(0);
 
@@ -175,17 +174,15 @@ export default function DashboardPage() {
       setPipelineSummary(pipelineData);
 
       if (isAdmin) {
-        const [intelData, seoData, outreachData, cronData, pendingLeaveData] = await Promise.all([
+        const [intelData, seoData, cronData, pendingLeaveData] = await Promise.all([
           apiFetch('/api/intelligence/today').catch(() => null),
           apiFetch('/api/seo/overview').catch(() => null),
-          apiFetch('/api/outreach/leads/dashboard').catch(() => null),
           apiFetch('/api/intelligence/system-health').catch(() => null),
           apiFetch('/api/finance/leaves/pending-count').catch(() => null),
         ]);
         const report = intelData?.report ?? null;
         setIntelligence(report);
         setSeoOverview(seoData?.clients ?? []);
-        setOutreach(outreachData);
         setCronHealth(cronData);
         setPendingLeaves(pendingLeaveData?.count ?? 0);
 
@@ -244,8 +241,6 @@ export default function DashboardPage() {
   const dealsInProposal = pipelineSummary?.stages?.find(s => safeLower(s.stage) === 'proposal')?.count ?? 0;
   const intelScore = intelligence?.overall_score;
   const intelFocus = intelligence?.analysis;
-  const outreachTotal = outreach?.totalLeads ?? 0;
-  const outreachInterested = outreach?.interested ?? 0;
   const seoClients = seoOverview.length;
   const cronFailedCount = cronHealth?.cronJobs?.filter(c => !c.healthy)?.length ?? 0;
   const cronTotal = cronHealth?.cronJobs?.length ?? 0;
@@ -426,16 +421,13 @@ export default function DashboardPage() {
             </div>
           </section>
 
-          {/* ── PIPELINE & OUTREACH ── */}
+          {/* ── PIPELINE & GROWTH ── */}
           <section>
             <h2 className="text-xs font-bold text-neutral-500 uppercase tracking-wider mb-3">Pipeline & Growth</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <KpiTile label="Pipeline Value" value={fmtINR(pipelineValue)} onClick={() => window.location.href = '/pipeline'} />
               {isAdmin && (
-                <>
-                  <KpiTile label="Outreach Leads" value={fmtNum(outreachTotal)} sub={outreachInterested > 0 ? `${outreachInterested} interested` : null} onClick={() => window.location.href = '/outreach-dashboard'} />
-                  <KpiTile label="System Health" value={cronHealth?.overallScore != null ? `${cronHealth.overallScore}/100` : '—'} sub={cronFailedCount > 0 ? `${cronFailedCount}/${cronTotal} crons unhealthy` : `${cronTotal} crons healthy`} accent={cronFailedCount > 2 ? 'accent' : 'primary'} />
-                </>
+                <KpiTile label="System Health" value={cronHealth?.overallScore != null ? `${cronHealth.overallScore}/100` : '—'} sub={cronFailedCount > 0 ? `${cronFailedCount}/${cronTotal} crons unhealthy` : `${cronTotal} crons healthy`} accent={cronFailedCount > 2 ? 'accent' : 'primary'} />
               )}
             </div>
           </section>
@@ -464,7 +456,6 @@ export default function DashboardPage() {
                 { icon: Search, label: 'SEO', path: '/seo', roles: ['admin', 'manager_ops', 'manager_ads'] },
                 { icon: Brain, label: 'AI Intelligence', path: '/intelligence', roles: ['admin'] },
                 { icon: FileText, label: 'Reports', path: '/reports', roles: ['admin', 'manager_ops', 'manager_ads'] },
-                { icon: Share2, label: 'Outreach', path: '/outreach-dashboard', roles: ['admin'] },
               ].filter(link => link.roles.includes(user?.role || 'staff')).map(link => (
                 <a key={link.path} href={`/crm${link.path}`}
                   className="bg-white rounded-lg border border-neutral-200 p-4 flex items-center gap-3 hover:shadow-hover transition-all">

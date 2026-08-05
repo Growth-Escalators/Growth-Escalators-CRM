@@ -27,7 +27,6 @@ const AdsPage = lazy(() => import('./pages/AdsPage.jsx'));
 const MetaAssetsPage = lazy(() => import('./pages/MetaAssetsPage.jsx'));
 const SocialPage = lazy(() => import('./pages/SocialPage.jsx'));
 const InboxPage = lazy(() => import('./pages/InboxPage.jsx'));
-const LeadDiscoveryPage = lazy(() => import('./pages/LeadDiscoveryPage.jsx'));
 const AuditPage = lazy(() => import('./pages/AuditPage.jsx'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage.jsx'));
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage.jsx'));
@@ -35,7 +34,6 @@ const SEOPage = lazy(() => import('./pages/SEOPage.jsx'));
 const IntelligencePage = lazy(() => import('./pages/IntelligencePage.jsx'));
 const GrowthOSPage = lazy(() => import('./pages/GrowthOSPage.jsx'));
 const WhatsAppTemplatesPage = lazy(() => import('./pages/WhatsAppTemplatesPage.jsx'));
-const OutreachDashboard = lazy(() => import('./pages/OutreachDashboard.jsx'));
 const OutboundPage = lazy(() => import('./pages/OutboundPage.jsx'));
 const LinksPage = lazy(() => import('./pages/LinksPage.jsx'));
 const ClientDetailPage = lazy(() => import('./pages/ClientDetailPage.jsx'));
@@ -342,14 +340,12 @@ export default function App() {
             <Route path="/reports" element={<Navigate to="/dashboard" replace />} />
             <Route path="/social" element={<PrivateRoute><SocialPage /></PrivateRoute>} />
             <Route path="/inbox" element={<PrivateRoute><InboxPage /></PrivateRoute>} />
-            <Route path="/discover" element={<PrivateRoute><LeadDiscoveryPage /></PrivateRoute>} />
             <Route path="/marketing" element={<Navigate to="/ads?tab=accounts" replace />} />
             <Route path="/analytics" element={<PrivateRoute><AnalyticsPage /></PrivateRoute>} />
             <Route path="/seo" element={<PrivateRoute><SEOPage /></PrivateRoute>} />
             <Route path="/intelligence" element={<PrivateRoute><IntelligencePage /></PrivateRoute>} />
             <Route path="/growth-os" element={<PrivateRoute><GrowthOSPage /></PrivateRoute>} />
             <Route path="/whatsapp-templates" element={<PrivateRoute><WhatsAppTemplatesPage /></PrivateRoute>} />
-            <Route path="/outreach-dashboard" element={<PrivateRoute><OutreachDashboard /></PrivateRoute>} />
             <Route path="/outbound" element={<PrivateRoute><OutboundPage /></PrivateRoute>} />
             <Route path="/links" element={<PrivateRoute><LinksPage /></PrivateRoute>} />
             <Route path="/social-scheduling" element={<Navigate to="/social" replace />} />
@@ -376,8 +372,6 @@ export default function App() {
             <Route path="/wizmatch/finance" element={<PrivateRoute><FinancePage /></PrivateRoute>} />
             <Route path="/wizmatch/emails" element={<PrivateRoute><AppLayout><EmailTemplatesPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/whatsapp-templates" element={<PrivateRoute><WhatsAppTemplatesPage /></PrivateRoute>} />
-            <Route path="/wizmatch/discover" element={<PrivateRoute><AppLayout><LeadDiscoveryPage /></AppLayout></PrivateRoute>} />
-            <Route path="/wizmatch/outreach" element={<PrivateRoute><OutreachDashboard /></PrivateRoute>} />
             <Route path="/wizmatch/intelligence" element={<PrivateRoute><AppLayout><WizmatchIntelligencePage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/settings/permissions" element={<PrivateRoute><PermissionsPage /></PrivateRoute>} />
             <Route path="/wizmatch/settings/branding" element={<PrivateRoute><BrandingPage /></PrivateRoute>} />

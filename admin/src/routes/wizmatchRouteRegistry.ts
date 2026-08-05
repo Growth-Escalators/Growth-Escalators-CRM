@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react';
 import {
-  Home, Users, Kanban, CheckSquare, MessageSquare, Target, Brain, MapPin, Mail,
+  Home, Users, Kanban, CheckSquare, MessageSquare, Target, Brain, Mail,
   CreditCard, Receipt, Shield, ClipboardList, Settings, Search, Zap, Network,
   FileText, UserCheck, Briefcase, BarChart3, Palette,
 } from 'lucide-react';
@@ -43,7 +43,6 @@ export type WizmatchPermissionFlag =
   | 'canTasks'
   | 'canInbox'
   | 'canSequences'
-  | 'canDiscovery'
   | 'canBilling'
   | 'canFinance'
   | 'canContracts'
@@ -162,9 +161,8 @@ export const WIZMATCH_ROUTES: WizmatchRouteDefinition[] = [
 
   // ── Growth CRM surfaces mounted under /wizmatch/* — ROUTABLE, NOT IN NAV ──
   //
-  // 2026-08-02 — the same treatment `more-outreach` and `more-discovery`
-  // already carry, applied to the rest of the Growth CRM pages that a
-  // /wizmatch/ path was pointed at: no `group` (filtered out of the sidebar at
+  // 2026-08-02 — hidden-but-routable treatment applied to the Growth CRM
+  // pages that a /wizmatch/ path was pointed at: no `group` (filtered out of the sidebar at
   // navEntries.js's `route.group !== undefined`), `searchVisible: false` (out
   // of Cmd+K), path and `legacyAliases` untouched so every one of them still
   // resolves by direct URL and breadcrumb. Hidden is not deleted; this is a
@@ -181,16 +179,6 @@ export const WIZMATCH_ROUTES: WizmatchRouteDefinition[] = [
     permission: 'canInbox',
     breadcrumb: { label: 'Inbox' }, legacyAliases: [], searchVisible: false,
     badge: 'inbox-unread',
-  },
-  {
-    // Out of Wizmatch nav + search on purpose: /wizmatch/outreach renders the
-    // Growth tenant's Saleshandy dashboard, which is unrelated to Wizmatch's own
-    // (Purelymail) sending and misleads users hunting for "where do I send".
-    // Kept URL-routable for the Growth tenant; a real Wizmatch outreach surface
-    // is a separate future effort. See docs/wizmatch flow audit (2026-07-16).
-    id: 'more-outreach', label: 'Outreach', path: '/wizmatch/outreach', icon: Target,
-    permission: 'isAdminTier',
-    breadcrumb: { label: 'Outreach' }, legacyAliases: [], searchVisible: false,
   },
   {
     id: 'more-templates-email', label: 'Email Templates', path: '/wizmatch/emails', icon: Mail,
@@ -223,33 +211,6 @@ export const WIZMATCH_ROUTES: WizmatchRouteDefinition[] = [
     id: 'more-tasks', label: 'Tasks', path: '/wizmatch/tasks', icon: CheckSquare,
     permission: 'canTasks',
     breadcrumb: { label: 'Tasks' }, legacyAliases: [], searchVisible: false,
-  },
-  {
-    // UX audit 2026-07-31 (top-10 finding #2) — this label used to read
-    // "Lead Discovery", which every Wizmatch operator reasonably reads as
-    // "find more hiring companies/signals". It is not: `/wizmatch/discover`
-    // renders the SAME `LeadDiscoveryPage.jsx` the Growth CRM tenant mounts
-    // at plain `/discover` (see navEntries.js `id: 'discover'`) — a Google
-    // Places local-business search (defaults to "United Kingdom") built for
-    // Growth's outbound sales prospecting, with zero connection to Wizmatch
-    // job signals, companies, or candidates, and a visually distinct dark
-    // theme that breaks continuity with the rest of the Wizmatch admin. A
-    // Wizmatch operator who clicks this looking for "more companies to
-    // pursue" lands somewhere irrelevant. Same trap already called out for
-    // `more-outreach` above; renamed honestly rather than repeating it.
-    // Wizmatch's own company/signal sourcing lives on the Job Leads page.
-    //
-    // 2026-08-01 — renaming it honestly was the half-measure. A row whose own
-    // label has to disclaim itself does not belong in the nav of a product it
-    // has nothing to do with, and it costs a slot in a menu whose problem is
-    // that it has too many. Given the same treatment `more-outreach` already
-    // has: no `group` (out of the sidebar), `searchVisible: false` (out of
-    // Cmd+K), still routed and still reachable by direct URL for anyone who
-    // genuinely wants Growth's tool. This is a correctness call, not a
-    // popularity one — it needs no usage data.
-    id: 'more-discovery', label: 'Local Business Finder (Growth CRM tool)', path: '/wizmatch/discover', icon: MapPin,
-    permission: 'canDiscovery',
-    breadcrumb: { label: 'Local Business Finder' }, legacyAliases: [], searchVisible: false,
   },
   {
     id: 'find-contact', label: 'Find Contact', path: '/wizmatch/find-contact', icon: Search,
