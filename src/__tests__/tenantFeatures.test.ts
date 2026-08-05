@@ -320,3 +320,84 @@ describe('getDefaultIngestTenant — pinned resolution for GE-own-infra ingestio
     await expect(getDefaultIngestTenant()).resolves.toEqual({ id: 'ge-id', slug: 'growth-escalators' });
   });
 });
+
+// Platform-superadmin plan editor (PATCH /api/platform/tenants/:tenantId/plan,
+// src/routes/platformTenants.ts) — added alongside the tenant list/suspend/
+// feature-editor surface.
+describe('setTenantPlan — plan change resets settings.features to the new plan\'s defaults', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  function mockTenantSettingsRow(settings: unknown | undefined) {
+    const updateWhere = vi.fn().mockResolvedValue(undefined);
+    const setSpy = vi.fn().mockReturnValue({ where: updateWhere });
+    const update = vi.fn().mockReturnValue({ set: setSpy });
+    const limit = vi.fn().mockResolvedValue(settings === undefined ? [] : [{ settings }]);
+    const where = vi.fn().mockReturnValue({ limit });
+    const from = vi.fn().mockReturnValue({ where });
+    const select = vi.fn().mockReturnValue({ from });
+    vi.doMock('../db/index', () => ({ db: { select, update } }));
+    return { setSpy, updateWhere };
+  }
+
+  // THE core regression this pins: tenantProvisioning.ts's ensureTenant()
+  // writes a FULLY populated settings.features at creation time (every flag,
+  // not just deviations — see its own comment), so a real tenant's
+  // settings.features is essentially never empty. If setTenantPlan left it
+  // untouched, computeTenantFeatures() would keep taking the OLD plan's
+  // fully-spelled-out flags as the WHOLE override layer, silently ignoring
+  // the new plan's defaults entirely.
+  it('resets settings.features to the new plan\'s pure defaults, discarding a fully-materialized override from the old plan', async () => {
+    const { setSpy } = mockTenantSettingsRow({
+      features: { wizmatch: false, seo: false, crmAutomation: true, gstBilling: true, d2c: false }, // reseller_pilot, fully spelled out
+      someOtherKey: 'preserved',
+    });
+    const { setTenantPlan } = await import('../services/tenantFeatures');
+    await setTenantPlan('tenant-1', 'client_basic');
+
+    expect(setSpy).toHaveBeenCalledWith({
+      plan: 'client_basic',
+      settings: {
+        someOtherKey: 'preserved',
+        features: { wizmatch: false, seo: false, crmAutomation: false, gstBilling: false, d2c: false },
+      },
+    });
+  });
+
+  it('preserves non-features keys already in settings — only the features key is replaced', async () => {
+    const { setSpy } = mockTenantSettingsRow({ features: {}, unrelatedFutureSetting: 42 });
+    const { setTenantPlan } = await import('../services/tenantFeatures');
+    await setTenantPlan('tenant-1', 'wizmatch_internal');
+    expect(setSpy).toHaveBeenCalledWith({
+      plan: 'wizmatch_internal',
+      settings: {
+        unrelatedFutureSetting: 42,
+        features: { wizmatch: true, seo: false, crmAutomation: false, gstBilling: false, d2c: false },
+      },
+    });
+  });
+
+  it('tolerates malformed settings (not an object) by treating it as empty rather than throwing', async () => {
+    const { setSpy } = mockTenantSettingsRow('not-an-object');
+    const { setTenantPlan } = await import('../services/tenantFeatures');
+    await setTenantPlan('tenant-1', 'agency_internal');
+    expect(setSpy).toHaveBeenCalledWith({
+      plan: 'agency_internal',
+      settings: { features: { wizmatch: false, seo: true, crmAutomation: true, gstBilling: true, d2c: true } },
+    });
+  });
+
+  it('throws a clear error when the tenant does not exist', async () => {
+    mockTenantSettingsRow(undefined);
+    const { setTenantPlan } = await import('../services/tenantFeatures');
+    await expect(setTenantPlan('missing-tenant', 'client_basic')).rejects.toThrow(/no tenant found for id=missing-tenant/);
+  });
+});
+
+describe('KNOWN_PLANS', () => {
+  it('matches every plan PLAN_DEFAULTS actually has an entry for', async () => {
+    const { KNOWN_PLANS } = await import('../services/tenantFeatures');
+    expect([...KNOWN_PLANS].sort()).toEqual(['agency_internal', 'client_basic', 'reseller_pilot', 'wizmatch_internal']);
+  });
+});

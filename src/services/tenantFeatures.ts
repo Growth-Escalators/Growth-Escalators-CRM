@@ -105,6 +105,12 @@ const PLAN_DEFAULTS: Record<string, TenantFeatureFlags> = {
   reseller_pilot: { wizmatch: false, seo: false, crmAutomation: true, gstBilling: true, d2c: false },
 };
 
+/** Every plan name PLAN_DEFAULTS actually has an entry for — the platform-superadmin
+ * plan editor (PATCH /api/platform/tenants/:tenantId/plan) validates against this
+ * rather than accepting an arbitrary string, same fail-closed posture as
+ * requirePermission's "unknown permission -> deny" in src/middleware/rbac.ts. */
+export const KNOWN_PLANS = Object.keys(PLAN_DEFAULTS);
+
 /**
  * Pure — merges a tenant's plan + settings.features into a resolved
  * TenantFeatureFlags. Exported separately from getTenantFeatures() so this
@@ -289,6 +295,64 @@ export async function setTenantFeatures(
   };
 
   await db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+}
+
+// ---------------------------------------------------------------------------
+// Platform-superadmin plan editor (PATCH /api/platform/tenants/:tenantId/plan,
+// src/routes/platformTenants.ts) — the other write path onto `tenants`, added
+// alongside setTenantFeatures() above.
+// ---------------------------------------------------------------------------
+
+/**
+ * Changes a tenant's `plan` AND resets `settings.features` to the new plan's
+ * PLAN_DEFAULTS, discarding any per-tenant feature overrides the tenant had
+ * under its old plan.
+ *
+ * JUDGMENT CALL, documented per this repo's convention of naming a design
+ * decision in a comment rather than leaving it implicit (see e.g.
+ * getSingleActiveTenantWithFeature's docstring above). The alternative —
+ * changing `plan` and leaving `settings.features` untouched — sounds safer
+ * ("don't clobber someone's overrides") but is actually wrong given how
+ * computeTenantFeatures() resolves a tenant's flags: it takes `settings.features`
+ * as the WHOLE override layer the instant it is non-empty for even one key,
+ * not per-key. `tenantProvisioning.ts`'s `ensureTenant()` already writes a
+ * FULLY populated `settings.features` at creation time (every flag, not just
+ * deviations from the default — see its own comment), so a real tenant's
+ * `settings.features` is essentially never empty. Leaving it alone on a plan
+ * change would mean the OLD plan's fully-spelled-out flags keep silently
+ * overriding the NEW plan's defaults for every key — the plan editor would
+ * change the `plan` string in the UI while the tenant's actual entitlements
+ * stayed exactly as they were, which is worse than an obvious no-op because it
+ * looks like it worked.
+ *
+ * Resetting to the new plan's pure defaults is what makes "change the plan"
+ * actually change the tenant's behaviour, matching what a plan dropdown
+ * implies. A superadmin who wants a specific override to survive a plan
+ * change applies it via PATCH .../features immediately afterward — a
+ * deliberate second step, not an implicit one this function performs for them.
+ *
+ * Preserves every OTHER key in `settings` (only `features` is replaced), same
+ * as setTenantFeatures()'s posture toward the rest of the settings bag.
+ */
+export async function setTenantPlan(tenantId: string, plan: string): Promise<void> {
+  const [tenant] = await db
+    .select({ settings: tenants.settings })
+    .from(tenants)
+    .where(eq(tenants.id, tenantId))
+    .limit(1);
+  if (!tenant) throw new Error(`[tenant-features] no tenant found for id=${tenantId}`);
+
+  const existingSettings =
+    tenant.settings && typeof tenant.settings === 'object' && !Array.isArray(tenant.settings)
+      ? (tenant.settings as Record<string, unknown>)
+      : {};
+
+  const nextSettings = {
+    ...existingSettings,
+    features: computeTenantFeatures(plan, {}),
+  };
+
+  await db.update(tenants).set({ plan, settings: nextSettings }).where(eq(tenants.id, tenantId));
 }
 
 /**
