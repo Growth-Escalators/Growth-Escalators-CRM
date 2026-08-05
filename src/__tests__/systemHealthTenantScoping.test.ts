@@ -9,7 +9,7 @@
 //
 // Fix mirrors the established "GE-tenant-only" gate convention used by
 // canSendWhatsApp() (routes/inbox.ts) and canSendGrowthOSWhatsApp()
-// (services/growthOSSetup.ts): checkAllSystems(tenantId?) now resolves
+// (services/whatsappSendGuard.ts): checkAllSystems(tenantId?) now resolves
 // whether the caller IS GE's own tenant (isGeOwnTenant()) and only includes
 // the platform-global subsystems (infrastructure, cronJobs) for GE. A
 // reseller tenant gets tenant-scoped subsystems only (SEO, CRM — scoped to

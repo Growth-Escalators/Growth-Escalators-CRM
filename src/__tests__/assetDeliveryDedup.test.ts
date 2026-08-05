@@ -14,7 +14,7 @@ vi.mock('../db/index', () => ({
 }));
 
 const mockSendWhatsAppMessage = vi.fn();
-vi.mock('../services/growthOSSetup', () => ({
+vi.mock('../services/whatsappSendGuard', () => ({
   sendWhatsAppMessage: (...args: unknown[]) => mockSendWhatsAppMessage(...args),
 }));
 

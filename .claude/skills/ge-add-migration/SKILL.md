@@ -34,7 +34,7 @@ Reference: [`docs/DATABASE.md`](../../../docs/DATABASE.md) "Schema lifecycle".
 
 ## ensure* hooks — legacy pattern, preserve don't extend
 
-Several services have `ensureXTable()` / `ensureXColumns()` functions called fire-and-forget from `src/index.ts` and `src/worker.ts` (e.g. `ensureGrowthOSTables`, `ensureFunnelWaitlistTable`, `ensurePipelineContactsTable`). These predate Drizzle adoption — they ALTER TABLE on boot to add columns that were never properly migrated.
+Several services have `ensureXTable()` / `ensureXColumns()` functions called fire-and-forget from `src/index.ts` and `src/worker.ts` (e.g. `ensureFunnelWaitlistTable`, `ensurePipelineContactsTable`). These predate Drizzle adoption — they ALTER TABLE on boot to add columns that were never properly migrated.
 
 **Rule**: new columns go through Drizzle. Don't add a new `ensureXColumns()` to dodge migration generation. **Exception**: if you're inheriting a service that already uses `ensure*`, keep that pattern within the service rather than mixing approaches mid-file.
 

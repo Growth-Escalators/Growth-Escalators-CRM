@@ -77,7 +77,7 @@ describe('viewer role (read-only, comprehensive read access)', () => {
     }
   });
 
-  it('is admin-tier for READ access to Growth OS / Intelligence (writes still blocked in requireAuth)', () => {
+  it('is admin-tier for READ access to Intelligence (writes still blocked in requireAuth)', () => {
     expect(isAdminTier('viewer')).toBe(true);
   });
 });

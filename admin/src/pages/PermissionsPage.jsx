@@ -68,7 +68,7 @@ const ROLE_OPTIONS = [
   { value: 'admin', label: 'Admin', description: 'Full access to everything' },
   { value: 'manager_ops', label: 'Manager — Ops', description: 'Contacts, deals, automations, reports' },
   { value: 'manager_ads', label: 'Manager — Ads', description: 'Ads and marketing only' },
-  { value: 'team_lead', label: 'Team Lead', description: 'Operational tools (Outreach, Intelligence, Growth OS, Ads) but no Billing/Permissions' },
+  { value: 'team_lead', label: 'Team Lead', description: 'Operational tools (Outreach, Intelligence, Ads) but no Billing/Permissions' },
   { value: 'sales', label: 'Sales', description: 'Contacts, deals, pipeline' },
   { value: 'staff', label: 'Staff', description: 'Social and basic features only' },
   { value: 'creative_assistant', label: 'Creative Assistant', description: 'Tasks, Inbox, Meta Ads, Social, Content — everything else blocked' },

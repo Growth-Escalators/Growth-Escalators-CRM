@@ -153,7 +153,8 @@ defects rather than shallow passes everywhere. **No untested journey is reported
 - Migration journal: 38 entries pre-existing, ordering internally consistent, replays clean. The
   known hash drift on `0008`/`0009`/`0013`/`0014` is pre-existing and not a functional defect.
 - No tenant-scoped table was found lacking a `tenant_id` column — with the reported exception of the
-  growthOS tables, which is an unverified lane claim (QA-16).
+  growthOS tables, which is an unverified lane claim (QA-16). **MOOT as of 2026-08-05: Growth OS was
+  deleted entirely; its tables are orphaned in Postgres, not dropped.**
 
 ---
 

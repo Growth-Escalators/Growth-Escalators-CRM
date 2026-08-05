@@ -2,12 +2,11 @@
 // in cashfreeEventProcessor.ts) sends over GE's shared
 // META_PHONE_NUMBER_ID/META_ACCESS_TOKEN — the same shared identity guarded
 // in routes/inbox.ts (canSendWhatsApp, request-based) and, for cron/webhook
-// contexts with no req.user, in growthOSSetup.ts (canSendGrowthOSWhatsApp,
-// record-based). brandHealthService.ts / competitorService.ts /
-// opportunityService.ts / copilotService.ts already reuse
-// canSendGrowthOSWhatsApp() for their own sends; cashfreeEventProcessor.ts
-// now applies the same guard, resolved from the order's own tenant record
-// (the webhook has no req.user to key off of).
+// contexts with no req.user, in whatsappSendGuard.ts (canSendGrowthOSWhatsApp,
+// record-based — extracted out of the now-deleted Growth OS feature because
+// this Cashfree path and assetDeliveryService.ts both depend on it).
+// cashfreeEventProcessor.ts applies the same guard, resolved from the
+// order's own tenant record (the webhook has no req.user to key off of).
 //
 // NOTE ON REACHABILITY: the tenant lookup in cashfreeEventProcessor.ts is
 // hardcoded to `WHERE slug = 'growth-escalators'` (D2C purchases aren't
@@ -27,8 +26,8 @@ const OTHER_TENANT_ID = 'tenant-acme-1111111-1111-1111-111111111111';
 
 // ---------------------------------------------------------------------------
 // Mock database module — shared by cashfreeEventProcessor.ts (db.*) and
-// growthOSSetup.ts (pool.query), since canSendGrowthOSWhatsApp resolves GE's
-// tenant id via pool.query.
+// whatsappSendGuard.ts (pool.query), since canSendGrowthOSWhatsApp resolves
+// GE's tenant id via pool.query.
 // ---------------------------------------------------------------------------
 const mockDbSelect = vi.fn();
 const mockDbInsert = vi.fn();
@@ -126,10 +125,10 @@ function setupDbMocks(orderTenantId: string) {
   });
 }
 
-// pool.query is called by growthOSSetup.ts's resolveGeTenantId
+// pool.query is called by whatsappSendGuard.ts's resolveGeTenantId
 // (`SELECT id FROM tenants WHERE slug = $1`) and, separately, by the
 // sequence-enrolment insert further down processCashfreeEvent. Route on SQL
-// text the same way growthOSResellerWhatsAppBlock.test.ts does.
+// text the same way.
 function mockPoolQueryResolvingGeTenantTo(geTenantId: string) {
   mockPoolQuery.mockImplementation(async (sqlText: string) => {
     if (String(sqlText).includes('FROM tenants WHERE slug')) {
@@ -181,7 +180,7 @@ describe('cashfreeEventProcessor.ts — WhatsApp purchase-confirmation tenant gu
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    vi.resetModules(); // forces growthOSSetup's memoized _geTenantIdPromise to reset too
+    vi.resetModules(); // forces whatsappSendGuard's memoized _geTenantIdPromise to reset too
     mockDbSelect.mockReset();
     mockDbInsert.mockReset();
     mockDbUpdate.mockReset();

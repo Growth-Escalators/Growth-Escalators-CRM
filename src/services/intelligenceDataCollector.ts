@@ -242,7 +242,6 @@ export interface AgencyDailyData {
   systemErrors: SystemError[];
   yesterdayScore: number | null;
   errors: string[];
-  creativeIntel?: { fatiguingCount: number; bestType: string | null; totalTracked: number };
   outreachVelocity?: { enrichedToday: number; repliedToday: number; interestedPending: number };
   contentCalendar?: { planned: number; writing: number; overdue: number };
   financeSnapshot?: { overdueInvoices: number; overdueAmount: number };
@@ -693,32 +692,6 @@ async function _collectDailyDataInner(client: Queryable, errors: string[]): Prom
   );
 
   // -------------------------------------------------------------------------
-  // 10. CREATIVE INTELLIGENCE
-  logger.info('[intel-collector] Collecting creative intelligence data...');
-  // -------------------------------------------------------------------------
-  let creativeIntel = { fatiguingCount: 0, bestType: null as string | null, totalTracked: 0 };
-  try {
-    const fatiguing = await pool.query(
-      `SELECT COUNT(*) AS count FROM creative_intelligence WHERE fatigue_status IN ('fatiguing', 'saturated')`
-    );
-    creativeIntel.fatiguingCount = parseInt(fatiguing.rows[0]?.count || '0');
-
-    const bestType = await pool.query(`
-      SELECT creative_tags->>'hook' || ' + ' || creative_tags->>'visual' AS type,
-             ROUND(AVG(latest_roas)::numeric, 2) AS avg_roas
-      FROM creative_intelligence
-      WHERE creative_tags IS NOT NULL AND latest_roas IS NOT NULL
-      GROUP BY creative_tags->>'hook', creative_tags->>'visual'
-      HAVING COUNT(*) >= 2
-      ORDER BY AVG(latest_roas) DESC LIMIT 1
-    `);
-    if (bestType.rows.length > 0) creativeIntel.bestType = `${bestType.rows[0].type} (${bestType.rows[0].avg_roas}x ROAS)`;
-
-    const tracked = await pool.query(`SELECT COUNT(*) AS count FROM creative_intelligence`);
-    creativeIntel.totalTracked = parseInt(tracked.rows[0]?.count || '0');
-  } catch { /* creative intel not yet set up */ }
-
-  // -------------------------------------------------------------------------
   // 11. OUTREACH VELOCITY
   logger.info('[intel-collector] Collecting outreach velocity data...');
   // -------------------------------------------------------------------------
@@ -811,7 +784,6 @@ async function _collectDailyDataInner(client: Queryable, errors: string[]): Prom
     systemErrors,
     yesterdayScore,
     errors,
-    creativeIntel,
     outreachVelocity,
     contentCalendar,
     financeSnapshot,

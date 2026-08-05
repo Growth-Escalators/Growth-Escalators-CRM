@@ -109,15 +109,6 @@ export async function deliverDailyIntelligence(analysis: Analysis, data: AgencyD
     msg += `✅ *Wins:* ${analysis.wins.join(' | ')}\n\n`;
   }
 
-  // Creative intelligence section
-  if (data.creativeIntel && data.creativeIntel.fatiguingCount > 0) {
-    msg += `🎨 *Creative Alert:* ${data.creativeIntel.fatiguingCount} ad(s) fatiguing`;
-    if (data.creativeIntel.bestType) {
-      msg += ` | Best type: ${data.creativeIntel.bestType}`;
-    }
-    msg += '\n';
-  }
-
   // Outreach velocity
   if (data.outreachVelocity && data.outreachVelocity.interestedPending > 0) {
     msg += `🚨 *Outreach:* ${data.outreachVelocity.interestedPending} INTERESTED lead(s) awaiting response!\n`;

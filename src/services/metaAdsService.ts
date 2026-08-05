@@ -278,8 +278,8 @@ export async function ensureClientBenchmarksTable(): Promise<void> {
   // for now (not NOT NULL) — same posture as migration 0035 for the SEO
   // tables: add nullable, backfill, tighten later once verified. Backfill
   // assumption — NEEDS HUMAN VERIFICATION BEFORE MERGE: every pre-existing
-  // row is assumed to belong to the growth-escalators tenant, same as the
-  // Growth OS backfill above.
+  // row is assumed to belong to the growth-escalators tenant, same backfill
+  // posture used elsewhere in this security-audit pass.
   await pool.query(`ALTER TABLE client_benchmarks ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id)`);
   const defaultTenantResult = await pool.query(`SELECT id FROM tenants WHERE slug = 'growth-escalators' LIMIT 1`);
   const defaultTenantId = (defaultTenantResult.rows[0] as { id?: string } | undefined)?.id;
@@ -317,8 +317,9 @@ export async function calculateMonthlyBenchmarks(): Promise<void> {
   // here (marketing_accounts.tenant_id is NOT NULL already) so it can be
   // stamped onto the client_benchmarks row below — this cron itself stays
   // unscoped-by-design (it sweeps every tenant's accounts on a schedule,
-  // same posture as worker.ts's Growth OS crons), the fix is that every row
-  // it writes is now attributed instead of landing with tenant_id NULL.
+  // same posture other unscoped-by-design crons in worker.ts use), the fix
+  // is that every row it writes is now attributed instead of landing with
+  // tenant_id NULL.
   const accounts = await pool.query(
     `SELECT
        CASE WHEN account_id LIKE 'act_%' THEN account_id ELSE 'act_' || account_id END AS account_id,
@@ -336,32 +337,18 @@ export async function calculateMonthlyBenchmarks(): Promise<void> {
 
       const m = insights.thisMonth;
 
-      // Get top creative type for this account
-      let topCreativeType: string | null = null;
-      try {
-        const topCreative = await pool.query(`
-          SELECT creative_tags->>'hook' || ' + ' || creative_tags->>'visual' AS type
-          FROM creative_intelligence
-          WHERE ad_account_id = $1
-            AND creative_tags IS NOT NULL AND latest_roas IS NOT NULL
-          ORDER BY latest_roas DESC LIMIT 1
-        `, [acc.account_id]);
-        if (topCreative.rows.length > 0) topCreativeType = (topCreative.rows[0] as Record<string, string>).type;
-      } catch { /* non-critical */ }
-
       await pool.query(`
-        INSERT INTO client_benchmarks (ad_account_id, client_name, month, avg_roas, avg_ctr, total_spend, total_revenue, total_purchases, top_creative_type, tenant_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        INSERT INTO client_benchmarks (ad_account_id, client_name, month, avg_roas, avg_ctr, total_spend, total_revenue, total_purchases, tenant_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ON CONFLICT (ad_account_id, month) DO UPDATE SET
           avg_roas = EXCLUDED.avg_roas,
           avg_ctr = EXCLUDED.avg_ctr,
           total_spend = EXCLUDED.total_spend,
           total_revenue = EXCLUDED.total_revenue,
           total_purchases = EXCLUDED.total_purchases,
-          top_creative_type = EXCLUDED.top_creative_type,
           tenant_id = EXCLUDED.tenant_id,
           created_at = NOW()
-      `, [acc.account_id, acc.name, month, m.roas, m.ctr, m.spend, m.revenue, m.purchases, topCreativeType, acc.tenant_id]);
+      `, [acc.account_id, acc.name, month, m.roas, m.ctr, m.spend, m.revenue, m.purchases, acc.tenant_id]);
     } catch { /* skip failing accounts */ }
   }
 

@@ -57,8 +57,6 @@ import seoRouter from './routes/seo';
 import seoWorkflowsRouter from './routes/seoWorkflows';
 import financeRouter from './routes/finance';
 import intelligenceRouter from './routes/intelligence';
-import growthOSRouter from './routes/growthOS';
-import { ensureGrowthOSTables } from './services/growthOSSetup';
 import funnelRouter, { ensureFunnelWaitlistTable } from './routes/funnel';
 import funnelConfigRouter from './routes/funnelConfig';
 import { ensureFunnelConfigTable, ensureDeliveryLogTable, seedDefaultFunnelConfigs } from './services/funnelConfigService';
@@ -362,7 +360,6 @@ app.use('/api/seo', requireAuth, seoRouter);
 app.use('/api/seo-workflows', requireAuth, seoWorkflowsRouter);
 app.use('/api/finance', requireAuth, financeRouter);
 app.use('/api/intelligence', requireAuth, intelligenceRouter);
-app.use('/api/growth-os', requireAuth, growthOSRouter);
 app.use('/api/whatsapp', requireAuth, whatsappTemplatesRouter);
 app.use('/api/outbound', requireAuth, requireRole('admin', 'team_lead'), outboundRouter);
 app.use('/api/links', requireAuth, linksRouter);
@@ -747,8 +744,6 @@ async function startServer() {
     });
   });
 
-  // Bootstrap Growth OS tables
-  ensureGrowthOSTables().catch(e => console.error('[startup] Growth OS table bootstrap failed:', e));
   // Bootstrap funnel waitlist table
   ensureFunnelWaitlistTable().catch(e => console.error('[startup] Funnel waitlist table bootstrap failed:', e));
   // Bootstrap wizmatch_route_views (nav-usage experiment; drop the table when it ends)
@@ -810,8 +805,7 @@ async function startServer() {
   import('./services/auditLogger').then(m => m.ensureAuditLogsTable()).catch(e => console.error('[startup] Audit logs bootstrap failed:', e));
   // Bootstrap SEO content calendar table
   import('./services/seoContentGapService').then(m => m.ensureContentCalendarTable()).catch(e => console.error('[startup] Content calendar bootstrap failed:', e));
-  // Bootstrap creative intelligence columns + client benchmarks table
-  import('./services/creativeIntelligenceService').then(m => m.ensureCreativeIntelligenceColumns()).catch(e => console.error('[startup] Creative intel columns failed:', e));
+  // Bootstrap client benchmarks table
   import('./services/metaAdsService').then(m => m.ensureClientBenchmarksTable()).catch(e => console.error('[startup] Client benchmarks bootstrap failed:', e));
 
   // One-time startup: comprehensive backfill — finds ALL purchases and places them
