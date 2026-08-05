@@ -282,6 +282,13 @@ export async function logSeoWorkflowRun(args: {
   triggeredBy?: 'cron' | 'manual' | 'schedule';
   recordsProcessed?: number;
   errorMessage?: string;
+  // Migration 0045 added seo_workflow_logs.tenant_id but this INSERT never
+  // populated it, so every run row landed with a NULL tenant — meaning the
+  // System Health page could not say WHOSE workflow failed once more than one
+  // tenant runs SEO. Nullable rather than required: a sweep that spans every
+  // tenant (checkWorkflowHealth's own bookkeeping) genuinely has no single
+  // owner, and back-filling old NULL rows is not possible.
+  tenantId?: string;
 }): Promise<void> {
   const finishedAt = new Date();
   const durationSeconds = Math.round((finishedAt.getTime() - args.startedAt.getTime()) / 1000);
@@ -289,8 +296,8 @@ export async function logSeoWorkflowRun(args: {
     await pool.query(
       `INSERT INTO seo_workflow_logs
         (workflow_id, workflow_name, status, started_at, finished_at, duration_seconds,
-         error_message, records_processed, triggered_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+         error_message, records_processed, triggered_by, tenant_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
         args.workflowId,
         args.workflowName,
@@ -301,6 +308,7 @@ export async function logSeoWorkflowRun(args: {
         args.errorMessage ?? null,
         args.recordsProcessed ?? null,
         args.triggeredBy ?? 'cron',
+        args.tenantId ?? null,
       ],
     );
   } catch (e) {

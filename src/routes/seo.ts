@@ -275,15 +275,53 @@ router.get('/keywords-all', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// FAIL-CLOSED GATE for the three programmatic-SEO routes below.
+//
+// programmaticSeoService.publishToWordPress() resolves its WordPress target
+// from GLOBAL env vars (WP_AGEDDENTISTRY_*), not from the tenant. The tenantId
+// those functions now accept scopes which client_pages rows are read and
+// written — it does NOT change where content actually gets published.
+//
+// So without this gate, a reseller admin pressing "generate" or "publish" would
+// draft pages onto Growth Escalators' own WordPress site. A comment does not
+// stop the request; this does.
+//
+// The rule: you may only drive these routes if the configured WordPress domain
+// is a site registered under YOUR tenant. Phase 3's SiteAdapter replaces this
+// by resolving the publish target per site, at which point the gate becomes a
+// per-site capability check instead of a single-domain one.
+//
+// Returns null when the caller is allowed; otherwise it has already responded.
+// ---------------------------------------------------------------------------
+async function assertOwnsWordPressTarget(tenantId: string, res: Response): Promise<boolean> {
+  const { getSeoSiteByDomain, normaliseDomain } = await import('../services/seoSiteRegistry');
+  const wpTarget = normaliseDomain(process.env.WP_AGEDDENTISTRY_URL || 'https://ageddentistry.org');
+  const owned = await getSeoSiteByDomain(tenantId, wpTarget);
+  if (!owned) {
+    res.status(409).json({
+      error: 'Programmatic page publishing is not available for your sites yet — the configured WordPress target is not a site you own.',
+      code: 'publish_target_not_owned',
+    });
+    return false;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // POST /api/seo/generate-local-pages — programmatic SEO page generation
 // ---------------------------------------------------------------------------
 router.post('/generate-local-pages', async (req: Request, res: Response) => {
-  const user = (req as Request & { user?: { role: string } }).user;
+  const user = (req as Request & { user?: { role: string; tenantId?: string } }).user;
   if (user?.role !== 'admin') { res.status(403).json({ error: 'Admin only' }); return; }
+  const tenantId = user?.tenantId;
+  if (!tenantId) { res.status(401).json({ error: 'No tenant on session' }); return; }
 
   try {
+    // Generation publishes to WordPress as part of its run (see wpPublished in
+    // the result), so it is gated exactly like the explicit publish route.
+    if (!(await assertOwnsWordPressTarget(tenantId, res))) return;
     const { generateLocationPages } = await import('../services/programmaticSeoService');
-    const result = await generateLocationPages();
+    const result = await generateLocationPages(tenantId);
     res.json(result);
   } catch (e) {
     logger.error('[seo] generate-local-pages error:', e);
@@ -294,22 +332,55 @@ router.post('/generate-local-pages', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // POST /api/seo/regenerate-pages — delete old pages and generate fresh ones
 // ---------------------------------------------------------------------------
+// The domain is now a required body parameter, not the hardcoded
+// 'ageddentistry.org' this route used to pin. Two reasons: that is one of three
+// retired clients whose data is scheduled for deletion, and a reseller admin
+// hitting this endpoint would have deleted and regenerated pages for a domain
+// belonging to somebody else entirely.
+//
+// It must be a domain registered to the CALLER's tenant. Requiring it
+// explicitly rather than defaulting to "all this tenant's sites" is deliberate:
+// this endpoint deletes rows, and a destructive default is how you lose data
+// you meant to keep.
 router.post('/regenerate-pages', async (req: Request, res: Response) => {
-  const user = (req as Request & { user?: { role: string } }).user;
+  const user = (req as Request & { user?: { role: string; tenantId?: string } }).user;
   if (user?.role !== 'admin') { res.status(403).json({ error: 'Admin only' }); return; }
+
+  const tenantId = user?.tenantId;
+  if (!tenantId) { res.status(401).json({ error: 'No tenant on session' }); return; }
+
+  const domain = typeof req.body?.domain === 'string' ? req.body.domain.trim() : '';
+  if (!domain) {
+    res.status(400).json({ error: 'domain is required', code: 'domain_required' });
+    return;
+  }
 
   try {
     const { pool } = await import('../db/index');
-    const { resolveDefaultSeoTenantId } = await import('../services/seoTenantContext');
-    const tenantId = await resolveDefaultSeoTenantId();
-    // Delete old pages (scoped to the same tenant generateLocationPages() writes under)
-    const del = await pool.query(`DELETE FROM client_pages WHERE client_domain = 'ageddentistry.org' AND tenant_id = $1`, [tenantId]);
-    logger.info(`[seo] Deleted ${del.rowCount} old pages`);
+    const { getSeoSiteByDomain } = await import('../services/seoSiteRegistry');
 
-    // Generate new pages
+    // Ownership check before the DELETE, not after — an unregistered domain
+    // must not be able to delete anything, even zero rows.
+    const site = await getSeoSiteByDomain(tenantId, domain);
+    if (!site) {
+      res.status(404).json({ error: 'No site registered for that domain under this tenant', code: 'site_not_found' });
+      return;
+    }
+
+    // Both checks run BEFORE the DELETE. Gating after it would delete the
+    // caller's pages and then refuse to regenerate them — destroying data on
+    // the path that rejects the request.
+    if (!(await assertOwnsWordPressTarget(tenantId, res))) return;
+
+    const del = await pool.query(
+      `DELETE FROM client_pages WHERE client_domain = $1 AND tenant_id = $2`,
+      [site.domain, tenantId],
+    );
+    logger.info(`[seo] Deleted ${del.rowCount} old pages for ${site.domain}`);
+
     const { generateLocationPages } = await import('../services/programmaticSeoService');
-    const result = await generateLocationPages();
-    res.json({ ...result, oldPagesDeleted: del.rowCount });
+    const result = await generateLocationPages(tenantId);
+    res.json({ ...result, oldPagesDeleted: del.rowCount, domain: site.domain });
   } catch (e) {
     logger.error('[seo] regenerate-pages error:', e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
@@ -319,13 +390,30 @@ router.post('/regenerate-pages', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // POST /api/seo/publish-pending-pages — publish draft_local pages to WordPress
 // ---------------------------------------------------------------------------
+// Publishes to a live external website. The tenant comes off the session, never
+// the body — a client-supplied tenant id here would let one agency publish into
+// another agency's client's site.
+//
+// FAIL-CLOSED GATE. programmaticSeoService.publishToWordPress() resolves its
+// WordPress target from GLOBAL env vars (WP_AGEDDENTISTRY_*), not from the
+// tenant. So the tenantId below scopes which client_pages rows get read, but
+// NOT where the content lands: without this gate, a reseller admin pressing
+// "publish" would draft their pages onto Growth Escalators' own WordPress site.
+//
+// Until Phase 3's SiteAdapter resolves the publish target per site, this
+// endpoint is restricted to the tenant that actually owns the configured
+// WordPress domain. Everyone else gets a 409 that says so. A gate is used
+// rather than a comment because the comment does not stop the request.
 router.post('/publish-pending-pages', async (req: Request, res: Response) => {
-  const user = (req as Request & { user?: { role: string } }).user;
+  const user = (req as Request & { user?: { role: string; tenantId?: string } }).user;
   if (user?.role !== 'admin') { res.status(403).json({ error: 'Admin only' }); return; }
+  const tenantId = user?.tenantId;
+  if (!tenantId) { res.status(401).json({ error: 'No tenant on session' }); return; }
 
   try {
+    if (!(await assertOwnsWordPressTarget(tenantId, res))) return;
     const { publishPendingToWordPress } = await import('../services/programmaticSeoService');
-    const result = await publishPendingToWordPress();
+    const result = await publishPendingToWordPress(tenantId);
     res.json(result);
   } catch (e) {
     logger.error('[seo] publish-pending error:', e);
@@ -588,7 +676,19 @@ router.post('/content-calendar', async (req: Request, res: Response) => {
     const result = await dbPool.query(`
       INSERT INTO seo_content_calendar (client_domain, keyword, content_type, title, priority, assigned_to, target_publish_date, notes, source, tenant_id)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'manual', $9)
-      ON CONFLICT (client_domain, keyword, content_type) DO UPDATE SET
+      -- Was ON CONFLICT (client_domain, keyword, content_type) — a 3-column
+      -- target with no tenant in it. The INSERT bound tenant_id correctly, but
+      -- the conflict target did not: if tenant A already had a calendar row for
+      -- (example.com, "dental implants", blog), tenant B creating the same
+      -- entry did not insert its own row — it silently UPDATED TENANT A'S ROW,
+      -- overwriting their title and priority. A cross-tenant write through a
+      -- correctly-scoped INSERT.
+      --
+      -- This was the last 3-column target in the repo; migration 0047 drops the
+      -- old index it referred to. Both had to land together: a 4-column target
+      -- while the 3-column UNIQUE index still existed would turn the silent
+      -- overwrite into a unique-violation 500 instead of a clean insert.
+      ON CONFLICT (tenant_id, client_domain, keyword, content_type) DO UPDATE SET
         title = COALESCE(EXCLUDED.title, seo_content_calendar.title),
         priority = COALESCE(EXCLUDED.priority, seo_content_calendar.priority),
         updated_at = NOW()

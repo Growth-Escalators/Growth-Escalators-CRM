@@ -6,6 +6,99 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-08-05 — SEO Phase 2: site registry, de-hardcoding, and the per-tenant cron sweep (the C2 blocker) — Claude
+
+Branch `fix/wizmatch-scoring-pipeline`. Not on `main`, not pushed. Second execution phase of the
+multi-tenant SEO plan (`~/.claude/plans/can-you-check-the-atomic-cascade.md`). Built with six
+parallel lanes under exclusive file ownership; build/test run centrally only.
+
+**The headline fix (C2).** `resolveDefaultSeoTenantId()` throws the moment a second active tenant
+has `seo: true` — `getSingleActiveTenantWithFeature` deliberately refuses to guess who owns the
+data. Every SEO cron reached that throw, so **selling the SEO add-on to a second agency would have
+killed every SEO cron for every tenant, GE's own included**, with no code change to point at as the
+cause. All eleven SEO crons now sweep per tenant via the new `forEachSeoTenant()`, which isolates
+per-tenant failures so one tenant's expired token cannot skip everyone behind it. Every SEO service
+entry point gained an optional `tenantId?`. The throw itself is untouched — it is correct.
+Pinned by `src/__tests__/seoCronTenantSweep.test.ts`, which asserts at source level that nothing in
+the SEO cron block calls the single-tenant resolver.
+
+**Same blocker, three more places, all found while wiring the above:** `systemHealthMonitor`'s
+`checkSeo()` caught the throw and would have pinned the SEO card to WARNING forever (now sweeps per
+tenant and reports worst-of with the offending tenant named); the unauthenticated
+`/api/system/health/seo-data` would have 500'd (now pins GE's tenant by slug); and `index.ts`'s
+startup PageSpeed backfill would have silently skipped every tenant (now sweeps).
+
+**Migration 0046** — `seo_sites` registry + nullable `site_id` on the nine SEO tables, seeded from
+existing `(tenant_id, client_domain)` pairs and backfilled. Fully additive; no SET NOT NULL, no
+unique index over existing data, no DROP. Verified against a fixture before landing: two tenants
+sharing a domain each get their own row and are never cross-linked. The TS `normaliseDomain()` was
+checked to produce byte-identical output to the migration's SQL on eight cases — if those diverge
+the backfill silently matches nothing.
+
+**Nine hardcoded client-domain lists removed.** The three retired clients (aarohaom.com,
+blackpandaenterprises.com, ageddentistry.org) no longer appear as a fallback anywhere a new tenant
+could hit — including the Co-Pilot's AI system prompt, which was telling every tenant it worked on
+GE's clients. Domains now come from the tenant's own `seo_sites` registry; an empty registry means
+"this tenant registered no sites", which is the correct answer and costs zero paid API calls.
+
+**Three things were hard-gated rather than left as comments**, because a comment does not stop a
+request:
+- `publishToWordPress()` resolves its target from GLOBAL env vars, so any reseller admin pressing
+  publish would have drafted onto GE's own WordPress site. The three programmatic-SEO routes now
+  403/409 unless the configured WP domain is a site registered to the caller's tenant. The gate runs
+  *before* `/regenerate-pages`' DELETE, so a rejected caller does not lose rows.
+- The SEO digest (fixed Slack channel) and weekly email (hardcoded `jatin@growthescalators.com`)
+  have no per-tenant recipient. Both crons now skip any non-GE tenant with a loud warning rather
+  than shipping a reseller's data into GE's inbox. Both are env-gated off today; the guard exists so
+  flipping the flag later fails closed.
+- `seedClientKnowledgeBase()` is now a no-op. It ran on **every boot** and upserted three retired
+  clients' brand copy — it would have fought the planned data purge forever, resurrecting the rows
+  on each deploy.
+
+**Migration 0047 — the deferred half of 0045.** `seo_content_calendar`'s legacy 3-column unique
+index `(client_domain, keyword, content_type)` is dropped. 0045 added the tenant-scoped 4-column
+index alongside it and kept the old one because in-flight code still named the 3-column
+`ON CONFLICT` target; every writer now names the 4-column one. This was NOT merely redundant
+cleanup: UNIQUE on three columns with no tenant made the combination **globally exclusive**, so two
+agencies could not both track the same keyword on the same domain. `routes/seo.ts`'s
+`POST /content-calendar` was the last 3-column target — it bound `tenant_id` on the INSERT but not
+in the conflict target, so **tenant B creating an existing entry silently UPDATED tenant A's row**.
+Route fix and index drop had to land together: a 4-column target with the old UNIQUE index still
+present converts the silent overwrite into a 500. `ensureContentCalendarTable()` also stopped
+re-creating the old index, which would otherwise have undone 0047 on the next boot.
+
+**Pre-existing cross-tenant leaks found by the lanes, outside the assigned scope, fixed:**
+- `brandHealthService`: `calcWhatsappScore()`, `calcRetentionScore()`, `getPreviousScore()` had **no
+  `tenant_id` binding at all** — every client's scores were computed over every tenant's
+  messages/enrolments/jobs/contacts/deals pooled together.
+- `intelligenceDataCollector`: sections 10–14 and `collectSystemErrors()` likewise unscoped (while
+  sections 1–9 in the same function were correctly scoped). Fixing the `audit_events` filter also
+  repaired an `OR`/`AND` precedence bug that left the `%error%` branch with no time bound.
+- `seoIndexingQueueService.markIndexingReminded(ids)`: `WHERE id = ANY(...)` with no tenant
+  predicate — safe only by caller invariant, now bound at the statement.
+- `seoContentDecayService` / `seoContentGapService`: both `INSERT INTO seo_content_calendar`
+  statements never bound `tenant_id`, relying on the sentinel column default 0045 removed.
+
+**Also fixed:** `logSeoWorkflowRun()` never populated `seo_workflow_logs.tenant_id` (added in 0045),
+so every run row had a NULL owner; it now writes one row per tenant. Eleven SEO crons were missing
+from `CRON_WINDOWS` entirely, so **no SEO cron has ever appeared on the System Health page** — the
+page the add-on is sold on. All now registered.
+
+**Verify:** `npm run build` exit 0; `npm run admin:build` exit 0 (the backend build is `tsc` only
+and does not typecheck admin JSX — build both; a lane's test edits passed vitest while failing
+`tsc`, since vitest does not typecheck). `npm test`: **7 failed files / 21 failures, byte-identical
+to the pre-existing baseline** — measured by stashing this work and re-running, not assumed — with
+**79 new tests passing** (2700 vs 2621). `npm run lint:tenant-scoping`: zero new findings, baselined
+findings **79 → 70**. Migrations 0046/0047 applied to local dev; the seed/backfill was run against a
+two-tenant fixture inside a rolled-back transaction to prove two tenants sharing a domain are not
+cross-linked.
+
+**Known gaps, deliberately not fixed here:** the WordPress target and the Slack/email recipients are
+still not per-tenant — Phase 3's SiteAdapter and a `tenant_integrations`-backed recipient are the
+real fixes; the gates above are the interim. `GE SEO Pull` still shells out to a CLI script writing
+to Railway's ephemeral filesystem (Phase 5). `site_id` is written but nothing reads it yet — reads
+migrate service-by-service before it can go NOT NULL.
+
 ## 2026-08-05 — SEO Phase 1: tenant leaks closed, add-on feature-gated, SiteAdapter + cost-guard groundwork — Claude
 
 Branch `fix/wizmatch-scoring-pipeline`, rebased onto `origin/main` (36 commits). Not committed to

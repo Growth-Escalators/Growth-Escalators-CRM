@@ -149,17 +149,34 @@ export interface SyncResult {
   hasTopPagesData: boolean;
 }
 
+// NOTE ON MULTI-TENANCY (read before "fixing" the sitemapUrl/statePath
+// defaults below): both SEO_INDEXING_SITEMAP_URL and STATE_FILE_PATH are
+// single hardcoded GE URLs/paths — growthescalators.com/sitemap.xml and
+// docs/seo/state/growthescalators.json. Threading tenantId through this
+// function (below) does NOT make it multi-tenant-correct on its own, because
+// the state file it cross-references against is itself GE-only: there is
+// exactly one top-pages state file in this repo, produced by `npm run ge:seo`
+// pulling GE's own GSC property. Swapping just the sitemap URL to a second
+// tenant's domain (e.g. via seoSiteRegistry) while still diffing against GE's
+// top-pages data would make every one of that tenant's URLs look "not
+// indexed" (false positives), flooding the reminder digest with noise instead
+// of real candidates. A correct multi-tenant fix needs a per-tenant/per-site
+// state file too, which is a change to the `ge:seo` pull script and state
+// layout — out of this lane's scope (see report). So: tenantId is threaded
+// through for correct DB scoping, but sitemapUrl/statePath keep their
+// GE-only defaults until that follow-up lands.
 export async function syncIndexingQueueFromSitemap(
   sitemapUrl: string = SEO_INDEXING_SITEMAP_URL,
   statePath: string = STATE_FILE_PATH,
+  tenantId?: string,
 ): Promise<SyncResult> {
-  const tenantId = await resolveDefaultSeoTenantId();
+  const tid = tenantId ?? await resolveDefaultSeoTenantId();
   const sitemapUrls = await fetchSitemapUrls(sitemapUrl);
   const { urls: topPagesUrls, pulledAt } = loadTopPagesFromState(statePath);
 
   const existing = await pool.query(
     `SELECT id, url, status FROM seo_indexing_queue WHERE tenant_id = $1`,
-    [tenantId],
+    [tid],
   );
   const existingByNorm = new Map<string, { id: string; url: string; status: string }>();
   for (const row of existing.rows as Array<{ id: string; url: string; status: string }>) {
@@ -179,7 +196,7 @@ export async function syncIndexingQueueFromSitemap(
         await pool.query(
           `UPDATE seo_indexing_queue SET status = 'done', done_at = NOW(), updated_at = NOW()
            WHERE tenant_id = $1 AND id = $2`,
-          [tenantId, existingRow.id],
+          [tid, existingRow.id],
         );
         autoCompleted++;
       }
@@ -195,7 +212,7 @@ export async function syncIndexingQueueFromSitemap(
          VALUES ($1, $2, $3)
          ON CONFLICT (tenant_id, url) DO NOTHING
          RETURNING id`,
-        [tenantId, rawUrl, reason],
+        [tid, rawUrl, reason],
       );
       if ((result.rowCount ?? 0) > 0) inserted++;
     }
@@ -226,51 +243,58 @@ export interface IndexingQueueItem {
   done_at: string | null;
 }
 
-export async function getDueIndexingItems(limit: number = SEO_INDEXING_WEEKLY_LIMIT): Promise<IndexingQueueItem[]> {
-  const tenantId = await resolveDefaultSeoTenantId();
+export async function getDueIndexingItems(limit: number = SEO_INDEXING_WEEKLY_LIMIT, tenantId?: string): Promise<IndexingQueueItem[]> {
+  const tid = tenantId ?? await resolveDefaultSeoTenantId();
   const result = await pool.query(
     `SELECT id, url, reason, status, date_added, last_reminded_at, requested_at, done_at
      FROM seo_indexing_queue
      WHERE tenant_id = $1 AND status IN ('pending', 'requested')
      ORDER BY date_added ASC
      LIMIT $2`,
-    [tenantId, limit],
+    [tid, limit],
   );
   return result.rows as IndexingQueueItem[];
 }
 
-export async function countPendingIndexingItems(): Promise<number> {
-  const tenantId = await resolveDefaultSeoTenantId();
+export async function countPendingIndexingItems(tenantId?: string): Promise<number> {
+  const tid = tenantId ?? await resolveDefaultSeoTenantId();
   const result = await pool.query(
     `SELECT COUNT(*)::int AS count FROM seo_indexing_queue WHERE tenant_id = $1 AND status IN ('pending', 'requested')`,
-    [tenantId],
+    [tid],
   );
   return Number((result.rows[0] as { count: number }).count);
 }
 
-export async function listIndexingQueue(statusFilter?: string): Promise<IndexingQueueItem[]> {
-  const tenantId = await resolveDefaultSeoTenantId();
+export async function listIndexingQueue(statusFilter?: string, tenantId?: string): Promise<IndexingQueueItem[]> {
+  const tid = tenantId ?? await resolveDefaultSeoTenantId();
   if (statusFilter) {
     const result = await pool.query(
       `SELECT id, url, reason, status, date_added, last_reminded_at, requested_at, done_at
        FROM seo_indexing_queue WHERE tenant_id = $1 AND status = $2 ORDER BY date_added ASC`,
-      [tenantId, statusFilter],
+      [tid, statusFilter],
     );
     return result.rows as IndexingQueueItem[];
   }
   const result = await pool.query(
     `SELECT id, url, reason, status, date_added, last_reminded_at, requested_at, done_at
      FROM seo_indexing_queue WHERE tenant_id = $1 ORDER BY status ASC, date_added ASC`,
-    [tenantId],
+    [tid],
   );
   return result.rows as IndexingQueueItem[];
 }
 
-export async function markIndexingReminded(ids: string[]): Promise<void> {
+// `markIndexingReminded` previously updated by `id = ANY(...)` with no
+// tenant_id predicate at all — safe today only because its ids always came
+// from a tenant-scoped SELECT (getDueIndexingItems) upstream, but that's an
+// invariant enforced by the caller, not by this statement. Binding tenant_id
+// here too (every SQL statement should bind it, no exceptions) makes it safe
+// on its own terms.
+export async function markIndexingReminded(ids: string[], tenantId?: string): Promise<void> {
   if (ids.length === 0) return;
+  const tid = tenantId ?? await resolveDefaultSeoTenantId();
   await pool.query(
-    `UPDATE seo_indexing_queue SET last_reminded_at = NOW(), updated_at = NOW() WHERE id = ANY($1::uuid[])`,
-    [ids],
+    `UPDATE seo_indexing_queue SET last_reminded_at = NOW(), updated_at = NOW() WHERE id = ANY($1::uuid[]) AND tenant_id = $2`,
+    [ids, tid],
   );
 }
 
@@ -284,20 +308,20 @@ export type IndexingMarkResult =
   | { outcome: 'ambiguous'; matches: Array<{ id: string; url: string; status: string }> }
   | { outcome: 'updated'; url: string };
 
-export async function markIndexingStatus(urlMatch: string, status: 'pending' | 'requested' | 'done'): Promise<IndexingMarkResult> {
-  const tenantId = await resolveDefaultSeoTenantId();
+export async function markIndexingStatus(urlMatch: string, status: 'pending' | 'requested' | 'done', tenantId?: string): Promise<IndexingMarkResult> {
+  const tid = tenantId ?? await resolveDefaultSeoTenantId();
   const matches = await pool.query(
     `SELECT id, url, status FROM seo_indexing_queue WHERE tenant_id = $1 AND url ILIKE $2`,
-    [tenantId, `%${urlMatch}%`],
+    [tid, `%${urlMatch}%`],
   );
   const rows = matches.rows as Array<{ id: string; url: string; status: string }>;
   if (rows.length === 0) return { outcome: 'not_found' };
   if (rows.length > 1) {
     const exact = rows.find((r) => normalizeUrlForCompare(r.url) === normalizeUrlForCompare(urlMatch));
     if (!exact) return { outcome: 'ambiguous', matches: rows };
-    return updateOne(tenantId, exact, status);
+    return updateOne(tid, exact, status);
   }
-  return updateOne(tenantId, rows[0], status);
+  return updateOne(tid, rows[0], status);
 }
 
 async function updateOne(tenantId: string, row: { id: string; url: string }, status: 'pending' | 'requested' | 'done'): Promise<IndexingMarkResult> {
@@ -325,10 +349,11 @@ export interface ReminderResult {
   syncError?: string;
 }
 
-export async function sendIndexingReminderDigest(): Promise<ReminderResult> {
+export async function sendIndexingReminderDigest(tenantId?: string): Promise<ReminderResult> {
+  const tid = tenantId ?? await resolveDefaultSeoTenantId();
   let syncError: string | undefined;
   try {
-    await syncIndexingQueueFromSitemap();
+    await syncIndexingQueueFromSitemap(SEO_INDEXING_SITEMAP_URL, STATE_FILE_PATH, tid);
   } catch (e) {
     // Non-fatal — the sitemap fetch or state file can fail independently of the
     // reminder; still remind about whatever's already queued from prior syncs.
@@ -336,18 +361,28 @@ export async function sendIndexingReminderDigest(): Promise<ReminderResult> {
     logger.warn(`[seo-indexing-queue] sitemap sync failed, reminding from existing queue only: ${syncError}`);
   }
 
-  const due = await getDueIndexingItems(SEO_INDEXING_WEEKLY_LIMIT);
+  const due = await getDueIndexingItems(SEO_INDEXING_WEEKLY_LIMIT, tid);
   if (due.length === 0) {
     logger.info('[seo-indexing-queue] no due URLs — skipping reminder DM');
     return { sent: false, count: 0, syncError };
   }
 
-  const pendingTotal = await countPendingIndexingItems();
+  const pendingTotal = await countPendingIndexingItems(tid);
   const { sendSlackDM } = await import('./slackService');
   const { SLACK_JATIN } = await import('../config/constants');
 
+  // SLACK_JATIN is a single hardcoded recipient — same DM target regardless
+  // of tenantId, same caveat as sendSEOWeeklyEmail's recipient. Label the
+  // header with the tenant so the one recipient can tell multiple tenants'
+  // reminders apart; see report for the real per-tenant-recipient gap.
+  let tenantLabel = tid;
+  try {
+    const tenantRow = await pool.query(`SELECT slug FROM tenants WHERE id = $1`, [tid]);
+    if (tenantRow.rows.length > 0) tenantLabel = (tenantRow.rows[0] as { slug: string }).slug;
+  } catch { /* fall back to raw tenantId */ }
+
   const lines: string[] = [
-    `🔎 *GSC Indexing Requests Due* — ${due.length} URL${due.length !== 1 ? 's' : ''} this week`,
+    `🔎 *GSC Indexing Requests Due [${tenantLabel}]* — ${due.length} URL${due.length !== 1 ? 's' : ''} this week`,
     '',
     '*How:* Google Search Console → URL Inspection → paste the URL → *Request Indexing*. One shot per URL, ~10-12/day quota — no need to rush through all of these today.',
     '',
@@ -366,8 +401,8 @@ export async function sendIndexingReminderDigest(): Promise<ReminderResult> {
   lines.push(`_${pendingTotal} URL${pendingTotal !== 1 ? 's' : ''} total still pending in the queue._`);
 
   await sendSlackDM(SLACK_JATIN, lines.join('\n'));
-  await markIndexingReminded(due.map((d) => d.id));
+  await markIndexingReminded(due.map((d) => d.id), tid);
 
-  logger.info(`[seo-indexing-queue] reminder sent — ${due.length} URLs, ${pendingTotal} pending total`);
+  logger.info(`[seo-indexing-queue] reminder sent for tenant ${tenantLabel} — ${due.length} URLs, ${pendingTotal} pending total`);
   return { sent: true, count: due.length, pendingTotal, syncError };
 }

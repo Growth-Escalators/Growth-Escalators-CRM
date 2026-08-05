@@ -323,6 +323,20 @@
       "when": 1785905780049,
       "tag": "0045_typical_toro",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1785912072809,
+      "tag": "0046_glossy_leo",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1785913778195,
+      "tag": "0047_orange_master_mold",
+      "breakpoints": true
     }
   ]
 }

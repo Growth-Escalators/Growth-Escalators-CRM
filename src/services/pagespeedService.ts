@@ -1,40 +1,42 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { resolveDefaultSeoTenantId } from './seoTenantContext';
-
-// Fallback client list — used if client_knowledge_base is empty
-const FALLBACK_CLIENTS = [
-  { project: 'aarohaom', url: 'https://aarohaom.com' },
-  { project: 'blackpanda', url: 'https://blackpandaenterprises.com' },
-  { project: 'ageddentistry', url: 'https://ageddentistry.org' },
-];
+import { listSeoSiteDomains } from './seoSiteRegistry';
 
 async function getClients(tenantId: string): Promise<Array<{ project: string; url: string }>> {
   try {
-    // Try to get clients from knowledge base with their domains
+    // Real client_knowledge_base data, joined against seo_weekly_metrics for the
+    // domain when we've actually recorded one. The old fallback here used to
+    // guess a domain from the project name with a 3-way ILIKE ladder — that was
+    // the exact hardcoding this tenant-scoping pass exists to remove, since it
+    // silently pointed every unmatched project at one of three GE-only domains
+    // regardless of which tenant it belonged to. If there's no recorded domain,
+    // we fall through to the site registry below instead of guessing.
     const r = await pool.query(`
       SELECT project_name,
-        COALESCE(
-          (SELECT 'https://' || client_domain FROM seo_weekly_metrics WHERE project_name = kb.project_name AND client_domain IS NOT NULL AND tenant_id = $1 LIMIT 1),
-          CASE
-            WHEN project_name ILIKE '%aaroha%' THEN 'https://aarohaom.com'
-            WHEN project_name ILIKE '%blackpanda%' OR project_name ILIKE '%black%panda%' THEN 'https://blackpandaenterprises.com'
-            WHEN project_name ILIKE '%aged%' OR project_name ILIKE '%dentistry%' THEN 'https://ageddentistry.org'
-            ELSE NULL
-          END
-        ) AS url
+        (SELECT 'https://' || client_domain FROM seo_weekly_metrics WHERE project_name = kb.project_name AND client_domain IS NOT NULL AND tenant_id = $1 LIMIT 1) AS url
       FROM client_knowledge_base kb
       WHERE project_name IS NOT NULL AND tenant_id = $1
       LIMIT 20
     `, [tenantId]);
     if (r.rows.length > 0) {
-      const clients = (r.rows as Array<{ project_name: string; url: string }>)
-        .filter(row => row.url && row.url !== 'https://')
+      const clients = (r.rows as Array<{ project_name: string; url: string | null }>)
+        .filter((row): row is { project_name: string; url: string } => !!row.url && row.url !== 'https://')
         .map(row => ({ project: row.project_name, url: row.url }));
       if (clients.length > 0) return clients;
     }
-  } catch { /* fallback below */ }
-  return FALLBACK_CLIENTS;
+  } catch { /* fall through to the registry below */ }
+
+  // No usable rows in client_knowledge_base/seo_weekly_metrics — fall back to
+  // this tenant's registered SEO sites. An empty registry means this tenant
+  // genuinely has no sites registered; that is the correct answer, not a
+  // reason to reach for a hardcoded array of someone else's domains.
+  const domains = await listSeoSiteDomains(tenantId);
+  if (domains.length === 0) {
+    logger.warn(`[pagespeed] tenant ${tenantId} has no registered SEO sites — nothing to check`);
+    return [];
+  }
+  return domains.map(domain => ({ project: domain, url: `https://${domain}` }));
 }
 
 interface PageSpeedResult {
@@ -58,11 +60,11 @@ async function fetchScore(url: string, strategy: 'mobile' | 'desktop'): Promise<
   }
 }
 
-export async function runPageSpeedChecks(): Promise<{ checked: number; errors: number }> {
+export async function runPageSpeedChecks(tenantId?: string): Promise<{ checked: number; errors: number }> {
   let checked = 0, errors = 0;
-  const tenantId = await resolveDefaultSeoTenantId();
+  const tid = tenantId ?? await resolveDefaultSeoTenantId();
 
-  const clients = await getClients(tenantId);
+  const clients = await getClients(tid);
   for (const client of clients) {
     try {
       const [mobileData, desktopData] = await Promise.all([
@@ -84,7 +86,7 @@ export async function runPageSpeedChecks(): Promise<{ checked: number; errors: n
       await pool.query(
         `INSERT INTO site_health_metrics (project_name, pagespeed_mobile, pagespeed_desktop, lcp, fid, cls, checked_at, tenant_id)
          VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7)`,
-        [client.project, mobileScore, desktopScore, lcp, fid, cls, tenantId],
+        [client.project, mobileScore, desktopScore, lcp, fid, cls, tid],
       );
 
       logger.info(`[pagespeed] ${client.project}: mobile=${mobileScore} desktop=${desktopScore} lcp=${lcp}s`);

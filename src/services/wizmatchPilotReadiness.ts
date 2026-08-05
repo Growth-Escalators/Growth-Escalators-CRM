@@ -419,10 +419,31 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
     // + FK; adds three nullable approval columns to `client_pages`; adds a
     // nullable `tenant_id` to `seo_workflow_logs`; DROPs the four unused
     // `seo_looker_*` views. SEO tables only — no Wizmatch surface touched.
+    // 46 = seo_sites registry (Phase 2 of the multi-tenant SEO platform,
+    // owner-authorised 2026-08-05). Creates the `seo_sites` table — the
+    // registry replacing nine hardcoded client-domain arrays across the SEO
+    // services — and adds a NULLABLE `site_id` FK to the nine existing SEO
+    // tables, seeds the registry from the distinct (tenant_id, client_domain)
+    // pairs already present, and backfills `site_id` from it. Fully additive:
+    // no SET NOT NULL, no unique index over pre-existing data, no DROP, and
+    // every statement is IF NOT EXISTS / duplicate_object-guarded because
+    // ensureSeoTables() drifts these tables at runtime. SEO tables only — no
+    // Wizmatch surface touched.
+    // 47 = drops seo_content_calendar's legacy 3-column unique index
+    // (client_domain, keyword, content_type), the deferred half of 0045.
+    // 0045 added the tenant-scoped 4-column index alongside it and kept the old
+    // one because code still named the 3-column ON CONFLICT target; every
+    // writer now names the 4-column one, so the old index is dropped here.
+    // Not merely redundant: UNIQUE on those three columns with no tenant made
+    // the combination globally exclusive, so two tenants could not both hold a
+    // calendar entry for the same keyword on the same domain. A single DROP
+    // INDEX IF EXISTS — dropping an index never fails on data, and the
+    // 4-column index still enforces per-tenant uniqueness. SEO tables only —
+    // no Wizmatch surface touched.
     // Bump this ONLY alongside an explicit authorisation for the migration in
     // question — the point of the mark is that an unreviewed migration showing
     // up in a hardening pass still gets surfaced.
-    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 45;
+    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 47;
     const unauthorised = sqlFiles
       .map((f) => ({ file: f, idx: parseInt(f.slice(0, 4), 10) }))
       .filter((m) => Number.isFinite(m.idx) && m.idx > AUTHORISED_MIGRATION_HIGH_WATER_MARK)

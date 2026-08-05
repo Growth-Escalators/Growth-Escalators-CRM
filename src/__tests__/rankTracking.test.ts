@@ -25,6 +25,19 @@ vi.mock('../services/seoTenantContext', () => ({
   resolveDefaultSeoTenantId: vi.fn().mockResolvedValue('tenant-seo-default'),
 }));
 
+// H18 Phase 2 — runRankChecks() now sources its domains from the per-tenant
+// seo_sites registry (listSeoSiteDomains) instead of a hardcoded three-domain
+// array. No default resolved value is baked in here: every test below that
+// reaches this call configures it explicitly via vi.mocked(...).mockResolvedValue(...)
+// on the imported reference, the same way this file already configures
+// pool.query per test — baking different values into competing vi.mock()
+// factories for the same path is a trap, since vi.mock calls are hoisted to
+// the top of the file in SOURCE order and the last one registered wins for
+// every subsequent import, not just the test it's textually inside.
+vi.mock('../services/seoSiteRegistry', () => ({
+  listSeoSiteDomains: vi.fn(),
+}));
+
 // ---------------------------------------------------------------------------
 // Tests for rankTrackingService.runRankChecks()
 // ---------------------------------------------------------------------------
@@ -69,10 +82,16 @@ describe('rankTrackingService', () => {
     vi.mock('../services/seoTenantContext', () => ({
       resolveDefaultSeoTenantId: vi.fn().mockResolvedValue('tenant-seo-default'),
     }));
+    vi.mock('../services/seoSiteRegistry', () => ({
+      listSeoSiteDomains: vi.fn(),
+    }));
 
     const { runRankChecks } = await import('../services/rankTrackingService');
     const { sendSlackMessage } = await import('../services/slackService');
 
+    // The missing-key guard fires before the registry is ever consulted, so
+    // this throws regardless of what listSeoSiteDomains returns — no need to
+    // configure it for this test.
     await expect(runRankChecks()).rejects.toThrow(/SERPER_API_KEY/);
     expect(sendSlackMessage).toHaveBeenCalledOnce();
     expect(vi.mocked(sendSlackMessage).mock.calls[0][1]).toMatch(/SERPER_API_KEY/);
@@ -99,6 +118,9 @@ describe('rankTrackingService', () => {
     vi.mock('../services/seoTenantContext', () => ({
       resolveDefaultSeoTenantId: vi.fn().mockResolvedValue('tenant-seo-default'),
     }));
+    vi.mock('../services/seoSiteRegistry', () => ({
+      listSeoSiteDomains: vi.fn(),
+    }));
 
     // Mock global fetch
     const mockFetch = vi.fn().mockResolvedValue({
@@ -113,7 +135,13 @@ describe('rankTrackingService', () => {
     vi.stubGlobal('fetch', mockFetch);
 
     const { pool } = await import('../db/index');
+    const { listSeoSiteDomains } = await import('../services/seoSiteRegistry');
     const { runRankChecks } = await import('../services/rankTrackingService');
+
+    // The tenant has one registered site (aarohaom.com) — matching the
+    // fixture domain used in the fetch/pool.query mocks below — so
+    // getKeywordsToTrack has something to find and the INSERT actually runs.
+    vi.mocked(listSeoSiteDomains).mockResolvedValue(['aarohaom.com']);
 
     // pool.query called at least for: getKeywordsToTrack, getPreviousPosition, INSERT
     // getKeywordsToTrack — returns existing keywords from DB
@@ -138,6 +166,55 @@ describe('rankTrackingService', () => {
     expect(typeof result.errors).toBe('number');
     expect(result.checked).toBeGreaterThanOrEqual(1);
     expect(result.errors).toBe(0);
+
+    vi.unstubAllGlobals();
+  });
+
+  // -------------------------------------------------------------------------
+  // 3. Zero registered SEO sites — "a tenant with no sites costs nothing".
+  //    H18 Phase 2 removed the hardcoded three-domain fallback specifically
+  //    because it let a brand-new tenant with an empty registry silently spend
+  //    against a retired client's keyword set. The correct behaviour for that
+  //    tenant is zero paid Serper calls and zero writes — not "fall back to
+  //    someone else's domains". Pin that here, not just the happy path.
+  // -------------------------------------------------------------------------
+  it('makes no paid Serper call and no INSERT when the tenant has zero registered SEO sites', async () => {
+    process.env.SERPER_API_KEY = 'test-serper-key';
+    vi.resetModules();
+
+    vi.mock('../db/index', () => ({
+      pool: { query: vi.fn() },
+    }));
+    vi.mock('../services/slackService', () => ({
+      sendSlackMessage: vi.fn().mockResolvedValue(undefined),
+    }));
+    vi.mock('../config/constants', () => ({
+      SLACK_SEO_CHANNEL: 'C_SEO_TEST',
+    }));
+    vi.mock('../services/seoTenantContext', () => ({
+      resolveDefaultSeoTenantId: vi.fn().mockResolvedValue('tenant-seo-default'),
+    }));
+    vi.mock('../services/seoSiteRegistry', () => ({
+      listSeoSiteDomains: vi.fn(),
+    }));
+
+    const mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { pool } = await import('../db/index');
+    const { listSeoSiteDomains } = await import('../services/seoSiteRegistry');
+    const { runRankChecks } = await import('../services/rankTrackingService');
+
+    vi.mocked(listSeoSiteDomains).mockResolvedValue([]);
+
+    const result = await runRankChecks();
+
+    expect(result).toEqual({ checked: 0, errors: 0 });
+    // Zero paid Serper calls — the whole point of the guard.
+    expect(mockFetch).not.toHaveBeenCalled();
+    // Zero writes — no INSERT INTO keyword_rankings, no queries at all in
+    // fact, since the guard returns before getKeywordsToTrack ever runs.
+    expect(pool.query).not.toHaveBeenCalled();
 
     vi.unstubAllGlobals();
   });

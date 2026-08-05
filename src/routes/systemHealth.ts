@@ -38,20 +38,32 @@ router.get('/health/ping', (_req, res) => {
 // GET /api/system/health/seo-data — public diagnostic for SEO tables.
 // H18: this route has no auth (the whole /api/system mount is unauthenticated
 // by design — that's a separate, out-of-scope finding, not changed here), so
-// it can't use req.user.tenantId. Scope every query to the single default SEO
-// tenant instead — fixes the cross-tenant read half of the finding without
-// touching the route's access level.
+// it can't use req.user.tenantId.
+//
+// Two things changed here:
+//
+// 1. It no longer calls ensureSeoTables(). That helper issues ~60 DDL
+//    statements, and reaching it meant any anonymous caller could make the
+//    database do schema work on demand, as often as they liked. Boot already
+//    runs it; an unauthenticated diagnostic has no business doing DDL.
+//
+// 2. It pins GE's OWN tenant by slug instead of calling
+//    resolveDefaultSeoTenantId(). That resolver throws the moment a second
+//    tenant has the SEO add-on, which would have turned this endpoint into a
+//    500 the day the feature was first sold. Pinning is also the correct
+//    scoping: this is GE's own ops diagnostic, not "whichever tenant happens
+//    to have the feature on" — the same distinction getDefaultIngestTenant's
+//    docstring draws, and for the same reason.
 router.get('/health/seo-data', async (_req, res) => {
   const { pool } = await import('../db/index');
   try {
-    // Also try to create tables if they don't exist
-    try {
-      const { ensureSeoTables } = await import('../services/seoWorkflowHealthService');
-      await ensureSeoTables();
-    } catch { /* non-critical */ }
-
-    const { resolveDefaultSeoTenantId } = await import('../services/seoTenantContext');
-    const tenantId = await resolveDefaultSeoTenantId();
+    const { getDefaultIngestTenant } = await import('../services/tenantFeatures');
+    const tenant = await getDefaultIngestTenant('seo');
+    if (!tenant) {
+      res.json({ tables: {}, checkedAt: new Date().toISOString(), note: 'SEO is not enabled for the default tenant' });
+      return;
+    }
+    const tenantId = tenant.id;
 
     const tables = ['seo_weekly_metrics', 'keyword_rankings', 'site_health_metrics', 'backlink_data', 'seo_opportunities', 'seo_alerts_log'];
     const results: Record<string, { count: number; latest: string | null }> = {};

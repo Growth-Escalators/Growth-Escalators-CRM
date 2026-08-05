@@ -1,6 +1,7 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { resolveDefaultSeoTenantId } from './seoTenantContext';
+import { listSeoSiteDomains } from './seoSiteRegistry';
 
 /**
  * Backend-native SEO alert generation.
@@ -9,10 +10,23 @@ import { resolveDefaultSeoTenantId } from './seoTenantContext';
  * Checks existing data tables for anomalies and inserts alerts into seo_alerts_log.
  */
 
-const CLIENT_DOMAINS = ['aarohaom.com', 'blackpandaenterprises.com', 'ageddentistry.org'];
+export async function runSeoAlertChecks(tenantId?: string): Promise<{ alerts: number }> {
+  const tid = tenantId ?? await resolveDefaultSeoTenantId();
 
-export async function runSeoAlertChecks(): Promise<{ alerts: number }> {
-  const tenantId = await resolveDefaultSeoTenantId();
+  // Domains come from the per-tenant site registry now, not the hardcoded
+  // three-domain array this used to have — see seoTenantContext.ts's docblock
+  // for why a hardcoded list is exactly the bug that lets one tenant's cron
+  // read/write another tenant's data. A tenant with no registered sites has
+  // nothing to alert on; that's a normal onboarding state, not a broken
+  // pipeline, so it's checked (and bailed on, quietly) before the
+  // upstream-health preflight below — no point probing table health for a
+  // tenant that was never going to have any rows there.
+  const domains = await listSeoSiteDomains(tid);
+  if (domains.length === 0) {
+    logger.warn(`[seo-alerts] tenant ${tid} has no registered SEO sites — nothing to check`);
+    return { alerts: 0 };
+  }
+
   // Pre-flight: if all upstream tables are empty, the "zero alerts" we'd produce
   // is meaningless — it's indistinguishable from "all pipelines are broken".
   // Bail loudly so the Railway env / cron health gets checked.
@@ -21,10 +35,10 @@ export async function runSeoAlertChecks(): Promise<{ alerts: number }> {
       (SELECT COUNT(*) FROM keyword_rankings WHERE recorded_date >= CURRENT_DATE - INTERVAL '10 days' AND tenant_id = $1)::int AS rankings,
       (SELECT COUNT(*) FROM site_health_metrics WHERE checked_at >= NOW() - INTERVAL '10 days' AND tenant_id = $1)::int AS health,
       (SELECT COUNT(*) FROM seo_weekly_metrics WHERE week_start_date >= CURRENT_DATE - INTERVAL '14 days' AND tenant_id = $1)::int AS gsc
-  `, [tenantId]);
+  `, [tid]);
   const { rankings, health, gsc } = upstreamQ.rows[0] as { rankings: number; health: number; gsc: number };
   if (Number(rankings) === 0 && Number(health) === 0 && Number(gsc) === 0) {
-    const msg = 'seo-alerts: all 3 upstream tables (keyword_rankings, site_health_metrics, seo_weekly_metrics) are empty for the last 10-14 days — upstream crons are broken, skipping alert generation to avoid false all-clear';
+    const msg = `seo-alerts: all 3 upstream tables (keyword_rankings, site_health_metrics, seo_weekly_metrics) are empty for the last 10-14 days for tenant ${tid} — upstream crons are broken, skipping alert generation to avoid false all-clear`;
     logger.error(`[seo-alerts] ${msg}`);
     try {
       const { sendSlackMessage } = await import('./slackService');
@@ -36,7 +50,7 @@ export async function runSeoAlertChecks(): Promise<{ alerts: number }> {
 
   let alerts = 0;
 
-  for (const domain of CLIENT_DOMAINS) {
+  for (const domain of domains) {
     try {
       // 1. Keyword position drop alerts (>5 positions in last 7 days)
       const drops = await pool.query(`
@@ -48,10 +62,10 @@ export async function runSeoAlertChecks(): Promise<{ alerts: number }> {
           AND tenant_id = $2
         ORDER BY position_change ASC
         LIMIT 10
-      `, [domain, tenantId]);
+      `, [domain, tid]);
 
       for (const row of drops.rows as Array<Record<string, unknown>>) {
-        await insertAlert(tenantId, domain, 'rank_drop',
+        await insertAlert(tid, domain, 'rank_drop',
           `Keyword "${row.keyword}" dropped ${Math.abs(Number(row.position_change))} positions (now #${row.current_position})`,
           'warning');
         alerts++;
@@ -64,20 +78,20 @@ export async function runSeoAlertChecks(): Promise<{ alerts: number }> {
         FROM site_health_metrics
         WHERE project_name ILIKE '%' || $1 || '%' AND tenant_id = $2
         ORDER BY checked_at DESC LIMIT 2
-      `, [domain.split('.')[0], tenantId]);
+      `, [domain.split('.')[0], tid]);
 
       if (healthCheck.rows.length >= 2) {
         const current = healthCheck.rows[0] as Record<string, number>;
         const previous = healthCheck.rows[1] as Record<string, number>;
         if (current.pagespeed_mobile && previous.pagespeed_mobile &&
             current.pagespeed_mobile < previous.pagespeed_mobile - 10) {
-          await insertAlert(tenantId, domain, 'pagespeed_drop',
+          await insertAlert(tid, domain, 'pagespeed_drop',
             `Mobile PageSpeed dropped from ${previous.pagespeed_mobile} to ${current.pagespeed_mobile}`,
             'warning');
           alerts++;
         }
         if (current.lcp && current.lcp > 4.0) {
-          await insertAlert(tenantId, domain, 'lcp_slow',
+          await insertAlert(tid, domain, 'lcp_slow',
             `LCP is ${current.lcp}s (should be <2.5s)`,
             'high');
           alerts++;
@@ -90,12 +104,12 @@ export async function runSeoAlertChecks(): Promise<{ alerts: number }> {
         FROM seo_weekly_metrics
         WHERE (client_domain = $1 OR project_name ILIKE '%' || $1 || '%') AND tenant_id = $2
         ORDER BY week_start_date DESC LIMIT 1
-      `, [domain, tenantId]);
+      `, [domain, tid]);
 
       if (noTraffic.rows.length > 0) {
         const row = noTraffic.rows[0] as Record<string, number>;
         if (row.total_clicks === 0 && row.total_impressions === 0) {
-          await insertAlert(tenantId, domain, 'zero_traffic',
+          await insertAlert(tid, domain, 'zero_traffic',
             `Zero clicks and impressions this week — check GSC indexing`,
             'critical');
           alerts++;
@@ -111,10 +125,10 @@ export async function runSeoAlertChecks(): Promise<{ alerts: number }> {
           AND recorded_date >= CURRENT_DATE - INTERVAL '7 days'
           AND tenant_id = $2
         LIMIT 5
-      `, [domain, tenantId]);
+      `, [domain, tid]);
 
       for (const row of newTop10.rows as Array<Record<string, string>>) {
-        await insertAlert(tenantId, domain, 'new_top10',
+        await insertAlert(tid, domain, 'new_top10',
           `"${row.keyword}" entered top 10 (now #${row.current_position})`,
           'info');
         alerts++;

@@ -1,6 +1,7 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { resolveDefaultSeoTenantId } from './seoTenantContext';
+import { listSeoSiteDomains } from './seoSiteRegistry';
 
 /**
  * Backend-native backlink monitoring.
@@ -14,8 +15,6 @@ import { resolveDefaultSeoTenantId } from './seoTenantContext';
 const SERPER_API_URL = 'https://google.serper.dev/search';
 const SERPER_API_KEY = process.env.SERPER_API_KEY;
 
-const CLIENT_DOMAINS = ['aarohaom.com', 'blackpandaenterprises.com', 'ageddentistry.org'];
-
 interface SerperResult {
   title: string;
   link: string;
@@ -23,7 +22,20 @@ interface SerperResult {
   domain?: string;
 }
 
-export async function runBacklinkCheck(): Promise<{ found: number; errors: number }> {
+export async function runBacklinkCheck(tenantId?: string): Promise<{ found: number; errors: number }> {
+  const tid = tenantId ?? await resolveDefaultSeoTenantId();
+
+  // Domains come from the per-tenant site registry now, not the hardcoded
+  // three-domain array this used to have — see seoTenantContext.ts's docblock.
+  // Checked before the API-key guard below: a tenant with no registered sites
+  // must make zero paid Serper calls, and it shouldn't trip a "SERPER_API_KEY
+  // missing" Slack alert either just because it hasn't onboarded a site yet.
+  const domains = await listSeoSiteDomains(tid);
+  if (domains.length === 0) {
+    logger.warn(`[backlinks] tenant ${tid} has no registered SEO sites — skipping backlink check (zero paid API calls)`);
+    return { found: 0, errors: 0 };
+  }
+
   if (!SERPER_API_KEY) {
     const msg = 'backlinks: SERPER_API_KEY not set on Railway worker — backlink monitor cannot run';
     logger.error(`[backlinks] ${msg}`);
@@ -37,11 +49,10 @@ export async function runBacklinkCheck(): Promise<{ found: number; errors: numbe
 
   let found = 0;
   let errors = 0;
-  const tenantId = await resolveDefaultSeoTenantId();
 
   const { checkAndIncrementSeoSerperCap } = await import('./seoWorkflowHealthService');
 
-  for (const domain of CLIENT_DOMAINS) {
+  for (const domain of domains) {
     try {
       if (!checkAndIncrementSeoSerperCap()) {
         logger.warn(`[backlinks] SEO Serper daily cap reached — skipping ${domain}`);
@@ -76,7 +87,7 @@ export async function runBacklinkCheck(): Promise<{ found: number; errors: numbe
              AND source_url = $2
              AND tenant_id = $3
            LIMIT 1`,
-          [domain, result.link, tenantId],
+          [domain, result.link, tid],
         );
         if ((existing.rows as unknown[]).length > 0) continue;
 
@@ -84,7 +95,7 @@ export async function runBacklinkCheck(): Promise<{ found: number; errors: numbe
           `INSERT INTO backlink_data
             (project_name, source_url, target_url, anchor_text, link_type, first_seen, status, tenant_id)
            VALUES ($1, $2, $3, $4, 'dofollow', CURRENT_DATE, 'active', $5)`,
-          [domain, result.link, `https://${domain}`, result.title || sourceDomain, tenantId],
+          [domain, result.link, `https://${domain}`, result.title || sourceDomain, tid],
         );
         found++;
       }
@@ -105,7 +116,7 @@ export async function runBacklinkCheck(): Promise<{ found: number; errors: numbe
       UPDATE backlink_data SET status = 'lost'
       WHERE status = 'active' AND last_seen < NOW() - INTERVAL '30 days' AND tenant_id = $1
       RETURNING id
-    `, [tenantId]);
+    `, [tid]);
     if (lost.rowCount && lost.rowCount > 0) {
       logger.info(`[backlinks] marked ${lost.rowCount} backlinks as lost`);
     }

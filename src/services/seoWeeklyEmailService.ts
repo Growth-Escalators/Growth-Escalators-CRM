@@ -5,8 +5,23 @@ import { CRM_BASE_URL } from '../config/crmLinks';
 
 /**
  * Send SEO weekly summary email to Jatin via Brevo.
+ *
+ * `tenantId` defaults to resolveDefaultSeoTenantId() when omitted, so existing
+ * zero-arg callers keep working. Every query below is scoped by it.
+ *
+ * KNOWN GAP (report this, don't silently fix): the recipient is the hardcoded
+ * literal 'jatin@growthescalators.com' below, the same address regardless of
+ * which tenantId is passed in. There is no per-tenant recipient. Today that's
+ * harmless — GE is the only tenant with the seo feature on, and Jatin is meant
+ * to see GE's own report. But the moment a second tenant's cron starts passing
+ * its own tenantId here, THAT TENANT'S SEO DATA WILL STILL BE EMAILED TO JATIN,
+ * not to the reseller client's own team — there's no leak of tenant A's data to
+ * tenant B (it's not per-tenant at all), but it also means a reseller tenant
+ * gets no email of its own unless a real per-tenant recipient (env var or a
+ * tenants.settings field) is added. That's a product/schema decision outside
+ * this lane's scope — flagging rather than inventing one.
  */
-export async function sendSEOWeeklyEmail(): Promise<void> {
+export async function sendSEOWeeklyEmail(tenantId?: string): Promise<void> {
   const brevoKey = process.env.BREVO_API_KEY;
   if (!brevoKey) { logger.warn('[seo-email] BREVO_API_KEY not set'); return; }
 
@@ -17,7 +32,7 @@ export async function sendSEOWeeklyEmail(): Promise<void> {
   }
 
   // Fetch data
-  const tenantId = await resolveDefaultSeoTenantId();
+  const tid = tenantId ?? await resolveDefaultSeoTenantId();
   const [weeklyR, keywordsR, alertsR] = await Promise.all([
     pool.query(`
       SELECT client_domain, client_name, total_clicks, total_impressions,
@@ -25,7 +40,7 @@ export async function sendSEOWeeklyEmail(): Promise<void> {
       FROM seo_weekly_metrics
       WHERE week_start >= CURRENT_DATE - 14 AND tenant_id = $1
       ORDER BY client_domain, week_start DESC
-    `, [tenantId]).catch(() => ({ rows: [] })),
+    `, [tid]).catch(() => ({ rows: [] })),
     pool.query(`
       SELECT keyword, COALESCE(client_domain, project_name) AS client_domain,
              current_position AS position, previous_position,
@@ -33,14 +48,23 @@ export async function sendSEOWeeklyEmail(): Promise<void> {
       FROM keyword_rankings
       WHERE tenant_id = $1
       ORDER BY current_position ASC NULLS LAST LIMIT 20
-    `, [tenantId]).catch(() => ({ rows: [] })),
+    `, [tid]).catch(() => ({ rows: [] })),
     pool.query(`
       SELECT alert_type, project_name, message, created_at
       FROM seo_alerts_log
       WHERE created_at >= NOW() - INTERVAL '7 days' AND tenant_id = $1
       ORDER BY created_at DESC LIMIT 10
-    `, [tenantId]).catch(() => ({ rows: [] })),
+    `, [tid]).catch(() => ({ rows: [] })),
   ]);
+
+  // Same shared-recipient caveat as above — label the report with the tenant
+  // it covers so the fixed recipient can tell reports apart once a second
+  // tenant exists, even though the recipient itself isn't tenant-aware yet.
+  let tenantLabel = tid;
+  try {
+    const tenantRow = await pool.query(`SELECT slug FROM tenants WHERE id = $1`, [tid]);
+    if (tenantRow.rows.length > 0) tenantLabel = (tenantRow.rows[0] as { slug: string }).slug;
+  } catch { /* fall back to raw tenantId */ }
 
   const today = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
   const weekAgo = new Date(Date.now() - 7 * 86400000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
@@ -48,7 +72,7 @@ export async function sendSEOWeeklyEmail(): Promise<void> {
   // Build HTML
   let html = `<div style="font-family:Inter,sans-serif;max-width:600px;margin:0 auto">`;
   html += `<div style="background:#1B2E5E;color:white;padding:20px;text-align:center;border-radius:8px 8px 0 0">`;
-  html += `<h2 style="margin:0">SEO Weekly Report</h2><p style="margin:4px 0 0;opacity:0.7">${weekAgo} — ${today}</p></div>`;
+  html += `<h2 style="margin:0">SEO Weekly Report — ${tenantLabel}</h2><p style="margin:4px 0 0;opacity:0.7">${weekAgo} — ${today}</p></div>`;
   html += `<div style="padding:20px;border:1px solid #e2e8f0;border-top:none">`;
 
   // Client summaries
@@ -104,11 +128,11 @@ export async function sendSEOWeeklyEmail(): Promise<void> {
       body: JSON.stringify({
         sender: { name: 'Growth Escalators SEO', email: 'jatin@growthescalators.com' },
         to: [{ email: 'jatin@growthescalators.com', name: 'Jatin Agrawal' }],
-        subject: `SEO Weekly Report — ${weekAgo} to ${today}`,
+        subject: `SEO Weekly Report [${tenantLabel}] — ${weekAgo} to ${today}`,
         htmlContent: html,
       }),
     });
-    if (res.ok) logger.info('[seo-email] Weekly report sent');
+    if (res.ok) logger.info(`[seo-email] Weekly report sent for tenant ${tenantLabel}`);
     else logger.error(`[seo-email] Brevo ${res.status}`);
   } catch (e) {
     logger.error('[seo-email] Send failed:', e instanceof Error ? e.message : String(e));

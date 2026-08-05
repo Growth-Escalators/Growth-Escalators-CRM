@@ -74,16 +74,16 @@ function tenantOptedIntoPriors(settings: unknown): boolean {
  * requirement it carries.
  *
  * `tenantId` defaults to resolveDefaultSeoTenantId() when omitted. That
- * default exists ONLY so the current call sites — all four still calling
- * this with zero args as of this change: seoContentGapService.ts:86,
- * contentGenerationService.ts:166 and :295, competitorContentService.ts:112
- * and :203, seoContentDecayService.ts:40 — keep compiling and keep behaving
- * the same as before (scoped to the single SEO tenant that exists in
- * production today) rather than the pre-fix behaviour of aggregating across
- * every tenant. Those call sites should be updated to pass their own
- * resolved tenantId explicitly as a follow-up; the optional default is a
- * transitional safety net, not the intended long-term shape (see PR notes /
- * report for this change).
+ * default exists ONLY so call sites that haven't been threaded yet keep
+ * compiling and keep behaving the same as before (scoped to the single SEO
+ * tenant that exists in production today) rather than the pre-fix behaviour
+ * of aggregating across every tenant. As of this change, competitorContentService.ts's
+ * two call sites (runCompetitorContentAnalysis, analyzeCompetitorContent)
+ * now pass their own resolved tenantId explicitly. Still calling with zero
+ * args: seoContentGapService.ts:86, contentGenerationService.ts:166 and :295,
+ * seoContentDecayService.ts:40 — those are out of this lane's scope. The
+ * optional default is a transitional safety net, not the intended long-term
+ * shape (see PR notes / report for this change).
  */
 export async function computeOpportunityTypeSuccessRates(
   tenantId?: string,
@@ -225,11 +225,35 @@ export function formatHistoricalPerformanceNote(
   return `\n\nHistorical performance data: ${label}-driven pages have improved search rank in ${pct}% of ${stats.sampleSize} measured past attempts — factor this into your approach.`;
 }
 
-export async function sendWeeklyOpportunityDigest(): Promise<{ sent: boolean }> {
+export async function sendWeeklyOpportunityDigest(tenantId?: string): Promise<{ sent: boolean }> {
   try {
     const { sendSlackMessage } = await import('./slackService');
     const { SLACK_SEO_CHANNEL } = await import('../config/constants');
-    const tenantId = await resolveDefaultSeoTenantId();
+    const tid = tenantId ?? await resolveDefaultSeoTenantId();
+
+    // Every client this digest reports on comes from this tenant's registered
+    // SEO sites (seoSiteRegistry.ts) — never a hardcoded domain list. A
+    // hardcoded array here would, the day a second tenant is onboarded, show
+    // that tenant GE's own client roster (or vice versa) instead of failing loud.
+    const { listSeoSiteDomains } = await import('./seoSiteRegistry');
+    const CLIENT_DOMAINS = await listSeoSiteDomains(tid);
+    if (CLIENT_DOMAINS.length === 0) {
+      logger.warn(`[seo-digest] tenant ${tid} has no registered SEO sites — nothing to digest`);
+      return { sent: false };
+    }
+
+    // Label every message with the tenant this run covers. SLACK_SEO_CHANNEL
+    // is a single shared constant (not tenant-scoped) — once a second tenant
+    // starts running this digest, both tenants' messages land in the same
+    // channel, so the label is the only thing that keeps them distinguishable.
+    // See report for this change: a real per-tenant channel needs a
+    // tenants.settings-driven override, which is a schema-adjacent decision
+    // out of this lane's scope.
+    let tenantLabel = tid;
+    try {
+      const tenantRow = await pool.query(`SELECT slug FROM tenants WHERE id = $1`, [tid]);
+      if (tenantRow.rows.length > 0) tenantLabel = (tenantRow.rows[0] as { slug: string }).slug;
+    } catch { /* fall back to raw tenantId */ }
 
     // Pre-flight: if every upstream source is empty, don't send a hollow digest
     // that makes the team think "no news is good news". Send a single health-alert
@@ -239,10 +263,10 @@ export async function sendWeeklyOpportunityDigest(): Promise<{ sent: boolean }> 
         (SELECT COUNT(*) FROM seo_opportunities WHERE status = 'open' AND tenant_id = $1)::int AS open_opps,
         (SELECT COUNT(*) FROM seo_alerts_log WHERE created_at > NOW() - INTERVAL '7 days' AND tenant_id = $1)::int AS recent_alerts,
         (SELECT COUNT(*) FROM keyword_rankings WHERE recorded_date >= CURRENT_DATE - INTERVAL '10 days' AND tenant_id = $1)::int AS rankings
-    `, [tenantId]);
+    `, [tid]);
     const { open_opps, recent_alerts, rankings } = upstreamQ.rows[0] as { open_opps: number; recent_alerts: number; rankings: number };
     if (Number(open_opps) === 0 && Number(recent_alerts) === 0 && Number(rankings) === 0) {
-      const msg = 'seo-digest: skipped — seo_opportunities, seo_alerts_log, and keyword_rankings all empty. Upstream SEO crons are broken, check Railway worker logs and SERPER_API_KEY.';
+      const msg = `seo-digest [${tenantLabel}]: skipped — seo_opportunities, seo_alerts_log, and keyword_rankings all empty. Upstream SEO crons are broken, check Railway worker logs and SERPER_API_KEY.`;
       logger.error(`[seo-digest] ${msg}`);
       await sendSlackMessage(SLACK_SEO_CHANNEL, `⚠️ ${msg}`);
       return { sent: false };
@@ -258,14 +282,14 @@ export async function sendWeeklyOpportunityDigest(): Promise<{ sent: boolean }> 
           AND o.created_at <= NOW() - INTERVAL '14 days'
           AND o.tenant_id = $1
         LIMIT 20
-      `, [tenantId]);
+      `, [tid]);
       for (const opp of unmeasured.rows as Array<{ id: string; client_domain: string; keyword: string; created_at: string }>) {
         if (!opp.keyword) continue;
         const rankNow = await pool.query(
           `SELECT current_position FROM keyword_rankings
            WHERE (client_domain = $1 OR project_name = $1) AND keyword = $2 AND tenant_id = $3
            ORDER BY recorded_date DESC LIMIT 1`,
-          [opp.client_domain, opp.keyword, tenantId],
+          [opp.client_domain, opp.keyword, tid],
         );
         const rankAtCreation = await pool.query(
           `SELECT current_position FROM keyword_rankings
@@ -273,7 +297,7 @@ export async function sendWeeklyOpportunityDigest(): Promise<{ sent: boolean }> 
              AND recorded_date <= $3::date
              AND tenant_id = $4
            ORDER BY recorded_date DESC LIMIT 1`,
-          [opp.client_domain, opp.keyword, opp.created_at, tenantId],
+          [opp.client_domain, opp.keyword, opp.created_at, tid],
         );
         if (rankNow.rows.length > 0 && rankAtCreation.rows.length > 0) {
           const now = Number((rankNow.rows[0] as { current_position: number }).current_position);
@@ -281,7 +305,7 @@ export async function sendWeeklyOpportunityDigest(): Promise<{ sent: boolean }> 
           const outcome = now < before - 5 ? 'recovered' : now < before ? 'improved' : now > before + 5 ? 'worse' : 'flat';
           await pool.query(
             `UPDATE seo_opportunities SET outcome = $1, outcome_measured_at = NOW() WHERE id = $2 AND tenant_id = $3`,
-            [outcome, opp.id, tenantId],
+            [outcome, opp.id, tid],
           );
         }
       }
@@ -293,13 +317,13 @@ export async function sendWeeklyOpportunityDigest(): Promise<{ sent: boolean }> 
     // track record, if any type has a trustworthy sample yet. Computed once per
     // tenant (this data isn't per client-domain within a tenant) and appended to
     // every client's message below.
-    const successRates = await computeOpportunityTypeSuccessRates(tenantId);
+    const successRates = await computeOpportunityTypeSuccessRates(tid);
     const bestPerformingType = Object.entries(successRates)
       .filter(([, stats]) => stats.sampleSize >= MIN_SAMPLE_SIZE_FOR_ADJUSTMENT)
       .sort((a, b) => b[1].successRate - a[1].successRate)[0];
 
-    // Per-client digest
-    const CLIENT_DOMAINS = ['aarohaom.com', 'blackpandaenterprises.com', 'ageddentistry.org'];
+    // Per-client digest — CLIENT_DOMAINS above is already this tenant's
+    // registered site list, sourced from seoSiteRegistry.
     const clientSummaries: string[] = [];
 
     for (const domain of CLIENT_DOMAINS) {
@@ -315,7 +339,7 @@ export async function sendWeeklyOpportunityDigest(): Promise<{ sent: boolean }> 
           WHERE (client_domain = $1 OR project_name ILIKE '%' || split_part($1, '.', 1) || '%')
             AND recorded_date >= CURRENT_DATE - INTERVAL '7 days'
             AND tenant_id = $2
-        `, [domain, tenantId]);
+        `, [domain, tid]);
 
         const rc = rankChanges.rows[0] as { wins: number; losses: number; gained: number; lost: number };
         const netChange = (rc.gained ?? 0) - (rc.lost ?? 0);
@@ -335,7 +359,7 @@ export async function sendWeeklyOpportunityDigest(): Promise<{ sent: boolean }> 
           WHERE this_week.client_domain = $1 AND this_week.tenant_id = $2
           ORDER BY this_week.week_start_date DESC
           LIMIT 1
-        `, [domain, tenantId]);
+        `, [domain, tid]);
         const trend = trendQ.rows[0] as { total_impressions: number; total_clicks: number; impressions_delta: number } | undefined;
 
         // Top 3 opportunities by priority_score
@@ -347,7 +371,7 @@ export async function sendWeeklyOpportunityDigest(): Promise<{ sent: boolean }> 
             AND tenant_id = $2
           ORDER BY COALESCE(priority_score, 0) DESC
           LIMIT 3
-        `, [domain, tenantId]);
+        `, [domain, tid]);
 
         // Recent alerts count
         const alertCount = await pool.query(`
@@ -355,7 +379,7 @@ export async function sendWeeklyOpportunityDigest(): Promise<{ sent: boolean }> 
           WHERE (client_domain = $1 OR project_name ILIKE '%' || split_part($1, '.', 1) || '%')
             AND created_at > NOW() - INTERVAL '7 days'
             AND tenant_id = $2
-        `, [domain, tenantId]);
+        `, [domain, tid]);
 
         // Open opportunities count
         const oppCount = await pool.query(`
@@ -363,14 +387,16 @@ export async function sendWeeklyOpportunityDigest(): Promise<{ sent: boolean }> 
           WHERE (client_domain = $1 OR project_name ILIKE '%' || split_part($1, '.', 1) || '%')
             AND status = 'open'
             AND tenant_id = $2
-        `, [domain, tenantId]);
+        `, [domain, tid]);
 
         const clientName = domain.split('.')[0].charAt(0).toUpperCase() + domain.split('.')[0].slice(1);
         const dateStr = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
+        // tenantLabel names which tenant this snapshot belongs to — see the
+        // shared-channel note above resolveDefaultSeoTenantId's call site.
         const lines: string[] = [
           `*📊 ${clientName} (${domain}) — SEO Weekly Snapshot*`,
-          `_${dateStr}_`,
+          `_${dateStr} · tenant: ${tenantLabel}_`,
           '',
           `*North Star: Net rank change this week: ${netChange > 0 ? '+' : ''}${netChange} ${trendSymbol}* (${rc.wins ?? 0} wins, ${rc.losses ?? 0} losses)`,
         ];
@@ -418,10 +444,10 @@ export async function sendWeeklyOpportunityDigest(): Promise<{ sent: boolean }> 
 
     // Team summary
     await sendSlackMessage(SLACK_SEO_CHANNEL,
-      `_Weekly SEO digest sent: ${clientSummaries.join(', ')}_`
+      `_[${tenantLabel}] Weekly SEO digest sent: ${clientSummaries.join(', ')}_`
     ).catch(() => null);
 
-    logger.info(`[seo-digest] weekly digest sent for clients: ${clientSummaries.join(', ')}`);
+    logger.info(`[seo-digest] weekly digest sent for tenant ${tenantLabel}, clients: ${clientSummaries.join(', ')}`);
     return { sent: true };
   } catch (e) {
     logger.error('[seo-digest] error:', e instanceof Error ? e.message : String(e));

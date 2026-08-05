@@ -109,7 +109,7 @@ export async function analyzeCompetitorContent(
   // Learning loop: give the model historical context on how well this class of
   // opportunity has actually performed, when there's enough data to trust it.
   const { computeOpportunityTypeSuccessRates, formatHistoricalPerformanceNote } = await import('./seoDigestService');
-  const successRates = await computeOpportunityTypeSuccessRates();
+  const successRates = await computeOpportunityTypeSuccessRates(resolvedTenantId);
   const historicalNote = formatHistoricalPerformanceNote('content_gap', successRates);
 
   try {
@@ -172,10 +172,22 @@ Return ONLY valid JSON (no markdown):
 // ---------------------------------------------------------------------------
 // Main cron: run competitor content analysis for improvable keywords
 // ---------------------------------------------------------------------------
-export async function runCompetitorContentAnalysis(): Promise<{ analyzed: number; errors: number }> {
+export async function runCompetitorContentAnalysis(tenantId?: string): Promise<{ analyzed: number; errors: number }> {
   let analyzed = 0;
   let errors = 0;
-  const tenantId = await resolveDefaultSeoTenantId();
+  const tid = tenantId ?? await resolveDefaultSeoTenantId();
+
+  // Guard the paid Serper + Claude calls below on this tenant actually having
+  // registered SEO sites. keyword_rankings is already tenant-scoped, so a
+  // tenant with no registered sites should naturally have zero rows here —
+  // this is a belt-and-suspenders check against orphaned ranking rows (e.g. a
+  // site deregistered after rankings were recorded) still triggering paid calls.
+  const { listSeoSiteDomains } = await import('./seoSiteRegistry');
+  const registeredDomains = await listSeoSiteDomains(tid);
+  if (registeredDomains.length === 0) {
+    logger.warn(`[competitor-content] tenant ${tid} has no registered SEO sites — skipping, zero paid calls made`);
+    return { analyzed: 0, errors: 0 };
+  }
 
   try {
     // Keywords ranked 5-30 have the most improvement potential
@@ -187,7 +199,7 @@ export async function runCompetitorContentAnalysis(): Promise<{ analyzed: number
         AND tenant_id = $1
       ORDER BY keyword, recorded_date DESC
       LIMIT 10
-    `, [tenantId]);
+    `, [tid]);
 
     const keywords = result.rows as Array<{ keyword: string; client_domain: string; current_position: string }>;
     if (keywords.length === 0) {
@@ -200,7 +212,7 @@ export async function runCompetitorContentAnalysis(): Promise<{ analyzed: number
     // Learning loop: historical outcome success rates per opportunity type, computed
     // once per run and used to nudge priority scores (see applySuccessRateAdjustment).
     const { computeOpportunityTypeSuccessRates, applySuccessRateAdjustment } = await import('./seoDigestService');
-    const successRates = await computeOpportunityTypeSuccessRates();
+    const successRates = await computeOpportunityTypeSuccessRates(tid);
 
     for (const kw of keywords) {
       try {
@@ -213,7 +225,7 @@ export async function runCompetitorContentAnalysis(): Promise<{ analyzed: number
 
         await new Promise(r => setTimeout(r, 1500)); // rate limit between Serper and Claude
 
-        const analysis = await analyzeCompetitorContent(kw.keyword, kw.client_domain, competitors, tenantId);
+        const analysis = await analyzeCompetitorContent(kw.keyword, kw.client_domain, competitors, tid);
         if (!analysis) {
           errors++;
           continue;
@@ -239,7 +251,7 @@ export async function runCompetitorContentAnalysis(): Promise<{ analyzed: number
             JSON.stringify(analysis.missing_questions),
             analysis.recommended_word_count,
             priorityScore,
-            tenantId,
+            tid,
           ],
         );
 

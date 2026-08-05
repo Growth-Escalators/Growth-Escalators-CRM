@@ -55,6 +55,7 @@ import searchRouter from './routes/search';
 import auditRouter from './routes/audit';
 import seoRouter from './routes/seo';
 import seoWorkflowsRouter from './routes/seoWorkflows';
+import seoSitesRouter from './routes/seoSites';
 import financeRouter from './routes/finance';
 import intelligenceRouter from './routes/intelligence';
 import growthOSRouter from './routes/growthOS';
@@ -364,6 +365,9 @@ app.use('/api/analytics', requireAuth, analyticsRouter);
 // to reach it. See requireTenantFeature.ts for the fail-closed contract.
 app.use('/api/seo', requireAuth, requireTenantFeature('seo'), seoRouter);
 app.use('/api/seo-workflows', requireAuth, requireTenantFeature('seo'), seoWorkflowsRouter);
+// The site registry. Same gate as the rest of SEO — a tenant without the
+// add-on cannot enumerate or register sites.
+app.use('/api/seo-sites', requireAuth, requireTenantFeature('seo'), seoSitesRouter);
 app.use('/api/finance', requireAuth, financeRouter);
 app.use('/api/intelligence', requireAuth, intelligenceRouter);
 app.use('/api/growth-os', requireAuth, growthOSRouter);
@@ -941,7 +945,10 @@ async function startServer() {
     } catch (e) { console.error('[startup-backfill] FATAL:', e); }
   }, 20000);
 
-  // One-time startup: run PageSpeed if site_health_metrics is empty
+  // One-time startup: run PageSpeed if a tenant has no site_health_metrics yet.
+  // Sweeps per tenant — resolveDefaultSeoTenantId() throws once a second tenant
+  // has the SEO add-on, and this try/catch would have swallowed that into a
+  // logged error that silently skipped the backfill for everyone.
   setTimeout(async () => {
     try {
       if (!(await claimBootBackfill(pool, 'initial-pagespeed-check'))) {
@@ -949,40 +956,37 @@ async function startServer() {
         return;
       }
       const { pool: dbPool } = await import('./db/index');
-      const { resolveDefaultSeoTenantId } = await import('./services/seoTenantContext');
-      const tenantId = await resolveDefaultSeoTenantId();
-      const r = await dbPool.query(`SELECT COUNT(*)::int AS c FROM site_health_metrics WHERE tenant_id = $1`, [tenantId]);
-      if ((r.rows[0] as { c: number }).c === 0) {
-        console.log('[startup] site_health_metrics empty — running PageSpeed checks');
+      const { forEachSeoTenant } = await import('./services/seoTenantContext');
+      await forEachSeoTenant('startup PageSpeed backfill', async (tenantId) => {
+        const r = await dbPool.query(`SELECT COUNT(*)::int AS c FROM site_health_metrics WHERE tenant_id = $1`, [tenantId]);
+        if ((r.rows[0] as { c: number }).c > 0) return;
+        console.log(`[startup] site_health_metrics empty for tenant ${tenantId} — running PageSpeed checks`);
         const { runPageSpeedChecks } = await import('./services/pagespeedService');
-        const result = await runPageSpeedChecks();
-        console.log(`[startup] PageSpeed: ${result.checked} checked, ${result.errors} errors`);
-      }
+        const result = await runPageSpeedChecks(tenantId);
+        console.log(`[startup] PageSpeed (tenant ${tenantId}): ${result.checked} checked, ${result.errors} errors`);
+      });
     } catch (e) { console.error('[startup] PageSpeed check failed:', e); }
   }, 10000); // 10 seconds after startup
 
-  // One-time startup: generate programmatic pages if client_pages is empty
-  setTimeout(async () => {
-    try {
-      if (!(await claimBootBackfill(pool, 'initial-programmatic-seo-pages'))) {
-        console.log('[startup] Programmatic SEO backfill already completed on a prior boot — skipping');
-        return;
-      }
-      const { pool: dbPool } = await import('./db/index');
-      // Ensure programmatic SEO columns exist on the Drizzle-managed client_pages table
-      const { ensureClientPagesTable } = await import('./services/programmaticSeoService');
-      await ensureClientPagesTable();
-      const { resolveDefaultSeoTenantId } = await import('./services/seoTenantContext');
-      const tenantId = await resolveDefaultSeoTenantId();
-      const r = await dbPool.query(`SELECT COUNT(*)::int AS c FROM client_pages WHERE client_domain = 'ageddentistry.org' AND tenant_id = $1`, [tenantId]);
-      if ((r.rows[0] as { c: number }).c === 0) {
-        console.log('[startup] No programmatic pages — generating for Aged Dentistry');
-        const { generateLocationPages } = await import('./services/programmaticSeoService');
-        const result = await generateLocationPages();
-        console.log(`[startup] Programmatic SEO: ${result.generated} generated, ${result.wpPublished} to WordPress, ${result.errors} errors`);
-      }
-    } catch (e) { console.error('[startup] Programmatic page generation failed:', e); }
-  }, 15000); // 15 seconds after startup
+  // REMOVED — one-time startup generation of programmatic pages.
+  //
+  // It was pinned to `client_domain = 'ageddentistry.org'` and, when that
+  // client's page count hit zero, regenerated location pages for them and
+  // published to WordPress. Three problems, any one of which is disqualifying
+  // now that SEO is a multi-tenant add-on:
+  //
+  //   - ageddentistry.org is one of three retired clients whose data is
+  //     scheduled for deletion. This code would have recreated it on the next
+  //     boot after the purge — a deletion that silently undoes itself.
+  //   - It writes to a live external website from a boot hook, with no human
+  //     in the loop. That is exactly what the approval hard-stop exists to
+  //     prevent, and Phase 3's SiteAdapter is where publishing belongs.
+  //   - It resolved a single tenant, so it was another instance of the throw.
+  //
+  // Its `claimBootBackfill` key ('initial-programmatic-seo-pages') was long
+  // since claimed in production, so this block had not done anything on boot
+  // for months. Page generation is available on demand via
+  // POST /api/seo/regenerate-pages.
 
   validateEnv();
 

@@ -498,12 +498,27 @@ router.post('/chat', async (req: Request, res: Response) => {
     // Build compact data snapshot (used in system prompt)
     const snapshot = await buildDataSnapshot(req.user!.tenantId);
 
+    // The SEO client list used to be three domains hardcoded into this prompt,
+    // so every tenant's Co-Pilot was told it worked on Growth Escalators'
+    // clients — naming three retired clients to whoever was asking. Sourced
+    // from the caller's own site registry now; empty is a valid answer.
+    let seoClientsLine = 'CLIENTS: SEO — none registered yet.';
+    try {
+      const { listSeoSiteDomains } = await import('../services/seoSiteRegistry');
+      const domains = await listSeoSiteDomains(req.user!.tenantId);
+      if (domains.length > 0) seoClientsLine = `CLIENTS: SEO — ${domains.join(', ')}.`;
+    } catch (e) {
+      // A registry read failure must not take the whole assistant down, but it
+      // must also not silently fall back to somebody else's client list.
+      logger.warn('[copilot] could not load SEO site list for the system prompt:', e instanceof Error ? e.message : String(e));
+    }
+
     const systemPrompt = `You are the Growth Escalators Operations Co-Pilot — Jatin's private AI assistant.
 You have access to live business data and can take real actions via tools.
 
 BUSINESS: Performance marketing agency, Jaipur, India.
 TEAM: Jatin (founder/admin), Sakcham (sales/ads manager), Keshav (video editor).
-CLIENTS: SEO — aarohaom.com, blackpandaenterprises.com, ageddentistry.org.
+${seoClientsLine}
 
 PERSONALITY: Direct. Concise. Metric-focused. No filler words. Lead with numbers.
 FORMAT: Use bullet points for lists. Bold for key numbers. Single sentences per point.

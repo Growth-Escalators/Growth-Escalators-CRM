@@ -43,13 +43,27 @@ export async function calculateBrandHealth(client: GrowthOSClient): Promise<Bran
   logger.info(`[brand-health] Calculating for ${client.client_name}...`);
   const today = new Date().toISOString().slice(0, 10);
 
-  // Run all sub-scores in parallel
+  // Run all sub-scores in parallel. Every sub-score below takes the
+  // client's own tenant_id and binds it in its queries — worker.ts sweeps
+  // every tenant's clients unscoped (see getActiveGrowthOSClients's
+  // comment) precisely because per-client scoping happens here, not at the
+  // fetch. calcSeoScore used to call resolveDefaultSeoTenantId() itself,
+  // which THROWS the moment a second tenant has the seo feature on — that
+  // would abort this Promise.all (and the whole cron's for-loop) for every
+  // client from that point on, not just the ambiguous one (see
+  // seoTenantContext.ts's docblock). calcWhatsappScore/calcRetentionScore/
+  // getPreviousScore had a separate, worse bug: they never bound tenant_id
+  // at all, so every client's WhatsApp/retention/previous-score was
+  // computed over every tenant's messages/contacts/deals pooled together
+  // (tenant-isolation audit, 2026-08-05) — same class of bug
+  // growthOSSetup.ts documents calculateMoneyOnTable() having had.
+  const tenantId = client.tenant_id ?? undefined;
   const [adsResult, seoResult, whatsappResult, retentionResult, previousRow] = await Promise.all([
     calcAdsScore(client),
-    calcSeoScore(client.client_name),
-    calcWhatsappScore(),
-    calcRetentionScore(),
-    getPreviousScore(client.client_name),
+    calcSeoScore(client.client_name, tenantId),
+    calcWhatsappScore(tenantId),
+    calcRetentionScore(tenantId),
+    getPreviousScore(client.client_name, tenantId),
   ]);
 
   // Email score — Brevo integration pending
@@ -173,12 +187,15 @@ async function calcAdsScore(client: GrowthOSClient): Promise<{ score: number; de
   }
 }
 
-async function calcSeoScore(clientName: string): Promise<{ score: number; detail: Record<string, unknown> }> {
+async function calcSeoScore(clientName: string, tenantId?: string): Promise<{ score: number; detail: Record<string, unknown> }> {
   try {
-    const tenantId = await resolveDefaultSeoTenantId();
+    // Legacy clients created before growth_os_clients.tenant_id was backfilled
+    // can still have a null tenant_id — resolveDefaultSeoTenantId() is the
+    // right fallback only for that narrow case, not the default path.
+    const resolvedTenantId = tenantId ?? await resolveDefaultSeoTenantId();
     const [weeklyRes, rankRes] = await Promise.all([
-      pool.query(`SELECT COUNT(*) AS total FROM seo_weekly_metrics WHERE tenant_id = $1`, [tenantId]).catch(() => ({ rows: [{ total: '0' }] })),
-      pool.query(`SELECT COUNT(*) AS improved, SUM(CASE WHEN (previous_position - current_position) > 0 THEN 1 ELSE 0 END) AS gains FROM keyword_rankings WHERE recorded_date >= CURRENT_DATE - 7 AND tenant_id = $1`, [tenantId]).catch(() => ({ rows: [{ improved: '0', gains: '0' }] })),
+      pool.query(`SELECT COUNT(*) AS total FROM seo_weekly_metrics WHERE tenant_id = $1`, [resolvedTenantId]).catch(() => ({ rows: [{ total: '0' }] })),
+      pool.query(`SELECT COUNT(*) AS improved, SUM(CASE WHEN (previous_position - current_position) > 0 THEN 1 ELSE 0 END) AS gains FROM keyword_rankings WHERE recorded_date >= CURRENT_DATE - 7 AND tenant_id = $1`, [resolvedTenantId]).catch(() => ({ rows: [{ improved: '0', gains: '0' }] })),
     ]);
 
     const weeklyTotal = Number((weeklyRes.rows[0] as { total: string }).total ?? 0);
@@ -199,12 +216,17 @@ async function calcSeoScore(clientName: string): Promise<{ score: number; detail
   }
 }
 
-async function calcWhatsappScore(): Promise<{ score: number; detail: Record<string, unknown> }> {
+async function calcWhatsappScore(tenantId?: string): Promise<{ score: number; detail: Record<string, unknown> }> {
   try {
+    // tenantId may be null for a legacy client whose tenant_id was never
+    // backfilled — bind it as SQL NULL rather than skip the filter, so an
+    // unscoped client fails closed to zero rows instead of pooling every
+    // tenant's messages/sequences/jobs into its score.
+    const tid = tenantId ?? null;
     const [msgRes, seqRes, errRes] = await Promise.all([
-      pool.query(`SELECT COUNT(*) AS cnt FROM messages WHERE direction = 'outbound' AND sent_at >= NOW() - INTERVAL '7 days'`).catch(() => ({ rows: [{ cnt: '0' }] })),
-      pool.query(`SELECT COUNT(*) AS cnt FROM sequence_enrolments WHERE status = 'active'`).catch(() => ({ rows: [{ cnt: '0' }] })),
-      pool.query(`SELECT COUNT(*) AS cnt FROM jobs WHERE status = 'failed' AND created_at >= NOW() - INTERVAL '24 hours'`).catch(() => ({ rows: [{ cnt: '0' }] })),
+      pool.query(`SELECT COUNT(*) AS cnt FROM messages WHERE tenant_id = $1 AND direction = 'outbound' AND sent_at >= NOW() - INTERVAL '7 days'`, [tid]).catch(() => ({ rows: [{ cnt: '0' }] })),
+      pool.query(`SELECT COUNT(*) AS cnt FROM sequence_enrolments WHERE tenant_id = $1 AND status = 'active'`, [tid]).catch(() => ({ rows: [{ cnt: '0' }] })),
+      pool.query(`SELECT COUNT(*) AS cnt FROM jobs WHERE tenant_id = $1 AND status = 'failed' AND created_at >= NOW() - INTERVAL '24 hours'`, [tid]).catch(() => ({ rows: [{ cnt: '0' }] })),
     ]);
 
     const msgsSent = Number((msgRes.rows[0] as { cnt: string }).cnt ?? 0);
@@ -224,12 +246,14 @@ async function calcWhatsappScore(): Promise<{ score: number; detail: Record<stri
   }
 }
 
-async function calcRetentionScore(): Promise<{ score: number; detail: Record<string, unknown> }> {
+async function calcRetentionScore(tenantId?: string): Promise<{ score: number; detail: Record<string, unknown> }> {
   try {
+    // Same fail-closed-on-null-tenant posture as calcWhatsappScore above.
+    const tid = tenantId ?? null;
     const [thisWeekRes, lastWeekRes, convRes] = await Promise.all([
-      pool.query(`SELECT COUNT(*) AS cnt FROM contacts WHERE created_at >= NOW() - INTERVAL '7 days'`).catch(() => ({ rows: [{ cnt: '0' }] })),
-      pool.query(`SELECT COUNT(*) AS cnt FROM contacts WHERE created_at >= NOW() - INTERVAL '14 days' AND created_at < NOW() - INTERVAL '7 days'`).catch(() => ({ rows: [{ cnt: '0' }] })),
-      pool.query(`SELECT COUNT(*) AS total, SUM(CASE WHEN stage = 'won' THEN 1 ELSE 0 END) AS won FROM deals`).catch(() => ({ rows: [{ total: '0', won: '0' }] })),
+      pool.query(`SELECT COUNT(*) AS cnt FROM contacts WHERE tenant_id = $1 AND created_at >= NOW() - INTERVAL '7 days'`, [tid]).catch(() => ({ rows: [{ cnt: '0' }] })),
+      pool.query(`SELECT COUNT(*) AS cnt FROM contacts WHERE tenant_id = $1 AND created_at >= NOW() - INTERVAL '14 days' AND created_at < NOW() - INTERVAL '7 days'`, [tid]).catch(() => ({ rows: [{ cnt: '0' }] })),
+      pool.query(`SELECT COUNT(*) AS total, SUM(CASE WHEN stage = 'won' THEN 1 ELSE 0 END) AS won FROM deals WHERE tenant_id = $1`, [tid]).catch(() => ({ rows: [{ total: '0', won: '0' }] })),
     ]);
 
     const thisWeek = Number((thisWeekRes.rows[0] as { cnt: string }).cnt ?? 0);
@@ -250,11 +274,15 @@ async function calcRetentionScore(): Promise<{ score: number; detail: Record<str
   }
 }
 
-async function getPreviousScore(clientName: string): Promise<number | null> {
+async function getPreviousScore(clientName: string, tenantId?: string): Promise<number | null> {
   try {
+    // client_name is not guaranteed unique across tenants — without the
+    // tenant_id filter, two agencies naming a client the same thing would
+    // read each other's score history as their own "previous_score"/
+    // "score_change".
     const r = await pool.query(
-      `SELECT overall_score FROM brand_health_scores WHERE client_name = $1 AND score_date < CURRENT_DATE ORDER BY score_date DESC LIMIT 1`,
-      [clientName]
+      `SELECT overall_score FROM brand_health_scores WHERE client_name = $1 AND tenant_id = $2 AND score_date < CURRENT_DATE ORDER BY score_date DESC LIMIT 1`,
+      [clientName, tenantId ?? null]
     );
     if (r.rows[0]) return Number((r.rows[0] as { overall_score: number }).overall_score);
     return null;

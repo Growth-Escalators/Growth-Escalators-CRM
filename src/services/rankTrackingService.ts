@@ -1,35 +1,13 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { resolveDefaultSeoTenantId } from './seoTenantContext';
+import { listSeoSiteDomains } from './seoSiteRegistry';
 
 // ---------------------------------------------------------------------------
 // Serper.dev API configuration
 // ---------------------------------------------------------------------------
 const SERPER_API_URL = 'https://google.serper.dev/search';
 const SERPER_API_KEY = process.env.SERPER_API_KEY;
-
-// Client → domain mapping (fallback if DB is empty)
-const CLIENT_DOMAINS: Record<string, string> = {
-  aarohaom: 'aarohaom.com',
-  blackpanda: 'blackpandaenterprises.com',
-  ageddentistry: 'ageddentistry.org',
-};
-
-// Starter keywords per client (used only when keyword_rankings is empty)
-const STARTER_KEYWORDS: Record<string, string[]> = {
-  'aarohaom.com': [
-    'ayurvedic treatment', 'ayurvedic wellness', 'aaroha om',
-    'natural healing jaipur', 'ayurveda products online',
-  ],
-  'blackpandaenterprises.com': [
-    'india market entry', 'gcc consulting india', 'healthcare ai india',
-    'business consulting jaipur', 'black panda enterprises',
-  ],
-  'ageddentistry.org': [
-    'geriatric dentistry', 'aged dentistry association', 'dental care elderly india',
-    'dentistry for seniors', 'aged dental association',
-  ],
-};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -53,11 +31,24 @@ interface KeywordToTrack {
 }
 
 // ---------------------------------------------------------------------------
-// Get keywords to track (from DB or starter set)
+// Get keywords to track — DB only, no hardcoded starter set.
+//
+// This used to fall back to STARTER_KEYWORDS: five seed keywords each for
+// three specific, now-retired clients (scheduled for deletion), applied
+// whenever keyword_rankings was empty. That's the same bug as the hardcoded
+// CLIENT_DOMAINS arrays removed elsewhere in this pass: a brand-new tenant
+// with an empty keyword_rankings table would have silently been seeded with
+// a retired client's keywords instead of its own or none at all. It's
+// removed outright here rather than gated behind "only if this tenant owns
+// that domain" — there is no new tenant those specific keywords could ever
+// legitimately apply to, they were one-off content for domains this repo no
+// longer serves. A tenant's real keyword set now only ever comes from
+// whatever discovery/seeding flow populates keyword_rankings for its
+// registered sites; until that has run, rank tracking has nothing to do for
+// that tenant, which is the correct (empty) answer.
 // ---------------------------------------------------------------------------
 async function getKeywordsToTrack(tenantId: string): Promise<KeywordToTrack[]> {
   try {
-    // First: check if we have existing keywords in the DB
     const existing = await pool.query(`
       SELECT DISTINCT
         COALESCE(project_name, '') AS project_name,
@@ -68,38 +59,30 @@ async function getKeywordsToTrack(tenantId: string): Promise<KeywordToTrack[]> {
       ORDER BY client_domain, keyword
     `, [tenantId]);
 
-    if (existing.rows.length > 0) {
-      // Deduplicate by keyword+domain
-      const seen = new Set<string>();
-      const keywords: KeywordToTrack[] = [];
-      for (const row of existing.rows as Array<Record<string, string>>) {
-        const key = `${row.client_domain}:${row.keyword}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          keywords.push({
-            projectName: row.project_name || row.client_domain,
-            clientDomain: row.client_domain,
-            keyword: row.keyword,
-          });
-        }
+    // Deduplicate by keyword+domain
+    const seen = new Set<string>();
+    const keywords: KeywordToTrack[] = [];
+    for (const row of existing.rows as Array<Record<string, string>>) {
+      const key = `${row.client_domain}:${row.keyword}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        keywords.push({
+          projectName: row.project_name || row.client_domain,
+          clientDomain: row.client_domain,
+          keyword: row.keyword,
+        });
       }
-      logger.info(`[rank-tracking] found ${keywords.length} existing keywords to track`);
-      return keywords;
     }
+    if (keywords.length === 0) {
+      logger.info('[rank-tracking] no existing keywords to track for this tenant yet');
+    } else {
+      logger.info(`[rank-tracking] found ${keywords.length} existing keywords to track`);
+    }
+    return keywords;
   } catch (e) {
     logger.warn('[rank-tracking] could not fetch existing keywords:', e);
+    return [];
   }
-
-  // Fallback: use starter keywords
-  logger.info('[rank-tracking] no existing keywords, using starter set');
-  const keywords: KeywordToTrack[] = [];
-  for (const [domain, kws] of Object.entries(STARTER_KEYWORDS)) {
-    const projectName = Object.entries(CLIENT_DOMAINS).find(([, d]) => d === domain)?.[0] ?? domain;
-    for (const keyword of kws) {
-      keywords.push({ projectName, clientDomain: domain, keyword });
-    }
-  }
-  return keywords;
 }
 
 // ---------------------------------------------------------------------------
@@ -183,7 +166,9 @@ async function getPreviousPosition(tenantId: string, projectName: string, keywor
 // ---------------------------------------------------------------------------
 // Main: run rank checks for all tracked keywords
 // ---------------------------------------------------------------------------
-export async function runRankChecks(): Promise<{ checked: number; errors: number }> {
+export async function runRankChecks(tenantId?: string): Promise<{ checked: number; errors: number }> {
+  const tid = tenantId ?? await resolveDefaultSeoTenantId();
+
   if (!SERPER_API_KEY) {
     const msg = 'rank-tracking: SERPER_API_KEY not set on Railway worker — rank checks cannot run';
     logger.error(`[rank-tracking] ${msg}`);
@@ -195,18 +180,28 @@ export async function runRankChecks(): Promise<{ checked: number; errors: number
     throw new Error(msg);
   }
 
+  // Same zero-sites-zero-spend requirement as seoBacklinkService: a tenant
+  // with no registered SEO sites makes zero paid Serper calls. This runs
+  // after the API-key guard above (not before), so a genuinely missing key
+  // still fails loudly and posts to Slack regardless of site registration —
+  // that's an infra problem, not a per-tenant one.
+  const domains = await listSeoSiteDomains(tid);
+  if (domains.length === 0) {
+    logger.warn(`[rank-tracking] tenant ${tid} has no registered SEO sites — skipping rank checks (zero paid API calls)`);
+    return { checked: 0, errors: 0 };
+  }
+
   let checked = 0;
   let errors = 0;
   const today = new Date().toISOString().split('T')[0];
-  const tenantId = await resolveDefaultSeoTenantId();
 
-  const keywords = await getKeywordsToTrack(tenantId);
+  const keywords = await getKeywordsToTrack(tid);
   logger.info(`[rank-tracking] checking ${keywords.length} keywords via Serper.dev`);
 
   for (const kw of keywords) {
     try {
       const { position, url, featuredSnippet } = await checkSerperRank(kw.keyword, kw.clientDomain);
-      const previousPosition = await getPreviousPosition(tenantId, kw.projectName, kw.keyword);
+      const previousPosition = await getPreviousPosition(tid, kw.projectName, kw.keyword);
       const positionChange = (previousPosition != null && position != null)
         ? previousPosition - position
         : null;
@@ -226,7 +221,7 @@ export async function runRankChecks(): Promise<{ checked: number; errors: number
           url,
           featuredSnippet,
           today,
-          tenantId,
+          tid,
         ],
       );
 

@@ -3,7 +3,6 @@ import logger from '../utils/logger';
 import { sendSlackDM } from './slackService';
 import { SLACK_JATIN } from '../config/constants';
 import { isPaused } from '../config/featureFlags';
-import { resolveDefaultSeoTenantId } from './seoTenantContext';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,6 +56,22 @@ const CRON_WINDOWS: Record<string, number> = {
   'Co-Pilot Poller': 5, 'Pipeline Placement': 1,
   'System Health Check': 60, 'Late Attendance Check': 1500,
   'Directory Scrapers': 1500,
+  // SEO — every one of these was running and scheduled but absent from this
+  // registry, so the System Health page has never shown a single SEO cron.
+  // They are the crons the SEO add-on is sold on; an agency paying for it needs
+  // to see them. Values are the nominal cadence — checkCronJobs() already
+  // allows 2x the window before calling a job unhealthy.
+  //
+  // A registered job that has never logged a run simply does not appear (the
+  // query joins against cron_job_logs), so listing the env-gated
+  // 'SEO Weekly Digest' cannot produce a permanently-overdue phantom row.
+  'GE SEO Pull': 10080, 'SEO Weekly Email': 10080,
+  'PageSpeed Monitor': 10080, 'Rank Tracking': 10080,
+  'SEO Alert Triggers': 1500, 'SEO Backlink Monitor': 10080,
+  'SEO Content Decay': 10080, 'SEO Weekly Digest': 10080,
+  'SEO Indexing Reminder': 10080,
+  'Competitor Content Analysis': 25920, // 1st & 15th — worst gap is a 17-day month end
+  'SEO Content Gap Analysis': 44640,    // monthly, on the 15th
 };
 
 // Alert rate limiting — 12h cooldown + 5-minute startup grace period
@@ -219,17 +234,38 @@ async function checkSeo(): Promise<SubsystemHealth> {
 
   let recentMetrics = 0;
   let recentRankings = 0;
+  // Per-tenant, not aggregated. A summed count would let a healthy GE hide a
+  // reseller whose SEO pipeline has been dead for a week — the card would read
+  // HEALTHY while the tenant actually paying for the add-on gets nothing.
+  const perTenant: Array<{ tenantId: string; recentMetrics: number; recentRankings: number }> = [];
 
   try {
-    const tenantId = await resolveDefaultSeoTenantId();
-    const r = await pool.query(`
-      SELECT
-        (SELECT COUNT(*)::int FROM seo_weekly_metrics WHERE week_start_date >= CURRENT_DATE - 14 AND tenant_id = $1) AS recent_metrics,
-        (SELECT COUNT(*)::int FROM keyword_rankings WHERE checked_at >= NOW() - INTERVAL '48 hours' AND tenant_id = $1) AS recent_rankings
-    `, [tenantId]);
-    const m = r.rows[0] as Record<string, string>;
-    recentMetrics = parseInt(m.recent_metrics ?? '0');
-    recentRankings = parseInt(m.recent_rankings ?? '0');
+    // NOT resolveDefaultSeoTenantId(): that throws once a second tenant has the
+    // add-on, and this catch would then pin the SEO card to WARNING with an
+    // "ambiguous tenant resolution" message forever — on the exact page a
+    // reseller is shown. See the SEO cron block in worker.ts for the same fix.
+    const { getSeoTenantIds } = await import('./seoTenantContext');
+    const tenantIds = await getSeoTenantIds();
+
+    if (tenantIds.length === 0) {
+      return { status: 'PAUSED', metrics: { paused: false, tenantsWithSeo: 0, note: 'no tenant has the SEO add-on enabled' } };
+    }
+
+    for (const tenantId of tenantIds) {
+      const r = await pool.query(`
+        SELECT
+          (SELECT COUNT(*)::int FROM seo_weekly_metrics WHERE week_start_date >= CURRENT_DATE - 14 AND tenant_id = $1) AS recent_metrics,
+          (SELECT COUNT(*)::int FROM keyword_rankings WHERE checked_at >= NOW() - INTERVAL '48 hours' AND tenant_id = $1) AS recent_rankings
+      `, [tenantId]);
+      const m = r.rows[0] as Record<string, string>;
+      perTenant.push({
+        tenantId,
+        recentMetrics: parseInt(m.recent_metrics ?? '0'),
+        recentRankings: parseInt(m.recent_rankings ?? '0'),
+      });
+    }
+    recentMetrics = perTenant.reduce((n, t) => n + t.recentMetrics, 0);
+    recentRankings = perTenant.reduce((n, t) => n + t.recentRankings, 0);
   } catch (e) {
     return {
       status: 'WARNING',
@@ -241,11 +277,30 @@ async function checkSeo(): Promise<SubsystemHealth> {
     };
   }
 
+  // Worst-of across tenants, so one dead tenant surfaces even when others are fine.
+  const statusFor = (t: { recentMetrics: number; recentRankings: number }): SubsystemStatus => {
+    if (t.recentMetrics === 0 && t.recentRankings === 0) return 'CRITICAL';
+    if (t.recentMetrics === 0 || t.recentRankings === 0) return 'WARNING';
+    return 'HEALTHY';
+  };
+  const severity: Record<string, number> = { HEALTHY: 0, WARNING: 1, CRITICAL: 2 };
   let status: SubsystemStatus = 'HEALTHY';
-  if (recentMetrics === 0 && recentRankings === 0) status = 'CRITICAL';
-  else if (recentMetrics === 0 || recentRankings === 0) status = 'WARNING';
+  for (const t of perTenant) {
+    const s = statusFor(t);
+    if ((severity[s] ?? 0) > (severity[status] ?? 0)) status = s;
+  }
 
-  return { status, metrics: { recentMetrics, recentRankings } };
+  return {
+    status,
+    metrics: {
+      recentMetrics,
+      recentRankings,
+      tenantsWithSeo: perTenant.length,
+      // Named so an operator can see WHICH tenant is the unhealthy one rather
+      // than only that something is unhealthy.
+      unhealthyTenants: perTenant.filter((t) => statusFor(t) !== 'HEALTHY').map((t) => t.tenantId),
+    },
+  };
 }
 
 async function checkCrm(): Promise<SubsystemHealth> {

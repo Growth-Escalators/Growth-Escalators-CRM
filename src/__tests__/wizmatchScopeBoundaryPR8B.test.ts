@@ -232,6 +232,29 @@ describe('PR 8B scope boundary — PR 9/10 must not have started', () => {
       + 'no tenant_id and were rebuildable via an unauthenticated route). Touches only SEO tables. '
       + 'Carries no outreach, sequence, reply, or provider data. Unrelated to PR 9/10 (Smartlead / '
       + 'reply ingestion).',
+    46: 'seo_sites registry (Phase 2 of the multi-tenant SEO platform work, owner-approved). Creates '
+      + 'the `seo_sites` table — the registry that replaces nine hardcoded client-domain arrays '
+      + 'scattered across the SEO services — and adds a NULLABLE `site_id` FK to the nine existing SEO '
+      + 'tables, then seeds the registry from the distinct (tenant_id, client_domain) pairs already '
+      + 'present and backfills `site_id` from it. Fully additive: no SET NOT NULL, no unique index over '
+      + 'pre-existing data, no DROP, and every statement is IF NOT EXISTS / duplicate_object-guarded '
+      + 'because ensureSeoTables() drifts these tables at runtime. Seed and backfill join on BOTH '
+      + 'tenant_id and a normalised domain, so two tenants working on the same domain each get their '
+      + 'own row rather than being cross-linked — verified against a fixture before landing. Touches '
+      + 'only SEO tables. Carries no outreach, sequence, reply, or provider data. Unrelated to PR 9/10 '
+      + '(Smartlead / reply ingestion).',
+    47: 'Drops seo_content_calendar\'s legacy 3-column unique index (client_domain, keyword, '
+      + 'content_type) — the deferred half of migration 0045, which added the tenant-scoped 4-column '
+      + 'index alongside it and kept the old one because in-flight code still named the 3-column '
+      + 'ON CONFLICT target. Every writer now names the 4-column target (routes/seo.ts, '
+      + 'seoContentDecayService, seoContentGapService; grep-verified zero 3-column targets remain), '
+      + 'so the old index is dropped here. Not merely redundant: UNIQUE on those three columns with '
+      + 'no tenant column made the combination GLOBALLY exclusive, so two tenants could not both hold '
+      + 'a calendar entry for the same keyword on the same domain — the second write either '
+      + "overwrote the first tenant's row or failed. A single DROP INDEX IF EXISTS; dropping an index "
+      + 'never fails on data, and the 4-column index still enforces per-tenant uniqueness. Touches '
+      + 'only SEO tables. Carries no outreach, sequence, reply, or provider data. Unrelated to PR 9/10 '
+      + '(Smartlead / reply ingestion).',
   };
 
   it('every migration past 0037 is in the reviewed out-of-scope allowlist', () => {

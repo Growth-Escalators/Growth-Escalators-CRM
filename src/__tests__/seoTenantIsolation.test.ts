@@ -122,6 +122,33 @@ vi.mock('../config/constants', () => ({
   DEFAULT_TENANT_SLUG: 'growth-escalators',
 }));
 
+// Phase 2 — the seo_sites registry (seoSiteRegistry.ts) is the new tenant-
+// isolation boundary for /regenerate-pages' domain lookup + WordPress-target
+// ownership gate, and for rankTrackingService's domain source. Mocked as
+// configurable fn refs (same pattern as mockResolveTenant above) since
+// several describe blocks below need different return values per test.
+const mockGetSeoSiteByDomain = vi.fn();
+// Typed `(...args: unknown[])` rather than `(d: string)` so the pass-through
+// wrappers below can spread into it — a single-parameter signature makes
+// `mockNormaliseDomain(...args)` a compile error, which vitest never surfaces
+// because it does not typecheck, only `npm run build` does.
+const mockNormaliseDomain = vi.fn((...args: unknown[]) => args[0] as string);
+const mockListSeoSiteDomains = vi.fn();
+
+vi.mock('../services/seoSiteRegistry', () => ({
+  getSeoSiteByDomain: (...args: unknown[]) => mockGetSeoSiteByDomain(...args),
+  normaliseDomain: (...args: unknown[]) => mockNormaliseDomain(...args),
+  listSeoSiteDomains: (...args: unknown[]) => mockListSeoSiteDomains(...args),
+}));
+
+// GET /health/seo-data now pins GE's own tenant via getDefaultIngestTenant('seo')
+// instead of resolveDefaultSeoTenantId() — see systemHealth.ts's module comment.
+const mockGetDefaultIngestTenant = vi.fn();
+
+vi.mock('../services/tenantFeatures', () => ({
+  getDefaultIngestTenant: (...args: unknown[]) => mockGetDefaultIngestTenant(...args),
+}));
+
 function invokeRouteHandler(router: any, path: string, method: string) {
   const layer = router.stack.find((l: any) => l.route?.path === path && l.route?.methods?.[method]);
   if (!layer) throw new Error(`route not found: ${method.toUpperCase()} ${path}`);
@@ -144,6 +171,10 @@ beforeEach(() => {
   mockPoolQuery.mockReset();
   mockDbExecute.mockReset();
   mockResolveTenant.mockReset();
+  mockGetSeoSiteByDomain.mockReset();
+  mockNormaliseDomain.mockReset().mockImplementation((...args: unknown[]) => args[0] as string);
+  mockListSeoSiteDomains.mockReset();
+  mockGetDefaultIngestTenant.mockReset();
 
   mockPoolQuery.mockImplementation(async (sqlText: string, params: unknown[] = []) =>
     fakeFilteredRead(sqlText, params),
@@ -232,19 +263,64 @@ describe('routes/seo.ts — tenant isolation', () => {
     expect(messages).toEqual(['tenantB-exclusive-alert']);
   });
 
-  it('POST /regenerate-pages scopes its raw DELETE to the resolved default SEO tenant, not an arbitrary caller tenant', async () => {
-    mockResolveTenant.mockResolvedValue(TENANT_A);
-    vi.doMock('../services/programmaticSeoService', () => ({
-      generateLocationPages: vi.fn().mockResolvedValue({ generated: 0, wpPublished: 0, errors: 0 }),
-    }));
-    const seoRouter = (await import('../routes/seo')).default;
-    const handler = invokeRouteHandler(seoRouter, '/regenerate-pages', 'post');
-    const res = mockRes();
-    await handler(reqAs(TENANT_A), res);
+  // POST /regenerate-pages no longer resolves a single global SEO tenant and
+  // hardcodes 'ageddentistry.org' — it takes tenantId off the session and
+  // requires a caller-supplied domain that tenant has actually registered
+  // (src/routes/seo.ts). The three cases below replace the old single test,
+  // which posted an empty body and so now just 400s before ever reaching the
+  // DELETE — that's too weak a check for a route whose whole point is "don't
+  // delete another tenant's rows."
+  describe('POST /regenerate-pages — tenant-scoped delete', () => {
+    it('deletes with BOTH client_domain and tenant_id bound, and the bound tenant is the CALLER\'s, for a domain that tenant has registered', async () => {
+      // Tenant A owns 'example-a.com' (and, implicitly, the configured
+      // WordPress target — assertOwnsWordPressTarget's own getSeoSiteByDomain
+      // call goes through this same mock).
+      mockGetSeoSiteByDomain.mockImplementation(async (tenantId: string, domain: string) =>
+        (tenantId === TENANT_A ? { domain, id: 'site-a' } : null),
+      );
+      vi.doMock('../services/programmaticSeoService', () => ({
+        generateLocationPages: vi.fn().mockResolvedValue({ generated: 0, wpPublished: 0, errors: 0 }),
+      }));
+      const seoRouter = (await import('../routes/seo')).default;
+      const handler = invokeRouteHandler(seoRouter, '/regenerate-pages', 'post');
+      const res = mockRes();
+      await handler(reqAs(TENANT_A, { body: { domain: 'example-a.com' } }), res);
 
-    const deleteCall = mockPoolQuery.mock.calls.find((c) => String(c[0]).includes('DELETE FROM client_pages'));
-    expect(deleteCall).toBeDefined();
-    expect(deleteCall![1]).toEqual([TENANT_A]);
+      const deleteCall = mockPoolQuery.mock.calls.find((c) => String(c[0]).includes('DELETE FROM client_pages'));
+      expect(deleteCall).toBeDefined();
+      // Both client_domain AND tenant_id are bound — and the tenant bound is
+      // the CALLER's tenant, not some arbitrary/default one.
+      expect(deleteCall![1]).toEqual(['example-a.com', TENANT_A]);
+    });
+
+    it('404s and issues NO delete when the caller\'s tenant has not registered that domain — the actual cross-tenant case', async () => {
+      // Only tenant A has 'example-a.com' registered. Tenant B asks for it.
+      mockGetSeoSiteByDomain.mockImplementation(async (tenantId: string, domain: string) =>
+        (tenantId === TENANT_A ? { domain, id: 'site-a' } : null),
+      );
+      const seoRouter = (await import('../routes/seo')).default;
+      const handler = invokeRouteHandler(seoRouter, '/regenerate-pages', 'post');
+      const res = mockRes();
+      await handler(reqAs(TENANT_B, { body: { domain: 'example-a.com' } }), res);
+
+      expect(res.statusCode).toBe(404);
+      expect(res.body).toMatchObject({ code: 'site_not_found' });
+      // No DELETE at all — not scoped-to-nothing, not attempted-then-rejected.
+      expect(mockPoolQuery.mock.calls.some((c) => String(c[0]).includes('DELETE FROM client_pages'))).toBe(false);
+    });
+
+    it('400s and issues NO delete when domain is missing from the body', async () => {
+      const seoRouter = (await import('../routes/seo')).default;
+      const handler = invokeRouteHandler(seoRouter, '/regenerate-pages', 'post');
+      const res = mockRes();
+      await handler(reqAs(TENANT_A, { body: {} }), res);
+
+      expect(res.statusCode).toBe(400);
+      expect(res.body).toMatchObject({ code: 'domain_required' });
+      // The registry is never even consulted — this rejects before any lookup.
+      expect(mockGetSeoSiteByDomain).not.toHaveBeenCalled();
+      expect(mockPoolQuery.mock.calls.some((c) => String(c[0]).includes('DELETE FROM client_pages'))).toBe(false);
+    });
   });
 });
 
@@ -253,22 +329,43 @@ describe('routes/seo.ts — tenant isolation', () => {
 // to fix per H18); it must fall back to the resolved default SEO tenant.
 // ---------------------------------------------------------------------------
 describe('routes/systemHealth.ts — unauthenticated seo-data diagnostic', () => {
-  it('GET /health/seo-data scopes every table count/latest query to the resolved default SEO tenant', async () => {
-    mockResolveTenant.mockResolvedValue(TENANT_A);
+  it('GET /health/seo-data scopes every table count/latest query to the pinned default-ingest tenant, and never runs ensureSeoTables', async () => {
+    mockGetDefaultIngestTenant.mockResolvedValue({ id: TENANT_A, slug: 'growth-escalators' });
+    // The route no longer imports ensureSeoTables at all (see systemHealth.ts's
+    // module comment: an unauthenticated caller must not be able to trigger ~60
+    // DDL statements on demand). Stub it as a spy so we can assert it's never
+    // reached, rather than just letting an unmocked import silently succeed.
+    const ensureSeoTablesSpy = vi.fn().mockResolvedValue(undefined);
     vi.doMock('../services/seoWorkflowHealthService', () => ({
-      ensureSeoTables: vi.fn().mockResolvedValue(undefined),
+      ensureSeoTables: ensureSeoTablesSpy,
     }));
     const systemHealthRouter = (await import('../routes/systemHealth')).default;
     const handler = invokeRouteHandler(systemHealthRouter, '/health/seo-data', 'get');
     const res = mockRes();
     await handler({} as any, res);
 
-    // Every pool.query call made by this route must carry the resolved tenant id.
+    // Every pool.query call made by this route must carry the pinned tenant id.
     const seoDataCalls = mockPoolQuery.mock.calls.filter((c) => /SELECT (COUNT|MAX)/.test(String(c[0])));
     expect(seoDataCalls.length).toBeGreaterThan(0);
     for (const call of seoDataCalls) {
       expect(call[1]).toEqual([TENANT_A]);
     }
+
+    // Security property worth pinning on its own: this unauthenticated
+    // diagnostic must never trigger DDL, regardless of what else it does.
+    expect(ensureSeoTablesSpy).not.toHaveBeenCalled();
+  });
+
+  it('returns an empty-tables response and issues NO table queries when the default tenant does not have SEO enabled', async () => {
+    mockGetDefaultIngestTenant.mockResolvedValue(null);
+    const systemHealthRouter = (await import('../routes/systemHealth')).default;
+    const handler = invokeRouteHandler(systemHealthRouter, '/health/seo-data', 'get');
+    const res = mockRes();
+    await handler({} as any, res);
+
+    expect(res.body.tables).toEqual({});
+    const seoDataCalls = mockPoolQuery.mock.calls.filter((c) => /SELECT (COUNT|MAX)/.test(String(c[0])));
+    expect(seoDataCalls).toHaveLength(0);
   });
 });
 
@@ -284,6 +381,11 @@ describe('services — cron tenant scoping via resolveDefaultSeoTenantId()', () 
     // imports this same module, so restore the real implementation first.
     vi.doUnmock('../services/seoWorkflowHealthService');
     mockResolveTenant.mockResolvedValue(TENANT_A);
+    // runRankChecks() now sources its domains from listSeoSiteDomains(tid)
+    // instead of a hardcoded three-domain array — with no registry stub it
+    // sees zero domains and returns early with no INSERT at all (see the
+    // "zero registered domains" test in rankTracking.test.ts for that path).
+    mockListSeoSiteDomains.mockResolvedValue(['shared.com']);
     process.env.SERPER_API_KEY = 'test-key';
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
@@ -296,6 +398,8 @@ describe('services — cron tenant scoping via resolveDefaultSeoTenantId()', () 
     const insertCall = mockPoolQuery.mock.calls.find((c) => String(c[0]).includes('INSERT INTO keyword_rankings'));
     expect(insertCall).toBeDefined();
     expect(insertCall![1]).toContain(TENANT_A);
+    // The domain source itself is tenant-scoped too — not just the INSERT.
+    expect(mockListSeoSiteDomains).toHaveBeenCalledWith(TENANT_A);
 
     vi.unstubAllGlobals();
     delete process.env.SERPER_API_KEY;
@@ -303,6 +407,12 @@ describe('services — cron tenant scoping via resolveDefaultSeoTenantId()', () 
 
   it('seoAlertService.runSeoAlertChecks() binds the resolved tenant id on the seo_alerts_log dedup + insert', async () => {
     mockResolveTenant.mockResolvedValue(TENANT_B);
+    // runSeoAlertChecks() now bails (quietly, before the upstream-health
+    // preflight) when the tenant has zero registered SEO sites — same
+    // registry-sourced guard as rankTrackingService. Force past it so the
+    // real assertions below (which are about tenant scoping of the alert
+    // writes, not about site registration) get exercised.
+    mockListSeoSiteDomains.mockResolvedValue(['tenantB-site.example']);
     // Force past the pre-flight empty-upstream guard.
     mockPoolQuery.mockImplementationOnce(async () => ({ rows: [{ rankings: 1, health: 0, gsc: 0 }] }));
 

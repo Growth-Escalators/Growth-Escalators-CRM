@@ -953,6 +953,9 @@ export const clientKnowledgeBase = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // Nullable on purpose — see the seo_sites docblock. Reads still go via
+    // project_name/client_domain until every service has migrated.
+    siteId: uuid('site_id').references(() => seoSites.id),
     projectName: text('project_name').notNull(),
     brandSummary: text('brand_summary'),
     idealCustomer: text('ideal_customer'),
@@ -986,6 +989,7 @@ export const clientKnowledgeBase = pgTable(
   },
   (t) => ({
     tenantIdIdx: index('client_knowledge_base_tenant_id_idx').on(t.tenantId),
+    siteIdIdx: index('client_knowledge_base_site_id_idx').on(t.siteId),
   }),
 );
 
@@ -997,6 +1001,9 @@ export const clientPages = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // Nullable on purpose — see the seo_sites docblock. Reads still go via
+    // project_name/client_domain until every service has migrated.
+    siteId: uuid('site_id').references(() => seoSites.id),
     projectName: text('project_name').notNull(),
     pageUrl: text('page_url').notNull(),
     pageTitle: text('page_title'),
@@ -1029,6 +1036,7 @@ export const clientPages = pgTable(
   },
   (t) => ({
     tenantIdIdx: index('client_pages_tenant_id_idx').on(t.tenantId),
+    siteIdIdx: index('client_pages_site_id_idx').on(t.siteId),
     // NOTE: a UNIQUE (tenant_id, client_domain, page_slug) index is NOT added
     // here on purpose. Duplicates demonstrably exist in prod — that is why
     // publishPendingToWordPress() dedupes in JavaScript — so creating the index
@@ -1047,6 +1055,9 @@ export const keywordRankings = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // Nullable on purpose — see the seo_sites docblock. Reads still go via
+    // project_name/client_domain until every service has migrated.
+    siteId: uuid('site_id').references(() => seoSites.id),
     projectName: text('project_name').notNull(),
     keyword: text('keyword').notNull(),
     currentPosition: numeric('current_position'),
@@ -1065,6 +1076,7 @@ export const keywordRankings = pgTable(
     projectKeywordIdx: index('keyword_rankings_project_keyword_idx').on(t.projectName, t.keyword),
     recordedDateIdx: index('keyword_rankings_recorded_date_idx').on(t.recordedDate),
     tenantIdIdx: index('keyword_rankings_tenant_id_idx').on(t.tenantId),
+    siteIdIdx: index('keyword_rankings_site_id_idx').on(t.siteId),
   }),
 );
 
@@ -1076,6 +1088,9 @@ export const backlinkData = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // Nullable on purpose — see the seo_sites docblock. Reads still go via
+    // project_name/client_domain until every service has migrated.
+    siteId: uuid('site_id').references(() => seoSites.id),
     projectName: text('project_name').notNull(),
     sourceUrl: text('source_url'),
     targetUrl: text('target_url'),
@@ -1094,6 +1109,7 @@ export const backlinkData = pgTable(
     projectIdx: index('backlink_data_project_idx').on(t.projectName),
     statusIdx: index('backlink_data_status_idx').on(t.status),
     tenantIdIdx: index('backlink_data_tenant_id_idx').on(t.tenantId),
+    siteIdIdx: index('backlink_data_site_id_idx').on(t.siteId),
   }),
 );
 
@@ -1135,6 +1151,9 @@ export const seoOpportunities = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // Nullable on purpose — see the seo_sites docblock. Reads still go via
+    // project_name/client_domain until every service has migrated.
+    siteId: uuid('site_id').references(() => seoSites.id),
     projectName: text('project_name').notNull(),
     opportunityType: text('opportunity_type'),
     description: text('description'),
@@ -1157,6 +1176,7 @@ export const seoOpportunities = pgTable(
   (t) => ({
     projectStatusIdx: index('seo_opportunities_project_status_idx').on(t.projectName, t.status),
     tenantIdIdx: index('seo_opportunities_tenant_id_idx').on(t.tenantId),
+    siteIdIdx: index('seo_opportunities_site_id_idx').on(t.siteId),
   }),
 );
 
@@ -1168,6 +1188,9 @@ export const siteHealthMetrics = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // Nullable on purpose — see the seo_sites docblock. Reads still go via
+    // project_name/client_domain until every service has migrated.
+    siteId: uuid('site_id').references(() => seoSites.id),
     projectName: text('project_name').notNull(),
     pagespeedMobile: numeric('pagespeed_mobile'),
     pagespeedDesktop: numeric('pagespeed_desktop'),
@@ -1184,6 +1207,7 @@ export const siteHealthMetrics = pgTable(
   (t) => ({
     projectCheckedAtIdx: index('site_health_project_checked_at_idx').on(t.projectName, t.checkedAt),
     tenantIdIdx: index('site_health_metrics_tenant_id_idx').on(t.tenantId),
+    siteIdIdx: index('site_health_metrics_site_id_idx').on(t.siteId),
   }),
 );
 
@@ -1221,6 +1245,9 @@ export const seoWeeklyMetrics = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // Nullable on purpose — see the seo_sites docblock. Reads still go via
+    // project_name/client_domain until every service has migrated.
+    siteId: uuid('site_id').references(() => seoSites.id),
     projectName: text('project_name'),
     clientDomain: text('client_domain'),
     clientName: text('client_name'),
@@ -1237,6 +1264,7 @@ export const seoWeeklyMetrics = pgTable(
   (t) => ({
     domainWeekIdx: index('seo_weekly_metrics_domain_week_idx').on(t.clientDomain, t.weekStart),
     tenantIdIdx: index('seo_weekly_metrics_tenant_id_idx').on(t.tenantId),
+    siteIdIdx: index('seo_weekly_metrics_site_id_idx').on(t.siteId),
   }),
 );
 
@@ -1250,6 +1278,9 @@ export const seoAlertsLog = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // Nullable on purpose — see the seo_sites docblock. Reads still go via
+    // project_name/client_domain until every service has migrated.
+    siteId: uuid('site_id').references(() => seoSites.id),
     projectName: text('project_name').notNull(),
     alertType: text('alert_type'),
     message: text('message'),
@@ -1261,6 +1292,7 @@ export const seoAlertsLog = pgTable(
   (t) => ({
     createdIdx: index('seo_alerts_log_created_idx').on(t.createdAt),
     tenantIdIdx: index('seo_alerts_log_tenant_id_idx').on(t.tenantId),
+    siteIdIdx: index('seo_alerts_log_site_id_idx').on(t.siteId),
   }),
 );
 
@@ -2455,6 +2487,9 @@ export const seoContentCalendar = pgTable(
     // that backfill aborts the migration, and Railway applies migrations on
     // boot, so the API would fail to start (this is how 0035 broke prod).
     tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // Nullable on purpose — see the seo_sites docblock. Reads still go via
+    // project_name/client_domain until every service has migrated.
+    siteId: uuid('site_id').references(() => seoSites.id),
     clientDomain: text('client_domain').notNull(),
     keyword: text('keyword').notNull(),
     contentType: text('content_type').notNull().default('blog'),
@@ -2472,19 +2507,29 @@ export const seoContentCalendar = pgTable(
     updatedAt: timestamp('updated_at').defaultNow(),
   },
   (t) => ({
-    // NOTE: the 3-column unique index is deliberately KEPT alongside the new
-    // tenant-scoped one. Running code still does
-    // `ON CONFLICT (client_domain, keyword, content_type)`; dropping this index
-    // in the same migration that adds the 4-column one would make every
+    // The 3-column unique index (client_domain, keyword, content_type) is GONE
+    // as of migration 0047 — this is the "LATER migration" the previous note
+    // here promised.
+    //
+    // It was kept through 0045 because running code still did
+    // `ON CONFLICT (client_domain, keyword, content_type)`, and dropping it in
+    // the same migration that added the 4-column one would have made every
     // in-flight POST throw `no unique or exclusion constraint matching` until
-    // the new code deploys. Drop it in a LATER migration, after the conflict
-    // target has moved. Until then two tenants still collide on the same
-    // (domain, keyword, type) — the 4-column index is what eventually fixes that.
-    uniqueIdx: uniqueIndex('seo_content_calendar_unique_idx').on(t.clientDomain, t.keyword, t.contentType),
+    // the new code deployed. That condition no longer holds: every writer now
+    // targets the tenant-scoped index (routes/seo.ts, seoContentDecayService,
+    // seoContentGapService — grep confirms zero 3-column targets remain).
+    //
+    // Keeping it any longer was not neutral. While it existed, two tenants
+    // could not both hold a calendar entry for the same
+    // (domain, keyword, content_type) — the second one's INSERT would either
+    // overwrite the first tenant's row or fail outright, depending on which
+    // target the writer named. Dropping it is what actually lets two agencies
+    // work the same keyword on the same domain independently.
     tenantUniqueIdx: uniqueIndex('seo_content_calendar_tenant_unique_idx').on(
       t.tenantId, t.clientDomain, t.keyword, t.contentType,
     ),
     tenantIdIdx: index('seo_content_calendar_tenant_id_idx').on(t.tenantId),
+    siteIdIdx: index('seo_content_calendar_site_id_idx').on(t.siteId),
     statusIdx: index('seo_calendar_status_idx').on(t.status),
     clientIdx: index('seo_calendar_client_idx').on(t.clientDomain),
   }),
@@ -3326,5 +3371,82 @@ export const subscriptions = pgTable(
     providerSubscriptionUniq: uniqueIndex('subscriptions_provider_subscription_uniq').on(
       t.paymentProvider, t.providerSubscriptionId,
     ),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE — seo_sites (the SEO site registry)
+//
+// Every SEO table before this one keys on the *string* `project_name` /
+// `client_domain`. That worked while SEO was single-tenant with three
+// hand-maintained domains hardcoded in nine different files. It does not work
+// once a reseller tenant registers its own client's site: two tenants can
+// legitimately both work on `example.com`, and a string key cannot tell them
+// apart.
+//
+// `seo_sites` is the registry those strings become foreign keys to. Note the
+// deliberate migration shape (see migration 0046): the legacy string columns
+// are NOT renamed or dropped. ~135 raw SQL statements across 22 files read
+// them, and Railway applies migrations on boot, so a rename is a guaranteed
+// outage. Instead every SEO table gains a NULLABLE `site_id`, gets backfilled
+// where the domain resolves, and reads migrate service-by-service. Making it
+// NOT NULL is a later migration, after the last string read is gone.
+//
+// `adapter_config` holds NON-SECRET config only (site URL, theme snippet
+// location, default author id). Credentials live in `tenant_integrations`,
+// encrypted; `credential_provider` is the pointer into it — a `provider` value,
+// not a secret. See AGENTS.md credential hygiene.
+// ---------------------------------------------------------------------------
+export const seoSites = pgTable(
+  'seo_sites',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // Nullable: GE's own properties (growthescalators.com) are sites without a
+    // paying client row behind them. A reseller's sites will normally set it.
+    clientId: uuid('client_id').references(() => clients.id),
+    // Human label shown in the admin ("Dr Dubay — main site").
+    label: text('label').notNull(),
+    // Bare registrable domain, no scheme, no trailing slash, lowercased —
+    // normalised by seoSiteRegistry.normaliseDomain() on every write, because
+    // the unique index below is the only thing stopping the same site being
+    // registered twice as `Example.com` and `example.com/`.
+    domain: text('domain').notNull(),
+    // 'git' | 'wordpress' | 'shopify' | 'unknown' — plain text, not pgEnum, to
+    // match the repo convention for status-like columns. The SiteAdapter
+    // factory (src/modules/site/providers/) resolves this to a provider, and
+    // callers branch on that provider's CAPABILITIES, never on this string.
+    platform: text('platform').notNull().default('unknown'),
+    // Non-secret adapter config only. Never a password, token, or app key.
+    adapterConfig: jsonb('adapter_config').default({}),
+    // Pointer into tenant_integrations.provider — e.g. 'wordpress'. Not a
+    // secret; the secret it points at is encrypted in that table.
+    credentialProvider: text('credential_provider'),
+    // e.g. 'sc-domain:example.com' or 'https://example.com/'.
+    gscProperty: text('gsc_property'),
+    ga4PropertyId: text('ga4_property_id'),
+    // 'low' | 'standard' | 'high' — drives how much verification a change
+    // needs before it can be approved.
+    riskProfile: text('risk_profile').notNull().default('standard'),
+    // Named checks a change must pass before it can reach `awaiting_approval`.
+    requiredChecks: text('required_checks').array().default([]),
+    // Deliberately defaults FALSE and stays false for the pilot. The
+    // human-approval hard stop is the entire safety story for a system that
+    // edits live client websites; a column that can switch it off is exactly
+    // the thing that must not default on.
+    autoPublishAllowed: boolean('auto_publish_allowed').notNull().default(false),
+    // How long an outcome must be observed before it can be scored and
+    // promoted into the playbook. The delayed-promotion window is the IP.
+    observationWindowDays: integer('observation_window_days').notNull().default(21),
+    // 'active' | 'paused' | 'archived'. Crons skip anything not 'active'.
+    status: text('status').notNull().default('active'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantIdIdx: index('seo_sites_tenant_id_idx').on(t.tenantId),
+    // The isolation guarantee: two tenants may each register example.com, but
+    // neither can register it twice.
+    tenantDomainUniq: uniqueIndex('seo_sites_tenant_id_domain_uniq').on(t.tenantId, t.domain),
   }),
 );

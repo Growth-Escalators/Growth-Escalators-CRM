@@ -1,6 +1,7 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { DEFAULT_TENANT_SLUG } from '../config/constants';
+import { listSeoSiteDomains } from './seoSiteRegistry';
 import type { AgencyDailyData } from './intelligenceDataCollector';
 
 // ---------------------------------------------------------------------------
@@ -136,6 +137,30 @@ export async function analyzeWithClaude(data: AgencyDailyData, tenantId?: string
 
   const prompt = buildPrompt(data);
 
+  // Resolve the SEO client-domain list for the system prompt's "Agency
+  // context" section from the tenant already known here — never a
+  // hardcoded array (see tenant-isolation audit, 2026-08-05: this used to
+  // read `aarohaom.com, blackpandaenterprises.com, ageddentistry.org`
+  // verbatim, which would tell a reseller tenant's coaching report that it
+  // owns GE's own clients). Both callers already resolve a tenant before
+  // this point — worker.ts's cron via data.tenantId (from
+  // getDefaultIngestTenant in intelligenceDataCollector.ts), routes/
+  // intelligence.ts's manual trigger via the tenantId param (from
+  // req.user) — so there's nothing ambiguous to fall back to
+  // resolveDefaultSeoTenantId() for, and no reason to risk its
+  // multiple-active-tenant throw inside report generation.
+  const seoTenantId = tenantId ?? (data.tenantId || undefined);
+  let seoClientDomains: string[] = [];
+  if (seoTenantId) {
+    seoClientDomains = await listSeoSiteDomains(seoTenantId).catch((e) => {
+      logger.warn('[intelligence] could not load SEO site domains for prompt context:', e instanceof Error ? e.message : String(e));
+      return [];
+    });
+  } else {
+    logger.warn('[intelligence] no tenant resolved — omitting SEO client list from prompt context');
+  }
+  const seoClientsLine = seoClientDomains.length > 0 ? seoClientDomains.join(', ') : 'none registered for this tenant';
+
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     signal: AbortSignal.timeout(120000), // 120s max for Claude API
@@ -162,7 +187,7 @@ Coaching philosophy:
 
 Agency context:
 - Core service: Meta Ads + CRO for D2C brands
-- SEO clients: aarohaom.com, blackpandaenterprises.com, ageddentistry.org
+- SEO clients: ${seoClientsLine}
 - White label: Meta Ads for UK/AU/CA agencies at $900/month
 - Team: Jatin (founder/admin), Sakcham (sales/ads), Keshav (video editor)
 - Production repo: ~/repo-comparison/v2 on Railway (GE-Backend-Server)

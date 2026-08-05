@@ -1,0 +1,34 @@
+-- ---------------------------------------------------------------------------
+-- 0047 — drop seo_content_calendar's 3-column unique index
+--
+-- This is the deferred half of migration 0045. That migration added the
+-- tenant-scoped index `seo_content_calendar_tenant_unique_idx`
+-- (tenant_id, client_domain, keyword, content_type) alongside the old
+-- `seo_content_calendar_unique_idx` (client_domain, keyword, content_type),
+-- and deliberately kept the old one: running code still wrote
+-- `ON CONFLICT (client_domain, keyword, content_type)`, and dropping its index
+-- in the same deploy would have made every in-flight POST fail with
+-- "no unique or exclusion constraint matching the ON CONFLICT specification"
+-- until the new code rolled out.
+--
+-- That condition no longer holds. Every writer now names the 4-column target:
+--   src/routes/seo.ts                  POST /content-calendar
+--   src/services/seoContentDecayService.ts   (both inserts)
+--   src/services/seoContentGapService.ts
+-- Verified by grep: zero 3-column ON CONFLICT targets remain in src/.
+--
+-- WHY THIS MATTERS — the old index was not merely redundant. Being UNIQUE on
+-- (client_domain, keyword, content_type) with no tenant column, it made the
+-- combination globally exclusive: two tenants could not both hold a calendar
+-- entry for the same keyword on the same domain. The second tenant's write
+-- either silently overwrote the first tenant's row (when the writer named the
+-- 3-column target) or failed outright. Dropping it is what actually lets two
+-- agencies work the same keyword on the same domain independently — the whole
+-- point of the multi-tenant SEO work.
+--
+-- SAFETY: dropping an index never fails on data, and the 4-column index (added
+-- in 0045, already live) continues to enforce per-tenant uniqueness. IF EXISTS
+-- because ensureSeoTables() has historically created these indexes at runtime,
+-- so the live schema may or may not still carry it.
+-- ---------------------------------------------------------------------------
+DROP INDEX IF EXISTS "seo_content_calendar_unique_idx";

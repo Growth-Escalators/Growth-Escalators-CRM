@@ -244,6 +244,14 @@ describe('seo-learning-loop', () => {
       const backdatedCreatedAt = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(); // 20 days ago
 
       vi.mocked(pool.query)
+        // listSeoSiteDomains(tid) (seoSiteRegistry.ts) — CLIENT_DOMAINS the digest now
+        // sources its client roster from (tenant-isolation work), queried before the
+        // pre-flight check. Domain matches the opportunity below so the per-client loop
+        // that runs after the outcome check stays internally consistent.
+        .mockResolvedValueOnce({ rows: [{ domain: 'aarohaom.com' }] } as any)
+        // best-effort tenant label lookup (`SELECT slug FROM tenants WHERE id = $1`),
+        // wrapped in its own try/catch — also runs before the pre-flight check.
+        .mockResolvedValueOnce({ rows: [{ slug: 'growth-escalators' }] } as any)
         // pre-flight — non-empty upstream, so the digest doesn't bail out early
         .mockResolvedValueOnce({ rows: [{ open_opps: 1, recent_alerts: 0, rankings: 5 }] } as any)
         // outcome check: unmeasured opportunities — the one we just "published" above
