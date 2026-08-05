@@ -38,8 +38,24 @@ assertion on the sole caller of `publishChange`, per-adapter re-check). Do not a
 - `SITE_ADAPTER_ENABLED` defaults false and must stay false in production until Phase 4's approval UI
   exists — there is currently no way for a human to approve anything through a UI.
 
-**Next:** Phase 5 (drift sweep — its storage, extractor and differ all exist; mostly wiring), then
-Phase 6 (n8n retirement + the gated 3-client data purge).
+- **Phase 5** (`b7aaa9b0`, `26a8d434`, `44f2a015`, `74e320df`) — drift sweep + classifier, GSC and GA4
+  pulls as separate importable per-tenant services writing to Postgres, cost caps actually enforced.
+- **Phase 6** (`53e0230b`) — n8n retired (including two LIVE ungated fetches to the dead host),
+  workflows archived, docs rewritten, and all 65 live crons made observable.
+
+**All six phases are complete.** What remains is owner-gated only — see
+[`docs/go-live/OWNER_ACTION_LIST.md`](../docs/go-live/OWNER_ACTION_LIST.md): backups, the branch
+push, the credential rotation, and the retired-client purge (gated on a restore-tested backup).
+
+**Known gaps, stated rather than hidden:**
+- GA4 calls are not counted by the cost guard — `SeoCostGuardEstimatedCalls` has no `ga4Calls`
+  field, and reusing `gscCalls` would corrupt the real GSC cap counter.
+- The drift sweep's third URL source (top GSC URLs by impressions) is not implemented — no per-URL
+  GSC table exists and inventing one was correctly refused.
+- `hot_lead_alert` jobs have had **no consumer since n8n died** — `bookingService.ts` still creates
+  one per hot lead and nothing drains them. Pre-existing, documented in `jobDrainer.ts`, out of
+  scope for this work, but real.
+- `.claude/agents/seo-debugger.md` still describes the retired n8n system.
 
 **Credential correction, verified against `origin/main`:** the `tenant_integrations` store, its
 route and `credentialEncryption` are all on `main` today. What is missing there is a *consumer* —
