@@ -40,12 +40,34 @@ export default function ClientDetailPage() {
   }, [clientId]);
 
   const client = data?.client;
-  const billing = data?.billing;
-  const ads = data?.ads;
-  const seo = data?.seo;
+  // GET /api/clients/:id/360 (src/routes/clientDetail.ts) does not return a
+  // `billing` key — it never has. It returns `invoices`/`payments` (recent
+  // 10 of each) plus `client.retainerAmount`. The Billing Summary card below
+  // used to read a nonexistent `data.billing`, so it silently rendered
+  // nothing on every client's page. Built here from what the endpoint
+  // actually returns instead of inventing a new backend aggregate for it —
+  // note this is necessarily a "last 10" rollup, not a lifetime total (the
+  // endpoint caps both arrays at 10); good enough for an at-a-glance card.
   const deals = data?.deals || [];
   const invoices = data?.invoices || [];
   const payments = data?.payments || [];
+  const billing = (invoices.length > 0 || payments.length > 0 || client?.retainerAmount != null)
+    ? {
+        invoiced: invoices.reduce((sum, inv) => sum + Number(inv.totalAmount || 0), 0),
+        paid: payments.reduce((sum, pay) => sum + Number(pay.amount || 0), 0),
+        outstanding: invoices.reduce((sum, inv) => sum + Number(inv.amountDue || 0), 0),
+        retainer: client?.retainerAmount || 0,
+      }
+    : null;
+  // Same endpoint DOES return live Meta Ads metrics for this client (see
+  // fetchAd30Days in clientDetail.ts) — just under the key `adMetrics`, not
+  // `ads`. This panel was never missing a data source, it was reading the
+  // wrong key; wiring to a different endpoint (e.g. /api/ads/insights) would
+  // have been unnecessary. `adMetrics` has no `.error` field (fetchAd30Days
+  // returns either the metrics object or null), so the old `!ads.error`
+  // check was dead weight from the same mismatch — dropped below.
+  const ads = data?.adMetrics;
+  const seo = data?.seo;
 
   return (
     <div className="flex h-screen bg-slate-50">
@@ -159,7 +181,7 @@ export default function ClientDetailPage() {
               <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
                 <TrendingUp className="w-4 h-4 text-slate-400" /> Meta Ads Metrics
               </h3>
-              {ads && !ads.error ? (
+              {ads ? (
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                   <StatCard label="Spend" value={`\u20B9${Number(ads.spend || 0).toLocaleString('en-IN')}`} />
                   <StatCard label="ROAS" value={`${ads.roas || 0}x`} color={Number(ads.roas) >= 2 ? 'text-green-600' : 'text-red-500'} />
@@ -178,9 +200,9 @@ export default function ClientDetailPage() {
               </h3>
               {seo ? (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <StatCard label="PageSpeed (Mobile)" value={seo.pageSpeedMobile ?? 'N/A'} color={Number(seo.pageSpeedMobile) >= 80 ? 'text-green-600' : 'text-amber-600'} />
-                  <StatCard label="PageSpeed (Desktop)" value={seo.pageSpeedDesktop ?? 'N/A'} color={Number(seo.pageSpeedDesktop) >= 80 ? 'text-green-600' : 'text-amber-600'} />
-                  <StatCard label="Keywords Tracked" value={seo.keywordCount || 0} />
+                  <StatCard label="PageSpeed (Mobile)" value={seo.mobileScore ?? 'N/A'} color={Number(seo.mobileScore) >= 80 ? 'text-green-600' : 'text-amber-600'} />
+                  <StatCard label="PageSpeed (Desktop)" value={seo.desktopScore ?? 'N/A'} color={Number(seo.desktopScore) >= 80 ? 'text-green-600' : 'text-amber-600'} />
+                  <StatCard label="Keywords Tracked" value={seo.totalKeywords || 0} />
                 </div>
               ) : (
                 <p className="text-sm text-slate-400">No SEO data available for this client.</p>
@@ -208,7 +230,7 @@ export default function ClientDetailPage() {
                     {deals.map((deal, i) => (
                       <tr key={deal.id || i} className="border-b border-slate-50 hover:bg-slate-50">
                         <td className="px-4 py-3 text-sm font-medium text-slate-800">{deal.stage}</td>
-                        <td className="px-4 py-3 text-sm text-slate-700 text-right">{inr(deal.value)}</td>
+                        <td className="px-4 py-3 text-sm text-slate-700 text-right">{inr(deal.dealValue)}</td>
                         <td className="px-4 py-3 text-sm text-slate-600">{deal.assignedTo || '-'}</td>
                         <td className="px-4 py-3 text-xs text-slate-400 text-right">
                           {deal.updatedAt ? new Date(deal.updatedAt).toLocaleDateString('en-IN') : '-'}
@@ -234,11 +256,11 @@ export default function ClientDetailPage() {
                     {invoices.slice(0, 10).map((inv, i) => (
                       <div key={inv.id || i} className="px-5 py-3 flex items-center justify-between">
                         <div>
-                          <p className="text-sm font-medium text-slate-800">{inv.number || `INV-${i + 1}`}</p>
-                          <p className="text-xs text-slate-400">{inv.date ? new Date(inv.date).toLocaleDateString('en-IN') : ''}</p>
+                          <p className="text-sm font-medium text-slate-800">{inv.invoiceNumber || `INV-${i + 1}`}</p>
+                          <p className="text-xs text-slate-400">{inv.invoiceDate ? new Date(inv.invoiceDate).toLocaleDateString('en-IN') : ''}</p>
                         </div>
                         <div className="text-right">
-                          <p className="text-sm font-semibold text-slate-900">{inr(inv.amount)}</p>
+                          <p className="text-sm font-semibold text-slate-900">{inr(inv.totalAmount)}</p>
                           <span className={`text-xs px-1.5 py-0.5 rounded-full ${inv.status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
                             {inv.status || 'pending'}
                           </span>
@@ -261,8 +283,8 @@ export default function ClientDetailPage() {
                     {payments.slice(0, 10).map((pay, i) => (
                       <div key={pay.id || i} className="px-5 py-3 flex items-center justify-between">
                         <div>
-                          <p className="text-sm font-medium text-slate-800">{pay.method || 'Payment'}</p>
-                          <p className="text-xs text-slate-400">{pay.date ? new Date(pay.date).toLocaleDateString('en-IN') : ''}</p>
+                          <p className="text-sm font-medium text-slate-800">{pay.paymentMode || 'Payment'}</p>
+                          <p className="text-xs text-slate-400">{pay.paymentDate ? new Date(pay.paymentDate).toLocaleDateString('en-IN') : ''}</p>
                         </div>
                         <p className="text-sm font-semibold text-green-600">{inr(pay.amount)}</p>
                       </div>

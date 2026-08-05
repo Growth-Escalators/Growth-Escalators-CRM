@@ -247,6 +247,47 @@ router.get('/:clientId/360', requirePermission('REPORTS_VIEW'), async (req: Requ
       fetchClientSeo(client.name, tenantId),
     ]);
 
+    // invoicesRes/paymentsRes/dealsRes come from raw db.execute(sql`...`)
+    // calls above, which return driver-native snake_case column names (no
+    // Drizzle camelCasing) — unlike `client` below, which is a Drizzle
+    // `.select()` and is already camelCase. The admin ClientDetailPage read
+    // these arrays assuming camelCase (inv.invoiceNumber, deal.dealValue,
+    // etc.) and got `undefined` for every field that didn't happen to share
+    // a name in both cases — part of the same data-contract mismatch this
+    // endpoint was audited for. Normalize to camelCase here so the whole
+    // /:clientId/360 response is one consistent shape.
+    const invoicesOut = (invoicesRes.rows as Array<Record<string, unknown>>).map((r) => ({
+      id: r.id,
+      invoiceNumber: r.invoice_number,
+      invoiceDate: r.invoice_date,
+      dueDate: r.due_date,
+      totalAmount: r.total_amount,
+      amountPaid: r.amount_paid,
+      amountDue: r.amount_due,
+      status: r.status,
+      invoiceType: r.invoice_type,
+    }));
+
+    const paymentsOut = (paymentsRes.rows as Array<Record<string, unknown>>).map((r) => ({
+      id: r.id,
+      amount: r.amount,
+      paymentDate: r.payment_date,
+      paymentMode: r.payment_mode,
+      reference: r.reference,
+      notes: r.notes,
+      invoiceNumber: r.invoice_number,
+    }));
+
+    const dealsOut = (dealsRes.rows as Array<Record<string, unknown>>).map((r) => ({
+      id: r.id,
+      title: r.title,
+      stage: r.stage,
+      dealValue: r.deal_value,
+      assignedTo: r.assigned_to,
+      updatedAt: r.updated_at,
+      createdAt: r.created_at,
+    }));
+
     res.json({
       client: {
         id: client.id,
@@ -254,6 +295,14 @@ router.get('/:clientId/360', requirePermission('REPORTS_VIEW'), async (req: Requ
         contactPerson: client.contactPerson,
         email: client.email,
         phone: client.phone,
+        // Client Information panel reads client.address — the row itself has
+        // no single "address" column, it's addressLine1/2 + city/state/
+        // pincode/country (see billingClients schema), so build the same
+        // joined string src/routes/billing.ts's PDF endpoint already builds
+        // for its "clientAddr" (same fields, same pattern) rather than
+        // leaving the panel with nothing to read.
+        address: [client.addressLine1, client.addressLine2, client.city, client.state, client.pincode, client.country]
+          .filter(Boolean).join(', ') || null,
         city: client.city,
         state: client.state,
         gstin: client.gstin,
@@ -262,9 +311,12 @@ router.get('/:clientId/360', requirePermission('REPORTS_VIEW'), async (req: Requ
         serviceDescription: client.serviceDescription,
         metaAdAccountId: client.metaAdAccountId,
       },
-      invoices: invoicesRes.rows,
-      payments: paymentsRes.rows,
-      deals: dealsRes.rows,
+      invoices: invoicesOut,
+      payments: paymentsOut,
+      deals: dealsOut,
+      // Named `adMetrics` (not `ads`) intentionally — matches what
+      // fetchAd30Days actually returns. The admin panel must read this key,
+      // not `data.ads` (see ClientDetailPage.jsx fix).
       adMetrics,
       seo: seoData,
     });
