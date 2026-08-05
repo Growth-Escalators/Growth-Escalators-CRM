@@ -22,7 +22,6 @@ export interface SEOWorkflowCheck {
 }
 
 export interface SEOWorkflowHealth {
-  n8nAlive: boolean;
   workflows: SEOWorkflowCheck[];
   brokenCritical: SEOWorkflowCheck[];
   allHealthy: boolean;
@@ -30,24 +29,22 @@ export interface SEOWorkflowHealth {
   totalCount: number;
 }
 
-const N8N_BASE = process.env.N8N_BASE_URL || 'https://primary-production-6c6f5.up.railway.app';
-
+// n8n has been decommissioned — the workflow-freshness checks below already
+// read straight from the native src/services/seo* services' own output
+// tables, so they never depended on n8n being reachable. The `n8nAlive`
+// field is GONE, not merely stubbed: its only consumer was an admin badge
+// that rendered a green "n8n Online" light, and a hardcoded `true` there
+// asserted a decommissioned service was healthy. Removed at both ends.
+// (hardcoded true, not a live probe) purely because admin/IntelligencePage.jsx
+// still renders it as an "n8n Online/Offline" badge; a live check could only
+// ever report Offline against a host that no longer exists, which is exactly
+// the false-alarm noise this cleanup removed everywhere else. The admin lane
+// owns retiring that badge — see PR discussion / handoff note.
 export async function collectSEOWorkflowHealth(tenantId?: string): Promise<SEOWorkflowHealth> {
   const now = new Date();
   const resolvedTenantId = tenantId ?? await resolveDefaultSeoTenantId();
 
-  // Step 1: Check n8n is alive
-  let n8nAlive = false;
-  try {
-    const res = await fetch(`${N8N_BASE}/healthz`, {
-      signal: AbortSignal.timeout(5000),
-    });
-    n8nAlive = res.ok;
-  } catch {
-    n8nAlive = false;
-  }
-
-  // Step 2: Per-workflow checks via output table freshness
+  // Per-workflow checks via output table freshness
   type CheckFn = () => Promise<{ lastRun: string | null; daysSince: number; total: number | null; keywordsTracked?: number | null; healthy: boolean }>;
 
   const workflowDefs: Array<{ id: string; name: string; schedule: string; critical: boolean; check: CheckFn }> = [
@@ -152,7 +149,7 @@ export async function collectSEOWorkflowHealth(tenantId?: string): Promise<SEOWo
   const allHealthy     = results.every(r => r.healthy);
   const healthyCount   = results.filter(r => r.healthy).length;
 
-  return { n8nAlive, workflows: results, brokenCritical, allHealthy, healthyCount, totalCount: results.length };
+  return { workflows: results, brokenCritical, allHealthy, healthyCount, totalCount: results.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -676,7 +673,7 @@ async function _collectDailyDataInner(client: Queryable, errors: string[]): Prom
   logger.info('[intel-collector] Collecting SEO workflow health...');
   // -------------------------------------------------------------------------
   let seoWorkflows: SEOWorkflowHealth = {
-    n8nAlive: false, workflows: [], brokenCritical: [],
+    workflows: [], brokenCritical: [],
     allHealthy: false, healthyCount: 0, totalCount: 0,
   };
   seoWorkflows = await withTimeout(

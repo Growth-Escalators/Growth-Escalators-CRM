@@ -191,7 +191,7 @@ Agency context:
 - White label: Meta Ads for UK/AU/CA agencies at $900/month
 - Team: Jatin (founder/admin), Sakcham (sales/ads), Keshav (video editor)
 - Production repo: ~/repo-comparison/v2 on Railway (GE-Backend-Server)
-- n8n SEO workflows: primary-production-6c6f5.up.railway.app
+- SEO workflows: 13 native backend services (src/services/seo*) — n8n has been decommissioned and is no longer part of this system
 - CRM: web-production-311da.up.railway.app/crm
 
 When SEO workflows are broken or overdue, flag as CRITICAL since client data collection has stopped. Name specific workflows and days overdue.
@@ -386,7 +386,6 @@ COMMUNICATION: ${JSON.stringify(data.whatsapp, null, 2)}
 BILLING: ${JSON.stringify(billingSummary, null, 2)}
 
 SEO WORKFLOW HEALTH:
-n8n Status: ${wf.n8nAlive ? 'Online' : 'OFFLINE ⚠️'}
 Workflows healthy: ${wf.healthyCount}/${wf.totalCount}
 ${wfSummary}
 ${wf.workflows.map(w =>
@@ -498,7 +497,7 @@ function buildFallbackAnalysis(data: AgencyDailyData): Analysis {
       what_is_broken: brokenWfs.map(w => `${w.name} — ${w.daysSince === 999 ? 'never run' : `${w.daysSince}d overdue`}`).join('; '),
       business_impact: 'Client SEO performance is invisible — no data being collected',
       owner: 'Jatin', deadline: 'today',
-      fix_steps: ['Go to /seo → Workflows', 'Click Run Now on each broken workflow', 'Check n8n logs if workflow fails'],
+      fix_steps: ['Go to /seo → Workflows', 'Click Run Now on each broken workflow', 'Check server logs for the backend-native service if it fails'],
       claude_prompt: null,
       claude_code_prompt: `cd ~/repo-comparison/v2\n\nNEVER TOUCH: src/db/schema.ts, src/db/migrations/, src/middleware/auth.ts, src/middleware/rbac.ts, src/routes/cashfree.ts, src/routes/webhooks.ts\n\nPROBLEM: SEO workflows not running. Broken: ${brokenWfs.map(w => w.name).join(', ')}\n\nCheck seoWorkflowHealthService.ts and seoWorkflows.ts route. Diagnose why data is not being populated in SEO tables. Check if the webhook triggers are working. Fix and commit.`,
       terminal_commands: [],
@@ -540,7 +539,7 @@ function buildFallbackAnalysis(data: AgencyDailyData): Analysis {
         workflow: w.name,
         days_overdue: w.daysSince === 999 ? -1 : w.daysSince,
         impact: 'Data not collected — client visibility gap',
-        fix_prompt: `cd ~/repo-comparison/v2\nDiagnose why ${w.name} (${w.id}) is not running. Check the n8n webhook endpoint and output table freshness.`,
+        fix_prompt: `cd ~/repo-comparison/v2\nDiagnose why ${w.name} (${w.id}) is not running. Check the backend-native service in src/services/seo* and output table freshness.`,
       })),
       keyword_insights: data.seo.keywordsImproved > data.seo.keywordsDropped
         ? `${data.seo.keywordsImproved} keywords improving — maintain current strategy`

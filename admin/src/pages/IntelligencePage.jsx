@@ -201,10 +201,13 @@ function SEOWorkflowHealthSection({ wfData }) {
       <div className="flex items-center gap-3 mb-3">
         <Cpu className={`w-4 h-4 flex-shrink-0 ${allHealthy ? 'text-emerald-500' : 'text-orange-500'}`} />
         <p className="text-sm font-semibold text-slate-800">SEO Workflow Health</p>
-        <span className={`ml-auto text-xs font-semibold px-2 py-0.5 rounded-full ${wfData.n8nAlive ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-          n8n {wfData.n8nAlive ? '🟢 Online' : '🔴 Offline'}
-        </span>
-        <a href="/seo" className="flex items-center gap-1 text-xs text-sky-600 hover:underline">
+        {/* The "n8n 🟢 Online" badge that sat here is gone. n8n is decommissioned;
+            the badge was driven by a live probe of a dead host, and after that
+            probe was removed it was reading a hardcoded `true` — a green light
+            asserting a service that no longer exists is healthy. The SEO
+            workflows are native services now (src/services/seo*), and their
+            health is the panel below, which is the honest signal. */}
+        <a href="/seo" className="ml-auto flex items-center gap-1 text-xs text-sky-600 hover:underline">
           Fix <ExternalLink className="w-3 h-3" />
         </a>
       </div>

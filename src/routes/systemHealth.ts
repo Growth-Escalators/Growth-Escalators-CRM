@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import * as https from 'https';
 import { db } from '../db/index';
 import { sql } from 'drizzle-orm';
 import { requireAuth } from '../middleware/auth';
@@ -20,15 +19,11 @@ function formatUptime(seconds: number): string {
   return parts.join(' ');
 }
 
-function checkN8n(): Promise<boolean> {
-  return new Promise((resolve) => {
-    const timeout = setTimeout(() => resolve(false), 3000);
-    https.get('https://primary-production-6c6f5.up.railway.app/healthz', (res) => {
-      clearTimeout(timeout);
-      resolve(res.statusCode === 200);
-    }).on('error', () => { clearTimeout(timeout); resolve(false); });
-  });
-}
+// n8n reachability check removed — n8n is decommissioned. This route used to
+// hit https://primary-production-6c6f5.up.railway.app/healthz on every
+// unauthenticated-adjacent /health request; that host no longer exists, so
+// the call could only ever fail. The `n8n` entry it fed into `services`
+// below is gone too (see admin/ grep: no admin page read it).
 
 // GET /api/system/health/ping — no auth, public
 router.get('/health/ping', (_req, res) => {
@@ -102,8 +97,6 @@ router.get('/health', requireAuth, async (req, res) => {
     messageCount,
     lastEvent,
     emailCount,
-    jobsTodayCount,
-    lastJobResult,
     purchasesToday,
     bookingsToday,
     hotLeadsToday,
@@ -113,7 +106,6 @@ router.get('/health', requireAuth, async (req, res) => {
     recentEvents,
     recentMessages,
     recentJobs,
-    n8nReachable,
   ] = await Promise.all([
     // contacts count
     db.execute(sql`SELECT COUNT(*)::int as count FROM contacts WHERE tenant_id = ${tenantId}::uuid AND status != 'deleted'`),
@@ -127,10 +119,6 @@ router.get('/health', requireAuth, async (req, res) => {
     db.execute(sql`SELECT MAX(created_at) as last_at FROM events WHERE tenant_id = ${tenantId}::uuid`),
     // emails sent
     db.execute(sql`SELECT COUNT(*)::int as count FROM messages WHERE tenant_id = ${tenantId}::uuid AND channel = 'email'`),
-    // jobs completed today
-    db.execute(sql`SELECT COUNT(*)::int as count FROM jobs WHERE tenant_id = ${tenantId}::uuid AND status = 'completed' AND created_at > NOW() - INTERVAL '24 hours'`),
-    // last completed job
-    db.execute(sql`SELECT MAX(created_at) as last_at FROM jobs WHERE tenant_id = ${tenantId}::uuid AND status = 'completed'`),
     // purchases today
     db.execute(sql`SELECT COUNT(*)::int as count FROM jobs WHERE tenant_id = ${tenantId}::uuid AND job_type = 'purchase_completed' AND created_at > NOW() - INTERVAL '24 hours'`),
     // bookings today
@@ -158,8 +146,6 @@ router.get('/health', requireAuth, async (req, res) => {
     db.execute(sql`SELECT id::text, sent_at as created_at, channel, direction, template_name, status FROM messages WHERE tenant_id = ${tenantId}::uuid ORDER BY sent_at DESC LIMIT 20`),
     // recent jobs
     db.execute(sql`SELECT id::text, created_at, job_type, status, payload FROM jobs WHERE tenant_id = ${tenantId}::uuid ORDER BY created_at DESC LIMIT 20`),
-    // n8n reachability
-    checkN8n(),
   ]);
 
   // Process job statuses
@@ -173,8 +159,6 @@ router.get('/health', requireAuth, async (req, res) => {
   const messagesCount = Number((messageCount.rows as any[])[0]?.count ?? 0);
   const lastActivityAt = (lastEvent.rows as any[])[0]?.last_at ?? null;
   const emailsSentTotal = Number((emailCount.rows as any[])[0]?.count ?? 0);
-  const jobsProcessedToday = Number((jobsTodayCount.rows as any[])[0]?.count ?? 0);
-  const lastJobAt = (lastJobResult.rows as any[])[0]?.last_at ?? null;
   const purchasesCount = Number((purchasesToday.rows as any[])[0]?.count ?? 0);
   const bookingsTodayCount = Number((bookingsToday.rows as any[])[0]?.count ?? 0);
   const hotLeadsTodayCount = Number((hotLeadsToday.rows as any[])[0]?.count ?? 0);
@@ -237,15 +221,6 @@ router.get('/health', requireAuth, async (req, res) => {
     emailsSentTotal,
   };
 
-  const n8nService = {
-    status: n8nReachable ? 'healthy' as const : 'warning' as const,
-    url: 'https://primary-production-6c6f5.up.railway.app',
-    reachable: n8nReachable,
-    workflowsActive: 5,
-    jobsProcessedToday,
-    lastJobAt,
-  };
-
   const cashfreeService = {
     status: !(cashfreeAppId && cashfreeSecret) ? 'warning' as const : 'healthy' as const,
     appIdSet: !!cashfreeAppId,
@@ -273,10 +248,10 @@ router.get('/health', requireAuth, async (req, res) => {
   const alerts: Array<{ level: 'error' | 'warning' | 'info'; service: string; message: string; action: string }> = [];
   if (!metaToken) alerts.push({ level: 'error', service: 'Meta WhatsApp', message: 'Meta WhatsApp token missing — WhatsApp sending disabled', action: 'Generate a System User token in Meta Business Manager and set META_ACCESS_TOKEN in Railway' });
   if (isTestNumber) alerts.push({ level: 'warning', service: 'Meta WhatsApp', message: 'Using test WhatsApp number — real number migration pending', action: 'Complete the phone number migration from GHL WABA to Growth Escalators WABA' });
-  if ((jobMap['failed'] ?? 0) > 5) alerts.push({ level: 'warning', service: 'n8n', message: `${jobMap['failed']} failed jobs in queue — check n8n workflows`, action: 'Open n8n dashboard and check workflow execution logs' });
+  if ((jobMap['failed'] ?? 0) > 5) alerts.push({ level: 'warning', service: 'Jobs', message: `${jobMap['failed']} failed jobs in queue`, action: 'Check worker logs and SELECT * FROM jobs WHERE status=\'failed\' for the error payloads' });
   if ((jobMap['dead_letter'] ?? 0) > 0) alerts.push({ level: 'error', service: 'Jobs', message: `${jobMap['dead_letter']} jobs in dead letter queue — manual intervention needed`, action: "Query SELECT * FROM jobs WHERE status='dead_letter' and inspect payloads" });
   if (!cashfreeAppId) alerts.push({ level: 'warning', service: 'Cashfree', message: 'Cashfree credentials missing — payments not processing', action: 'Set CASHFREE_APP_ID and CASHFREE_SECRET_KEY in Railway environment variables' });
-  if (activeEnrolments === 0) alerts.push({ level: 'info', service: 'Sequences', message: 'No active sequence enrolments — check if leads are being enrolled', action: 'Verify sequence enrolment logic in the booking webhook and n8n workflows' });
+  if (activeEnrolments === 0) alerts.push({ level: 'info', service: 'Sequences', message: 'No active sequence enrolments — check if leads are being enrolled', action: 'Verify sequence enrolment logic in the booking webhook and src/workers/sequenceWorker.ts' });
 
   // Recent activity
   const activityItems: any[] = [];
@@ -301,7 +276,12 @@ router.get('/health', requireAuth, async (req, res) => {
   }
 
   for (const j of (recentJobs.rows as any[])) {
-    const serviceMap: Record<string, string> = { inbound_wa: 'meta', purchase_completed: 'cashfree', booking_processed: 'calcom', hot_lead_alert: 'n8n', sequence_step: 'backend' };
+    // hot_lead_alert used to tag as 'n8n' (n8n polled /api/jobs/pending and
+    // handled it). n8n is decommissioned — per jobDrainer.ts, this job type
+    // has no replacement consumer yet and is left pending by design, so it
+    // falls through to the generic 'backend' tag below rather than claiming
+    // a service that no longer processes it.
+    const serviceMap: Record<string, string> = { inbound_wa: 'meta', purchase_completed: 'cashfree', booking_processed: 'calcom', sequence_step: 'backend' };
     const service = serviceMap[j.job_type] ?? 'backend';
     activityItems.push({ id: j.id, timestamp: j.created_at, service, type: 'job_processed', title: j.job_type?.replace(/_/g, ' ') ?? 'Job', detail: `Status: ${j.status}`, status: j.status === 'failed' || j.status === 'dead_letter' ? 'error' : j.status === 'pending' ? 'warning' : 'success' });
   }
@@ -309,7 +289,7 @@ router.get('/health', requireAuth, async (req, res) => {
   activityItems.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   // Overall status
-  const services = { backend: backendService, database: dbService, metaWhatsapp: metaService, brevo: brevoService, n8n: n8nService, cashfree: cashfreeService, calcom: calcomService, roundRobin: roundRobinService };
+  const services = { backend: backendService, database: dbService, metaWhatsapp: metaService, brevo: brevoService, cashfree: cashfreeService, calcom: calcomService, roundRobin: roundRobinService };
   const allStatuses = Object.values(services).map((s: any) => s.status);
   const overallStatus = allStatuses.includes('error') ? 'error' : (allStatuses.includes('warning') || alerts.length > 0) ? 'warning' : 'healthy';
 

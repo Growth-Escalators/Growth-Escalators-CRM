@@ -1,495 +1,192 @@
-# Growth Escalators — SEO Automation System
-## Complete Handoff Document (Phase 2 Upgrade)
-**Updated:** 2026-03-29 | **Status:** 12/12 Workflows Active
-
----
-
-## 1. COMPLETE WORKFLOW REGISTRY
-
-| ID | Name | n8n ID | Schedule/Trigger | Status |
-|----|------|--------|-----------------|--------|
-| WF-SEO-01 | Weekly SEO Data Pull | `YXmClFSKZB9DMkyu` | Every Monday 1AM UTC | ✅ Active |
-| WF-SEO-02 | Daily Alert Triggers | `5FVX2kEjuD7vWD0e` | Every day 9AM IST | ✅ Active |
-| WF-SEO-03 | Weekly AI Insight Report | `as8HvuMPqAHhAdQ8` | Every Friday 4PM IST | ✅ Active |
-| WF-SEO-04 | WordPress Content Publisher | `CBzwkCqVgeQOxOQl` | Webhook POST /seo-publish | ✅ Active |
-| WF-SEO-05 | PageSpeed Monitor | `z21W6MDWBF0dukkT` | Every Sunday 7AM IST | ✅ Active |
-| WF-SEO-06 | Rank Tracker | `BwO187curjMMA60i` | Every Tuesday 9AM IST | ✅ Active |
-| WF-SEO-07 | Content Gap Analysis | `Isz1ui9PkjsqBMb8` | Every other Wednesday 11AM IST | ✅ Active |
-| WF-SEO-08 | Backlink Monitor | `19R3BStSY2S1N9H1` | Every Friday 9AM IST | ✅ Active |
-| WF-SEO-09 | Internal Linking Suggester | `akTW1dgtKtCpcz3R` | Webhook POST /seo-internal-linking | ✅ Active |
-| WF-SEO-10 | Google Indexing Ping | `8l9kEQlRVUbL4Ku6` | Webhook POST /seo-indexing-ping | ✅ Active |
-| WF-SEO-11 | Content Decay Detector | `Ss2Bfps5lXBWUUs4` | First Monday of month 9AM IST | ✅ Active |
-| WF-SEO-12 | Weekly Opportunity Digest | `M4rbRZL5jh0jJHku` | Every Friday 5PM IST | ✅ Active |
-
-**n8n URL:** https://primary-production-6c6f5.up.railway.app
-
-**Webhook Base URL:** `https://primary-production-6c6f5.up.railway.app/webhook/`
-
----
-
-## 2. ALL DATABASE TABLES
-
-### Pre-existing SEO Tables (Phase 1)
-| Table | Purpose |
-|-------|---------|
-| `seo_weekly_metrics` | GA4 + Search Console weekly KPIs |
-| `seo_keyword_tracking` | Legacy keyword tracking |
-| `seo_alerts_log` | Alert history |
-
-### New SEO Tables (Phase 2 — Migration 0013)
-| Table | Purpose |
-|-------|---------|
-| `client_knowledge_base` | Brand guidelines, voice, competitor domains, target keywords |
-| `client_pages` | All published pages with WP post IDs, internal links |
-| `keyword_rankings` | Weekly rank snapshots per keyword per project |
-| `backlink_data` | Backlink inventory from DataForSEO |
-| `content_gap_analysis` | AI-generated competitor gap analysis |
-| `seo_opportunities` | Identified actionable SEO opportunities |
-| `site_health_metrics` | PageSpeed, CWV (LCP/FID/CLS) weekly scores |
-| `brand_mentions` | Brand mention tracking |
-
-### Key Columns
-```sql
--- keyword_rankings
-SELECT project_name, keyword, current_position, position_change, search_volume, recorded_date
-FROM keyword_rankings ORDER BY recorded_date DESC;
-
--- content_gap_analysis
-SELECT project_name, target_keyword, priority_score, topics_missing, questions_missing
-FROM content_gap_analysis ORDER BY priority_score DESC;
-
--- site_health_metrics
-SELECT project_name, pagespeed_mobile, lcp, cls, checked_at
-FROM site_health_metrics ORDER BY checked_at DESC;
-```
-
----
-
-## 3. API INTEGRATIONS & COSTS
-
-| API | Used For | Cost | Plan |
-|-----|----------|------|------|
-| Google PageSpeed Insights | WF-SEO-05 | Free | No key needed |
-| Google Natural Language API | WF-SEO-04 entity scoring | $0.001/1k chars | Free tier: 5k units/mo |
-| Google Indexing API | WF-SEO-10 | Free | 200 URLs/day |
-| Google Search Console API | WF-SEO-01 | Free | Via OAuth |
-| Google Analytics Data API | WF-SEO-01 | Free | Via OAuth |
-| ValueSERP | WF-SEO-06, 07 | ~$50/mo | 5k searches/mo |
-| DataForSEO | WF-SEO-08 | ~$30/mo | Pay per call |
-| Anthropic Claude API | WF-SEO-04, 07, 11, 12 | ~$20/mo | claude-sonnet-4-6 |
-| Slack | All workflows | Free | Bot token |
-| Brevo | WF-SEO-11 email | Free tier | 300 emails/day |
-
-**GCP Project:** `clickup-auto-prod-260311` (project ID: 605266695454)
-
----
-
-## 4. ENVIRONMENT VARIABLES
-
-### Currently Set in Railway (web service)
-```
-DATABASE_URL         postgresql://postgres:***@postgres.railway.internal:5432/railway
-BREVO_API_KEY        xkeysib-***
-SLACK_BOT_TOKEN      xoxb-***
-SLACK_SOD_EOD_CHANNEL C08EMRX2HHN
-GOOGLE_PLACES_API_KEY AIzaSyD8hm9c75Ob_***  (Places API key)
-GCP_NL_API_KEY       AIzaSyBu6ZkzPyXbYK1QK*** (Natural Language API key)
-GCP_OAUTH_CLIENT_ID  605266695454-ppkgsbl441grhftqgbr5f***.apps.googleusercontent.com
-GCP_OAUTH_CLIENT_SECRET GOCSPX-c-k3UvohUlPat***
-WP_AAROHAOM_URL      https://aarohaom.com
-WP_AAROHAOM_USER     admin
-WP_AAROHAOM_PASS     ***REDACTED 2026-07-19 — plaintext value found committed here, removed from working tree; still in git history and matches the live Railway env var as of this writing — treat as compromised until rotated***
-WP_BLACKPANDA_URL    https://blackpandaenterprises.com
-WP_BLACKPANDA_USER   admin
-WP_BLACKPANDA_PASS   ***REDACTED 2026-07-19 — plaintext value found committed here, removed from working tree; still in git history and matches the live Railway env var as of this writing — treat as compromised until rotated***
-WP_AGEDDENTISTRY_URL https://ageddentistry.org
-WP_AGEDDENTISTRY_USER admin
-WP_AGEDDENTISTRY_PASS ***REDACTED 2026-07-19 — plaintext value found committed here, removed from working tree; still in git history and matches the live Railway env var as of this writing — treat as compromised until rotated***
-```
-
-### ⚠️ MUST ADD to Railway (n8n service)
-```
-CLAUDE_API_KEY        [Your Anthropic API key]
-DATAFORSEO_LOGIN      [DataForSEO account email]
-DATAFORSEO_PASSWORD   [DataForSEO account password]
-VALUESREP_API_KEY     [ValueSERP API key from valueserp.com]
-GCP_PROJECT_ID        clickup-auto-prod-260311
-```
-
-### n8n Credential IDs (already configured)
-```
-Google SEO OAuth:          YxrNZeLdvBfNxEsZ
-Growth Escalators Postgres: N7nIyQgdtKFT9Ye8
-Slack Bot:                 VaNm8cr89lLAGlpJ
-```
-
----
-
-## 5. WEEKLY AUTOMATION SCHEDULE
-
-```
-MONDAY
-  1:00 AM UTC  — WF-SEO-01: Weekly SEO Data Pull (GA4 + Search Console)
-
-TUESDAY
-  3:30 AM UTC  — WF-SEO-06: Rank Tracker (ValueSERP for all keywords)
-
-WEDNESDAY (every other week)
-  5:30 AM UTC  — WF-SEO-07: Content Gap Analysis (Claude analysis)
-
-FRIDAY
-  3:30 AM UTC  — WF-SEO-08: Backlink Monitor (DataForSEO)
-  4:00 PM IST  — WF-SEO-03: Weekly AI Insight Report (existing)
-  5:00 PM IST  — WF-SEO-12: Weekly Opportunity Digest (AI-ranked actions)
-
-SUNDAY
-  1:30 AM UTC  — WF-SEO-05: PageSpeed Monitor (CWV scores)
-
-DAILY
-  9:00 AM IST  — WF-SEO-02: Daily Alert Triggers
-
-WEEKLY (every Monday)
-  9:00 AM IST  — WF-SEO-11: Content Decay Detector (backend-native)
-
-ON-DEMAND (webhooks)
-  POST /webhook/seo-publish          — WF-SEO-04: Publish content to WordPress
-  POST /webhook/seo-indexing-ping    — WF-SEO-10: Google Indexing Ping
-  POST /webhook/seo-internal-linking — WF-SEO-09: Internal Linking Suggestions
-```
-
----
-
-## 6. HOW TO ADD A NEW CLIENT
-
-1. **Add knowledge base entry:**
-```sql
-INSERT INTO client_knowledge_base (
-  project_name, brand_summary, ideal_customer, unique_value_proposition,
-  brand_voice, words_always_use, words_never_use, competitor_domains, target_keywords_priority
-) VALUES (
-  'newclient',
-  'Brand summary here',
-  'Target audience description',
-  'What makes them unique',
-  'Professional, warm, clear',
-  '["word1","word2"]'::jsonb,
-  '["avoid1","avoid2"]'::jsonb,
-  '["competitor.com"]'::jsonb,
-  '["primary keyword","secondary keyword"]'::jsonb
-);
-```
-
-2. **Add WP credentials to Railway:**
-```
-railway variable set WP_NEWCLIENT_URL=https://newclientdomain.com
-railway variable set WP_NEWCLIENT_USER=admin
-railway variable set WP_NEWCLIENT_PASS=their-app-password
-```
-
-3. **Update WF-SEO-04 Validate Input node** to include the new project slug in the `allowed` array.
-
-4. **Update WF-SEO-05, 06, 08** — add the client to the `clients` array in their respective "Define Client Sites/Domains" nodes.
-
-5. **Add initial keywords to track:**
-```sql
-INSERT INTO keyword_rankings (project_name, keyword, search_volume, recorded_date)
-VALUES
-  ('newclient', 'target keyword 1', 1500, CURRENT_DATE),
-  ('newclient', 'target keyword 2', 800, CURRENT_DATE);
-```
-
-6. Redeploy n8n service to apply env changes.
-
----
-
-## 7. HOW TO ADD NEW KEYWORDS TO RANK TRACKER
-
-```sql
--- Add keywords to be tracked on next Tuesday's run
-INSERT INTO keyword_rankings (project_name, keyword, search_volume, recorded_date)
-VALUES
-  ('aarohaom', 'new keyword to track', 1200, CURRENT_DATE),
-  ('blackpanda', 'another keyword', 500, CURRENT_DATE);
-```
-
-WF-SEO-06 will automatically pick these up on the next Tuesday run.
-
-**To track a keyword immediately:**
-1. Open n8n → WF-SEO-06 → Execute workflow
-2. The workflow reads from `keyword_rankings` and adds any new keywords
-
----
-
-## 8. HOW TO TRIGGER CONTENT GAP ANALYSIS MANUALLY
-
-**Via n8n:**
-1. Open n8n: https://primary-production-6c6f5.up.railway.app
-2. Open WF-SEO-07
-3. Click "Execute Workflow" (top right)
-
-**Prerequisite:** Keywords must have rankings in `keyword_rankings` table (positions 5-20)
-
-**To force analysis for a specific keyword:**
-```sql
--- Temporarily set a keyword to position 10 to trigger analysis
-UPDATE keyword_rankings
-SET current_position = 10
-WHERE project_name = 'aarohaom' AND keyword = 'ayurvedic treatment'
-  AND recorded_date = (SELECT MAX(recorded_date) FROM keyword_rankings WHERE project_name = 'aarohaom');
-```
-
-Then execute WF-SEO-07 in n8n.
-
----
-
-## 9. THURSDAY MEETING CHECKLIST (UPDATED)
-
-**15 min before the meeting:**
-```bash
-# Run quick health check
-railway run npx tsx scripts/test-seo-system.ts
-```
-
-**During the meeting, pull these dashboards:**
-
-1. **Rankings this week:**
-```sql
-SELECT project_name, keyword, current_position, position_change, search_volume
-FROM keyword_rankings
-WHERE recorded_date >= CURRENT_DATE - 7
-ORDER BY position_change DESC
-LIMIT 20;
-```
-
-2. **Top content opportunities:**
-```sql
-SELECT project_name, target_keyword, our_position, priority_score, topics_missing
-FROM content_gap_analysis
-WHERE status = 'pending'
-ORDER BY priority_score DESC
-LIMIT 5;
-```
-
-3. **PageSpeed scores:**
-```sql
-SELECT project_name, pagespeed_mobile, pagespeed_desktop, lcp, cls, checked_at
-FROM site_health_metrics
-ORDER BY checked_at DESC LIMIT 10;
-```
-
-4. **Open opportunities:**
-```sql
-SELECT project_name, opportunity_type, description, effort_level
-FROM seo_opportunities
-WHERE status = 'open'
-ORDER BY identified_at DESC LIMIT 10;
-```
-
-5. **Check Friday's Slack digest** in #performance-marketing for the AI-ranked action list.
-
----
-
-## 10. TROUBLESHOOTING GUIDE
-
-### WF-SEO-04 not publishing to WordPress
-- **Check:** WP credentials in Railway env (`WP_*_USER`, `WP_*_PASS`)
-- **Test:** `curl -u admin:APP_PASSWORD https://site.com/wp-json/wp/v2/pages?per_page=1`
-- **Fix:** WP admin → Users → Application Passwords → Generate new password
-
-### WF-SEO-05 PageSpeed shows no data
-- **Check:** PageSpeed API quota (25 queries/day free, 25k/day with paid project)
-- **Fix:** Either wait for quota reset or use a new GCP project
-
-### WF-SEO-06 ValueSERP fails
-- **Check:** `VALUESREP_API_KEY` is set in n8n service Railway variables
-- **Check:** API credits remaining at valueserp.com/dashboard
-- **Fix:** Top up credits or rotate API key
-
-### WF-SEO-08 DataForSEO fails
-- **Check:** `DATAFORSEO_LOGIN` and `DATAFORSEO_PASSWORD` set in Railway
-- **Check:** Credits remaining at app.dataforseo.com
-- **Fix:** Top up or rotate credentials
-
-### WF-SEO-09 Internal linking returns no suggestions
-- **Check:** `client_pages` table has entries for that project
-- **Fix:** Pages register automatically after WF-SEO-04 publishes. OR manually insert:
-```sql
-INSERT INTO client_pages (project_name, page_url, page_title, target_keyword)
-VALUES ('aarohaom', 'https://aarohaom.com/page/', 'Page Title', 'target keyword');
-```
-
-### WF-SEO-10 Indexing ping fails
-- **Check:** Google OAuth credential `YxrNZeLdvBfNxEsZ` in n8n is still valid
-- **Fix:** n8n → Credentials → Google SEO OAuth → Re-authorize
-
-### WF-SEO-11 shows no decaying pages
-- Needs ~35 days of ranking history. Backend-native service compares last 7 days vs 7–35-day baseline.
-- **First check:** open the SEO → Workflows tab. The "Content Decay Detection" card shows an amber banner if `keyword_rankings` has 0 rows in the last 10 days — that means the upstream Rank Tracking cron (Tuesday 9 AM IST) is not writing.
-- **Most common cause:** `SERPER_API_KEY` missing on the Railway worker → rank tracker silently skips.
-
-### WF-SEO-12 Digest shows "Unable to generate AI summary"
-- **Check:** `CLAUDE_API_KEY` is set in Railway env
-- **Check:** Claude API credits at console.anthropic.com
-
-### Claude API (WF-SEO-04) fails entity scoring
-- NL API key used: `GCP_NL_API_KEY` = `***REDACTED 2026-07-23 — plaintext value found committed here, removed from working tree; still in git history — treat as compromised until rotated***`
-- GCP Project: `clickup-auto-prod-260311`
-- Free tier: 5,000 natural language units/month
-- If quota exceeded, the workflow continues without entity scoring
-
----
-
-## 11. TEST SUITE INSTRUCTIONS
-
-```bash
-# Run against Railway production (recommended)
-railway run npx tsx scripts/test-seo-system.ts
-
-# Run with external DB (from local machine)
-DATABASE_URL="postgresql://postgres:PASSWORD@nozomi.proxy.rlwy.net:46852/railway" \
-  GOOGLE_PLACES_API_KEY="***REDACTED 2026-07-23 — plaintext value found committed here (mislabeled copy-paste of the GCP_NL_API_KEY value above), removed from working tree; still in git history — treat as compromised until rotated***" \
-  SLACK_BOT_TOKEN="xoxb-***" \
-  npx tsx scripts/test-seo-system.ts
-```
-
-**Current Expected Results:**
-- ✅ TEST 1: Database + 8 new tables (49 total)
-- ✅ TEST 2: Knowledge base (3 clients)
-- ✅ TEST 3: PageSpeed API (quota OK)
-- ⚠️ TEST 4: ValueSERP — needs VALUESREP_API_KEY
-- ⚠️ TEST 5: DataForSEO — needs DATAFORSEO_LOGIN + PASSWORD
-- ✅ TEST 6: Google Indexing API (OAuth ready in n8n)
-- ✅ TEST 7: Natural Language API (2 entities detected)
-- ✅ TEST 8: All 12 n8n workflows active
-- ✅ TEST 9: WordPress REST API (3 sites)
-- ⚠️ TEST 10: Claude API — needs CLAUDE_API_KEY in web service env
-- ✅ TEST 11: Internal linking query
-- ✅ TEST 12: Slack posting
-
-**Tests 4, 5, 10 will pass once new API keys are added to Railway.**
-
----
-
-## 12. MONTHLY MAINTENANCE CHECKLIST
-
-**1st of every month:**
-- [ ] Review `seo_opportunities` table — close resolved items
-- [ ] Review content decay report from WF-SEO-11 (runs first Monday)
-- [ ] Check DataForSEO and ValueSERP credit balance
-- [ ] Verify Claude API spend at console.anthropic.com
-- [ ] Archive old ranking data (>6 months) to save DB space:
-```sql
-DELETE FROM keyword_rankings WHERE recorded_date < CURRENT_DATE - INTERVAL '180 days';
-```
-- [ ] Update `client_knowledge_base` if brand info has changed
-- [ ] Review and close resolved `seo_opportunities`
-
-**Quarterly:**
-- [ ] Review and update target keywords in `keyword_rankings` seed list
-- [ ] Update competitor domains in `client_knowledge_base`
-- [ ] Audit `client_pages` — remove deleted pages
-- [ ] Run full test suite and document results
-
----
-
-## 13. HOW TO PUBLISH CONTENT (WF-SEO-04)
-
-**Trigger via webhook:**
-```bash
-curl -X POST "https://primary-production-6c6f5.up.railway.app/webhook/seo-publish" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "projectName": "aarohaom",
-    "targetKeyword": "ayurvedic treatment Mumbai",
-    "serviceType": "Panchakarma Therapy",
-    "location": "Mumbai",
-    "supportingData": "Over 500 patients treated, 15 years experience",
-    "faqQuestions": [
-      "What is Panchakarma therapy?",
-      "How long does treatment take?",
-      "Is it safe for all ages?"
-    ]
-  }'
-```
-
-**What happens automatically:**
-1. Knowledge base context fetched for `aarohaom`
-2. Claude generates full SEO page (H1, meta, content, FAQs)
-3. NL API scores keyword entity salience
-4. WordPress draft created with canonical URL and RankMath meta
-5. Page registered in `client_pages` table
-6. Google Indexing API pinged
-7. Internal linking suggestions generated
-8. Slack confirmation sent to #seo-publishing
-
----
-
-## 14. TECHNICAL ARCHITECTURE
-
-```
-                     RAILWAY INFRASTRUCTURE
-┌─────────────────────────────────────────────────────────┐
-│                                                         │
-│  n8n (primary-production-6c6f5.up.railway.app)         │
-│  ├── WF-SEO-01: GSC + GA4 weekly pull                  │
-│  ├── WF-SEO-02: Daily alert triggers                   │
-│  ├── WF-SEO-03: AI weekly insight report               │
-│  ├── WF-SEO-04: WordPress publisher (upgraded)         │
-│  ├── WF-SEO-05: PageSpeed monitor                      │
-│  ├── WF-SEO-06: Rank tracker (ValueSERP)               │
-│  ├── WF-SEO-07: Content gap (Claude)                   │
-│  ├── WF-SEO-08: Backlink monitor (DataForSEO)          │
-│  ├── WF-SEO-09: Internal linking (webhook)             │
-│  ├── WF-SEO-10: Indexing ping (webhook)                │
-│  ├── WF-SEO-11: Content decay (monthly)                │
-│  └── WF-SEO-12: Weekly opportunity digest              │
-│                                                         │
-│  Express API (web-production-311da.up.railway.app)      │
-│  └── /health, /stats, all CRM routes                   │
-│                                                         │
-│  PostgreSQL (nozomi.proxy.rlwy.net:46852)              │
-│  └── 49 tables (35 CRM + 3 legacy SEO + 8 new SEO +   │
-│      2 outreach + 1 errors)                            │
-└─────────────────────────────────────────────────────────┘
-
-EXTERNAL APIs
-├── Google PageSpeed Insights (free, no key needed)
-├── Google Natural Language API (key: GCP_NL_API_KEY)
-├── Google Indexing API (OAuth: YxrNZeLdvBfNxEsZ in n8n)
-├── Google Search Console (OAuth: YxrNZeLdvBfNxEsZ in n8n)
-├── ValueSERP (key: VALUESREP_API_KEY)
-├── DataForSEO (login/password: DATAFORSEO_*)
-├── Anthropic Claude API (key: CLAUDE_API_KEY)
-├── WordPress REST API (per-site app passwords)
-└── Slack (bot token: SLACK_BOT_TOKEN)
-
-WORDPRESS SITES
-├── aarohaom.com (WP_AAROHAOM_*)
-├── blackpandaenterprises.com (WP_BLACKPANDA_*)
-└── ageddentistry.org (WP_AGEDDENTISTRY_*)
-```
-
----
-
-## 15. CLIENT KNOWLEDGE BASE STATUS
-
-| Client | Project Key | Voice | Priority Keywords | Status |
-|--------|------------|-------|------------------|--------|
-| Aarogaom | `aarohaom` | Warm, holistic | ayurvedic treatment, wellness | ✅ Seeded |
-| Black Panda | `blackpanda` | Professional, data-driven | India market entry, GCC | ✅ Seeded |
-| Aged Dentistry | `ageddentistry` | Reassuring, professional | dentist, dental implants | ✅ Seeded |
-
-**To update a client's knowledge base:**
-```sql
-UPDATE client_knowledge_base
-SET brand_summary = 'Updated summary...',
-    proof_points = '["New proof point 1", "Point 2"]'::jsonb,
-    updated_at = NOW()
-WHERE project_name = 'aarohaom';
-```
-
----
-
-*Generated by Growth Escalators SEO Automation — Phase 2*
-*Backend: https://web-production-311da.up.railway.app*
-*n8n: https://primary-production-6c6f5.up.railway.app*
+# SEO automation — system handoff
+
+**Status: native, multi-tenant, multi-platform.** This document used to
+describe an n8n-driven pipeline hardcoded to three clients
+(`aarohaom.com`, `blackpandaenterprises.com`, `ageddentistry.org`). That
+pipeline is gone. n8n is decommissioned; its workflow JSONs are kept purely
+as history in
+[`docs/archive/n8n-workflows-seo/`](../archive/n8n-workflows-seo/README.md).
+The three named clients are **retired** — no longer active, no longer
+re-seeded on boot, pending a data purge (see "Retired clients" below).
+
+If you're debugging something broken, use
+[`docs/seo/seo-debugger.md`](seo-debugger.md) instead — it has the cron
+schedule, the API surface, and a troubleshooting playbook. This document is
+for onboarding: what the system is today, how a new client/site actually
+gets added, and the credential model.
+
+## What the system is now
+
+SEO is a per-tenant add-on, gated by the `seo` tenant feature
+(`requireTenantFeature('seo')` on every `/api/seo*` route in
+`src/index.ts`). A tenant with the feature registers one or more **sites**
+in the `seo_sites` table (`src/services/seoSiteRegistry.ts`), each with a
+`platform` of `git`, `wordpress`, or `shopify`. Publishing a change to any
+registered site goes through a single approval-gated state machine
+(`src/services/siteChangeService.ts`) — nothing reaches a client's live
+website without a recorded human approval, enforced at three independent
+layers. Crons (rank tracking, backlinks, content decay, drift detection,
+PageSpeed, GSC pulls, digests) sweep every SEO-enabled tenant, not one
+hardcoded tenant.
+
+None of this is reachable end-to-end in production yet: the platform
+adapters are gated behind `SITE_ADAPTER_ENABLED`, which defaults `false`.
+See `seo-debugger.md` for what that means operationally.
+
+## Retired clients
+
+`aarohaom.com`, `blackpandaenterprises.com`, and `ageddentistry.org` were
+the three hand-maintained clients this document used to be written for.
+They are retired:
+
+- `seedClientKnowledgeBase()` (`src/services/seoKnowledgeBase.ts`), which
+  used to re-insert their brand/voice data into `client_knowledge_base` on
+  every server boot, is now a no-op.
+- The nine places in the codebase that used to hardcode these three domains
+  as a fallback list (including the old Co-Pilot's AI system prompt) no
+  longer do — a tenant's site list now comes only from its own `seo_sites`
+  registry.
+- A data purge for their remaining rows is planned but gated on production
+  database backups existing first (see `docs/go-live/OWNER_ACTION_LIST.md`
+  §1 and §4) — it has not happened yet, so their historical data is still in
+  the database.
+- One legacy code path still targets `ageddentistry.org` specifically:
+  `programmaticSeoService.publishToWordPress()` reads
+  `WP_AGEDDENTISTRY_URL` / `WP_AGEDDENTISTRY_USER` /
+  `WP_AGEDDENTISTRY_PASS` (or `WP_AGEDDENTISTRY_PASSWORD`) directly from
+  `process.env` and is the only reader of those variables left. The three
+  routes that trigger it (`POST /api/seo/generate-local-pages`,
+  `/regenerate-pages`, `/publish-pending-pages`) are gated so a tenant can
+  only invoke it if `ageddentistry.org`'s normalised domain is registered as
+  one of *their own* `seo_sites` rows (`assertOwnsWordPressTarget()` in
+  `src/routes/seo.ts`) — this stops a reseller's admin from accidentally
+  drafting pages onto Growth Escalators' own WordPress site, but the
+  publish target itself is still a single hardcoded domain, not
+  per-tenant. The real fix is finishing the migration of this function onto
+  the WordPress `SiteAdapter` (`src/modules/site/providers/wordpress.provider.ts`),
+  which reads credentials only from the tenant-scoped store described below
+  and has zero `process.env` reads by construction (enforced by a test that
+  greps its own source).
+
+## Onboarding a new client/site today
+
+This is the current path — not environment variables, not a SQL insert into
+a hardcoded client list:
+
+1. **Register the site.** `POST /api/seo-sites` (admin-only,
+   `src/routes/seoSites.ts` → `createSeoSite`,
+   `src/services/seoSiteRegistry.ts`) with `label`, `domain`, `platform`
+   (`git` | `wordpress` | `shopify`), and optionally `gscProperty`,
+   `ga4PropertyId`, `riskProfile`, `requiredChecks`,
+   `autoPublishAllowed`, `observationWindowDays`. `domain` is normalised
+   (lowercase, scheme/`www.`/trailing-dot stripped) and must contain a dot
+   — a bare project name is rejected.
+2. **Store credentials, separately, encrypted.** Never in `seo_sites.adapter_config`
+   — that column is plaintext jsonb and any key that looks secret-shaped
+   (`/pass|secret|token|key|credential|auth/i`) is rejected with a 400 at
+   the registry layer. Real credentials go through
+   `PUT /api/tenant-integrations/:provider` (owner-only,
+   `src/routes/tenantIntegrations.ts` → `upsertIntegrationCredentials`,
+   `src/services/tenantIntegrationsService.ts`), body
+   `{ credentials: {...}, metadata?: {...} }`. This encrypts and stores the
+   payload in `tenant_integrations`; the route never echoes it back, and
+   `GET` on the same resource returns only status/metadata, never the
+   secret. Set `seo_sites.credential_provider` to the matching provider name
+   so the adapter knows which integration row is this site's — it defaults
+   to the platform name (`wordpress`, `shopify`) if unset, which is correct
+   for a tenant with only one integration per platform.
+3. **Propose, stage, verify, approve, publish.** A change to that site is a
+   `site_changes` row (`POST /api/seo-changes`), which moves through
+   `stage → verify → awaiting_approval → approve → publish` — see
+   `seo-debugger.md`'s "invariant #2" for the full state machine and why
+   `publish` always requires a recorded human approval.
+
+There is deliberately no admin flow that skips straight to publishing —
+every platform, including ones with `autoPublishAllowed` on the site
+record, still goes through the same approval gate at the service layer.
+
+## Environment variables
+
+Names only — every value lives in Railway (`railway variables` /
+the Railway dashboard, environment-scoped) or, for per-tenant site
+credentials, in the encrypted `tenant_integrations` table via the route
+above. Nobody should ever need to know a live value to work on this system;
+if you find one in a file, treat it as compromised and report it (see
+"Credential exposure history" below) rather than copying it anywhere,
+including into a chat, a comment, or this document.
+
+| Variable | What it gates | Where the real value lives |
+|---|---|---|
+| `SERPER_API_KEY` | Rank tracking, backlinks, content gap, competitor analysis, outreach directory scraping | Railway |
+| `SITE_ADAPTER_ENABLED` | Whether any platform adapter (git/WordPress/Shopify) can run at all — defaults `false` | Railway (not a secret — `true`/`false`) |
+| `SITE_PROVIDER` | `platform` (real adapters) or `mock` — see `seo-debugger.md` | Railway (not a secret) |
+| `SEO_DIGEST_SLACK_ENABLED` | Whether the weekly Slack opportunity digest cron sends — defaults off | Railway (not a secret) |
+| `AUTOMATED_EMAILS_ENABLED` | Gates the SEO weekly email cron among others | Railway (not a secret) |
+| `SEO_MONTHLY_BUDGET_CENTS`, `SEO_DAILY_BUDGET_CENTS`, `SEO_MAX_SERPER_CALLS_PER_TENANT_DAY`, `SEO_MAX_SERPER_CALLS_PER_SITE_DAY`, `SEO_MAX_PAGESPEED_CALLS_PER_TENANT_DAY`, `SEO_MAX_GSC_CALLS_PER_TENANT_DAY`, `SEO_MAX_PUBLISHES_PER_SITE_DAY`, `SEO_SERPER_COST_CENTS`, `SEO_PAGESPEED_COST_CENTS`, `SEO_LLM_COST_CENTS` | Spend/cost guard caps (`src/services/seoCostGuard.ts`) — sane defaults if unset | Railway (not secrets — numeric config) |
+| `SEO_SERPER_DAILY_CAP` | The **retired** global in-memory Serper cap (`checkAndIncrementSeoSerperCap`) — has zero live callers today, kept only because old comments still mention it | Railway, if it's even still set |
+| `WP_AGEDDENTISTRY_URL`, `WP_AGEDDENTISTRY_USER`, `WP_AGEDDENTISTRY_PASS` / `WP_AGEDDENTISTRY_PASSWORD` | The one remaining legacy `process.env`-based WordPress publish path (see "Retired clients" above) | Railway — **see the exposure history immediately below before touching these** |
+| `GOOGLE_PLACES_API_KEY` | Outreach lead discovery (`src/routes/discover.ts`, `src/routes/outreachLeads.ts`, worker cron) — **not SEO**, listed here only because of the exposure history below | Railway |
+| `GOOGLE_SEO_OAUTH_REFRESH_TOKEN`, `GOOGLE_SEO_OAUTH_CLIENT_ID`, `GOOGLE_SEO_OAUTH_CLIENT_SECRET` | GSC pull (`seoSearchConsoleService.ts`) and GA4 pull (`seoAnalyticsService.ts`) OAuth — the **only** Google OAuth credential actually read anywhere in current `src/` for SEO. A **separate** client from `GCP_OAUTH_CLIENT_ID`/`SECRET` below. | Railway |
+
+Not used by anything in current `src/` — do not assume these still gate
+anything even though they still appear in Railway or old runbooks:
+`GCP_NL_API_KEY` (the old n8n WordPress-publish workflow's entity-scoring
+key), `GCP_OAUTH_CLIENT_ID` / `GCP_OAUTH_CLIENT_SECRET` (a legacy Google
+OAuth client — confirmed via a full-repo grep to have zero code references;
+**still leaked and still needs rotating per the exposure history below**,
+its disuse doesn't reduce that), `WP_AAROHAOM_*`, `WP_BLACKPANDA_*` (the
+legacy publish function now targets only `ageddentistry.org`),
+`VALUESREP_API_KEY`/`VALUESERP_API_KEY`, `DATAFORSEO_LOGIN`/
+`DATAFORSEO_PASSWORD`, `CLAUDE_API_KEY` as a SEO-workflow-specific var
+(Anthropic calls in this codebase use the process-wide Claude client
+config, not a SEO-scoped key). If you see any of these referenced in an
+alert, dashboard, or runbook, treat the reference itself as stale.
+
+## Credential exposure history — read before touching any WordPress or GCP variable above
+
+**No credential value appears anywhere in this document, in its edit
+history, or below — names and dates only.** This section exists so the next
+person doesn't have to rediscover what already leaked.
+
+An earlier version of this document (redacted 2026-07-19 and 2026-07-23)
+had committed plaintext values for: the `WP_AAROHAOM_PASS`,
+`WP_BLACKPANDA_PASS`, and `WP_AGEDDENTISTRY_PASS` WordPress application
+passwords; `GCP_NL_API_KEY`; and a value under `GOOGLE_PLACES_API_KEY` that
+was itself a mislabeled copy-paste of the `GCP_NL_API_KEY` value, not a real
+Places API key. All of those values were removed from the working tree at
+the time but **remain recoverable from git history**, and per AGENTS.md
+credential hygiene, anything found in git history is treated as compromised
+until rotated — removal from the working tree does not fix that on its own.
+
+As of this writing, rotation is **not yet complete**. The live checklist and
+current status live in `docs/go-live/OWNER_ACTION_LIST.md` §3 ("Rotate the
+leaked credentials") and the detailed checklist it points to
+(`SECRETS-ROTATION.md`, itself a restricted path — see
+`docs/wizmatch/README.md`'s "restricted paths" list; do not open it as part
+of routine handoff reading). Two corrections already recorded there, worth
+repeating so they aren't relearned the hard way:
+
+- **WordPress: update the Railway vars, do not delete them first.** The
+  encrypted `tenant_integrations` store exists and is live, but
+  `publishToWordPress()` still reads `process.env` directly (see "Retired
+  clients" above) — deleting the vars before that function is migrated
+  silently breaks WordPress publishing with no error.
+- **There are two separate Google OAuth clients.** `GCP_OAUTH_CLIENT_SECRET`
+  is the leaked one and needs rotating. `GOOGLE_SEO_OAUTH_*` is unrelated,
+  was not found with a plaintext value in any sweep, and rotating it
+  anyway would break the Search Console pull until a new refresh token is
+  minted.
+
+If you are about to touch any of the WordPress or GCP variables above,
+read `docs/go-live/OWNER_ACTION_LIST.md` §3 first rather than assuming this
+document's summary is still current — that file, not this one, is where
+rotation status is tracked as it progresses.
+
+## See also
+
+- [`docs/seo/seo-debugger.md`](seo-debugger.md) — cron schedule, API
+  surface, spend guard, and a troubleshooting playbook.
+- [`docs/archive/n8n-workflows-seo/README.md`](../archive/n8n-workflows-seo/README.md)
+  — the retired n8n workflows and what replaced each one.
+- `.ai/HANDOFF_LOG.md`, entries titled "SEO Phase 1" through "SEO Phase 5" —
+  the narrative of how the system got here, in order.

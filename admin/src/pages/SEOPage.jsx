@@ -941,7 +941,7 @@ function WorkflowsTab() {
       <div className="bg-white rounded-xl border border-slate-200 p-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
-            <Zap className="w-4 h-4 text-amber-500" /> n8n SEO Workflows
+            <Zap className="w-4 h-4 text-amber-500" /> SEO Workflows
           </h3>
           <button onClick={load} className="text-xs text-sky-600 hover:underline flex items-center gap-1">
             <RefreshCw className="w-3 h-3" /> Refresh

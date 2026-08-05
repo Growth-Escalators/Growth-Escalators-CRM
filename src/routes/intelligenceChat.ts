@@ -204,8 +204,13 @@ async function fetchSEOWorkflows(tenantId: string): Promise<Record<string, unkno
   try {
     const { collectSEOWorkflowHealth } = await import('../services/intelligenceDataCollector');
     const health = await collectSEOWorkflowHealth(tenantId);
+    // n8n_alive intentionally omitted here — n8n is decommissioned, and unlike
+    // the admin dashboard badge (kept stable for backward compat, see
+    // intelligenceDataCollector.ts) this object is read directly by the AI
+    // copilot, which would otherwise state a fabricated "n8n is alive" as
+    // fact. `healthy`/`total`/`broken_critical` already reflect the real
+    // signal: native service output freshness.
     const result = {
-      n8n_alive: health.n8nAlive,
       healthy: health.healthyCount,
       total: health.totalCount,
       broken_critical: health.brokenCritical.map(w => ({ name: w.name, days_overdue: w.daysSince })),
@@ -288,7 +293,7 @@ const TOOLS = [
   },
   {
     name: 'trigger_seo_workflow',
-    description: 'Trigger a specific n8n SEO workflow. ALWAYS confirm with user before calling this.',
+    description: 'Trigger a specific SEO workflow — runs the backend-native service directly (n8n has been decommissioned). ALWAYS confirm with user before calling this.',
     input_schema: {
       type: 'object',
       properties: {

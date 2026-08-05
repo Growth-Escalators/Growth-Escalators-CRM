@@ -70,6 +70,54 @@ const CRON_WINDOWS: Record<string, number> = {
   // Daily — a drift sweep that silently stops running is worse than one that
   // never existed, because the dashboard keeps implying pages are being watched.
   'SEO Drift Sweep': 2880,
+
+  // ---------------------------------------------------------------------
+  // Previously unmonitored. 30 of the worker's live crons had no entry here,
+  // which meant they could stop running and never surface on System Health —
+  // including the retainer invoice generator, spend alerts, and most of the
+  // Wizmatch pilot's pollers.
+  //
+  // Adding a name is noise-free: checkCronJobs() SELECTs from cron_job_logs
+  // WHERE job_name = ANY(these) and maps over the rows it gets back, so a
+  // cron that has never run contributes no row and simply doesn't render. It
+  // cannot light up red on day one.
+  //
+  // Windows are the nominal cadence derived from each cron's own expression;
+  // the monitor itself allows 2x before calling a job stale. Day-of-week
+  // ranges are sized for the largest gap they imply (Mon-Sat -> 2 days over
+  // Sunday; Mon+Thu -> 4 days) rather than the nominal interval, because a
+  // false "overdue" is exactly the noise this is meant to remove.
+  // ---------------------------------------------------------------------
+  'Contract Expiry Sweep': 1440,
+  'Contract Signing Reminders': 1440,
+  'Daily Intelligence Report': 1440,
+  'Daily Lead Discovery': 1440,
+  'EOD Summary': 2880,
+  'Finance Monthly Generation': 44640,
+  'Money on Table': 10080,
+  'Monthly Invoice Drafts': 44640,
+  'Outreach Daily Digest': 2880,
+  'Retainer Invoice Generator': 1440,
+  'SEO GA4 Pull': 10080,
+  'SOD Digest': 2880,
+  'Social Media Prompt': 2880,
+  'Team EOD Prompt': 2880,
+  'Team SOD Prompt': 2880,
+  'Wizmatch ATS Poller': 1440,
+  'Wizmatch ATS Results-First Poller': 1440,
+  'Wizmatch Company Preparation': 1440,
+  'Wizmatch Daily Digest': 2880,
+  'Wizmatch Domain Health': 60,
+  'Wizmatch Domain Warmup': 360,
+  'Wizmatch Enrichment': 60,
+  'Wizmatch GitHub Miner': 1440,
+  'Wizmatch LCA Importer': 10080,
+  'Wizmatch Matching': 120,
+  'Wizmatch RemoteOK Importer': 1440,
+  'Wizmatch Signal Scoring': 30,
+  'Wizmatch TheirStack Importer': 10080,
+  'Wizmatch TheirStack Results-First Importer': 5760,
+  'Wizmatch X-Ray Scraper': 1440,
   // Weekly. Renamed from 'GE SEO Pull' when it stopped being a subprocess
   // writing to an ephemeral filesystem — the old name is gone, so a stale
   // entry here would report a cron that no longer exists as healthy.
@@ -336,33 +384,13 @@ async function checkInfrastructure(): Promise<SubsystemHealth> {
     checks.webUp = r.ok;
   } catch { checks.webUp = false; }
 
-  // n8n — check /healthz AND DB connectivity via API
-  if (!process.env.N8N_API_KEY) {
-    checks.n8nUp = null; // Not configured — don't alarm
-  } else {
-    try {
-      const n8nUrl = process.env.N8N_BASE_URL || 'https://primary-production-6c6f5.up.railway.app';
-      const r = await fetch(`${n8nUrl}/healthz`, { signal: AbortSignal.timeout(5000) });
-      checks.n8nUp = r.ok;
-
-      if (r.ok) {
-        const apiKey = process.env.N8N_API_KEY;
-        if (apiKey) {
-          try {
-            const dbCheck = await fetch(`${n8nUrl}/api/v1/workflows?limit=1`, {
-              headers: { 'X-N8N-API-KEY': apiKey },
-              signal: AbortSignal.timeout(5000),
-            });
-            checks.n8nDbHealthy = dbCheck.ok;
-            if (!dbCheck.ok) checks.n8nUp = false;
-          } catch {
-            checks.n8nDbHealthy = false;
-            checks.n8nUp = false;
-          }
-        }
-      }
-    } catch { checks.n8nUp = false; }
-  }
+  // n8n reachability check removed — n8n has been decommissioned (no
+  // instance exists to poll), and the fallback URL it hit
+  // (primary-production-6c6f5.up.railway.app) is a dead host. The 13 native
+  // src/services/seo* services that replaced n8n's SEO workflows are
+  // monitored the same way as every other cron: safeCron() + the
+  // "System Health Check" / cronJobs section below, not a separate
+  // n8n-specific probe.
 
   // Database
   const dbStart = Date.now();
@@ -377,7 +405,7 @@ async function checkInfrastructure(): Promise<SubsystemHealth> {
 
   let status: SubsystemStatus = 'HEALTHY';
   if (!checks.webUp) status = 'CRITICAL';
-  else if ((checks.n8nUp !== null && !checks.n8nUp) || !checks.metaTokenSet) status = 'WARNING';
+  else if (!checks.metaTokenSet) status = 'WARNING';
 
   return { status, metrics: checks };
 }
