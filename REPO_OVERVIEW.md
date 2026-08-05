@@ -59,7 +59,7 @@ growth-escalators-backend-v2/
 | Service | Platform | URL | What |
 |---------|----------|-----|------|
 | **API Server** | Railway | `api.growthescalators.com` (bare Railway domain) | Express API, Socket.io, serves admin SPA |
-| **CRM Admin** | Railway | `crm.growthescalators.com` | Served by Express from `public/admin/` |
+| **CRM Admin** | Railway | `crm.growthescalators.com` | Served by Express from `dist/public/admin/` (built on deploy, not committed) |
 | **D2C Landing** | Vercel | `ecom.growthescalators.com` | React SPA + edge functions |
 | **Database** | Railway | (internal) | PostgreSQL |
 | **Links** | Railway | `links.growthescalators.com` | Short-link redirects (self-hosted, replaced shlink) |
