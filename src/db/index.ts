@@ -82,6 +82,7 @@ export {
   adsInsightsCache,
   auditEvents,
   passwordResetTokens,
+  userInvites,
   // Outbound tables (previously missing from re-exports)
   prospects,
   signals,

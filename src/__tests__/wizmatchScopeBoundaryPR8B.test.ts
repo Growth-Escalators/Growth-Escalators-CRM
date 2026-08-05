@@ -231,6 +231,13 @@ describe('PR 8B scope boundary — PR 9/10 must not have started', () => {
       + 'Not wired into any route or auth check by this PR; PERMISSION_MAP keeps gating every existing '
       + 'route exactly as today. Carries no outreach, sequence, reply, or Smartlead/reply-ingestion data '
       + 'of any kind. Unrelated to PR 9/10 (Smartlead / reply ingestion).',
+    46: 'user_invites — invite-by-email replacement for the old print-a-temp-password-once flow (feat: '
+      + 'email invites, seat limits, reassign-on-offboard). Additive CREATE TABLE only (one new table, '
+      + 'FKs to the existing users/tenants tables); no ALTER of any existing table. Stores a hashed, '
+      + 'single-use, time-limited invite token per user — no outreach, sequence, reply, or '
+      + 'Smartlead/reply-ingestion data of any kind. Renumbered from 45 to 46 during merge — 45 was '
+      + 'already claimed by the roles/role_permissions PR. Unrelated to PR 9/10 (Smartlead / reply '
+      + 'ingestion).',
   };
 
   it('every migration past 0037 is in the reviewed out-of-scope allowlist', () => {

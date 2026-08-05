@@ -419,10 +419,16 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
     // backfill in this migration, not wired into any route or auth check.
     // Flagged explicitly in that PR's description for human sign-off before
     // merge, per this repo's schema-change guardrail (AGENTS.md).
+    // 46 = user_invites — invite-by-email replacement for the old print-a-
+    // temp-password-once flow (feat: email invites, seat limits, reassign-
+    // on-offboard). Additive CREATE TABLE only (one new table, FKs to the
+    // existing users/tenants tables), no ALTER of any existing table.
+    // Renumbered from 45 to 46 during merge — 45 was already claimed by the
+    // roles/role_permissions PR by the time this one merged.
     // Bump this ONLY alongside an explicit authorisation for the migration in
     // question — the point of the mark is that an unreviewed migration showing
     // up in a hardening pass still gets surfaced.
-    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 45;
+    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 46;
     const unauthorised = sqlFiles
       .map((f) => ({ file: f, idx: parseInt(f.slice(0, 4), 10) }))
       .filter((m) => Number.isFinite(m.idx) && m.idx > AUTHORISED_MIGRATION_HIGH_WATER_MARK)

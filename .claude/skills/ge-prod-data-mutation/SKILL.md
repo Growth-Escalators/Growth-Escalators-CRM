@@ -8,9 +8,15 @@ description: Use before making any one-off write to production data — offboard
 Direct writes to live Postgres are the highest-consequence, least-reversible thing done in this
 repo. One wrong `WHERE` can flip a flag on every row, orphan a deal, or bury a contact. This repo
 already carries hand-rolled examples ([`src/scripts/removeVishal.ts`](../../../src/scripts/removeVishal.ts),
-[`removeNimisha.ts`](../../../src/scripts/removeNimisha.ts),
-[`scripts/onboarding/replace-tushar-with-kanishk.ts`](../../../scripts/onboarding/replace-tushar-with-kanishk.ts)) —
-they re-invent `pool.query` each time with no shared safety rail. This skill **is** that rail.
+[`removeNimisha.ts`](../../../src/scripts/removeNimisha.ts)) — they re-invent `pool.query` each
+time with no shared safety rail. This skill **is** that rail.
+
+Offboarding-with-reassignment specifically no longer needs a one-off script at all: `POST
+/api/permissions/users/:userId/reassign` and `DELETE /api/permissions/users/:userId`'s optional
+`reassignToUserId` (see `src/services/userReassignment.ts`) are the generic, in-app replacement
+for what used to be a hand-named script per departing employee (formerly
+`scripts/onboarding/replace-tushar-with-kanishk.ts`, deleted once this shipped). Reach for this
+skill's raw-SQL playbook only for a mutation that genuinely has no app-level tool yet.
 
 **This is a pause-and-confirm operation.** Never run the mutating statement without an explicit human "go".
 
