@@ -351,6 +351,42 @@ async function persistGscTotals(params: {
   avgPosition: number | null;
   avgCtr: number | null;
 }): Promise<void> {
+  // UPDATE-then-INSERT, not a blind INSERT.
+  //
+  // GSC and GA4 are separate crons writing the same (site, week) row of
+  // seo_weekly_metrics — GSC owns clicks/impressions/position/ctr, GA4 owns
+  // sessions. A blind INSERT from each produces TWO rows for the same week,
+  // and all three readers of this table pick one via
+  // `ORDER BY week_start DESC LIMIT 1`. Whichever row loses that pick reads as
+  // zeros: a week with real traffic reported as no traffic.
+  //
+  // seoAnalyticsService.ts already merges this direction (GA4 folding into an
+  // existing GSC row). This is the other half — without it the merge only
+  // worked when GSC happened to run first, which is true of the current
+  // schedule and would stop being true the moment either cron moved.
+  //
+  // Only GSC's own columns are touched here; sessions are never overwritten,
+  // exactly as GA4 never overwrites these.
+  const updated = await pool.query(
+    `UPDATE seo_weekly_metrics
+        SET total_clicks = $4, total_impressions = $5, avg_position = $6, avg_ctr = $7,
+            project_name = $8, client_domain = $9, client_name = $8
+      WHERE tenant_id = $1 AND site_id = $2 AND week_start = $3
+      RETURNING id`,
+    [
+      params.tenantId,
+      params.siteId,
+      params.weekStart,
+      params.totalClicks,
+      params.totalImpressions,
+      params.avgPosition,
+      params.avgCtr,
+      params.label,
+      params.domain,
+    ],
+  );
+  if ((updated.rowCount ?? 0) > 0) return;
+
   await pool.query(
     `INSERT INTO seo_weekly_metrics
        (tenant_id, site_id, project_name, client_domain, client_name,
@@ -491,7 +527,10 @@ export async function runSeoSearchConsolePull(
         // Anchoring to the Monday of the run's own week fixes both: rows are
         // exactly 7 days apart regardless of when the cron actually fired, and
         // they land inside the email's recency filter.
-        weekStart: isoWeekStart(new Date()),
+        // `now`, not `new Date()` — this function threads an injectable clock
+        // through everything else, and a hardcoded real clock here made this one
+        // field non-deterministic in any test that injects a different date.
+        weekStart: isoWeekStart(now),
         totalClicks: Math.round(totals?.clicks ?? 0),
         totalImpressions: Math.round(totals?.impressions ?? 0),
         avgPosition: totals?.position ?? null,

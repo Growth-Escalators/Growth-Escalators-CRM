@@ -22,7 +22,7 @@ import { checkSpendAlerts } from './services/spendAlertService';
 import { collectDailyData } from './services/intelligenceDataCollector';
 import { analyzeWithClaude } from './services/intelligenceAnalyzer';
 import { deliverDailyIntelligence } from './services/intelligenceDelivery';
-import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_PERF_MARKETING_CHANNEL, SLACK_SEO_CHANNEL, SLACK_OUTREACH_CHANNEL, SLACK_SOD_EOD_CHANNEL, DEFAULT_TENANT_SLUG, WIZMATCH_LEADS_CHANNEL, WIZMATCH_SYSTEM_CHANNEL } from './config/constants';
+import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_PERF_MARKETING_CHANNEL, SLACK_OUTREACH_CHANNEL, SLACK_SOD_EOD_CHANNEL, DEFAULT_TENANT_SLUG, WIZMATCH_LEADS_CHANNEL, WIZMATCH_SYSTEM_CHANNEL } from './config/constants';
 import { isPaused } from './config/featureFlags';
 import { getWizmatchAutomationStatus, WIZMATCH_STAFFING_REMINDER_CRON } from './services/wizmatchAutomation';
 import { getActiveTenantsWithFeature, getSingleActiveTenantWithFeature } from './services/tenantFeatures';
@@ -51,7 +51,7 @@ if (!process.env.HUNTER_API_KEY) _missingEnvVars.push('HUNTER_API_KEY (outreach 
 if (!process.env.SNOVIO_API_KEY && !process.env.SNOV_API_KEY) _missingEnvVars.push('SNOVIO_API_KEY (outreach enrichment email-finder secondary source disabled)');
 if (!process.env.SALESHANDY_API_KEY) _missingEnvVars.push('SALESHANDY_API_KEY (outreach upload-to-sequence automation will not work)');
 if (!process.env.SALESHANDY_SEQUENCE_ID) _missingEnvVars.push('SALESHANDY_SEQUENCE_ID (outreach upload target sequence missing)');
-if (!process.env.OUTREACH_INTERNAL_SECRET) _missingEnvVars.push('OUTREACH_INTERNAL_SECRET (n8n ↔ backend auth for outreach endpoints disabled)');
+if (!process.env.OUTREACH_INTERNAL_SECRET) _missingEnvVars.push('OUTREACH_INTERNAL_SECRET (internal auth for outreach endpoints disabled — historically n8n, which is decommissioned; verify current caller before assuming this is unused)');
 if (!process.env.MEETING_BOOKING_URL) _missingEnvVars.push('MEETING_BOOKING_URL (INTERESTED-reply drafts will not include a self-book link)');
 if (!process.env.MAX_DAILY_UPLOADS) _missingEnvVars.push('MAX_DAILY_UPLOADS (default 200) (uploadToSaleshandy daily cap safety-net)');
 const _missingPurelymailSlots: string[] = [];
@@ -72,14 +72,18 @@ if (_missingEnvVars.length > 0) {
 // Track all setInterval timers for graceful shutdown
 const _intervals: ReturnType<typeof setInterval>[] = [];
 
-// One-time startup: ensure enrichment columns + reply alert columns + self-healing columns + funnel metrics
+// One-time startup: ensure enrichment columns + reply alert columns + funnel metrics
 // Each failure is logged (was previously a silent .catch(() => {})) — a
 // failed schema-bootstrap here left zero evidence, so the FIRST symptom was
 // a cron throwing "column does not exist" hours later with no link back to
 // the actual boot-time failure.
 import('./services/outreachEnrichmentService').then(m => m.ensureEnrichmentColumns()).catch(e => console.error('[worker] ensureEnrichmentColumns failed:', e instanceof Error ? e.message : e));
 import('./services/outreachAlertService').then(m => m.ensureOutreachAlertColumns()).catch(e => console.error('[worker] ensureOutreachAlertColumns failed:', e instanceof Error ? e.message : e));
-import('./services/workflowSelfHealingService').then(m => m.ensureSelfHealingColumns()).catch(e => console.error('[worker] ensureSelfHealingColumns failed:', e instanceof Error ? e.message : e));
+// workflowSelfHealingService.ts (and its seo_workflow_logs self-healing columns
+// bootstrap that used to run here) has been removed — it retried failed n8n
+// executions, and n8n is decommissioned. The 13 native src/services/seo*
+// services it used to "heal" don't have executions to retry; they either
+// succeed or throw, and safeCron() already surfaces a thrown error to Slack.
 import('./services/outreachFunnelMetrics').then(m => m.ensureOutreachFunnelTable()).catch(e => console.error('[worker] ensureOutreachFunnelTable failed:', e instanceof Error ? e.message : e));
 import('./services/websiteCacheService').then(m => m.ensureWebsiteCacheTable()).catch(e => console.error('[worker] ensureWebsiteCacheTable failed:', e instanceof Error ? e.message : e));
 import('./services/attendanceColumns').then(m => m.ensureAttendanceColumns()).catch(e => console.error('[worker] ensureAttendanceColumns failed:', e instanceof Error ? e.message : e));
@@ -487,67 +491,19 @@ console.log('[cron] AI intelligence report scheduled — daily 8:30 AM IST');
 */
 console.log('[cron] AI intelligence report — PAUSED 2026-05-03');
 
-// PAUSED 2026-05-03 — SEO Workflow Health. The SEO workflows it monitors
-// no longer exist in n8n (only the unrelated content pipeline remains),
-// so this fired "n8n is DOWN" alerts daily for a thing that's intentionally
-// not running. Re-enable by uncommenting after redeploying SEO workflows.
-/*
-cron.schedule('45 3 * * *', () => safeCron('SEO Workflow Health', async () => {
-  const { sendSlackMessage } = await import('./services/slackService');
-  const health = await (await import('./services/intelligenceDataCollector')).collectSEOWorkflowHealth();
-
-  if (!health.n8nAlive) {
-    const downMsg = '🚨 *CRITICAL: n8n is DOWN*\n' +
-      'All 12 SEO workflows are not running.\n' +
-      'Check: https://primary-production-6c6f5.up.railway.app\n' +
-      'Railway dashboard → GE-Backend-Server → Primary service';
-    await sendSlackMessage(SLACK_SEO_CHANNEL, downMsg);
-    await sendSlackMessage(SLACK_JATIN, downMsg);
-  }
-
-  if (health.brokenCritical.length > 0) {
-    const msg = health.brokenCritical.map(wf =>
-      `• ${wf.name} — last ran ${wf.daysSince === 999 ? 'NEVER' : `${wf.daysSince} days ago`}`
-    ).join('\n');
-    const alertMsg = `⚠️ *SEO Workflow Alert*\n\n${health.brokenCritical.length} critical workflow(s) overdue:\n${msg}\n\n` +
-      `Fix: /seo → Workflows → Run Now\n` +
-      `Or check n8n directly: https://primary-production-6c6f5.up.railway.app`;
-    await sendSlackMessage(SLACK_SEO_CHANNEL, alertMsg);
-    await sendSlackMessage(SLACK_JATIN, alertMsg);
-  }
-
-  if (!health.allHealthy) {
-    const overdueLines = health.workflows
-      .filter(w => !w.healthy)
-      .map(w => `${w.critical ? '🔴' : '🟡'} ${w.name} — ${w.daysSince === 999 ? 'never run' : `${w.daysSince}d overdue`}`)
-      .join('\n');
-    await sendSlackMessage(SLACK_SEO_CHANNEL,
-      `⚙️ *SEO Workflow Health Check*\n` +
-      `Healthy: ${health.healthyCount}/${health.totalCount}\n` +
-      `n8n: ${health.n8nAlive ? '🟢 Online' : '🔴 Offline'}\n\n${overdueLines}`
-    );
-  }
-
-  console.log(`[CRON] SEO health: ${health.healthyCount}/${health.totalCount} healthy`);
-}), { timezone: 'UTC' });
-console.log('[cron] SEO workflow health check scheduled — daily 9:15 AM IST');
-*/
-console.log('[cron] SEO workflow health check — PAUSED 2026-05-03');
-
-// PAUSED 2026-05-03 — Workflow Self-Healing. Polls n8n for failed SEO
-// executions every 30 min — but the workflows it heals don't exist in n8n
-// anymore (only content pipeline runs there), and the N8N_API_KEY for this
-// service is currently rejecting with 401 anyway. Re-enable after
-// redeploying SEO workflows + refreshing the API key.
-// (Using //-comments here instead of /* */ because the cron expression
-// '*/30 * * * *' contains */ which terminates a block comment early.)
-//
-// cron.schedule('*/30 * * * *', () => safeCron('Workflow Self-Healing', async () => {
-//   const { runSelfHealingCycle } = await import('./services/workflowSelfHealingService');
-//   await runSelfHealingCycle();
-// }), { timezone: 'UTC' });
-// console.log('[cron] workflow self-healing scheduled — every 30 minutes');
-console.log('[cron] workflow self-healing — PAUSED 2026-05-03');
+// REMOVED — SEO Workflow Health (n8n-down alerting) and Workflow Self-Healing
+// crons. Both polled n8n's API for failed executions of SEO workflows; n8n
+// has since been decommissioned entirely (not just the SEO workflows — the
+// whole instance is gone), so both crons could only ever report "n8n is
+// DOWN" and had nothing left to heal. They were already PAUSED 2026-05-03
+// for that reason and are now removed along with workflowSelfHealingService.ts.
+// The 13 native src/services/seo* services are the replacement: each runs
+// directly (see src/routes/seo.ts's BACKEND_SERVICES map and worker.ts's own
+// SEO crons below/elsewhere), writes straight to Postgres, and its freshness
+// is checked natively by intelligenceDataCollector.ts's
+// collectSEOWorkflowHealth() — no n8n involved.
+console.log('[cron] SEO workflow health check — removed (n8n decommissioned)');
+console.log('[cron] workflow self-healing — removed (n8n decommissioned)');
 
 // ---------------------------------------------------------------------------
 // Growth OS — Brand Health Score — Daily 8:00 AM IST (2:30 UTC)
@@ -1346,8 +1302,9 @@ console.log('[cron] SEO weekly email scheduled — Thursdays 10:30 AM IST');
 //      runtime and gives no typed errors — a failure surfaced as stderr text.
 //
 // Now an importable service writing to Postgres, per tenant via
-// seoTenantSweep like every other SEO cron. GA4 is deliberately a SEPARATE
-// cron (below): they were one job, so a GA4 failure lost the GSC data too.
+// seoTenantSweep like every other SEO cron. GA4 is a SEPARATE cron (see
+// 'SEO GA4 Pull' immediately below): they were one job, so a GA4 failure
+// discarded the GSC data that had already been fetched.
 //
 // scripts/ge-seo-pull.ts is intentionally left in place — it still works as a
 // manual CLI (`npm run ge:seo`) and deleting it is not this change.
@@ -1363,6 +1320,33 @@ cron.schedule('45 2 * * 1', () => safeCron('SEO GSC Pull', async () => {
   );
 }), { timezone: 'UTC' });
 console.log('[cron] SEO GSC pull scheduled — Mondays 8:15 AM IST (2:45 UTC)');
+
+// ---------------------------------------------------------------------------
+// SEO GA4 Pull — Monday 8:45 AM IST (3:15 UTC), 30 min after the GSC pull
+//
+// A SEPARATE cron from the GSC pull, which is the whole point. In the legacy
+// scripts/ge-seo-pull.ts these were one job that fetched both and wrote at the
+// end, so a GA4 failure discarded Search Console data that had already been
+// fetched successfully. Splitting them means each survives the other failing.
+//
+// Runs AFTER the GSC pull rather than alongside it: both write the same
+// (site, week) row of seo_weekly_metrics — GSC owns clicks/impressions, GA4
+// owns sessions — and each merges into the other's row rather than adding a
+// second one. The order is not required for correctness (both writers do
+// UPDATE-then-INSERT, in either direction), but staggering avoids two
+// concurrent writers racing to create the same row.
+// ---------------------------------------------------------------------------
+cron.schedule('15 3 * * 1', () => safeCron('SEO GA4 Pull', async () => {
+  if (isPaused('seo')) return;
+  const { runSeoAnalyticsPull } = await import('./services/seoAnalyticsService');
+  await seoTenantSweep(
+    { workflowId: 'seo-ga4-pull', workflowName: 'SEO GA4 Pull' },
+    (tenantId) => runSeoAnalyticsPull(tenantId),
+    (r) => r.rows,
+    (r) => `${r.sites} sites, ${r.rows} rows, ${r.errors} errors`,
+  );
+}), { timezone: 'UTC' });
+console.log('[cron] SEO GA4 pull scheduled — Mondays 8:45 AM IST (3:15 UTC)');
 
 // ---------------------------------------------------------------------------
 // Task 7: Weekly Outreach Performance Summary — Monday 8:00 AM IST (2:30 UTC)

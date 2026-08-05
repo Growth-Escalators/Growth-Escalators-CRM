@@ -296,6 +296,70 @@ describe('runSeoSearchConsolePull', () => {
 });
 
 // ---------------------------------------------------------------------------
+// GSC and GA4 share ONE row per (site, week)
+// ---------------------------------------------------------------------------
+//
+// They are separate crons writing different columns of seo_weekly_metrics:
+// GSC owns clicks/impressions/position/ctr, GA4 owns sessions. If each blindly
+// INSERTs, the same week gets TWO rows — and all three readers of this table
+// pick one with `ORDER BY week_start DESC LIMIT 1`, so whichever row loses
+// that pick reports its own columns as zeros. A week with real traffic shows
+// as no traffic, with no error anywhere.
+//
+// seoAnalyticsService merges GA4 into an existing GSC row. This pins the OTHER
+// direction — GA4 having run first — which is the case that was broken.
+describe('GSC merges into an existing week row instead of duplicating it', () => {
+  const totalsOnlyClient = () =>
+    fakeClient(async (args) =>
+      args.requestBody.dimensions
+        ? { data: { rows: [] } }
+        : { data: { rows: [{ clicks: 120, impressions: 4000, ctr: 0.03, position: 8.4 }] } },
+    );
+
+  it('UPDATEs when a row for that (site, week) exists, and does not INSERT a second one', async () => {
+    mockListSeoSites.mockResolvedValueOnce([site()]);
+    mockPoolQuery.mockImplementation(async (sql: string) =>
+      sql.includes('UPDATE seo_weekly_metrics')
+        ? { rows: [{ id: 'existing' }], rowCount: 1 }
+        : { rows: [], rowCount: 0 },
+    );
+
+    await runSeoSearchConsolePull('tenant-1', { client: totalsOnlyClient(), now: NOW });
+
+    const calls = mockPoolQuery.mock.calls as [string, unknown[]][];
+    expect(calls.some(([sql]) => sql.includes('UPDATE seo_weekly_metrics'))).toBe(true);
+    expect(calls.some(([sql]) => sql.includes('INSERT INTO seo_weekly_metrics'))).toBe(false);
+  });
+
+  it('INSERTs only when no row exists for that week yet', async () => {
+    mockListSeoSites.mockResolvedValueOnce([site()]);
+    mockPoolQuery.mockResolvedValue({ rows: [], rowCount: 0 });
+
+    await runSeoSearchConsolePull('tenant-1', { client: totalsOnlyClient(), now: NOW });
+
+    const calls = mockPoolQuery.mock.calls as [string, unknown[]][];
+    expect(calls.some(([sql]) => sql.includes('UPDATE seo_weekly_metrics'))).toBe(true);
+    expect(calls.some(([sql]) => sql.includes('INSERT INTO seo_weekly_metrics'))).toBe(true);
+  });
+
+  it('never touches the session columns GA4 owns', async () => {
+    mockListSeoSites.mockResolvedValueOnce([site()]);
+    mockPoolQuery.mockImplementation(async (sql: string) =>
+      sql.includes('UPDATE seo_weekly_metrics')
+        ? { rows: [{ id: 'existing' }], rowCount: 1 }
+        : { rows: [], rowCount: 0 },
+    );
+
+    await runSeoSearchConsolePull('tenant-1', { client: totalsOnlyClient(), now: NOW });
+
+    const [updateSql] = (mockPoolQuery.mock.calls as [string, unknown[]][])
+      .find(([sql]) => sql.includes('UPDATE seo_weekly_metrics'))!;
+    expect(updateSql).not.toContain('total_sessions');
+    expect(updateSql).not.toContain('ga4_sessions');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // week_start is a WEEK LABEL, not the query window's start
 // ---------------------------------------------------------------------------
 //
