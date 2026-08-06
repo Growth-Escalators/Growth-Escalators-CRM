@@ -446,11 +446,21 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
     // site_changes_approved_requires_approver, the database-level half of the
     // human-approval hard stop.
     // 51 = seo_api_usage, the per-tenant/per-site spend ledger.
-    // All five touch only SEO tables and carry no outreach/sequence/reply data.
+    // 52 = seo_page_metrics, per-URL Search Console performance. One additive
+    // CREATE TABLE, no ALTER/DROP of anything existing. It is the third URL
+    // source for the drift sweep — the one that catches a page the agency
+    // never touched, which is absent from both the page inventory and our own
+    // published changes. Hand-trimmed after generation: drizzle-kit also
+    // emitted CREATE TABLE for roles/role_permissions/user_invites/
+    // user_permission_overrides and an ALTER on users, all of which already
+    // exist in production, because the renumbered SEO snapshots never learned
+    // about main's own 0045/0046. Those five statements were deleted; see the
+    // header of 0052_sturdy_the_fury.sql and migrationSnapshotLineage.test.ts.
+    // All six touch only SEO tables and carry no outreach/sequence/reply data.
     // Bump this ONLY alongside an explicit authorisation for the migration in
     // question — the point of the mark is that an unreviewed migration showing
     // up in a hardening pass still gets surfaced.
-    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 51;
+    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 52;
     const unauthorised = sqlFiles
       .map((f) => ({ file: f, idx: parseInt(f.slice(0, 4), 10) }))
       .filter((m) => Number.isFinite(m.idx) && m.idx > AUTHORISED_MIGRATION_HIGH_WATER_MARK)

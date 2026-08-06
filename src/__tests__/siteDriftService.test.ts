@@ -101,6 +101,8 @@ interface PoolState {
   matchedChanges: Record<string, { id: string; published_at: Date } | undefined>;
   insertedSnapshots: Array<{ id: string; params: unknown[] }>;
   updatedAlertedIds: string[];
+  /** seo_page_metrics rows — the drift sweep's third URL source (top GSC URLs by impressions). */
+  pageMetricsRows: Array<{ page_url: string; impressions: number; recorded_date: string }>;
 }
 
 /**
@@ -120,6 +122,7 @@ function mockPool(seed: Partial<PoolState> = {}): PoolState {
     matchedChanges: {},
     insertedSnapshots: [],
     updatedAlertedIds: [],
+    pageMetricsRows: [],
     ...seed,
   };
   let nextId = 1;
@@ -143,6 +146,26 @@ function mockPool(seed: Partial<PoolState> = {}): PoolState {
       const url = p[2] as string;
       const row = state.previousSnapshots[url];
       return { rows: row ? [row] : [] } as never;
+    }
+    if (sql.includes('MAX(recorded_date)')) {
+      // Real MAX() semantics, not "whatever was inserted last" — a test can
+      // seed rows out of order and this still answers "most recent on file".
+      const dates = state.pageMetricsRows.map((r) => r.recorded_date).sort();
+      return { rows: [{ latest_date: dates.length ? dates[dates.length - 1] : null }] } as never;
+    }
+    if (sql.includes('SELECT page_url FROM seo_page_metrics')) {
+      // Mirrors the real query's WHERE/ORDER BY/LIMIT exactly, using the
+      // params the implementation actually passed — so a wrong recorded_date,
+      // wrong sort, or wrong limit shows up as a wrong result set, not a
+      // silently-passing mock.
+      const recordedDate = p[2] as string;
+      const limit = p[3] as number;
+      const rows = state.pageMetricsRows
+        .filter((r) => r.recorded_date === recordedDate)
+        .sort((a, b) => b.impressions - a.impressions)
+        .slice(0, limit)
+        .map((r) => ({ page_url: r.page_url }));
+      return { rows } as never;
     }
     if (sql.includes('INSERT INTO seo_site_snapshots')) {
       const id = `snap-${nextId++}`;
@@ -384,5 +407,127 @@ describe('runSeoDriftSweep', () => {
     expect(resolveDefaultSeoTenantId).toHaveBeenCalledOnce();
     expect(listSeoSites).toHaveBeenCalledWith('tenant-default');
     expect(summary).toEqual({ sites: 0, urls: 0, drifts: 0, alerts: 0, errors: 0 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Third URL source — top seo_page_metrics URLs by impressions. Every test
+// below seeds a `previousSnapshots` entry matching the live fetch response so
+// the sweep takes the cheap unchanged-hash path (no classify, no alert) —
+// these tests are about which URLs get CHECKED at all, not drift outcomes,
+// which the `runSeoDriftSweep` describe block above already covers.
+// ---------------------------------------------------------------------------
+describe('third URL source — top seo_page_metrics URLs by impressions', () => {
+  it('includes a GSC-only URL: present in seo_page_metrics but absent from client_pages and site_changes', async () => {
+    const gscOnlyUrl = 'https://acme.example.com/gsc-only';
+    const html = '<title>GSC Only</title>';
+    const snap = computeSnapshot(html, gscOnlyUrl);
+
+    vi.mocked(listSeoSites).mockResolvedValue([makeSite()]);
+    mockPool({
+      previousSnapshots: { [gscOnlyUrl]: { content_hash: snap.hash, http_status: 200, elements: snap.elements } },
+      pageMetricsRows: [{ page_url: gscOnlyUrl, impressions: 500, recorded_date: '2026-08-05' }],
+    });
+    const fetchImpl = makeFetchImpl({ [gscOnlyUrl]: { status: 200, body: html } });
+
+    const summary = await runSeoDriftSweep(TENANT_ID, { fetchImpl });
+
+    // This URL exists in neither client_pages nor site_changes — the only
+    // way it gets checked at all is via the seo_page_metrics source.
+    expect(summary.urls).toBe(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('dedupes a URL that appears in both client_pages and seo_page_metrics', async () => {
+    const before = computeSnapshot('<title>Pricing</title>');
+
+    vi.mocked(listSeoSites).mockResolvedValue([makeSite()]);
+    mockPool({
+      clientPagesUrls: [PAGE_URL],
+      previousSnapshots: { [PAGE_URL]: { content_hash: before.hash, http_status: 200, elements: before.elements } },
+      pageMetricsRows: [{ page_url: PAGE_URL, impressions: 500, recorded_date: '2026-08-05' }],
+    });
+    const fetchImpl = makeFetchImpl({ [PAGE_URL]: { status: 200, body: '<title>Pricing</title>' } });
+
+    const summary = await runSeoDriftSweep(TENANT_ID, { fetchImpl });
+
+    expect(summary.urls).toBe(1); // one URL, checked once — not once per source
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses only the MOST RECENT recorded_date on file — a stale, higher-impression row is not a candidate', async () => {
+    const oldUrl = 'https://acme.example.com/old-winner';
+    const newUrl = 'https://acme.example.com/new-page';
+    const oldSnap = computeSnapshot('<title>Old Winner</title>', oldUrl);
+    const newSnap = computeSnapshot('<title>New Page</title>', newUrl);
+
+    vi.mocked(listSeoSites).mockResolvedValue([makeSite()]);
+    mockPool({
+      previousSnapshots: {
+        [oldUrl]: { content_hash: oldSnap.hash, http_status: 200, elements: oldSnap.elements },
+        [newUrl]: { content_hash: newSnap.hash, http_status: 200, elements: newSnap.elements },
+      },
+      pageMetricsRows: [
+        { page_url: oldUrl, impressions: 10_000, recorded_date: '2026-08-01' }, // far higher impressions, but a stale date
+        { page_url: newUrl, impressions: 5, recorded_date: '2026-08-05' }, // the most recent date on file
+      ],
+    });
+    const fetchImpl = makeFetchImpl({
+      [oldUrl]: { status: 200, body: '<title>Old Winner</title>' },
+      [newUrl]: { status: 200, body: '<title>New Page</title>' },
+    });
+
+    const summary = await runSeoDriftSweep(TENANT_ID, { fetchImpl });
+
+    expect(summary.urls).toBe(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledWith(newUrl, expect.anything());
+  });
+
+  it('orders by impressions descending and respects the top-50 limit', async () => {
+    const RECORDED_DATE = '2026-08-05';
+    const rows: PoolState['pageMetricsRows'] = [];
+    const previousSnapshots: PoolState['previousSnapshots'] = {};
+    const byUrl: Record<string, { status: number; body: string }> = {};
+
+    // 55 candidates, one more than the 50-URL limit, ranked 1..55 by
+    // impressions — the bottom 5 (impressions 1-5) must be dropped.
+    for (let i = 1; i <= 55; i++) {
+      const url = `https://acme.example.com/imp-${i}`;
+      const html = `<title>Page ${i}</title>`;
+      const snap = computeSnapshot(html, url);
+      rows.push({ page_url: url, impressions: i, recorded_date: RECORDED_DATE });
+      previousSnapshots[url] = { content_hash: snap.hash, http_status: 200, elements: snap.elements };
+      byUrl[url] = { status: 200, body: html };
+    }
+
+    vi.mocked(listSeoSites).mockResolvedValue([makeSite()]);
+    mockPool({ previousSnapshots, pageMetricsRows: rows });
+    const fetchImpl = makeFetchImpl(byUrl);
+
+    const summary = await runSeoDriftSweep(TENANT_ID, { fetchImpl });
+
+    expect(summary.urls).toBe(50); // top 50 of 55 by impressions
+    expect(fetchImpl).toHaveBeenCalledTimes(50);
+    expect(fetchImpl).toHaveBeenCalledWith('https://acme.example.com/imp-55', expect.anything()); // highest impressions — made the cut
+    for (let i = 1; i <= 5; i++) {
+      expect(fetchImpl).not.toHaveBeenCalledWith(`https://acme.example.com/imp-${i}`, expect.anything()); // the five lowest — did not
+    }
+  });
+
+  it('a site with no seo_page_metrics rows yet contributes nothing from this source, without error', async () => {
+    const before = computeSnapshot('<title>Pricing</title>');
+
+    vi.mocked(listSeoSites).mockResolvedValue([makeSite()]);
+    mockPool({
+      clientPagesUrls: [PAGE_URL],
+      previousSnapshots: { [PAGE_URL]: { content_hash: before.hash, http_status: 200, elements: before.elements } },
+      pageMetricsRows: [], // GSC pull hasn't run for this site yet
+    });
+    const fetchImpl = makeFetchImpl({ [PAGE_URL]: { status: 200, body: '<title>Pricing</title>' } });
+
+    const summary = await runSeoDriftSweep(TENANT_ID, { fetchImpl });
+
+    expect(summary).toEqual({ sites: 1, urls: 1, drifts: 0, alerts: 0, errors: 0 }); // client_pages source alone, no crash
   });
 });

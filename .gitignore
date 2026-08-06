@@ -24,3 +24,9 @@ graphify-out/
 __pycache__/
 *.pyc
 public/admin/
+.claude/settings.local.json
+
+# Production database dumps and other pulled data. Previously ignored ONLY via
+# .git/info/exclude, which is local-only — a fresh clone would not have it, and
+# the first `git add -A` there would stage an encrypted production dump.
+input-data/

@@ -42,34 +42,25 @@
  *    row), which the column names already imply.
  *
  *  - Page-dimension rows (page URL + its own clicks/impressions/position,
- *    independent of any one query) → NOWHERE. Reported as a blocker, not
- *    forced in:
- *      - `keyword_rankings.keyword` is NOT NULL. A page-dimension GSC row has
- *        no single associated query — there is nothing honest to put there
- *        (a page URL is not a keyword).
- *      - `client_pages` looks tempting (it already has `page_url`) but it is
- *        a page INVENTORY table — one row per page that exists — not a
- *        metrics time series, and has no clicks/impressions/position columns
- *        at all. This is the exact same reasoning the `site_changes` table
- *        doc (schema.ts, "WHY NOT EXTEND client_pages") already gives for a
- *        different feature: folding an events/metrics stream into an
- *        inventory table loses the history reads depend on. It also has no
- *        safe unique key to upsert against (see that table's own comment:
- *        duplicates exist in prod, a unique index would abort the migration).
- *      Given neither destination is honest, this service does not call GSC's
- *      page-dimension query AT ALL — see the module brief: "a service that
- *      pulls data and discards it is worse than one that doesn't run." Not
- *      spending an API/quota call on data with nowhere to land is the correct
- *      side of that trade.
- *      COLUMNS THAT WOULD FIX THIS (for whoever owns the next migration):
- *      a new table, e.g. `search_console_pages` — id, tenant_id, site_id,
- *      page_url, clicks, impressions, ctr, avg_position, window_start,
- *      window_end, created_at — mirroring `seo_weekly_metrics`'s shape but
- *      keyed on page instead of site.
- *      SAME GAP, SMALLER: `keyword_rankings` also has no clicks/impressions/
- *      ctr columns, so even the query-dimension rows this file DOES persist
- *      only carry position, not the click/impression volume behind it. Adding
- *      those three columns to `keyword_rankings` would let a future migration
+ *    independent of any one query) → `seo_page_metrics`. This table did not
+ *    exist when this file's page-dimension gap was first documented — at the
+ *    time, `keyword_rankings.keyword` (NOT NULL — a page URL is not a
+ *    keyword) and `client_pages` (a page INVENTORY table, not a metrics time
+ *    series, with no safe unique key to upsert against — duplicates exist in
+ *    prod, see that table's own comment) were the only two candidates and
+ *    neither was honest. A migration since added `seo_page_metrics`
+ *    specifically to close this gap, keyed on
+ *    (tenant_id, site_id, recorded_date, page_url) with a unique index this
+ *    file's UPSERT relies on — a cron that fires twice for the same day
+ *    updates one row rather than creating a second one. This is also the
+ *    drift sweep's third URL source ("top ~50 GSC URLs by impressions") that
+ *    `siteDriftService.ts` needed and previously had no table to read from;
+ *    see that file's own header.
+ *
+ *      SAME GAP, SMALLER (still open): `keyword_rankings` has no
+ *      clicks/impressions/ctr columns, so the query-dimension rows this file
+ *      persists there only carry position, not the click/impression volume
+ *      behind it. Adding those three columns would let a future migration
  *      capture full query-level performance, not just rank.
  *
  * ---------------------------------------------------------------------------
@@ -284,6 +275,14 @@ function isoWeekStart(now: Date): string {
   return d.toISOString().slice(0, 10);
 }
 const GSC_QUERY_ROW_LIMIT = 25; // matches the script's topQueries rowLimit
+const GSC_PAGE_ROW_LIMIT = 50; // "top ~50 GSC URLs by impressions" — see siteDriftService.ts's third URL source
+
+// GSC returns page URLs verbatim, with no length cap of its own. This file's
+// unique index (tenant_id, site_id, recorded_date, page_url) has a real
+// btree row-size limit, and one absurd URL hitting it would abort the whole
+// site's page-row batch — so a row this long is skipped and logged instead
+// of attempted.
+const GSC_PAGE_URL_MAX_LENGTH = 2000;
 
 function isoDaysAgo(n: number, now: Date): string {
   const d = new Date(now);
@@ -445,6 +444,42 @@ async function persistGscKeywordRow(params: {
   );
 }
 
+async function persistGscPageRow(params: {
+  tenantId: string;
+  siteId: string;
+  pageUrl: string;
+  recordedDate: string;
+  clicks: number;
+  impressions: number;
+  avgPosition: number | null;
+  avgCtr: number | null;
+}): Promise<void> {
+  // INSERT ... ON CONFLICT DO UPDATE, not a blind INSERT — the cron can fire
+  // twice for the same day (retry, manual kick) and must not double-count or
+  // leave two competing rows for one (site, url, day). The conflict target
+  // matches seo_page_metrics_site_url_date_unique exactly (see schema.ts).
+  await pool.query(
+    `INSERT INTO seo_page_metrics
+       (tenant_id, site_id, page_url, recorded_date, clicks, impressions, avg_position, avg_ctr)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (tenant_id, site_id, recorded_date, page_url)
+     DO UPDATE SET clicks = EXCLUDED.clicks,
+                   impressions = EXCLUDED.impressions,
+                   avg_position = EXCLUDED.avg_position,
+                   avg_ctr = EXCLUDED.avg_ctr`,
+    [
+      params.tenantId,
+      params.siteId,
+      params.pageUrl,
+      params.recordedDate,
+      params.clicks,
+      params.impressions,
+      params.avgPosition,
+      params.avgCtr,
+    ],
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main entry point.
 // ---------------------------------------------------------------------------
@@ -479,11 +514,18 @@ export async function runSeoSearchConsolePull(
     try {
       // guardSeoSpend records usage AFTER run() succeeds (see
       // seoCostGuardUsage.ts's own doc) — correct here because run() below
-      // does ONLY the two GSC calls (no DB writes), so "run() succeeded"
-      // and "2 GSC calls actually happened" are the same event. The DB
+      // does ONLY the three GSC calls (no DB writes), so "run() succeeded"
+      // and "3 GSC calls actually happened" are the same event. The DB
       // persistence happens afterwards, outside the guard, so a DB failure
       // can't cause an under-recorded GSC quota (the calls genuinely
       // happened whether or not the subsequent writes succeed).
+      //
+      // The page-dimension call is deliberately wrapped in its OWN try/catch
+      // inside run() rather than left to throw like the other two: a failure
+      // there must not discard the totals/query data that already succeeded
+      // above it in the same closure, and must not make guardSeoSpend skip
+      // recording that 3 calls were actually attempted (see pageQueryError
+      // handling below).
       //
       // providerEnv.missing is always [] here — same reasoning
       // seoSerperGuard.ts documents for its own call sites: the one
@@ -494,13 +536,25 @@ export async function runSeoSearchConsolePull(
         tenantId: tid,
         siteId: site.id,
         operation: 'gsc_pull',
-        estimate: { serperCalls: 0, pagespeedCalls: 0, llmCalls: 0, gscCalls: 2, publishes: 0 },
+        // ga4Calls: 0 — this file never calls GA4, but SeoCostGuardEstimatedCalls
+        // gained a required ga4Calls field alongside a sibling lane's GA4 guard
+        // wiring (see seoAnalyticsService.ts's own "COST GUARD" doc note); every
+        // estimate literal needs the field regardless of whether it ever pulls
+        // GA4 itself.
+        estimate: { serperCalls: 0, pagespeedCalls: 0, llmCalls: 0, gscCalls: 3, ga4Calls: 0, publishes: 0 },
         providerEnv: { missing: [] },
         now,
         run: async () => {
           const totalsRows = await queryGscOnce(client, site.gscProperty as string, range, undefined, undefined);
           const queryRows = await queryGscOnce(client, site.gscProperty as string, range, ['query'], GSC_QUERY_ROW_LIMIT);
-          return { totalsRows, queryRows };
+          let pageRows: SeoSearchConsoleRow[] = [];
+          let pageQueryError: unknown = null;
+          try {
+            pageRows = await queryGscOnce(client, site.gscProperty as string, range, ['page'], GSC_PAGE_ROW_LIMIT);
+          } catch (err) {
+            pageQueryError = err;
+          }
+          return { totalsRows, queryRows, pageRows, pageQueryError };
         },
       });
 
@@ -553,7 +607,55 @@ export async function runSeoSearchConsolePull(
         rows += 1;
       }
 
-      logger.info(`[seoSearchConsoleService] ${site.domain} — pulled totals + ${result.queryRows.length} queries (${range.startDate} to ${range.endDate})`);
+      // Page-dimension rows → seo_page_metrics (see module doc's WHERE THE
+      // DATA GOES section). A failure on the page call above is reported
+      // here, not thrown — the totals + query rows already persisted above
+      // must survive it, exactly as one site's failure must never abort the
+      // sweep for the next site.
+      let pageSummary: string;
+      if (result.pageQueryError) {
+        errors += 1;
+        const pErr = result.pageQueryError;
+        if (pErr instanceof GscApiError) {
+          logger.error(`[seoSearchConsoleService] ${site.domain} — page-dimension pull failed (${pErr.kind}): ${pErr.message}`);
+        } else {
+          const message = pErr instanceof Error ? pErr.message : String(pErr);
+          logger.error(`[seoSearchConsoleService] ${site.domain} — page-dimension pull unexpected failure: ${redactCredentials(message)}`);
+        }
+        pageSummary = 'page pull failed';
+      } else {
+        let pageRowsPersisted = 0;
+        let pageRowsSkipped = 0;
+        for (const row of result.pageRows) {
+          const pageUrl = row.keys?.[0];
+          if (!pageUrl) continue; // defensive — GSC's own contract is keys[0] present for a dimensioned row
+          if (pageUrl.length > GSC_PAGE_URL_MAX_LENGTH) {
+            // Logged, not silently dropped — the unique index this UPSERT
+            // relies on has a real btree row-size limit, and one absurd URL
+            // hitting it would otherwise abort the whole site's page batch.
+            pageRowsSkipped += 1;
+            logger.warn(
+              `[seoSearchConsoleService] ${site.domain} — skipping page_url over ${GSC_PAGE_URL_MAX_LENGTH} chars (length ${pageUrl.length}): ${pageUrl.slice(0, 200)}…`,
+            );
+            continue;
+          }
+          await persistGscPageRow({
+            tenantId: tid,
+            siteId: site.id,
+            pageUrl,
+            recordedDate: range.endDate,
+            clicks: Math.round(row.clicks ?? 0),
+            impressions: Math.round(row.impressions ?? 0),
+            avgPosition: row.position ?? null,
+            avgCtr: row.ctr ?? null,
+          });
+          rows += 1;
+          pageRowsPersisted += 1;
+        }
+        pageSummary = `${pageRowsPersisted} pages${pageRowsSkipped > 0 ? ` (${pageRowsSkipped} skipped — over ${GSC_PAGE_URL_MAX_LENGTH} chars)` : ''}`;
+      }
+
+      logger.info(`[seoSearchConsoleService] ${site.domain} — pulled totals + ${result.queryRows.length} queries + ${pageSummary} (${range.startDate} to ${range.endDate})`);
     } catch (err) {
       errors += 1;
       // One site's failure must never abort the sweep — logged and counted,

@@ -15,12 +15,12 @@
 // them, because they are simply pending jobs it will now pick up. No separate
 // backfill script is needed.
 //
-// SCOPE — `form_submit` and `sequence_step`.
-// The other queued types (`inbound_wa`, `chatwoot_event`, `booking_processed`,
-// `hot_lead_alert`, `facebook_lead_failed`) were handled by n8n workflow logic
-// that does not exist in this repo and cannot be read. Guessing at it would
-// risk creating wrong records from real customer data. Those jobs are LEFT
-// PENDING and untouched, which is the honest default: they keep their
+// SCOPE — `form_submit`, `sequence_step`, and `hot_lead_alert`.
+// The remaining queued types (`inbound_wa`, `chatwoot_event`,
+// `booking_processed`, `facebook_lead_failed`) were handled by n8n workflow
+// logic that does not exist in this repo and cannot be read. Guessing at it
+// would risk creating wrong records from real customer data. Those jobs are
+// LEFT PENDING and untouched, which is the honest default: they keep their
 // payloads and can be handled once their intended behaviour is established.
 // `inbound_wa` is already safe regardless — `webhooks.ts` also writes those
 // straight to the `messages` table, so the inbox was never affected.
@@ -35,6 +35,25 @@
 // route `POST /email/send`) — this file just reuses it instead of
 // reimplementing sending. See `processSequenceStepJob` below.
 //
+// `hot_lead_alert` ADDED 2026-08-06 — different from the n8n-only types
+// above for a specific reason: its payload (contactId, contactName, score,
+// tier, scheduledAt, dealTitle — set by bookingService.ts around the
+// `insertJob(tenantId, 'hot_lead_alert', ...)` call) is fully
+// self-describing, the job creates NO records, and its only sensible effect
+// is a Slack notification to sales. None of the "guessing risks corrupting
+// real customer data" reasoning above applies here — there is nothing to
+// guess and nothing to corrupt.
+//
+// The real hazard is different: production has a hot_lead_alert backlog
+// going back to 2026-03 (never drained, same root cause as everything else
+// in this file). Draining it naively would fire five months of stale
+// "🔥 hot lead just booked!" pings into a live Slack channel in one batch.
+// See HOT_LEAD_STALENESS_MS below — a job whose booking is older than that
+// window is completed WITHOUT alerting (a distinct 'stale' outcome, not
+// 'failed': an old booking isn't an error, it's just no longer actionable as
+// a "just booked" ping) and counted separately in drainHotLeadAlertsOnce's
+// stats, so the log stays honest about what was suppressed.
+//
 // Deliberately NOT a replacement for the HTTP endpoint: that stays, so any
 // external consumer keeps working.
 
@@ -44,6 +63,8 @@ import { findOrCreateContact } from './contactService';
 import { getPendingJobs, claimJob, completeJob, failJob } from './jobQueue';
 import { getDefaultIngestTenant } from './tenantFeatures';
 import { sendSequenceEmail, automatedEmailsEnabled } from './emailService';
+import { sendSlackMessage } from './slackService';
+import { SLACK_SALES_BD_CHANNEL, SLACK_SAKCHAM } from '../config/constants';
 import logger from '../utils/logger';
 
 const POLL_INTERVAL_MS = 60_000;
@@ -308,19 +329,158 @@ export async function drainOnce(): Promise<{ processed: number; created: number;
   return stats;
 }
 
+// ---------------------------------------------------------------------------
+// hot_lead_alert processing — see the file header for why this type moved
+// out of the "cannot be read, do not guess" bucket. No records are created;
+// the only effect is a Slack ping to the sales/BD channel.
+// ---------------------------------------------------------------------------
+
+/**
+ * A hot-lead booking older than this is no longer "just booked" — alerting
+ * on it late is actively misleading (sales would be chasing a lead that
+ * already went cold days or weeks ago) and, given the 2026-03 backlog,
+ * draining without a window like this would fire months of pings at once.
+ * 24 hours is the window a "🔥 just booked!" alert is still true in
+ * practice: same-/next-day follow-up is the entire point of the hot tier,
+ * and beyond a day the booking has already surfaced through the normal
+ * deal pipeline regardless of whether this alert fires.
+ */
+const HOT_LEAD_STALENESS_MS = 24 * 60 * 60 * 1000;
+
+type HotLeadAlertPayload = {
+  contactId?: string;
+  contactName?: string;
+  score?: number;
+  tier?: string;
+  scheduledAt?: string;
+  dealTitle?: string;
+};
+
+/**
+ * Resolves the booking time used to judge staleness: the payload's own
+ * `scheduledAt` (set by bookingService.ts from the actual booked slot) when
+ * present and parseable, falling back to the job row's own `createdAt`.
+ * Never throws — a malformed or missing timestamp on either side must not
+ * crash the drainer, it should just fall through to the next source.
+ */
+function resolveBookingTime(
+  scheduledAt: string | undefined,
+  jobCreatedAt: Date | string | null | undefined,
+): Date {
+  if (scheduledAt) {
+    const parsed = new Date(scheduledAt);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  if (jobCreatedAt) {
+    const fallback = new Date(jobCreatedAt);
+    if (!Number.isNaN(fallback.getTime())) return fallback;
+  }
+  // Both sources are missing or unparseable. Defaulting to "now" rather than
+  // e.g. the epoch is deliberate: a missing timestamp is not evidence the
+  // booking is old, and erring toward alerting is safer than erring toward
+  // silently swallowing a real hot lead.
+  return new Date();
+}
+
+/**
+ * Executes one `hot_lead_alert` job: a Slack ping to the sales/BD channel,
+ * or a silent 'stale' completion when the booking has aged out of
+ * HOT_LEAD_STALENESS_MS. Throws on a failed/suppressed Slack send so the
+ * caller's failJob backoff retries it — see the file header on why a
+ * silently-swallowed send is exactly the bug class this file exists to fix.
+ */
+export async function processHotLeadAlertJob(
+  jobId: string,
+  payload: unknown,
+  jobTenantId: string | null,
+  jobCreatedAt: Date | string | null | undefined,
+): Promise<'alerted' | 'stale'> {
+  const p = (payload ?? {}) as HotLeadAlertPayload;
+  const bookedAt = resolveBookingTime(p.scheduledAt, jobCreatedAt);
+
+  if (Date.now() - bookedAt.getTime() > HOT_LEAD_STALENESS_MS) {
+    logger.info(
+      { jobId, tenantId: jobTenantId, bookedAt: bookedAt.toISOString() },
+      '[job-drainer] hot_lead_alert stale — completing without alerting',
+    );
+    return 'stale';
+  }
+
+  // Only what the alert genuinely needs — no email/phone, and never the raw
+  // payload (see the file header's PII note).
+  const contactName = p.contactName?.trim() || 'Unnamed contact';
+  const dealTitle = p.dealTitle?.trim() || 'Discovery call';
+  const scoreText = typeof p.score === 'number' ? `${p.score}/100` : 'unknown';
+  const tierText = (p.tier || 'hot').toUpperCase();
+  const scheduledText = bookedAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+
+  const text =
+    `🔥 *Hot Lead — ${contactName}*\n\n` +
+    `*Deal:* ${dealTitle}\n*Score:* ${scoreText} (${tierText})\n*Scheduled:* ${scheduledText}\n\n` +
+    `<@${SLACK_SAKCHAM}> — new hot lead just booked, please follow up.`;
+
+  const sent = await sendSlackMessage(SLACK_SALES_BD_CHANNEL, text);
+  if (!sent) {
+    // Covers both a genuine send failure and SLACK_NOTIFICATIONS_PAUSED —
+    // same posture as processSequenceStepJob's automated_emails_disabled
+    // branch above: this is a steady-state condition that may clear on its
+    // own, not a permanent fact about this job, so throw and let it retry
+    // rather than marking a suppressed alert "done" and losing it.
+    throw new Error(`hot_lead_alert job ${jobId} — Slack send failed or was suppressed`);
+  }
+  return 'alerted';
+}
+
+export async function drainHotLeadAlertsOnce(): Promise<{
+  processed: number;
+  alerted: number;
+  stale: number;
+  failed: number;
+}> {
+  const stats = { processed: 0, alerted: 0, stale: 0, failed: 0 };
+
+  // Unscoped fetch, same posture as the other two drains above.
+  const jobs = await getPendingJobs('hot_lead_alert', BATCH_SIZE);
+  for (const job of jobs) {
+    try {
+      const claimed = await claimJob(job.id);
+      // Another worker won the race — leave it alone.
+      if (!claimed) continue;
+      const outcome = await processHotLeadAlertJob(job.id, job.payload, job.tenantId, job.createdAt);
+      await completeJob(job.id);
+      stats.processed += 1;
+      if (outcome === 'alerted') stats.alerted += 1;
+      if (outcome === 'stale') stats.stale += 1;
+    } catch (error) {
+      // A single bad job (malformed payload, Slack outage) must never wedge
+      // the loop — failJob applies the existing backoff / dead-letter policy
+      // and we move on to the next job.
+      const message = error instanceof Error ? error.message : String(error);
+      await failJob(job.id, message).catch(() => {});
+      stats.failed += 1;
+      logger.error({ jobId: job.id, err: message }, '[job-drainer] hot_lead_alert failed');
+    }
+  }
+  if (stats.processed || stats.failed) {
+    logger.info(stats, '[job-drainer] hot_lead_alert batch complete');
+  }
+  return stats;
+}
+
 export function startJobDrainer(): void {
   if (!isJobDrainerEnabled()) {
     logger.info('[job-drainer] disabled — set JOB_DRAINER_ENABLED=true to enable');
     return;
   }
   if (timer) return;
-  logger.info(`[job-drainer] started (form_submit + sequence_step, every ${POLL_INTERVAL_MS / 1000}s)`);
+  logger.info(`[job-drainer] started (form_submit + sequence_step + hot_lead_alert, every ${POLL_INTERVAL_MS / 1000}s)`);
   const tick = () => {
-    // Two independent drains per tick — a failure/throw in one type must
-    // never suppress the other. Each function already isolates per-job
-    // failures internally (see drainSequenceStepsOnce's try/catch per job).
+    // Three independent drains per tick — a failure/throw in one type must
+    // never suppress the others. Each function already isolates per-job
+    // failures internally (see each drain*Once's try/catch per job).
     void drainOnce().catch((e) => logger.error({ err: e?.message }, '[job-drainer] form_submit loop error'));
     void drainSequenceStepsOnce().catch((e) => logger.error({ err: e?.message }, '[job-drainer] sequence_step loop error'));
+    void drainHotLeadAlertsOnce().catch((e) => logger.error({ err: e?.message }, '[job-drainer] hot_lead_alert loop error'));
   };
   tick();
   timer = setInterval(tick, POLL_INTERVAL_MS);

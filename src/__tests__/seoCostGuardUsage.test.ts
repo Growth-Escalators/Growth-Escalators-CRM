@@ -35,7 +35,7 @@ import {
 } from '../services/seoCostGuardUsage';
 
 function estimate(overrides: Partial<SeoCostGuardEstimatedCalls> = {}): SeoCostGuardEstimatedCalls {
-  return { serperCalls: 0, pagespeedCalls: 0, llmCalls: 0, gscCalls: 0, publishes: 0, ...overrides };
+  return { serperCalls: 0, pagespeedCalls: 0, llmCalls: 0, gscCalls: 0, ga4Calls: 0, publishes: 0, ...overrides };
 }
 
 beforeEach(() => {
@@ -44,7 +44,7 @@ beforeEach(() => {
 });
 
 describe('fetchSeoCostGuardUsage', () => {
-  it('populates every one of the seven usage fields from the single-row SQL result', async () => {
+  it('populates every one of the eight usage fields from the single-row SQL result', async () => {
     mockPoolQuery.mockResolvedValueOnce({
       rows: [{
         month_cost_cents: '1500',
@@ -53,6 +53,7 @@ describe('fetchSeoCostGuardUsage', () => {
         site_day_serper_calls: '2',
         tenant_day_pagespeed_calls: '6',
         tenant_day_gsc_calls: '9',
+        tenant_day_ga4_calls: '11',
         site_day_publishes: '1',
       }],
     });
@@ -66,10 +67,28 @@ describe('fetchSeoCostGuardUsage', () => {
       siteDaySerperCalls: 2,
       tenantDayPagespeedCalls: 6,
       tenantDayGscCalls: 9,
+      tenantDayGa4Calls: 11,
       siteDayPublishes: 1,
     });
-    // One round trip only — not seven queries.
+    // One round trip only — not eight queries.
     expect(mockPoolQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps GSC and GA4 call counts on independent SQL filters — a row cannot cross-contaminate the other provider\'s counter', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ ...zeroRow(), tenant_day_gsc_calls: '5', tenant_day_ga4_calls: '9' }],
+    });
+
+    const usage = await fetchSeoCostGuardUsage('tenant-1', 'site-1', new Date('2026-08-05T10:00:00.000Z'));
+
+    // Distinct values landing in distinct fields (not swapped, not summed)
+    // proves the query filters each provider separately.
+    expect(usage.tenantDayGscCalls).toBe(5);
+    expect(usage.tenantDayGa4Calls).toBe(9);
+
+    const [sql] = mockPoolQuery.mock.calls[0] as [string, unknown[]];
+    expect(sql).toMatch(/provider = 'gsc'/);
+    expect(sql).toMatch(/provider = 'ga4'/);
   });
 
   it('binds tenant_id in the query, scoped to the caller-supplied tenant', async () => {
@@ -118,6 +137,7 @@ describe('fetchSeoCostGuardUsage', () => {
       site_day_serper_calls: 0,
       tenant_day_pagespeed_calls: 0,
       tenant_day_gsc_calls: 0,
+      tenant_day_ga4_calls: 0,
       site_day_publishes: 0,
     };
   }
@@ -208,6 +228,7 @@ describe('guardSeoSpend', () => {
       site_day_serper_calls: 0,
       tenant_day_pagespeed_calls: 0,
       tenant_day_gsc_calls: 0,
+      tenant_day_ga4_calls: 0,
       site_day_publishes: 0,
     }],
   };
@@ -260,5 +281,33 @@ describe('guardSeoSpend', () => {
     expect((serperInsert?.[1] as unknown[])[5]).toBe(200); // 2 * default SEO_SERPER_COST_CENTS (100)
     expect((llmInsert?.[1] as unknown[])[4]).toBe(1);
     expect((llmInsert?.[1] as unknown[])[5]).toBe(500); // default SEO_LLM_COST_CENTS
+  });
+
+  it('records a ga4 usage row at zero cost, separate from the gsc row, when both are nonzero', async () => {
+    mockPoolQuery
+      .mockResolvedValueOnce(zeroUsageRow) // fetch
+      .mockResolvedValue({ rows: [], rowCount: 1 }); // every insert
+
+    const run = vi.fn().mockResolvedValue('ok');
+    await guardSeoSpend({
+      tenantId: 'tenant-1',
+      siteId: 'site-1',
+      operation: 'ga4_pull',
+      estimate: estimate({ gscCalls: 2, ga4Calls: 1 }),
+      providerEnv: { missing: [] },
+      config: getSeoCostGuardConfig({} as NodeJS.ProcessEnv),
+      run,
+    });
+
+    const insertCalls = mockPoolQuery.mock.calls.slice(1);
+    const gscInsert = insertCalls.find(([, params]) => (params as unknown[])[2] === 'gsc');
+    const ga4Insert = insertCalls.find(([, params]) => (params as unknown[])[2] === 'ga4');
+    expect(gscInsert).toBeDefined();
+    expect(ga4Insert).toBeDefined();
+    // Distinct rows, distinct call counts — a GA4 estimate never gets folded
+    // into the GSC row or vice versa.
+    expect((gscInsert?.[1] as unknown[])[4]).toBe(2);
+    expect((ga4Insert?.[1] as unknown[])[4]).toBe(1);
+    expect((ga4Insert?.[1] as unknown[])[5]).toBe(0); // ga4 carries no direct provider cost
   });
 });

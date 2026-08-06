@@ -94,6 +94,7 @@ const SERPER_CALL_ESTIMATE: SeoCostGuardEstimatedCalls = {
   pagespeedCalls: 0,
   llmCalls: 0,
   gscCalls: 0,
+  ga4Calls: 0,
   publishes: 0,
 };
 

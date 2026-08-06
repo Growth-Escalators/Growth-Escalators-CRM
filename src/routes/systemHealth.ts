@@ -277,11 +277,14 @@ router.get('/health', requireAuth, async (req, res) => {
 
   for (const j of (recentJobs.rows as any[])) {
     // hot_lead_alert used to tag as 'n8n' (n8n polled /api/jobs/pending and
-    // handled it). n8n is decommissioned — per jobDrainer.ts, this job type
-    // has no replacement consumer yet and is left pending by design, so it
-    // falls through to the generic 'backend' tag below rather than claiming
-    // a service that no longer processes it.
-    const serviceMap: Record<string, string> = { inbound_wa: 'meta', purchase_completed: 'cashfree', booking_processed: 'calcom', sequence_step: 'backend' };
+    // handled it). n8n is decommissioned, and for a while this job type had no
+    // replacement consumer at all — it is now drained in-process by
+    // jobDrainer.ts's drainHotLeadAlertsOnce, so 'backend' is the truthful tag
+    // rather than a fallback. Listed explicitly for the same reason
+    // sequence_step is: the types this process actually processes should be
+    // visible here, not inferred from the `?? 'backend'` default, which is what
+    // an UNhandled type still gets.
+    const serviceMap: Record<string, string> = { inbound_wa: 'meta', purchase_completed: 'cashfree', booking_processed: 'calcom', sequence_step: 'backend', hot_lead_alert: 'backend' };
     const service = serviceMap[j.job_type] ?? 'backend';
     activityItems.push({ id: j.id, timestamp: j.created_at, service, type: 'job_processed', title: j.job_type?.replace(/_/g, ' ') ?? 'Job', detail: `Status: ${j.status}`, status: j.status === 'failed' || j.status === 'dead_letter' ? 'error' : j.status === 'pending' ? 'warning' : 'success' });
   }

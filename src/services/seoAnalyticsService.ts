@@ -98,25 +98,17 @@
  *    same instant.
  *
  * ---------------------------------------------------------------------------
- * COST GUARD — DELIBERATELY NOT WIRED, FLAGGING RATHER THAN FAKING IT.
- * `seoSearchConsoleService.ts` wraps its Google calls in `guardSeoSpend`
- * (seoCostGuardUsage.ts), estimating `gscCalls` on `SeoCostGuardEstimatedCalls`
- * so a tenant's daily GSC call count is tracked and capped. That type has NO
- * `ga4Calls` field (only `serperCalls`/`pagespeedCalls`/`llmCalls`/`gscCalls`/
- * `publishes` — see seoCostGuard.ts, not one of this lane's two files).
- * Reusing `gscCalls` to smuggle GA4 usage through would corrupt
- * `tenantDayGscCalls`/`maxGscCallsPerTenantDay` (a real GSC-specific cap) with
- * unrelated GA4 traffic, and would mislabel the `seo_api_usage` row's
- * `provider` as `'gsc'` for a call that never touched Search Console. Calling
- * `guardSeoSpend` with an all-zero estimate just to "match the pattern" would
- * add a DB round trip that gates nothing (no field, no cap, no recorded
- * usage) — ceremony, not protection. So this file calls the GA4 API directly,
- * uncounted by the cost guard. REAL GAP, for whoever owns `seoCostGuard.ts`:
- * add a `ga4Calls` field to `SeoCostGuardEstimatedCalls`/`SeoCostGuardUsage`
- * and a `tenant_day_ga4_calls` sum to `fetchSeoCostGuardUsage`'s query
- * (seoCostGuardUsage.ts), mirroring the existing `gsc` column exactly; then
- * this file's per-site loop can wrap its call in `guardSeoSpend` the same way
- * the GSC sibling does.
+ * COST GUARD. The per-site GA4 call in `runSeoAnalyticsPull` below is wrapped
+ * in `guardSeoSpend` (seoCostGuardUsage.ts), exactly the way
+ * `seoSearchConsoleService.ts` wraps its own GSC calls — see that file's own
+ * call site for the pattern this one copies. `SeoCostGuardEstimatedCalls` now
+ * carries a REQUIRED `ga4Calls` field, distinct from `gscCalls`, with its own
+ * `tenant_daily_ga4_cap_exhausted` block code, `SEO_MAX_GA4_CALLS_PER_TENANT_DAY`
+ * config knob, and `tenant_day_ga4_calls` usage sum (seoCostGuard.ts /
+ * seoCostGuardUsage.ts) — so GA4 traffic is tracked and capped on its own
+ * counter and can never corrupt the real GSC-specific cap. GA4 carries no
+ * direct provider cost of its own, same as GSC (both are free Google APIs) —
+ * see `calculateSeoCostGuardCostCents`.
  *
  * ---------------------------------------------------------------------------
  * CREDENTIAL SAFETY. GA4 uses the SAME OAuth client as the GSC pull
@@ -161,6 +153,7 @@ import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { resolveDefaultSeoTenantId } from './seoTenantContext';
 import { listSeoSites, type SeoSite } from './seoSiteRegistry';
+import { guardSeoSpend, SeoCostGuardBlockedError } from './seoCostGuardUsage';
 
 // ---------------------------------------------------------------------------
 // Injected-client surface — see module doc's TESTABILITY note.
@@ -442,7 +435,30 @@ export async function runSeoAnalyticsPull(
     sites += 1;
 
     try {
-      const sessions = await queryGa4SessionsOnce(client, site.ga4PropertyId, range);
+      // guardSeoSpend records usage AFTER run() succeeds (see
+      // seoCostGuardUsage.ts's own doc) — correct here because run() below
+      // does ONLY the one GA4 call (no DB writes), so "run() succeeded" and
+      // "1 GA4 call actually happened" are the same event. persistGa4Sessions
+      // happens afterwards, outside the guard, so a DB failure can't cause an
+      // under-recorded GA4 quota (the call genuinely happened whether or not
+      // the subsequent write succeeds). Mirrors seoSearchConsoleService.ts's
+      // own guardSeoSpend call site around its GSC pull.
+      //
+      // providerEnv.missing is always [] here — same reasoning
+      // seoSerperGuard.ts documents for its own call sites: the one
+      // process-wide precondition (no auth configured at all) is already
+      // checked once above via buildDefaultGa4Client(), so by the time any
+      // site reaches this guard, auth is known to be present.
+      const { result: sessions } = await guardSeoSpend({
+        tenantId: tid,
+        siteId: site.id,
+        operation: 'ga4_pull',
+        estimate: { serperCalls: 0, pagespeedCalls: 0, llmCalls: 0, gscCalls: 0, ga4Calls: 1, publishes: 0 },
+        providerEnv: { missing: [] },
+        now,
+        run: () => queryGa4SessionsOnce(client, site.ga4PropertyId as string, range),
+      });
+
       await persistGa4Sessions({
         tenantId: tid,
         siteId: site.id,
@@ -458,7 +474,9 @@ export async function runSeoAnalyticsPull(
       errors += 1;
       // One site's failure must never abort the sweep — logged and counted,
       // then the loop continues to the next site.
-      if (err instanceof Ga4ApiError) {
+      if (err instanceof SeoCostGuardBlockedError) {
+        logger.warn(`[seoAnalyticsService] ${site.domain} — blocked by SEO cost guard: ${err.evaluation.blockCode}`);
+      } else if (err instanceof Ga4ApiError) {
         logger.error(`[seoAnalyticsService] ${site.domain} — ${err.kind}: ${err.message}`);
       } else {
         const message = err instanceof Error ? err.message : String(err);
