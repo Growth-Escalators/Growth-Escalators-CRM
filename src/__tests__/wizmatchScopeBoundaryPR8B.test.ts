@@ -224,7 +224,24 @@ describe('PR 8B scope boundary — PR 9/10 must not have started', () => {
       + 'text columns on the existing tenant_branding table); no ALTER of any other table, no new table. '
       + 'Carries no outreach, sequence, reply, or Smartlead/reply-ingestion data of any kind. Unrelated '
       + 'to PR 9/10 (Smartlead / reply ingestion).',
-    45: 'SEO tenant hardening (Phase 1 of the multi-tenant SEO platform work, owner-approved). '
+    45: 'roles / role_permissions / user_permission_overrides — foundation for tenant-customizable RBAC '
+      + '(replacing the static, GE-shaped PERMISSION_MAP in src/middleware/rbac.ts over time). Additive '
+      + 'CREATE TABLE only (three new tables) plus one nullable `users.role_id` ADD COLUMN with an FK to '
+      + 'the new `roles` table — no ALTER/DROP of any existing column, no backfill in this migration. '
+      + 'Not wired into any route or auth check by this PR; PERMISSION_MAP keeps gating every existing '
+      + 'route exactly as today. Carries no outreach, sequence, reply, or Smartlead/reply-ingestion data '
+      + 'of any kind. Unrelated to PR 9/10 (Smartlead / reply ingestion).',
+    46: 'user_invites — invite-by-email replacement for the old print-a-temp-password-once flow (feat: '
+      + 'email invites, seat limits, reassign-on-offboard). Additive CREATE TABLE only (one new table, '
+      + 'FKs to the existing users/tenants tables); no ALTER of any existing table. Stores a hashed, '
+      + 'single-use, time-limited invite token per user — no outreach, sequence, reply, or '
+      + 'Smartlead/reply-ingestion data of any kind. Renumbered from 45 to 46 during merge — 45 was '
+      + 'already claimed by the roles/role_permissions PR. Unrelated to PR 9/10 (Smartlead / reply '
+      + 'ingestion).',
+    // SEO platform phases 1-6. RENUMBERED 45-49 -> 47-51 during the merge with
+    // main, which had independently claimed 45 (RBAC) and 46 (user_invites).
+    // SQL bodies unchanged; only the file numbers and the journal moved.
+    47: 'SEO tenant hardening (Phase 1 of the multi-tenant SEO platform work, owner-approved). '
       + 'Backfills + constrains `seo_content_calendar.tenant_id` (it previously defaulted to a sentinel '
       + 'UUID that is not a real `tenants` row, so every existing row pointed at a nonexistent tenant), '
       + 'adds three nullable approval columns to `client_pages`, adds a nullable `tenant_id` to '
@@ -232,7 +249,7 @@ describe('PR 8B scope boundary — PR 9/10 must not have started', () => {
       + 'no tenant_id and were rebuildable via an unauthenticated route). Touches only SEO tables. '
       + 'Carries no outreach, sequence, reply, or provider data. Unrelated to PR 9/10 (Smartlead / '
       + 'reply ingestion).',
-    46: 'seo_sites registry (Phase 2 of the multi-tenant SEO platform work, owner-approved). Creates '
+    48: 'seo_sites registry (Phase 2 of the multi-tenant SEO platform work, owner-approved). Creates '
       + 'the `seo_sites` table — the registry that replaces nine hardcoded client-domain arrays '
       + 'scattered across the SEO services — and adds a NULLABLE `site_id` FK to the nine existing SEO '
       + 'tables, then seeds the registry from the distinct (tenant_id, client_domain) pairs already '
@@ -243,7 +260,7 @@ describe('PR 8B scope boundary — PR 9/10 must not have started', () => {
       + 'own row rather than being cross-linked — verified against a fixture before landing. Touches '
       + 'only SEO tables. Carries no outreach, sequence, reply, or provider data. Unrelated to PR 9/10 '
       + '(Smartlead / reply ingestion).',
-    47: 'Drops seo_content_calendar\'s legacy 3-column unique index (client_domain, keyword, '
+    49: 'Drops seo_content_calendar\'s legacy 3-column unique index (client_domain, keyword, '
       + 'content_type) — the deferred half of migration 0045, which added the tenant-scoped 4-column '
       + 'index alongside it and kept the old one because in-flight code still named the 3-column '
       + 'ON CONFLICT target. Every writer now names the 4-column target (routes/seo.ts, '
@@ -255,7 +272,7 @@ describe('PR 8B scope boundary — PR 9/10 must not have started', () => {
       + 'never fails on data, and the 4-column index still enforces per-tenant uniqueness. Touches '
       + 'only SEO tables. Carries no outreach, sequence, reply, or provider data. Unrelated to PR 9/10 '
       + '(Smartlead / reply ingestion).',
-    48: 'site_changes + seo_site_snapshots (Phase 3 of the multi-tenant SEO platform work, '
+    50: 'site_changes + seo_site_snapshots (Phase 3 of the multi-tenant SEO platform work, '
       + 'owner-approved). Two NEW tables: `site_changes` records one proposed edit to a live client '
       + 'website per row and is where the human-approval hard stop is enforced; `seo_site_snapshots` '
       + 'is the append-only drift record (extracted SEO elements plus a hash, never page HTML). '
@@ -267,7 +284,7 @@ describe('PR 8B scope boundary — PR 9/10 must not have started', () => {
       + 'TABLE where a pre-existing table would have skipped it. Touches only SEO tables. Carries no '
       + 'outreach, sequence, reply, or provider data. Unrelated to PR 9/10 (Smartlead / reply '
       + 'ingestion).',
-    49: 'seo_api_usage spend ledger (Phase 4 of the multi-tenant SEO platform work, owner-approved). '
+    51: 'seo_api_usage spend ledger (Phase 4 of the multi-tenant SEO platform work, owner-approved). '
       + 'One NEW table recording one row per billable SEO API call (tenant_id, nullable site_id, '
       + 'provider, operation, calls, cost_cents) — the backing store seoCostGuard.ts has carried an '
       + 'explicit "INTENTIONALLY MISSING, needs a migration" note for since Phase 1. It replaces an '

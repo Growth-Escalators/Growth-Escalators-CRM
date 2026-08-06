@@ -144,12 +144,17 @@ router.get('/actions', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/intelligence/system-health — real-time system health check
+// GET /api/intelligence/system-health — real-time system health check.
+// Tenant-scoped: pass the caller's own tenantId through so checkAllSystems()
+// can decide whether GE-global subsystems (infra, cron scheduler) belong in
+// the response — see checkAllSystems()'s isGeOwnTenant branch in
+// systemHealthMonitor.ts. A non-GE tenant gets tenant-scoped subsystems
+// only (SEO, CRM — for their own data), never GE's own infra/cron details.
 // ---------------------------------------------------------------------------
-router.get('/system-health', async (_req: Request, res: Response) => {
+router.get('/system-health', async (req: Request, res: Response) => {
   try {
     const { checkAllSystems } = await import('../services/systemHealthMonitor');
-    const report = await checkAllSystems();
+    const report = await checkAllSystems(req.user!.tenantId);
     res.json(report);
   } catch (e) {
     res.status(500).json({ error: 'Health check failed' });
@@ -164,10 +169,6 @@ router.get('/system-health', async (_req: Request, res: Response) => {
 // is a 'run anything now' surface).
 // ---------------------------------------------------------------------------
 const RUN_CRON_WHITELIST: Record<string, () => Promise<unknown>> = {
-  'Directory Scrapers': async () => {
-    const { runAllScrapers } = await import('../services/directoryScraperService');
-    return runAllScrapers();
-  },
   'Monthly Client Benchmarks': async () => {
     const { calculateMonthlyBenchmarks } = await import('../services/metaAdsService');
     await calculateMonthlyBenchmarks();

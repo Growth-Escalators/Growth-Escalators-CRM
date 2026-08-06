@@ -9,6 +9,7 @@ import { normalizeStaffingAccess } from './lib/staffingAccess.js';
 import { ToastProvider } from './components/wizmatch/Toast.jsx';
 
 const LoginPage = lazy(() => import('./pages/LoginPage.jsx'));
+const AcceptInvitePage = lazy(() => import('./pages/AcceptInvitePage.jsx'));
 const ContactsPage = lazy(() => import('./pages/ContactsPage.jsx'));
 const PipelinePage = lazy(() => import('./pages/PipelinePage.jsx'));
 const PipelineManagerPage = lazy(() => import('./pages/PipelineManagerPage.jsx'));
@@ -20,23 +21,23 @@ const ContractsLaunchPage = lazy(() => import('./pages/ContractsLaunchPage.jsx')
 const SignContractPage = lazy(() => import('./pages/SignContractPage.jsx'));
 const FinancePage = lazy(() => import('./pages/FinancePage.jsx'));
 const PermissionsPage = lazy(() => import('./pages/PermissionsPage.jsx'));
+const AccessControlPage = lazy(() => import('./pages/AccessControlPage.jsx'));
 const BrandingPage = lazy(() => import('./pages/BrandingPage.jsx'));
 const IntegrationsPage = lazy(() => import('./pages/IntegrationsPage.jsx'));
 const ProvisionTenantPage = lazy(() => import('./pages/ProvisionTenantPage.jsx'));
+const TenantsListPage = lazy(() => import('./pages/TenantsListPage.jsx'));
 const AdsPage = lazy(() => import('./pages/AdsPage.jsx'));
 const MetaAssetsPage = lazy(() => import('./pages/MetaAssetsPage.jsx'));
+const ReportsPage = lazy(() => import('./pages/ReportsPage.jsx'));
 const SocialPage = lazy(() => import('./pages/SocialPage.jsx'));
 const InboxPage = lazy(() => import('./pages/InboxPage.jsx'));
-const LeadDiscoveryPage = lazy(() => import('./pages/LeadDiscoveryPage.jsx'));
 const AuditPage = lazy(() => import('./pages/AuditPage.jsx'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage.jsx'));
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage.jsx'));
 const SEOPage = lazy(() => import('./pages/SEOPage.jsx'));
 const SeoApprovalsPage = lazy(() => import('./pages/SeoApprovalsPage.jsx'));
 const IntelligencePage = lazy(() => import('./pages/IntelligencePage.jsx'));
-const GrowthOSPage = lazy(() => import('./pages/GrowthOSPage.jsx'));
 const WhatsAppTemplatesPage = lazy(() => import('./pages/WhatsAppTemplatesPage.jsx'));
-const OutreachDashboard = lazy(() => import('./pages/OutreachDashboard.jsx'));
 const OutboundPage = lazy(() => import('./pages/OutboundPage.jsx'));
 const LinksPage = lazy(() => import('./pages/LinksPage.jsx'));
 const ClientDetailPage = lazy(() => import('./pages/ClientDetailPage.jsx'));
@@ -320,6 +321,8 @@ export default function App() {
         <Suspense fallback={<RouteFallback />}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            {/* Public invite-acceptance page — an invited teammate has no CRM login yet; the token in the URL is the authorization */}
+            <Route path="/accept-invite" element={<AcceptInvitePage />} />
             {/* Public signing page — external signers have no CRM login; the token in the URL is the authorization */}
             <Route path="/sign/:token" element={<SignContractPage />} />
             {import.meta.env.DEV && <Route path="/__qa/query-boundary" element={<QueryBoundaryQaPage />} />}
@@ -334,16 +337,17 @@ export default function App() {
             <Route path="/contracts" element={<PrivateRoute><ContractsLaunchPage /></PrivateRoute>} />
             <Route path="/finance" element={<PrivateRoute><FinancePage /></PrivateRoute>} />
             <Route path="/settings/permissions" element={<PrivateRoute><PermissionsPage /></PrivateRoute>} />
+            <Route path="/settings/access-control" element={<PrivateRoute><AccessControlPage /></PrivateRoute>} />
             <Route path="/settings/branding" element={<PrivateRoute><BrandingPage /></PrivateRoute>} />
             <Route path="/settings/audit" element={<PrivateRoute><AuditPage /></PrivateRoute>} />
             <Route path="/settings/integrations" element={<PrivateRoute><IntegrationsPage /></PrivateRoute>} />
             <Route path="/settings/provision-tenant" element={<PrivateRoute><ProvisionTenantPage /></PrivateRoute>} />
+            <Route path="/settings/tenants" element={<PrivateRoute><TenantsListPage /></PrivateRoute>} />
             <Route path="/ads" element={<PrivateRoute><AdsPage /></PrivateRoute>} />
             <Route path="/meta-assets" element={<PrivateRoute><MetaAssetsPage /></PrivateRoute>} />
-            <Route path="/reports" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/reports" element={<PrivateRoute><ReportsPage /></PrivateRoute>} />
             <Route path="/social" element={<PrivateRoute><SocialPage /></PrivateRoute>} />
             <Route path="/inbox" element={<PrivateRoute><InboxPage /></PrivateRoute>} />
-            <Route path="/discover" element={<PrivateRoute><LeadDiscoveryPage /></PrivateRoute>} />
             <Route path="/marketing" element={<Navigate to="/ads?tab=accounts" replace />} />
             <Route path="/analytics" element={<PrivateRoute><AnalyticsPage /></PrivateRoute>} />
             <Route path="/seo" element={<PrivateRoute><SEOPage /></PrivateRoute>} />
@@ -353,9 +357,7 @@ export default function App() {
                 page being sold. The approvals queue is not going to repeat it. */}
             <Route path="/seo/approvals" element={<PrivateRoute><AppLayout><SeoApprovalsPage /></AppLayout></PrivateRoute>} />
             <Route path="/intelligence" element={<PrivateRoute><IntelligencePage /></PrivateRoute>} />
-            <Route path="/growth-os" element={<PrivateRoute><GrowthOSPage /></PrivateRoute>} />
             <Route path="/whatsapp-templates" element={<PrivateRoute><WhatsAppTemplatesPage /></PrivateRoute>} />
-            <Route path="/outreach-dashboard" element={<PrivateRoute><OutreachDashboard /></PrivateRoute>} />
             <Route path="/outbound" element={<PrivateRoute><OutboundPage /></PrivateRoute>} />
             <Route path="/links" element={<PrivateRoute><LinksPage /></PrivateRoute>} />
             <Route path="/social-scheduling" element={<Navigate to="/social" replace />} />
@@ -382,8 +384,6 @@ export default function App() {
             <Route path="/wizmatch/finance" element={<PrivateRoute><FinancePage /></PrivateRoute>} />
             <Route path="/wizmatch/emails" element={<PrivateRoute><AppLayout><EmailTemplatesPage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/whatsapp-templates" element={<PrivateRoute><WhatsAppTemplatesPage /></PrivateRoute>} />
-            <Route path="/wizmatch/discover" element={<PrivateRoute><AppLayout><LeadDiscoveryPage /></AppLayout></PrivateRoute>} />
-            <Route path="/wizmatch/outreach" element={<PrivateRoute><OutreachDashboard /></PrivateRoute>} />
             <Route path="/wizmatch/intelligence" element={<PrivateRoute><AppLayout><WizmatchIntelligencePage /></AppLayout></PrivateRoute>} />
             <Route path="/wizmatch/settings/permissions" element={<PrivateRoute><PermissionsPage /></PrivateRoute>} />
             <Route path="/wizmatch/settings/branding" element={<PrivateRoute><BrandingPage /></PrivateRoute>} />

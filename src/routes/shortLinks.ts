@@ -9,20 +9,23 @@
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
-import { lookupShortLinkDb, incrementClickCount } from '../services/shortLinksDb';
+import { lookupShortLinkDbAnyTenant, incrementClickCount } from '../services/shortLinksDb';
 import logger from '../utils/logger';
 
 const router = Router();
 
 async function redirect(req: Request, res: Response, slug: string): Promise<void> {
-  const hit = await lookupShortLinkDb(slug).catch(() => null);
+  // Tenant-agnostic lookup — a bare "/s/:slug" request carries no tenant
+  // signal to scope by. See the KNOWN LIMITATION note atop shortLinksDb.ts.
+  const hit = await lookupShortLinkDbAnyTenant(slug).catch(() => null);
   if (!hit) {
     logger.info({ slug, ip: req.ip }, '[short-links] slug not found');
     res.status(404).type('text/plain').send(`Short link "${slug}" not found.`);
     return;
   }
   // Fire-and-forget click increment — don't block the redirect on it.
-  void incrementClickCount(slug);
+  // Scoped to the specific tenant row that was just resolved above.
+  void incrementClickCount(hit.tenantId, slug);
   logger.info({ slug, dest: hit.destination, ip: req.ip }, '[short-links] redirect');
   res.redirect(302, hit.destination);
 }

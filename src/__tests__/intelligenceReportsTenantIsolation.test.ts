@@ -51,9 +51,6 @@ vi.mock('../services/intelligenceAnalyzer', () => ({
 vi.mock('../services/intelligenceDelivery', () => ({
   deliverDailyIntelligence: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock('../services/directoryScraperService', () => ({
-  runAllScrapers: vi.fn().mockResolvedValue({ total: 0, imported: 0 }),
-}));
 vi.mock('../services/metaAdsService', () => ({
   calculateMonthlyBenchmarks: vi.fn().mockResolvedValue(undefined),
 }));
@@ -198,7 +195,7 @@ describe('routes/intelligence.ts — POST /run-cron/:name is GE-tenant-only', ()
   it('a reseller tenant admin gets 403, the cron never runs', async () => {
     const handler = invokeRouteHandler(router, '/run-cron/:name', 'post');
     const res = mockRes();
-    await handler(reqAs(TENANT_B, { params: { name: 'Directory Scrapers' } }), res);
+    await handler(reqAs(TENANT_B, { params: { name: 'Monthly Client Benchmarks' } }), res);
 
     expect(res.statusCode).toBe(403);
   });
@@ -206,7 +203,7 @@ describe('routes/intelligence.ts — POST /run-cron/:name is GE-tenant-only', ()
   it('GE\'s own tenant is unaffected', async () => {
     const handler = invokeRouteHandler(router, '/run-cron/:name', 'post');
     const res = mockRes();
-    await handler(reqAs(TENANT_A, { params: { name: 'Directory Scrapers' } }), res);
+    await handler(reqAs(TENANT_A, { params: { name: 'Monthly Client Benchmarks' } }), res);
 
     expect(res.body.ok).toBe(true);
   });

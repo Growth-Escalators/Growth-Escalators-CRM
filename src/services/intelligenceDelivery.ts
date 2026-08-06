@@ -44,16 +44,16 @@ export async function deliverDailyIntelligence(analysis: Analysis, data: AgencyD
     const hEmo = health.overallScore >= 80 ? '🟢' : health.overallScore >= 50 ? '🟡' : '🔴';
     msg += `${hEmo} *System Health: ${health.overallScore}/100*\n`;
     const subsystems = [
-      { name: 'Outreach', s: health.outreach },
       { name: 'SEO', s: health.seo },
       { name: 'CRM', s: health.crm },
       { name: 'Infra', s: health.infrastructure },
     ];
     for (const sub of subsystems) {
+      if (!sub.s) continue; // omitted for non-GE tenants — this caller has no tenant context, so always the full report
       const icon = sub.s.status === 'HEALTHY' ? '✅' : sub.s.status === 'WARNING' ? '⚠️' : '🔴';
       msg += `   ${icon} ${sub.name}: ${sub.s.status}\n`;
     }
-    const failedCrons = health.cronJobs.filter(c => !c.healthy);
+    const failedCrons = (health.cronJobs ?? []).filter(c => !c.healthy);
     if (failedCrons.length > 0) {
       msg += `   ⏰ ${failedCrons.length} cron job(s) overdue\n`;
     }
@@ -107,15 +107,6 @@ export async function deliverDailyIntelligence(analysis: Analysis, data: AgencyD
   // Wins (brief, at end)
   if (analysis.wins.length > 0) {
     msg += `✅ *Wins:* ${analysis.wins.join(' | ')}\n\n`;
-  }
-
-  // Creative intelligence section
-  if (data.creativeIntel && data.creativeIntel.fatiguingCount > 0) {
-    msg += `🎨 *Creative Alert:* ${data.creativeIntel.fatiguingCount} ad(s) fatiguing`;
-    if (data.creativeIntel.bestType) {
-      msg += ` | Best type: ${data.creativeIntel.bestType}`;
-    }
-    msg += '\n';
   }
 
   // Outreach velocity

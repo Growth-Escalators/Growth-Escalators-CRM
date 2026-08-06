@@ -8,9 +8,12 @@
 // secret costs money as well as access.
 //
 // The comparison now lives in one shared helper. These tests pin both the
-// helper's behaviour and the fact that all three call sites use it — the second
-// half matters because the original defect was precisely three call sites
-// drifting apart.
+// helper's behaviour and the fact that the remaining call site uses it — the
+// second half matters because the original defect was precisely three call
+// sites drifting apart. Two of the three (outreachLeads.ts, imapReplies.ts)
+// were removed with the Saleshandy/Google-Places outreach pipeline; the
+// helper and its remaining call site in internalAuth.ts still apply to
+// Wizmatch's internal-endpoint auth.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -50,8 +53,6 @@ describe('timingSafeSecretMatch', () => {
 
 describe('every internal-secret call site uses the constant-time helper', () => {
   const files = [
-    'routes/outreachLeads.ts',
-    'routes/imapReplies.ts',
     'middleware/internalAuth.ts',
   ];
 

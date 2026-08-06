@@ -1,5 +1,5 @@
 {
-  "id": "bc8a0174-46f2-42e2-8301-70a77c9e17b4",
+  "id": "205758c1-a58f-4fb2-bd82-7ef0ac7019ce",
   "prevId": "1b5b5c26-5d8a-4e61-b922-fb5952ca4cf2",
   "version": "7",
   "dialect": "postgresql",
@@ -1253,24 +1253,6 @@
           "primaryKey": false,
           "notNull": false,
           "default": "now()"
-        },
-        "approved_by": {
-          "name": "approved_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "approved_at": {
-          "name": "approved_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "rejected_reason": {
-          "name": "rejected_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -6520,6 +6502,154 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.role_permissions": {
+      "name": "role_permissions",
+      "schema": "",
+      "columns": {
+        "role_id": {
+          "name": "role_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "permission": {
+          "name": "permission",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "role_permissions_role_id_roles_id_fk": {
+          "name": "role_permissions_role_id_roles_id_fk",
+          "tableFrom": "role_permissions",
+          "tableTo": "roles",
+          "columnsFrom": [
+            "role_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "role_permissions_role_id_permission_pk": {
+          "name": "role_permissions_role_id_permission_pk",
+          "columns": [
+            "role_id",
+            "permission"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.roles": {
+      "name": "roles",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_system": {
+          "name": "is_system",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "roles_tenant_key_unique": {
+          "name": "roles_tenant_key_unique",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "roles_tenant_id_tenants_id_fk": {
+          "name": "roles_tenant_id_tenants_id_fk",
+          "tableFrom": "roles",
+          "tableTo": "tenants",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.saved_views": {
       "name": "saved_views",
       "schema": "",
@@ -6824,7 +6954,8 @@
           "name": "tenant_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false,
+          "default": "'00000000-0000-0000-0000-000000000001'"
         },
         "client_domain": {
           "name": "client_domain",
@@ -6950,54 +7081,6 @@
           "method": "btree",
           "with": {}
         },
-        "seo_content_calendar_tenant_unique_idx": {
-          "name": "seo_content_calendar_tenant_unique_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "client_domain",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "keyword",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "content_type",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "seo_content_calendar_tenant_id_idx": {
-          "name": "seo_content_calendar_tenant_id_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "seo_calendar_status_idx": {
           "name": "seo_calendar_status_idx",
           "columns": [
@@ -7030,19 +7113,6 @@
         }
       },
       "foreignKeys": {
-        "seo_content_calendar_tenant_id_tenants_id_fk": {
-          "name": "seo_content_calendar_tenant_id_tenants_id_fk",
-          "tableFrom": "seo_content_calendar",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
         "seo_content_calendar_opportunity_id_seo_opportunities_id_fk": {
           "name": "seo_content_calendar_opportunity_id_seo_opportunities_id_fk",
           "tableFrom": "seo_content_calendar",
@@ -8885,6 +8955,111 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.user_permission_overrides": {
+      "name": "user_permission_overrides",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "permission": {
+          "name": "permission",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "effect": {
+          "name": "effect",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "user_permission_overrides_user_permission_unique": {
+          "name": "user_permission_overrides_user_permission_unique",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "permission",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "user_permission_overrides_user_id_users_id_fk": {
+          "name": "user_permission_overrides_user_id_users_id_fk",
+          "tableFrom": "user_permission_overrides",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "user_permission_overrides_created_by_users_id_fk": {
+          "name": "user_permission_overrides_created_by_users_id_fk",
+          "tableFrom": "user_permission_overrides",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "user_permission_overrides_effect_chk": {
+          "name": "user_permission_overrides_effect_chk",
+          "value": "effect IN ('grant','revoke')"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.user_permissions": {
       "name": "user_permissions",
       "schema": "",
@@ -9216,6 +9391,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "role_id": {
+          "name": "role_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -9269,6 +9450,19 @@
           "tableTo": "tenants",
           "columnsFrom": [
             "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "users_role_id_roles_id_fk": {
+          "name": "users_role_id_roles_id_fk",
+          "tableFrom": "users",
+          "tableTo": "roles",
+          "columnsFrom": [
+            "role_id"
           ],
           "columnsTo": [
             "id"

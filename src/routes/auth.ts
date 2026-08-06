@@ -9,6 +9,7 @@ import { requireAuth } from '../middleware/auth';
 import { logAuditEvent } from '../utils/audit';
 import crypto from 'crypto';
 import https from 'https';
+import { findValidInvite, consumeInvite } from '../services/userInvites';
 
 const router = Router();
 
@@ -309,6 +310,60 @@ router.post('/reset-password', resetLimiter, async (req: Request, res: Response)
     res.json({ message: 'Password reset successful. Please log in with your new password.' });
   } catch (err) {
     logger.error('[auth] reset-password error:', err);
+    res.status(500).json({ error: 'internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /auth/accept-invite — activates an invited user's account.
+//
+// Mirrors reset-password's shape (validate a DB-stored token, hash+store a
+// new password, bump token_version) but keyed by a single opaque token
+// rather than email+code+tenantSlug: the mailed link (see
+// src/services/userInvites.ts's buildAcceptInviteUrl) is a 256-bit random
+// value, globally unique on its own, so there's no ambiguity to resolve with
+// a tenant hint the way a 6-digit reset code needs one. Same generic
+// "Invalid or expired" response for both a bad token and an expired one —
+// no oracle for probing which.
+// ---------------------------------------------------------------------------
+router.post('/accept-invite', resetLimiter, async (req: Request, res: Response) => {
+  const { token, newPassword } = req.body as { token?: string; newPassword?: string };
+
+  if (!token || !newPassword) {
+    res.status(400).json({ error: 'token and newPassword are required' });
+    return;
+  }
+  if (newPassword.length < 8) {
+    res.status(400).json({ error: 'Password must be at least 8 characters' });
+    return;
+  }
+
+  try {
+    const invite = await findValidInvite(token);
+    if (!invite) {
+      res.status(400).json({ error: 'Invalid or expired invite link' });
+      return;
+    }
+
+    const passwordHash = await hash(newPassword);
+    // tenant-scoping-lint-ignore-next-line — invite.userId came from
+    // findValidInvite(token): an unguessable, single-use, hashed token tied
+    // to exactly one user via userInvites.userId's UNIQUE constraint. The
+    // token itself is the sole authorization here, the same way a password
+    // reset code authorizes acting on its one associated user with no
+    // tenant predicate needed.
+    await db.execute(sql`
+      UPDATE users
+      SET password_hash = ${passwordHash}, is_active = true, token_version = COALESCE(token_version, 1) + 1
+      WHERE id = ${invite.userId}
+    `);
+
+    // Single-use enforcement — the token can never be replayed.
+    await consumeInvite(invite.userId);
+
+    res.json({ message: 'Account activated. Please log in with your new password.' });
+  } catch (err) {
+    logger.error('[auth] accept-invite error:', err);
     res.status(500).json({ error: 'internal server error' });
   }
 });

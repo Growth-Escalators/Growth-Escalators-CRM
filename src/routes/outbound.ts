@@ -31,7 +31,7 @@ import { eq, and } from 'drizzle-orm';
 import { db, pool, deals, pipelines } from '../db/index';
 import logger from '../utils/logger';
 import { findOrCreateContact } from '../services/contactService';
-import { classifyReplyWithAI } from '../services/outreachEnrichmentService';
+import { classifyReplyWithAI } from '../services/replyClassifierService';
 
 type OutboundChannelInput = {
   channelType: 'email' | 'phone' | 'whatsapp' | 'instagram' | 'linkedin';

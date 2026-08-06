@@ -7,7 +7,7 @@ risky paths) works top-to-bottom. Save notable reviews under `docs/reviews/`.
 
 - [ ] `npm run build` exits 0 (no new `tsc` errors).
 - [ ] `npm test` passes; new logic has tests where practical.
-- [ ] If the admin SPA changed: `npm run admin:build` succeeds and `public/admin` is rebuilt.
+- [ ] If the admin SPA changed: `npm run admin:build` succeeds and `dist/public/admin` is rebuilt (not committed — built fresh on every deploy).
 
 ## Correctness
 

@@ -37,6 +37,7 @@ import blockersRouter from './routes/blockers';
 import onboardingRouter from './routes/onboarding';
 import billingRouter from './routes/billing';
 import permissionsRouter from './routes/permissions';
+import rolesRouter from './routes/roles';
 import platformTenantsRouter from './routes/platformTenants';
 import tenantBrandingRouter from './routes/tenantBranding';
 import tenantIntegrationsRouter from './routes/tenantIntegrations';
@@ -48,7 +49,6 @@ import integrationsRouter from './routes/integrations';
 import integrationsMetaCallbackRouter from './routes/integrationsMetaCallback';
 import integrationsMetaConnectRouter from './routes/integrationsMetaConnect';
 import inboxRouter, { setSocketIO } from './routes/inbox';
-import discoverRouter from './routes/discover';
 import marketingRouter from './routes/marketing';
 import { metaAssetsRouter } from './routes/metaAssets';
 import searchRouter from './routes/search';
@@ -59,16 +59,10 @@ import seoSitesRouter from './routes/seoSites';
 import siteChangesRouter from './routes/siteChanges';
 import financeRouter from './routes/finance';
 import intelligenceRouter from './routes/intelligence';
-import growthOSRouter from './routes/growthOS';
-import { ensureGrowthOSTables } from './services/growthOSSetup';
-import imapRepliesRouter from './routes/imapReplies';
-import { ensureProcessedRepliesTable } from './services/imapService';
 import funnelRouter, { ensureFunnelWaitlistTable } from './routes/funnel';
 import funnelConfigRouter from './routes/funnelConfig';
 import { ensureFunnelConfigTable, ensureDeliveryLogTable, seedDefaultFunnelConfigs } from './services/funnelConfigService';
 import { ensurePipelineContactsTable, ensureOutreachPipelines } from './services/pipelineService';
-import outreachLeadsRouter from './routes/outreachLeads';
-import { ensureOutreachLeadsTable } from './services/outreachLeadsService';
 import outboundRouter from './routes/outbound';
 import leadsRouter from './routes/leads';
 import wizmatchRouter from './routes/wizmatch';
@@ -95,7 +89,7 @@ import savedViewsRouter from './routes/savedViews';
 import contractsRouter from './modules/esign/esign.routes';
 import contractsPublicRouter from './modules/esign/esign.public.routes';
 import contractsWebhookRouter from './modules/esign/esign.webhook.routes';
-import { requireAuth, requireStrictAuth, optionalAuth, verifyAuthTokenForHandshake } from './middleware/auth';
+import { requireAuth, requireStrictAuth, verifyAuthTokenForHandshake } from './middleware/auth';
 import { contactBelongsToTenant } from './services/socketAuth';
 import { requireRole } from './middleware/rbac';
 import { requireTenantFeature } from './middleware/requireTenantFeature';
@@ -327,6 +321,11 @@ app.use('/api/onboarding', requireAuth, onboardingRouter);
 app.use('/api/billing', requireStrictAuth, requireTenantFeature('gstBilling'), billingRouter);
 app.use('/api/subscriptions', requireAuth, subscriptionsRouter);
 app.use('/api/permissions', requireStrictAuth, permissionsRouter);
+// New, NOT-YET-ENFORCED RBAC foundation (roles / role_permissions /
+// user_permission_overrides) — see src/routes/roles.ts's own header. Reads
+// no `PERMISSION_MAP` state, writes no `user_permissions` row; entirely
+// separate from `/api/permissions` above.
+app.use('/api/roles', requireStrictAuth, rolesRouter);
 // requirePlatformSuperadmin is enforced INSIDE platformTenantsRouter itself
 // (router.use(...) at the top of src/routes/platformTenants.ts) rather than
 // here — requireStrictAuth just needs to establish req.user before the
@@ -354,7 +353,6 @@ app.use('/api/integrations/meta/connect', integrationsMetaConnectRouter);
 app.use('/api/integrations/meta/callback', integrationsMetaCallbackRouter);
 app.use('/api/integrations', requireAuth, requireRole('admin'), integrationsRouter);
 app.use('/api/inbox', requireAuth, inboxRouter);
-app.use('/api/outreach/discover', requireAuth, discoverRouter);
 app.use('/api/marketing', requireAuth, marketingRouter);
 app.use('/api/meta', requireAuth, metaAssetsRouter);
 app.use('/api/search', requireAuth, searchRouter);
@@ -375,10 +373,7 @@ app.use('/api/seo-sites', requireAuth, requireTenantFeature('seo'), seoSitesRout
 app.use('/api/seo-changes', requireAuth, requireTenantFeature('seo'), siteChangesRouter);
 app.use('/api/finance', requireAuth, financeRouter);
 app.use('/api/intelligence', requireAuth, intelligenceRouter);
-app.use('/api/growth-os', requireAuth, growthOSRouter);
 app.use('/api/whatsapp', requireAuth, whatsappTemplatesRouter);
-app.use('/api/outreach/imap', imapRepliesRouter);
-app.use('/api/outreach/leads', optionalAuth, outreachLeadsRouter);
 app.use('/api/outbound', requireAuth, requireRole('admin', 'team_lead'), outboundRouter);
 app.use('/api/links', requireAuth, linksRouter);
 app.use('/api/intelligence', requireAuth, intelligenceChatRouter);
@@ -762,10 +757,6 @@ async function startServer() {
     });
   });
 
-  // Bootstrap Growth OS tables
-  ensureGrowthOSTables().catch(e => console.error('[startup] Growth OS table bootstrap failed:', e));
-  // Bootstrap IMAP reply dedup table
-  ensureProcessedRepliesTable().catch(e => console.error('[startup] IMAP processed_replies table bootstrap failed:', e));
   // Bootstrap funnel waitlist table
   ensureFunnelWaitlistTable().catch(e => console.error('[startup] Funnel waitlist table bootstrap failed:', e));
   // Bootstrap wizmatch_route_views (nav-usage experiment; drop the table when it ends)
@@ -774,8 +765,6 @@ async function startServer() {
   ensurePipelineContactsTable().catch(e => console.error('[startup] Pipeline contacts table bootstrap failed:', e));
   // Bootstrap Agency Owners and Freelancer pipelines
   ensureOutreachPipelines().catch(e => console.error('[startup] Outreach pipelines bootstrap failed:', e));
-  // Bootstrap outreach_leads table for WF-01 enrichment pipeline
-  ensureOutreachLeadsTable().catch(e => console.error('[startup] outreach_leads table bootstrap failed:', e));
   // Bootstrap short_links table (replaces external shlink Railway service)
   import('./services/shortLinksDb').then(m => m.ensureShortLinksTable()).catch(e => console.error('[startup] short_links table bootstrap failed:', e));
   // Bootstrap finance tables
@@ -829,8 +818,7 @@ async function startServer() {
   import('./services/auditLogger').then(m => m.ensureAuditLogsTable()).catch(e => console.error('[startup] Audit logs bootstrap failed:', e));
   // Bootstrap SEO content calendar table
   import('./services/seoContentGapService').then(m => m.ensureContentCalendarTable()).catch(e => console.error('[startup] Content calendar bootstrap failed:', e));
-  // Bootstrap creative intelligence columns + client benchmarks table
-  import('./services/creativeIntelligenceService').then(m => m.ensureCreativeIntelligenceColumns()).catch(e => console.error('[startup] Creative intel columns failed:', e));
+  // Bootstrap client benchmarks table
   import('./services/metaAdsService').then(m => m.ensureClientBenchmarksTable()).catch(e => console.error('[startup] Client benchmarks bootstrap failed:', e));
 
   // One-time startup: comprehensive backfill — finds ALL purchases and places them

@@ -1,6 +1,6 @@
 import { type Request, type Response, type NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { db, users } from '../db/index';
+import { db, users, tenants } from '../db/index';
 import { eq } from 'drizzle-orm';
 
 export interface AuthPayload {
@@ -56,7 +56,19 @@ const TOKEN_VERSION_CACHE_TTL_MS = 30_000;
 //
 // Reading `tenant_id` costs nothing extra — it is added to the SAME single-row
 // select and cached under the same TTL, so the warm path still issues no query.
-type CachedIdentity = { tokenVersion: number; tenantId: string | null; isActive: boolean | null };
+//
+// `tenantIsActive` (added alongside the platform-superadmin tenant-management
+// surface, src/routes/platformTenants.ts) is the same "join it onto the
+// existing single-row lookup" trick applied to `tenants.is_active`. Login
+// already refuses a suspended tenant's users (`src/routes/auth.ts` INNER JOINs
+// `tenants` and requires `t.is_active IS NULL OR t.is_active = true`), but
+// nothing re-checked it per request — exactly the gap `isActive` above closed
+// for user-level deactivation. Without this, a token issued before a tenant
+// was suspended kept working against every route for up to its full 7-day
+// expiry, making PATCH /api/platform/tenants/:id/status {isActive:false} a
+// DB-only no-op rather than an actual lockout. One extra LEFT JOIN on the
+// same query, still one round trip, still bounded by the same 30s cache TTL.
+type CachedIdentity = { tokenVersion: number; tenantId: string | null; isActive: boolean | null; tenantIsActive: boolean | null };
 const identityCache = new Map<string, { identity: CachedIdentity; expiresAt: number }>();
 
 async function currentIdentity(userId: string): Promise<CachedIdentity | null> {
@@ -64,8 +76,14 @@ async function currentIdentity(userId: string): Promise<CachedIdentity | null> {
   const now = Date.now();
   if (cached && cached.expiresAt > now) return cached.identity;
   const [user] = await db
-    .select({ tokenVersion: users.tokenVersion, tenantId: users.tenantId, isActive: users.isActive })
+    .select({
+      tokenVersion: users.tokenVersion,
+      tenantId: users.tenantId,
+      isActive: users.isActive,
+      tenantIsActive: tenants.isActive,
+    })
     .from(users)
+    .leftJoin(tenants, eq(tenants.id, users.tenantId))
     .where(eq(users.id, userId))
     .limit(1);
   if (!user) return null;
@@ -73,10 +91,26 @@ async function currentIdentity(userId: string): Promise<CachedIdentity | null> {
     tokenVersion: user.tokenVersion || 1,
     tenantId: user.tenantId ?? null,
     isActive: user.isActive ?? null,
+    // Nullable, same semantics as `isActive` above and as login's own
+    // `t.is_active IS NULL OR t.is_active = true` — NULL means "predates a
+    // backfill, treat as active", not "deny". `identityMismatch` below checks
+    // `=== false` for exactly the same reason `isActive` does. (A tenant_id
+    // that matches no `tenants` row at all — which should not happen in
+    // practice, tenants are deactivated, never deleted — also reads as NULL
+    // here via the LEFT JOIN; that case is still caught downstream because
+    // the existing tenantId-claim check rejects it independently.)
+    tenantIsActive: user.tenantIsActive ?? null,
   };
   identityCache.set(userId, { identity, expiresAt: now + TOKEN_VERSION_CACHE_TTL_MS });
   return identity;
 }
+
+// Distinguished from every other identityMismatch reason below because
+// requireAuth gives IT a different, user-facing response (403 + a plain
+// "workspace suspended" message) instead of the deliberately-opaque generic
+// 401 every other reason gets — see requireAuth's own comment on why that one
+// case is worth naming instead of folding into the opaque bucket.
+const TENANT_SUSPENDED_REASON = 'tenant suspended';
 
 // Both checks live here so `requireAuth` and `optionalAuth` cannot drift apart
 // again — H-4 was exactly that drift for the token_version half.
@@ -99,6 +133,15 @@ function identityMismatch(identity: CachedIdentity | null, payload: AuthPayload)
   // NULL as active (`is_active IS NULL OR is_active = true`). A truthiness test
   // would log out every user whose row predates the column's backfill.
   if (identity.isActive === false) return 'user is deactivated';
+  // Tenant-suspension kill switch (platform-superadmin PATCH
+  // /api/platform/tenants/:tenantId/status {isActive: false}) — the exact same
+  // gap as the user-level check immediately above, one level up: login already
+  // refuses a suspended tenant's users, but nothing re-checked
+  // `tenants.is_active` per request, so an already-issued token kept working
+  // against every route until its natural 7-day expiry regardless of the DB
+  // flip. Same `=== false` (not truthy) contract as `isActive` — see
+  // `currentIdentity`'s comment on why NULL still means active here.
+  if (identity.tenantIsActive === false) return TENANT_SUSPENDED_REASON;
   if (identity.tokenVersion !== payload.tokenVersion) return 'token_version revoked';
   // Also fails closed when the user row's tenant_id is NULL: both callers
   // already reject a token whose `tenantId` claim is falsy before reaching here,
@@ -140,11 +183,23 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
   try {
     const mismatch = identityMismatch(await currentIdentity(payload.id), payload);
+    if (mismatch === TENANT_SUSPENDED_REASON) {
+      // The one deliberate carve-out from the opaque-message rule below: this
+      // reason is not a forged/stale-claim attack signal to keep vague, it's
+      // the caller's OWN real, current workspace having been suspended by a
+      // platform superadmin (PATCH /api/platform/tenants/:tenantId/status) —
+      // telling them plainly is the point, so the CRM doesn't look like it's
+      // just broken. 403 (not 401) because re-authenticating cannot fix
+      // this — the credentials are still valid, the workspace is the problem.
+      console.warn(`[auth] requireAuth rejected token for user ${payload.id}: ${mismatch}`);
+      res.status(403).json({ error: 'workspace suspended', message: 'This workspace has been suspended.' });
+      return;
+    }
     if (mismatch) {
-      // Deliberately one opaque message for every mismatch reason. Telling a
-      // caller "tenant mismatch" (or echoing the real tenant) would confirm
-      // which claim was rejected and leak the user's true tenant; the reason is
-      // logged server-side instead.
+      // Deliberately one opaque message for every OTHER mismatch reason.
+      // Telling a caller "tenant mismatch" (or echoing the real tenant) would
+      // confirm which claim was rejected and leak the user's true tenant; the
+      // reason is logged server-side instead.
       console.warn(`[auth] requireAuth rejected token for user ${payload.id}: ${mismatch}`);
       res.status(401).json({ error: 'session expired — please log in again' });
       return;
@@ -180,9 +235,9 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 // did not.
 //
 // A stale/revoked token DEGRADES TO ANONYMOUS rather than 401: this is
-// *optional* auth, mounted on a route that legitimately serves unauthenticated
-// callers (`/api/outreach/leads`, which authorises by OUTREACH_INTERNAL_SECRET
-// and reads no `req.user` at all today). Rejecting outright would break that
+// *optional* auth, meant for routes that legitimately serve unauthenticated
+// callers but still want to recognise a caller's identity when a valid token
+// happens to be present. Rejecting outright would break the unauthenticated
 // contract for any client holding a stale token; refusing to populate
 // `req.user` removes the privilege without changing the route's reachability.
 // The DB lookup reuses the same 30s-TTL cache as requireAuth, so this adds no

@@ -1,5 +1,6 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
+import { COMPANY_GSTIN } from '../config/constants';
 
 // ---------------------------------------------------------------------------
 // Bootstrap retainer tables on startup
@@ -11,6 +12,16 @@ export async function ensureRetainerTables(): Promise<void> {
       tenant_id UUID NOT NULL,
       client_id UUID,
       client_name VARCHAR(200) NOT NULL,
+      -- retainer_number's UNIQUE constraint is intentionally still global
+      -- (NOT tenant-scoped) — narrowing it to (tenant_id, retainer_number)
+      -- would need a migration, which per AGENTS.md's guardrails needs its
+      -- own explicit, separately-flagged sign-off, not a silent bundle into
+      -- an otherwise-non-schema fix. Instead, getNextRetainerNumber() below
+      -- now embeds a tenant-derived short code into the number itself
+      -- (RET/<code>/<year>/<seq>) so two tenants' numbers are different
+      -- strings and don't collide on this constraint even though it's
+      -- global. See tenantBrandingDefaults.ts's resolveTenantShortCode for
+      -- the documented residual-collision caveat (same-named tenants).
       retainer_number VARCHAR(50) UNIQUE NOT NULL,
       status VARCHAR(20) DEFAULT 'active',
       billing_address_line1 VARCHAR(200),
@@ -64,17 +75,36 @@ export async function ensureRetainerTables(): Promise<void> {
 // ---------------------------------------------------------------------------
 // Generate next retainer number
 // ---------------------------------------------------------------------------
-export async function getNextRetainerNumber(): Promise<string> {
+// Previously `RET/${year}/${seq}` with NO tenant scoping at all — not even
+// in this lookup query (it matched across every tenant's rows) — so the
+// second tenant to generate a retainer in a given year could easily collide
+// with an already-issued number on client_retainers.retainer_number's
+// (global) UNIQUE NOT NULL constraint.
+//
+// Fixed by embedding a tenant-derived short code into the number itself
+// (`RET/<code>/<year>/<seq>`) rather than migrating the UNIQUE constraint to
+// (tenant_id, retainer_number) — see the comment on that column in
+// ensureRetainerTables() above for why a schema change is deliberately not
+// bundled into this fix. The lookup query is now also tenant_id-scoped (it
+// wasn't before), so each tenant's sequence counts independently instead of
+// sharing one global counter.
+//
+// This changes the FORMAT of newly-generated numbers (including Growth
+// Escalators' own, which now reads RET/GE/<year>/<seq> instead of
+// RET/<year>/<seq>) but never renumbers anything already issued.
+export async function getNextRetainerNumber(tenantId: string): Promise<string> {
   const now = new Date();
   const year = now.getFullYear();
+  const { resolveTenantShortCode } = await import('./tenantBrandingDefaults');
+  const code = await resolveTenantShortCode(tenantId);
   const result = await pool.query(
-    `SELECT retainer_number FROM client_retainers WHERE retainer_number LIKE $1 ORDER BY id DESC LIMIT 1`,
-    [`RET/${year}/%`],
+    `SELECT retainer_number FROM client_retainers WHERE tenant_id = $1 AND retainer_number LIKE $2 ORDER BY id DESC LIMIT 1`,
+    [tenantId, `RET/${code}/${year}/%`],
   );
-  if (result.rows.length === 0) return `RET/${year}/001`;
+  if (result.rows.length === 0) return `RET/${code}/${year}/001`;
   const last = (result.rows[0] as { retainer_number: string }).retainer_number;
-  const seq = parseInt(last.split('/')[2] ?? '0', 10) + 1;
-  return `RET/${year}/${String(seq).padStart(3, '0')}`;
+  const seq = parseInt(last.split('/')[3] ?? '0', 10) + 1;
+  return `RET/${code}/${year}/${String(seq).padStart(3, '0')}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,13 +154,25 @@ export async function generateInvoiceFromRetainer(
   const dueDate = new Date(today);
   dueDate.setDate(dueDate.getDate() + 5);
 
+  // client_state_code: client_retainers only stores the state name (billing_state),
+  // not a GST state code, so mirror it from the linked billing_clients row when
+  // this retainer has one (src/routes/billing.ts and
+  // src/services/recurringInvoiceService.ts both set clientStateCode from that
+  // row's stateCode). Standalone retainers with no client_id fall back to null
+  // rather than fabricating a code.
+  let clientStateCode: string | null = null;
+  if (r.client_id) {
+    const clientRes = await pool.query(`SELECT state_code FROM billing_clients WHERE id = $1`, [r.client_id]);
+    clientStateCode = (clientRes.rows[0] as { state_code: string | null } | undefined)?.state_code ?? null;
+  }
+
   const invResult = await pool.query(`
     INSERT INTO invoices (
       tenant_id, client_id, invoice_number, invoice_type, status,
       invoice_date, due_date, subtotal,
       cgst_rate, cgst_amount, sgst_rate, sgst_amount, igst_rate, igst_amount,
       total_amount, amount_paid, amount_due, amount_in_words,
-      client_gstin, client_state, company_gstin,
+      client_gstin, client_state, client_state_code, company_gstin,
       tax_type, sac_code, financial_year, series_number,
       retainer_id, billing_address_line1, billing_address_line2,
       billing_city, billing_state, billing_pincode, billing_country,
@@ -140,17 +182,17 @@ export async function generateInvoiceFromRetainer(
       $5, $6, $7,
       $8, $9, $10, $11, $12, $13,
       $14, 0, $14, $15,
-      $16, $17, process.env.COMPANY_GSTIN ?? '08DRYPA4899F2ZZ',
-      $18, '9983', $19, $20,
-      $21, $22, $23, $24, $25, $26, $27,
-      $28, $29
+      $16, $17, $18, $19,
+      $20, '9983', $21, $22,
+      $23, $24, $25, $26, $27, $28, $29,
+      $30, $31
     ) RETURNING id
   `, [
     tenantId, r.client_id, invoiceNumber, invoiceType,
     today.toISOString(), dueDate.toISOString(), subtotal,
     cgstRate, cgstAmount, sgstRate, sgstAmount, igstRate, igstAmount,
     totalAmount, words,
-    r.gstin, r.billing_state,
+    r.gstin, r.billing_state, clientStateCode, COMPANY_GSTIN,
     taxType, financialYear, seriesNumber,
     retainerId, r.billing_address_line1, r.billing_address_line2,
     r.billing_city, r.billing_state, r.billing_pincode, r.billing_country,

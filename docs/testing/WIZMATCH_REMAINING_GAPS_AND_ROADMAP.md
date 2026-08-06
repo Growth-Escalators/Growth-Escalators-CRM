@@ -66,7 +66,7 @@ are the same class as QA-4, which *was* confirmed and was CRITICAL.
 | Tenant-ID tampering | `src/routes/messages.ts:14-45`, `src/routes/sequences.ts:17,87` | `tenantId` destructured from `req.body` |
 | IDOR — message read | `src/routes/messages.ts:52-69` | `GET ?contactId=` with no tenant filter |
 | IDOR — sequence enrolment | `src/services/sequenceService.ts:93-100,130-143` | cancel/read with no tenant filter |
-| Missing role gate | `src/routes/growthOS.ts` GET routes; `growthOSSetup.ts:11-109` | reads with no permission check; those tables reportedly have **no `tenant_id` column at all** |
+| Missing role gate | `src/routes/growthOS.ts` GET routes; `growthOSSetup.ts:11-109` | reads with no permission check; those tables reportedly have **no `tenant_id` column at all** — **MOOT as of 2026-08-05: Growth OS was deleted entirely (routes/growthOS.ts and its services no longer exist); the underlying tables are orphaned in Postgres, not dropped** |
 | Stored content-type trust | `src/routes/taskAttachments.ts:42-45, 201-206` | no `fileFilter`; download serves stored mimetype `inline` |
 
 **Method that worked for QA-4:** read the route, read the service it calls, confirm no tenant

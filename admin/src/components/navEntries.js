@@ -1,8 +1,8 @@
 import {
   Calendar, Home, Users, Kanban, CheckSquare, MessageSquare, TrendingUp,
-  Megaphone, Share2, Target, Search, FileText, Brain, MapPin, Zap, Mail,
+  Megaphone, Share2, Search, FileText, Brain, Zap, Mail,
   Link as LinkIcon, CreditCard, Receipt, Shield, ShieldCheck, ClipboardList, Settings,
-  Briefcase, Building2, Palette, Plug, UserPlus,
+  Briefcase, Building2, Palette, Plug, UserPlus, Building,
 } from 'lucide-react';
 import { WIZMATCH_ROUTES, evaluateWizmatchPermission } from '../routes/wizmatchRouteRegistry.ts';
 import { companyPolicyUiEnabled } from '../lib/companyPolicyFlag.js';
@@ -13,7 +13,7 @@ import { decisionWorkbenchUiEnabled } from '../lib/decisionWorkbenchFlag.js';
 //
 // Role hierarchy (low → high trust):
 //   staff < sales < team_lead < manager_ops/manager_ads < admin
-// `team_lead` = full operational tools (Outreach, AI Intelligence, Growth OS,
+// `team_lead` = full operational tools (Outreach, AI Intelligence,
 // Meta Ads) but NOT financial/security tools (Billing, Permissions, Audit).
 function productForTenantSlug(tenantSlug = 'growth-escalators') {
   return String(tenantSlug || '').toLowerCase().trim() === 'wizmatch' ? 'wizmatch' : 'growth';
@@ -49,7 +49,7 @@ export function computeFlags(role, perms = {}, tenantSlug = 'growth-escalators',
   const product = productForTenantSlug(tenantSlug);
   // Narrow-scope role: only Tasks + Inbox + Meta Ads + Social + (always-on)
   // Content link and My Attendance. Everything else (Contacts, Pipeline,
-  // Clients, Billing, Sequences, Discovery, Outreach, Growth OS, Intelligence,
+  // Clients, Billing, Sequences, Discovery, Outreach, Intelligence,
   // SEO, Analytics, Reports, etc.) stays hidden.
   const isCreativeAssistant = role === 'creative_assistant';
   return {
@@ -112,6 +112,11 @@ export function computeFlags(role, perms = {}, tenantSlug = 'growth-escalators',
     // requireTenantFeature mount, rather than assuming this comment still
     // covers it.
     canBilling:    (!!perms.billingView || !!perms.isOwner) && tenantFeatures.gstBilling !== false,
+    // Client Reports (/reports → ReportsPage.jsx, backed by src/routes/
+    // reports.ts). Mirrors the backend's own gate exactly — every handler in
+    // reports.ts rejects unless `p?.reportsView || p?.isOwner` — so the nav
+    // entry and the API agree on who can even open the page.
+    canClientReports: !!perms.reportsView || !!perms.isOwner,
     // Expenses (/finance) and Funnels (/funnels) used to ride on canBilling,
     // but their APIs (src/routes/finance.ts, src/routes/funnel.ts) carry NO
     // billingView check — they work for any authenticated admin, and /finance
@@ -121,7 +126,6 @@ export function computeFlags(role, perms = {}, tenantSlug = 'growth-escalators',
     canFinance:    isAdmin || !!perms.billingView || !!perms.isOwner,
     canContracts:  ['admin', 'manager_ops', 'team_lead', 'sales'].includes(role) || !!perms.contractsView,
     canSequences:  ['admin', 'manager_ops', 'team_lead', 'sales'].includes(role),
-    canDiscovery:  ['admin', 'manager_ops', 'team_lead', 'sales'].includes(role),
     canMarketing:  ['admin', 'manager_ads'].includes(role),
     // `tenantFeatures.seo !== false` layers the PLAN entitlement on top:
     // `/api/seo` and `/api/seo-workflows` are now also mounted behind
@@ -226,11 +230,6 @@ export const NAV_ENTRIES = [
     visible: f => f.canSocial,
   },
   {
-    id: 'outreach', label: 'Outreach', to: '/outreach-dashboard',
-    icon: Target, section: 'Marketing', group: null,
-    visible: f => f.isAdminTier,
-  },
-  {
     id: 'outbound', label: 'Outbound', to: '/outbound',
     icon: Briefcase, section: 'Marketing', group: null,
     visible: f => f.isAdminTier,
@@ -249,16 +248,6 @@ export const NAV_ENTRIES = [
   },
 
   // ── TOOLS (collapsible) ───────────────────────────────────────
-  {
-    id: 'discover', label: 'Lead Discovery', to: '/discover',
-    icon: MapPin, section: 'Tools', group: 'tools', newTab: true,
-    visible: f => f.canDiscovery,
-  },
-  {
-    id: 'growth-os', label: 'Growth OS', to: '/growth-os',
-    icon: Zap, section: 'Tools', group: 'tools', newTab: true,
-    visible: f => f.isAdminTier,
-  },
   {
     id: 'emails', label: 'Email Templates', to: '/emails',
     icon: Mail, section: 'Tools', group: 'tools', newTab: true,
@@ -287,6 +276,11 @@ export const NAV_ENTRIES = [
     visible: f => f.canContracts,
   },
   {
+    id: 'reports', label: 'Reports', to: '/reports',
+    icon: FileText, section: 'Finance', group: 'finance',
+    visible: f => f.canClientReports,
+  },
+  {
     id: 'expenses', label: 'Expenses', to: '/finance',
     icon: Receipt, section: 'Finance', group: 'finance',
     badge: 'pending-leaves',
@@ -303,6 +297,14 @@ export const NAV_ENTRIES = [
     id: 'permissions', label: 'Permissions', to: '/settings/permissions',
     icon: Shield, section: 'Settings', group: 'settings',
     visible: f => f.isAdmin,
+  },
+  {
+    // New roles/role_permissions/user_permission_overrides system — NOT yet
+    // enforced (see Wave 3 shadow-mode rollout). Distinct from `permissions`
+    // above, which manages the live user_permissions/users.role system.
+    id: 'access-control', label: 'Access Control (Beta)', to: '/settings/access-control',
+    icon: ShieldCheck, section: 'Settings', group: 'settings',
+    visible: f => f.isOwner,
   },
   {
     id: 'branding', label: 'Branding', to: '/settings/branding',
@@ -355,6 +357,16 @@ export const NAV_ENTRIES = [
     // reseller-tenant). See src/routes/platformTenants.ts.
     id: 'provision-tenant', label: 'Provision Tenant', to: '/settings/provision-tenant',
     icon: UserPlus, section: 'Settings', group: 'settings',
+    visible: f => f.isPlatformSuperadmin,
+  },
+  {
+    // Platform-superadmin only — the natural follow-up to "Provision Tenant"
+    // above: lists every existing tenant and lets a superadmin suspend/
+    // reactivate a workspace, change its plan, or toggle its feature flags.
+    // See src/routes/platformTenants.ts (GET /, GET /:tenantId, PATCH
+    // /:tenantId/status|features|plan) and admin/src/pages/TenantsListPage.jsx.
+    id: 'tenants', label: 'Tenants', to: '/settings/tenants',
+    icon: Building, section: 'Settings', group: 'settings',
     visible: f => f.isPlatformSuperadmin,
   },
 ];

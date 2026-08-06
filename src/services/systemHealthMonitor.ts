@@ -1,7 +1,7 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { sendSlackDM } from './slackService';
-import { SLACK_JATIN } from '../config/constants';
+import { SLACK_JATIN, DEFAULT_TENANT_SLUG } from '../config/constants';
 import { isPaused } from '../config/featureFlags';
 
 // ---------------------------------------------------------------------------
@@ -26,12 +26,50 @@ export interface CronJobStatus {
 
 export interface SystemHealthReport {
   overallScore: number;
-  outreach: SubsystemHealth;
   seo: SubsystemHealth;
   crm: SubsystemHealth;
-  infrastructure: SubsystemHealth;
-  cronJobs: CronJobStatus[];
+  // GE-global platform/ops concerns (third-party credential health, n8n
+  // reachability, cron scheduler health). A non-GE tenant doesn't own these
+  // credentials or crons, so these keys are omitted from the response
+  // entirely for them — see checkAllSystems()'s isGeOwnTenant branch below.
+  infrastructure?: SubsystemHealth;
+  cronJobs?: CronJobStatus[];
   checkedAt: string;
+  // 'full' = GE's own platform-ops view (infra + cron included).
+  // 'tenant' = a reseller's own workspace view (tenant-scoped subsystems only).
+  scope: 'full' | 'tenant';
+}
+
+// ---------------------------------------------------------------------------
+// GE-tenant-only gate — same invariant as canSendWhatsApp() in
+// routes/inbox.ts and canSendGrowthOSWhatsApp() in services/whatsappSendGuard.ts:
+// System Health's platform-global subsystems (infra/third-party-credential
+// health, cron scheduler health) describe GE's own operational stack, not
+// anything a reseller tenant owns or configured. checkAllSystems() below
+// uses this to decide whether to include those subsystems at all.
+// ---------------------------------------------------------------------------
+let _geTenantIdPromise: Promise<string | null> | null = null;
+async function resolveGeTenantId(): Promise<string | null> {
+  if (!_geTenantIdPromise) {
+    _geTenantIdPromise = pool.query(`SELECT id FROM tenants WHERE slug = $1 LIMIT 1`, [DEFAULT_TENANT_SLUG])
+      .then(r => (r.rows[0] as { id?: string } | undefined)?.id ?? null)
+      .catch(() => null);
+  }
+  const id = await _geTenantIdPromise;
+  if (!id) _geTenantIdPromise = null; // allow retry on next call if the lookup failed
+  return id;
+}
+
+/** Fail-closed: a null/undefined tenant id (never GE) is not GE's own tenant. */
+export async function isGeOwnTenant(tenantId: string | null | undefined): Promise<boolean> {
+  if (!tenantId) return false;
+  const geTenantId = await resolveGeTenantId();
+  return geTenantId !== null && tenantId === geTenantId;
+}
+
+// Test-only escape hatch — lets tests reset the memoized GE tenant id between cases.
+export function __resetGeTenantCacheForTests(): void {
+  _geTenantIdPromise = null;
 }
 
 // Cron expected windows in minutes.
@@ -44,16 +82,10 @@ const CRON_WINDOWS: Record<string, number> = {
   'Overdue Invoice Check': 1500,
   // Intelligence & reporting
   'Meta Ads Daily Report': 1500, 'Meta Token Check': 10080,
-  'Growth OS Health Scores': 1500, 'Creative Intelligence': 360,
-  'Competitor Pulse': 10080, 'Daily Archive': 1500,
   'Monthly Client Benchmarks': 44640,
-  // Outreach
-  'Outreach CRM Sync': 60, 'Reset Stuck Enriching Leads': 120,
-  'Weekly Outreach Summary': 10080, 'Saleshandy Auto-Upload': 60,
-  'Outreach Funnel Snapshot': 1500, 'Saleshandy Stats Poll': 1500,
   // Ops
   'Audit Booking Follow-up': 360, 'Weekly Data Cleanup': 10080,
-  'Co-Pilot Poller': 5, 'Pipeline Placement': 1,
+  'Pipeline Placement': 1,
   'System Health Check': 60, 'Late Attendance Check': 1500,
   'Directory Scrapers': 1500,
   // SEO — every one of these was running and scheduled but absent from this
@@ -204,25 +236,12 @@ export async function logCronFailure(logId: number, durationMs: number, error: s
 }
 
 // ---------------------------------------------------------------------------
-// Main health check
+// Score helper — earned/earnable across a set of weighted subsystems,
+// normalised to `totalOutOf`. PAUSED subsystems are excluded from the
+// average (both earned and earnable) so a paused SEO doesn't drag the score
+// down and trigger a low_score alert.
 // ---------------------------------------------------------------------------
-export async function checkAllSystems(): Promise<SystemHealthReport> {
-  const [outreach, seo, crm, infra, cronJobs] = await Promise.all([
-    checkOutreach().catch(() => ({ status: 'CRITICAL' as const, metrics: { error: 'check failed' } })),
-    checkSeo().catch(() => ({ status: 'WARNING' as const, metrics: { error: 'check failed' } })),
-    checkCrm().catch(() => ({ status: 'HEALTHY' as const, metrics: { error: 'check failed' } })),
-    checkInfrastructure().catch(() => ({ status: 'CRITICAL' as const, metrics: { error: 'check failed' } })),
-    checkCronJobs().catch(() => []),
-  ]);
-
-  // Score weights — PAUSED subsystems are excluded from the average so a paused
-  // SEO doesn't drag the score below 50 and trigger a low_score alert.
-  const weights: Array<{ status: SubsystemStatus; full: number }> = [
-    { status: infra.status,    full: 30 },
-    { status: outreach.status, full: 20 },
-    { status: seo.status,      full: 20 },
-    { status: crm.status,      full: 15 },
-  ];
+function scoreFromWeights(weights: Array<{ status: SubsystemStatus; full: number }>, totalOutOf: number): number {
   const earnable = weights.filter(w => w.status !== 'PAUSED').reduce((s, w) => s + w.full, 0);
   let earned = 0;
   for (const w of weights) {
@@ -230,8 +249,63 @@ export async function checkAllSystems(): Promise<SystemHealthReport> {
     else if (w.status === 'WARNING') earned += Math.round(w.full / 2);
     // PAUSED and CRITICAL contribute 0 — PAUSED is also subtracted from earnable
   }
+  return earnable > 0 ? Math.round((earned / earnable) * totalOutOf) : totalOutOf;
+}
+
+// ---------------------------------------------------------------------------
+// Main health check
+//
+// tenantId is the CALLING tenant's own id (from req.user.tenantId), not a
+// filter chosen by the caller. Every tenant-scoped subsystem below reports
+// on that tenant's own data. When tenantId resolves to GE's own tenant (or
+// is omitted entirely — internal callers with no request context, e.g. the
+// worker.ts cron and intelligenceDelivery.ts), the platform-global
+// subsystems (infra, cron scheduler) are included too, same as before this
+// tenant param existed. For any other tenant, those keys are left off the
+// response entirely — a reseller doesn't own GE's n8n instance, Brevo/
+// Cashfree/Cal.com credentials, or cron schedule, so there is nothing
+// legitimate to show them there.
+// ---------------------------------------------------------------------------
+export async function checkAllSystems(tenantId?: string): Promise<SystemHealthReport> {
+  const isGe = tenantId === undefined ? true : await isGeOwnTenant(tenantId);
+
+  if (!isGe) {
+    const [seo, crm] = await Promise.all([
+      checkSeo(tenantId).catch(() => ({ status: 'WARNING' as const, metrics: { error: 'check failed' } })),
+      checkCrm(tenantId).catch(() => ({ status: 'HEALTHY' as const, metrics: { error: 'check failed' } })),
+    ]);
+    const overallScore = scoreFromWeights([
+      { status: seo.status, full: 55 },
+      { status: crm.status, full: 45 },
+    ], 100);
+    return { overallScore, seo, crm, checkedAt: new Date().toISOString(), scope: 'tenant' };
+  }
+
+  // Full/platform view — GE's own tenant, or an internal caller with no
+  // request context at all (tenantId undefined). CRM/SEO still scope to a
+  // concrete tenant id (GE's own, resolved below) rather than querying
+  // across every tenant, so GE's own ops numbers aren't diluted by reseller
+  // data now that this table is multi-tenant.
+  const crmSeoTenantId = tenantId ?? (await resolveGeTenantId().catch(() => null)) ?? undefined;
+
+  const [seo, crm, infra, cronJobs] = await Promise.all([
+    checkSeo(crmSeoTenantId).catch(() => ({ status: 'WARNING' as const, metrics: { error: 'check failed' } })),
+    checkCrm(crmSeoTenantId).catch(() => ({ status: 'HEALTHY' as const, metrics: { error: 'check failed' } })),
+    checkInfrastructure().catch(() => ({ status: 'CRITICAL' as const, metrics: { error: 'check failed' } })),
+    checkCronJobs().catch(() => []),
+  ]);
+
+  // Score weights — rebalanced 2026-08 (Outreach subsystem removed):
+  // infra/seo/crm scaled up from 30/20/15 (out of 85) to 40/25/20 (still out
+  // of 85) to keep the same relative weighting after dropping the fourth
+  // subsystem.
+  const weights: Array<{ status: SubsystemStatus; full: number }> = [
+    { status: infra.status, full: 40 },
+    { status: seo.status,   full: 25 },
+    { status: crm.status,   full: 20 },
+  ];
   // Normalise so the subsystem portion is out of 85 (cron portion is +15 below)
-  const subsystemScore = earnable > 0 ? Math.round((earned / earnable) * 85) : 85;
+  const subsystemScore = scoreFromWeights(weights, 85);
 
   const cronHealthy = cronJobs.filter(c => c.healthy).length;
   const cronTotal = Math.max(cronJobs.length, 1);
@@ -240,49 +314,17 @@ export async function checkAllSystems(): Promise<SystemHealthReport> {
   let score = subsystemScore + cronScore;
   if (infra.status === 'CRITICAL') score = Math.min(score, 29);
 
-  return { overallScore: score, outreach, seo, crm, infrastructure: infra, cronJobs, checkedAt: new Date().toISOString() };
+  return { overallScore: score, seo, crm, infrastructure: infra, cronJobs, checkedAt: new Date().toISOString(), scope: 'full' };
 }
 
 // ---------------------------------------------------------------------------
 // Subsystem checks
 // ---------------------------------------------------------------------------
-async function checkOutreach(): Promise<SubsystemHealth> {
-  const r = await pool.query(`
-    SELECT
-      COUNT(*) FILTER (WHERE created_at::date = CURRENT_DATE) AS discovered_today,
-      COUNT(*) FILTER (WHERE status = 'Enriching' AND updated_at < NOW() - INTERVAL '60 minutes') AS stuck,
-      COUNT(*) FILTER (WHERE status = 'Active') AS active,
-      COUNT(*) FILTER (WHERE saleshandy_uploaded = true) AS uploaded,
-      COUNT(*) FILTER (WHERE reply_category IS NOT NULL AND updated_at::date = CURRENT_DATE) AS replies_today,
-      MAX(created_at) AS last_discovery
-    FROM outreach_leads
-  `);
-  const m = r.rows[0] as Record<string, string>;
-  const discoveredToday = parseInt(m.discovered_today ?? '0');
-  const stuck = parseInt(m.stuck ?? '0');
-  const lastDiscovery = m.last_discovery ? new Date(m.last_discovery) : null;
-  const hoursSinceDiscovery = lastDiscovery ? (Date.now() - lastDiscovery.getTime()) / 3600000 : 999;
-
-  // Auto-heal: reset stuck leads regardless of pause state.
-  if (stuck > 0) {
-    await pool.query(`UPDATE outreach_leads SET status='New', retry_count=0, updated_at=NOW() WHERE status='Enriching' AND updated_at < NOW() - INTERVAL '60 minutes'`).catch(() => {});
-  }
-
-  // When discovery/enrichment is paused, ignore the discovery freshness signal —
-  // those crons aren't running by design. Score only on the bits still active
-  // (CRM Sync, Saleshandy Auto-Upload, Audit Booking, Reset Stuck).
-  let status: SubsystemStatus = 'HEALTHY';
-  if (isPaused('outreachEnrichment')) {
-    if (stuck > 0) status = 'WARNING';
-  } else {
-    if (stuck > 0) status = 'WARNING';
-    if (hoursSinceDiscovery > 48) status = 'CRITICAL';
-  }
-
-  return { status, metrics: { discoveredToday, stuck, active: parseInt(m.active ?? '0'), uploaded: parseInt(m.uploaded ?? '0'), repliesToday: parseInt(m.replies_today ?? '0'), hoursSinceDiscovery: Math.round(hoursSinceDiscovery), enrichmentPaused: isPaused('outreachEnrichment') } };
-}
-
-async function checkSeo(): Promise<SubsystemHealth> {
+// tenantId: the tenant whose own SEO data to report on. Falls back to
+// resolveDefaultSeoTenantId() (today's single SEO-feature-enabled tenant,
+// i.e. GE) only when no tenantId is available at all — preserves the
+// pre-existing behaviour for internal callers with no request context.
+async function checkSeo(tenantId?: string): Promise<SubsystemHealth> {
   if (isPaused('seo')) {
     return { status: 'PAUSED', metrics: { paused: true } };
   }
@@ -299,8 +341,13 @@ async function checkSeo(): Promise<SubsystemHealth> {
     // add-on, and this catch would then pin the SEO card to WARNING with an
     // "ambiguous tenant resolution" message forever — on the exact page a
     // reseller is shown. See the SEO cron block in worker.ts for the same fix.
+    // An explicit tenantId means a RESELLER is looking at their own health
+    // page — scope to exactly that tenant. Sweeping every tenant here would
+    // both leak another agency's numbers into their card and answer a question
+    // they did not ask. Only the omitted case (an internal/platform caller
+    // with no request context) sweeps everyone.
     const { getSeoTenantIds } = await import('./seoTenantContext');
-    const tenantIds = await getSeoTenantIds();
+    const tenantIds = tenantId ? [tenantId] : await getSeoTenantIds();
 
     if (tenantIds.length === 0) {
       return { status: 'PAUSED', metrics: { paused: false, tenantsWithSeo: 0, note: 'no tenant has the SEO add-on enabled' } };
@@ -358,14 +405,18 @@ async function checkSeo(): Promise<SubsystemHealth> {
   };
 }
 
-async function checkCrm(): Promise<SubsystemHealth> {
+// tenantId: scopes every count to that tenant's own contacts/deals/invoices.
+// Left optional only so a resolution failure upstream degrades to the
+// subsystem-level catch() in checkAllSystems rather than throwing — every
+// real caller always has a concrete tenant id to pass in.
+async function checkCrm(tenantId?: string): Promise<SubsystemHealth> {
   const r = await pool.query(`
     SELECT
-      (SELECT COUNT(*)::int FROM contacts WHERE created_at::date = CURRENT_DATE) AS contacts_today,
-      (SELECT COUNT(*)::int FROM deals WHERE stage NOT IN ('won', 'lost', 'Won', 'Lost')) AS deals_active,
-      (SELECT COALESCE(SUM(deal_value), 0)::bigint FROM deals WHERE stage NOT IN ('won', 'lost', 'Won', 'Lost')) AS pipeline_value,
-      (SELECT COUNT(*)::int FROM invoices WHERE status = 'overdue') AS invoices_overdue
-  `);
+      (SELECT COUNT(*)::int FROM contacts WHERE tenant_id = $1 AND created_at::date = CURRENT_DATE) AS contacts_today,
+      (SELECT COUNT(*)::int FROM deals WHERE tenant_id = $1 AND stage NOT IN ('won', 'lost', 'Won', 'Lost')) AS deals_active,
+      (SELECT COALESCE(SUM(deal_value), 0)::bigint FROM deals WHERE tenant_id = $1 AND stage NOT IN ('won', 'lost', 'Won', 'Lost')) AS pipeline_value,
+      (SELECT COUNT(*)::int FROM invoices WHERE tenant_id = $1 AND status = 'overdue') AS invoices_overdue
+  `, [tenantId]);
   const m = r.rows[0] as Record<string, string>;
   const overdueCount = parseInt(m.invoices_overdue ?? '0');
   let status: SubsystemStatus = 'HEALTHY';
@@ -450,20 +501,13 @@ export async function sendCriticalAlerts(report: SystemHealthReport): Promise<vo
     ).catch(() => {});
   }
 
-  if (report.infrastructure.status === 'CRITICAL' && canAlert('infra_down')) {
+  if (report.infrastructure?.status === 'CRITICAL' && canAlert('infra_down')) {
     await sendSlackDM(SLACK_JATIN,
       `🔴 *CRITICAL*: Infrastructure issue detected. Check Railway dashboard.`,
     ).catch(() => {});
   }
 
-  const stuck = report.outreach.metrics.stuck as number ?? 0;
-  if (stuck > 0 && canAlert('enrichment_stuck')) {
-    await sendSlackDM(SLACK_JATIN,
-      `⚠️ *OUTREACH STUCK*: ${stuck} leads stuck in Enriching >1h. Auto-reset triggered.`,
-    ).catch(() => {});
-  }
-
-  const failedCrons = report.cronJobs.filter(c => !c.healthy);
+  const failedCrons = (report.cronJobs ?? []).filter(c => !c.healthy);
   for (const cron of failedCrons.slice(0, 3)) {
     if (canAlert(`cron_${cron.name}`)) {
       await sendSlackDM(SLACK_JATIN,

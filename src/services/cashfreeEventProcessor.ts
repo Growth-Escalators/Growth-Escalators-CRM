@@ -4,7 +4,7 @@ import { findOrCreateContact, normalizeChannelValue } from './contactService';
 import { sendPurchaseEvent } from './metaCapi';
 import { sendSlackMessage } from './slackService';
 import { getFunnelConfig, stageForAmount, labelForStage, renderTemplate } from './funnelConfigService';
-import { canSendGrowthOSWhatsApp } from './growthOSSetup';
+import { canSendGrowthOSWhatsApp } from './whatsappSendGuard';
 import { SLACK_SALES_BD_CHANNEL } from '../config/constants';
 import logger from '../utils/logger';
 

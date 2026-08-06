@@ -245,3 +245,49 @@ export async function getTenantSlugById(tenantId: string): Promise<string | unde
   const [row] = await db.select({ slug: tenants.slug }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
   return row?.slug;
 }
+
+// ---------------------------------------------------------------------------
+// Short tenant code derivation — used to build tenant-scoped document-number
+// prefixes/segments (the invoice series prefix in invoiceNumberService.ts,
+// and the retainer-number tenant segment in retainerService.ts) instead of
+// the literal 'GE' both previously hardcoded regardless of tenant.
+//
+// There is no dedicated short-code column on tenant_branding today (checked
+// the schema before adding this — see src/db/schema.ts's tenantBranding
+// table) so this derives one from displayName rather than adding a new
+// column/migration for it. Growth Escalators' own displayName ("Growth
+// Escalators") already derives to "GE" — the exact literal both series used
+// before this existed — so the default tenant's numbering is unchanged.
+//
+// This is a readability aid, NOT a uniqueness guarantee: two tenants with
+// identical or initials-colliding display names derive the same code. That
+// residual risk is accepted here (see retainerService.ts's getNextRetainerNumber
+// and invoiceNumberService.ts for the specific tradeoffs at each call site) —
+// closing it completely would mean scoping the underlying UNIQUE constraints
+// by tenant_id, which is a schema/migration change and out of scope for this
+// fix per AGENTS.md (schema changes need their own explicit sign-off).
+// ---------------------------------------------------------------------------
+export function deriveTenantShortCode(displayName: string | null | undefined): string {
+  const name = (displayName || '').trim();
+  if (!name) return 'TEN';
+  const words = name.split(/\s+/).filter(Boolean);
+  if (words.length >= 2) {
+    const initials = words.map((w) => w[0]).filter(Boolean).join('').toUpperCase();
+    return initials.slice(0, 4) || 'TEN';
+  }
+  const alnum = name.replace(/[^a-zA-Z0-9]/g, '');
+  return (alnum.slice(0, 3) || 'TEN').toUpperCase();
+}
+
+// Resolves a tenant's short code from its configured tenant_branding
+// identity, falling back to the slug-based branding default (or the generic
+// placeholder) when no tenant_branding row / displayName exists yet —
+// mirrors the same fallback chain this file's other callers already use
+// (getDefaultBrandingForSlug / GENERIC_DEFAULT_BRANDING).
+export async function resolveTenantShortCode(tenantId: string): Promise<string> {
+  const identity = await getTenantDocumentIdentity(tenantId);
+  if (identity?.displayName?.trim()) return deriveTenantShortCode(identity.displayName);
+  const slug = await getTenantSlugById(tenantId);
+  const fallbackName = slug ? getDefaultBrandingForSlug(slug).displayName : GENERIC_DEFAULT_BRANDING.displayName;
+  return deriveTenantShortCode(fallbackName);
+}

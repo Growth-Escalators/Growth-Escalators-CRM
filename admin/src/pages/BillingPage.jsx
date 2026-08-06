@@ -1095,6 +1095,7 @@ export default function BillingPage() {
   const [clients, setClients] = useState([]);
   const [paymentsList, setPaymentsList] = useState([]);
   const [stats, setStats] = useState(null);
+  const [ageing, setAgeing] = useState(null);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState('');
   const [search, setSearch] = useState('');
@@ -1119,16 +1120,18 @@ export default function BillingPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [invData, clientData, statsData, payData] = await Promise.all([
+      const [invData, clientData, statsData, payData, ageingData] = await Promise.all([
         apiFetch('/api/billing/invoices'),
         apiFetch('/api/billing/clients'),
         apiFetch('/api/billing/stats'),
         apiFetch('/api/billing/payments'),
+        apiFetch('/api/billing/receivables-ageing'),
       ]);
       setInvoicesList(invData?.invoices || []);
       setClients(clientData?.clients || []);
       setStats(statsData);
       setPaymentsList(payData?.payments || []);
+      setAgeing(ageingData);
     } catch { /* handled */ } finally {
       setLoading(false);
     }
@@ -1272,6 +1275,30 @@ export default function BillingPage() {
                 <p className="text-xs text-neutral-500 mt-2">{card.sub}</p>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Receivables Ageing — current / 0-30 / 31-60 / 60+ days overdue */}
+        {ageing && (
+          <div className="bg-white rounded-lg border border-neutral-200 shadow-card p-5 mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-neutral-800">Receivables Ageing</p>
+              <p className="text-xs text-neutral-500">Total outstanding: <span className="font-semibold text-neutral-700">{fmt(ageing.total.amount)}</span></p>
+            </div>
+            <div className="grid grid-cols-4 gap-3">
+              {[
+                { key: 'current', label: 'Current' },
+                { key: '0-30', label: '0-30 days' },
+                { key: '31-60', label: '31-60 days' },
+                { key: '60+', label: '60+ days' },
+              ].map(({ key, label }) => (
+                <div key={key} className={`rounded-lg border p-3 ${key === '60+' && ageing[key].amount > 0 ? 'border-danger-200 bg-danger-500/5' : 'border-neutral-200 bg-neutral-50'}`}>
+                  <p className="text-[11px] text-neutral-500 font-medium uppercase tracking-wide">{label}</p>
+                  <p className={`text-base font-bold mt-1 ${key === '60+' && ageing[key].amount > 0 ? 'text-danger-600' : 'text-neutral-800'}`}>{fmt(ageing[key].amount)}</p>
+                  <p className="text-[11px] text-neutral-500 mt-0.5">{ageing[key].count} invoice{ageing[key].count === 1 ? '' : 's'}</p>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

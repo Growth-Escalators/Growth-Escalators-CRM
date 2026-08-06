@@ -49,7 +49,6 @@ const GATED_SOD_EOD = [
 const GATED_GE_DIGESTS: Array<[needle: string, flag: string]> = [
   ["safeCron('Morning Briefing'", 'MORNING_BRIEFING_SLACK_ENABLED'],
   ["safeCron('Social Media Prompt', sendSocialMediaPrompt)", 'SOCIAL_PROMPT_SLACK_ENABLED'],
-  ["safeCron('Weekly Outreach Summary'", 'OUTREACH_SUMMARY_SLACK_ENABLED'],
   ["safeCron('SEO Weekly Digest'", 'SEO_DIGEST_SLACK_ENABLED'],
 ];
 
@@ -89,50 +88,6 @@ describe('the remaining Growth Escalators Slack digests are gated OFF by default
   it.each(GATED_GE_DIGESTS)('%s reads %s from the environment', (_needle, flag) => {
     expect(bare).toMatch(new RegExp(`const ${flag} = slackDigestEnabled\\('${flag}'\\)`));
     expect(bare).not.toMatch(new RegExp(`const ${flag} = true`));
-  });
-});
-
-describe('Saleshandy: the DM is gated but the funnel data write is NOT', () => {
-  // pollSaleshandyStats does two things: upsertSaleshandyStats (which
-  // snapshotTodaysFunnel reads 30 min later) and a deliverability DM. Gating
-  // the CRON would have silently broken the funnel numbers. This pins the
-  // split so a later "simplification" cannot collapse them.
-  const svc = readFileSync(join(__dirname, '..', 'services', 'saleshandyStatsService.ts'), 'utf8');
-  const svcBare = svc
-    .split('\n')
-    .filter((l) => {
-      const t = l.trim();
-      return !t.startsWith('//') && !t.startsWith('*') && !t.startsWith('/*');
-    })
-    .join('\n');
-
-  it('the Saleshandy cron itself is still registered unconditionally', () => {
-    expect(schedulerLineFor("safeCron('Saleshandy Stats Poll'")).not.toContain('if (');
-  });
-
-  it('the stats upsert runs before any gate returns', () => {
-    const upsertAt = svcBare.indexOf('await upsertSaleshandyStats(stats)');
-    const gateAt = svcBare.indexOf("slackDigestEnabled('SALESHANDY_ALERT_SLACK_ENABLED')");
-    expect(upsertAt, 'upsertSaleshandyStats call not found').toBeGreaterThan(-1);
-    expect(gateAt, 'SALESHANDY_ALERT_SLACK_ENABLED gate not found').toBeGreaterThan(-1);
-    expect(upsertAt).toBeLessThan(gateAt);
-  });
-
-  it('every sendSlackDM in the service sits behind the gate', () => {
-    const gateAt = svcBare.indexOf("slackDigestEnabled('SALESHANDY_ALERT_SLACK_ENABLED')");
-    const dmPositions: number[] = [];
-    for (let i = svcBare.indexOf('sendSlackDM('); i > -1; i = svcBare.indexOf('sendSlackDM(', i + 1)) {
-      if (svcBare.slice(0, i).includes('import')) dmPositions.push(i);
-    }
-    const callSites = dmPositions.filter((p) => !svcBare.slice(p - 60, p).includes('import'));
-    expect(callSites.length, 'expected at least one sendSlackDM call site').toBeGreaterThan(0);
-    for (const p of callSites) expect(p).toBeGreaterThan(gateAt);
-  });
-
-  it('the gate returns ok:true so callers do not treat a silenced run as a failure', () => {
-    const gateAt = svcBare.indexOf("if (!slackDigestEnabled('SALESHANDY_ALERT_SLACK_ENABLED'))");
-    expect(gateAt).toBeGreaterThan(-1);
-    expect(svcBare.slice(gateAt, gateAt + 320)).toContain('return { ok: true, stats }');
   });
 });
 

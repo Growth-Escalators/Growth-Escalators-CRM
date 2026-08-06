@@ -59,7 +59,6 @@ const SWEEP = [
   ['requirement-priority', '/wizmatch/requirement-priority-new'],
   ['candidate-intelligence', '/wizmatch/candidate-intelligence'],
   ['source-candidates', '/wizmatch/source-candidates'],
-  ['outreach', '/wizmatch/outreach'],
 ] as const;
 
 test('owner day — read-only walkthrough of the live app', async ({ page, context, baseURL }) => {

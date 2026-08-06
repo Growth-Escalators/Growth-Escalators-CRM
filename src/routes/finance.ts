@@ -2,13 +2,36 @@ import { Router, type Request, type Response } from 'express';
 import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { seedDefaultCategories, generateMonthlyExpenses, calculatePnL } from '../services/financeService';
+import { requireRole } from '../middleware/rbac';
 
 const router = Router();
 
 // ---------------------------------------------------------------------------
+// Interim role-based gate (2026-08-05 hardening pass) — this file previously
+// had zero authorization beyond requireAuth (any logged-in user of any role
+// could read/write payroll, salaries, leave, expenses, income, and P&L). The
+// full granular-permissions system is a separate, larger effort landing
+// later; this is a role-based interim gate using the existing requireRole()
+// helper (see src/routes/outbound.ts for the same pattern), erring toward
+// restrictive per route:
+//   - View-only routes: admin or manager_ops.
+//   - Payroll read/write (team-payroll*, generate-monthly): admin only — the
+//     most sensitive data in this file (FinancePage.jsx renders base_salary
+//     unmasked).
+//   - Leave approval (PATCH /leaves/:id): admin or manager_ops, PLUS a
+//     same-tenant self-approval check inside the handler.
+//   - Leave *request* creation (POST /leaves) stays open to any authenticated
+//     user, but the handler resolves memberId server-side from req.user.id
+//     rather than trusting the client-supplied id (mirrors
+//     src/routes/selfService.ts).
+const requireFinanceView = requireRole('admin', 'manager_ops');
+const requirePayrollAdmin = requireRole('admin');
+const requireAttendanceAdmin = requireRole('admin', 'manager_ops');
+
+// ---------------------------------------------------------------------------
 // GET /api/finance/dashboard?month=2026-04
 // ---------------------------------------------------------------------------
-router.get('/dashboard', async (req: Request, res: Response) => {
+router.get('/dashboard', requireFinanceView, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
 
@@ -35,7 +58,7 @@ router.get('/dashboard', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/finance/expenses?month=2026-04
 // ---------------------------------------------------------------------------
-router.get('/expenses', async (req: Request, res: Response) => {
+router.get('/expenses', requireFinanceView, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
   const categoryId = req.query.categoryId as string | undefined;
@@ -74,7 +97,7 @@ router.get('/expenses', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // POST /api/finance/expenses
 // ---------------------------------------------------------------------------
-router.post('/expenses', async (req: Request, res: Response) => {
+router.post('/expenses', requireFinanceView, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const { categoryId, description, amount, expenseDate, isRecurring, vendorName, paymentMethod, notes, teamMemberId, expenseType } = req.body;
 
@@ -99,7 +122,7 @@ router.post('/expenses', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // PATCH /api/finance/expenses/:id
 // ---------------------------------------------------------------------------
-router.patch('/expenses/:id', async (req: Request, res: Response) => {
+router.patch('/expenses/:id', requireFinanceView, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const id = req.params.id;
   const { categoryId, description, amount, expenseDate, isRecurring, vendorName, paymentMethod, notes, expenseType } = req.body;
@@ -128,7 +151,7 @@ router.patch('/expenses/:id', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // DELETE /api/finance/expenses/:id
 // ---------------------------------------------------------------------------
-router.delete('/expenses/:id', async (req: Request, res: Response) => {
+router.delete('/expenses/:id', requireFinanceView, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   try {
     await pool.query(`DELETE FROM expenses WHERE id = $1 AND tenant_id = $2`, [req.params.id, tenantId]);
@@ -141,7 +164,7 @@ router.delete('/expenses/:id', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/finance/categories
 // ---------------------------------------------------------------------------
-router.get('/categories', async (req: Request, res: Response) => {
+router.get('/categories', requireFinanceView, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   try {
     await seedDefaultCategories(tenantId);
@@ -158,7 +181,7 @@ router.get('/categories', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // POST /api/finance/categories
 // ---------------------------------------------------------------------------
-router.post('/categories', async (req: Request, res: Response) => {
+router.post('/categories', requireFinanceView, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const { name, color, icon } = req.body;
   if (!name) { res.status(400).json({ error: 'name required' }); return; }
@@ -179,7 +202,7 @@ router.post('/categories', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // DELETE /api/finance/categories/:id
 // ---------------------------------------------------------------------------
-router.delete('/categories/:id', async (req: Request, res: Response) => {
+router.delete('/categories/:id', requireFinanceView, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   try {
     await pool.query(`UPDATE expense_categories SET is_active = FALSE WHERE id = $1 AND tenant_id = $2`, [req.params.id, tenantId]);
@@ -190,9 +213,9 @@ router.delete('/categories/:id', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/finance/team-payroll
+// GET /api/finance/team-payroll — payroll data (base_salary etc.), admin only
 // ---------------------------------------------------------------------------
-router.get('/team-payroll', async (req: Request, res: Response) => {
+router.get('/team-payroll', requirePayrollAdmin, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   try {
     const result = await pool.query(
@@ -206,9 +229,9 @@ router.get('/team-payroll', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/finance/team-payroll
+// POST /api/finance/team-payroll — admin only (creates/updates salary rows)
 // ---------------------------------------------------------------------------
-router.post('/team-payroll', async (req: Request, res: Response) => {
+router.post('/team-payroll', requirePayrollAdmin, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const {
     id, name, role, baseSalary,
@@ -264,9 +287,9 @@ router.post('/team-payroll', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/finance/generate-monthly
+// POST /api/finance/generate-monthly — admin only
 // ---------------------------------------------------------------------------
-router.post('/generate-monthly', async (req: Request, res: Response) => {
+router.post('/generate-monthly', requirePayrollAdmin, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const month = req.body.month as string | undefined;
 
@@ -281,7 +304,7 @@ router.post('/generate-monthly', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/finance/income?month=2026-04
 // ---------------------------------------------------------------------------
-router.get('/income', async (req: Request, res: Response) => {
+router.get('/income', requireFinanceView, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
   const firstDay = `${month}-01`;
@@ -317,7 +340,7 @@ router.get('/income', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // POST /api/finance/income
 // ---------------------------------------------------------------------------
-router.post('/income', async (req: Request, res: Response) => {
+router.post('/income', requireFinanceView, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const { source, description, amount, incomeDate, category, notes } = req.body;
   if (!source || !amount || Number(amount) <= 0) { res.status(400).json({ error: 'source and a positive amount required' }); return; }
@@ -336,7 +359,7 @@ router.post('/income', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // PATCH /api/finance/income/:id
 // ---------------------------------------------------------------------------
-router.patch('/income/:id', async (req: Request, res: Response) => {
+router.patch('/income/:id', requireFinanceView, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const { source, description, amount, incomeDate, category, notes } = req.body;
   try {
@@ -357,7 +380,7 @@ router.patch('/income/:id', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // DELETE /api/finance/income/:id
 // ---------------------------------------------------------------------------
-router.delete('/income/:id', async (req: Request, res: Response) => {
+router.delete('/income/:id', requireFinanceView, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   try {
     await pool.query(`DELETE FROM income_entries WHERE id = $1 AND tenant_id = $2`, [req.params.id, tenantId]);
@@ -368,9 +391,9 @@ router.delete('/income/:id', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// DELETE /api/finance/team-payroll/:id — soft-delete team member
+// DELETE /api/finance/team-payroll/:id — soft-delete team member (admin only)
 // ---------------------------------------------------------------------------
-router.delete('/team-payroll/:id', async (req: Request, res: Response) => {
+router.delete('/team-payroll/:id', requirePayrollAdmin, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   try {
     await pool.query(`UPDATE team_payroll SET is_active = FALSE WHERE id = $1 AND tenant_id = $2`, [req.params.id, tenantId]);
@@ -383,7 +406,7 @@ router.delete('/team-payroll/:id', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/finance/attendance?month=2026-04
 // ---------------------------------------------------------------------------
-router.get('/attendance', async (req: Request, res: Response) => {
+router.get('/attendance', requireFinanceView, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
   const firstDay = `${month}-01`;
@@ -435,9 +458,10 @@ router.get('/attendance', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/finance/attendance — mark attendance (single or bulk)
+// POST /api/finance/attendance — mark attendance (single or bulk); marking
+// attendance on someone else's behalf is an admin-tier action.
 // ---------------------------------------------------------------------------
-router.post('/attendance', async (req: Request, res: Response) => {
+router.post('/attendance', requireAttendanceAdmin, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const adminUserId = req.user!.id;
   const { memberId, memberIds, date, status, checkIn, checkOut, notes, overrideReason } = req.body as {
@@ -493,22 +517,27 @@ router.post('/attendance', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/finance/attendance/calendar — calendar grid view
 // ---------------------------------------------------------------------------
-router.get('/attendance/calendar', async (req: Request, res: Response) => {
+router.get('/attendance/calendar', requireFinanceView, async (req: Request, res: Response) => {
   try {
+    const tenantId = req.user!.tenantId;
     const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
 
-    // All active members
+    // All active members — was previously unscoped (no tenant_id filter at
+    // all on any of these three queries), leaking every tenant's payroll
+    // roster, attendance, and leave balances to any logged-in user of any
+    // tenant. All three now filter by the caller's own tenant_id.
     const members = await pool.query(
-      "SELECT id, name, role FROM team_payroll WHERE is_active = true ORDER BY sort_order, name"
+      "SELECT id, name, role FROM team_payroll WHERE is_active = true AND tenant_id = $1 ORDER BY sort_order, name",
+      [tenantId],
     );
 
     // All attendance records for the month
     const attendance = await pool.query(`
       SELECT member_id, attendance_date, status, check_in, check_out, hours_worked
       FROM team_attendance
-      WHERE to_char(attendance_date, 'YYYY-MM') = $1
+      WHERE to_char(attendance_date, 'YYYY-MM') = $1 AND tenant_id = $2
       ORDER BY attendance_date
-    `, [month]);
+    `, [month, tenantId]);
 
     // Build grid: { memberId: { 'YYYY-MM-DD': status } }
     const grid: Record<string, Record<string, any>> = {};
@@ -528,7 +557,8 @@ router.get('/attendance/calendar', async (req: Request, res: Response) => {
 
     // Leave balances
     const balances = await pool.query(
-      'SELECT id, casual_leave_balance, sick_leave_balance, earned_leave_balance FROM team_payroll WHERE is_active = true'
+      'SELECT id, casual_leave_balance, sick_leave_balance, earned_leave_balance FROM team_payroll WHERE is_active = true AND tenant_id = $1',
+      [tenantId],
     );
     const balanceMap: Record<string, any> = {};
     for (const b of balances.rows) {
@@ -552,7 +582,7 @@ router.get('/attendance/calendar', async (req: Request, res: Response) => {
 // Sidebar badge and Dashboard banner so admins notice approvals without
 // having to drill into Finance → Attendance → scroll-to-bottom.
 // ---------------------------------------------------------------------------
-router.get('/leaves/pending-count', async (req: Request, res: Response) => {
+router.get('/leaves/pending-count', requireFinanceView, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   try {
     const r = await pool.query(
@@ -568,7 +598,7 @@ router.get('/leaves/pending-count', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/finance/leaves?month=2026-04
 // ---------------------------------------------------------------------------
-router.get('/leaves', async (req: Request, res: Response) => {
+router.get('/leaves', requireFinanceView, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
   const firstDay = `${month}-01`;
@@ -591,17 +621,34 @@ router.get('/leaves', async (req: Request, res: Response) => {
 
 // ---------------------------------------------------------------------------
 // POST /api/finance/leaves — request leave
+// Open to any authenticated user, but memberId is never trusted from the
+// request body — it's resolved server-side from req.user.id via the
+// caller's own team_payroll row, mirroring the self-service pattern in
+// src/routes/selfService.ts (POST /leave-request). Previously any
+// authenticated user could pass an arbitrary memberId and file a leave
+// request (and consume leave balance) against someone else's record.
 // ---------------------------------------------------------------------------
 router.post('/leaves', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const { memberId, leaveType, startDate, endDate, days, reason } = req.body;
+  const userId = req.user!.id;
+  const { leaveType, startDate, endDate, days, reason } = req.body;
 
-  if (!memberId || !startDate || !endDate) {
-    res.status(400).json({ error: 'memberId, startDate, endDate required' });
+  if (!startDate || !endDate) {
+    res.status(400).json({ error: 'startDate, endDate required' });
     return;
   }
 
   try {
+    const member = await pool.query(
+      'SELECT id FROM team_payroll WHERE user_id = $1 AND tenant_id = $2 AND is_active = true',
+      [userId, tenantId],
+    );
+    if (member.rows.length === 0) {
+      res.status(404).json({ error: 'No team member record found for your account' });
+      return;
+    }
+    const memberId = (member.rows[0] as { id: string }).id;
+
     const calcDays = days || Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1;
 
     const result = await pool.query(
@@ -631,9 +678,15 @@ router.post('/leaves', async (req: Request, res: Response) => {
 
 // ---------------------------------------------------------------------------
 // PATCH /api/finance/leaves/:id — approve/reject leave
+// Gated to admin/manager_ops, PLUS an explicit same-tenant self-approval
+// check: the approver can never be the same user who filed the leave
+// request. Previously this route had no role gate at all AND no
+// self-approval check, so any authenticated user could approve their own
+// leave request.
 // ---------------------------------------------------------------------------
-router.patch('/leaves/:id', async (req: Request, res: Response) => {
+router.patch('/leaves/:id', requireAttendanceAdmin, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
+  const approverUserId = req.user!.id;
   const { status } = req.body;
 
   if (!['approved', 'rejected'].includes(status)) {
@@ -643,10 +696,30 @@ router.patch('/leaves/:id', async (req: Request, res: Response) => {
 
   try {
     const id = req.params.id;
+
+    // Fetch the leave request + the requesting member's own user_id so we
+    // can reject a self-approval attempt before writing anything.
+    const existing = await pool.query(
+      `SELECT l.id, t.user_id AS requester_user_id
+       FROM team_leaves l
+       JOIN team_payroll t ON t.id = l.member_id
+       WHERE l.id = $1 AND l.tenant_id = $2`,
+      [id, tenantId],
+    );
+    if (existing.rows.length === 0) {
+      res.status(404).json({ error: 'leave request not found' });
+      return;
+    }
+    const requesterUserId = (existing.rows[0] as { requester_user_id: string | null }).requester_user_id;
+    if (requesterUserId && requesterUserId === approverUserId) {
+      res.status(400).json({ error: 'cannot approve your own leave request' });
+      return;
+    }
+
     await pool.query(
       `UPDATE team_leaves SET status = $3, approved_by = $4
        WHERE id = $1 AND tenant_id = $2`,
-      [id, tenantId, status, req.user!.id],
+      [id, tenantId, status, approverUserId],
     );
 
     // Deduct leave balance when approved
@@ -673,7 +746,7 @@ router.patch('/leaves/:id', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/finance/vendors — autocomplete vendor names
 // ---------------------------------------------------------------------------
-router.get('/vendors', async (req: Request, res: Response) => {
+router.get('/vendors', requireFinanceView, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   try {
     const result = await pool.query(
@@ -689,7 +762,7 @@ router.get('/vendors', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/finance/expenses/export-csv?month=2026-04
 // ---------------------------------------------------------------------------
-router.get('/expenses/export-csv', async (req: Request, res: Response) => {
+router.get('/expenses/export-csv', requireFinanceView, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
   const firstDay = `${month}-01`;
@@ -732,7 +805,7 @@ router.get('/expenses/export-csv', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/finance/pnl?months=6
 // ---------------------------------------------------------------------------
-router.get('/pnl', async (req: Request, res: Response) => {
+router.get('/pnl', requireFinanceView, async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const monthsBack = Number(req.query.months || 6);
 

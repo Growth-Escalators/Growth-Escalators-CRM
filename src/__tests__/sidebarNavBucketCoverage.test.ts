@@ -139,13 +139,11 @@ describe('the retired traps stay out of nav and search', () => {
   // silently evaluated to the opposite of its own comment.
   const HIDDEN = [
     ['more-inbox', "Growth's shared inbox"],
-    ['more-outreach', "Growth's Saleshandy dashboard"],
     ['more-templates-email', "Growth's email templates"],
     ['more-templates-wa', "Growth's WhatsApp templates"],
     ['more-contacts', "Growth's whole contact book"],
     ['more-pipeline', "Growth's deal pipeline"],
     ['more-tasks', "Growth's task list"],
-    ['more-discovery', "Growth's Google-Places local-business finder"],
     ['more-provider-runs', 'a System tab that does not exist'],
     ['more-billing', "Growth's invoicing"],
     ['more-expenses', "Growth's expenses + attendance"],
@@ -175,9 +173,9 @@ describe('the retired traps stay out of nav and search', () => {
   it('all are still ROUTED — hidden is not deleted', () => {
     const app = readFileSync(join(ADMIN, 'App.jsx'), 'utf8');
     for (const path of [
-      '/wizmatch/inbox', '/wizmatch/outreach', '/wizmatch/emails',
+      '/wizmatch/inbox', '/wizmatch/emails',
       '/wizmatch/whatsapp-templates', '/wizmatch/contacts', '/wizmatch/pipeline',
-      '/wizmatch/tasks', '/wizmatch/discover', '/wizmatch/system',
+      '/wizmatch/tasks', '/wizmatch/system',
       '/wizmatch/billing', '/wizmatch/finance',
     ]) {
       expect(app, `${path} lost its route — the entry is now unreachable`).toContain(path);

@@ -782,6 +782,11 @@ router.patch('/invoices/:id/payment-status', async (req: Request, res: Response)
 // ---------------------------------------------------------------------------
 router.get('/monthly-tracker', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
+  const userId = req.user!.id;
+  // Was the only GET route in this file with no permission check at all —
+  // matches the billingView gate every other GET route here uses.
+  const p = await getPerms(userId);
+  if (!p?.billingView && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
   const months = Math.min(Number(req.query.months) || 3, 12);
 
   try {
@@ -1090,6 +1095,97 @@ router.get('/stats', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// Receivables ageing — buckets outstanding invoices by days overdue.
+// Exported (not just used internally) so it can be unit-tested directly
+// against plain JS fixtures without needing to mock the DB — see
+// src/__tests__/billingRoutes.test.ts.
+// ---------------------------------------------------------------------------
+export interface ReceivablesBucket {
+  count: number;
+  amount: number; // paise
+}
+
+export interface ReceivablesAgeingResult {
+  current: ReceivablesBucket;
+  '0-30': ReceivablesBucket;
+  '31-60': ReceivablesBucket;
+  '60+': ReceivablesBucket;
+  total: ReceivablesBucket;
+}
+
+function emptyBucket(): ReceivablesBucket {
+  return { count: 0, amount: 0 };
+}
+
+// `current` = not yet due (due_date is today or later, relative to `asOf`).
+// Everything else buckets by whole days past due_date: 0-30, 31-60, 60+.
+// Dates are compared at UTC-midnight granularity so ageing is computed in
+// whole days regardless of what time of day this endpoint is hit.
+export function bucketReceivablesByAge(
+  rows: Array<{ dueDate: string | Date; amountDue: number | string }>,
+  asOf: Date = new Date(),
+): ReceivablesAgeingResult {
+  const buckets: ReceivablesAgeingResult = {
+    current: emptyBucket(),
+    '0-30': emptyBucket(),
+    '31-60': emptyBucket(),
+    '60+': emptyBucket(),
+    total: emptyBucket(),
+  };
+
+  const asOfDay = Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), asOf.getUTCDate());
+
+  for (const row of rows) {
+    const amount = Number(row.amountDue || 0);
+    if (amount <= 0) continue; // this view is only for invoices still owed
+
+    const due = row.dueDate instanceof Date ? row.dueDate : new Date(row.dueDate);
+    if (Number.isNaN(due.getTime())) continue;
+    const dueDay = Date.UTC(due.getUTCFullYear(), due.getUTCMonth(), due.getUTCDate());
+    const daysOverdue = Math.floor((asOfDay - dueDay) / 86_400_000);
+
+    const key: keyof Omit<ReceivablesAgeingResult, 'total'> =
+      daysOverdue <= 0 ? 'current' : daysOverdue <= 30 ? '0-30' : daysOverdue <= 60 ? '31-60' : '60+';
+
+    buckets[key].count += 1;
+    buckets[key].amount += amount;
+    buckets.total.count += 1;
+    buckets.total.amount += amount;
+  }
+
+  return buckets;
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/billing/receivables-ageing
+// ---------------------------------------------------------------------------
+router.get('/receivables-ageing', async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const userId = req.user!.id;
+  const p = await getPerms(userId);
+  if (!p?.billingView && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
+
+  try {
+    const result = await db.execute(sql`
+      SELECT due_date, amount_due
+      FROM invoices
+      WHERE tenant_id = ${tenantId}
+        AND status IN ('sent', 'overdue', 'partially_paid')
+        AND amount_due > 0
+    `);
+
+    const rows = (result.rows as Array<{ due_date: string | Date; amount_due: number | string }>).map((r) => ({
+      dueDate: r.due_date,
+      amountDue: r.amount_due,
+    }));
+
+    res.json(bucketReceivablesByAge(rows));
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/billing/payments
 // ---------------------------------------------------------------------------
 router.get('/payments', async (req: Request, res: Response) => {
@@ -1160,6 +1256,11 @@ router.get('/retainers', async (req: Request, res: Response) => {
 
 router.get('/retainers/:id', async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
+  const userId = req.user!.id;
+  // The list route (GET /retainers) already checks this — the single-item
+  // GET was the one route in the retainer CRUD block missing it.
+  const p = await getPerms(userId);
+  if (!p?.billingView && !p?.isOwner) { res.status(403).json({ error: 'insufficient permissions' }); return; }
   try {
     const { pool } = await import('../db/index');
     const r = await pool.query(`SELECT * FROM client_retainers WHERE id = $1 AND tenant_id = $2`, [req.params.id, tenantId]);
@@ -1181,7 +1282,7 @@ router.post('/retainers', async (req: Request, res: Response) => {
     const { pool } = await import('../db/index');
     const { getNextRetainerNumber } = await import('../services/retainerService');
     const { lineItems, ...fields } = req.body;
-    const retainerNumber = fields.retainerNumber || await getNextRetainerNumber();
+    const retainerNumber = fields.retainerNumber || await getNextRetainerNumber(tenantId);
 
     const r = await pool.query(`
       INSERT INTO client_retainers (tenant_id, client_id, client_name, retainer_number, status,

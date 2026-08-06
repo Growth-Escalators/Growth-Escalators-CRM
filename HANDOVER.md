@@ -155,7 +155,6 @@ v2/
 │
 ├── docs/                      # Architecture / DB / deployment runbooks
 ├── n8n-workflows/             # Reference JSON exports of n8n workflows
-├── public/admin/              # Compiled admin SPA (committed; served by API)
 ├── railway.json               # API service Nixpacks config
 ├── railway.worker.json        # Worker service Nixpacks config
 ├── nixpacks.toml              # ★ actual build config (Railway uses this)
@@ -239,7 +238,6 @@ The admin SPA mounts at `crm.growthescalators.com`. Sidebar entries (defined in 
 
 **Tools** *(collapsible)*
 - Lead Discovery — Serper-powered prospect research
-- Growth OS — health-score framework for clients
 - Email Templates — Brevo-synced
 - WA Templates — WhatsApp business message templates
 - Short Links — URL shortener with click tracking
@@ -262,7 +260,7 @@ The admin SPA mounts at `crm.growthescalators.com`. Sidebar entries (defined in 
 staff < sales < team_lead < manager_ops / manager_ads < admin
 ```
 
-`team_lead` is the "trusted ops" tier — gets Outreach, AI Intelligence, Growth OS, Meta Ads, but **not** Billing, Permissions, or Audit. Per-user overrides live in `userPermissions` (e.g. grant a `staff` user `reportsMetaAds: true`).
+`team_lead` is the "trusted ops" tier — gets Outreach, AI Intelligence, Meta Ads, but **not** Billing, Permissions, or Audit. Per-user overrides live in `userPermissions` (e.g. grant a `staff` user `reportsMetaAds: true`).
 
 ---
 

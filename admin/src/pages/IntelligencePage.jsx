@@ -461,7 +461,7 @@ function HistoryTable({ reports }) {
 // ---------------------------------------------------------------------------
 // System Health Tab
 // ---------------------------------------------------------------------------
-const RUNNABLE_CRONS = new Set(['Directory Scrapers', 'Monthly Client Benchmarks']);
+const RUNNABLE_CRONS = new Set(['Monthly Client Benchmarks']);
 
 function SystemHealthTab() {
   const [health, setHealth] = useState(null);
@@ -528,14 +528,16 @@ function SystemHealthTab() {
         </button>
       </div>
 
-      {/* Subsystem cards */}
+      {/* Subsystem cards — Infrastructure is a GE-platform-only concern and is
+          omitted from the response entirely for non-GE tenants (see
+          checkAllSystems() in systemHealthMonitor.ts), so filter out any
+          subsystem the API didn't send rather than rendering an empty/N-A card. */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { name: 'Outreach', data: health.outreach },
           { name: 'SEO', data: health.seo },
           { name: 'CRM', data: health.crm },
           { name: 'Infrastructure', data: health.infrastructure },
-        ].map(sub => (
+        ].filter(sub => sub.data).map(sub => (
           <div key={sub.name} className="bg-white rounded-xl border border-slate-200 p-3">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-semibold text-slate-700">{sub.name}</span>

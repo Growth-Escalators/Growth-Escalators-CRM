@@ -96,10 +96,10 @@ export async function ensureIntelligenceTable(): Promise<void> {
 
   // ---------------------------------------------------------------------
   // Tenant isolation: this table had no tenant_id column. Same posture as
-  // growthOSSetup.ts's Phase 0 fix — nullable column (application layer
-  // enforces "must have a tenant" from here on), backfill existing rows to
-  // GE's tenant, the only tenant this module has ever generated reports
-  // for.
+  // elsewhere in this security-audit pass (nullable-first-then-backfill) —
+  // nullable column (application layer enforces "must have a tenant" from
+  // here on), backfill existing rows to GE's tenant, the only tenant this
+  // module has ever generated reports for.
   // ---------------------------------------------------------------------
   await pool.query(`ALTER TABLE ai_intelligence_reports ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id)`);
   const defaultTenantId = await resolveDefaultTenantId();
@@ -393,11 +393,6 @@ ${wf.workflows.map(w =>
   ).join('\n')}
 
 SYSTEM ERRORS (last 24h): ${syserrSummary}
-
-## Creative Intelligence
-- ${data.creativeIntel?.fatiguingCount || 0} creatives fatiguing/saturated
-- Best performing type: ${data.creativeIntel?.bestType || 'N/A'}
-- Total tracked: ${data.creativeIntel?.totalTracked || 0}
 
 ## Outreach Velocity
 - Enriched today: ${data.outreachVelocity?.enrichedToday || 0}

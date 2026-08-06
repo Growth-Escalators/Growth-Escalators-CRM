@@ -1,8 +1,8 @@
 // POST /api/reports/send-pdf sends a generated report PDF over WhatsApp
 // using GE's own shared META_PHONE_NUMBER_ID/META_ACCESS_TOKEN — the same
 // shared identity already guarded in routes/inbox.ts by canSendWhatsApp()
-// (see inboxResellerWhatsAppBlock.test.ts) and in services/growthOSSetup.ts
-// by canSendGrowthOSWhatsApp() (see growthOSResellerWhatsAppBlock.test.ts).
+// (see inboxResellerWhatsAppBlock.test.ts) and in services/whatsappSendGuard.ts
+// by canSendGrowthOSWhatsApp() (see cashfreeWhatsAppTenantGuard.test.ts).
 // This pins the equivalent guard added to routes/reports.ts: only GE's own
 // tenant may have its report delivered over the shared number. The guard
 // fires only once a send would actually be attempted (client has a phone

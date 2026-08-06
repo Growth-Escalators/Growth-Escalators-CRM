@@ -4,7 +4,7 @@
 //
 // Two pause mechanisms exist in this repo:
 //   1. Flag-based — cron body has `if (isPaused('x')) return;`. Flip the flag below
-//      to toggle. Currently: seo, outreachEnrichment.
+//      to toggle. Currently: seo.
 //   2. Comment-based — entire `cron.schedule(...)` is wrapped in /* */ in worker.ts
 //      (the May 3 mass-pause pattern). Listed here too as documentation; flipping
 //      the flag won't re-enable them — you must also uncomment the block.
@@ -22,7 +22,6 @@ export const PAUSED_FEATURES = {
   // worker.ts as part of the same change (SEO Workflow Health stays commented out
   // — see the note at its cron.schedule block).
   seo: false,
-  outreachEnrichment: true,   // also pauses the discovery-freshness signal in checkOutreach
 
   // Comment-guarded (documentation only; also requires uncommenting in worker.ts)
   sodEod: true,               // SOD Digest, Sakcham Priority SOD, EOD Summary

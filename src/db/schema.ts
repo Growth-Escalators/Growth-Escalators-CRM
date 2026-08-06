@@ -14,6 +14,7 @@ import {
   uniqueIndex,
   foreignKey,
   check,
+  primaryKey,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import {
@@ -495,6 +496,15 @@ export const users = pgTable(
     // remember to treat as equivalent.
     isPlatformSuperadmin: boolean('is_platform_superadmin').notNull().default(false),
     createdAt: timestamp('created_at').defaultNow().notNull(),
+    // Tenant-customizable RBAC foundation (see src/config/permissions.ts,
+    // src/services/permissionResolver.ts). Nullable and NOT backfilled by
+    // this migration — every user's authorization continues to flow through
+    // the existing `role` text column + PERMISSION_MAP
+    // (src/middleware/rbac.ts) exactly as today. Backfilling this column is a
+    // separate, explicitly-approved follow-up
+    // (src/scripts/backfillRolesFromPermissionMap.ts), and nothing reads it
+    // yet — adding it here is additive-only schema, not a behavior change.
+    roleId: uuid('role_id').references(() => roles.id),
   },
   (t) => ({
     tenantEmailIdx: uniqueIndex('users_tenant_email_unique').on(t.tenantId, t.email),
@@ -934,6 +944,43 @@ export const passwordResetTokens = pgTable('password_reset_tokens', {
   expiresAt: timestamp('expires_at').notNull(),
   createdAt: timestamp('created_at').defaultNow(),
 });
+
+// ---------------------------------------------------------------------------
+// TABLE 35a — user_invites
+//
+// Invite-by-email (replaces the old "generate a temp password, print it once,
+// admin copies it into Slack/WhatsApp" flow — see src/routes/permissions.ts's
+// POST /users). Deliberately its own table rather than a new `users` column:
+// a user's "pending" state is fully derived from "does a row exist here",
+// which needs zero backfill/migration story for the ~all existing users who
+// have none. `tokenHash` stores a SHA-256 of the mailed token (mirrors
+// src/modules/esign/contract-signing-link.ts's hashSigningToken) rather than
+// the raw value — a link sent by email is more likely to end up in a log/
+// screenshot than the 6-digit `password_reset_tokens` code, so hashing it at
+// rest costs nothing and is strictly safer.
+//
+// Lifecycle: created on invite/resend (deleting any prior row for the same
+// user first — same "delete old, insert new" shape as
+// password_reset_tokens's forgot-password flow, and what makes "resend
+// invalidates the old link" true for free). Deleted on accept. A user has at
+// most one outstanding row at a time; its mere existence IS the "pending"
+// flag the admin UI reads (see GET /api/permissions/users's LEFT JOIN).
+// ---------------------------------------------------------------------------
+export const userInvites = pgTable(
+  'user_invites',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull().references(() => users.id),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    tokenHash: text('token_hash').notNull(),
+    expiresAt: timestamp('expires_at').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    userIdx: uniqueIndex('user_invites_user_id_uniq').on(t.userId),
+    tenantIdx: index('user_invites_tenant_id_idx').on(t.tenantId),
+  }),
+);
 
 // ===========================================================================
 // SEO AUTOMATION TABLES (Phase 2 upgrade)
@@ -3452,7 +3499,41 @@ export const seoSites = pgTable(
 );
 
 // ---------------------------------------------------------------------------
-// TABLE — site_changes (migration 0048)
+// TABLE — roles (foundation for tenant-customizable RBAC)
+//
+// Additive-only, not wired into any route yet. Today's authorization still
+// runs entirely on `users.role` (plain text) + PERMISSION_MAP
+// (src/middleware/rbac.ts) — this table exists so a tenant can eventually
+// define its own roles instead of being locked into the 8 GE-shaped,
+// hardcoded ones. See src/config/permissions.ts for the permission-key
+// registry these roles are composed from, and
+// src/services/permissionResolver.ts for how a user's effective permissions
+// are computed. `is_system` distinguishes the 8 built-in roles seeded by
+// src/scripts/backfillRolesFromPermissionMap.ts (mirroring PERMISSION_MAP's
+// existing role names: admin, manager_ops, manager_ads, team_lead, sales,
+// staff, creative_assistant, viewer) from any tenant-authored custom role —
+// an eventual admin UI should block renaming/deleting system roles, since
+// the legacy-parity cutover depends on their `key` staying stable.
+// ---------------------------------------------------------------------------
+export const roles = pgTable(
+  'roles',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    key: text('key').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
+    isSystem: boolean('is_system').notNull().default(false),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantKeyUniq: uniqueIndex('roles_tenant_key_unique').on(t.tenantId, t.key),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE — site_changes (migration 0050)
 //
 // One row per PROPOSED edit to a live client website. This is the table the
 // human-approval hard stop is enforced on.
@@ -3707,5 +3788,52 @@ export const seoApiUsage = pgTable(
     tenantProviderCreatedIdx: index('seo_api_usage_tenant_provider_created_idx').on(
       t.tenantId, t.provider, t.createdAt,
     ),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE — role_permissions (join table: permission keys granted by a role)
+//
+// `permission` is free text matching a key from the `PERMISSIONS` registry
+// (src/config/permissions.ts), not a DB enum — the registry is the single
+// source of truth for valid keys and is expected to grow; a DB enum would
+// need its own migration for every new permission. Composite primary key —
+// no surrogate id needed for a pure join row.
+// ---------------------------------------------------------------------------
+export const rolePermissions = pgTable(
+  'role_permissions',
+  {
+    roleId: uuid('role_id').notNull().references(() => roles.id),
+    permission: text('permission').notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.roleId, t.permission] }),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE — user_permission_overrides (per-user grant/revoke on top of a role)
+//
+// Effective permissions = the user's role's role_permissions, UNION any
+// 'grant' overrides here, MINUS any 'revoke' overrides here — see
+// getEffectivePermissions in src/services/permissionResolver.ts. One row per
+// (user, permission): a user can only have a single standing override for a
+// given permission at a time, enforced by the unique index below.
+// ---------------------------------------------------------------------------
+export const userPermissionOverrides = pgTable(
+  'user_permission_overrides',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull().references(() => users.id),
+    permission: text('permission').notNull(),
+    effect: text('effect').notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    createdBy: uuid('created_by').references(() => users.id),
+  },
+  (t) => ({
+    userPermissionUniq: uniqueIndex('user_permission_overrides_user_permission_unique').on(
+      t.userId, t.permission,
+    ),
+    effectChk: check('user_permission_overrides_effect_chk', sql`effect IN ('grant','revoke')`),
   }),
 );

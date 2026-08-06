@@ -41,6 +41,11 @@ vi.mock('../db/index', () => ({
     isActive: 'is_active',
     isPlatformSuperadmin: 'is_platform_superadmin',
   },
+  // Plain placeholder, same convention as `users` above — requireAuth's
+  // currentIdentity() now LEFT JOINs `tenants` onto the users lookup
+  // (tenant-suspension kill switch, src/middleware/auth.ts); this mock never
+  // inspects the shape, only real Drizzle does.
+  tenants: { id: 'id', isActive: 'is_active' },
   auditEvents: { id: 'id', tenantId: 'tenant_id', userId: 'user_id', action: 'action' },
 }));
 
@@ -64,13 +69,18 @@ function mockUserRow(row: {
   isActive?: boolean | null;
   isPlatformSuperadmin?: boolean | null;
 } | null) {
-  mockDbSelect.mockReturnValue({
-    from: vi.fn().mockReturnValue({
-      where: vi.fn().mockReturnValue({
-        limit: vi.fn().mockResolvedValue(row === null ? [] : [row]),
-      }),
+  // `.leftJoin(...)` returns the SAME chain object, so it works whether the
+  // caller goes straight to `.where(...)` (requirePlatformSuperadmin's plain
+  // `from(users).where(...)`) or through `.leftJoin(...)` first
+  // (requireAuth's currentIdentity, which now joins `tenants` onto this same
+  // lookup) — both terminate at the same `.limit(1)` resolving to `row`.
+  const chain: any = {
+    where: vi.fn().mockReturnValue({
+      limit: vi.fn().mockResolvedValue(row === null ? [] : [row]),
     }),
-  });
+  };
+  chain.leftJoin = vi.fn().mockReturnValue(chain);
+  mockDbSelect.mockReturnValue({ from: vi.fn().mockReturnValue(chain) });
 }
 
 beforeEach(() => {

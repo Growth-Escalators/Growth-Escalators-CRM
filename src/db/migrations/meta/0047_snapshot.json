@@ -1,6 +1,6 @@
 {
-  "id": "2799eebd-1732-4aa7-9051-ffef6b7f88f9",
-  "prevId": "4bc95e85-a01f-4d2d-89a3-b7ff9f8d3283",
+  "id": "bc8a0174-46f2-42e2-8301-70a77c9e17b4",
+  "prevId": "1b5b5c26-5d8a-4e61-b922-fb5952ca4cf2",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -291,12 +291,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "site_id": {
-          "name": "site_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "project_name": {
           "name": "project_name",
           "type": "text",
@@ -419,21 +413,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "backlink_data_site_id_idx": {
-          "name": "backlink_data_site_id_idx",
-          "columns": [
-            {
-              "expression": "site_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -443,19 +422,6 @@
           "tableTo": "tenants",
           "columnsFrom": [
             "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "backlink_data_site_id_seo_sites_id_fk": {
-          "name": "backlink_data_site_id_seo_sites_id_fk",
-          "tableFrom": "backlink_data",
-          "tableTo": "seo_sites",
-          "columnsFrom": [
-            "site_id"
           ],
           "columnsTo": [
             "id"
@@ -934,12 +900,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "site_id": {
-          "name": "site_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "project_name": {
           "name": "project_name",
           "type": "text",
@@ -1139,21 +1099,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "client_knowledge_base_site_id_idx": {
-          "name": "client_knowledge_base_site_id_idx",
-          "columns": [
-            {
-              "expression": "site_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -1163,19 +1108,6 @@
           "tableTo": "tenants",
           "columnsFrom": [
             "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "client_knowledge_base_site_id_seo_sites_id_fk": {
-          "name": "client_knowledge_base_site_id_seo_sites_id_fk",
-          "tableFrom": "client_knowledge_base",
-          "tableTo": "seo_sites",
-          "columnsFrom": [
-            "site_id"
           ],
           "columnsTo": [
             "id"
@@ -1206,12 +1138,6 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
-        },
-        "site_id": {
-          "name": "site_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
         },
         "project_name": {
           "name": "project_name",
@@ -1362,21 +1288,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "client_pages_site_id_idx": {
-          "name": "client_pages_site_id_idx",
-          "columns": [
-            {
-              "expression": "site_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -1386,19 +1297,6 @@
           "tableTo": "tenants",
           "columnsFrom": [
             "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "client_pages_site_id_seo_sites_id_fk": {
-          "name": "client_pages_site_id_seo_sites_id_fk",
-          "tableFrom": "client_pages",
-          "tableTo": "seo_sites",
-          "columnsFrom": [
-            "site_id"
           ],
           "columnsTo": [
             "id"
@@ -5366,12 +5264,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "site_id": {
-          "name": "site_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "project_name": {
           "name": "project_name",
           "type": "text",
@@ -5500,21 +5392,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "keyword_rankings_site_id_idx": {
-          "name": "keyword_rankings_site_id_idx",
-          "columns": [
-            {
-              "expression": "site_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -5524,19 +5401,6 @@
           "tableTo": "tenants",
           "columnsFrom": [
             "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "keyword_rankings_site_id_seo_sites_id_fk": {
-          "name": "keyword_rankings_site_id_seo_sites_id_fk",
-          "tableFrom": "keyword_rankings",
-          "tableTo": "seo_sites",
-          "columnsFrom": [
-            "site_id"
           ],
           "columnsTo": [
             "id"
@@ -6847,12 +6711,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "site_id": {
-          "name": "site_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "project_name": {
           "name": "project_name",
           "type": "text",
@@ -6929,21 +6787,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "seo_alerts_log_site_id_idx": {
-          "name": "seo_alerts_log_site_id_idx",
-          "columns": [
-            {
-              "expression": "site_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -6953,19 +6796,6 @@
           "tableTo": "tenants",
           "columnsFrom": [
             "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "seo_alerts_log_site_id_seo_sites_id_fk": {
-          "name": "seo_alerts_log_site_id_seo_sites_id_fk",
-          "tableFrom": "seo_alerts_log",
-          "tableTo": "seo_sites",
-          "columnsFrom": [
-            "site_id"
           ],
           "columnsTo": [
             "id"
@@ -6995,12 +6825,6 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
-        },
-        "site_id": {
-          "name": "site_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
         },
         "client_domain": {
           "name": "client_domain",
@@ -7099,6 +6923,33 @@
         }
       },
       "indexes": {
+        "seo_content_calendar_unique_idx": {
+          "name": "seo_content_calendar_unique_idx",
+          "columns": [
+            {
+              "expression": "client_domain",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "keyword",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "content_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "seo_content_calendar_tenant_unique_idx": {
           "name": "seo_content_calendar_tenant_unique_idx",
           "columns": [
@@ -7137,21 +6988,6 @@
           "columns": [
             {
               "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "seo_content_calendar_site_id_idx": {
-          "name": "seo_content_calendar_site_id_idx",
-          "columns": [
-            {
-              "expression": "site_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -7207,19 +7043,6 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "seo_content_calendar_site_id_seo_sites_id_fk": {
-          "name": "seo_content_calendar_site_id_seo_sites_id_fk",
-          "tableFrom": "seo_content_calendar",
-          "tableTo": "seo_sites",
-          "columnsFrom": [
-            "site_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
         "seo_content_calendar_opportunity_id_seo_opportunities_id_fk": {
           "name": "seo_content_calendar_opportunity_id_seo_opportunities_id_fk",
           "tableFrom": "seo_content_calendar",
@@ -7256,12 +7079,6 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
-        },
-        "site_id": {
-          "name": "site_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
         },
         "project_name": {
           "name": "project_name",
@@ -7406,21 +7223,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "seo_opportunities_site_id_idx": {
-          "name": "seo_opportunities_site_id_idx",
-          "columns": [
-            {
-              "expression": "site_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -7430,208 +7232,6 @@
           "tableTo": "tenants",
           "columnsFrom": [
             "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "seo_opportunities_site_id_seo_sites_id_fk": {
-          "name": "seo_opportunities_site_id_seo_sites_id_fk",
-          "tableFrom": "seo_opportunities",
-          "tableTo": "seo_sites",
-          "columnsFrom": [
-            "site_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.seo_sites": {
-      "name": "seo_sites",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "client_id": {
-          "name": "client_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "label": {
-          "name": "label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "domain": {
-          "name": "domain",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "platform": {
-          "name": "platform",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'unknown'"
-        },
-        "adapter_config": {
-          "name": "adapter_config",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "'{}'::jsonb"
-        },
-        "credential_provider": {
-          "name": "credential_provider",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "gsc_property": {
-          "name": "gsc_property",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ga4_property_id": {
-          "name": "ga4_property_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "risk_profile": {
-          "name": "risk_profile",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'standard'"
-        },
-        "required_checks": {
-          "name": "required_checks",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "'{}'"
-        },
-        "auto_publish_allowed": {
-          "name": "auto_publish_allowed",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "observation_window_days": {
-          "name": "observation_window_days",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 21
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'active'"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "seo_sites_tenant_id_idx": {
-          "name": "seo_sites_tenant_id_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "seo_sites_tenant_id_domain_uniq": {
-          "name": "seo_sites_tenant_id_domain_uniq",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "domain",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "seo_sites_tenant_id_tenants_id_fk": {
-          "name": "seo_sites_tenant_id_tenants_id_fk",
-          "tableFrom": "seo_sites",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "seo_sites_client_id_clients_id_fk": {
-          "name": "seo_sites_client_id_clients_id_fk",
-          "tableFrom": "seo_sites",
-          "tableTo": "clients",
-          "columnsFrom": [
-            "client_id"
           ],
           "columnsTo": [
             "id"
@@ -7662,12 +7262,6 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
-        },
-        "site_id": {
-          "name": "site_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
         },
         "project_name": {
           "name": "project_name",
@@ -7783,21 +7377,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "seo_weekly_metrics_site_id_idx": {
-          "name": "seo_weekly_metrics_site_id_idx",
-          "columns": [
-            {
-              "expression": "site_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -7807,19 +7386,6 @@
           "tableTo": "tenants",
           "columnsFrom": [
             "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "seo_weekly_metrics_site_id_seo_sites_id_fk": {
-          "name": "seo_weekly_metrics_site_id_seo_sites_id_fk",
-          "tableFrom": "seo_weekly_metrics",
-          "tableTo": "seo_sites",
-          "columnsFrom": [
-            "site_id"
           ],
           "columnsTo": [
             "id"
@@ -8190,12 +7756,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "site_id": {
-          "name": "site_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "project_name": {
           "name": "project_name",
           "type": "text",
@@ -8303,21 +7863,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "site_health_metrics_site_id_idx": {
-          "name": "site_health_metrics_site_id_idx",
-          "columns": [
-            {
-              "expression": "site_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -8327,19 +7872,6 @@
           "tableTo": "tenants",
           "columnsFrom": [
             "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "site_health_metrics_site_id_seo_sites_id_fk": {
-          "name": "site_health_metrics_site_id_seo_sites_id_fk",
-          "tableFrom": "site_health_metrics",
-          "tableTo": "seo_sites",
-          "columnsFrom": [
-            "site_id"
           ],
           "columnsTo": [
             "id"

@@ -68,7 +68,7 @@ const ROLE_OPTIONS = [
   { value: 'admin', label: 'Admin', description: 'Full access to everything' },
   { value: 'manager_ops', label: 'Manager — Ops', description: 'Contacts, deals, automations, reports' },
   { value: 'manager_ads', label: 'Manager — Ads', description: 'Ads and marketing only' },
-  { value: 'team_lead', label: 'Team Lead', description: 'Operational tools (Outreach, Intelligence, Growth OS, Ads) but no Billing/Permissions' },
+  { value: 'team_lead', label: 'Team Lead', description: 'Operational tools (Outreach, Intelligence, Ads) but no Billing/Permissions' },
   { value: 'sales', label: 'Sales', description: 'Contacts, deals, pipeline' },
   { value: 'staff', label: 'Staff', description: 'Social and basic features only' },
   { value: 'creative_assistant', label: 'Creative Assistant', description: 'Tasks, Inbox, Meta Ads, Social, Content — everything else blocked' },
@@ -115,8 +115,6 @@ function AddUserModal({ onClose, onCreated }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('staff');
-  const [password, setPassword] = useState('');
-  const [autoPassword, setAutoPassword] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState('');
 
@@ -126,7 +124,6 @@ function AddUserModal({ onClose, onCreated }) {
     setSubmitting(true);
     try {
       const body = { name: name.trim(), email: email.trim().toLowerCase(), role };
-      if (!autoPassword && password) body.password = password;
       const res = await apiFetch('/api/permissions/users', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -143,8 +140,8 @@ function AddUserModal({ onClose, onCreated }) {
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-slate-100">
-          <h2 className="font-bold text-slate-900">Add User</h2>
-          <p className="text-xs text-slate-500 mt-0.5">They'll be able to change their password later via Forgot Password.</p>
+          <h2 className="font-bold text-slate-900">Invite User</h2>
+          <p className="text-xs text-slate-500 mt-0.5">They'll get an email with a link to set their own password and activate their account.</p>
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
@@ -171,68 +168,16 @@ function AddUserModal({ onClose, onCreated }) {
               <option value="admin">Admin</option>
             </select>
           </div>
-          <div>
-            <label className="flex items-center gap-2 text-xs text-slate-700 mb-1.5">
-              <input type="checkbox" checked={autoPassword} onChange={e => setAutoPassword(e.target.checked)} />
-              Auto-generate temporary password
-            </label>
-            {!autoPassword && (
-              <input type="text" value={password} onChange={e => setPassword(e.target.value)} minLength={8}
-                placeholder="At least 8 characters"
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500" />
-            )}
-          </div>
           {err && <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{err}</p>}
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose}
               className="flex-1 px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
             <button type="submit" disabled={submitting}
               className="flex-1 px-4 py-2 bg-sky-600 text-white rounded-lg text-sm font-medium hover:bg-sky-700 disabled:opacity-50">
-              {submitting ? 'Creating…' : 'Create User'}
+              {submitting ? 'Sending invite…' : 'Send Invite'}
             </button>
           </div>
         </form>
-      </div>
-    </div>
-  );
-}
-
-function CredsModal({ creds, onClose }) {
-  const [copied, setCopied] = useState(false);
-  function copyAll() {
-    const text = `Email: ${creds.user.email}\nTemporary password: ${creds.temporaryPassword}\n\nLog in at https://crm.growthescalators.com and use "Forgot password" any time to change it.`;
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
-    }).catch(() => {});
-  }
-  return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
-        <div className="px-6 py-4 border-b border-emerald-100 bg-emerald-50 rounded-t-2xl">
-          <h2 className="font-bold text-emerald-900">User created ✓</h2>
-          <p className="text-xs text-emerald-700 mt-0.5">Copy and share these credentials securely. This password will not be shown again.</p>
-        </div>
-        <div className="p-6 space-y-3">
-          <div className="text-sm"><span className="font-semibold text-slate-700">Name:</span> <span className="text-slate-900">{creds.user.name}</span></div>
-          <div className="text-sm"><span className="font-semibold text-slate-700">Email:</span> <span className="text-slate-900 font-mono">{creds.user.email}</span></div>
-          <div className="text-sm"><span className="font-semibold text-slate-700">Role:</span> <span className="text-slate-900">{creds.user.role}</span></div>
-          <div className="text-sm">
-            <p className="font-semibold text-slate-700 mb-1">Temporary password:</p>
-            <code className="block bg-slate-100 border border-slate-200 px-3 py-2 rounded text-slate-900 font-mono text-sm break-all">
-              {creds.temporaryPassword}
-            </code>
-          </div>
-          {creds.note && <p className="text-xs text-slate-500">{creds.note}</p>}
-        </div>
-        <div className="px-6 pb-4 flex justify-end gap-2">
-          <button onClick={copyAll}
-            className="px-4 py-2 bg-sky-600 text-white rounded-lg text-sm font-medium hover:bg-sky-700">
-            {copied ? 'Copied!' : 'Copy credentials'}
-          </button>
-          <button onClick={onClose}
-            className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm hover:bg-slate-200">Done</button>
-        </div>
       </div>
     </div>
   );
@@ -250,12 +195,15 @@ export default function PermissionsPage() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
   const [showAddUser, setShowAddUser] = useState(false);
-  const [createdCreds, setCreatedCreds] = useState(null); // { user, temporaryPassword }
   // Removing a user revokes every permission they have, so it gets a typed-name
   // gate rather than a one-click confirm.
   const [confirmRemove, setConfirmRemove] = useState(null); // user object | null
   const [removing, setRemoving] = useState(false);
   const [removeErr, setRemoveErr] = useState(null);
+  // Optional "reassign this user's records to:" picker shown inside the
+  // deactivate dialog — opt-in, cleared whenever a new user is targeted.
+  const [reassignTo, setReassignTo] = useState('');
+  const [resendingInviteId, setResendingInviteId] = useState(null);
 
   function loadUsers() {
     return apiFetch('/api/permissions/users')
@@ -270,11 +218,20 @@ export default function PermissionsPage() {
   async function runRemoveUser() {
     setRemoving(true); setRemoveErr(null);
     try {
-      await apiFetch(`/api/permissions/users/${confirmRemove.id}`, { method: 'DELETE' });
+      const body = reassignTo ? { reassignToUserId: reassignTo } : undefined;
+      const res = await apiFetch(`/api/permissions/users/${confirmRemove.id}`, {
+        method: 'DELETE',
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
       setUsers(prev => prev.filter(u => u.id !== confirmRemove.id));
-      showSuccess(`${confirmRemove.name} removed from the team`);
+      const r = res?.reassigned;
+      const reassignSummary = r
+        ? ` — reassigned ${r.contacts} contact(s), ${r.deals} deal(s), ${r.tasks} task(s)`
+        : '';
+      showSuccess(`${confirmRemove.name} removed from the team${reassignSummary}`);
       setConfirmRemove(null);
       setSelectedUser(null);
+      setReassignTo('');
     } catch (e) {
       // Keep the dialog open — the old code dropped the user back to the
       // detail panel with only a small inline "Failed to remove user".
@@ -282,6 +239,18 @@ export default function PermissionsPage() {
       showError(e.message || 'Failed to remove user');
     } finally {
       setRemoving(false);
+    }
+  }
+
+  async function runResendInvite(user) {
+    setResendingInviteId(user.id);
+    try {
+      await apiFetch(`/api/permissions/users/${user.id}/resend-invite`, { method: 'POST' });
+      showSuccess(`Invite resent to ${user.email}`);
+    } catch (e) {
+      showError(e.message || 'Failed to resend invite');
+    } finally {
+      setResendingInviteId(null);
     }
   }
 
@@ -361,14 +330,14 @@ export default function PermissionsPage() {
             onClose={() => setShowAddUser(false)}
             onCreated={(payload) => {
               setShowAddUser(false);
-              setCreatedCreds(payload);
+              if (payload?.emailSent === false) {
+                showError(`User created, but the invite email failed to send to ${payload?.user?.email ?? 'the new user'} — use "Resend invite" on their row to retry.`);
+              } else {
+                showSuccess(`Invite sent to ${payload?.user?.email ?? 'the new user'}`);
+              }
               loadUsers();
             }}
           />
-        )}
-
-        {createdCreds && (
-          <CredsModal creds={createdCreds} onClose={() => setCreatedCreds(null)} />
         )}
 
         {loading ? (
@@ -416,6 +385,11 @@ export default function PermissionsPage() {
                       {user.is_owner && (
                         <span className="text-xs font-medium text-amber-700">Owner</span>
                       )}
+                      {!user.is_owner && user.pending && (
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700">
+                          Invite pending
+                        </span>
+                      )}
                     </div>
                   </button>
                 ))}
@@ -451,14 +425,28 @@ export default function PermissionsPage() {
                           Owner — Full Access
                         </span>
                       )}
+                      {!isOwnerUser && selectedUser.pending && (
+                        <span className="ml-2 px-2.5 py-1 bg-amber-100 text-amber-700 text-xs font-semibold rounded-full">
+                          Invite pending
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-3">
                       {saved && <span className="text-sm text-green-700 font-medium">&#x2713; Saved</span>}
                       {error && <span className="text-sm text-red-600">{error}</span>}
                       {!isOwnerUser && (
                         <>
+                          {selectedUser.pending && (
+                            <button
+                              onClick={() => runResendInvite(selectedUser)}
+                              disabled={resendingInviteId === selectedUser.id}
+                              className="px-3 py-2 text-sm text-sky-700 border border-sky-200 rounded-lg hover:bg-sky-50 disabled:opacity-50"
+                            >
+                              {resendingInviteId === selectedUser.id ? 'Resending…' : 'Resend invite'}
+                            </button>
+                          )}
                           <button
-                            onClick={() => { setRemoveErr(null); setConfirmRemove(selectedUser); }}
+                            onClick={() => { setRemoveErr(null); setReassignTo(''); setConfirmRemove(selectedUser); }}
                             className="px-3 py-2 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
                           >
                             Remove
@@ -574,14 +562,36 @@ export default function PermissionsPage() {
         <ConfirmDialog
           open={confirmRemove !== null}
           title={`Remove ${confirmRemove?.name ?? ''} from the team?`}
-          impactSummary="This will revoke all their access. They will be signed out and will no longer be able to log in to the CRM."
+          impactSummary={
+            <div className="space-y-2">
+              <p>This will revoke all their access. They will be signed out and will no longer be able to log in to the CRM.</p>
+              <div>
+                <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider" htmlFor="reassign-to-picker">
+                  Reassign their contacts/deals/tasks to (optional)
+                </label>
+                <select
+                  id="reassign-to-picker"
+                  value={reassignTo}
+                  onChange={(e) => setReassignTo(e.target.value)}
+                  className="input w-full mt-1 bg-white"
+                >
+                  <option value="">Leave unassigned (don't reassign)</option>
+                  {users
+                    .filter((u) => u.id !== confirmRemove?.id)
+                    .map((u) => (
+                      <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
+                    ))}
+                </select>
+              </div>
+            </div>
+          }
           confirmLabel="Remove from team"
           danger
           requireTypedName={confirmRemove?.name}
           loading={removing}
           error={removeErr}
           onConfirm={runRemoveUser}
-          onCancel={() => { setConfirmRemove(null); setRemoveErr(null); }}
+          onCancel={() => { setConfirmRemove(null); setRemoveErr(null); setReassignTo(''); }}
         />
       </main>
     </div>

@@ -112,10 +112,14 @@ describe('worker.ts SEO cron block', () => {
   // cron in the repo as a side effect.
   const workerSource = readFileSync(join(__dirname, '..', 'worker.ts'), 'utf8');
 
-  // The SEO block is delimited by its banner comment and ends at the Directory
-  // Scrapers cron, which is the first non-SEO cron after it.
+  // Delimited by two explicit markers. The end anchor used to be
+  // `safeCron('Directory Scrapers')` — an unrelated cron that merely happened
+  // to follow the SEO block. When that cron was deleted upstream, indexOf
+  // returned -1, the slice silently became the entire file, and the guard
+  // stopped guarding while still reporting green. Anchor on markers that exist
+  // to be anchors, and assert both were found (below).
   const blockStart = workerSource.indexOf('// SEO CRON BLOCK');
-  const blockEnd = workerSource.indexOf("safeCron('Directory Scrapers'");
+  const blockEnd = workerSource.indexOf('// END SEO CRON BLOCK');
   const seoBlock = workerSource.slice(blockStart, blockEnd);
 
   // Comments in this block necessarily NAME resolveDefaultSeoTenantId — the

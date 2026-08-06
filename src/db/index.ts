@@ -82,6 +82,7 @@ export {
   adsInsightsCache,
   auditEvents,
   passwordResetTokens,
+  userInvites,
   // Outbound tables (previously missing from re-exports)
   prospects,
   signals,
@@ -116,4 +117,9 @@ export {
   // Subscription billing (reselling this CRM to other agencies)
   plans,
   subscriptions,
+  // Tenant-customizable RBAC foundation (additive only — see
+  // src/config/permissions.ts, src/services/permissionResolver.ts)
+  roles,
+  rolePermissions,
+  userPermissionOverrides,
 } from './schema';

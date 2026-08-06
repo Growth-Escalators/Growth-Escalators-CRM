@@ -54,8 +54,13 @@ function setCache(key: string, data: unknown): void {
 // ---------------------------------------------------------------------------
 // Live data fetchers (lightweight, return compact objects)
 // ---------------------------------------------------------------------------
-async function fetchMetaAds(): Promise<Record<string, unknown>> {
-  const cached = getCached('meta_ads');
+// Cache key includes tenantId — this cache is a bare process-global map
+// shared across every tenant's requests, so an unscoped key would serve
+// tenant A's cached Meta Ads / pipeline numbers to tenant B for up to 5
+// minutes even after the query itself was fixed to filter correctly.
+async function fetchMetaAds(tenantId: string): Promise<Record<string, unknown>> {
+  const cacheKey = `meta_ads:${tenantId}`;
+  const cached = getCached(cacheKey);
   if (cached) return cached as Record<string, unknown>;
 
   try {
@@ -65,23 +70,24 @@ async function fetchMetaAds(): Promise<Record<string, unknown>> {
         COALESCE(AVG((data->>'purchase_roas')::numeric), 0) AS roas_avg,
         COUNT(DISTINCT account_id) AS accounts
       FROM ads_insights_cache
-      WHERE date = CURRENT_DATE
-    `);
+      WHERE date = CURRENT_DATE AND tenant_id = $1
+    `, [tenantId]);
     const row = r.rows[0] as Record<string, string> ?? {};
     const result = {
       spend_today: Math.round(parseFloat(row.spend_today ?? '0')),
       roas_avg: parseFloat(parseFloat(row.roas_avg ?? '0').toFixed(2)),
       accounts_active: parseInt(row.accounts ?? '0'),
     };
-    setCache('meta_ads', result);
+    setCache(cacheKey, result);
     return result;
   } catch {
     return { note: 'Meta Ads data unavailable' };
   }
 }
 
-async function fetchPipeline(): Promise<Record<string, unknown>> {
-  const cached = getCached('pipeline');
+async function fetchPipeline(tenantId: string): Promise<Record<string, unknown>> {
+  const cacheKey = `pipeline:${tenantId}`;
+  const cached = getCached(cacheKey);
   if (cached) return cached as Record<string, unknown>;
 
   try {
@@ -91,9 +97,9 @@ async function fetchPipeline(): Promise<Record<string, unknown>> {
         COALESCE(SUM(deal_value) FILTER (WHERE stage NOT IN ('won','lost','Won','Lost')), 0) AS pipeline_value,
         COUNT(*) FILTER (WHERE LOWER(stage) = 'proposal') AS in_proposal,
         COUNT(*) FILTER (WHERE updated_at < NOW() - INTERVAL '7 days' AND stage NOT IN ('won','lost','Won','Lost')) AS stale_deals,
-        (SELECT COUNT(*) FROM contacts WHERE created_at::date = CURRENT_DATE) AS contacts_today
-      FROM deals
-    `);
+        (SELECT COUNT(*) FROM contacts WHERE created_at::date = CURRENT_DATE AND tenant_id = $1) AS contacts_today
+      FROM deals WHERE tenant_id = $1
+    `, [tenantId]);
     const row = r.rows[0] as Record<string, string> ?? {};
     const result = {
       active_deals: parseInt(row.active_deals ?? '0'),
@@ -102,7 +108,7 @@ async function fetchPipeline(): Promise<Record<string, unknown>> {
       stale_deals_7d: parseInt(row.stale_deals ?? '0'),
       contacts_today: parseInt(row.contacts_today ?? '0'),
     };
-    setCache('pipeline', result);
+    setCache(cacheKey, result);
     return result;
   } catch {
     return { note: 'Pipeline data unavailable' };
@@ -139,8 +145,9 @@ async function fetchSEO(tenantId: string): Promise<Record<string, unknown>> {
   }
 }
 
-async function fetchBilling(): Promise<Record<string, unknown>> {
-  const cached = getCached('billing');
+async function fetchBilling(tenantId: string): Promise<Record<string, unknown>> {
+  const cacheKey = `billing:${tenantId}`;
+  const cached = getCached(cacheKey);
   if (cached) return cached as Record<string, unknown>;
 
   try {
@@ -150,8 +157,8 @@ async function fetchBilling(): Promise<Record<string, unknown>> {
         COALESCE(SUM(total_amount) FILTER (WHERE status = 'overdue'), 0) AS overdue_amount,
         (SELECT COALESCE(SUM(monthly_amount), 0) FROM retainers WHERE status = 'active') AS mrr,
         COUNT(*) FILTER (WHERE status = 'sent' AND due_date > NOW()) AS pending_count
-      FROM invoices
-    `);
+      FROM invoices WHERE tenant_id = $1
+    `, [tenantId]);
     const row = r.rows[0] as Record<string, string> ?? {};
     const result = {
       overdue_invoices: parseInt(row.overdue_count ?? '0'),
@@ -159,7 +166,7 @@ async function fetchBilling(): Promise<Record<string, unknown>> {
       mrr_paise: parseInt(row.mrr ?? '0'),
       pending_invoices: parseInt(row.pending_count ?? '0'),
     };
-    setCache('billing', result);
+    setCache(cacheKey, result);
     return result;
   } catch {
     return { note: 'Billing data unavailable' };
@@ -222,23 +229,28 @@ async function fetchSEOWorkflows(tenantId: string): Promise<Record<string, unkno
   }
 }
 
-async function fetchTasksOverview(): Promise<Record<string, unknown>> {
-  const cached = getCached('tasks');
+async function fetchTasksOverview(tenantId: string): Promise<Record<string, unknown>> {
+  // Previously unscoped like fetchMetaAds/fetchPipeline above — the `tasks`
+  // table is tenant_id-scoped (src/db/schema.ts), so this leaked every other
+  // tenant's overdue task titles into the AI chat context.
+  const cacheKey = `tasks:${tenantId}`;
+  const cached = getCached(cacheKey);
   if (cached) return cached as Record<string, unknown>;
 
   try {
     const { pool } = await import('../db/index');
     const r = await pool.query(
       `SELECT id, title FROM tasks
-       WHERE status != 'done' AND due_at IS NOT NULL AND due_at < NOW()
+       WHERE tenant_id = $1 AND status != 'done' AND due_at IS NOT NULL AND due_at < NOW()
        ORDER BY due_at ASC LIMIT 20`,
+      [tenantId],
     );
     const tasks = r.rows as Array<{ id: string; title: string }>;
     const result = {
       overdue_tasks: tasks.length,
       sample_overdue: tasks.slice(0, 3).map(t => t.title),
     };
-    setCache('tasks', result);
+    setCache(cacheKey, result);
     return result;
   } catch {
     return { note: 'Tasks data unavailable' };
@@ -250,10 +262,10 @@ async function fetchTasksOverview(): Promise<Record<string, unknown>> {
 // ---------------------------------------------------------------------------
 async function buildDataSnapshot(tenantId: string): Promise<Record<string, unknown>> {
   const [metaAds, pipeline, seo, billing, cronHealth] = await Promise.allSettled([
-    fetchMetaAds(),
-    fetchPipeline(),
+    fetchMetaAds(tenantId),
+    fetchPipeline(tenantId),
     fetchSEO(tenantId),
-    fetchBilling(),
+    fetchBilling(tenantId),
     fetchCronHealth(),
   ]);
 
@@ -306,20 +318,6 @@ const TOOLS = [
     },
   },
   {
-    name: 'run_growth_os',
-    description: 'Run a Growth OS analysis. ALWAYS confirm with user before calling this.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        action: {
-          type: 'string',
-          enum: ['health_scores', 'money_on_table', 'creative_scan', 'competitor_pulse'],
-        },
-      },
-      required: ['action'],
-    },
-  },
-  {
     name: 'generate_invoices',
     description: 'Generate draft invoices for all active retainer clients. ALWAYS confirm with user before calling this.',
     input_schema: { type: 'object', properties: {} },
@@ -358,11 +356,11 @@ async function executeTool(
         const category = input.category as string;
         let data: Record<string, unknown>;
         switch (category) {
-          case 'meta_ads': data = await fetchMetaAds(); break;
+          case 'meta_ads': data = await fetchMetaAds(req.user!.tenantId); break;
           case 'seo': data = await fetchSEO(req.user!.tenantId); break;
-          case 'pipeline': data = await fetchPipeline(); break;
-          case 'tasks': data = await fetchTasksOverview(); break;
-          case 'billing': data = await fetchBilling(); break;
+          case 'pipeline': data = await fetchPipeline(req.user!.tenantId); break;
+          case 'tasks': data = await fetchTasksOverview(req.user!.tenantId); break;
+          case 'billing': data = await fetchBilling(req.user!.tenantId); break;
           case 'cron_health': data = await fetchCronHealth(); break;
           case 'seo_workflows': data = await fetchSEOWorkflows(req.user!.tenantId); break;
           default: data = { error: `Unknown category: ${category}` };
@@ -396,27 +394,6 @@ async function executeTool(
         const data = await resp.json() as { success?: boolean; error?: string };
         await logAction('trigger_seo_workflow', { workflow: workflowName, id: workflowId }, req);
         return JSON.stringify({ success: data.success, workflow: workflowName, message: resp.ok ? 'Workflow triggered successfully' : `Failed: ${data.error}` });
-      }
-
-      case 'run_growth_os': {
-        const action = input.action as string;
-        const actionMap: Record<string, string> = {
-          health_scores: '/api/growth-os/health/generate',
-          money_on_table: '/api/growth-os/opportunity/generate',
-          creative_scan: '/api/growth-os/creatives/scan',
-          competitor_pulse: '/api/growth-os/competitor/run',
-        };
-        const endpoint = actionMap[action];
-        if (!endpoint) return JSON.stringify({ error: `Unknown Growth OS action: ${action}` });
-
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
-        const resp = await fetch(`${baseUrl}${endpoint}`, {
-          method: 'POST',
-          headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(15000),
-        });
-        await logAction('run_growth_os', { action }, req);
-        return JSON.stringify({ success: resp.ok, action, message: resp.ok ? `${action} triggered successfully` : 'Trigger failed' });
       }
 
       case 'generate_invoices': {

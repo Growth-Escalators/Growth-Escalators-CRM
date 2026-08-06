@@ -397,14 +397,6 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
     // connect-flow scaffolding (src/services/metaOAuthService.ts) reuses this
     // same table (provider='meta') rather than adding its own — no new
     // migration needed for that scaffolding.
-    // 49 = adds seo_api_usage, the per-tenant/per-site spend ledger seoCostGuard.ts
-    // has had an explicit "INTENTIONALLY MISSING — needs a migration" note for
-    // since Phase 1. One NEW table, purely additive. NOTE: drizzle-kit also
-    // emitted a DROP + re-ADD of site_changes_approved_requires_approver with
-    // byte-identical CHECK text (a snapshot-representation artefact of 0048
-    // moving that constraint into its own DO block); both statements were
-    // deleted by hand — the human-approval hard stop is not dropped and
-    // re-added for a no-op rewrite. SEO tables only — no Wizmatch surface.
     // Bump this ONLY alongside an explicit authorisation for the migration in
     // question — the point of the mark is that an unreviewed migration showing
     // up in a hardening pass still gets surfaced.
@@ -419,55 +411,46 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
     // Escalators', owner-approved. Additive ADD COLUMN only (ten nullable
     // text columns on the existing tenant_branding table), no ALTER of any
     // other table, no new table.
-    // 45 = SEO tenant hardening (Phase 1 of the multi-tenant SEO platform,
-    // owner-authorised 2026-08-05). Backfills orphaned
-    // `seo_content_calendar.tenant_id` values (the old column default was a
-    // sentinel UUID with no matching `tenants` row, so the FK could not be
-    // added without repairing them first), then constrains the column NOT NULL
-    // + FK; adds three nullable approval columns to `client_pages`; adds a
-    // nullable `tenant_id` to `seo_workflow_logs`; DROPs the four unused
-    // `seo_looker_*` views. SEO tables only — no Wizmatch surface touched.
-    // 46 = seo_sites registry (Phase 2 of the multi-tenant SEO platform,
-    // owner-authorised 2026-08-05). Creates the `seo_sites` table — the
-    // registry replacing nine hardcoded client-domain arrays across the SEO
-    // services — and adds a NULLABLE `site_id` FK to the nine existing SEO
-    // tables, seeds the registry from the distinct (tenant_id, client_domain)
-    // pairs already present, and backfills `site_id` from it. Fully additive:
-    // no SET NOT NULL, no unique index over pre-existing data, no DROP, and
-    // every statement is IF NOT EXISTS / duplicate_object-guarded because
-    // ensureSeoTables() drifts these tables at runtime. SEO tables only — no
-    // Wizmatch surface touched.
-    // 47 = drops seo_content_calendar's legacy 3-column unique index
-    // (client_domain, keyword, content_type), the deferred half of 0045.
-    // 0045 added the tenant-scoped 4-column index alongside it and kept the old
-    // one because code still named the 3-column ON CONFLICT target; every
-    // writer now names the 4-column one, so the old index is dropped here.
-    // Not merely redundant: UNIQUE on those three columns with no tenant made
-    // the combination globally exclusive, so two tenants could not both hold a
-    // calendar entry for the same keyword on the same domain. A single DROP
-    // INDEX IF EXISTS — dropping an index never fails on data, and the
-    // 4-column index still enforces per-tenant uniqueness. SEO tables only —
-    // no Wizmatch surface touched.
-    // 48 = adds site_changes + seo_site_snapshots (Phase 3 of the multi-tenant
-    // SEO platform work). Two NEW tables, purely additive: no ALTER of an
-    // existing table, no DROP, no SET NOT NULL, no unique index over rows that
-    // already exist. site_changes carries a CHECK constraint
-    // (site_changes_approved_requires_approver) that is the database-level half
-    // of the human-approval hard stop — no row can sit in an approved-or-later
-    // status without both an approver and an approval timestamp. SEO tables
-    // only — no Wizmatch surface touched.
-    // 49 = adds seo_api_usage, the per-tenant/per-site spend ledger seoCostGuard.ts
-    // has had an explicit "INTENTIONALLY MISSING — needs a migration" note for
-    // since Phase 1. One NEW table, purely additive. NOTE: drizzle-kit also
-    // emitted a DROP + re-ADD of site_changes_approved_requires_approver with
-    // byte-identical CHECK text (a snapshot-representation artefact of 0048
-    // moving that constraint into its own DO block); both statements were
-    // deleted by hand — the human-approval hard stop is not dropped and
-    // re-added for a no-op rewrite. SEO tables only — no Wizmatch surface.
+    // 45 = roles + role_permissions + user_permission_overrides (foundation
+    // for tenant-customizable RBAC — see src/config/permissions.ts and
+    // src/services/permissionResolver.ts). Additive CREATE TABLE only (three
+    // new tables) plus one nullable `users.role_id` ADD COLUMN with an FK to
+    // the new `roles` table — no ALTER/DROP of any existing column, no
+    // backfill in this migration, not wired into any route or auth check.
+    // Flagged explicitly in that PR's description for human sign-off before
+    // merge, per this repo's schema-change guardrail (AGENTS.md).
+    // 46 = user_invites — invite-by-email replacement for the old print-a-
+    // temp-password-once flow (feat: email invites, seat limits, reassign-
+    // on-offboard). Additive CREATE TABLE only (one new table, FKs to the
+    // existing users/tenants tables), no ALTER of any existing table.
+    // Renumbered from 45 to 46 during merge — 45 was already claimed by the
+    // roles/role_permissions PR by the time this one merged.
+    // ---- SEO platform, phases 1-6 (owner-authorised 2026-08-05/06) --------
+    // RENUMBERED 45-49 -> 47-51 during this merge, for the same reason main
+    // renumbered 45->46 above: both branches independently claimed 45 and 46.
+    // The SQL bodies are unchanged; only the file numbers and journal moved.
+    // 47 = SEO tenant hardening. Backfills orphaned seo_content_calendar
+    // tenant_id values (the old column default was a sentinel UUID that is not
+    // a real tenants row) BEFORE adding the FK, adds nullable approval columns
+    // to client_pages, a nullable tenant_id to seo_workflow_logs, and DROPs the
+    // four unused seo_looker_* views.
+    // 48 = seo_sites registry + a NULLABLE site_id FK on nine SEO tables, then
+    // seeds the registry from the distinct (tenant_id, client_domain) pairs
+    // already present and backfills site_id. Fully additive; seed and backfill
+    // join on BOTH tenant_id and a normalised domain so two tenants working the
+    // same domain are never cross-linked.
+    // 49 = drops seo_content_calendar's legacy 3-column unique index, the
+    // deferred half of 47. UNIQUE on (client_domain, keyword, content_type)
+    // with no tenant column made that combination GLOBALLY exclusive.
+    // 50 = site_changes + seo_site_snapshots. Carries the CHECK constraint
+    // site_changes_approved_requires_approver, the database-level half of the
+    // human-approval hard stop.
+    // 51 = seo_api_usage, the per-tenant/per-site spend ledger.
+    // All five touch only SEO tables and carry no outreach/sequence/reply data.
     // Bump this ONLY alongside an explicit authorisation for the migration in
     // question — the point of the mark is that an unreviewed migration showing
     // up in a hardening pass still gets surfaced.
-    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 49;
+    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 51;
     const unauthorised = sqlFiles
       .map((f) => ({ file: f, idx: parseInt(f.slice(0, 4), 10) }))
       .filter((m) => Number.isFinite(m.idx) && m.idx > AUTHORISED_MIGRATION_HIGH_WATER_MARK)

@@ -195,4 +195,127 @@ describe('billing.ts route fixes', () => {
       expect(statusFn).toHaveBeenCalledWith(404);
     });
   });
+
+  describe('GET /monthly-tracker permission gate (previously the only GET route in this file with no check at all)', () => {
+    it('rejects with 403 when the caller lacks billingView and is not owner', async () => {
+      mockPerms({ billingView: false, isOwner: false });
+      const { default: router } = await import('../routes/billing');
+      const { req, res, statusFn } = makeReqRes('user-1', 'tenant-a');
+
+      await invokeRoute(router, '/monthly-tracker', 'get', req, res);
+
+      expect(statusFn).toHaveBeenCalledWith(403);
+    });
+
+    it('proceeds past the permission check when the caller has billingView', async () => {
+      mockPerms({ billingView: true, isOwner: false });
+      mockDbSelect.mockReturnValueOnce({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue([]), // no active clients — trivially succeeds
+        }),
+      });
+      const { default: router } = await import('../routes/billing');
+      const { req, res, statusFn, jsonFn } = makeReqRes('user-1', 'tenant-a');
+
+      await invokeRoute(router, '/monthly-tracker', 'get', req, res);
+
+      expect(statusFn).not.toHaveBeenCalledWith(403);
+      expect(jsonFn).toHaveBeenCalled();
+    });
+  });
+
+  describe('bucketReceivablesByAge — pure ageing bucketing logic', () => {
+    const asOf = new Date('2026-08-05T12:00:00Z');
+
+    it('places invoices in current / 0-30 / 31-60 / 60+ by whole days overdue, at the boundaries', async () => {
+      const { bucketReceivablesByAge } = await import('../routes/billing');
+
+      const result = bucketReceivablesByAge([
+        { dueDate: '2026-08-10', amountDue: 5000 },  // not yet due -> current
+        { dueDate: '2026-08-05', amountDue: 3000 },  // due today (0 days overdue) -> current
+        { dueDate: '2026-07-20', amountDue: 10000 }, // 16 days overdue -> 0-30
+        { dueDate: '2026-07-06', amountDue: 2000 },  // exactly 30 days overdue -> 0-30 (boundary)
+        { dueDate: '2026-07-05', amountDue: 4000 },  // 31 days overdue -> 31-60 (boundary)
+        { dueDate: '2026-06-06', amountDue: 1500 },  // exactly 60 days overdue -> 31-60 (boundary)
+        { dueDate: '2026-06-05', amountDue: 7000 },  // 61 days overdue -> 60+
+        { dueDate: '2026-01-01', amountDue: 0 },     // fully collected (amount_due = 0) -> excluded entirely
+      ], asOf);
+
+      expect(result.current).toEqual({ count: 2, amount: 8000 });
+      expect(result['0-30']).toEqual({ count: 2, amount: 12000 });
+      expect(result['31-60']).toEqual({ count: 2, amount: 5500 });
+      expect(result['60+']).toEqual({ count: 1, amount: 7000 });
+      expect(result.total).toEqual({ count: 7, amount: 32500 });
+    });
+
+    it('returns all-zero buckets for an empty input', async () => {
+      const { bucketReceivablesByAge } = await import('../routes/billing');
+      const result = bucketReceivablesByAge([], asOf);
+      expect(result.total).toEqual({ count: 0, amount: 0 });
+      expect(result.current).toEqual({ count: 0, amount: 0 });
+    });
+
+    it('skips rows with an unparseable due date rather than throwing', async () => {
+      const { bucketReceivablesByAge } = await import('../routes/billing');
+      const result = bucketReceivablesByAge([
+        { dueDate: 'not-a-date', amountDue: 5000 },
+        { dueDate: '2026-07-20', amountDue: 1000 }, // valid — still counted
+      ], asOf);
+      expect(result.total.count).toBe(1);
+      expect(result.total.amount).toBe(1000);
+    });
+  });
+
+  describe('GET /receivables-ageing permission gate + response shape', () => {
+    it('rejects with 403 when the caller lacks billingView and is not owner', async () => {
+      mockPerms({ billingView: false, isOwner: false });
+      const { default: router } = await import('../routes/billing');
+      const { req, res, statusFn } = makeReqRes('user-1', 'tenant-a');
+
+      await invokeRoute(router, '/receivables-ageing', 'get', req, res);
+
+      expect(statusFn).toHaveBeenCalledWith(403);
+    });
+
+    it('buckets the invoices db.execute returns when the caller has billingView', async () => {
+      mockPerms({ billingView: true, isOwner: false });
+      mockDbExecute.mockResolvedValue({
+        rows: [
+          { due_date: '2026-01-01', amount_due: 10000 }, // long overdue -> 60+
+        ],
+      });
+      const { default: router } = await import('../routes/billing');
+      const { req, res, statusFn, jsonFn } = makeReqRes('user-1', 'tenant-a');
+
+      await invokeRoute(router, '/receivables-ageing', 'get', req, res);
+
+      expect(statusFn).not.toHaveBeenCalledWith(403);
+      expect(jsonFn).toHaveBeenCalledTimes(1);
+      const body = jsonFn.mock.calls[0][0];
+      expect(body.total).toEqual({ count: 1, amount: 10000 });
+      expect(body['60+'].count).toBe(1);
+    });
+  });
+
+  describe('GET /retainers/:id permission gate (the list route already had it — only the single-item GET was missing it)', () => {
+    it('rejects with 403 when the caller lacks billingView and is not owner', async () => {
+      mockPerms({ billingView: false, isOwner: false });
+      const { default: router } = await import('../routes/billing');
+      const { req, res, statusFn } = makeReqRes('user-1', 'tenant-a', { id: 'retainer-1' });
+
+      await invokeRoute(router, '/retainers/:id', 'get', req, res);
+
+      expect(statusFn).toHaveBeenCalledWith(403);
+    });
+
+    it('proceeds past the permission check when the caller has billingView', async () => {
+      mockPerms({ billingView: true, isOwner: false });
+      const { default: router } = await import('../routes/billing');
+      const { req, res, statusFn } = makeReqRes('user-1', 'tenant-a', { id: 'retainer-1' });
+
+      await invokeRoute(router, '/retainers/:id', 'get', req, res);
+
+      expect(statusFn).not.toHaveBeenCalledWith(403);
+    });
+  });
 });

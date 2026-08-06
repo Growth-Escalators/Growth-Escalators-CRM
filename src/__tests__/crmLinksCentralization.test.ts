@@ -26,7 +26,6 @@ describe('CRM_BASE_URL is centralised in src/config/crmLinks.ts', () => {
 
   it.each([
     ['routes/tasks.ts', 'tasks.ts'],
-    ['services/outreachCrmSyncService.ts', 'outreachCrmSyncService.ts'],
     ['services/intelligenceDelivery.ts', 'intelligenceDelivery.ts'],
     ['services/seoWeeklyEmailService.ts', 'seoWeeklyEmailService.ts'],
   ])('%s imports CRM_BASE_URL from the shared helper', (relPath) => {
@@ -36,7 +35,6 @@ describe('CRM_BASE_URL is centralised in src/config/crmLinks.ts', () => {
 
   it.each([
     ['routes/tasks.ts'],
-    ['services/outreachCrmSyncService.ts'],
     ['services/intelligenceDelivery.ts'],
     ['services/seoWeeklyEmailService.ts'],
   ])('%s no longer hardcodes the literal CRM host', (relPath) => {
