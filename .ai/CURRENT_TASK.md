@@ -2,11 +2,28 @@
 
 ## Active task
 
-**MULTI-TENANT SEO PLATFORM — PHASES 1–3 BUILT LOCALLY, NOTHING PUSHED (2026-08-05).**
+**MULTI-TENANT SEO PLATFORM — ALL SIX PHASES LIVE IN PRODUCTION, ALL FOUR KNOWN GAPS CLOSED
+(2026-08-06).**
 
-Branch `fix/wizmatch-scoring-pipeline`, local only. Plan:
-`~/.claude/plans/can-you-check-the-atomic-cascade.md`. Turning the single-property SEO learning loop
-into a multi-tenant, multi-platform service an agency can be sold as a per-site add-on.
+Phases 1–6 merged and deployed (#163, #164). The four gaps that were left open are closed by
+**#167**, along with a pre-existing migration-lineage fault on `main` that would have failed the
+next deploy anyone triggered — see the 2026-08-06 entry in `HANDOFF_LOG.md` for the mechanism.
+**#165** (journal-ordering guard, tests only) is open and unmerged; its CI kept getting cancelled by
+a GitHub Actions outage, not by anything in the code.
+
+Verified in production: 50 migrations applied, 151 tables, `seo_sites` has 3 rows (backfilled from
+the data that was already there), and `site_changes` / `seo_site_snapshots` / `seo_api_usage` are
+empty — correct, since `SITE_ADAPTER_ENABLED` defaults false and nothing publishes yet.
+
+**The remaining work is owner-only: credential rotation.** Nothing else is blocked.
+Start here: [`docs/go-live/SEO_GETTING_STARTED.md`](../docs/go-live/SEO_GETTING_STARTED.md) for
+day-1, [`SEO_OPERATIONS.md`](../docs/go-live/SEO_OPERATIONS.md) for day-2,
+[`OWNER_ACTION_LIST.md`](../docs/go-live/OWNER_ACTION_LIST.md) for what only Jatin can do.
+
+Plan: `~/.claude/plans/can-you-check-the-atomic-cascade.md`. Turning the single-property SEO learning
+loop into a multi-tenant, multi-platform service an agency can be sold as a per-site add-on.
+
+### How it got here
 
 - **Phase 1** (`e0c0f248`) — tenant leaks closed, SEO gated behind `requireTenantFeature('seo')`,
   adapter contract + cost-guard groundwork. Migration `0045`.
@@ -43,19 +60,20 @@ assertion on the sole caller of `publishChange`, per-adapter re-check). Do not a
 - **Phase 6** (`53e0230b`) — n8n retired (including two LIVE ungated fetches to the dead host),
   workflows archived, docs rewritten, and all 65 live crons made observable.
 
-**All six phases are complete.** What remains is owner-gated only — see
-[`docs/go-live/OWNER_ACTION_LIST.md`](../docs/go-live/OWNER_ACTION_LIST.md): backups, the branch
-push, the credential rotation, and the retired-client purge (gated on a restore-tested backup).
+- **Gap closure** (#167) — GA4 calls counted **and the GA4 pull actually routed through** the cost
+  guard; `seo_page_metrics` (migration `0052`) + the drift sweep's third URL source;
+  `hot_lead_alert` drained behind a 24h staleness window; `seo-debugger.md` rewritten; day-1 and
+  day-2 docs; `scripts/backup-prod-db.sh`. Plus the snapshot-lineage repair described above,
+  guarded by `migrationSnapshotLineage.test.ts`.
 
-**Known gaps, stated rather than hidden:**
-- GA4 calls are not counted by the cost guard — `SeoCostGuardEstimatedCalls` has no `ga4Calls`
-  field, and reusing `gscCalls` would corrupt the real GSC cap counter.
-- The drift sweep's third URL source (top GSC URLs by impressions) is not implemented — no per-URL
-  GSC table exists and inventing one was correctly refused.
-- `hot_lead_alert` jobs have had **no consumer since n8n died** — `bookingService.ts` still creates
-  one per hot lead and nothing drains them. Pre-existing, documented in `jobDrainer.ts`, out of
-  scope for this work, but real.
-- `.claude/agents/seo-debugger.md` still describes the retired n8n system.
+**All six phases are complete and live.** The four previously-listed gaps are closed.
+
+**Gaps that remain (smaller, and none of them block use):**
+- Drift alerts go to one Slack channel (`SLACK_SEO_CHANNEL`), not per-tenant destinations. Fine
+  while GE is the only SEO tenant; needs routing before a second one goes live on drift.
+- One global `CREDENTIAL_ENCRYPTION_KEY` protects every reseller's stored client credentials.
+  Acceptable for a pilot if the contract says so; per-tenant KEK later.
+- Cross-tenant shared learning priors need explicit reseller-contract disclosure plus the opt-out.
 
 **Credential correction, verified against `origin/main`:** the `tenant_integrations` store, its
 route and `credentialEncryption` are all on `main` today. What is missing there is a *consumer* —
