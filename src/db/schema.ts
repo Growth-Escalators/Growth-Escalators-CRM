@@ -3792,6 +3792,60 @@ export const seoApiUsage = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// TABLE — seo_page_metrics (per-URL Search Console performance)
+//
+// WHY A NEW TABLE. `seo_weekly_metrics` is a DOMAIN-level weekly rollup — one
+// row per (site, week) holding site-wide clicks/impressions. `keyword_rankings`
+// is per-QUERY. Neither is per-URL, so the drift sweep had no way to answer
+// "which pages does Google actually send this site traffic for?" and its third
+// URL source — the one that catches pages the agency never touched, and so the
+// one that catches a client editing a page nobody on the agency side is
+// watching — was left unimplemented (see siteDriftService.ts's header).
+//
+// This table is that source. It is written by the GSC pull's `page`-dimension
+// query and read by `collectCandidateUrls` as "top N by impressions".
+//
+// ONE ROW PER (site, url, recorded_date), enforced by the unique index. The
+// pull is idempotent within a day: re-running it UPDATEs rather than appending,
+// so a cron that fires twice (retry, manual kick) cannot double-count or leave
+// two rows for the same day competing to be "the" reading.
+//
+// `site_id` is NOT NULL here, unlike the older SEO tables where it is nullable
+// pending their string-key migration. This table is new, has no legacy rows,
+// and is written only from inside the per-site loop where the id is always
+// known — so there is no state in which a null would be correct.
+// ---------------------------------------------------------------------------
+export const seoPageMetrics = pgTable(
+  'seo_page_metrics',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    siteId: uuid('site_id').notNull().references(() => seoSites.id),
+    pageUrl: text('page_url').notNull(),
+    // The GSC query window's END date, matching keyword_rankings.recorded_date
+    // — GSC data lags ~2 days, so this is "the last day this reading covers",
+    // not the day the cron ran.
+    recordedDate: date('recorded_date').notNull(),
+    clicks: integer('clicks').notNull().default(0),
+    impressions: integer('impressions').notNull().default(0),
+    avgPosition: numeric('avg_position'),
+    avgCtr: numeric('avg_ctr'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    // Idempotency key for the daily pull's ON CONFLICT DO UPDATE.
+    siteUrlDateUniq: uniqueIndex('seo_page_metrics_site_url_date_unique').on(
+      t.tenantId, t.siteId, t.recordedDate, t.pageUrl,
+    ),
+    // Serves the only read: newest recorded_date for a site, highest
+    // impressions first, limit N.
+    siteDateImpressionsIdx: index('seo_page_metrics_site_date_impressions_idx').on(
+      t.tenantId, t.siteId, t.recordedDate, t.impressions,
+    ),
+  }),
+);
+
+// ---------------------------------------------------------------------------
 // TABLE — role_permissions (join table: permission keys granted by a role)
 //
 // `permission` is free text matching a key from the `PERMISSIONS` registry

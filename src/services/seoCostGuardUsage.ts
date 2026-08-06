@@ -81,9 +81,9 @@ function isMissingSeoApiUsageTable(error: unknown): boolean {
 }
 
 /**
- * Fetches all seven `SeoCostGuardUsage` fields in one round trip via
+ * Fetches all eight `SeoCostGuardUsage` fields in one round trip via
  * `SUM(...) FILTER (WHERE ...)` over a single tenant-scoped, month-bounded
- * read of `seo_api_usage`. Seven separate queries per guarded call would
+ * read of `seo_api_usage`. Eight separate queries per guarded call would
  * make the guard itself cost more (in DB round trips, under load) than the
  * operation it's guarding — the whole point of a cost guard is to be cheap
  * to consult.
@@ -112,6 +112,7 @@ export async function fetchSeoCostGuardUsage(
       site_day_serper_calls: unknown;
       tenant_day_pagespeed_calls: unknown;
       tenant_day_gsc_calls: unknown;
+      tenant_day_ga4_calls: unknown;
       site_day_publishes: unknown;
     }>;
   };
@@ -124,6 +125,7 @@ export async function fetchSeoCostGuardUsage(
          COALESCE(SUM(calls) FILTER (WHERE created_at >= $3::timestamptz AND provider = 'serper' AND site_id = $4::uuid), 0) AS site_day_serper_calls,
          COALESCE(SUM(calls) FILTER (WHERE created_at >= $3::timestamptz AND provider = 'pagespeed'), 0) AS tenant_day_pagespeed_calls,
          COALESCE(SUM(calls) FILTER (WHERE created_at >= $3::timestamptz AND provider = 'gsc'), 0) AS tenant_day_gsc_calls,
+         COALESCE(SUM(calls) FILTER (WHERE created_at >= $3::timestamptz AND provider = 'ga4'), 0) AS tenant_day_ga4_calls,
          COALESCE(SUM(calls) FILTER (WHERE created_at >= $3::timestamptz AND provider = 'publish' AND site_id = $4::uuid), 0) AS site_day_publishes
        FROM seo_api_usage
        WHERE tenant_id = $1::uuid AND created_at >= $2::timestamptz`,
@@ -144,6 +146,7 @@ export async function fetchSeoCostGuardUsage(
     siteDaySerperCalls: num(row.site_day_serper_calls),
     tenantDayPagespeedCalls: num(row.tenant_day_pagespeed_calls),
     tenantDayGscCalls: num(row.tenant_day_gsc_calls),
+    tenantDayGa4Calls: num(row.tenant_day_ga4_calls),
     siteDayPublishes: num(row.site_day_publishes),
   };
 }
@@ -280,15 +283,16 @@ export async function guardSeoSpend<T>(input: {
   // Record actual spend AFTER the work succeeds — recording an estimate
   // before running would overcount on failure, and recording is best-effort
   // (recordSeoApiUsage never throws) so it can't roll the already-succeeded
-  // result back either way. gscCalls/publishes carry no direct provider
-  // cost of their own (see calculateSeoCostGuardCostCents's comment) but are
-  // still recorded so their day-scoped caps stay accurate.
+  // result back either way. gscCalls/ga4Calls/publishes carry no direct
+  // provider cost of their own (see calculateSeoCostGuardCostCents's
+  // comment) but are still recorded so their day-scoped caps stay accurate.
   const config = evaluation.policy;
   const entries: Array<{ provider: string; calls: number; costCents: number }> = [
     { provider: 'serper', calls: input.estimate.serperCalls, costCents: input.estimate.serperCalls * config.providerCostCents.serper },
     { provider: 'pagespeed', calls: input.estimate.pagespeedCalls, costCents: input.estimate.pagespeedCalls * config.providerCostCents.pagespeed },
     { provider: 'llm', calls: input.estimate.llmCalls, costCents: input.estimate.llmCalls * config.providerCostCents.llm },
     { provider: 'gsc', calls: input.estimate.gscCalls, costCents: 0 },
+    { provider: 'ga4', calls: input.estimate.ga4Calls, costCents: 0 },
     { provider: 'publish', calls: input.estimate.publishes, costCents: 0 },
   ];
   for (const entry of entries) {

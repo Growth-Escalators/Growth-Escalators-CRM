@@ -2,7 +2,32 @@
 
 _Update this when the working state of the repo meaningfully changes. Keep it short and true._
 
-## 2026-07-26 WizMatch Outbound OS — PR 2 schema + resolver (current, uncommitted-to-main)
+## 2026-08-06 Multi-tenant SEO platform — live, all four known gaps closed (current)
+
+- **Phases 1–6 are in production** (#163, #164). Verified against the production database, not
+  inferred: 50 migrations applied, 151 tables, `seo_sites` = 3 rows (backfilled from data already
+  present), `site_changes` / `seo_site_snapshots` / `seo_api_usage` = 0 rows. Empty is correct —
+  `SITE_ADAPTER_ENABLED` defaults false, so nothing publishes yet.
+- **#167** closes the four gaps: GA4 cost-guard counting **plus the wiring** (a cap nothing calls is
+  not a cap), `seo_page_metrics` (migration `0052`) feeding the drift sweep's third URL source,
+  `hot_lead_alert` drained behind a 24h staleness window, and `seo-debugger.md` rewritten. Adds
+  `docs/go-live/SEO_GETTING_STARTED.md` (day-1), `SEO_OPERATIONS.md` (day-2), and
+  `scripts/backup-prod-db.sh`.
+- **A migration-lineage fault on `main` was found and fixed** while generating `0052`. The
+  renumbered SEO snapshots never learned about main's own `0045`/`0046`, so `db:generate` was
+  outright broken (parent collision) and the next migration anyone generated would have contained
+  `CREATE TABLE` for four tables that already exist in production — 42P07 on boot, failed deploy.
+  Guarded by `src/__tests__/migrationSnapshotLineage.test.ts`.
+- **Gates:** `npm run build` exit 0. Full suite diffed test-by-test against `origin/main` run with
+  the same local `.env`: 21 failures both sides, **identical sets, zero new**, +133 new passing.
+  Migration verified against a *restore of the production backup* (45 → 51 applied, 151 → 152
+  tables, exactly one new table), never against an empty database — that distinction is the lesson
+  of the #163 failure.
+- **Open:** #165 (journal-ordering guard, tests only) — CI repeatedly cancelled by a GitHub Actions
+  outage, not by the code.
+- **Owner-only work remaining:** credential rotation. Nothing else is blocked.
+
+## 2026-07-26 WizMatch Outbound OS — PR 2 schema + resolver (superseded)
 
 - Branch `ge/outbound-02-policy-schema-service`, worktree `~/repo-comparison/v2-outbound-os`. **Local
   only — not pushed, not merged, migration `0037` not applied to any database.**

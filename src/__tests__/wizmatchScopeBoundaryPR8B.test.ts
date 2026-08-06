@@ -297,6 +297,21 @@ describe('PR 8B scope boundary — PR 9/10 must not have started', () => {
       + 'constraint is still present and still rejects an approved-status row with no approver. Touches '
       + 'only SEO tables. Carries no outreach, sequence, reply, or provider data. Unrelated to PR 9/10 '
       + '(Smartlead / reply ingestion).',
+    52: 'seo_page_metrics — per-URL Search Console performance (owner-approved). One NEW table '
+      + '(tenant_id, site_id, page_url, recorded_date, clicks, impressions, avg_position, avg_ctr), '
+      + 'written by the GSC pull\'s page-dimension query and read by the drift sweep as its third URL '
+      + 'source: the top-N-by-impressions pages, which catches a page the agency never touched and so '
+      + 'appears in neither client_pages nor site_changes. Purely additive: no ALTER of an existing '
+      + 'table, no DROP, no SET NOT NULL. NOTE: drizzle-kit additionally emitted CREATE TABLE for '
+      + 'roles, role_permissions, user_invites and user_permission_overrides plus an ALTER TABLE users '
+      + 'ADD COLUMN role_id — all five ALREADY EXIST in production, shipped by main\'s own 0045/0046. '
+      + 'They were emitted because the five renumbered SEO snapshots were generated off 0044 and never '
+      + 'rebased, so meta/0051_snapshot.json has never heard of main\'s RBAC work. All five statements '
+      + 'were deleted by hand; running them would have aborted the boot migration with 42P07. Verified '
+      + 'by restoring the production backup and migrating it 45 -> 51: exactly one new table, no '
+      + 'errors. Guarded going forward by migrationSnapshotLineage.test.ts. Touches only SEO tables. '
+      + 'Carries no outreach, sequence, reply, or provider data. Unrelated to PR 9/10 (Smartlead / '
+      + 'reply ingestion).',
   };
 
   it('every migration past 0037 is in the reviewed out-of-scope allowlist', () => {

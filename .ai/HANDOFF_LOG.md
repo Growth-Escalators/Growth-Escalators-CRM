@@ -5651,3 +5651,83 @@ clean single route-group mapping was investigated — task scope was wizmatch/gs
 No change to `/api/subscriptions` (separate, newer pluggable-gateway billing feature — not
 `gstBilling`). **Not merged by this session** — opened as a PR, awaiting Jatin's review; no
 deploy, no production data touched.
+
+---
+
+## 2026-08-06 — SEO gap closure + a migration lineage break on `main` (Claude)
+
+**PRs:** #167 (this work) · #165 (journal-ordering guard, opened earlier the same session).
+
+**What shipped.** The four gaps documented at the end of the SEO platform work:
+
+1. **GA4 calls are counted by the cost guard.** `ga4Calls` on
+   `SeoCostGuardEstimatedCalls` (required, not optional — an optional field
+   defaults to zero silently and is how the gap opened), `tenantDayGa4Calls`,
+   `SEO_MAX_GA4_CALLS_PER_TENANT_DAY` (default 200),
+   `tenant_daily_ga4_cap_exhausted`. The field is not the point — `runSeoAnalyticsPull`
+   is now actually wrapped in `guardSeoSpend`. GA4 has its own counter so it can
+   never corrupt the GSC cap, which is what the old comment warned about.
+2. **The drift sweep's third URL source is live.** Migration `0052` adds
+   `seo_page_metrics`; the GSC pull gains a `page`-dimension query (guard
+   estimate 2 → 3 gsc calls) that upserts on
+   `(tenant_id, site_id, recorded_date, page_url)`; `collectCandidateUrls` reads
+   top-50-by-impressions from the most recent `recorded_date`. URLs over 2000
+   chars are skipped and logged — the unique btree index has a row-size limit.
+3. **`hot_lead_alert` is drained**, behind a 24h staleness window. The backlog
+   goes back to 2026-03; without the window, enabling this fires five months of
+   "just booked" pings at once. Stale jobs complete as a distinct `'stale'`
+   outcome, counted separately. A failed Slack send throws so the backoff
+   retries rather than marking a never-delivered alert done.
+4. **`seo-debugger.md` rewritten** for the native platform, plus
+   `docs/go-live/SEO_OPERATIONS.md` (day-2) and `SEO_GETTING_STARTED.md` (day-1).
+
+**The thing to actually remember.** Generating `0052` was blocked by a fault
+already on `main`. The five SEO migrations were generated as `0045-0049` off
+`0044`'s snapshot then renumbered to `0047-0051` — the `.sql` files and journal
+moved, the **snapshots did not**. Two consequences:
+
+- `0047_snapshot.json.prevId` still pointed at `0044`, colliding with `0045`.
+  drizzle-kit refused to run: **`db:generate` was broken for everyone.**
+- Every snapshot from `0047` on lacked main's `roles` / `role_permissions` /
+  `user_invites` / `user_permission_overrides`. `db:generate` diffs against the
+  NEWEST snapshot, so the next generated migration would `CREATE TABLE` four
+  tables that already exist in production → 42P07 on boot → failed deploy.
+  Confirmed: that is exactly what the run producing `0052` emitted, and those
+  five statements were deleted by hand.
+
+Fixed by repointing `0047` at `0046`; `0052_snapshot.json` is written from
+`schema.ts` directly so the lineage self-heals from there. `0047-0050` remain
+stale but inert — `migrate` reads the `.sql` files and journal, never snapshots.
+Guarded by `src/__tests__/migrationSnapshotLineage.test.ts`.
+
+**Gates.** `npm run build` exit 0. Full suite diffed test-by-test against
+`origin/main` run with the same local `.env`: **21 failures on both sides,
+identical sets, zero new**, +133 new passing tests. (Those 21 are the known
+`.env`-dependent local failures — CI green on the same SHAs. Baseline via a
+`git worktree` of `origin/main` with `node_modules` symlinked; copying `.env`
+into it reproduced the same failures on unmodified main, which is the proof they
+are environmental.)
+
+**Migration verified against a restore of production, not an empty database** —
+that distinction is the whole lesson of the #163 failure. Restoring the
+2026-08-06 backup (45 applied, 151 tables) and migrating forward gives 51
+applied / 152 tables: exactly one new table, no 42P07, roles/user_invites
+intact, one `users.role_id`, hard-stop CHECK still present.
+
+**Also added.** `scripts/backup-prod-db.sh` — one command for the encrypted
+`pg_dump` that was previously a block of markdown to retype. Prints the crontab
+line for a weekly run; deliberately does not install it. `input-data/` moved
+into `.gitignore` (it was in `.git/info/exclude`, which is local-only, so a
+fresh clone's first `git add -A` would have staged an encrypted production dump).
+
+**Still owner-only.** Credential rotation — needs WordPress, GCP, Anthropic,
+Apollo, Hunter, MillionVerifier, GitHub and CRM logins. Two traps in
+`OWNER_ACTION_LIST.md`: UPDATE the `WP_AGEDDENTISTRY_*` vars rather than
+deleting them, and leave `GOOGLE_SEO_OAUTH_*` alone (different client, not
+leaked).
+
+**Guarded paths touched, with reasoning.** `src/db/schema.ts` (one additive
+table) and `src/db/migrations/` (new `0052`, one `prevId` field on
+`0047_snapshot.json`, journal entry). A Bash write into `migrations/meta/` was
+correctly refused by the guarded-path classifier; done through reviewable file
+edits instead.

@@ -36,14 +36,18 @@
  * alert went out; it does not gate a second one that this mechanism already
  * prevents.
  *
- * NO GSC PER-URL TABLE TODAY. The brief for this sweep calls for a third URL
- * source — "top ~50 GSC URLs by impressions" — to catch pages the agency
- * never touched. No such table exists in this repo: `seo_weekly_metrics` is
- * a DOMAIN-level weekly rollup (`total_impressions` per client_domain per
- * week), not per-page. Inventing one is a schema change, out of scope for a
- * services-only lane. This source is skipped; `client_pages` (inventory) and
- * recently-published `site_changes` (need confirming) are what's used. See
- * the Phase 5 handoff for the follow-up.
+ * THIRD URL SOURCE — top GSC URLs by impressions. `seo_weekly_metrics` is a
+ * DOMAIN-level weekly rollup (`total_impressions` per client_domain per
+ * week), not per-page, so this source used to be unimplemented — see the old
+ * revision of this comment. A migration since added `seo_page_metrics`
+ * (per-URL clicks/impressions/position/ctr, written by
+ * `seoSearchConsoleService.ts`'s `page`-dimension GSC pull — see that file's
+ * own "WHERE THE DATA GOES" doc), so `collectCandidateUrls` now reads the top
+ * `GSC_TOP_PAGES_LIMIT` page_urls by impressions, from that site's MOST
+ * RECENT `recorded_date`, as its third source alongside `client_pages`
+ * (inventory) and recently-published `site_changes`. This is the source that
+ * catches a client editing a page the agency never touched at all — one that
+ * would otherwise never appear in either of the other two.
  */
 import { fetchLivePageSnapshot, type LivePageSnapshot, type SeoElements } from '../modules/site/liveSnapshot';
 import {
@@ -89,6 +93,17 @@ const MAX_URLS_PER_SITE = 200;
  * up rather than losing it entirely.
  */
 const RECENT_PUBLISHED_CHANGE_WINDOW_DAYS = 7;
+
+/**
+ * How many of the site's top-by-impressions `seo_page_metrics` URLs feed
+ * into the candidate set — the "top ~50 GSC URLs by impressions" the brief
+ * for this sweep calls for. Deliberately much smaller than MAX_URLS_PER_SITE:
+ * this source exists to catch the highest-traffic pages the agency never
+ * touched, not to replicate the full page inventory GSC happens to have
+ * crawled — a low-traffic URL drifting unnoticed is a smaller loss than a
+ * top-50 page silently going noindex.
+ */
+const GSC_TOP_PAGES_LIMIT = 50;
 
 const PROVIDER_NAME = 'seo-drift-sweep';
 
@@ -235,11 +250,22 @@ function formatDriftAlert(site: SeoSite, pageUrl: string, result: SeoDriftResult
 // ---------------------------------------------------------------------------
 
 /**
- * Builds the set of URLs to check for one site: the page inventory, plus our
- * own recently-published changes (so classifySeoDrift can attribute a change
- * to us inside its 48h window). A third source — top GSC URLs by impressions,
- * which would catch pages the agency never touched at all — is deliberately
- * skipped; see the file header for why.
+ * Builds the set of URLs to check for one site, from three sources:
+ *  1. `client_pages` — the page inventory.
+ *  2. Our own recently-published `site_changes` (so classifySeoDrift can
+ *     attribute a change to us inside its 48h window).
+ *  3. The top `GSC_TOP_PAGES_LIMIT` `seo_page_metrics` URLs by impressions,
+ *     for that site's MOST RECENT `recorded_date` (not all-time, and not a
+ *     hardcoded date — the pull that populates this table runs daily, so
+ *     "most recent" is always close to "yesterday's reading"). This is the
+ *     one source that catches a page the agency never touched at all: it
+ *     isn't in the inventory table (nobody registered it) and it isn't in
+ *     site_changes (nobody published to it), but Google is still sending it
+ *     traffic — which is exactly the blind spot GSC data closes.
+ *
+ * A site with no seo_page_metrics rows yet (GSC pull hasn't run, or the site
+ * has no gscProperty configured) simply contributes nothing from source 3 —
+ * not an error, just an empty set unioned in.
  */
 async function collectCandidateUrls(tenantId: string, siteId: string): Promise<string[]> {
   const urls = new Set<string>();
@@ -259,6 +285,27 @@ async function collectCandidateUrls(tenantId: string, siteId: string): Promise<s
     [tenantId, siteId, RECENT_PUBLISHED_CHANGE_WINDOW_DAYS],
   );
   for (const row of changesQ.rows as Array<{ page_url: string }>) urls.add(row.page_url);
+
+  // Two-step, not a single correlated-subquery, so "most recent recorded_date"
+  // is unambiguous even if a future pull ever backfills an older date after a
+  // newer one already landed — MAX() always answers "most recent on file",
+  // never "most recently inserted".
+  const latestDateQ = await pool.query(
+    `SELECT MAX(recorded_date) AS latest_date FROM seo_page_metrics
+      WHERE tenant_id = $1 AND site_id = $2`,
+    [tenantId, siteId],
+  );
+  const latestDate = (latestDateQ.rows[0] as { latest_date: string | null } | undefined)?.latest_date ?? null;
+  if (latestDate) {
+    const topPagesQ = await pool.query(
+      `SELECT page_url FROM seo_page_metrics
+        WHERE tenant_id = $1 AND site_id = $2 AND recorded_date = $3
+        ORDER BY impressions DESC
+        LIMIT $4`,
+      [tenantId, siteId, latestDate, GSC_TOP_PAGES_LIMIT],
+    );
+    for (const row of topPagesQ.rows as Array<{ page_url: string }>) urls.add(row.page_url);
+  }
 
   return [...urls];
 }

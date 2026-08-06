@@ -17,6 +17,7 @@ function config(overrides: Partial<ReturnType<typeof getSeoCostGuardConfig>> = {
       SEO_MAX_SERPER_CALLS_PER_SITE_DAY: '20',
       SEO_MAX_PAGESPEED_CALLS_PER_TENANT_DAY: '100',
       SEO_MAX_GSC_CALLS_PER_TENANT_DAY: '200',
+      SEO_MAX_GA4_CALLS_PER_TENANT_DAY: '200',
       SEO_MAX_PUBLISHES_PER_SITE_DAY: '3',
       SEO_SERPER_COST_CENTS: '100',
       SEO_PAGESPEED_COST_CENTS: '0',
@@ -36,6 +37,7 @@ function estimate(overrides: Partial<SeoCostGuardEstimatedCalls> = {}): SeoCostG
     pagespeedCalls: 0,
     llmCalls: 0,
     gscCalls: 0,
+    ga4Calls: 0,
     publishes: 0,
     ...overrides,
   };
@@ -73,9 +75,15 @@ describe('SEO cost guard', () => {
     expect(result.budget.day.remainingCents).toBe(20000);
   });
 
-  it('gscCalls and publishes carry no direct provider cost', () => {
-    const result = evaluate({ estimate: estimate({ gscCalls: 5, publishes: 2 }) });
+  it('gscCalls, ga4Calls, and publishes carry no direct provider cost', () => {
+    const result = evaluate({ estimate: estimate({ gscCalls: 5, ga4Calls: 5, publishes: 2 }) });
     expect(result.estimatedCostCents).toBe(0);
+  });
+
+  it('a nonzero ga4Calls never changes calculateSeoCostGuardCostCents on its own', () => {
+    const withoutGa4 = calculateSeoCostGuardCostCents(estimate({ serperCalls: 2, llmCalls: 1 }), config());
+    const withGa4 = calculateSeoCostGuardCostCents(estimate({ serperCalls: 2, llmCalls: 1, ga4Calls: 999 }), config());
+    expect(withGa4).toBe(withoutGa4);
   });
 
   it('blocks on monthly budget exhaustion (402)', () => {
@@ -136,6 +144,39 @@ describe('SEO cost guard', () => {
     expect(result.allowed).toBe(false);
     expect(result.blockCode).toBe('tenant_daily_gsc_cap_exhausted');
     expect(result.httpStatus).toBe(429);
+  });
+
+  it('blocks on tenant daily GA4 cap exhaustion (429)', () => {
+    const result = evaluate({
+      usage: usage({ tenantDayGa4Calls: 200 }),
+      estimate: estimate({ ga4Calls: 1 }),
+    });
+    expect(result.allowed).toBe(false);
+    expect(result.blockCode).toBe('tenant_daily_ga4_cap_exhausted');
+    expect(result.httpStatus).toBe(429);
+  });
+
+  it('a GA4 estimate does not move the GSC budget and a GSC estimate does not move the GA4 budget (independent counters, not a shared cap)', () => {
+    // GSC sits one call away from its 200 cap — a GA4 estimate must not add to
+    // it. This is the exact corruption seoAnalyticsService.ts's old "COST
+    // GUARD — DELIBERATELY NOT WIRED" doc warned that reusing `gscCalls` for
+    // GA4 traffic would have caused.
+    const ga4Result = evaluate({
+      usage: usage({ tenantDayGscCalls: 199 }),
+      estimate: estimate({ ga4Calls: 50 }),
+    });
+    expect(ga4Result.budget.tenantDayGsc.estimated).toBe(0);
+    expect(ga4Result.budget.tenantDayGa4.estimated).toBe(50);
+    expect(ga4Result.allowed).toBe(true);
+
+    // And the reverse: a GSC estimate must not touch the GA4 counter either.
+    const gscResult = evaluate({
+      usage: usage({ tenantDayGa4Calls: 199 }),
+      estimate: estimate({ gscCalls: 50 }),
+    });
+    expect(gscResult.budget.tenantDayGa4.estimated).toBe(0);
+    expect(gscResult.budget.tenantDayGsc.estimated).toBe(50);
+    expect(gscResult.allowed).toBe(true);
   });
 
   it('blocks on site daily publish cap exhaustion (429)', () => {

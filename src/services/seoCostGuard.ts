@@ -44,6 +44,16 @@
  * whichever lane consumes `SeoCostGuardBlockCode` (routes/gate/adapter) — please
  * confirm it's handled (or tell me to drop GSC enforcement instead).
  * ---------------------------------------------------------------------------
+ * GA4 CAP: this file also enforces `tenant_daily_ga4_cap_exhausted` /
+ * `SEO_MAX_GA4_CALLS_PER_TENANT_DAY`, mirroring the GSC cap immediately above
+ * field-for-field (own block code, own config knob, own estimate/usage/budget
+ * field). This closes a gap `seoAnalyticsService.ts` used to document at
+ * length: its GA4 pull ran entirely outside this guard because
+ * `SeoCostGuardEstimatedCalls` had no `ga4Calls` field, and reusing `gscCalls`
+ * would have corrupted the real GSC daily cap with unrelated GA4 traffic. See
+ * that file's `runSeoAnalyticsPull` for the call site now wrapped in
+ * `guardSeoSpend`.
+ * ---------------------------------------------------------------------------
  */
 
 export type SeoCostGuardBlockCode =
@@ -53,6 +63,7 @@ export type SeoCostGuardBlockCode =
   | 'site_daily_serper_cap_exhausted'
   | 'tenant_daily_pagespeed_cap_exhausted'
   | 'tenant_daily_gsc_cap_exhausted'
+  | 'tenant_daily_ga4_cap_exhausted'
   | 'site_daily_publish_cap_exhausted'
   | 'provider_config_missing'
   | 'site_paused';
@@ -71,6 +82,7 @@ export interface SeoCostGuardConfig {
   maxSerperCallsPerSiteDay: number;
   maxPagespeedCallsPerTenantDay: number;
   maxGscCallsPerTenantDay: number;
+  maxGa4CallsPerTenantDay: number;
   maxPublishesPerSiteDay: number;
   providerCostCents: SeoCostGuardProviderCostCents;
 }
@@ -81,6 +93,7 @@ export interface SeoCostGuardEstimatedCalls {
   pagespeedCalls: number;
   llmCalls: number;
   gscCalls: number;
+  ga4Calls: number;
   publishes: number;
 }
 
@@ -92,6 +105,7 @@ export interface SeoCostGuardUsage {
   siteDaySerperCalls: number;
   tenantDayPagespeedCalls: number;
   tenantDayGscCalls: number;
+  tenantDayGa4Calls: number;
   siteDayPublishes: number;
 }
 
@@ -161,6 +175,7 @@ export interface SeoCostGuardEvaluation {
     // somewhere to report used/limit/remaining too. Purely additive; safe to ignore.
     tenantDayPagespeed: SeoCostGuardCountBudget;
     tenantDayGsc: SeoCostGuardCountBudget;
+    tenantDayGa4: SeoCostGuardCountBudget;
     siteDayPublishes: SeoCostGuardCountBudget;
   };
   providerEnv: SeoCostGuardProviderEnvStatus;
@@ -184,6 +199,10 @@ export function getSeoCostGuardConfig(env: NodeJS.ProcessEnv = process.env): Seo
     maxSerperCallsPerSiteDay: intEnv(env.SEO_MAX_SERPER_CALLS_PER_SITE_DAY, 20),
     maxPagespeedCallsPerTenantDay: intEnv(env.SEO_MAX_PAGESPEED_CALLS_PER_TENANT_DAY, 100),
     maxGscCallsPerTenantDay: intEnv(env.SEO_MAX_GSC_CALLS_PER_TENANT_DAY, 200),
+    // Same "free Google API" story as GSC immediately above — same default
+    // (200) and parsing convention, kept as its own cap/env var so GA4 usage
+    // is never folded into the GSC counter (see the GA4 CAP module-doc note).
+    maxGa4CallsPerTenantDay: intEnv(env.SEO_MAX_GA4_CALLS_PER_TENANT_DAY, 200),
     maxPublishesPerSiteDay: intEnv(env.SEO_MAX_PUBLISHES_PER_SITE_DAY, 3),
     providerCostCents: {
       serper: intEnv(env.SEO_SERPER_COST_CENTS, 100),
@@ -203,6 +222,7 @@ export function emptySeoCostGuardUsage(): SeoCostGuardUsage {
     siteDaySerperCalls: 0,
     tenantDayPagespeedCalls: 0,
     tenantDayGscCalls: 0,
+    tenantDayGa4Calls: 0,
     siteDayPublishes: 0,
   };
 }
@@ -211,9 +231,9 @@ export function calculateSeoCostGuardCostCents(
   estimate: SeoCostGuardEstimatedCalls,
   config: SeoCostGuardConfig = getSeoCostGuardConfig(),
 ): number {
-  // gscCalls and publishes carry no direct provider cost of their own (GSC is a free
-  // Google API; a publish's cost, if any, shows up as its llmCalls for the content
-  // generation that produced it).
+  // gscCalls, ga4Calls, and publishes carry no direct provider cost of their own
+  // (GSC and GA4 are both free Google APIs; a publish's cost, if any, shows up as
+  // its llmCalls for the content generation that produced it).
   return (estimate.serperCalls * config.providerCostCents.serper)
     + (estimate.pagespeedCalls * config.providerCostCents.pagespeed)
     + (estimate.llmCalls * config.providerCostCents.llm);
@@ -261,6 +281,12 @@ export function evaluateSeoCostGuard(input: SeoCostGuardInput): SeoCostGuardEval
     remaining: remaining(config.maxGscCallsPerTenantDay, input.usage.tenantDayGscCalls),
     estimated: input.estimate.gscCalls,
   };
+  const tenantDayGa4: SeoCostGuardCountBudget = {
+    used: input.usage.tenantDayGa4Calls,
+    limit: config.maxGa4CallsPerTenantDay,
+    remaining: remaining(config.maxGa4CallsPerTenantDay, input.usage.tenantDayGa4Calls),
+    estimated: input.estimate.ga4Calls,
+  };
   const siteDayPublishes: SeoCostGuardCountBudget = {
     used: input.usage.siteDayPublishes,
     limit: config.maxPublishesPerSiteDay,
@@ -304,6 +330,9 @@ export function evaluateSeoCostGuard(input: SeoCostGuardInput): SeoCostGuardEval
   if (tenantDayGsc.used + tenantDayGsc.estimated > tenantDayGsc.limit) {
     setBlock('tenant_daily_gsc_cap_exhausted', 429, 'Tenant daily Search Console call cap has been reached.');
   }
+  if (tenantDayGa4.used + tenantDayGa4.estimated > tenantDayGa4.limit) {
+    setBlock('tenant_daily_ga4_cap_exhausted', 429, 'Tenant daily Analytics (GA4) call cap has been reached.');
+  }
   if (siteDayPublishes.used + siteDayPublishes.estimated > siteDayPublishes.limit) {
     setBlock('site_daily_publish_cap_exhausted', 429, 'Site daily publish cap has been reached.');
   }
@@ -336,6 +365,7 @@ export function evaluateSeoCostGuard(input: SeoCostGuardInput): SeoCostGuardEval
       siteDaySerper,
       tenantDayPagespeed,
       tenantDayGsc,
+      tenantDayGa4,
       siteDayPublishes,
     },
     providerEnv: input.providerEnv,

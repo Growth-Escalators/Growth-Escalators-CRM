@@ -24,8 +24,16 @@ check that actually matters.
 
 ## ✅ DONE — backups, without paying Railway
 
-Railway's managed backups are out on budget. The free route — the same one used
-on 28 Jul — is an encrypted `pg_dump` to local disk:
+**There is now a script: `./scripts/backup-prod-db.sh`** (add `--restore-test`
+to also restore into a scratch database and count rows). It generates its own
+passphrase into the Keychain, encrypts, proves the archive decrypts *before*
+deleting the plaintext, and prints the one crontab line that makes it weekly. It
+does not install that cron job for you — scheduling a production dump on your
+machine is your call, not an agent's.
+
+Everything below is what the script does, kept for when you need to do it by
+hand. Railway's managed backups are out on budget; the free route is an
+encrypted `pg_dump` to local disk:
 
 ```bash
 cd input-data/g1-backups
@@ -113,17 +121,36 @@ behind a restore-tested backup.
 
 ---
 
-## Known gaps in the shipped work
+## ✅ DONE — the four known gaps are closed
 
-Stated rather than hidden:
+All four shipped 2026-08-06. See [`SEO_OPERATIONS.md`](./SEO_OPERATIONS.md) for
+how each behaves in practice.
 
-- **GA4 calls are not counted by the cost guard** — `SeoCostGuardEstimatedCalls`
-  has no `ga4Calls` field, and reusing `gscCalls` would corrupt the real GSC
-  daily-cap counter with GA4 traffic.
-- **The drift sweep's third URL source** (top GSC URLs by impressions, the one
-  that catches pages the agency never touched) is unimplemented — no per-URL
-  GSC table exists, and inventing one was declined rather than guessed at.
-- **`hot_lead_alert` jobs have had no consumer since n8n died.**
-  `bookingService.ts` still creates one per hot lead and nothing drains them.
-  Pre-existing, documented in `jobDrainer.ts`, worth its own ticket.
-- **`.claude/agents/seo-debugger.md`** still describes the retired n8n system.
+- **GA4 calls are now counted by the cost guard.** `ga4Calls` /
+  `SEO_MAX_GA4_CALLS_PER_TENANT_DAY` (default 200) /
+  `tenant_daily_ga4_cap_exhausted`, and the GA4 pull actually runs inside
+  `guardSeoSpend` — the field alone would have been a cap nothing called.
+- **The drift sweep's third URL source is live.** New `seo_page_metrics` table
+  (migration 0052), written by the GSC pull's `page`-dimension query, read as
+  top-50-by-impressions. This is the source that catches a page the agency never
+  touched.
+- **`hot_lead_alert` is drained**, behind a 24h staleness guard so enabling it
+  does not fire the 2026-03 backlog into Slack at once.
+- **`.claude/agents/seo-debugger.md` is rewritten** for the native multi-tenant
+  platform.
+
+While generating migration 0052, a **pre-existing lineage break on `main`** came
+to light: the renumbered SEO snapshots never learned about main's own 0045/0046,
+so the next `db:generate` anyone ran would have emitted `CREATE TABLE` for four
+tables that already exist in production — 42P07 on boot, a failed deploy. Fixed
+and guarded by `migrationSnapshotLineage.test.ts`. Verified by restoring the
+production backup and migrating it forward, not against an empty database.
+
+## Known gaps that remain
+
+- **Drift alerts go to one Slack channel**, not per-tenant destinations. Fine
+  while GE is the only SEO tenant; needs routing before a second one goes live.
+- **One `CREDENTIAL_ENCRYPTION_KEY`** protects every reseller's stored client
+  credentials. Acceptable for a pilot if the contract says so.
+- **Cross-tenant shared learning priors** need explicit reseller-contract
+  disclosure plus the opt-out toggle.
